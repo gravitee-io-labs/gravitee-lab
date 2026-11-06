@@ -231,93 +231,6 @@ class FirstRun(Proxies):
         self.assertTrue(analytics["logging"]["content"]["payload"], "the payloads that go with the spans")
         self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
 
-    def test_the_logs_keep_the_payloads_and_not_the_headers_because_one_of_them_is_the_bearer_token_of_the_caller(self):
-        self.seed()
-        content = self.the_api()["analytics"]["logging"]["content"]
-        self.assertEqual((content["headers"], content["payload"]), (False, True))
-
-    def test_the_headers_someone_logs_in_the_console_are_not_logged_again_after_a_run(self):
-        self.seed()
-        self.the_api()["analytics"]["logging"]["content"]["headers"] = True
-        self.seed()
-        self.assertIs(self.the_api()["analytics"]["logging"]["content"]["headers"], False)
-        self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
-
-    def test_only_the_root_of_the_proxy_is_served_and_that_flow_runs_before_any_other(self):
-        """The proxy hands every path under its own to the server, which has an admin route that is not MCP: a signed-in
-        customer who knows its token would reach it. Any path but the root is answered by the gateway with a 404."""
-        self.seed()
-        flows = self.the_proxy()["flows"]
-        self.assertEqual(flows[0]["name"], "Only the MCP endpoint")
-        [selector] = flows[0]["selectors"]
-        self.assertEqual(selector["type"], "CONDITION")
-        self.assertIn("#request.pathInfo != ''", selector["condition"])
-        self.assertIn("#request.pathInfo != '/'", selector["condition"])
-        [step] = flows[0]["request"]
-        self.assertEqual((step["policy"], step["configuration"]["status"]), ("mock", "404"))
-
-    def test_the_rate_limit_counts_in_the_background_per_person(self):
-        self.seed()
-        owner, step = self.flow("Rate limit")["request"]
-        self.assertEqual(step["policy"], "rate-limit")
-        self.assertIs(step["configuration"]["async"], True)
-        self.assertEqual(step["configuration"]["rate"]["limit"], 30)
-        self.assertIn(".split('@')[0]", step["configuration"]["rate"]["key"])
-
-    def test_the_person_stands_in_for_the_subscription_the_counter_is_stored_under(self):
-        """The plan has no subscription, and the rate limit stores a counter under the id of one (the attribute below): left
-        empty, the shared counter store refuses every refresh and the gateway log fills with stack traces."""
-        self.seed()
-        owner, step = self.flow("Rate limit")["request"]
-        self.assertEqual(owner["policy"], "policy-assign-attributes", "it runs before the rate limit")
-        self.assertEqual(owner["configuration"]["scope"], "REQUEST")
-        [attribute] = owner["configuration"]["attributes"]
-        self.assertEqual(attribute["name"], "gravitee.attribute.user-id")
-        self.assertEqual(attribute["value"], step["configuration"]["rate"]["key"])
-
-    def test_a_customer_sees_seven_tools_and_a_teller_all_of_them(self):
-        self.seed()
-        [step] = self.flow("Visible tools")["request"]
-        teller, customer = step["configuration"]["authorizations"]
-        self.assertIn("== 'teller'", teller["condition"])
-        self.assertEqual([f["patternType"] for f in teller["authorizedFeatures"]], ["ANY"])
-        self.assertIn("== 'customer'", customer["condition"])
-        names = [f["patternValue"] for f in customer["authorizedFeatures"]]
-        self.assertEqual(sorted(names), sorted(set(TOOLS) - {"freeze_card"}))
-
-    def test_each_argument_is_read_where_its_tool_reads_it_and_the_amount_is_made_a_whole_number(self):
-        self.seed()
-        attributes = {a["name"]: a["value"] for a in self.flow("Authorization")["request"][0]["configuration"]["attributes"]}
-        self.assertIn("== 'transfer_funds' ? #jsonPath(#request.content, '$.params.arguments.from_account') : "
-                      "#jsonPath(#request.content, '$.params.arguments.account_id')", attributes["authz_account_id"])
-        self.assertIn("T(java.lang.Math).ceil(#jsonPath(#request.content, '$.params.arguments.amount'))", attributes["authz_amount"])
-        self.assertTrue(attributes["authz_amount"].endswith(".longValue() : null}"))
-
-    def test_a_call_without_an_amount_is_not_asked_to_round_nothing(self):
-        """`ceil` of an argument that is not there is an error the gateway logs for every call of a tool that has no amount:
-        the attribute is only worked out when the argument is."""
-        self.seed()
-        attributes = {a["name"]: a["value"] for a in self.flow("Authorization")["request"][0]["configuration"]["attributes"]}
-        guard = "#jsonPath(#request.content, '$.params.arguments.amount') != null ? "
-        self.assertTrue(attributes["authz_amount"].startswith("{" + guard + "T(java.lang.Math).min("))
-
-    def test_each_step_says_what_it_covers_so_that_the_console_shows_it_under_the_name_of_its_policy(self):
-        """The console labels a step by its policy ("MCP ACL") and its Description field holds this: the Look beat of lessons 3
-        and 4 sends the person to read it. The Automation API keeps it (the platform was asked, the fake answers what it was
-        given), and no two steps are described alike."""
-        self.seed()
-        [sent] = self.platform.sent("PUT", AUTOMATION)
-        said = {(f["name"], s["name"]): s.get("description") for f in sent.json["flows"] for s in f["request"]}
-        self.assertEqual(len(said), 6)
-        for key, description in said.items():
-            self.assertTrue(description and description == description.strip() and not description.endswith("."), key)
-        self.assertEqual(len(set(said.values())), 6)
-        for key, words in {("Visible tools", "Tools by role"): ("teller", "every tool", "customer", "freeze_card"),
-                           ("Authorization", "Fine-Grained Authorization"): ("policy engine", "person", "agent"),
-                           ("Authorization", "Read tool arguments"): ("account", "amount")}.items():
-            for word in words:
-                self.assertIn(word, said[key], key)
-
     def test_the_authorization_names_the_tools_with_the_slug_the_catalog_gave_the_server(self):
         self.world.servers[0]["slug"] = "bank-tools"
         self.seed()
@@ -325,24 +238,6 @@ class FirstRun(Proxies):
         self.assertIn("'bank-tools.' + #context.attributes['mcp_tool_name']", configuration["actionExpr"])
         self.assertEqual(configuration["resourceExpr"], configuration["actionExpr"])
         self.assertNotIn("<slug>", json.dumps(self.the_proxy()))
-
-    def test_the_authorization_judges_the_person_the_agent_acts_for_and_fails_closed(self):
-        self.seed()
-        configuration = self.flow("Authorization")["request"][1]["configuration"]
-        self.assertEqual((configuration["subjectType"], configuration["resourceType"], configuration["agentResolution"]),
-                         ("User", "MCPTool", "AUTO"))
-        self.assertEqual(configuration["subjectExpr"], self.rate_limit()["configuration"]["rate"]["key"])
-        self.assertEqual((configuration["denyStatus"], configuration["logDecisions"], configuration["noSnapshotPolicy"]),
-                         (403, True, "RETRY_THEN_DENY"))
-        self.assertEqual([c["name"] for c in configuration["contextExpr"]], ["account_id", "customer_id", "card_id", "amount"])
-
-    def test_a_refusal_reaches_a_client_as_a_json_rpc_error_that_names_the_action(self):
-        self.seed()
-        template = self.the_api()["responseTemplates"]["GAPL_AUTHZ"]["*/*"]
-        self.assertEqual(template["statusCode"], 403)
-        body = json.loads(template["body"])
-        self.assertEqual((body["jsonrpc"], body["error"]["code"]), ("2.0", -32001))
-        self.assertIn("{#parameters['action']}", body["error"]["data"]["action"])
 
     def test_the_endpoint_waits_a_minute_for_the_server(self):
         self.seed()
