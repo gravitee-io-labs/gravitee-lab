@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import stat
+import time
 import zipfile
 from pathlib import Path
 
@@ -175,21 +176,19 @@ class Named(Case):
     """exports._named reads the name of an item of a file someone else made: at once, whatever the file holds."""
 
     def test_the_name_is_read_in_either_form_and_a_block_with_none_takes_no_time(self):
-        import time
-        started = time.monotonic()
+        started = time.process_time()
         text = "x-gravitee:\n" + "    kind: playground\n" * 40 + "services: {}\n"
         self.assertEqual(exports._named(text, "evil"), "evil")
-        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertLess(time.process_time() - started, 1.0)
         self.assertEqual(exports._named("x-gravitee: {kind: addon, name: Echo, category: Other}\n", "echo"), "Echo")
         self.assertEqual(exports._named("x-gravitee:  # the item\n  kind: addon\n\n  name: 'Echo two'\nservices: {}\n", "echo"), "Echo two")
         self.assertEqual(exports._named("x-gravitee:\n  kind: addon\nservices:\n  a:\n    name: no\n", "echo"), "echo")
 
     def test_a_flow_block_that_never_closes_takes_no_time_either(self):
-        import time
         for text in ("x-gravitee: {\n" * 20000, "x-gravitee: {kind: addon\n" + "  a: b\n" * 20000, "x-gravitee: {" + " " * 400000):
-            started = time.monotonic()
+            started = time.process_time()
             self.assertEqual(exports._named(text, "evil"), "evil")
-            self.assertLess(time.monotonic() - started, 1.0)
+            self.assertLess(time.process_time() - started, 1.0)
         self.assertEqual(exports._named("x-gravitee: {kind: addon,\n  name: Echo}\n", "echo"), "Echo", "a flow block may span lines")
 
     def test_only_the_top_level_name_of_the_block_is_its_name(self):
@@ -599,7 +598,7 @@ class FromCatalogs(Case):
 
     def ledger(self, head):
         """Partner's Ledger with its x-gravitee block written as `head` says (the rest of its file as the fixture has it)."""
-        text = open("tests/data/catalogs/partner/addons/ledger/compose.yml").read()
+        text = (fixtures.CATALOGS / "partner" / "addons/ledger/compose.yml").read_text(encoding="utf-8")
         text = head + text[text.index("\nservices:") + 1:]
         fixtures.install(self, "partner", kind="git", audience="private", files={"addons/ledger/compose.yml": text})
         project.forget()
