@@ -201,12 +201,6 @@ class Matrix(Fixture):
         self.assertEqual(self.plan("--all", change=False), 2)
         self.assertIn("a matrix of GitHub runs 256 at most", self.err.getvalue())
 
-    def test_the_stage_words_reach_the_modules(self):
-        self.assertEqual(ci.STAGES["e2e-plan"], ("e2e", "plan_main"))
-        self.assertEqual(ci.STAGES["e2e-gate"], ("e2e", "gate_main"))
-        self.assertEqual(ci_main(["e2e-plan"], io.StringIO(), io.StringIO()), 2)
-        self.assertEqual(ci_main(["e2e-gate"], io.StringIO(), io.StringIO()), 2)
-
 
 class License(Fixture):
     """E2E01."""

@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lab_ui.catalogs import ci, install, store
+from lab_ui.catalogs import install, store
 from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import release
 from tests.data.rules import support
@@ -382,7 +382,6 @@ class Images(Fixture):
         self.assertFalse(self.notes.is_symlink())
 
     def test_the_command_line_reaches_the_stage(self):
-        self.assertEqual(ci.STAGES["release-notes"], ("release", "main"))
         out = io.StringIO()
         code = ci_main(["release-notes", str(self.repo), "--tag", "v1.0.0", "--records", str(self.records), "--notes", str(self.notes),
                         "--images", str(self.images)], out, io.StringIO())

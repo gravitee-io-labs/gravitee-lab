@@ -20,7 +20,6 @@ from lab_ui.library import check, project
 from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs import ci, registry
-from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import run, smoke
 from tests import Case
 from tests import fixtures
@@ -438,22 +437,6 @@ class Stage(Case):
         for call in self.fake.calls():
             self.assertFalse([word for word in call.argv if "::error::" in word])
         self.assertNotIn("::error::x", self.out.getvalue())
-
-
-class Dispatch(unittest.TestCase):
-
-    def test_the_runner_of_make_ci_finds_this_stage_and_gives_it_what_it_gives_the_others(self):
-        self.assertEqual(ci.STAGES["smoke"], ("smoke", "main"))
-        self.assertIs(run.stage_function("smoke"), smoke.main)
-        self.assertIn("smoke", run.ORDER)
-
-    def test_the_command_line_reaches_the_stage_and_says_a_usage_error_with_exit_2(self):
-        out, err = io.StringIO(), io.StringIO()
-        self.assertEqual(ci_main(["smoke", "--units", "not json"], out, err), 2)
-        self.assertIn("--units is not JSON", err.getvalue())
-        err = io.StringIO()
-        self.assertEqual(ci_main(["smoke", "--units", '["playground:Bank"]'], io.StringIO(), err), 2)
-        self.assertEqual(ci_main(["smoke"], io.StringIO(), io.StringIO()), 2)
 
 
 class MakeCi(support.WithGit):

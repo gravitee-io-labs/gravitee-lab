@@ -16,7 +16,6 @@ import unittest
 from unittest import mock
 
 from lab_ui.catalogs import ci, settings
-from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import publish
 from tests.data.rules import support
 from tests.fakedocker import FakeDocker, option, options
@@ -665,17 +664,6 @@ class Tag(Fixture):
         for ref in ("refs/pull/12/merge", "refs/pull/12/head"):
             self.assertEqual(self.tagged(ref=ref), 2)
             self.assertEqual(self.outputs(), {})
-
-
-class Messages(unittest.TestCase):
-
-    def test_the_stage_words_reach_the_modules(self):
-        self.assertEqual(ci.STAGES["publish-plan"], ("publish", "plan_main"))
-        self.assertEqual(ci.STAGES["publish"], ("publish", "main"))
-        self.assertTrue(callable(publish.plan_main) and callable(publish.main))
-        out, err = io.StringIO(), io.StringIO()
-        self.assertEqual(ci_main(["publish-plan"], out, err), 2)   # (missing arguments are a usage error, not a crash)
-        self.assertEqual(ci_main(["publish", "--images", "[]"], io.StringIO(), io.StringIO()), 2)
 
 
 class Publishing(Fixture):

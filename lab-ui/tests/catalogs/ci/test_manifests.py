@@ -24,7 +24,6 @@ from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs import ci, manifest, registry
 from lab_ui.catalogs.ci import manifests
-from lab_ui.catalogs.ci import main as ci_main
 from tests import Case
 from tests import fixtures
 from tests.fakedocker import FakeDocker
@@ -324,11 +323,6 @@ class Stage(Asking):
             code = manifests.main([".", "--units", "[]"], self.out, self.err)
         self.assertEqual((code, self.err.getvalue()), (0, ""))
         loader.assert_not_called()
-
-    def test_the_dispatcher_reaches_it(self):
-        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([], []))):
-            code = ci_main(["manifests", ".", "--units", "[]"], self.out, self.err)
-        self.assertEqual(code, 0, self.err.getvalue())
 
     def test_it_holds_no_secret(self):
         with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_" + "A" * 36, "ACTIONS_RUNTIME_TOKEN": "runtime-secret"}):

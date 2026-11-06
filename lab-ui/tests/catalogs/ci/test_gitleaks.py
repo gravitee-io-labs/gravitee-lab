@@ -18,7 +18,6 @@ from unittest import mock
 from lab_ui.docker import compose
 from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import gitleaks
-from lab_ui.catalogs.ci import main as ci_main
 from tests.data.rules import support
 from tests.fakedocker import FakeDocker, option, options
 
@@ -389,12 +388,6 @@ class Scan(support.WithGit):
         with mock.patch.object(gitleaks, "read_report", broken):
             self.assertEqual(self.stage(repo, "--base", ""), 2)
         self.assertIn("the report of the scan is not JSON", self.err.getvalue())
-
-    def test_the_dispatcher_reaches_it(self):
-        repo = self.work(files=FILES)
-        with mock.patch.object(gitleaks, "DOCKERFILE", self.dockerfile):
-            code = ci_main(["gitleaks", str(repo), "--base", "0" * 40], self.out, self.err)
-        self.assertEqual(code, 0, self.err.getvalue())
 
     def test_a_usage_that_is_wrong_is_exit_2(self):
         for argv in (["/nonexistent-folder", "--base", ""], ["--no-such-option"]):

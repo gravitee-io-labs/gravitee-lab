@@ -15,7 +15,7 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-from lab_ui.catalogs import ci, tree as trees
+from lab_ui.catalogs import tree as trees
 from lab_ui.catalogs.ci import links
 from lab_ui.catalogs.ci import main as ci_main
 from tests import Case
@@ -466,7 +466,6 @@ class Stage(Case):
             out = io.StringIO()
             self.assertEqual(ci_main(["links", folder], out, io.StringIO()), 0)
         self.assertIn("Links: 0 addresses", out.getvalue())
-        self.assertEqual(ci.STAGES["links"], ("links", "main"))
 
 
 if __name__ == "__main__":

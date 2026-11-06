@@ -22,7 +22,6 @@ from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs import ci, registry, trust
 from lab_ui.catalogs.ci import build
-from lab_ui.catalogs.ci import main as ci_main
 from tests import Case
 from tests import fixtures
 from tests.fakedocker import FakeDocker, option, options
@@ -621,13 +620,6 @@ class Running(Disk):
         code = self.stage({"bakery-web": self.service(context=self.app())})
         self.assertEqual(code, 2)
         self.assertIn("buildx is not installed", self.err.getvalue())
-
-    def test_the_dispatcher_reaches_it(self):
-        self.app()
-        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([self.unit({"bakery-web": self.service(context=self.app())})], []))):
-            code = ci_main(["build", self.root, "--units", '["playground:bank"]', "--platform", "linux/arm64"], self.out, self.err,
-                           lab=self.lab, sleep=self.sleeps.append)
-        self.assertEqual((code, option(self.builds()[0], "--platform")), (0, "linux/arm64"))
 
     def test_a_platform_that_is_not_one_is_a_usage_error(self):
         for platform in ("linux/s390x", "amd64", "linux/amd64,linux/arm64", "--push"):

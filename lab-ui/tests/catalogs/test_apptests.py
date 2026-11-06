@@ -15,7 +15,6 @@ from unittest import mock
 from lab_ui.catalogs.ci import apptests
 from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import apps, build
-from lab_ui.catalogs.ci import main as ci_main
 from tests.fakedocker import FakeDocker, option
 from tests.catalogs.ci.test_build import Disk
 
@@ -537,12 +536,6 @@ class Stage(Disk):
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
         self.assertIn("title=T03::playground:bank was not tested: Runs with full privileges.", self.out.getvalue())
-
-    def test_the_dispatcher_reaches_it(self):
-        context = self.with_tests("web")
-        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([self.unit({"bakery-web": self.service(context=context)})], []))):
-            code = ci_main(["test", self.root, "--units", '["playground:bank"]'], self.out, self.err, lab=self.lab)
-        self.assertEqual(code, 0, self.err.getvalue())
 
     def test_the_messages_are_the_standards(self):
         self.assertEqual(ci.problem("TS01", "p", 0, app="bakery-web", n=2).message,

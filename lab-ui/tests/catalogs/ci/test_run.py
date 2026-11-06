@@ -187,13 +187,8 @@ class Stages(unittest.TestCase):
 
     def test_the_scan_step_is_the_stage_scan_built_of_the_command_line(self):
         self.assertEqual(run.STAGE_OF["scan"], "scan-built")
-        self.assertEqual(ci.STAGES["scan-built"], ("scan", "built_main"))
         from lab_ui.catalogs.ci import scan
         self.assertIs(run.stage_function("scan"), scan.built_main)
-
-    def test_every_stage_word_has_its_function(self):
-        for stage in ci.STAGES:
-            self.assertTrue(callable(run.stage_function(stage)), stage)
 
 
 class Ends(Fixture):

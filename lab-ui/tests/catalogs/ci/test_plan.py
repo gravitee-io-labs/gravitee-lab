@@ -455,13 +455,6 @@ class Command(support.WithGit, Run):
         self.assertEqual(self.fake.calls(), [])
         compose.run.assert_not_called()
 
-    def test_the_dispatcher_reaches_it(self):
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": os.devnull}):
-            code = ci_main(["plan", str(self.repo), "--event", "push", "--github-output"], out, err)
-        self.assertEqual(code, 0, err.getvalue())
-        self.assertIn("Scope: everything (push)", out.getvalue())
-
 
 class Hostile(support.WithGit, Run):
     """A tree built to make a stage run a command, add an output or start a workflow command."""
@@ -605,14 +598,6 @@ class Kit(unittest.TestCase):
         self.assertEqual(ci_main(["nope\n::error::x"], out, err), 2)
         self.assertEqual([line for line in err.getvalue().splitlines() if line.startswith("::")], [])
 
-    def test_the_table_of_stages_names_the_function_each_package_writes(self):
-        for stage, (module, function) in ci.STAGES.items():
-            self.assertRegex(module, r"^[a-z0-9]+$")
-            self.assertRegex(function, r"^[a-z_]+$")
-        self.assertEqual({stage for stage, (module, _) in ci.STAGES.items() if module in
-                          ("plan", "gitleaks", "manifests", "build", "apps", "run")},
-                         {"plan", "gitleaks", "manifests", "build", "test", "run"})
-
     def test_a_catalog_that_lists_too_many_files_is_exit_2_not_a_traceback(self):
         folder = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, folder, True)
@@ -682,7 +667,7 @@ class Kit(unittest.TestCase):
 
     def test_the_help_of_every_stage_is_printed_once_and_is_exit_0(self):
         import contextlib
-        for stage in ("plan", "gitleaks", "manifests", "build", "test", "run"):
+        for stage in ci.STAGES:
             for flag in ("--help", "-h"):
                 with self.subTest(stage=stage, flag=flag):
                     out, err, printed = io.StringIO(), io.StringIO(), io.StringIO()

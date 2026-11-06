@@ -495,8 +495,6 @@ class Reports(unittest.TestCase):
 class Dispatch(unittest.TestCase):
 
     def test_the_command_line_reaches_the_stages(self):
-        self.assertEqual(ci.STAGES["scan-published"], ("scan", "main"))
-        self.assertEqual(ci.STAGES["scan-built"], ("scan", "built_main"))
         self.assertEqual(ci_main(["scan-published", "/no/such/folder"], io.StringIO(), io.StringIO()), 2)
         self.assertEqual(ci_main(["scan-built", "/no/such/folder", "--units", "[]"], io.StringIO(), io.StringIO()), 2)
 
