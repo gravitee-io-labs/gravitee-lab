@@ -2,16 +2,16 @@
 ships by, the drift of a repository from it (SD01 to SD05, SD08 to SD10), and the upgrade that brings a repository back.
 
     LEVEL                         the level this Lab ships: the highest whose CI stages are all here (`manifest.json`)
-    manifest() -> dict            the template's table of files, edits and level notes
-    render_new(params) -> dict    {path: bytes} of a new catalog at LEVEL, and nothing above it
+    manifest() -> dict            the template's table of files and level notes
+    render_new(params) -> dict    {path: bytes} of a new catalog at LEVEL
     normalize(text) -> str        the form two managed files are compared in: a Dependabot bump is no difference
-    drift(tree, level) -> list    SD01 to SD05 and SD08 to SD10 of a repository, at the Lab's level
+    drift(tree) -> list           SD01 to SD05 and SD08 to SD10 of a repository, at the Lab's level
     upgrade_plan(tree, options)   what an upgrade would do; upgrade_apply(root, plan) does it and answers what it wrote
     main_new(argv), main_upgrade(argv)   the commands (`catalog.py new`, `catalog.py upgrade`), exit codes 0, 1 and 2
 
 The template is `lab-ui/templates/catalog/`: `managed/` holds the machine-owned files as the last level ships them (real,
 valid workflows with real pins), `seeded/` the files that are rendered once and are then the catalog's own, `licenses/` the
-texts, and `manifest.json` says which file arrives with which level and what a lower level leaves out of a file (`edits`).
+texts, and `manifest.json` says which file arrives with which level.
 The managed files carry no placeholder and no per-catalog value: what differs between catalogs is in `catalog.yml` and in
 `.github/standard.json`. A seeded file has `__PLACEHOLDERS__`, replaced by exact text in one pass.
 
@@ -58,7 +58,6 @@ LICENSES = {"agpl-3.0-only": "AGPL-3.0-only", "apache-2.0": "Apache-2.0", "mit":
 SHOWN = 80                             # characters of a stranger's word that a message shows
 LOG_LINES = 50                         # the lines of the Lab's own log that a moved pin brings
 
-MARKER_TEXT = "Managed by the Lab catalog standard {level}: change it with catalog.py upgrade, in a pull request a maintainer reads."
 MARKER = re.compile(r"# Managed by the Lab catalog standard (\d{1,3}): change it with catalog\.py upgrade, in a pull request a "
                     r"maintainer reads\.")
 JSON_MARKER = re.compile(r'\s{0,8}"_managed":\s{0,4}"Managed by the Lab catalog standard (\d{1,3}): change it with catalog\.py upgrade, '
@@ -97,8 +96,6 @@ RULES = table([
      "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."),
 ])
 GOLDEN_MESSAGE = "The template changed. Raise level in manifest.json, add a note under levels, and refresh golden.json."
-AHEAD_MESSAGE = ("A file of a level the Lab has not shipped yet changed. Refresh golden.json; raise level in manifest.json when "
-                 "that level ships.")
 
 
 class TemplateError(Exception):
@@ -147,11 +144,6 @@ def _checked(data) -> dict:
         top = max(top, each["since"])
     # A level brings files, or changes those that are there: the levels that exist are the highest of both
     top = max(top, data["level"])
-    need(isinstance(data.get("edits"), list), "edits is a list")
-    for each in data["edits"]:
-        need(isinstance(each, dict) and each.get("path") in seen and isinstance(each.get("below"), int)
-             and isinstance(each.get("from"), list) and each["from"] and isinstance(each.get("to"), list)
-             and all(isinstance(line, str) for line in each["from"] + each["to"]), "an edit is {path, below, from, to}")
     notes = data.get("notes")
     need(isinstance(notes, dict), "notes is an object")
     for number in range(1, top + 1):
@@ -163,9 +155,8 @@ def _checked(data) -> dict:
 
 def manifest(folder=None) -> dict:
     """The template's `manifest.json` as a dict: `level`; `files`, each {path, class, since, when, scope} (and `local` for the
-    source a folder catalog uses, `tool`, `license`); `edits`, what a level
-    below `below` leaves out of a managed file (exact lines `from`, replaced by `to`); `notes`, one for each level. A copy:
-    the caller may change it."""
+    source a folder catalog uses, `tool`, `license`); `notes`, one for each level.
+    A copy: the caller may change it."""
     path = Path(folder or TEMPLATE) / "manifest.json"
     try:
         info = path.stat()
@@ -179,13 +170,6 @@ def manifest(folder=None) -> dict:
 
 
 LEVEL = manifest()["level"]
-
-
-def levels() -> int:
-    """The levels that exist, shipped or not: the highest a file of the template arrives with, or the one the Lab ships when a
-    level only changed files that were there (a catalog below it is then behind, SD03, not edited by hand)."""
-    found = manifest()
-    return max(found["level"], *(each["since"] for each in found["files"]))
 
 
 def entries(local: bool = False) -> List[dict]:
@@ -212,41 +196,6 @@ def _source(folder: str, relative: str) -> str:
         return (TEMPLATE / folder / relative).read_text(encoding="utf-8")
     except (OSError, ValueError):
         raise TemplateError(f"The template file {folder}/{relative} cannot be read.") from None
-
-
-def _with_edits(path: str, text: str, level: int, edits: List[dict]) -> str:
-    """The file as a level below the edits' `below` has it: each run of exact lines `from` is replaced by `to`. A run that is
-    not there once is a mistake in the template, said when it is rendered."""
-    for edit in edits:
-        if edit["path"] != path or level >= edit["below"]:
-            continue
-        lines, head = text.split("\n"), edit["from"]
-        at = [i for i in range(len(lines) - len(head) + 1) if lines[i:i + len(head)] == head]
-        if len(at) != 1:
-            raise TemplateError(f"manifest.json: an edit of {path} finds its lines {len(at)} times, not once.")
-        lines[at[0]:at[0] + len(head)] = edit["to"]
-        text = "\n".join(lines)
-    return text
-
-
-def with_marker(text: str, path: str, level: int) -> str:
-    """The managed file with the number of `level` in its marker: a text file's first line, a JSON file's `_managed` key."""
-    pattern = JSON_MARKER if path.endswith(".json") else MARKER
-    lines = text.split("\n")
-    for index in range(min(len(lines), 4 if path.endswith(".json") else 1)):
-        found = pattern.fullmatch(lines[index])
-        if found:
-            lines[index] = lines[index].replace(f"standard {found.group(1)}:", f"standard {level}:", 1)
-            return "\n".join(lines)
-    raise TemplateError(f"The managed file {path} of the template has no marker.")
-
-
-def managed_text(path: str, level: Optional[int] = None) -> str:
-    """The text of a managed file as the Lab renders it at `level` (the Lab's own by default): what a lower level leaves out
-    is out, and the marker carries the number of the level."""
-    level = LEVEL if level is None else level
-    data = manifest()
-    return with_marker(_with_edits(path, _source("managed", path), level, data["edits"]), path, level)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -322,11 +271,6 @@ def carry_pins(rendered: str, current: str) -> str:
             line = f"{found[0]}uses: {found[1]}@{commit}" + (f" {comment}" if comment else "")
         out.append(line)
     return "\n".join(out)
-
-
-def marker(level: int) -> str:
-    """The first line of a managed text file written at `level`."""
-    return "# " + MARKER_TEXT.format(level=level)
 
 
 def marker_level(text: str, path: str) -> Optional[int]:
@@ -505,9 +449,9 @@ def dump_standard(data: dict) -> str:
     return _dump(data) + "\n"
 
 
-def standard_for(given: dict, level: int) -> dict:
+def standard_for(given: dict) -> dict:
     return {"form": "inline", "lab": {"ref": given["lab_ref"], "repository": given["lab_repository"]},
-            "platforms": list(given["platforms"]), "standard": level}
+            "platforms": list(given["platforms"]), "standard": LEVEL}
 
 
 def _no_twins(pairs):
@@ -604,10 +548,8 @@ def declared(tree) -> Declared:
 # Rendering a new catalog
 # ---------------------------------------------------------------------------------------------------------------------
 
-def wanted(entry: dict, given: dict, level: int) -> bool:
-    """Whether a file of the manifest belongs to a catalog with these parameters at this level."""
-    if entry["since"] > level:
-        return False
+def wanted(entry: dict, given: dict) -> bool:
+    """Whether a file of the manifest belongs to a catalog with these parameters."""
     if entry["when"] == "images":
         return bool(given["images"])
     if entry["when"] == "module:e2e":
@@ -615,23 +557,21 @@ def wanted(entry: dict, given: dict, level: int) -> bool:
     return True
 
 
-def render_files(params: dict, level: Optional[int] = None) -> Dict[str, bytes]:
-    """{path: bytes} of a new catalog at `level` (the Lab's own by default). `render_new` is this at LEVEL; other levels are for
-    the tests, which prove that every level renders and calls only the stages it ships."""
-    level = LEVEL if level is None else level
+def render_new(params: dict) -> Dict[str, bytes]:
+    """{path: bytes} of a new catalog at the Lab's level: the managed files verbatim, the seeded files with their placeholders
+    replaced, `.github/standard.json`, the two CODEOWNERS lines and the sample add-on. A folder catalog (`local`) gets the
+    files of 3.1 for one. Deterministic: the same parameters give the same bytes. A TemplateError says what is wrong."""
     given = values(params)
     local = given["local"]
-    if "e2e" in given["with"] and level < 3:
-        raise TemplateError("The e2e module arrives with standard 3; this Lab has standard %d." % level)
     found: Dict[str, bytes] = {}
     for entry in entries(local):
-        if not wanted(entry, given, level):
+        if not wanted(entry, given):
             continue
         path, kind = entry["path"], entry["class"]
         if kind == "managed":
-            text = managed_text(path, level)
+            text = _source("managed", path)
         elif entry.get("tool") == "standard.json":
-            text = dump_standard(standard_for(given, level))
+            text = dump_standard(standard_for(given))
         elif entry.get("license"):
             text = license_text(given)
         else:
@@ -639,13 +579,6 @@ def render_files(params: dict, level: Optional[int] = None) -> Dict[str, bytes]:
             text = fill(_source("seeded", source), given, path)
         found[path] = text.encode("utf-8")
     return found
-
-
-def render_new(params: dict) -> Dict[str, bytes]:
-    """{path: bytes} of a new catalog at the Lab's level: the managed files verbatim, the seeded files with their placeholders
-    replaced, `.github/standard.json`, the two CODEOWNERS lines and the sample add-on. A folder catalog (`local`) gets the
-    files of 3.1 for one. Deterministic: the same parameters give the same bytes. A TemplateError says what is wrong."""
-    return render_files(params, LEVEL)
 
 
 def _is_empty(folder: Path) -> bool:
@@ -717,8 +650,8 @@ def _issue(code: str, path: str, line: int = 0, **fields) -> Problem:
     return Problem(code, rule.severity, path, line, say(rule.message, path=path, **fields))
 
 
-def drift(tree, level: int) -> List[Problem]:
-    """SD01 to SD05 and SD08 to SD10 of the repository in `tree`, against the Lab's render at `level`: the files are compared
+def drift(tree) -> List[Problem]:
+    """SD01 to SD05 and SD08 to SD10 of the repository in `tree`, against the Lab's render: the files are compared
     as `comparable` makes them, so a Dependabot bump of a pin and the number of the marker are no difference. Pure: it reads the tree
     and writes nothing."""
     found: List[Problem] = []
@@ -727,12 +660,12 @@ def drift(tree, level: int) -> List[Problem]:
         rule = RULES["SD04"]
         found.append(Problem("SD04", severity, STANDARD, 0, say(rule.message, problem=problem)))
     have = state.level
-    if have is not None and have > level:
-        found.append(_issue("SD05", STANDARD, n=have, m=level))
+    if have is not None and have > LEVEL:
+        found.append(_issue("SD05", STANDARD, n=have, m=LEVEL))
         return found + _owned_checks(tree)
-    asked = have if have is not None else level
+    asked = have if have is not None else LEVEL
     for entry in entries():
-        if entry["class"] != "managed" or entry["since"] > level:
+        if entry["class"] != "managed":
             continue
         path = entry["path"]
         kind, text = _file(tree, path)
@@ -741,7 +674,7 @@ def drift(tree, level: int) -> List[Problem]:
         if entry["when"] == "module:e2e" and kind == "missing":
             continue
         if kind == "missing":
-            found.append(_issue("SD03", path, have=asked, now=level) if asked < entry["since"] else _issue("SD01", path))
+            found.append(_issue("SD03", path, have=asked, now=LEVEL) if asked < entry["since"] else _issue("SD01", path))
             continue
         if kind == "odd":
             found.append(_issue("SD02", path))
@@ -749,12 +682,12 @@ def drift(tree, level: int) -> List[Problem]:
         if marker_level(text, path) is None:
             found.append(_issue("SD08", path))
             continue
-        if comparable(text) == comparable(managed_text(path, level)):
+        if comparable(text) == comparable(_source("managed", path)):
             continue
-        if asked >= level:
+        if asked >= LEVEL:
             found.append(_issue("SD02", path))
         else:
-            found.append(_issue("SD03", path, have=asked, now=level))
+            found.append(_issue("SD03", path, have=asked, now=LEVEL))
     return found + _owned_checks(tree)
 
 
@@ -791,20 +724,16 @@ def _sha(text) -> str:
 
 
 def golden_now() -> dict:
-    """The hashes of the template as it is: for each level that exists, the sha256 of every managed file (normalized) and of
-    every seeded file rendered with the fixed parameters, as the full catalog and as the folder catalog."""
-    out = {"level": LEVEL, "levels": {}}
-    top = levels()
-    for level in range(1, top + 1):
-        rendered = render_files({**GOLDEN_PARAMS, "with": ["e2e"] if level >= 3 else []}, level)
-        known = {each["path"]: each for each in manifest()["files"]}
-        out["levels"][str(level)] = {
+    """The hashes of the template as it is: the sha256 of every managed file (normalized) and of every seeded file rendered with
+    the fixed parameters, as the full catalog and as the folder catalog."""
+    rendered = render_new(GOLDEN_PARAMS)
+    known = {each["path"]: each for each in manifest()["files"]}
+    local = render_new({"id": "acme-hub", "name": "Acme Hub", "local": True})
+    return {"level": LEVEL,
             "managed": {path: _sha(normalize(data.decode("utf-8"))) for path, data in sorted(rendered.items())
                         if known[path]["class"] == "managed"},
-            "seeded": {path: _sha(data) for path, data in sorted(rendered.items()) if known[path]["class"] != "managed"}}
-    local = render_files({"id": "acme-hub", "name": "Acme Hub", "local": True}, LEVEL)
-    out["local"] = {path: _sha(data) for path, data in sorted(local.items())}
-    return out
+            "seeded": {path: _sha(data) for path, data in sorted(rendered.items()) if known[path]["class"] != "managed"},
+            "local": {path: _sha(data) for path, data in sorted(local.items())}}
 
 
 def golden_file() -> Path:
@@ -818,10 +747,8 @@ def _differences(before, now) -> List[str]:
 
 
 def golden_problems() -> List[str]:
-    """The sentences that say the template changed without a bump: empty when `golden.json` is what the template renders.
-    The first sentence of a change in the level the Lab ships is the message of 3.4 as it is; a change in a level not shipped yet
-    has its own sentence (refresh the file, raise the level when that level ships); each is followed by the files that differ,
-    indented."""
+    """The sentences that say the template changed without a bump: empty when `golden.json` is what the template renders, else
+    the message of 3.4 as it is, followed by the files that differ, indented."""
     try:
         recorded = json.loads(golden_file().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -829,17 +756,12 @@ def golden_problems() -> List[str]:
     if not isinstance(recorded, dict):
         return [GOLDEN_MESSAGE, "  golden.json is not an object"]
     now = golden_now()
-    current: List[str] = []
-    ahead: List[str] = []
+    found: List[str] = []
     if recorded.get("level") != now["level"]:
-        current.append(f"  golden.json is for level {recorded.get('level')}, the template says {now['level']}")
-    kept = recorded.get("levels") if isinstance(recorded.get("levels"), dict) else {}
-    for number, hashes in now["levels"].items():
-        before = kept.get(number) if isinstance(kept.get(number), dict) else {}
-        found = [f"  level {number}: {path}" for kind in ("managed", "seeded") for path in _differences(before.get(kind), hashes[kind])]
-        (current if int(number) <= now["level"] else ahead).extend(found[:20])
-    current.extend(f"  folder catalog: {path}" for path in _differences(recorded.get("local"), now["local"])[:20])
-    return ([GOLDEN_MESSAGE, *current] if current else []) + ([AHEAD_MESSAGE, *ahead] if ahead else [])
+        found.append(f"  golden.json is for level {recorded.get('level')}, the template says {now['level']}")
+    found.extend(f"  {path}" for kind in ("managed", "seeded") for path in _differences(recorded.get(kind), now[kind])[:20])
+    found.extend(f"  folder catalog: {path}" for path in _differences(recorded.get("local"), now["local"])[:20])
+    return [GOLDEN_MESSAGE, *found] if found else []
 
 
 def write_golden() -> Path:
@@ -998,15 +920,14 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         refused     "" or why nothing can be done (the plan has no files then)
         pending     whether anything would be written
 
-    `options`: lab_ref (40 hex: the new pin), adopt, with (modules), maintainers / lab_repository / security_contact (for what adopt adds), level (default LEVEL),
+    `options`: lab_ref (40 hex: the new pin), adopt, with (modules), maintainers / lab_repository / security_contact (for what adopt adds),
     lab (the Lab checkout: SD11 and the log of a moved pin are asked of it), legacy_lab (when the key is there, catalog.yml gets
     the lines older Gravitee Labs read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
     it reads the tree and runs `git log` in the Lab checkout; it writes nothing."""
     options = dict(options or {})
-    level = options.get("level") or LEVEL
     adopt = bool(options.get("adopt"))
     state = declared(tree)
-    plan: dict = {"level": level, "have": state.level, "files": [], "owned": [], "notes": [], "refused": "", "pending": False,
+    plan: dict = {"level": LEVEL, "have": state.level, "files": [], "owned": [], "notes": [], "refused": "", "pending": False,
                   "lab": {"repository": "", "old": "", "new": "", "compare": "", "log": []}, "name": ""}
 
     def refuse(why: str) -> dict:
@@ -1025,8 +946,8 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     if not state.present and not adopt:
         return refuse("There is no .github/standard.json: this repository was not made from the template. "
                       "Fix: catalog.py upgrade --adopt.")
-    if state.level is not None and state.level > level:
-        return refuse(say(RULES["SD05"].message, n=state.level, m=level))
+    if state.level is not None and state.level > LEVEL:
+        return refuse(say(RULES["SD05"].message, n=state.level, m=LEVEL))
     ref_new = options.get("lab_ref") or ""
     if ref_new and not _COMMIT.fullmatch(ref_new):
         return refuse("--lab-ref takes the full commit of the Lab: 40 hexadecimal characters.")
@@ -1036,7 +957,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     old = (state.data or {}).get("lab", {}) if state.data else {}
     pinned = ref_new or (old.get("ref") if isinstance(old.get("ref"), str) else "")
     if lab_checkout is not None and _COMMIT.fullmatch(pinned or ""):
-        problem = pin_problem(lab_checkout, pinned, level)
+        problem = pin_problem(lab_checkout, pinned, LEVEL)
         if problem:
             return refuse(problem)
     repo = options.get("lab_repository") or old.get("repository") or ""
@@ -1046,8 +967,6 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     extra = tuple(options.get("with") or ())
     if any(word not in MODULES for word in extra):
         return refuse(f"--with takes {', '.join(MODULES)}.")
-    if extra and level < 3:
-        return refuse("The e2e module arrives with standard 3; this Lab has standard %d." % level)
     images = bool(meta.get("images"))
     data = manifest()
     # A module the catalog has, by any of its files: a file the new standard adds to that module comes with the upgrade
@@ -1055,7 +974,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
                                            if entry["when"].startswith("module:") and _file(tree, entry["path"])[0] != "missing"))))
     files: List[dict] = []
     for entry in data["files"]:
-        if entry["class"] != "managed" or entry["since"] > level:
+        if entry["class"] != "managed":
             continue
         path = entry["path"]
         kind, text = _file(tree, path)
@@ -1063,7 +982,7 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
             continue
         if entry["when"] == "module:e2e" and kind == "missing" and "e2e" not in extra:
             continue
-        want = managed_text(path, level)
+        want = _source("managed", path)
         if kind == "missing":
             files.append(_entry(path, ADD, "managed", "missing", want.encode("utf-8")))
         elif kind == "odd":
@@ -1074,11 +993,11 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         elif comparable(text) == comparable(want):
             files.append(_entry(path, CURRENT, "managed"))
         else:
-            files.append(_entry(path, UPDATE, "managed", "behind" if (state.level or level) < level else "differs",
+            files.append(_entry(path, UPDATE, "managed", "behind" if (state.level or LEVEL) < LEVEL else "differs",
                                 carry_pins(want, text).encode("utf-8")))
     # standard.json: the level goes up, the pin moves when asked; every other key stays as the catalog wrote it
     new = copy.deepcopy(state.data) if state.data else {"platforms": list(options.get("platforms") or ["linux/amd64"])}
-    new.update({"standard": level, "form": "inline"})
+    new.update({"standard": LEVEL, "form": "inline"})
     new["lab"] = {**(new.get("lab") if isinstance(new.get("lab"), dict) else {}), "repository": repo, "ref": ref}
     if not state.present:
         files.append(_entry(STANDARD, ADD, "seeded", "missing", dump_standard(new).encode("utf-8")))
@@ -1095,12 +1014,12 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
             files.append(_entry("catalog.yml", UPDATE, "seeded", "the lines older Gravitee Labs read",
                                 legacy.encode("utf-8")))
     if adopt:
-        problem = _adopt(tree, state, options, repo, ref, level, files, images, extra)
+        problem = _adopt(tree, state, options, repo, ref, files, extra)
         if problem:
             return refuse(problem)
     plan["files"] = files
     plan["pending"] = any(each["action"] in (ADD, UPDATE) for each in files)
-    plan["notes"] = [{"level": number, **data["notes"][str(number)]} for number in range((state.level or 0) + 1, level + 1)]
+    plan["notes"] = [{"level": number, **data["notes"][str(number)]} for number in range((state.level or 0) + 1, LEVEL + 1)]
     moved = bool(ref_new) and old.get("ref") not in (None, ref_new)
     plan["lab"] = {"repository": repo, "old": old.get("ref") or "", "new": ref if moved else "", "compare": "", "log": []}
     if moved:
@@ -1110,12 +1029,11 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     return plan
 
 
-def _adopt(tree, state: Declared, options: dict, repo: str, ref: str, level: int, files: List[dict], images: bool,
-           extra: tuple) -> str:
+def _adopt(tree, state: Declared, options: dict, repo: str, ref: str, files: List[dict], extra: tuple) -> str:
     """Adds the seeded files a repository made by hand lacks (never overwrites one): '' when it worked, else why not."""
     given = _derived(tree, state, {**options, "lab_repository": repo, "lab_ref": ref})
     given["with"] = list(extra)
-    missing = [each["path"] for each in entries() if each["class"] == "seeded" and each["since"] <= level and each["path"] not in (
+    missing = [each["path"] for each in entries() if each["class"] == "seeded" and each["path"] not in (
         "catalog.yml", STANDARD) and tree.entry(each["path"]) is None]
     if not missing:
         return ""
@@ -1567,6 +1485,6 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
 
 
 __all__ = ["LEVEL", "RULES", "TemplateError", "UpgradeError", "apply_command", "carry_pins", "comparable", "create", "declared", "describe",
-           "dirty_files", "drift", "dump_standard", "gitlinks", "golden_now", "golden_problems", "levels", "main_new", "main_upgrade",
-           "manifest", "managed_paths", "managed_roots", "managed_text", "marker", "marker_level", "normalize", "render_files", "render_new",
+           "dirty_files", "drift", "dump_standard", "gitlinks", "golden_now", "golden_problems", "main_new", "main_upgrade",
+           "manifest", "managed_paths", "managed_roots", "marker_level", "normalize", "render_new",
            "upgrade_apply", "upgrade_plan", "values", "write_golden"]

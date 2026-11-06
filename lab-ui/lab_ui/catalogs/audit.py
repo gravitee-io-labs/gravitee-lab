@@ -136,7 +136,7 @@ def _load(family_code: str):
     """The check function of a family: its module is imported when the family is run."""
     module = importlib.import_module(f"{__package__}.{'standard' if family_code == 'SD' else 'rules.' + MODULES[family_code]}")
     if family_code == "SD":
-        return lambda tree, ctx: module.drift(tree, module.LEVEL)
+        return lambda tree, ctx: module.drift(tree)
     return module.check
 
 
