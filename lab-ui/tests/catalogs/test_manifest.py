@@ -908,7 +908,8 @@ def catalog_yml(lab=1, version="1.0.0", name="History fixture"):
 
 
 class History(Case):
-    """levels over a repository whose catalog.yml changes at some commits and not at others."""
+    """levels over a repository whose catalog.yml changes at some commits and not at others, and offer: the releases of a
+    catalog that makes them, the commits of one that makes none."""
 
     def setUp(self):
         gitfixture.require()
@@ -1062,10 +1063,6 @@ class History(Case):
         with self.assertRaises(registry.CatalogError) as raised:
             self.levels()
         self.assertEqual(raised.exception.code, "not_catalog")
-
-
-class Offering(History):
-    """offer: the releases of a catalog that makes them, the commits of one that makes none."""
 
     def tag(self, name, commit):
         gitfixture.git("tag", "-f", name, commit, repo=self.repo)
