@@ -2460,7 +2460,6 @@ class Vocabulary(Case):
         self.assertEqual(roots["seeder"], f"{folder}/real/seeder")
         self.assertEqual(roots["machine"], [f"{folder}/real/{name}" for name in trust.MACHINE_FILES])
         self.assertIsNone(trust.build_roots(folder, None)["unit"])
-        self.assertEqual(trust.build_roots(folder, None, machine=[])["machine"], [])
 
 
 class Verdicts(Golden):

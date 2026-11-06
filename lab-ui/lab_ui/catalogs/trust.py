@@ -277,14 +277,13 @@ def _beside(path, root):
     return _inside(path, root) or _inside(root, path)
 
 
-def build_roots(root, folder, closure=(), products=(), machine=None, realpath=None):
+def build_roots(root, folder, closure=(), products=(), realpath=None):
     """The `roots` of judge for one unit, every path real. `root`: the project; `folder`: the unit's own folder (None for a
     setup); `closure`: the folders of the units of its include closure that sit in the same catalog (a unit of another
     catalog is never a root, so its .env, secrets and state stay unreadable to a stranger, even read-only); `products`: the
-    names under plugins/; `machine`: the paths that no unit may mount whatever it declares (default: what holds the core's
-    secrets, the tokens and the Lab's own state, .env and .lab, and what runs on this machine, MACHINE_FILES). `realpath` is
-    os.path.realpath unless given:
-    this is the one function here that reads the disk, and judge never calls it."""
+    names under plugins/. No unit may mount MACHINE_FILES whatever it declares: what holds the core's secrets, the tokens and
+    the Lab's own state, .env and .lab, and what runs on this machine. `realpath` is os.path.realpath unless given: this is the
+    one function here that reads the disk, and judge never calls it."""
     import os
     real = realpath or os.path.realpath
 
@@ -293,11 +292,10 @@ def build_roots(root, folder, closure=(), products=(), machine=None, realpath=No
 
     root = str(root)
     own = one(folder) if folder else None
-    machine = [f"{root}/{name}" for name in MACHINE_FILES] if machine is None else machine
     return {"unit": own, "state": f"{own}/.state" if own else None, "secrets": f"{own}/secrets" if own else None,
             "plugins": [one(f"{root}/plugins/{name}") for name in products],
             "closure": [one(path) for path in closure if path], "seeder": one(f"{root}/seeder"),
-            "machine": [one(path) for path in machine]}
+            "machine": [one(f"{root}/{name}") for name in MACHINE_FILES]}
 
 
 def _roots(roots, resolve):

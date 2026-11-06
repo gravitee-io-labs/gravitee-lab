@@ -170,18 +170,18 @@ def as_text(problems: Sequence[Problem], checked: Iterable[str] = (), skipped: S
     return "\n".join(lines) + "\n"
 
 
-def as_github(problems: Sequence[Problem], per_level: int = PER_LEVEL, verbose: bool = False) -> str:
-    """At most `per_level` annotations of each level, errors first; one notice says how many were left to the summary."""
+def as_github(problems: Sequence[Problem], verbose: bool = False) -> str:
+    """At most PER_LEVEL annotations of each level, errors first; one notice says how many were left to the summary."""
     shown = ordered(problems, verbose)
     out, given = [], {ERROR: 0, WARNING: 0, INFO: 0}
     for severity in (ERROR, WARNING, INFO):
         for problem in (p for p in shown if p.severity == severity):
-            if given[severity] < per_level:
+            if given[severity] < PER_LEVEL:
                 out.append(annotation(problem))
             given[severity] += 1
     for severity in (ERROR, WARNING, INFO):
-        if given[severity] > per_level:
-            out.append(f"::notice::{given[severity] - per_level} more {LEVELS[severity]}s are in the summary of the run")
+        if given[severity] > PER_LEVEL:
+            out.append(f"::notice::{given[severity] - PER_LEVEL} more {LEVELS[severity]}s are in the summary of the run")
     return "\n".join(out) + ("\n" if out else "")
 
 
