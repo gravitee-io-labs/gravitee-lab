@@ -386,35 +386,11 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 - **Message**: {file}: job {job} has no timeout-minutes. Add one, so that a stuck build ends.
 
-### WF06
-
-*Error.* `runs-on` is `ubuntu-24.04`, `ubuntu-24.04-arm`, or exactly `${{ matrix.runner }}` where the job's `matrix` is `fromJSON(needs.&lt;job>.outputs.matrix)` of a job of the same file.
-
-- **Message**: {file}: job {job} runs on {label}. Use ubuntu-24.04 or ubuntu-24.04-arm, or a matrix that the plan job of this file makes: a self-hosted runner keeps what a pull request leaves on it.
-
 ### WF07
 
 *Error.* Every `actions/checkout` says `persist-credentials: false`.
 
 - **Message**: {file}:{line}: actions/checkout leaves its token in .git. Add persist-credentials: false.
-
-### WF08
-
-*Error.* Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the `password:` of `docker/login-action` in `publish.yml`; `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; `VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; `GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never `secrets: inherit`.
-
-- **Message**: {file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs it.
-
-### WF09
-
-*Error.* Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in `attest`, `contents` in `release`, of `publish.yml`.
-
-- **Message**: {file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the report jobs of nightly.yml and versions.yml, may write.
-
-### WF10
-
-*Error.* A job with steps and `packages: write` declares an `environment`.
-
-- **Message**: {file}: job {job} writes packages without an environment. Add environment: publish.
 
 ### WF11
 
@@ -454,7 +430,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF20
 
-*Error.* No `ACTIONS_ALLOW_UNSECURE_COMMANDS`; no `run-id` or `github-token` on `actions/download-artifact` (an artifact of another run is data that someone may have written); no dynamic access to secrets: `secrets[`, `toJSON(secrets)`, `toJson(secrets)`.
+*Error.* No `ACTIONS_ALLOW_UNSECURE_COMMANDS`; no `run-id` or `github-token` on `actions/download-artifact` (an artifact of another run is data that someone may have written); no dynamic access to secrets: `secrets[`, `toJSON(secrets)`, `toJson(secrets)`, `secrets: inherit`.
 
 - **Message**: {file}:{line}: {what}. Fix: name the one secret a step needs, and download only the artifact of this run.
 

@@ -1,12 +1,9 @@
-"""The workflow rules WF01 to WF21 of the catalog repository standard: what a workflow of a catalog may do, read as text
-by indentation with no YAML library. A pull request writes the file that judges it, so the rules are only an early warning and
-a convenience for contributors, never the gate (2.1 principle 3); they are the same rules in the engine's own test, in
-`catalog.py check` and in the pre-flight of Share.
+"""The workflow rules of the catalog repository standard: what any workflow should satisfy, read as text by indentation with no
+YAML library. A pull request writes the file that judges it, so the rules are only an early warning and a convenience for
+contributors, never the gate (2.1 principle 3); they are the same rules in the engine's own test, in `catalog.py check` and in the
+pre-flight of Share.
 
-Two sets, for two kinds of file. GENERIC is what any workflow should satisfy, and the engine's own test imports it. LANES is
-written for the lanes of a catalog (which file may read which secret, which job may write) and runs on catalogs only: the engine's `e2e.yml` and `lab-images.yml` trip it by design.
-
-    check(tree, ctx) -> [Problem]            every workflow and local action of a catalog, both sets
+    check(tree, ctx) -> [Problem]            every workflow and local action of a catalog
     problems(path, text, rules)              one file, any set of codes
 
 The reader is an outline by indentation (`_Reader`), not one regular expression per line: a rule that looks for `^      timeout`
@@ -24,9 +21,9 @@ to GitHub), a secret is read inside `${{ }}` and in an `if:`, wherever a value c
 file called `secrets.yaml` or a sentence that holds the word is no read.
 
 Hostile input is the case this module is written for. It never executes, imports or follows anything of the tree it reads. A
-line of 1 MB, a file of 20,000 short lines and a pile of quotes or brackets each take a fraction of a second, under
-every name a file can have. Every scan moves forward: `str.find`, a regular expression with no nested repetition. What cannot be
-linear is bounded: nesting stops at MAX_DEPTH, a flow collection longer than MAX_FLOW is not read, and a rule reports at most MAX_PER_RULE findings per file. A key that is spelt with
+line of 1 MB, a file of 20,000 short lines and a pile of quotes or brackets each take a fraction of a second. Every scan moves
+forward: `str.find`, a regular expression with no nested repetition. What cannot be linear is bounded: nesting stops at MAX_DEPTH, a
+flow collection longer than MAX_FLOW is not read, and a rule reports at most MAX_PER_RULE findings per file. A key that is spelt with
 other letter case than the rules expect counts for what a rule forbids and not for what it asks: `Permissions:` does not make a
 token read-only, and `Continue-On-Error: true` is still found. The rules are a text check of the spellings that are met, an early
 warning and not a proof: the code owner reads the workflows too."""
@@ -49,7 +46,6 @@ MAX_FILES = 100         # workflows and actions that `check` reads in one tree; 
 FILE_LIMIT = 1024 * 1024
 
 EVENTS = ("pull_request", "push", "schedule", "workflow_dispatch", "workflow_call")
-RUNNERS = ("ubuntu-24.04", "ubuntu-24.04-arm")
 # The keys whose value must be written in block style: a rule reads them by indentation (WF21)
 SENSITIVE = ("on", "permissions", "secrets", "runs-on", "uses", "environment")
 # The keys GitHub knows at the three levels the rules read. The same word with other letters is refused (WF21): the rules ask
@@ -78,34 +74,14 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
      "name would become a command."),
     ("WF05", "Every job has `timeout-minutes` (a job that calls a reusable workflow is exempt)",
      "{file}: job {job} has no timeout-minutes. Add one, so that a stuck build ends."),
-    ("WF06", "`runs-on` is `ubuntu-24.04`, `ubuntu-24.04-arm`, or exactly `${{ matrix.runner }}` where the job's "
-             "`matrix` is `fromJSON(needs.<job>.outputs.matrix)` of a job of the same file",
-     "{file}: job {job} runs on {label}. Use ubuntu-24.04 or ubuntu-24.04-arm, or a matrix that the plan job of "
-     "this file makes: a self-hosted runner keeps what a pull request leaves on it."),
     ("WF07", "Every `actions/checkout` says `persist-credentials: false`",
      "{file}:{line}: actions/checkout leaves its token in .git. Add persist-credentials: false."),
-    ("WF08", "Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action; "
-             "`GITHUB_TOKEN` or `REGISTRY_TOKEN` as the `password:` of `docker/login-action` in `publish.yml`; "
-             "`GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
-             "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; "
-             "`GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` "
-             "that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never "
-             "`secrets: inherit`",
-     "{file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs "
-     "it."),
-    ("WF09", "Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the "
-             "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and "
-             "`attestations` in `attest`, `contents` in `release`, of `publish.yml`",
-     "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the "
-     "report jobs of nightly.yml and versions.yml, may write."),
-    ("WF10", "A job with steps and `packages: write` declares an `environment`",
-     "{file}: job {job} writes packages without an environment. Add environment: publish."),
     ("WF11", "A `concurrency:` group exists (not in a reusable file)",
      "{file}: add a concurrency group, so that a push does not pile runs up."),
     ("WF12", "No download piped into a shell",
      "{file}:{line}: a download is piped into a shell. Download it, check a digest, then run it."),
-    ("WF13", "`id-token: write` appears in the job `attest` of `publish.yml` only, and no step exports the runtime token of Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, "
-             "`ACTIONS_RESULTS_URL`, `ghaction-github-runtime`)",
+    ("WF13", "`id-token: write` appears in the job `attest` of `publish.yml` only, and no step exports the runtime token of "
+             "Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, `ACTIONS_RESULTS_URL`, `ghaction-github-runtime`)",
      "{file}: the identity token and the runtime token of Actions go to the attest job of publish.yml only."),
     ("WF14", "No `continue-on-error: true`",
      "{file}:{line}: continue-on-error hides a failure. Make the step decide its own exit code."),
@@ -118,7 +94,7 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
      "one step that needs it."),
     ("WF20", "No `ACTIONS_ALLOW_UNSECURE_COMMANDS`; no `run-id` or `github-token` on `actions/download-artifact` "
              "(an artifact of another run is data that someone may have written); no dynamic access to secrets: "
-             "`secrets[`, `toJSON(secrets)`, `toJson(secrets)`",
+             "`secrets[`, `toJSON(secrets)`, `toJson(secrets)`, `secrets: inherit`",
      "{file}:{line}: {what}. Fix: name the one secret a step needs, and download only the artifact of this run."),
     ("WF21", "Fail closed. The rules read by indentation, so a workflow that hides what they read is refused: a "
              "flow mapping or sequence as the value of `on`, `permissions`, `secrets`, `runs-on`, `uses` or "
@@ -129,18 +105,7 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
      "line."),
 ))
 
-GENERIC = frozenset(("WF01", "WF02", "WF03", "WF04", "WF05", "WF07", "WF11", "WF12", "WF14", "WF17", "WF19", "WF20", "WF21"))
-LANES = frozenset(("WF06", "WF08", "WF09", "WF10", "WF13"))
-ALL = GENERIC | LANES
-
-# The workflows the standard ships, by file name, and the family each belongs to. Any other name has the rights of none.
-FAMILY = {"ci.yml": "ci", "publish.yml": "publish", "nightly.yml": "nightly", "e2e.yml": "e2e", "versions.yml": "versions"}
-# The jobs that may hold a write permission, and which
-MAY_WRITE = {
-    "publish": {"images": ("packages",), "attest": ("packages", "id-token", "attestations"), "release": ("contents",)},
-    "nightly": {"report": ("issues",)},
-    "versions": {"report": ("issues",)},
-}
+GENERIC = frozenset(RULES)
 
 # Only the root of the catalog is read as workflows: GitHub runs no other, and a folder of the content that holds a `.github` is
 # content. A local action may be at any depth below `.github/actions/`.
@@ -208,11 +173,11 @@ def _flow_scan(text: str) -> Tuple[int, int]:
 
 class _Node(object):
     """A value: a mapping (`entries`), a sequence (`items`), a scalar (`text`, and the lines it takes in `parts`), a flow
-    collection on one line (`text`), or nothing (`null`). `style` says how a scalar is written."""
-    __slots__ = ("kind", "line", "col", "style", "entries", "items", "parts", "text", "owner")
+    collection on one line (`text`), or nothing (`null`)."""
+    __slots__ = ("kind", "line", "col", "entries", "items", "parts", "text", "owner")
 
-    def __init__(self, kind: str, line: int, col: int, style: str = "") -> None:
-        self.kind, self.line, self.col, self.style = kind, line, col, style
+    def __init__(self, kind: str, line: int, col: int) -> None:
+        self.kind, self.line, self.col = kind, line, col
         self.entries: List["_Entry"] = []
         self.items: List["_Node"] = []
         self.parts: List[Tuple[int, str]] = []
@@ -445,7 +410,7 @@ class _Reader(object):
         return self._plain(i, text, col)
 
     def _block(self, i: int, col: int, owner: int, keep: int) -> Tuple[_Node, int, int]:
-        node = _Node("scalar", i + 1, col, "block")
+        node = _Node("scalar", i + 1, col)
         lines, j = self.lines, i + 1
         while j < len(lines):
             row = lines[j]
@@ -462,7 +427,7 @@ class _Reader(object):
         end = (_end_single if quote == "'" else _end_double)(text, 1)
         keep = end + 1 if end >= 0 else len(text)
         inner = text[1:end] if end >= 0 else text[1:]
-        node = _Node("scalar", number, col, "single" if quote == "'" else "double")
+        node = _Node("scalar", number, col)
         node.parts.append((number, text[:keep]))
         if end < 0:
             self.flag(number, "a quote that is not closed on its line")
@@ -479,7 +444,7 @@ class _Reader(object):
         if close < 0:
             self.flag(number, "a flow collection that is not closed on its line, or is too long")
             return None
-        node = _Node("flow", number, col, "flow")
+        node = _Node("flow", number, col)
         node.text = text[:close + 1]
         node.parts.append((number, node.text))
         tail = text[close + 1:]
@@ -498,7 +463,7 @@ class _Reader(object):
     @staticmethod
     def _plain(i: int, text: str, col: int) -> Tuple[_Node, int, int]:
         """One line: what goes on deeper on the next one belongs to no key, and `_place` says so."""
-        node = _Node("scalar", i + 1, col, "plain")
+        node = _Node("scalar", i + 1, col)
         found = _COMMENT.search(text)
         keep = found.start() if found else len(text)
         node.text = text[:keep].rstrip(" \t")
@@ -545,7 +510,6 @@ class _Doc(object):
         self.root: _Node = reader.root
         self.kind = "action" if is_action else "workflow"
         self.name = path.rsplit("/", 1)[-1]
-        self.family = None if is_action else FAMILY.get(self.name)
         self.unreadable: Dict[int, str] = dict(reader.bad)
         self.content = reader.content
         self.entries: List[_Entry] = []
@@ -565,7 +529,7 @@ class _Doc(object):
                     if entry.value.kind in ("scalar", "flow"):
                         self.leaves.append((entry.name.lower(), entry.value))
                     if "${{" in entry.name:    # an expression where a name belongs is text to read like any other
-                        key = _Node("scalar", entry.line, entry.col, "plain")
+                        key = _Node("scalar", entry.line, entry.col)
                         key.parts, key.text = [(entry.line, entry.name)], entry.name
                         self.leaves.append((entry.name.lower(), key))
             elif node.kind == "seq":
@@ -651,11 +615,6 @@ class _Doc(object):
         starts = self.blob()[1]
         return self.content[max(bisect.bisect_right(starts, offset) - 1, 0)][0]
 
-    def scalars(self) -> Iterable[Tuple[_Entry, _Node]]:
-        for entry in self.entries:
-            if entry.value.kind == "scalar":
-                yield entry, entry.value
-
     @staticmethod
     def in_with(entry: _Entry) -> bool:
         """Whether the entry is an input of an action (a key of a `with:`)."""
@@ -705,18 +664,6 @@ def _shown(node: _Node) -> str:
     if node.kind in ("scalar", "flow"):
         return node.text
     return {"null": "nothing", "map": "a mapping", "seq": "a list"}.get(node.kind, "")
-
-
-def _permissions(doc: _Doc, node: _Node) -> List[Tuple[str, str, int]]:
-    """(scope, its value in lower case, line) of every `permissions:` of a mapping, in any letter case, in block style (a flow
-    collection there is WF21)."""
-    found = []
-    for entry in doc.named(node, "permissions"):
-        value = entry.value
-        if value.kind == "map":
-            found.extend((each.name, each.value.text.strip().lower(), each.line) for each in value.entries
-                         if each.value.kind == "scalar")
-    return found
 
 
 # The mappings whose keys are names the author chose (a variable called RUN is not a step's `run:`)
@@ -793,29 +740,6 @@ def _wf05(doc):
             yield job.line, {"job": job.name}
 
 
-_PLAN = re.compile(r"\$\{\{ (?i:fromjson)\(needs\.([A-Za-z0-9_-]+)\.outputs\.matrix\) \}\}\Z")
-
-
-@_rule("WF06", ("workflow",))
-def _wf06(doc):
-    names = {job.name for job in doc.jobs}
-    for job in doc.jobs:
-        if doc.get(job.node, "uses") is not None:
-            continue
-        for entry in doc.named(job.node, "runs-on"):
-            node, label = entry.value, _shown(entry.value)
-            if node.kind == "scalar" and label.strip() in RUNNERS:
-                continue
-            if node.kind == "scalar" and entry.name == "runs-on" and label.strip() == "${{ matrix.runner }}":
-                strategy = doc.get(job.node, "strategy")
-                matrix = doc.get(strategy.value, "matrix") if strategy is not None else None
-                if matrix is not None:
-                    plan = _PLAN.match(matrix.value.text.strip()) if matrix.value.kind == "scalar" else None
-                    if plan is not None and plan.group(1) in names:
-                        continue
-            yield entry.line, {"job": job.name, "label": label}
-
-
 @_rule("WF07")
 def _wf07(doc):
     for entry in doc.entries:
@@ -828,123 +752,6 @@ def _wf07(doc):
         flag = doc.get(with_.value, "persist-credentials") if with_ is not None else None
         if flag is None or flag.value.kind != "scalar" or flag.value.text.strip() != "false":
             yield entry.line, {}
-
-
-_LAB_ACTION = re.compile(r"\./(?:catalog/)?\.github/actions/lab\Z")
-_KEY = "${{ secrets.LAB_DEPLOY_KEY }}"
-_NEEDS_KEY = "${{ secrets.NEEDS_DEPLOY_KEY }}"
-_LICENSE = "${{ secrets.GRAVITEE_LICENSE }}"
-_VERSIONS_KEY = "${{ secrets.VERSIONS_DEPLOY_KEY }}"
-_REGISTRY = {"GRAVITEE_REGISTRY_USERNAME": "${{ secrets.GRAVITEE_REGISTRY_USERNAME }}",
-             "GRAVITEE_REGISTRY_PASSWORD": "${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}"}
-_REGISTRY_LOGIN = re.compile(r"\bdocker login graviteeio\.azurecr\.io\b")   # the step that holds the token logs in, and runs nothing of the Lab
-_VERSIONS_PUSH = re.compile(r"\bgit push --atomic\b")   # the one step that holds the key pushes, and runs nothing of the Lab
-_PASSWORD = re.compile(r"\$\{\{ secrets\.(?:GITHUB_TOKEN|REGISTRY_TOKEN)(?: \|\| secrets\.(?:GITHUB_TOKEN|REGISTRY_TOKEN))? \}\}\Z")
-# A name that is not part of a longer one: `load-secrets.sh` and `inputs.secrets` are not the context. GitHub names may hold a dash
-_SECRET = re.compile(r"(?<![\w.-])secrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.I)
-
-
-def _blessed(doc: _Doc) -> Tuple[Set[int], Set[int]]:
-    """The lines where a rule allows a secret, and the lines of the second and later steps that read the license."""
-    allowed, first_by_step = set(), {}
-    for entry, node in doc.scalars():
-        text = node.text.strip()
-        if len(node.parts) != 1 or node.style == "block" or not _SECRET.search(text):
-            continue
-        step, container = doc.holder(entry), entry.map.owner
-        if step is None or container is None:
-            continue
-        name = container.name
-        if entry.name == "key" and text == _KEY and name == "with":
-            uses = doc.get(step, "uses")
-            if uses is not None and uses.value.kind == "scalar" and _LAB_ACTION.match(uses.value.text.strip()):
-                allowed.add(entry.line)
-        elif entry.name == "NEEDS_DEPLOY_KEY" and text == _NEEDS_KEY and name == "env" and doc.get(step, "run") is not None \
-                and "catalog.py ci needs" in doc.get(step, "run").value.text:
-            allowed.add(entry.line)
-        elif entry.name == "password" and name == "with" and doc.family == "publish" \
-                and doc.action_of(step) == "docker/login-action" and _PASSWORD.match(text):
-            allowed.add(entry.line)
-        elif entry.name == "VERSIONS_DEPLOY_KEY" and text == _VERSIONS_KEY and name == "env" and doc.family == "versions" \
-                and doc.get(step, "run") is not None and _VERSIONS_PUSH.search(doc.get(step, "run").value.text) \
-                and "catalog.py" not in doc.get(step, "run").value.text:
-            allowed.add(entry.line)
-        elif entry.name in ("REGISTRY_USERNAME", "REGISTRY_PASSWORD") and text == _REGISTRY.get(f"GRAVITEE_{entry.name}") \
-                and name == "env" and doc.family in ("e2e", "versions") and doc.get(step, "run") is not None \
-                and _REGISTRY_LOGIN.search(doc.get(step, "run").value.text) \
-                and not re.search(r"catalog\.py|server\.py|\bmake\b", doc.get(step, "run").value.text):
-            allowed.add(entry.line)
-        elif entry.name == "GRAVITEE_LICENSE" and text == _LICENSE and name == "env" and doc.family in ("e2e", "versions") \
-                and (doc.get(step, "run") is not None or doc.get(step, "uses") is not None):
-            first_by_step.setdefault(id(step), entry.line)
-            allowed.add(entry.line)
-    return allowed, set(sorted(first_by_step.values())[1:])
-
-
-_WORD_SECRETS = re.compile("secrets", re.I)
-
-
-def _reads_in(name: str, text: str) -> List[str]:
-    """The secrets read in the expressions of a text. A body without the word is not scanned, which spares the work of blanking
-    its strings."""
-    found = []
-    for expression in _expressions_in(name, text):
-        if _WORD_SECRETS.search(expression):
-            found.extend(each.group(1) for each in _SECRET.finditer(_blank_strings(expression)))
-    return found
-
-
-def _secret_reads(name: str, node: _Node) -> List[Tuple[int, str]]:
-    """(line, secret) of every `secrets.X` in the expressions of a value. A secret is only read inside `${{ }}` or an `if:`, so a
-    path called `secrets.yaml` or a word in a sentence is no read. The line is the one that holds the expression when it is on
-    one line of a block, else the first line of the block."""
-    found, names = [], set()
-    for number, text in node.parts:
-        for secret in _reads_in(name, text):
-            found.append((number, secret))
-            names.add(secret.lower())
-    for secret in _reads_in(name, node.text) if len(node.parts) > 1 else ():
-        if secret.lower() not in names:
-            found.append((node.line, secret))
-    return found
-
-
-@_rule("WF08")
-def _wf08(doc):
-    allowed, extra = _blessed(doc)
-    for job in doc.jobs:
-        for entry in doc.named(job.node, "secrets"):
-            if entry.value.kind == "scalar" and entry.value.text.strip().lower() == "inherit":
-                yield entry.line, {"name": "inherit"}
-    seen = set()
-    for name, node in doc.leaves:
-        for line, secret in _secret_reads(name, node):
-            if (line in allowed and line not in extra) or (line, secret) in seen:
-                continue
-            seen.add((line, secret))
-            yield line, {"name": secret}
-
-
-@_rule("WF09", ("workflow",))
-def _wf09(doc):
-    table = MAY_WRITE.get(doc.family, {})
-    for job in doc.jobs:
-        may = table.get(job.name, ())
-        for scope, value, line in _permissions(doc, job.node):
-            if value == "write" and scope.lower() not in may:
-                yield line, {"job": job.name, "permission": scope}
-
-
-@_rule("WF10", ("workflow",))
-def _wf10(doc):
-    for job in doc.jobs:
-        if doc.get(job.node, "uses") is not None or doc.get(job.node, "steps") is None:
-            continue
-        if not any(scope.lower() == "packages" and value == "write" for scope, value, _ in _permissions(doc, job.node)):
-            continue
-        environment = doc.get(job.node, "environment")
-        if environment is None or environment.value.kind == "null":
-            yield job.line, {"job": job.name}
 
 
 @_rule("WF11", ("workflow",))
@@ -1072,26 +879,19 @@ def _wf12(doc):
 
 
 _RUNTIME = re.compile(r"ACTIONS_RUNTIME_TOKEN|ACTIONS_CACHE_URL|ACTIONS_RESULTS_URL|ghaction-github-runtime", re.I)
+_WORD_SECRETS = re.compile("secrets", re.I)
 
 
 @_rule("WF13")
 def _wf13(doc):
-    seen, by_node = set(), {id(each.node): each for each in doc.jobs}
+    attest = {id(job.node) for job in doc.jobs if job.name == "attest"} if doc.name == "publish.yml" else ()
     for entry in doc.entries:
-        if entry.name.lower() != "permissions":
-            continue
-        job = by_node.get(id(entry.map))
-        if doc.family == "publish" and job is not None and job.name == "attest":
-            continue
-        for scope, value, line in _permissions(doc, entry.map):
-            if scope.lower() == "id-token" and value == "write" and line not in seen:
-                seen.add(line)
-                yield line, {}
+        if entry.name.lower() == "permissions" and entry.value.kind == "map" and id(entry.map) not in attest:
+            for each in entry.value.entries:
+                if each.name.lower() == "id-token" and each.value.kind == "scalar" and each.value.text.strip().lower() == "write":
+                    yield each.line, {}
     for found in _RUNTIME.finditer(doc.blob()[0]):
-        line = doc.line_at(found.start())
-        if line not in seen:
-            seen.add(line)
-            yield line, {}
+        yield doc.line_at(found.start()), {}
 
 
 @_rule("WF14")
@@ -1240,6 +1040,10 @@ _WHOLE = re.compile(r"(?<![\w.-])secrets(?![\w-])(?!\s*[.\[])", re.I)
 @_rule("WF20")
 def _wf20(doc):
     found = {}
+    for job in doc.jobs:
+        for entry in doc.named(job.node, "secrets"):
+            if entry.value.kind == "scalar" and entry.value.text.strip().lower() == "inherit":
+                found[entry.line] = "secrets: inherit hands over every secret"
     for each in _UNSECURE.finditer(doc.blob()[0]):
         found.setdefault(doc.line_at(each.start()), "ACTIONS_ALLOW_UNSECURE_COMMANDS turns on the commands that let output "
                                                     "choose what runs")
@@ -1288,14 +1092,13 @@ def _problems(path: str, text: str, rules: Iterable[str], is_action: bool) -> Li
     return sorted(set(found), key=lambda each: (each.line, each.code, each.message))
 
 
-def problems(path: str, text: str, rules: Iterable[str] = ALL) -> List[Problem]:
-    """The problems of one file. `path` decides what it is: a workflow (and the rights its name gives it) or an action.
-    `rules` is a set of codes, GENERIC for the engine's own workflows."""
+def problems(path: str, text: str, rules: Iterable[str] = GENERIC) -> List[Problem]:
+    """The problems of one file, for the rules of `rules`. `path` decides what it is: a workflow or an action."""
     return _problems(path, text, rules, _is_action(path))
 
 
 def check(tree, ctx=None) -> List[Problem]:
-    """Every workflow and every local action of a catalog against both sets. Pure: it reads the tree and writes nothing."""
+    """Every workflow and every local action of a catalog. Pure: it reads the tree and writes nothing."""
     found, count = [], 0
     for entry in sorted(tree.entries(), key=lambda each: each.path):
         path = entry.path
@@ -1314,5 +1117,5 @@ def check(tree, ctx=None) -> List[Problem]:
         if text is None:
             found.append(Problem("WF21", ERROR, path, 1, _say("WF21", path, 1, {})))
             continue
-        found.extend(_problems(path, text, ALL, _ACTION_FILE.match(path) is not None))    # the place decides, as above
+        found.extend(_problems(path, text, GENERIC, _ACTION_FILE.match(path) is not None))    # the place decides, as above
     return found

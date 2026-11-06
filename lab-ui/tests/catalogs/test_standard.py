@@ -1914,16 +1914,16 @@ class DayOne(Case):
 
 
 class Rules(unittest.TestCase):
-    """The workflow rules WF01 to WF21 on every managed file."""
+    """The workflow rules on every managed file."""
 
     def test_every_managed_workflow_and_action_passes_every_rule(self):
         files = render(**EVERYTHING)
         for path, data in files.items():
             if path.startswith(".github/workflows/") or (path.startswith(".github/actions/") and path.endswith("action.yml")):
-                self.assertEqual(workflows.problems(path, data.decode("utf-8"), workflows.ALL), [], path)
+                self.assertEqual(workflows.problems(path, data.decode("utf-8")), [], path)
         self.assertEqual([each for each in workflows.check(tree_of(files)) if each.severity == "error"], [])
 
-    def test_the_lab_action_is_called_from_the_checkout_of_the_catalog_beside_the_labs_so_the_key_is_allowed_there(self):
+    def test_the_lab_key_goes_to_the_lab_action_alone_called_from_the_checkout_of_the_catalog(self):
         for path, data in render(**EVERYTHING).items():
             for line in data.decode("utf-8").split("\n"):
                 if "LAB_DEPLOY_KEY" in line and "secrets." in line:

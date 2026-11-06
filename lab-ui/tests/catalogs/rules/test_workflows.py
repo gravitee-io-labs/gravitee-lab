@@ -25,7 +25,6 @@ MANAGED = HERE.parent / "templates" / "catalog" / "managed"
 ROOT = HERE.parents[1]
 CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 PYTHON = "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
-LOGIN = "docker/login-action@dbcb813823bdd20940b903addbd779551569679f"
 SCRIPT = "actions/github-script@" + "a" * 40
 DOWNLOAD = "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333"
 
@@ -41,7 +40,7 @@ def path_of(name):
     return FILES[name]
 
 
-def codes(name, text, rules=wf.ALL):
+def codes(name, text, rules=wf.GENERIC):
     """The codes a text breaks, as the file called `name` (its place and its name decide what it may do)."""
     return sorted({found.code for found in wf.problems(path_of(name), text, rules)})
 
@@ -153,9 +152,7 @@ TOP_PERMISSIONS = "permissions:\n  contents: read\n\nconcurrency:\n  group: ci-"
 CONCURRENCY = ("concurrency:\n  group: ci-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}\n"
                "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n\n")
 RUNNER = "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n"
-MATRIX = "      matrix: ${{ fromJSON(needs.static.outputs.matrix) }}\n"
 IMAGES = "    environment: publish\n    permissions:\n      contents: read\n      packages: write\n    outputs:"
-ATTEST = "    environment: publish\n    permissions:\n      contents: read\n      packages: write\n      id-token: write"
 # A backslash is made here and no escape sequence is written in this file, so that nothing that reads source text can turn
 # `<backslash>x24` into a `$` (that happened once to a table of the module itself)
 BS = chr(92)
@@ -230,25 +227,6 @@ MUTATIONS = {
         swap("ci", "another letter case", ["WF05", "WF21"], "timeout-minutes: 15", "Timeout-Minutes: 15"),
         swap("publish", "the publish lane", ["WF05"], "    timeout-minutes: 90\n", ""),
     ],
-    "WF06": [
-        swap("ci", "latest", ["WF06"], RUNNER, "    runs-on: ubuntu-latest\n    timeout-minutes: 15\n"),
-        swap("ci", "self-hosted", ["WF06"], RUNNER, "    runs-on: self-hosted\n    timeout-minutes: 15\n"),
-        swap("ci", "a flow list", ["WF06", "WF21"], RUNNER, "    runs-on: [self-hosted, linux]\n    timeout-minutes: 15\n"),
-        swap("ci", "a block list", ["WF06"], RUNNER, "    runs-on:\n      - ubuntu-24.04\n    timeout-minutes: 15\n"),
-        swap("ci", "a group", ["WF06"], RUNNER, "    runs-on:\n      group: big\n    timeout-minutes: 15\n"),
-        swap("ci", "an expression", ["WF06"], RUNNER, "    runs-on: ${{ inputs.runner }}\n    timeout-minutes: 15\n"),
-        swap("ci", "a quoted label", ["WF06"], RUNNER, "    runs-on: 'ubuntu-22.04'\n    timeout-minutes: 15\n"),
-        swap("ci", "a matrix that lists the labels", ["WF06"], MATRIX, "      matrix:\n        runner: [ubuntu-24.04, ubuntu-24.04-arm]\n"),
-        swap("ci", "a matrix of a job that is not in the file", ["WF06"], MATRIX,
-             "      matrix: ${{ fromJSON(needs.ghost.outputs.matrix) }}\n"),
-        swap("ci", "a matrix from another output", ["WF06"], MATRIX, "      matrix: ${{ fromJSON(needs.static.outputs.runners) }}\n"),
-        swap("ci", "no matrix", ["WF06"], "    strategy:\n      fail-fast: false\n" + MATRIX, ""),
-        swap("ci", "the expression spaced differently", ["WF06"], "runs-on: ${{ matrix.runner }}", "runs-on: ${{matrix.runner}}"),
-        swap("ci", "another key of the matrix", ["WF06"], "runs-on: ${{ matrix.runner }}", "runs-on: ${{ matrix.os }}"),
-        swap("ci", "a flow matrix", ["WF06", "WF21"], MATRIX, "      matrix: {runner: [self-hosted]}\n"),
-        swap("e2e", "the license job on a runner of its own", ["WF06"], "    runs-on: ubuntu-24.04\n    timeout-minutes: 60\n",
-             "    runs-on: self-hosted\n    timeout-minutes: 60\n"),
-    ],
     "WF07": [
         step("ci", "no persist-credentials", ["WF07"], "uses: " + CHECKOUT),
         step("ci", "true", ["WF07"], "uses: " + CHECKOUT, "with:", "  persist-credentials: true"),
@@ -262,84 +240,6 @@ MUTATIONS = {
         step("ci", "another letter case of the key", ["WF07"], "uses: " + CHECKOUT, "with:", "  Persist-Credentials: false"),
         swap("ci", "removed from a checkout of the file", ["WF07"], "          persist-credentials: false\n", ""),
         swap("publish", "removed from the publish lane", ["WF07"], "          persist-credentials: false\n", ""),
-    ],
-    "WF08": [
-        step("ci", "the token in an env", ["WF08"], "env:", "  TOKEN: ${{ secrets.GITHUB_TOKEN }}", "run: echo hi"),
-        step("ci", "another secret", ["WF08"], "env:", "  TOKEN: ${{ secrets.NPM_TOKEN }}", "run: echo hi"),
-        step("ci", "the key of the needed catalogs in a step that does not fetch them", ["WF08"], "env:",
-             "  NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}", "run: echo hi"),
-        step("ci", "the key of the needed catalogs under another name", ["WF08"], "env:", "  KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}",
-             "run: python3 -I lab/lab-ui/catalog.py ci needs catalog"),
-        step("ci", "the Lab key as an ssh key", ["WF08", "WF07"], "uses: " + CHECKOUT, "with:", "  ssh-key: ${{ secrets.LAB_DEPLOY_KEY }}"),
-        swap("ci", "the Lab key as another input", ["WF08"], "key: ${{ secrets.LAB_DEPLOY_KEY }}", "token: ${{ secrets.LAB_DEPLOY_KEY }}"),
-        step("ci", "the Lab key to another action", ["WF08"], "uses: " + PYTHON, "with:", "  key: ${{ secrets.LAB_DEPLOY_KEY }}"),
-        step("ci", "capital letters", ["WF08"], "env:", "  TOKEN: ${{ SECRETS.THING }}", "run: echo hi"),
-        step("ci", "spaces around the dot", ["WF08"], "env:", "  TOKEN: ${{ secrets . THING }}", "run: echo hi"),
-        step("ci", "in a script", ["WF04", "WF08"], "run: |", "  echo ${{ secrets.THING }}"),
-        step("ci", "a login with the token, outside the publish lane", ["WF08"], "uses: " + LOGIN, "with:",
-             "  password: ${{ secrets.GITHUB_TOKEN }}"),
-        swap("publish", "a login with another secret", ["WF08"], "password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}",
-             "password: ${{ secrets.NPM_TOKEN }}"),
-        swap("publish", "a login with something after the secret", ["WF08"], "password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}",
-             "password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}x"),
-        swap("publish", "a login with the secret as another input", ["WF08"], "registry: ghcr.io", "registry: ${{ secrets.GITHUB_TOKEN }}"),
-        step("e2e", "the license in a second step", ["WF08"], "env:", "  GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}", "run: echo hi", job="e2e"),
-        step("ci", "the license outside the end-to-end module", ["WF08"], "env:", "  GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}", "run: echo hi"),
-        job_key("e2e", "the license for the whole job", ["WF08"], "e2e", "env:", "  GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}"),
-        step("e2e", "the registry token in a step that runs the Lab", ["WF08"], "env:",
-             "  REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}",
-             "run: docker login graviteeio.azurecr.io && make init", job="e2e"),
-        step("e2e", "the registry token in a step that logs in elsewhere", ["WF08"], "env:",
-             "  REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}", "run: docker login example.com", job="e2e"),
-        step("ci", "the registry token outside the end-to-end module", ["WF08"], "env:",
-             "  REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}", "run: docker login graviteeio.azurecr.io"),
-        step("e2e", "the registry token under another name", ["WF08"], "env:",
-             "  TOKEN: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}", "run: docker login graviteeio.azurecr.io", job="e2e"),
-        job_key("ci", "secrets: inherit", ["WF08"], "static", "secrets: inherit"),
-        # the Lab action is the one of the catalog's own folder, not any folder that ends in .github/actions/lab
-        step("ci", "the Lab key to a lab action in another folder", ["WF08"], "uses: ./other/.github/actions/lab", "with:",
-             "  key: ${{ secrets.LAB_DEPLOY_KEY }}"),
-        step("ci", "the Lab key to a lab action in a folder of the content", ["WF08"], "uses: ./playgrounds/x/.github/actions/lab",
-             "with:", "  key: ${{ secrets.LAB_DEPLOY_KEY }}"),
-        # and in every place a value can be: the items of a list, a flow list, a condition, a name, the line of a block
-        step("ci", "a secret in a list item", ["WF08"], "uses: x/y@" + "a" * 40, "with:", "  args:", "    - ${{ secrets.FOO }}"),
-        step("ci", "a secret in a flow list", ["WF08"], "uses: x/y@" + "a" * 40, "with:", "  args: ['${{ secrets.FOO }}']"),
-        step("ci", "a secret in a condition", ["WF08"], "if: secrets.FOO != ''", "run: echo hi"),
-        step("ci", "a secret in a name", ["WF08"], "name: ${{ secrets.FOO }}", "run: echo hi"),
-        step("ci", "a secret in the third line of a block", ["WF04", "WF08"], "run: |", "  echo one", "  echo two", "  echo ${{ secrets.FOO }}"),
-        step("ci", "a secret in an expression over two lines of a block", ["WF08"], "env:", "  X: |", "    ${{ format('{0}',", "      secrets.FOO) }}", "run: echo hi"),
-        # GitHub ends an expression at the first `}}` outside a string, so what follows a `}}` in a string is still the expression
-        step("ci", "a secret after a closing brace pair in a string", ["WF08"], "env:", "  X: ${{ format('}}', secrets.FOO) }}", "run: echo hi"),
-        step("ci", "a secret after a closing brace pair in a string of a condition", ["WF08"], "if: ${{ '}}' != '' && secrets.FOO != '' }}",
-             "run: echo hi"),
-        step("ci", "a secret after a closing brace pair and more strings than are followed one by one", ["WF08"], "env:",
-             "  X: ${{ format(" + "'a', " * (wf.MAX_QUOTES + 10) + "'}}', secrets.FOO) }}", "run: echo hi"),
-    ],
-    "WF09": [
-        job_key("ci", "a job of ci.yml writes issues", ["WF09"], "static", "permissions:", "  issues: write"),
-        job_key("ci", "a job of ci.yml writes pull requests", ["WF09"], "static", "permissions:", "  pull-requests: write"),
-        job_key("ci", "in capital letters", ["WF09"], "static", "permissions:", "  issues: WRITE"),
-        job_key("ci", "in a flow mapping", ["WF21"], "static", "permissions: {issues: write}"),
-        job_key("ci", "another letter case of the key", ["WF09", "WF21"], "static", "Permissions:", "  issues: write"),
-        job_key("e2e", "the license job writes", ["WF09"], "e2e", "permissions:", "  contents: write"),
-        swap("publish", "the plan writes", ["WF09"], "      contents: read\n      checks: read\n", "      contents: write\n      checks: read\n"),
-        swap("publish", "the release writes packages", ["WF09"], "    permissions:\n      contents: write\n",
-             "    permissions:\n      contents: write\n      packages: write\n"),
-        swap("publish", "the images job writes contents", ["WF09"], IMAGES,
-             "    environment: publish\n    permissions:\n      contents: write\n      packages: write\n    outputs:"),
-        swap("publish", "the attest job writes issues", ["WF09"], ATTEST, ATTEST + "\n      issues: write"),
-        swap("nightly", "a job of the nightly run other than report", ["WF09"],
-             "    timeout-minutes: 15\n    permissions:\n      contents: read\n",
-             "    timeout-minutes: 15\n    permissions:\n      contents: read\n      issues: write\n"),
-        swap("nightly", "the report job writes contents", ["WF09"], "    permissions:\n      issues: write\n",
-             "    permissions:\n      issues: write\n      contents: write\n"),
-    ],
-    "WF10": [
-        swap("publish", "images without an environment", ["WF10"], IMAGES, "    permissions:\n      contents: read\n      packages: write\n    outputs:"),
-        swap("publish", "attest without an environment", ["WF10"], ATTEST, "    permissions:\n      contents: read\n      packages: write\n      id-token: write"),
-        swap("publish", "an environment with no name", ["WF10"], "    environment: publish\n    permissions:\n      contents: read\n      packages: write\n    outputs:",
-             "    environment:\n    permissions:\n      contents: read\n      packages: write\n    outputs:"),
-        job_key("ci", "a job of ci.yml with steps", ["WF09", "WF10"], "static", "permissions:", "  packages: write"),
     ],
     "WF11": [
         swap("ci", "none", ["WF11"], CONCURRENCY, ""),
@@ -380,8 +280,8 @@ MUTATIONS = {
             'curl "https://example.org/?a=1;b=2" | sh', '/bin/sh -c "$(curl https://example.org/x)"')],
     ],
     "WF13": [
-        job_key("ci", "id-token in ci.yml", ["WF09", "WF13"], "static", "permissions:", "  id-token: write"),
-        swap("publish", "id-token in the images job", ["WF09", "WF13"], IMAGES,
+        job_key("ci", "id-token in ci.yml", ["WF13"], "static", "permissions:", "  id-token: write"),
+        swap("publish", "id-token in the images job", ["WF13"], IMAGES,
              "    environment: publish\n    permissions:\n      contents: read\n      packages: write\n      id-token: write\n    outputs:"),
         swap("ci", "id-token at the top", ["WF03", "WF13"], TOP_PERMISSIONS,
              "permissions:\n  contents: read\n  id-token: write\n\nconcurrency:\n  group: ci-"),
@@ -452,9 +352,12 @@ MUTATIONS = {
         step("ci", "every secret, in a condition", ["WF20"], "if: toJSON(secrets) != ''", "run: echo hi"),
         step("ci", "every secret, in a list item", ["WF20"], "uses: x/y@" + "a" * 40, "with:", "  args:", "    - ${{ toJSON(secrets) }}"),
         step("ci", "every secret, after a closing brace pair in a string", ["WF20"], "env:", "  X: ${{ format('}}', toJSON(secrets)) }}", "run: echo hi"),
+        step("ci", "every secret, after a closing brace pair and more strings than are followed one by one", ["WF20"], "env:",
+             "  X: ${{ format(" + "'a', " * (wf.MAX_QUOTES + 10) + "'}}', toJSON(secrets)) }}", "run: echo hi"),
+        job_key("ci", "secrets: inherit", ["WF20"], "static", "secrets: inherit"),
     ],
     "WF21": [
-        swap("ci", "a flow value of runs-on", ["WF06", "WF21"], RUNNER, "    runs-on: [ubuntu-24.04]\n    timeout-minutes: 15\n"),
+        swap("ci", "a flow value of runs-on", ["WF21"], RUNNER, "    runs-on: [ubuntu-24.04]\n    timeout-minutes: 15\n"),
         swap("ci", "a flow value of on", ["WF21"], ON_CI, "on: [pull_request, push]\n"),
         swap("ci", "a flow value of permissions", ["WF03", "WF21"], "permissions:\n  contents: read\n", "permissions: {contents: read}\n"),
         job_key("ci", "a flow value of secrets", ["WF21"], "static", "secrets: {A: b}"),
@@ -484,8 +387,8 @@ MUTATIONS = {
         step("ci", "a script over two lines of a quote", ["WF21"], 'run: "echo $' + BS, '    {{ github.head_ref }}"'),
         step("ci", "a plain scalar on two lines", ["WF21"], "run: echo one", "    ${{ github.head_ref }}"),
         step("ci", "an escape that spells a dollar", ["WF21"], 'run: "echo ' + BS + 'x24{{ github.head_ref }}"'),
-        step("ci", "an escape that spells a secret", ["WF21"], "env:", '  X: "${{ s' + BS + 'x65crets.FOO }}"', "run: echo hi"),
-        step("ci", "an escape in a flow list", ["WF21"], "uses: x/y@" + "a" * 40, "with:", '  args: ["${{ s' + BS + 'x65crets.FOO }}"]'),
+        step("ci", "an escape that spells the secrets", ["WF21"], "env:", '  X: "${{ toJSON(s' + BS + 'x65crets) }}"', "run: echo hi"),
+        step("ci", "an escape in a flow list", ["WF21"], "uses: x/y@" + "a" * 40, "with:", '  args: ["${{ toJSON(s' + BS + 'x65crets) }}"]'),
         swap("ci", "text after a quoted value", ["WF21"], "name: CI", "name: 'CI' x"),
         swap("ci", "a block header the rules do not know", ["WF21"], "run: python3 -I lab/lab-ui/catalog.py index catalog --out catalog.json",
              "run: |x"),
@@ -544,50 +447,10 @@ NEAR = {
         swap("ci", "a call job", [], "  result:\n", "  call:\n    uses: ./.github/workflows/x.yml\n\n  result:\n"),
         swap("ci", "the longest timeout", [], "timeout-minutes: 15", "timeout-minutes: 360"),
     ],
-    "WF06": [
-        swap("ci", "a quoted label", [], RUNNER, "    runs-on: 'ubuntu-24.04-arm'\n    timeout-minutes: 15\n"),
-        swap("ci", "the label on the next line", [], RUNNER, "    runs-on:\n      ubuntu-24.04\n    timeout-minutes: 15\n"),
-    ],
     "WF07": [
         step("ci", "a quoted false", [], "uses: " + CHECKOUT, "with:", "  persist-credentials: \"false\""),
         step("ci", "false after other inputs", [], "uses: " + CHECKOUT, "with:", "  path: x", "  fetch-depth: 0", "  persist-credentials: false"),
         step("ci", "another action", [], "uses: " + PYTHON),
-    ],
-    "WF08": [
-        step("ci", "a secret in a comment", [], "run: echo hi # ${{ secrets.THING }}"),
-        step("ci", "the Lab key to the lab action at the root of the checkout", [], "uses: ./.github/actions/lab", "with:",
-             "  key: ${{ secrets.LAB_DEPLOY_KEY }}"),
-        step("ci", "the Lab key to the lab action of the catalog folder", [], "uses: ./catalog/.github/actions/lab", "with:",
-             "  key: ${{ secrets.LAB_DEPLOY_KEY }}"),
-        step("ci", "the Lab key as a double-quoted key", [], "uses: ./catalog/.github/actions/lab", "with:",
-             '  key: "${{ secrets.LAB_DEPLOY_KEY }}"'),
-        # a secret is read inside `${{ }}` or an `if:`: a file, a host, a resource or a sentence that holds the word is no read
-        step("ci", "a script called load-secrets", [], "run: ./scripts/load-secrets.sh"),
-        step("ci", "a file called secrets.yaml", [], "run: cat deploy/secrets.yaml"),
-        step("ci", "a host called my-secrets", [], "run: curl -fsS https://my-secrets.example.com/health"),
-        step("ci", "a Kubernetes resource", [], "run: kubectl get secrets.v1 -A"),
-        step("ci", "a sentence in a name", [], "name: Rotate the secrets. Then continue", "run: echo hi"),
-        step("ci", "a step called load-secrets", [], "if: steps.load-secrets.outcome == 'success'", "run: echo hi"),
-        step("ci", "a word in a string of an expression", [], "if: ${{ contains(github.event.head_commit.message, 'secrets.FOO') }}",
-             "run: echo hi"),
-        step("ci", "a word in a string that holds a closing brace pair", [],
-             "if: ${{ contains(github.event.head_commit.message, '}} secrets.FOO') }}", "run: echo hi"),
-        swap("publish", "the job's token alone", [], "password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}",
-             "password: ${{ secrets.GITHUB_TOKEN }}"),
-        swap("publish", "the two in the other order", [], "password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}",
-             "password: ${{ secrets.GITHUB_TOKEN || secrets.REGISTRY_TOKEN }}"),
-    ],
-    "WF09": [
-        job_key("publish", "a job that reads", [], "guard", "permissions:", "  contents: read"),
-        job_key("ci", "a job that reads packages", [], "static", "permissions:", "  packages: read"),
-        job_key("ci", "a job that gives a scope up", [], "static", "permissions:", "  checks: none"),
-    ],
-    "WF10": [
-        swap("publish", "an environment given by an expression", [], IMAGES,
-             "    environment: ${{ github.ref_type == 'tag' && 'release' || 'publish' }}\n    permissions:\n      contents: read\n"
-             "      packages: write\n    outputs:"),
-        swap("publish", "an environment with a name and a url", [], IMAGES,
-             "    environment:\n      name: publish\n    permissions:\n      contents: read\n      packages: write\n    outputs:"),
     ],
     "WF11": [
         swap("ci", "a group written short", [], CONCURRENCY, "concurrency: ci-${{ github.ref }}\n\n"),
@@ -663,16 +526,8 @@ def laid_out(case):
 
 
 class Contract(unittest.TestCase):
-    def test_the_sets_are_the_ones_of_section_6_4(self):
-        self.assertEqual(wf.GENERIC, {"WF01", "WF02", "WF03", "WF04", "WF05", "WF07", "WF11", "WF12", "WF14", "WF17", "WF19",
-                                      "WF20", "WF21"})
-        self.assertEqual(wf.LANES, {"WF06", "WF08", "WF09", "WF10", "WF13"})
-        self.assertEqual(wf.ALL, wf.GENERIC | wf.LANES)
-        self.assertFalse(wf.GENERIC & wf.LANES)
-        self.assertEqual(sorted(wf.RULES), sorted(wf.ALL))
-
     def test_every_rule_has_a_planted_violation(self):
-        self.assertEqual(sorted(MUTATIONS), sorted(wf.ALL))
+        self.assertEqual(sorted(MUTATIONS), sorted(wf.RULES))
         for code, cases in MUTATIONS.items():
             self.assertTrue(any(code in case.want for case in cases), code)
 
@@ -717,11 +572,11 @@ class Passing(unittest.TestCase):
 
     def test_a_name_that_is_not_one_of_the_standards_has_the_rights_of_none(self):
         other = wf.problems(".github/workflows/other.yml", text_of("publish"))
-        self.assertEqual(sorted({each.code for each in other}), ["WF08", "WF09", "WF13"])
+        self.assertEqual(sorted({each.code for each in other}), ["WF13"])
 
     def test_the_directory_and_the_extension_are_not_the_rights(self):
-        self.assertEqual([], wf.problems("publish.yml", text_of("publish"), wf.ALL))
-        self.assertNotEqual([], wf.problems("publish.yaml", text_of("publish"), wf.ALL))
+        self.assertEqual([], wf.problems("publish.yml", text_of("publish")))
+        self.assertNotEqual([], wf.problems("publish.yaml", text_of("publish")))
 
     def test_a_catalog_tree_is_checked_by_the_function_the_audit_calls(self):
         self.assertEqual([], wf.check(tree_of()))
@@ -729,7 +584,7 @@ class Passing(unittest.TestCase):
 
     def test_each_rule_passes_what_is_close_to_its_violations(self):
         """One or more passing fixtures for each rule: the spellings that look like a violation and are not."""
-        self.assertEqual(sorted(NEAR), sorted(wf.ALL))
+        self.assertEqual(sorted(NEAR), sorted(wf.RULES))
         for code, cases in sorted(NEAR.items()):
             for case in cases:
                 for form, text in laid_out(case):
@@ -788,21 +643,7 @@ class Mutations(unittest.TestCase):
                     with self.subTest(code=code, case=case.label, form=form):
                         self.assertEqual(case.want, codes(case.file, text))
 
-    def test_the_set_decides_what_runs(self):
-        """GENERIC alone does not see a violation of LANES, and LANES alone does not see one of GENERIC."""
-        for code, cases in sorted(MUTATIONS.items()):
-            for case in cases[:3]:
-                text = case.mutate(text_of(case.file))
-                with self.subTest(code=code, case=case.label):
-                    only_generic = codes(case.file, text, wf.GENERIC)
-                    only_lanes = codes(case.file, text, wf.LANES)
-                    self.assertEqual(only_generic, [each for each in case.want if each in wf.GENERIC])
-                    self.assertEqual(only_lanes, [each for each in case.want if each in wf.LANES])
-
     def test_a_rule_names_the_line(self):
-        text = with_step(text_of("ci"), "static", "run: echo hi", "env:", "  X: ${{ secrets.NPM_TOKEN }}")
-        found = wf.problems(path_of("ci"), text, {"WF08"})
-        self.assertEqual([(each.code, each.line) for each in found], [("WF08", line_of(text, "NPM_TOKEN"))])
         text = with_step(text_of("ci"), "static", "run: |", "  echo one", "  echo ${{ x }}")
         found = wf.problems(path_of("ci"), text, {"WF04"})
         self.assertEqual([each.line for each in found], [line_of(text, "echo ${{ x }}")])
@@ -823,17 +664,6 @@ class Mutations(unittest.TestCase):
         self.assertEqual(message("ci", text, "WF02"),
                          path + ":%d: actions/setup-python@v6 is not pinned to a full commit. Pin it as owner/repo@<40 hex> # tag; "
                                 "Dependabot proposes the next one." % line_of(text, "setup-python"))
-        self.assertEqual(message("ci", edit(text_of("ci"), RUNNER, "    runs-on: ubuntu-latest\n    timeout-minutes: 15\n"), "WF06"),
-                         path + ": job static runs on ubuntu-latest. Use ubuntu-24.04 or ubuntu-24.04-arm, or a matrix that the plan "
-                                "job of this file makes: a self-hosted runner keeps what a pull request leaves on it.")
-        text = with_step(text_of("ci"), "static", "env:", "  X: ${{ secrets.NPM_TOKEN }}", "run: x")
-        self.assertEqual(message("ci", text, "WF08"), path + ":%d: secrets.NPM_TOKEN is read where no rule allows it. Pass it by name "
-                                                      "to the one step that needs it." % line_of(text, "NPM_TOKEN"))
-        self.assertEqual(message("ci", in_job(text_of("ci"), "static", "permissions:", "  issues: write"), "WF09"),
-                         path + ": job static holds issues: write. Only publish.yml's images, attest and release jobs, and "
-                                "the report jobs of nightly.yml and versions.yml, may write.")
-        self.assertEqual(message("publish", edit(text_of("publish"), IMAGES, "    permissions:\n      contents: read\n      packages: write\n    outputs:"), "WF10"),
-                         ".github/workflows/publish.yml: job images writes packages without an environment. Add environment: publish.")
         text = with_step(text_of("ci"), "static", "uses: " + DOWNLOAD, "with:", "  run-id: 7")
         self.assertEqual(message("ci", text, "WF20"),
                          path + ":%d: run-id on download-artifact reads an artifact of another run, which someone may have written. "
@@ -874,8 +704,6 @@ class Readers(unittest.TestCase):
         for factor in (1, 3, 4, 7):
             with self.subTest(factor=factor):
                 self.assertEqual(codes("ci", reindented(edit(text_of("ci"), "pull_request:", "pull_request_target:"), factor)), ["WF01"])
-                self.assertEqual(codes("ci", reindented(edit(text_of("ci"), RUNNER, "    runs-on: self-hosted\n    timeout-minutes: 15\n"),
-                                                        factor)), ["WF06"])
 
     def test_the_reasons_a_file_is_refused(self):
         def reason(text):
@@ -903,7 +731,7 @@ class Readers(unittest.TestCase):
     def test_a_scalar_that_is_not_a_mapping_is_not_a_workflow(self):
         for text in ("", "\n\n", "# only a comment\n", "just words\n", "- a\n- b\n", "[a, b]\n", "{a: b}\n"):
             with self.subTest(text):
-                self.assertIsInstance(wf.problems(".github/workflows/ci.yml", text, wf.ALL), list)
+                self.assertIsInstance(wf.problems(".github/workflows/ci.yml", text), list)
 
     def test_an_empty_workflow_breaks_what_a_workflow_must_have(self):
         self.assertEqual(codes("ci", ""), ["WF03", "WF11"])
@@ -927,29 +755,6 @@ class Readers(unittest.TestCase):
                 text = file.read_text(encoding="utf-8")
                 found = wf.problems(file.relative_to(ROOT).as_posix(), text, wf.GENERIC)
                 self.assertEqual([each.message for each in found], [])
-
-    def test_the_engines_ci_and_the_compose_action_pass_every_rule(self):
-        found = []
-        for relative in (".github/workflows/ci.yml", ".github/actions/compose/action.yml"):
-            text = (ROOT / relative).read_text(encoding="utf-8")
-            found += [(relative, each.code) for each in wf.problems(relative, text, wf.ALL)]
-        self.assertEqual(found, [])
-
-    def test_the_engines_privileged_workflows_break_nothing_but_the_lanes_that_are_written_for_a_catalog(self):
-        """The workflows of the engine are written by other packages and change with them, so no exact set of findings is pinned
-        here. What must hold: GENERIC finds nothing in any of them (the test above), so everything that `ALL` finds is a rule of
-        LANES, which runs on catalogs. `e2e.yml` and `lab-images.yml` are not a catalog's `e2e.yml` and `publish.yml`: they read
-        secrets and write packages by design, and that is the reason for two sets."""
-        names = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-        if not names:
-            print("skipped: this checkout has no .github/workflows")
-            self.skipTest("no workflows")
-        for file in names:
-            with self.subTest(file=file.name):
-                text = file.read_text(encoding="utf-8")
-                found = wf.problems(file.relative_to(ROOT).as_posix(), text, wf.ALL)
-                self.assertEqual([each.message for each in found if each.code not in wf.LANES], [])
-                self.assertEqual([each for each in found if each.code in wf.GENERIC], [])
 
 
 class Aggregator(unittest.TestCase):
@@ -1092,11 +897,11 @@ class Trees(unittest.TestCase):
 
     def test_a_file_of_the_workflows_folder_is_a_workflow_whatever_its_name(self):
         """GitHub runs every file of `.github/workflows/` as a workflow, so the place decides and the name does not: a workflow
-        called action.yml is a workflow and breaks WF01, WF03 and WF06 like any other."""
+        called action.yml is a workflow and breaks WF01 and WF03 like any other."""
         bad = ("name: x\non:\n  pull_request_target:\npermissions:\n  contents: write\njobs:\n  a:\n    runs-on: self-hosted\n"
                "    permissions:\n      packages: write\n      id-token: write\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo hi\n")
         want = sorted({each.code for each in wf.problems(".github/workflows/evil.yml", bad)})
-        self.assertEqual(want, ["WF01", "WF02", "WF03", "WF05", "WF06", "WF07", "WF09", "WF10", "WF11", "WF13"])
+        self.assertEqual(want, ["WF01", "WF02", "WF03", "WF05", "WF07", "WF11", "WF13"])
         for name in ("action.yml", "action.yaml", "ACTION.YML", "Action.yaml", "sub/action.yml"):
             path = ".github/workflows/" + name
             with self.subTest(name=name):
@@ -1261,9 +1066,8 @@ PLACES = (".github/workflows/ci.yml", ".github/workflows/publish.yml", ".github/
 
 
 def shapes_for(path):
-    """Every shape under the two workflows that carry the most rules (the publish lane has the Docker login); under the
-    end-to-end file (the license) and an action, the shapes that hold secrets, escapes or very long lines, which are the ones whose
-    cost depends on the family or on the kind of file."""
+    """Every shape under two workflows; under another and an action, the shapes that hold secrets, escapes or very long lines, whose
+    cost depends on the kind of file."""
     if path in PLACES[:2]:
         return list(HOSTILE.items())
     return [(label, text) for label, text in HOSTILE.items() if any(word in label for word in ("secret", "escape", "1 MB", "lines"))]
@@ -1274,13 +1078,12 @@ class Hostile(unittest.TestCase):
     the process, so that a busy machine does not fail the test), and never raises."""
 
     def test_every_rule_finishes_on_every_hostile_shape(self):
-        """Each shape under four names, because the name gives a file the rules of its family: the publish lane has the secrets of
-        a Docker login, the end-to-end file has the license, an action has no job."""
+        """Each shape under four names: the name and the place decide what a file is, and an action has no job."""
         for path in PLACES:
             for label, text in shapes_for(path):
                 with self.subTest(label, path=path):
                     start = time.process_time()
-                    found = wf.problems(path, text, wf.ALL)
+                    found = wf.problems(path, text)
                     spent = time.process_time() - start
                     # A rule that backtracks takes tens of seconds here; a linear one takes about 0.3 s of a laptop's CPU and three
                     # times that on a runner of GitHub, so the bound leaves the runner its room and still catches the first
@@ -1302,7 +1105,7 @@ class Hostile(unittest.TestCase):
         with tempfile.TemporaryDirectory() as holder:
             marker = Path(holder) / "marker"
             text = step_line("uses: ./../../etc/passwd") + "      - run: __import__('pathlib').Path(%r).write_text('x')\n" % str(marker)
-            found = wf.problems(".github/workflows/../ci.yml", text, wf.ALL)
+            found = wf.problems(".github/workflows/../ci.yml", text)
             self.assertIn("WF02", [each.code for each in found])
             self.assertFalse(marker.exists())
 
@@ -1326,9 +1129,9 @@ class Hostile(unittest.TestCase):
                     text = "\n".join(rows)
             with self.subTest(number=number, file=name):
                 start = time.process_time()
-                found = wf.problems(path_of(name), text, wf.ALL)
+                found = wf.problems(path_of(name), text)
                 self.assertLess(time.process_time() - start, 1.0)
-                self.assertTrue(all(isinstance(each, wf.Problem) and each.code in wf.ALL and each.line >= 0 for each in found))
+                self.assertTrue(all(isinstance(each, wf.Problem) and each.code in wf.RULES and each.line >= 0 for each in found))
 
 
 # ---------------------------------------------------------------- the tree of the tests

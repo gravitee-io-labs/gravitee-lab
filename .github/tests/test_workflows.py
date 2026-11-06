@@ -122,9 +122,8 @@ class WorkflowsTest(unittest.TestCase):
         self.assertIn("ci.yml", [file.name for file in WORKFLOWS])
 
     def test_every_workflow_and_action_keeps_the_rules_of_any_workflow(self):
-        """WF01 to WF05, WF07, WF11, WF12, WF14, WF17 and WF19 to WF21: no pull_request_target, every action pinned to a commit, the
-        token read-only, no `${{ }}` in a script, a timeout and a concurrency group, every checkout forgets its credentials, no cache,
-        no hidden construct. The rules for the lanes of a catalog (LANES) are not asked of the engine's own privileged workflows."""
+        """No pull_request_target, every action pinned to a commit, the token read-only, no `${{ }}` in a script, a timeout and a
+        concurrency group, every checkout forgets its credentials, no cache, no hidden construct."""
         found = {file.relative_to(ROOT).as_posix(): file.read_text(encoding="utf-8") for file in FILES}
         for path, text in found.items():
             with self.subTest(file=path):
