@@ -572,9 +572,9 @@ class Running(Case):
         self.assertIn("no byte for 2 s", result.err)
 
     def test_a_fetch_that_keeps_sending_is_not_a_stall_but_is_cut_at_the_cap(self):
-        self.warmed("i=0; while [ $i -lt 10 ]; do printf x >&2; sleep 0.1; i=$((i+1)); done")
-        done = gitx.stream(["x"], stall=2, cap=60)
-        self.assertEqual((done.code, done.err), (0, "x" * 10), "a second long, a gap of a tenth: not a stall")
+        self.warmed("i=0; while [ $i -lt 40 ]; do printf x >&2; sleep 0.1; i=$((i+1)); done")
+        done = gitx.stream(["x"], stall=3, cap=60)
+        self.assertEqual((done.code, done.err), (0, "x" * 40), "longer than the stall, a gap of a tenth: not a stall")
         capped = gitx.stream(["x"], stall=2, cap=0.5)
         self.assertEqual(capped.code, 124)
         self.assertIn("no answer within 0.5 s", capped.err)
