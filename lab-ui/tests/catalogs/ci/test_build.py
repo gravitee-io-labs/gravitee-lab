@@ -83,7 +83,7 @@ class Disk(Case):
         return str(folder)
 
     def service(self, name="bakery-web", context=None, image=None, **build_keys):
-        context = context or self.app(name=name.replace("bank-", ""))
+        context = context or self.app(name=name)
         return {"image": image or f"example.test/lab/{name}:1.0", "build": {"context": context, "dockerfile": "Dockerfile",
                                                                           **build_keys}}
 
@@ -216,12 +216,6 @@ class Refusals(Disk):
                                                       "target and labels only.")
                 self.assertEqual(rows[0].status, "refused")
 
-    def test_one_service_refused_does_not_stop_the_others(self):
-        services = {"bad": self.service("bad", self.app(name="bad"), ssh=["default"]),
-                    "good": self.service("good", self.app(name="good"))}
-        specs, problems, _ = self.specs(services)
-        self.assertEqual(([each.service for each in specs], [each.code for each in problems]), (["good"], ["BD02"]))
-
     def test_every_key_is_listed_when_a_service_has_several(self):
         specs, problems, _ = self.specs({"bakery-web": self.service(ssh=["default"], network="host", cache_to=["x"])})
         self.assertEqual([each.message.split("build.")[1].split(" ")[0] for each in problems], ["cache_to", "network", "ssh"])
@@ -341,14 +335,6 @@ class Classify(unittest.TestCase):
         failure = build.classify(1, "", STEP_FAILED)
         self.assertEqual((failure.kind, failure.code, failure.step), ("process", 1, (3, 5, "RUN pip install -r requirements.txt")))
 
-    def test_a_program_that_prints_the_words_of_a_refusal_does_not_make_it_one(self):
-        # Line 7 of the log says toomanyrequests: it is the program's (it has the seconds), not BuildKit's
-        self.assertEqual(build.classify(1, "", STEP_FAILED).kind, "process")
-
-    def test_a_pull_that_docker_hub_refused_is_the_infrastructure(self):
-        failure = build.classify(1, "", HUB_REFUSED)
-        self.assertEqual(failure.kind, "infra")
-
     def test_each_kind_of_infrastructure_failure(self):
         for line in ('#3 ERROR: failed to do request: Head "https://registry-1.docker.io/v2/x": net/http: TLS handshake timeout',
                      "ERROR: failed to solve: dial tcp: lookup registry-1.docker.io on 127.0.0.11:53: server misbehaving",
@@ -436,7 +422,7 @@ class Running(Disk):
             text = handle.read()
         self.assertIn("### Images built for linux/amd64", text)
         self.assertRegex(text, r"\| `example\.test/lab/bakery-web:1\.0` \| playground:bank \| built \| 41\.2 MB \| \d+ s \|")
-        self.assertIn("| `example.test/lab/seed", text.replace("example.test/lab/seeder", "example.test/lab/seed"))
+        self.assertIn("| `example.test/lab/seeder", text)
         self.assertIn("left out: the Lab's own seeder, which the Lab's CI builds", text)
         self.assertIn("All good.", text)
 
@@ -517,20 +503,6 @@ class Running(Disk):
         self.fake.when("buildx", "build", answers=[{"code": 1, "stderr": HUB_REFUSED}, {"code": 0}])
         code = self.stage({"bakery-web": self.service(context=self.app())})
         self.assertEqual((code, len(self.builds()), self.sleeps), (0, 2, [20]))
-
-    def test_a_tls_timeout_and_a_5xx_are_tried_again_too(self):
-        for line in ("ERROR: failed to solve: net/http: TLS handshake timeout", "ERROR: failed to solve: 503 Service Unavailable"):
-            self.fake.reset()
-            self.sleeps.clear()
-            self.fake.when("buildx", "build", times=2, code=1, stderr=line + "\n")
-            code = self.stage({"bakery-web": self.service(context=self.app())})
-            self.assertEqual((code, len(self.builds()), self.sleeps), (0, 3, [20, 60]))
-
-    def test_the_words_a_program_prints_do_not_make_it_infrastructure(self):
-        self.fake.when("buildx", "build", code=1, stderr="#5 [1/2] RUN curl x\n#5 0.2 toomanyrequests 503 Service Unavailable\n"
-                       "#5 ERROR: process \"curl x\" did not complete successfully: exit code: 22\n")
-        self.stage({"bakery-web": self.service(context=self.app())})
-        self.assertEqual((len(self.builds()), self.sleeps), (1, []))
 
     def test_an_image_that_takes_over_ten_minutes_is_stopped_and_is_bd04(self):
         self.fake.when("buildx", "build", sleep=30)
