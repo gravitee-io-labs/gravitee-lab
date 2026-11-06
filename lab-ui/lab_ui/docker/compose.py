@@ -8,7 +8,6 @@ import atexit
 import calendar
 import concurrent.futures.thread   # noqa: F401  (see _end: its exit hook has to be registered before ours)
 import contextlib
-import functools
 import hashlib
 import json
 import os
@@ -118,15 +117,7 @@ class Cache:
 CACHE = Cache()
 
 
-@functools.lru_cache(maxsize=None)
-def _scratch_folder():
-    folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-"))
-    atexit.register(shutil.rmtree, folder, True)
-    return folder
-
-
-# lru_cache does not keep two threads that ask at the same time from both running the function: each would make a folder
-_scratch_lock = threading.Lock()
+_scratch_folder, _scratch_lock = None, threading.Lock()
 
 
 def scratch():
@@ -134,10 +125,12 @@ def scratch():
     generated include files, and a folder without compose files to ask Docker by project name. Private, so that
     no other user of the machine writes what Compose reads there. Made again when the system clears its temp
     folder while the Lab UI runs. One folder for the threads that ask at the same time, the first time as well."""
+    global _scratch_folder
     with _scratch_lock:
-        if not _scratch_folder().is_dir():
-            _scratch_folder.cache_clear()
-        return _scratch_folder()
+        if _scratch_folder is None or not _scratch_folder.is_dir():
+            _scratch_folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-"))
+            atexit.register(shutil.rmtree, _scratch_folder, True)
+        return _scratch_folder
 
 
 # Compose fetches a remote include (a Git repository, an OCI artifact) by itself when a file it reads names one, with

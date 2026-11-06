@@ -6,7 +6,6 @@ found. For `config` only (`scrubbed_environment`); a build, an `up` and a smoke 
 where the real one does, in its order, and the real CLI and the Compose that is installed are tried when there are
 some: a visible skip where they are not."""
 
-import functools
 import json
 import os
 import shlex
@@ -149,7 +148,7 @@ class Layout(Case):
     def fresh_scratch(self):
         """The folder of this run made for the first time, as when a Lab UI has just started, with a `mkdtemp` that takes
         its time so that the threads which ask together are all in it: answers the list of the folders made."""
-        self.patch(compose, "_scratch_folder", functools.lru_cache(maxsize=None)(compose._scratch_folder.__wrapped__))
+        self.patch(compose, "_scratch_folder", None)
         self.addCleanup(lambda: shutil.rmtree(compose.scratch(), True))
         made, real = [], tempfile.mkdtemp
 
