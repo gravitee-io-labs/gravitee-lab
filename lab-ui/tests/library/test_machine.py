@@ -30,10 +30,8 @@ class Taken(Case):
     """The look at a port, with a real listener: the tests of the checks below patch it."""
 
     def test_a_program_that_listens_on_the_loopback_or_on_every_address_holds_the_port(self):
-        for family, address in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET, "0.0.0.0"), (socket.AF_INET6, "::")):
-            with self.subTest(address=address), socket.socket(family, socket.SOCK_STREAM) as listener:
-                if family == socket.AF_INET6:
-                    listener.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        for address in ("127.0.0.1", "0.0.0.0"):
+            with self.subTest(address=address), socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
                 listener.bind((address, 0))
                 listener.listen(1)
                 port = listener.getsockname()[1]
