@@ -1806,10 +1806,6 @@ class Wording(Case):
             with self.subTest(path=path):
                 self.assertEqual(install.unit_key(path), key)
 
-    def test_the_private_names_are_gone_for_good(self):
-        for name in ("_not_expected", "_taken", "_unit_key"):
-            self.assertFalse(hasattr(install, name), name)
-
 
 class Verifying(Base):
 

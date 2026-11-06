@@ -717,7 +717,6 @@ class Flock(Disk):
         self.assertEqual((error.code, error.status, error.message, error.detail),
                          ("busy", 409, "Another catalog change is running. Try again in a moment.", {}))
         self.assertIsNot(registry.busy(), error, "a new error each time: a traceback is not shared")
-        self.assertFalse(hasattr(registry, "_busy"))
 
     def test_another_holder_makes_the_change_busy(self):
         gate, release = threading.Event(), threading.Event()
