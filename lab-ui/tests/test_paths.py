@@ -5,8 +5,6 @@ import json
 import os
 import re
 import stat
-import subprocess
-import sys
 import threading
 import tempfile
 import unittest
@@ -17,6 +15,7 @@ from lab_ui import paths
 from lab_ui.catalogs import registry
 
 from . import Case
+from .server.test_api import served_elsewhere
 
 
 class SeedApis(Case):
@@ -88,21 +87,6 @@ class Serving(Case):
         self.folder(paths)
         self.addCleanup(paths.stop_serving)
 
-    def holder(self, port):
-        """Another process that serves the folder on `port`, until the test ends."""
-        script = ("import fcntl, os, sys\n"
-                  "descriptor = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
-                  "fcntl.flock(descriptor, fcntl.LOCK_EX)\n"
-                  "os.write(descriptor, sys.argv[2].encode() + b'\\n')\n"
-                  "print('held', flush=True)\n"
-                  "sys.stdin.read()\n")
-        (self.root / paths.LAB_DIR).mkdir(exist_ok=True)
-        holder = subprocess.Popen([sys.executable, "-c", script, str(self.root / paths.SERVING_FILE), str(port)],
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        self.addCleanup(holder.wait, 10)
-        self.addCleanup(holder.stdin.close)
-        self.assertEqual(holder.stdout.readline(), "held\n")
-
     def test_the_lab_ui_that_serves_the_folder_holds_it_with_its_port_and_lets_it_go(self):
         self.assertIsNone(paths.served_elsewhere())
         self.assertIsNone(paths.serve_here(9000))
@@ -113,8 +97,7 @@ class Serving(Case):
         self.assertIsNone(paths.serve_here(9002), "let go, it is free for the next")
 
     def test_another_process_that_serves_the_folder_is_found_with_its_port(self):
-        self.patch(paths, "SERVING_WAIT", 0.1)
-        self.holder(9000)
+        served_elsewhere(self, 9000)
         self.assertEqual(paths.served_elsewhere(), 9000)
         self.assertEqual(paths.serve_here(9001), 9000)
         self.assertEqual((self.root / paths.SERVING_FILE).read_text(), "9000\n", "nothing written over")
