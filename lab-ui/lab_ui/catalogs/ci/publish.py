@@ -480,8 +480,6 @@ def plan_main(argv, out, err, **seams) -> int:
     event = args.event or os.environ.get("GITHUB_EVENT_NAME") or "push"
     if not re.fullmatch(r"[a-z_]{1,40}", event):
         raise Usage("--event is the name of a GitHub event")
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     if args.github_output and not os.environ.get("GITHUB_OUTPUT"):
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     root = os.path.abspath(args.path)
@@ -644,8 +642,6 @@ def main(argv, out, err, **seams) -> int:
     found.add_argument("--dry-run", action="store_true", help="print the commands instead of running them")
     args = parsed(found, argv)
     ref, sha = parse_ref(args.ref), check_sha(args.sha)
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     if args.github_output and not os.environ.get("GITHUB_OUTPUT") and not args.dry_run:
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     root = os.path.abspath(args.path)

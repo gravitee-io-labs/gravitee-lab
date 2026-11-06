@@ -408,8 +408,6 @@ def main(argv, out, err, **seams) -> int:
     args = parsed(found, argv)
     platform = platform_of(args.platform)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     loading = load(root, names)
     problems = refusals(loading.refused, "built")

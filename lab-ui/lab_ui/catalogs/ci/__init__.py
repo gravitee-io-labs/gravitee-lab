@@ -191,8 +191,10 @@ def parser(stage: str, text: str, units: bool = False, fmt: bool = True, ci: boo
 
 
 def parsed(found: Parser, argv: Sequence[str]) -> argparse.Namespace:
-    """The arguments, with `--ci` meaning `--format github` unless a format was given."""
+    """The arguments, with `--ci` meaning `--format github` unless a format was given. A PATH that is not a folder is a Usage."""
     args = found.parse_args(list(argv))
+    if not os.path.isdir(args.path):
+        raise Usage(f"{report.printable(args.path)} is not a folder")
     if getattr(args, "format", "x") is None:
         args.format = "github" if getattr(args, "ci", False) else "text"
     return args
@@ -650,8 +652,6 @@ def lab_loader(folder: str, names: List[Tuple[str, str]], hidden: Iterable[Tuple
     project is not to read at all (`hidden_units`)."""
     from ... import e2e
     from .. import defaults, registry
-    if not os.path.isdir(folder):
-        raise Usage(f"{report.printable(folder)} is not a folder")
     summary = check.folder_summary(folder)
     ns = summary.get("id")
     if not isinstance(ns, str) or not re.fullmatch(paths.NS, ns):

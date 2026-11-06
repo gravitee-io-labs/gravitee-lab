@@ -82,8 +82,6 @@ def main(argv, out, err, **seams) -> int:
     found.add_argument("--base", default="", help="the commit the change is measured from (default: origin/main)")
     found.add_argument("--app", default=None, help="build and test this app only (the folder of its build context)")
     args = parsed(found, argv)
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     platform = host_platform()
     steps: List[Step] = []

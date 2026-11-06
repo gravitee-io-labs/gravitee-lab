@@ -93,8 +93,6 @@ def main(argv, out, err, **seams) -> int:
     """`ci needs`. Exit 1 when a needed catalog cannot be fetched or linked, 2 when the stage cannot run."""
     found = parser("needs", "Fetch and link the catalogs this one requires, at the commits its standard.json names.")
     args = parsed(found, argv)
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     needs = declared(args.path)
     if not needs:
         out.write("Needs: none\n" if args.format == "text" else "")

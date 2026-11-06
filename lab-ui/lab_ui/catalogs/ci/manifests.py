@@ -129,8 +129,6 @@ def main(argv, out, err, **seams) -> int:
     found = parser("manifests", "Every image the touched units pull exists in its registry.", units=True)
     args = parsed(found, argv)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     loading = load(os.path.abspath(args.path), names)
     problems = refusals(loading.refused, "read")
     skipped = list(loading.notes)

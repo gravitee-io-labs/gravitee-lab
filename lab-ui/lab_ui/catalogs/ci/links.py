@@ -42,7 +42,7 @@ from urllib.parse import urljoin, urlsplit
 from .. import report, tree as trees
 from ..report import Problem
 from ..rules import guides, newlines, read_limit
-from . import Unavailable, Usage, conclude, entry, parsed, parser, problem
+from . import Unavailable, conclude, entry, parsed, parser, problem
 
 TIMEOUT = 15            # seconds a host has to answer
 HOPS = 5                # redirects followed
@@ -346,8 +346,6 @@ def main(argv, out, err, **seams) -> int:
     """`ci links`. Exit 0 whatever LK01 found (they are warnings), 2 when the links could not be asked at all."""
     found = parser("links", "The links of the guides and the READMEs answer.")
     args = parsed(found, argv)
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     tree = seams.get("tree") or trees.FolderTree(os.path.abspath(args.path))
     links = markdown_links(tree)
     urls = list(dict.fromkeys(link.url for link in links))

@@ -396,9 +396,8 @@ def plan_main(argv, out, err, **seams) -> int:
         raise Usage("words after -- are the items of --items")
     if args.github_output and not os.environ.get("GITHUB_OUTPUT"):
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
-    for folder in (args.path, args.change):
-        if folder is not None and not os.path.isdir(folder):
-            raise Usage(f"{report.printable(folder)} is not a folder")
+    if args.change is not None and not os.path.isdir(args.change):
+        raise Usage(f"{report.printable(args.change)} is not a folder")
     ref = args.ref if args.ref is not None else os.environ.get("GITHUB_REF", "")
     planned = make_plan(os.path.abspath(args.path), os.path.abspath(args.change) if args.change else None, args.sha, args.pr, ref, mode,
                         words, seams)

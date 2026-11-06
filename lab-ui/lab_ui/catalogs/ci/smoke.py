@@ -493,8 +493,6 @@ def main(argv, out, err, **seams) -> int:
     found = parser("smoke", "Start what does not need the platform, and check that it answers.", units=True)
     args = parsed(found, argv)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     runner, sleep, session = seams.get("runner"), seams.get("sleep") or time.sleep, seams.get("session") or project_session
     loading = load(root, names)

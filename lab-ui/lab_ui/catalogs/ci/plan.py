@@ -279,8 +279,6 @@ def main(argv, out, err, **seams) -> int:
     if not EVENT.fullmatch(args.event):
         raise Usage("--event is the name of a GitHub event, for example pull_request")
     root = os.path.abspath(args.path)
-    if not os.path.isdir(root):
-        raise Usage(f"{args.path} is not a folder")
     if args.github_output and not os.environ.get("GITHUB_OUTPUT"):
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     tree = trees.FolderTree(root)

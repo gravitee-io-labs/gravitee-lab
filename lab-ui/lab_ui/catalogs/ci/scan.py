@@ -262,8 +262,6 @@ def main(argv, out, err, **seams) -> int:
     args = parsed(found, argv)
     if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}", args.tag):
         raise Usage("--tag is a tag of an image: letters, digits and . _ -")
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     meta = catalog_meta(trees.FolderTree(root).text("catalog.yml") or "")
     prefix = meta.get("images", "")
@@ -300,8 +298,6 @@ def built_main(argv, out, err, **seams) -> int:
     found.add_argument("--app", default=None, help="scan only the image of this app (the folder of its build context)")
     args = parsed(found, argv)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     loading = load(root, names)
     problems = refusals(loading.refused, "scanned")

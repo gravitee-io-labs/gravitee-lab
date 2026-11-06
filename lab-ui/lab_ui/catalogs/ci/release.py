@@ -254,8 +254,6 @@ def main(argv, out, err, **seams) -> int:
     args = parsed(found, argv)
     if not TAG.fullmatch(args.tag):
         raise Usage(f"--tag is a release tag, vX.Y.Z: {report.printable(args.tag)[:40]} is not one")
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     release = gather(root, args.tag, seams)
     records = read_records(args.records)
@@ -280,8 +278,6 @@ def unreleased_main(argv, out, err, **seams) -> int:
     """`ci unreleased`."""
     found = parser("unreleased", "What changed since the last release, which the Lab does not offer yet.")
     args = parsed(found, argv)
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     git_dir = trees.git_dir_of(root)
     sha = trees.resolve(root, "HEAD") if git_dir else None

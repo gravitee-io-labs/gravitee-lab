@@ -41,7 +41,7 @@ from typing import Callable, List, NamedTuple, Optional
 from .. import report, tree as trees
 from ..report import Problem
 from ..rules import secrets
-from . import NOT_PINNED_YET, Unavailable, Usage, conclude, docker_ready, entry, parsed, parser, run_docker, tail
+from . import NOT_PINNED_YET, Unavailable, conclude, docker_ready, entry, parsed, parser, run_docker, tail
 
 TOOLS = Path(__file__).resolve().parent / "tools"
 DOCKERFILE = TOOLS / "Dockerfile"
@@ -197,8 +197,6 @@ def main(argv, out, err, **seams) -> int:
     found.add_argument("--base", default="", help="the commit the change is measured from (empty or zeros: the whole history)")
     found.add_argument("--head", default="", help="the last commit to read (default: HEAD)")
     args = parsed(found, argv)
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     problems = scan(args.path, args.base, args.head, seams.get("runner"))
     out.write(("Secrets: no commit of the range holds one\n" if not problems else
                f"Secrets: {len(problems)} found in the commits of the range\n") if args.format == "text" else "")
