@@ -805,7 +805,6 @@ class Adding(Base):
         store_path = registry.store_dir("partner")
         remote = self.remotes["partner"]
         self.assertTrue(store_path.is_dir())
-        self.assertEqual(bare.resolve(store_path, "pin"), remote.head())
         self.assertEqual(bare.resolve(store_path, "tip"), remote.head())
         self.assertEqual([p.name for p in (Path(paths.ROOT) / ".lab/cache/git").iterdir()], ["partner.git"])
 
@@ -1256,7 +1255,7 @@ class Downloading(Base):
         staged = install.stage(address, "partner", store_path, tip, kept, ignored)
         install.commit_add(staged, address, "main", "public", bare.roots(store_path, tip), meta_of("partner"))
         self.intact("partner")
-        self.assertEqual(bare.resolve(store_path, "pin"), tip)
+        self.assertEqual(registry.lock_of("partner")["pin"], tip)
 
     def test_an_entry_that_has_a_pin_is_already_added(self):
         self.add("partner")
@@ -1410,8 +1409,6 @@ class Updating(Base):
         self.assertEqual(registry.manifest("partner")["commit"], target)
         self.digests("partner")
         self.assertEqual(registry.units_of("partner")["addon"], ["audit", "ledger"])
-        store_path = registry.store_dir("partner")
-        self.assertEqual((bare.resolve(store_path, "pin"), bare.resolve(store_path, "previous")), (target, self.first))
         self.assertFalse(registry.stage_dir("partner").exists())
 
     def test_a_unit_the_update_drops_leaves_its_files_and_the_folders_they_were_in(self):
@@ -1455,7 +1452,7 @@ class Updating(Base):
         steps = dict(zip(watch.labels, watch.depths))
         for label in ("update:apply", "update:file", "update:manifest"):
             self.assertGreater(steps[label], 0, f"{label} runs under the project lock")
-        for label in ("update:pending", "update:lock", "update:refs"):
+        for label in ("update:pending", "update:lock"):
             self.assertEqual(steps[label], 0, f"{label} does not")
 
     def test_the_project_lock_is_taken_while_the_catalogs_lock_is_held(self):
@@ -2300,14 +2297,6 @@ class Sweeping(Base):
         self.intact("lab-new")
         self.assertTrue(registry.store_dir("lab-new").is_dir())
 
-    def test_the_refs_of_a_store_are_written_again(self):
-        self.add("partner")
-        store_path = registry.store_dir("partner")
-        commit = registry.lock_of("partner")["pin"]
-        bare.set_ref(store_path, "pin", None)
-        install.recover()
-        self.assertEqual(bare.resolve(store_path, "pin"), commit)
-
     def test_a_marker_in_a_catalog_that_is_added_is_removed(self):
         self.add("partner")
         (self.catalogs("partner") / install.MARKER).write_text("", encoding="utf-8")
@@ -2804,8 +2793,7 @@ class Stops(Base):
             self.assertEqual(sorted(rel for rel in world["made"] if (Path(paths.ROOT) / ".lab/catalogs/partner" / rel).is_file()),
                              sorted(world["made"]), "the machine's files are where they were")
         labels = self.runs(self.world_to_update, lambda world: install.apply_update("partner", world["plan"]), check)
-        for wanted in ("update:pending", "update:apply", "update:file", "update:manifest", "update:lock", "update:refs",
-                       "update:done"):
+        for wanted in ("update:pending", "update:apply", "update:file", "update:manifest", "update:lock", "update:done"):
             self.assertIn(wanted, labels)
 
     def test_a_stop_at_any_step_of_an_update_that_renames_an_item_that_is_on_ends_with_everything_under_one_name(self):

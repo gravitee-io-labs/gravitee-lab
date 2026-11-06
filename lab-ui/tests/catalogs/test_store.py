@@ -811,18 +811,11 @@ class Stores(Remote):
         self.assertFalse(store.has(self.store, "1" * 40))
         self.assertIsNone(store.resolve(self.store, "1" * 40))
 
-    def test_the_three_references_may_be_named_short(self):
+    def test_the_tip_may_be_named_short(self):
         tip = self.fetched()
-        store.set_ref(self.store, "pin", tip)
-        self.assertEqual(store.resolve(self.store, "refs/lab/pin"), tip)
-        self.assertEqual(store.resolve(self.store, "pin"), tip)
+        self.assertEqual(store.resolve(self.store, "tip"), tip)
         self.assertEqual(store.roots(self.store, "tip"), [tip])
-        self.assertTrue(store.is_ancestor(self.store, "pin", "tip"))
-        store.set_ref(self.store, "pin", None)
-        self.assertIsNone(store.resolve(self.store, "pin"))
-        for name in ("main", "refs", "Tip", "tip2", "head"):
-            with self.assertRaises(ValueError, msg=name):
-                store.set_ref(self.store, name, tip)
+        for name in ("main", "refs", "Tip", "tip2", "head", "pin"):
             with self.assertRaises(ValueError, msg=name):
                 store.resolve(self.store, name)
 

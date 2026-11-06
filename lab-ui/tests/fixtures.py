@@ -755,9 +755,9 @@ STORE_SETTINGS = (("gc.auto", "0"), ("core.hooksPath", "/dev/null"), ("core.fsmo
                   ("transfer.fsckObjects", "true"))   # what store.init sets on every store
 
 
-def _make_store(root, ns, remote_, commit):
+def _make_store(root, ns, remote_):
     """The Lab's own bare store of a catalog, .lab/cache/git/<ns>.git, made the way store.init and store.fetch make one:
-    no templates, so no hooks, STORE_SETTINGS, `refs/lab/tip` fetched from the remote and `refs/lab/pin` at the commit.
+    no templates, so no hooks, STORE_SETTINGS, `refs/lab/tip` fetched from the remote.
     It has no origin and no branch of its own: the Lab names the address on each fetch."""
     git = _gitfixture().git
     store = root / paths.LAB_DIR / "cache" / "git" / f"{ns}.git"
@@ -767,7 +767,6 @@ def _make_store(root, ns, remote_, commit):
     for key, value in STORE_SETTINGS:
         git("config", key, value, repo=store)
     git("fetch", "--quiet", "--no-tags", "--", str(remote_.bare), "+refs/heads/main:refs/lab/tip", repo=store)
-    git("update-ref", "refs/lab/pin", commit, repo=store)
     return store
 
 
@@ -783,7 +782,7 @@ def install(case, ns, kind="folder", **patch):
 
     kind="git" (needs git: a visible skip without): the files are committed to a bare repository, which is the entry's
     address (a file:// one: production accepts none), and installed the way the Lab installs them: what rule 5 of keeps, read-only, with .installed.json and a lock whose pin is that commit. `store=True` also makes the
-    Lab's own bare store, .lab/cache/git/<ns>.git, with refs/lab/pin and refs/lab/tip (_make_store).
+    Lab's own bare store, .lab/cache/git/<ns>.git, with refs/lab/tip (_make_store).
 
     `patch`: the keys of the entry (url, branch, auto, host, added, shadows); name, version and lab, which are written
     in catalog.yml, so that the repository and the manifest agree, and cached in the lock; the keys of the lock
@@ -831,7 +830,7 @@ def install(case, ns, kind="folder", **patch):
         _write(target / ".installed.json", _json(_manifest(ns, commit, kept, ignored)))
         entry.update({"url": remote_.url, "branch": "main", "auto": True})
     if patch.get("store"):
-        _make_store(root, ns, remote_, commit)
+        _make_store(root, ns, remote_)
     entry.update({key: patch[key] for key in ENTRY_KEYS & set(patch) if key != "added"})
     held.update({key: patch[key] for key in LOCK_KEYS & set(patch)})
     held = _put_lock(case, ns, held)   # the entry is written last: it is what makes the catalog one the person has
@@ -1800,7 +1799,7 @@ class FixtureCatalogs(Case):
         self.assertEqual((done.lock["pin"], done.lock["tip"], done.lock["shadowed"]), (done.commit, done.commit, True))
         self.assertEqual(done.lock["roots"], [done.commit])
         store = self.root / ".lab/cache/git/partner.git"
-        self.assertEqual(_gitfixture().git("rev-parse", "refs/lab/pin", repo=store).strip(), done.commit)
+        self.assertEqual(_gitfixture().git("rev-parse", "refs/lab/tip", repo=store).strip(), done.commit)
         self.assertFalse((done.path / ".installed.json").exists(), "a folder catalog has no manifest")
         self.assertEqual(read_config(self)["catalogs"][-1], done.entry)
         mine = install(self, "partner", link=True, store=True, shadows={"url": "https://example.invalid/other.git"})
@@ -2142,10 +2141,8 @@ class FixtureCatalogs(Case):
         done = self.git_built(store=True)
         store = self.root / ".lab/cache/git/partner.git"
         git = _gitfixture().git
-        for ref in ("pin", "tip"):
-            self.assertEqual(git("rev-parse", f"refs/lab/{ref}", repo=store).strip(), done.commit)
-        self.assertEqual(git("for-each-ref", "--format=%(refname)", repo=store).split(), ["refs/lab/pin", "refs/lab/tip"],
-                         "no branch of its own")
+        self.assertEqual(git("rev-parse", "refs/lab/tip", repo=store).strip(), done.commit)
+        self.assertEqual(git("for-each-ref", "--format=%(refname)", repo=store).split(), ["refs/lab/tip"], "no branch of its own")
         for key, value in STORE_SETTINGS:
             self.assertEqual(git("config", "--get", key, repo=store).strip(), value, key)
         self.assertNotIn("remote.", git("config", "--list", repo=store), "no origin: the Lab names the address on each fetch")
@@ -2155,10 +2152,10 @@ class FixtureCatalogs(Case):
         self.assertEqual(git("cat-file", "-t", done.commit, repo=store).strip(), "commit")
         again = install(self, "partner", kind="git", store=True)
         self.assertEqual(again.commit, done.commit, "again: the same store")
-        self.assertEqual(git("for-each-ref", "--format=%(refname)", repo=store).split(), ["refs/lab/pin", "refs/lab/tip"])
+        self.assertEqual(git("for-each-ref", "--format=%(refname)", repo=store).split(), ["refs/lab/tip"])
 
     def test_the_lab_store_is_what_the_stores_module_makes_of_a_fetch(self):
-        store_module = _lab("catalogs.store", "the Lab", "init", "resolve", "roots", "is_ancestor", "listing", "selected")
+        store_module = _lab("catalogs.store", "the Lab", "init", "resolve", "roots", "listing", "selected")
         done = self.git_built(store=True)
         store = self.root / ".lab/cache/git/partner.git"
         git = _gitfixture().git
@@ -2166,11 +2163,9 @@ class FixtureCatalogs(Case):
         store_module.init(made)
         for key, value in STORE_SETTINGS:
             self.assertEqual(git("config", "--get", key, repo=made).strip(), value, "store.init sets it too")
-        self.assertEqual(store_module.resolve(store, "pin"), done.commit)
         self.assertEqual(store_module.resolve(store, "tip"), done.commit)
         self.assertEqual(store_module.roots(store, "tip"), sorted(done.lock["roots"]))
-        self.assertTrue(store_module.is_ancestor(store, "pin", "tip"))
-        kept, ignored = store_module.selected(store_module.listing(store, "pin"))
+        kept, ignored = store_module.selected(store_module.listing(store, done.commit))
         self.assertEqual((sorted(entry.path for entry in kept), ignored),
                          (sorted(json.loads((done.path / ".installed.json").read_text(encoding="utf-8"))["files"]), 0))
 

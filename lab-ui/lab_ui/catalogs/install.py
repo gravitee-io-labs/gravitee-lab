@@ -27,7 +27,7 @@ record for a start that has git.
 
 Labels, in order. stage: begin, written. add: begin, manifest, store, pending, install, file (for each file of a merge),
 rename, placed, lock, config, done. update, undo and repair: pending, apply, removed (each), file (each), manifest,
-rename, lock, refs, done. The renames a catalog declares (`renames.follow`) say rename:entry, :on, :include, :copy,
+rename, lock, done. The renames a catalog declares (`renames.follow`) say rename:entry, :on, :include, :copy,
 :settings before each change, between rename and the step after it. remove: config, store, files, marker,
 vacate, lock, stars, done. shadow: record, move (each), install, link, config, lock, done. unshadow: record, link,
 install, then apply, file, removed and manifest of the repair it makes, move (each), config, lock, done. recover: begin,
@@ -877,7 +877,7 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
     """The install of a catalog, with the first download of a listed catalog (whose entry exists already) as the same
     pipeline. Under the locks: the namespace is still free and the stage is what was judged (every file has the id and
     the mode git gave it, no other file is there); the manifest is written into the stage; the store is renamed to
-    `<ns>.git` with `refs/lab/pin` at the commit (already there for a download that fetched into its own store); the
+    `<ns>.git` (already there for a download that fetched into its own store); the
     lock entry is written with `pin` null and `pending` {add, null, commit} so that a stop from here on is recognized;
     the stage is renamed to the install (or merged into the folder a Remove that kept the settings left, and the machine
     files of the newest `.removed-<ns>-*` are moved in); the lock is written with the pin and `pending` null (the commit
@@ -909,7 +909,6 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
         _write_manifest(staged.path, _document(ns, staged.commit, staged.kept, staged.ignored, shas))
         _step("add:store")
         final = registry.store_dir(ns)
-        bare.set_ref(staged.store, "pin", staged.commit)
         if os.path.abspath(staged.store) != os.path.abspath(final):
             _clear(final)   # a store left by an attempt that never became a catalog
             os.rename(staged.store, final)
@@ -1327,7 +1326,7 @@ def apply_update(ns: str, plan: dict, confirm_history: bool = False) -> None:
     of the on file and of `plan["context"]["on"]`), and a rewritten history is confirmed (`history_changed`). Then
     `lock.pending` is set, the files that changed are replaced one by one and the ones the new version drops are deleted
     under the project lock, `.installed.json` is written last, and the lock write that moves `pin` (`previous` is the
-    commit left) commits it. The refs of the store follow; a stop before the commit is finished by `recover()`. Something of the machine's where a file of the new
+    commit left) commits it; a stop before the commit is finished by `recover()`. Something of the machine's where a file of the new
     version goes (a folder with a `.state` in it where the catalog now has a file, or a file or a link that the
     installed version did not list where the new one now has a file) is `damaged` before anything is touched; but for a
     regular file that is the very file the new version writes there (what an update that failed halfway left, and a Repair
@@ -1387,10 +1386,6 @@ def _roll(ns, frm, to, label, meta=None):
         fields["release"] = manifest.release_of(store_path, to, fields.get("version"))
     _step(f"{label}:lock")
     registry.set_lock(ns, pin=to, installed=_utc(), error=None, pending=None, **change, **fields)
-    _step(f"{label}:refs")
-    if frm != to:
-        bare.set_ref(store_path, "previous", frm)
-    bare.set_ref(store_path, "pin", to)
     _clear(registry.stage_dir(ns))
     _step(f"{label}:done")
 
@@ -1877,7 +1872,6 @@ def _finish(ns):
                 _follow(ns, renames.between(registry.store_dir(ns), None, to), "add")
             now = _utc()
             registry.set_lock(ns, pin=to, previous=None, installed=now, checked=now, error=None, pending=None)
-            bare.set_ref(registry.store_dir(ns), "pin", to)
             _unlink(root, MARKER)
             _clear(registry.stage_dir(ns))
         else:
@@ -1987,10 +1981,10 @@ def _sweep_install(ns, root) -> List[Tuple[str, str]]:
 def recover() -> None:
     """At the start of the Lab (after the bind), under the locks: finishes the operations the lock
     says are under way, finishes a shadow link or its reversal, removes what a stop left (rule 12: `sweep`, the lock
-    entries and the stores that have no entry in `catalogs.json`), writes again the refs of the stores and removes the
+    entries and the stores that have no entry in `catalogs.json`) and removes the
     markers of the folders a catalog has been added into. Everything is idempotent and judged by the disk, so a stop inside it is finished by the next. The trouble of
     one catalog never ends the start, and neither does a start without git (state `needs_git`): an operation under way
-    keeps its record, the refs are written at a start that has git. It raises `busy` when another process holds the lock
+    keeps its record. It raises `busy` when another process holds the lock
     for longer than the wait."""
     with _guard():
         _step("recover:begin")
@@ -2025,22 +2019,10 @@ def recover() -> None:
 
 
 def _tidy(entry):
-    """The last of `recover()` for one catalog: the refs of its store written again, and the marker of a folder a catalog
-    has been added into removed. Git runs for the refs, and a start without git (state `needs_git`: an installed catalog
-    keeps working) goes on: the refs are an optimization, tried again at the next start, and the rest needs no git."""
+    """The last of `recover()` for one catalog: the marker of a folder a catalog has been added into removed."""
     held = registry.lock_of(entry["id"])
     if entry["kind"] != "git" or not held.get("pin") or held.get("pending"):
         return
-    try:
-        store_path = registry.store_dir(entry["id"])
-        if os.path.isdir(store_path) and bare.resolve(store_path, held["pin"]) == held["pin"]:
-            if bare.resolve(store_path, "pin") != held["pin"]:
-                bare.set_ref(store_path, "pin", held["pin"])
-            if held.get("previous") and bare.resolve(store_path, held["previous"]) == held["previous"] \
-                    and bare.resolve(store_path, "previous") != held["previous"]:
-                bare.set_ref(store_path, "previous", held["previous"])
-    except TROUBLE:
-        pass
     if registry.manifest(entry["id"]) is not None:
         _unlink(registry.install_dir(entry["id"]), MARKER)
 

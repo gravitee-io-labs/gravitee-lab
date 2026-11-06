@@ -1,5 +1,5 @@
 """The bare git store of a catalog (`.lab/cache/git/<ns>.git`) and the pure filter of what is installed from it. A store
-holds objects, the refs `refs/lab/tip`, `pin` and `previous`, the release tags of the remote as `refs/lab/releases/v*`, and the
+holds objects, the ref `refs/lab/tip`, the release tags of the remote as `refs/lab/releases/v*`, and the
 file a fetch locks (`lab-fetch.flock`); it has
 no working tree, no hooks and no automatic garbage collection, and is disposable (a fetch makes it again). `rejections`
 is as a pure function of a listing: it decides, from modes, names and sizes alone, which files of a
@@ -59,7 +59,6 @@ _SEGMENT = re.compile(r"[A-Za-z0-9._+-]+")
 _NAME = re.compile(r"[a-z0-9-]+")
 _SHA = re.compile(r"[0-9a-f]{40}")
 _REF = re.compile(r"refs/lab/[a-z][a-z0-9-]*")
-_SHORT = re.compile(r"tip|pin|previous")
 _PATHSPEC = re.compile(r"[A-Za-z0-9._+/-]+")
 # Where a fetch keeps the remote's tags that may be releases (`v*`), and the name of a release tag: three numbers, no sign
 RELEASES = "refs/lab/releases/"
@@ -111,9 +110,8 @@ def _sha(value) -> str:
 
 
 def _ref(value) -> str:
-    """A reference of the lab, `refs/lab/<name>` or one of `tip`, `pin` and `previous` alone, as `refs/lab/<name>`."""
-    if isinstance(value, str) and _SHORT.fullmatch(value):
-        value = f"refs/lab/{value}"
+    """A reference of the lab, `refs/lab/<name>` or `tip` alone, as `refs/lab/<name>`."""
+    value = "refs/lab/tip" if value == "tip" else value
     if isinstance(value, str) and _REF.fullmatch(value):
         return value
     raise ValueError(f"not a reference of the lab: {value!r}")
@@ -335,8 +333,7 @@ def releases_read(store) -> bool:
 
 
 def set_ref(store, name: str, commit: Optional[str]) -> None:
-    """Points a reference of the lab (`refs/lab/tip`, `refs/lab/pin`, `refs/lab/previous`; `tip`, `pin` and `previous`
-    are taken as those) at a commit the store holds; None deletes it."""
+    """Points a reference of the lab (`refs/lab/<name>`) at a commit the store holds; None deletes it."""
     name = _ref(name)
     if commit is None:
         _git(store, "update-ref", "-d", name)
