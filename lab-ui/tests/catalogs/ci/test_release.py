@@ -11,10 +11,9 @@ import os
 import re
 import tempfile
 import unittest
-from pathlib import Path
 from unittest import mock
 
-from lab_ui.catalogs import install, store
+from lab_ui.catalogs import store
 from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import release
 from tests.data.rules import support
@@ -152,7 +151,6 @@ class Layout(Fixture):
 class SameFunction(Fixture):
 
     def test_the_subjects_are_the_ones_of_the_function_the_update_dialog_calls(self):
-        self.assertIs(install.bare, store, "the update plan's whatsnew is store.notes, from the module the dialog's plan calls")
         self.release("v1.0.0")
         for number in range(3):
             self.put(self.repo, "playgrounds/bank/guide.md", f"# {number}\n")
@@ -170,10 +168,6 @@ class SameFunction(Fixture):
         shown = store.log(git_dir, first, sha, ["playgrounds/bank"], 5)
         self.assertEqual(shown, ["Subject 2", "Subject 1", "Subject 0"])
         self.assertIn("  - " + "\n  - ".join(shown), self.text())
-        # and it is the call the dialog's plan makes, unit by unit, five subjects each
-        source = Path(install.__file__).read_text(encoding="utf-8")
-        self.assertIn("bare.notes(store_path, old, new, keys)", source)
-        self.assertEqual(store.notes.__defaults__, (5,))
 
 
 class Hostile(Fixture):

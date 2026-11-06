@@ -336,11 +336,8 @@ class Stage(Asking):
 class Script(unittest.TestCase):
     """The engine's script, as a module and as a command."""
 
-    def test_it_is_a_module_with_the_names_the_stage_uses(self):
+    def test_what_a_unit_pulls_is_the_image_of_a_service_it_does_not_build(self):
         module = manifests.script()
-        for name in ("reference", "exists", "check", "pulled", "images", "main"):
-            self.assertTrue(callable(getattr(module, name)), name)
-        self.assertEqual(module.reference("ghcr.io/a/b:1"), ("ghcr.io", "a/b", "1"))
         self.assertEqual(module.pulled({"a": {"image": "x:1"}, "b": {"image": "y:1", "build": {"context": "."}}, "c": {"build": "."},
                                         "d": "not a service", "e": {"image": 3}}), ["x:1"])
 

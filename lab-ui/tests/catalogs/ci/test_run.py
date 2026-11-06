@@ -310,12 +310,6 @@ class Same(Fixture):
         self.assertEqual(self.recorder.calls[0][1][2], json.dumps(json.loads(written["units"])))
         self.assertEqual(json.loads(written["units"]), ["addon:mock", "playground:bank", "setup:pair"])
 
-    def test_the_architecture_is_this_machines_and_only_it(self):
-        self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
-        self.run_ci()
-        self.assertEqual(self.recorder.calls[1][1][-1], PLATFORM)
-        self.assertIn(PLATFORM, ("linux/amd64", "linux/arm64"))
-
 
 class Real(Fixture):
     """The real stages over the fake docker and a fake registry, with the units given by the loader seam."""

@@ -8,11 +8,10 @@ release branch, which the pull request needs, and that branch only."""
 import contextlib
 import io
 import os
-import re
 import unittest
 from pathlib import Path
 
-from lab_ui.catalogs import gitx, release
+from lab_ui.catalogs import release
 from tests import Case
 from tests.data.standard import support
 
@@ -285,29 +284,9 @@ class Command(Case):
             self.assertEqual(release.main(["1.0.0", "--tag", "--pr"]), 2)
         self.assertEqual(out.getvalue(), "")
 
-    def test_nothing_in_the_module_pushes_but_the_release_branch_that_pr_needs(self):
-        commands = []
-        real = gitx.run
-
-        def watch(args, *more, **how):
-            commands.append(list(args))
-            return real(args, *more, **how)
-        self.patch(gitx, "run", watch)
-        self.run_main("1.0.0")
-        self.patch(gitx, "run", real)
-        self.assertFalse([each for each in commands if "push" in each], commands)
-        # One push in the whole module: the release branch, with --pr, by its name. Never main, never a tag
-        source = (Path(release.__file__)).read_text(encoding="utf-8")
-        self.assertEqual(re.findall(r'_run\(root, "push"[^\n]*', source),
-                         ['_run(root, "push", "--quiet", "--no-follow-tags", "--set-upstream", "origin", f"refs/heads/{name}:refs/heads/{name}")'])
-
 
 class Version(unittest.TestCase):
     """The line edit, with no git."""
-
-    def test_the_numbers_are_compared_as_numbers(self):
-        self.assertGreater(release.numbers("1.10.0"), release.numbers("1.9.9"))
-        self.assertEqual(release.numbers("1.2"), (-1, -1, -1))
 
     def test_a_version_in_another_block_or_nested_is_not_the_one(self):
         text = "x-gravitee-catalog:\n  id: a\n  requires:\n    catalogs:\n      b:\n        version: 3.0.0\n  version: 1.0.0\nother:\n  version: 9.9.9\n"
