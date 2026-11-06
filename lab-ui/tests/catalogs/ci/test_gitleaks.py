@@ -222,7 +222,7 @@ class Scan(support.WithGit):
 
     def test_a_planted_token_is_se03_and_the_secret_is_not_in_the_output(self):
         repo, head = self.plant()
-        code = self.stage(repo, "--base", "", "--format", "github")
+        code = self.stage(repo, "--base", "", "--ci")
         self.assertEqual((code, self.err.getvalue()), (1, ""))
         self.assertIn(f"::error file=src/config.py,line=1,title=SE03::{message('src/config.py', 1)}", self.out.getvalue())
         self.assertNotIn(token(), self.out.getvalue())
@@ -396,7 +396,7 @@ class Scan(support.WithGit):
         self.assertEqual(code, 0, self.err.getvalue())
 
     def test_a_usage_that_is_wrong_is_exit_2(self):
-        for argv in (["/nonexistent-folder", "--base", ""], ["--format", "xml"]):
+        for argv in (["/nonexistent-folder", "--base", ""], ["--no-such-option"]):
             self.out, self.err = io.StringIO(), io.StringIO()
             self.assertEqual(gitleaks.main(argv, self.out, self.err), 2)
 

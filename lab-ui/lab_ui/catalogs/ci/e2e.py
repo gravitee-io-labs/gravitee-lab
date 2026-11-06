@@ -351,7 +351,6 @@ def plan_main(argv, out, err, **seams) -> int:
     found.add_argument("--change", default=None, help="the folder the pull request was checked out into: read as data, never run")
     found.add_argument("--sha", default=None, help="the commit of the pull request you read: 40 hexadecimal characters")
     found.add_argument("--github-output", action="store_true", help="write matrix and count to $GITHUB_OUTPUT")
-    found.add_argument("--format", choices=report.FORMATS, default=None)
     found.add_argument("--ci", action="store_true")
     args = parsed(found, options)
     mode = "all" if args.all else "changed" if args.changed else "items"
@@ -365,14 +364,9 @@ def plan_main(argv, out, err, **seams) -> int:
         raise Usage(f"{report.printable(args.change)} is not a folder")
     ref = os.environ.get("GITHUB_REF", "")
     planned = make_plan(os.path.abspath(args.path), os.path.abspath(args.change) if args.change else None, args.sha, ref, mode, words)
-    if args.format == "json":
-        out.write(json.dumps({"count": len(planned.jobs), "matrix": {"include": planned.jobs}, "notes": planned.notes,
-                              "problems": [each._asdict() for each in planned.problems], "reads_license": planned.reads},
-                             indent=2, sort_keys=True, ensure_ascii=True) + "\n")
-    else:
-        out.write("\n".join(lines_of(planned)) + "\n")
-        if planned.problems:
-            out.write(report.render(planned.problems, args.format or ("github" if args.ci else "text")))
+    out.write("\n".join(lines_of(planned)) + "\n")
+    if planned.problems:
+        out.write(report.render(planned.problems, "github" if args.ci else "text"))
     if args.ci:
         write_summary("### End to end plan\n\n" + "\n".join(f"- {line}" for line in lines_of(planned)) + "\n"
                       + ("\n" + report.summary(planned.problems, "catalog.py check") if planned.problems else ""))
@@ -386,7 +380,7 @@ def plan_main(argv, out, err, **seams) -> int:
 @entry
 def gate_main(argv, out, err, **seams) -> int:
     """`ci e2e-gate`: the head of the pull request is still the commit that was read. Exit 1 when it moved."""
-    found = parser("e2e-gate", "The last gate of the job that holds the license.", fmt=True, ci=True)
+    found = parser("e2e-gate", "The last gate of the job that holds the license.")
     found.add_argument("--change", required=True, help="the folder the pull request was checked out into")
     found.add_argument("--sha", required=True, help="the commit you read: 40 hexadecimal characters")
     args = parsed(found, argv)
@@ -398,6 +392,5 @@ def gate_main(argv, out, err, **seams) -> int:
         head = trees.head_of(os.path.abspath(args.change))
         if head != args.sha:
             problems.append(head_mismatch(pull_request_number(), head or "0" * 40, args.sha))
-    if args.format != "json":
-        out.write("The head of the pull request is the commit that was read\n" if not problems else "")
+    out.write("The head of the pull request is the commit that was read\n" if not problems else "")
     return conclude(problems, args, out, "catalog.py ci e2e-gate", title="The change is the one that was read")

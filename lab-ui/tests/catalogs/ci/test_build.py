@@ -444,7 +444,7 @@ class Running(Disk):
     def test_a_service_with_no_image_is_built_under_a_name_of_the_stage_and_listed_with_it(self):
         service = self.service(context=self.app())
         service.pop("image")
-        code = self.stage({"bakery-web": service}, "--format", "github")
+        code = self.stage({"bakery-web": service}, "--ci")
         self.assertEqual((code, self.err.getvalue()), (0, ""))
         self.assertEqual(options(self.builds()[0], "--tag"), ["lab-ci/playground-bank-bakery-web:ci"])
         self.assertIn("✓ lab-ci/playground-bank-bakery-web:ci  41.2 MB", self.out.getvalue())
@@ -457,7 +457,7 @@ class Running(Disk):
 
     def test_a_step_that_fails_is_bd01_with_its_step_and_the_tail_of_the_log(self):
         self.fake.when("buildx", "build", code=1, stderr=STEP_FAILED)
-        code = self.stage({"bakery-web": self.service(context=self.app())}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=self.app())}, "--ci")
         self.assertEqual(code, 1)
         self.assertIn("::error file=playgrounds/bank/compose.yml,title=BD01::example.test/lab/bakery-web:1.0: the build failed at step "
                       "3/5, RUN pip install -r requirements.txt (exit 1). Fix: run make ci to see it on your machine; the last 15 "
@@ -467,7 +467,7 @@ class Running(Disk):
 
     def test_what_the_program_printed_is_data_between_the_stop_commands(self):
         self.fake.when("buildx", "build", code=1, stderr=STEP_FAILED)
-        self.stage({"bakery-web": self.service(context=self.app())}, "--format", "github")
+        self.stage({"bakery-web": self.service(context=self.app())}, "--ci")
         lines = self.out.getvalue().splitlines()
         start = next(number for number, line in enumerate(lines) if line.startswith("::stop-commands::"))
         token = lines[start].split("::")[2]
@@ -507,7 +507,7 @@ class Running(Disk):
 
     def test_a_pull_docker_hub_refused_is_tried_again_after_20_and_60_seconds_and_then_is_bd05(self):
         self.fake.when("buildx", "build", code=1, stderr=HUB_REFUSED)
-        code = self.stage({"bakery-web": self.service(context=self.app())}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=self.app())}, "--ci")
         self.assertEqual(code, 1)
         self.assertEqual(len(self.builds()), 3)
         self.assertEqual(self.sleeps, [20, 60])
@@ -536,7 +536,7 @@ class Running(Disk):
     def test_an_image_that_takes_over_ten_minutes_is_stopped_and_is_bd04(self):
         self.fake.when("buildx", "build", sleep=30)
         with mock.patch.object(build, "IMAGE_TIMEOUT", 1):
-            code = self.stage({"bakery-web": self.service(context=self.app())}, "--format", "github")
+            code = self.stage({"bakery-web": self.service(context=self.app())}, "--ci")
         self.assertEqual(code, 1)
         self.assertIn("title=BD04::example.test/lab/bakery-web:1.0: the build took over 10 minutes and was stopped.", self.out.getvalue())
         self.assertEqual(self.sleeps, [])
@@ -553,7 +553,7 @@ class Running(Disk):
 
     def test_a_key_that_is_not_accepted_fails_the_stage_and_the_others_are_built(self):
         services = {"bad": self.service("bad", self.app(name="bad"), ssh=["default"]), "good": self.service("good", self.app(name="good"))}
-        code = self.stage(services, "--format", "github")
+        code = self.stage(services, "--ci")
         self.assertEqual(code, 1)
         self.assertEqual(len(self.builds()), 1)
         self.assertIn("title=BD02::bad: build.ssh is not accepted. Fix: use context, dockerfile, args, target and labels only.",
@@ -561,7 +561,7 @@ class Running(Disk):
 
     def test_a_unit_the_lab_refused_is_never_built(self):
         loading = ci.Loading([], [ci.Refused("playground", "bank", "playgrounds/bank/compose.yml", ("Runs with full privileges",), "T03")])
-        code = self.stage({}, "--format", "github", loading=loading)
+        code = self.stage({}, "--ci", loading=loading)
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
         self.assertIn("title=T03::playground:bank was not built: Runs with full privileges. Fix: make check says how.", self.out.getvalue())
@@ -570,7 +570,7 @@ class Running(Disk):
         # The structure rules (ST01 to ST04) decide whether a unit is given to Docker at all
         context = self.app()
         Path(self.root, "playgrounds", "bank", "weird\n::error::name.txt").write_text("x")
-        code = self.stage({"bakery-web": self.service(context=context)}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=context)}, "--ci")
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
         shown = [line for line in self.out.getvalue().splitlines() if "ST03" in line]
@@ -581,7 +581,7 @@ class Running(Disk):
     def test_a_link_inside_a_unit_is_refused_too_and_another_units_files_are_not_its_business(self):
         context = self.app()
         os.symlink("/etc/hosts", os.path.join(self.root, "playgrounds", "bank", "link.txt"))
-        self.assertEqual(self.stage({"bakery-web": self.service(context=context)}, "--format", "github"), 1)
+        self.assertEqual(self.stage({"bakery-web": self.service(context=context)}, "--ci"), 1)
         self.assertIn("title=ST01::playground:bank was not built: playgrounds/bank/link.txt is a symbolic link.", self.out.getvalue())
         self.out = io.StringIO()
         os.unlink(os.path.join(self.root, "playgrounds", "bank", "link.txt"))
@@ -656,7 +656,7 @@ class Real(Case):
 
     def test_the_app_of_a_playground_is_built_and_its_seed_service_is_the_labs(self):
         code = build.main([self.folder, "--units", '["playground:shop", "playground:tour", "addon:echo"]', "--platform", "linux/amd64",
-                           "--format", "github"], self.out, self.err, sleep=lambda seconds: None)
+                           "--ci"], self.out, self.err, sleep=lambda seconds: None)
         self.assertEqual((code, self.err.getvalue()), (0, ""))
         commands = self.fake.commands("buildx", "build")
         self.assertEqual(len(commands), 1)

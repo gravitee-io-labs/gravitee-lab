@@ -140,16 +140,15 @@ class Scanning(Fixture):
         self.docker.reports[f"{PREFIX}/bakery-web:latest"] = trivy_report(
             vulnerability(), vulnerability("CVE-2026-2000", "zlib", "1.2.11", "1.2.12"), vulnerability("CVE-2026-3000", severity="HIGH"),
             vulnerability("CVE-2026-4000", fixed=""), vulnerability("CVE-2026-1000"))
-        code = self.run_stage("--format", "json")
+        code = self.run_stage("--ci")
         self.assertEqual(code, 1)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["severity"], each["message"]) for each in found], [
-            ("SC01", "error", f"{PREFIX}/bakery-web:latest: CVE-2026-1000 in openssl 3.0.1, fixed in 3.0.2. Fix: update the package or the "
-                              "base image."),
-            ("SC01", "error", f"{PREFIX}/bakery-web:latest: CVE-2026-2000 in zlib 1.2.11, fixed in 1.2.12. Fix: update the package or the "
-                              "base image."),
-            ("SC02", "warning", f"{PREFIX}/bakery-web:latest: 2 more flaws that fail nothing: 1 high and 1 critical with no fix yet "
-                                "(CVE-2026-3000, CVE-2026-4000). Fix: update the base image or the packages once a fix is out.")])
+        self.assertEqual([line for line in self.out.getvalue().splitlines() if line.startswith("::")], [
+            f"::error title=SC01::{PREFIX}/bakery-web:latest: CVE-2026-1000 in openssl 3.0.1, fixed in 3.0.2. Fix: update the package or the "
+            "base image.",
+            f"::error title=SC01::{PREFIX}/bakery-web:latest: CVE-2026-2000 in zlib 1.2.11, fixed in 1.2.12. Fix: update the package or the "
+            "base image.",
+            f"::warning title=SC02::{PREFIX}/bakery-web:latest: 2 more flaws that fail nothing: 1 high and 1 critical with no fix yet "
+            "(CVE-2026-3000, CVE-2026-4000). Fix: update the base image or the packages once a fix is out."])
 
     def test_images_with_nothing_to_fix_say_all_good(self):
         self.assertEqual(self.run_stage(), 0, self.err.getvalue())
@@ -195,10 +194,10 @@ class Scanning(Fixture):
         (self.repo / "addons" / "bad").mkdir(parents=True)
         (self.repo / "addons" / "bad" / "compose.yml").write_text("services: {}\n")
         with mock.patch.object(ci, "LOADER", load):
-            code = scan.main([str(self.repo), "--format", "json"], self.out, self.err, runner=self.docker, login=self.login,
+            code = scan.main([str(self.repo)], self.out, self.err, runner=self.docker, login=self.login,
                              lab=str(self.lab), dockerfile=self.tools, environ={})
         self.assertEqual(code, 1)
-        self.assertEqual([each["code"] for each in json.loads(self.out.getvalue())], ["T10"])
+        self.assertIn("    T10 ", self.out.getvalue())
 
 
 class TheScannerAndWhatItIsGiven(Fixture):
@@ -335,10 +334,9 @@ class Built(Fixture):
     def test_a_critical_flaw_with_a_fix_in_an_image_the_change_built_fails_the_stage_with_the_words_of_the_nightly(self):
         self.docker.reports[f"{PREFIX}/bakery-api:latest"] = trivy_report(vulnerability("GHSA-6q48-6c7w-9gw2", "certifi", "2026.1.1",
                                                                                          "2026.10.19"))
-        self.assertEqual(self.run_built("--format", "json"), 1)
-        self.assertEqual([(each["code"], each["message"]) for each in json.loads(self.out.getvalue())], [
-            ("SC01", f"{PREFIX}/bakery-api:latest: GHSA-6q48-6c7w-9gw2 in certifi 2026.1.1, fixed in 2026.10.19. Fix: update the package or "
-                     "the base image.")])
+        self.assertEqual(self.run_built(), 1)
+        self.assertIn(f"SC01 {PREFIX}/bakery-api:latest: GHSA-6q48-6c7w-9gw2 in certifi 2026.1.1, fixed in 2026.10.19. Fix: update the package "
+                      "or the base image.", self.out.getvalue())
 
     def test_the_scan_of_the_images_built_runs_the_same_hardened_scanner_with_no_network(self):
         self.run_built()
@@ -381,10 +379,10 @@ class Built(Fixture):
         def load(folder, names):
             return ci.Loading([], [blocked])
         with mock.patch.object(ci, "LOADER", load):
-            code = scan.built_main([str(self.repo), "--units", '["addon:bad"]', "--format", "json"], self.out, self.err,
+            code = scan.built_main([str(self.repo), "--units", '["addon:bad"]'], self.out, self.err,
                                    runner=self.docker, lab=str(self.lab), dockerfile=self.tools)
         self.assertEqual(code, 1)
-        self.assertEqual([each["code"] for each in json.loads(self.out.getvalue())], ["T10"])
+        self.assertIn("    T10 ", self.out.getvalue())
         self.assertEqual(self.docker.calls, [])
 
 

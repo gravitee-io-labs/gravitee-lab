@@ -7,7 +7,6 @@ as an answer, and that LK01 is a warning. The network is a small server of this 
 (a name that resolves to a public address that is made to connect there), so no test needs a network."""
 
 import io
-import json
 import os
 import socket
 import threading
@@ -366,13 +365,12 @@ class Stage(Case):
         files = {"README.md": "# Hub\n\nSee [the docs](https://docs.acme.org/gone) and [home](https://docs.acme.org/).\n",
                  "docs/guide.md": "Look at https://docs.acme.org/gone and https://docs.acme.org/slow.\n"}
         answers = {"https://docs.acme.org/gone": links.Answer(404), "https://docs.acme.org/slow": links.Answer(0, "no answer: timed out")}
-        code = self.run_stage(files, answers, "--format", "json")
+        code = self.run_stage(files, answers, "--ci")
         self.assertEqual(code, 0)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["severity"], each["path"], each["line"], each["message"]) for each in found], [
-            ("LK01", "warning", "README.md", 3, "README.md:3: the link https://docs.acme.org/gone answers 404."),
-            ("LK01", "warning", "docs/guide.md", 1, "docs/guide.md:1: the link https://docs.acme.org/gone answers 404."),
-            ("LK01", "warning", "docs/guide.md", 1, "docs/guide.md:1: the link https://docs.acme.org/slow answers nothing (timed out).")])
+        self.assertEqual([line for line in self.out.getvalue().splitlines() if line.startswith("::")], [
+            "::warning file=README.md,line=3,title=LK01::README.md:3: the link https://docs.acme.org/gone answers 404.",
+            "::warning file=docs/guide.md,line=1,title=LK01::docs/guide.md:1: the link https://docs.acme.org/gone answers 404.",
+            "::warning file=docs/guide.md,line=1,title=LK01::docs/guide.md:1: the link https://docs.acme.org/slow answers nothing (timed out)."])
 
     def test_each_address_is_asked_once_whatever_the_number_of_places(self):
         files = {"README.md": "https://docs.acme.org/a\nhttps://docs.acme.org/a\n", "docs/x.md": "https://docs.acme.org/a\n"}
@@ -387,7 +385,7 @@ class Stage(Case):
 
     def test_the_annotations_are_warnings_on_the_line_of_the_link(self):
         self.run_stage({"docs/a.md": "x\n\nhttps://docs.acme.org/gone\n"}, {"https://docs.acme.org/gone": links.Answer(404)},
-                       "--format", "github")
+                       "--ci")
         self.assertIn("::warning file=docs/a.md,line=3,title=LK01::docs/a.md:3: the link https://docs.acme.org/gone answers 404.",
                       self.out.getvalue())
 
@@ -397,8 +395,8 @@ class Stage(Case):
 
     def test_an_address_that_is_not_on_the_public_network_is_said_and_is_no_warning(self):
         answers = {"https://docs.acme.org/a": links.Answer(0, "the address is not on the public network", False)}
-        self.assertEqual(self.run_stage({"README.md": "https://docs.acme.org/a\n"}, answers, "--format", "json"), 0)
-        self.assertEqual(json.loads(self.out.getvalue()), [])
+        self.assertEqual(self.run_stage({"README.md": "https://docs.acme.org/a\n"}, answers), 0)
+        self.assertNotIn("LK01", self.out.getvalue())
 
     def test_a_run_in_which_nothing_answers_did_not_run(self):
         files = {"README.md": "\n".join(f"https://docs.acme.org/{number}" for number in range(5)) + "\n"}
@@ -410,8 +408,8 @@ class Stage(Case):
     def test_two_that_do_not_answer_among_others_that_do_are_warnings(self):
         files = {"README.md": "\n".join(f"https://docs.acme.org/{number}" for number in range(5)) + "\n"}
         answers = {f"https://docs.acme.org/{number}": links.Answer(0, "no answer: timed out") for number in range(2)}
-        self.assertEqual(self.run_stage(files, answers, "--format", "json"), 0)
-        self.assertEqual(len(json.loads(self.out.getvalue())), 2)
+        self.assertEqual(self.run_stage(files, answers), 0)
+        self.assertEqual(self.out.getvalue().count("    LK01 "), 2)
 
     def test_the_run_ends_when_its_time_is_up_and_says_what_it_did_not_ask(self):
         files = {"README.md": "\n".join(f"https://docs.acme.org/{number}" for number in range(6)) + "\n"}
@@ -434,16 +432,16 @@ class Stage(Case):
                 raise RuntimeError("the fetcher broke")
             return links.Answer(200)
         tree = trees.ListTree.from_files({"README.md": "https://docs.acme.org/bad https://docs.acme.org/good\n"})
-        code = links.main([".", "--format", "json"], self.out, self.err, tree=tree, fetch=explode)
+        code = links.main(["."], self.out, self.err, tree=tree, fetch=explode)
         self.assertEqual(code, 0)
-        self.assertEqual([each["message"] for each in json.loads(self.out.getvalue())],
-                         ["README.md:1: the link https://docs.acme.org/bad answers nothing (RuntimeError)."])
+        self.assertIn("LK01 README.md:1: the link https://docs.acme.org/bad answers nothing (RuntimeError).", self.out.getvalue())
+        self.assertEqual(self.out.getvalue().count("    LK01 "), 1)
 
     def test_what_a_hostile_file_holds_cannot_reach_the_output_as_a_command_or_a_line(self):
         evil = "https://docs.acme.org/%0A::error::x?a=%25"
         files = {"README.md": f"See {evil}\n", "docs/a%0A::error::x.md": f"{evil}2\n", "docs/b\nc.md": f"{evil}3\n"}
         answers = {evil: links.Answer(404), evil + "2": links.Answer(404), evil + "3": links.Answer(404)}
-        self.run_stage(files, answers, "--format", "github")
+        self.run_stage(files, answers, "--ci")
         for line in self.out.getvalue().splitlines():
             self.assertTrue(line.startswith(("::warning ", "::notice ", "Links:", "Not checked", "1 ", "2 ", "3 ")) or not line.startswith("::"),
                             line)

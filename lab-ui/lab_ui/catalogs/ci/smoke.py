@@ -478,11 +478,10 @@ def main(argv, out, err, **seams) -> int:
             outcomes.append(Outcome(unit.key, "failed", tuple(result.started), spent, "; ".join(bad)))
         else:
             outcomes.append(Outcome(unit.key, "started", tuple(result.started), spent))
-    if args.format != "json":
-        out.write("\n".join(lines_of(outcomes)) + "\n")
-        for label, lines in logs.items():
-            out.write(f"The last {len(lines)} lines of the log of {report.printable(label)}:\n")
-            out.write(report.untrusted_text("\n".join(lines) + "\n"))
+    out.write("\n".join(lines_of(outcomes)) + "\n")
+    for label, lines in logs.items():
+        out.write(f"The last {len(lines)} lines of the log of {report.printable(label)}:\n")
+        out.write(report.untrusted_text("\n".join(lines) + "\n"))
     extra = ""
     if args.ci:
         extra = "### Units started\n\n" + (table(outcomes) if outcomes else "No unit to start.\n")

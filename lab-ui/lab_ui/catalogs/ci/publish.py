@@ -441,20 +441,15 @@ def plan_main(argv, out, err, **seams) -> int:
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     root = os.path.abspath(args.path)
     try:
-        result = make_plan(root, ref, sha, repository, event, seams, err if args.format == "json" else out)
+        result = make_plan(root, ref, sha, repository, event, seams, out)
     except (gitx.CatalogError, gitx.OutputLimit) as error:
         raise Unavailable("git could not be run: " + report.printable(getattr(error, "message", None) or str(error))) from None
     failed = [each for each in result.problems if each.severity == ERROR]
-    if args.format == "json":
-        out.write(json.dumps({"images": result.images, "count": len(result.images), "attest": not private,
-                              "problems": [each._asdict() for each in result.problems], "notes": result.notes},
-                             indent=2, sort_keys=True, ensure_ascii=True) + "\n")
-    else:
-        out.write(f"Publish plan for {report.printable(ref.ref)} at {sha[:7]}\n")
-        out.write("".join(f"{report.printable(note)}\n" for note in result.notes))
-        out.write(f"Images: {len(result.images)}\n" + "".join(f"  {report.printable(name)}\n" for name in result.images))
-        if result.problems:
-            out.write(report.render(result.problems, args.format))
+    out.write(f"Publish plan for {report.printable(ref.ref)} at {sha[:7]}\n")
+    out.write("".join(f"{report.printable(note)}\n" for note in result.notes))
+    out.write(f"Images: {len(result.images)}\n" + "".join(f"  {report.printable(name)}\n" for name in result.images))
+    if result.problems:
+        out.write(report.render(result.problems, "github" if args.ci else "text"))
     if args.ci:
         write_summary("### What to publish\n\n" + "\n".join(f"- {note}" for note in result.notes) + "\n\n"
                       + ("".join(f"- `{name.replace('`', '')}`\n" for name in result.images) or "No image to publish.\n")
@@ -637,8 +632,7 @@ def main(argv, out, err, **seams) -> int:
     outcome = Done([], [])
     if chosen:
         docker_ready(runner)
-        outcome = publish_all(chosen, ref, sha, url, license_, platforms, runner, seams.get("sleep") or time.sleep,
-                              err if args.format == "json" else out)
+        outcome = publish_all(chosen, ref, sha, url, license_, platforms, runner, seams.get("sleep") or time.sleep, out)
         records = outcome.records
     write_text(args.records, records_text(records))
     if args.github_output:

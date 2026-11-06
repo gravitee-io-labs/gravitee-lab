@@ -335,10 +335,10 @@ class Branch(Fixture):
         with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}):
             with mock.patch.object(ci, "LOADER", self.loader()):
                 code = publish.plan_main([str(self.repo), "--ref", "refs/heads/main", "--sha", self.first, "--repository", REPO,
-                                          "--private", "true", "--format", "json"], self.out, self.err, gh=self.github,
+                                          "--private", "true"], self.out, self.err, gh=self.github,
                                          lab=str(self.lab), sleep=self.slept.append)
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(self.out.getvalue())["count"], 3)
+        self.assertIn("Images: 3\n", self.out.getvalue())
 
     def test_a_rerun_of_an_old_run_publishes_nothing_so_latest_never_moves_back(self):
         old = self.commit({f"{APPS['web']}/app.py": "print(2)\n"})

@@ -95,7 +95,7 @@ def main(argv, out, err, **seams) -> int:
     args = parsed(found, argv)
     needs = declared(args.path)
     if not needs:
-        out.write("Needs: none\n" if args.format == "text" else "")
+        out.write("Needs: none\n" if not args.ci else "")
         return conclude([], args, out, "make ci", title="Catalogs it needs")
     environment = seams.get("environ", os.environ)
     secret = environment.get(KEY, "")
@@ -122,7 +122,7 @@ def main(argv, out, err, **seams) -> int:
             if why is not None:
                 problems.append(problem("ND02", ".github/standard.json", name=name, repository=needs[name]["repository"], why=why))
             else:
-                out.write(f"Needs: {name} at {needs[name]['ref'][:7]}\n" if args.format == "text" else "")
+                out.write(f"Needs: {name} at {needs[name]['ref'][:7]}\n" if not args.ci else "")
     finally:
         shutil.rmtree(folder, ignore_errors=True)   # the key goes with it
     return conclude(problems, args, out, "make ci", title="Catalogs it needs")

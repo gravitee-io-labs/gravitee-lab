@@ -391,11 +391,10 @@ def main(argv, out, err, **seams) -> int:
         built, failed, logs = build_all(specs, runner, seams.get("sleep") or time.sleep, root)
         rows = built + rows
         problems += failed
-    if args.format != "json":
-        out.write("\n".join(lines_of(rows, platform)) + "\n")
-        for image, lines in logs.items():
-            out.write(f"The last {len(lines)} lines of the build of {report.printable(image)}:\n")
-            out.write(report.untrusted_text("\n".join(lines) + "\n"))
+    out.write("\n".join(lines_of(rows, platform)) + "\n")
+    for image, lines in logs.items():
+        out.write(f"The last {len(lines)} lines of the build of {report.printable(image)}:\n")
+        out.write(report.untrusted_text("\n".join(lines) + "\n"))
     extra = ""
     if args.ci:
         extra = f"### Images built for {platform}\n\n" + (table(rows) if rows else "No image to build.\n")

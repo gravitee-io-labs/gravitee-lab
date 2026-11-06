@@ -134,6 +134,5 @@ def main(argv, out, err, **seams) -> int:
         more, results, notes = run(loading.units, seams.get("ask"), seams.get("module"))
         problems += more
         skipped += notes
-        if args.format != "json":
-            out.write("\n".join(lines(results)) + "\n" if results else "")
+        out.write("\n".join(lines(results)) + "\n" if results else "")
     return conclude(problems, args, out, "make ci", skipped, title="Every image exists in its registry")

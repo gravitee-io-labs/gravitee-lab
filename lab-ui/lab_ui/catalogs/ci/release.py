@@ -24,7 +24,7 @@ future registry. Nothing is read from the network.
 Exit 0 it wrote them, 2 it cannot (a tag this clone does not have, records that are not what `publish` writes).
 
 `catalog.py ci unreleased PATH` is the same notes from the last release to HEAD: what the Lab does not offer yet, since it offers a
-catalog's releases and not its main branch. It says so (a warning in `--format github`, the notes in the summary with `--ci`) and
+catalog's releases and not its main branch. It says so (with `--ci`, a warning and the notes in the summary) and
 exits 0: a change merged and not released is a choice of the owners, not a fault. 2 when git cannot read the clone.
 
 Python 3.9 and later, standard library only."""
@@ -246,14 +246,9 @@ def main(argv, out, err, **seams) -> int:
     notes = notes_text(release)
     write(args.notes, notes)
     write(args.images, images_text(records, release.version))
-    if args.format != "json":
-        out.write(f"Notes for {report.printable(args.tag)}: {len(release.new)} new, {len(release.changed)} changed, "
-                  f"{len(release.removed)} removed, since {report.printable(release.previous) if release.previous else 'the start'}; "
-                  f"{len(records)} images\n")
-    else:
-        out.write(json.dumps({"changed": [unit for unit, _ in release.changed], "images": len(records), "new": release.new,
-                              "previous": release.previous, "removed": release.removed, "tag": release.tag},
-                             indent=2, sort_keys=True, ensure_ascii=True) + "\n")
+    out.write(f"Notes for {report.printable(args.tag)}: {len(release.new)} new, {len(release.changed)} changed, "
+              f"{len(release.removed)} removed, since {report.printable(release.previous) if release.previous else 'the start'}; "
+              f"{len(records)} images\n")
     if args.ci:
         write_summary("### Release notes\n\n" + notes)
     return 0
@@ -274,11 +269,7 @@ def unreleased_main(argv, out, err, **seams) -> int:
     meta = catalog_meta(tree.text("catalog.yml") or "")
     version = meta.get("version", "") if isinstance(meta.get("version"), str) and releases.VERSION.fullmatch(meta["version"]) else ""
     line = unreleased_text(previous, new, changed, removed, version)
-    if args.format == "json":
-        wanted, tag_only = next_release(previous, version)
-        out.write(json.dumps({"changed": [key for key, _ in changed], "new": new, "previous": previous, "removed": removed,
-                              "next": wanted, "tag_only": tag_only}, indent=2, sort_keys=True, ensure_ascii=True) + "\n")
-    elif line and args.format == "github":   # a catalog with no release is one way to be: said, not warned of
+    if line and args.ci:   # a catalog with no release is one way to be: said, not warned of
         out.write(f"::{'notice' if previous is None else 'warning'} title=Unreleased::{line.replace('%', '%25')}\n")
     else:
         out.write((line or f"Nothing changed since {previous}.") + "\n")

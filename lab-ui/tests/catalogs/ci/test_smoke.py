@@ -265,14 +265,14 @@ class Stage(Case):
         self.fake.when(*UP, code=1, stderr="container p-certs-1 exited (2)")
         self.fake.when(*PS, stdout=ps_lines(("certs", "exited", "", 2), ("broker", "created", "")))
         self.fake.when("compose", "logs", stdout="no\n")
-        self.assertEqual(self.run_stage(unit(services=services), extra=["--format", "json"]), 1)
+        self.assertEqual(self.run_stage(unit(services=services)), 1)
         self.assertIn("certs exited with 2", self.out.getvalue())
 
     def test_a_service_that_is_not_healthy_is_sm01_with_its_log_and_the_project_is_taken_down(self):
         self.fake.when(*UP, code=1, stderr="container p-bakery-mcp-1 is unhealthy")
         self.fake.when(*PS, stdout=ps_lines(("bakery-mcp", "running", "unhealthy")))
         self.fake.when("compose", "logs", stdout="line one\nline two\n::error::forged\n")
-        code = self.run_stage(unit(services={"bakery-mcp": service()}), extra=["--format", "github"])
+        code = self.run_stage(unit(services={"bakery-mcp": service()}), extra=["--ci"])
         self.assertEqual(code, 1)
         text = self.out.getvalue()
         self.assertIn("::error file=playgrounds/bank/compose.yml,title=SM01::bakery-mcp was not healthy after 240 s", text)
@@ -286,19 +286,16 @@ class Stage(Case):
         self.fake.when(*UP, code=1, stderr="dependency failed to start")
         self.fake.when(*PS, stdout=ps_lines(("bakery-mcp", "exited", "", 137)))
         self.fake.when("compose", "logs", stdout="Killed\n")
-        code = self.run_stage(unit(services={"bakery-mcp": service()}), extra=["--format", "json"])
+        code = self.run_stage(unit(services={"bakery-mcp": service()}))
         self.assertEqual(code, 1)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["message"]) for each in found], [("SM02", "bakery-mcp exited with 137")])
-        self.assertEqual(found[0]["path"], "playgrounds/bank/compose.yml")
+        self.assertIn("✗ playgrounds/bank/compose.yml\n    SM02 bakery-mcp exited with 137\n", self.out.getvalue())
 
     def test_a_service_that_dies_after_it_started_is_found_when_the_wave_is_looked_at_again(self):
         self.fake.when(*PS, stdout=ps_lines(("bakery-mcp", "exited", "", 1)))
         self.fake.when("compose", "logs", stdout="boom\n")
-        code = self.run_stage(unit(services={"bakery-mcp": service()}), extra=["--format", "json"])
+        code = self.run_stage(unit(services={"bakery-mcp": service()}))
         self.assertEqual(code, 1)
-        self.assertEqual([(each["code"], each["message"]) for each in json.loads(self.out.getvalue())],
-                         [("SM02", "bakery-mcp exited with 1")])
+        self.assertIn("SM02 bakery-mcp exited with 1\n", self.out.getvalue())
         self.assertEqual(self.slept, [smoke.SETTLE])
 
     def test_a_first_wave_that_fails_stops_the_next_ones_and_the_project_still_goes_down(self):
@@ -345,11 +342,10 @@ class Stage(Case):
     def test_a_unit_that_needs_settings_is_not_tried_and_is_never_a_pass(self):
         needs = ci.Refused("addon", "apigee", "addons/apigee/compose.yml", (
             "Cannot be read: error while interpolating services.a.environment.KEY: required variable KEY is missing a value",))
-        code = self.run_stage(refused=[needs], extra=["--format", "json"])
+        code = self.run_stage(refused=[needs], extra=["--ci"])
         self.assertEqual(code, 0)   # (a warning: it is said, it fails nothing)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["severity"], each["message"]) for each in found],
-                         [("SM03", "warning", "addon:apigee was not tried: it needs settings or a license.")])
+        self.assertIn("::warning file=addons/apigee/compose.yml,title=SM03::addon:apigee was not tried: it needs settings or a license.\n",
+                      self.out.getvalue())
         self.assertEqual(self.fake.calls(), [])   # (not even a docker version: there was nothing to start)
 
     def test_a_unit_that_needs_a_license_or_the_token_of_a_platform_is_not_tried(self):
@@ -374,9 +370,8 @@ class Stage(Case):
 
     def test_a_unit_the_trust_policy_blocks_is_an_error_and_is_never_started(self):
         blocked = ci.Refused("addon", "bad", "addons/bad/compose.yml", ("Mounts the Docker socket",), "T10")
-        self.assertEqual(self.run_stage(refused=[blocked], extra=["--format", "json"]), 1)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["path"]) for each in found], [("T10", "addons/bad/compose.yml")])
+        self.assertEqual(self.run_stage(refused=[blocked], extra=["--ci"]), 1)
+        self.assertIn("::error file=addons/bad/compose.yml,title=T10::", self.out.getvalue())
         self.assertEqual(self.fake.calls(), [])
 
     def test_the_bind_folders_a_unit_keeps_its_state_in_are_made_before_it_starts(self):
@@ -527,11 +522,10 @@ class Real(Case):
     def test_an_addon_that_needs_nothing_starts_in_a_temporary_project_and_the_unit_that_needs_a_license_is_not_tried(self):
         self.fake.when(*PS, stdout=ps_lines("fixture-echo"))
         before = (registry.entries(), registry.read_lock(), sorted(os.listdir(Path(paths.ROOT) / paths.CATALOGS_DIR)))
-        code = smoke.main([self.folder, "--units", '["addon:echo", "playground:shop"]', "--format", "json"], self.out, self.err,
+        code = smoke.main([self.folder, "--units", '["addon:echo", "playground:shop"]'], self.out, self.err,
                           sleep=lambda seconds: None)
         self.assertEqual((code, self.err.getvalue()), (0, ""))
-        self.assertEqual([(each["code"], each["message"]) for each in json.loads(self.out.getvalue())],
-                         [("SM03", "playground:shop was not tried: it needs settings or a license.")])
+        self.assertIn("SM03 playground:shop was not tried: it needs settings or a license.\n", self.out.getvalue())
         up = self.fake.commands(*UP)
         self.assertEqual(len(up), 1)
         self.assertEqual(up[0][up[0].index("-p") + 1], "catalog-smoke-addon-echo")

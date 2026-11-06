@@ -149,13 +149,12 @@ def main(argv, out, err, **seams) -> int:
         docker_ready(runner)
         results = run_all(loading.units, specs, runner, seams.get("sleep"))
         problems += findings(results)
-    if args.format != "json":
-        out.write("\n".join(lines_of(results)) + "\n")
-        for each in results:
-            if each.outcome.status == "failed":
-                lines = tail(each.outcome.output, TAIL)
-                out.write(f"The last {len(lines)} lines of the tests of {report.printable(each.app)}:\n")
-                out.write(report.untrusted_text("\n".join(lines) + "\n"))
+    out.write("\n".join(lines_of(results)) + "\n")
+    for each in results:
+        if each.outcome.status == "failed":
+            lines = tail(each.outcome.output, TAIL)
+            out.write(f"The last {len(lines)} lines of the tests of {report.printable(each.app)}:\n")
+            out.write(report.untrusted_text("\n".join(lines) + "\n"))
     extra = ""
     if args.ci:
         extra = "### Tests of the apps\n\n" + (table(results) if results else "No app to test.\n")

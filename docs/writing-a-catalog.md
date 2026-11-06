@@ -282,9 +282,8 @@ python3 ../gravitee-lab/lab-ui/catalog.py ci unreleased .
 ```
 
 says which items changed since the last tag and the command that releases them: `make release VERSION=1.1.0`, or
-`make release VERSION=1.1.0 TAG=1` once the release pull request is merged and only its tag is left. `--format json` gives the
-same for a script (`next`, `tag_only`, and the items). The **Checks** job runs it with `--ci` on every push to `main`: a warning on
-the run, and the notes the next release would have in its summary. It always exits 0, and the step never fails the run: what
+`make release VERSION=1.1.0 TAG=1` once the release pull request is merged and only its tag is left. The **Checks** job runs it
+with `--ci` on every push to `main`: a warning on the run, and the notes the next release would have in its summary. It always exits 0, and the step never fails the run: what
 you release, and when, is your choice.
 
 ## Keeping in step

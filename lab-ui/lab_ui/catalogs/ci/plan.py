@@ -289,14 +289,9 @@ def main(argv, out, err, **seams) -> int:
         changed = None
     plan = compute(tree, args.event, changed, base)
     failed = [each for each in plan.problems if each.severity == ERROR]
-    if args.format == "json":
-        document = {"units": plan.units, "seed": plan.seed, "compile": plan.compile, "matrix": plan.matrix,
-                    "scope": plan.scope, "problems": [each._asdict() for each in plan.problems]}
-        out.write(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=True) + "\n")
-    else:
-        out.write("\n".join(lines_of(plan)) + "\n")
-        if plan.problems:
-            out.write(report.render(plan.problems, args.format))
+    out.write("\n".join(lines_of(plan)) + "\n")
+    if plan.problems:
+        out.write(report.render(plan.problems, "github" if args.ci else "text"))
     if args.ci:
         write_summary("### What the change touches\n\n" + "\n".join(f"- {line}" for line in lines_of(plan)) + "\n"
                       + ("\n" + report.summary(plan.problems, "make ci") if plan.problems else ""))

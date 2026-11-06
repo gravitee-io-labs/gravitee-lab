@@ -260,7 +260,7 @@ class Stage(Asking):
         return code, loader
 
     def test_a_missing_tag_ends_the_stage_with_1(self):
-        code, loader = self.run_stage("--format", "github")
+        code, loader = self.run_stage("--ci")
         self.assertEqual(code, 1)
         self.assertIn("::error file=addons/mock/compose.yml,title=MF01::graviteeio/apim-gateway:9.9.9: the registry has no tag "
                       "9.9.9. Fix: use a tag that exists, or an earlier version.", self.out.getvalue())
@@ -268,7 +268,7 @@ class Stage(Asking):
 
     def test_a_registry_that_did_not_answer_is_a_warning_and_exit_0(self):
         self.registry = Registry(default="down")
-        code, _ = self.run_stage("--format", "github")
+        code, _ = self.run_stage("--ci")
         self.assertEqual(code, 0)
         self.assertIn("::warning file=addons/mock/compose.yml,title=MF02::registry-1.docker.io did not answer", self.out.getvalue())
 
@@ -282,7 +282,7 @@ class Stage(Asking):
     def test_a_unit_the_lab_refused_is_a_finding_and_no_registry_is_asked_for_it(self):
         self.units = []
         self.refused = [ci.Refused("addon", "mock", "addons/mock/compose.yml", ("Runs with full privileges",), "T03")]
-        code, _ = self.run_stage("--format", "github")
+        code, _ = self.run_stage("--ci")
         self.assertEqual(code, 1)
         self.assertIn("title=T03::addon:mock was not read: Runs with full privileges. Fix: make check says how.", self.out.getvalue())
         self.assertEqual(self.registry.asked, [])
@@ -530,7 +530,7 @@ class Hostile(Case):
     def test_a_service_with_a_profile_is_a_refusal_for_every_stage_and_nothing_of_it_is_built_or_asked(self):
         out, err = io.StringIO(), io.StringIO()
         asked = []
-        code = manifests.main([self.folder, "--units", '["addon:gated"]', "--format", "github"], out, err, ask=lambda image: asked.append(image))
+        code = manifests.main([self.folder, "--units", '["addon:gated"]', "--ci"], out, err, ask=lambda image: asked.append(image))
         self.assertEqual((code, asked), (1, []))
         self.assertIn("title=T01::addon:gated was not read: Uses a Compose feature the Lab does not check: profiles (evil).", out.getvalue())
         fake = FakeDocker(self)
@@ -551,7 +551,7 @@ class Hostile(Case):
     def test_the_stage_answers_for_the_refused_units_with_exit_1_and_asks_no_registry(self):
         out, err = io.StringIO(), io.StringIO()
         asked = []
-        code = manifests.main([self.folder, "--units", '["addon:privileged", "addon:remote"]', "--format", "github"], out, err,
+        code = manifests.main([self.folder, "--units", '["addon:privileged", "addon:remote"]', "--ci"], out, err,
                               ask=lambda image: asked.append(image))
         self.assertEqual(code, 1, err.getvalue())
         self.assertEqual(asked, [])

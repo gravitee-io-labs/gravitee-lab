@@ -559,12 +559,12 @@ class Gate(Fixture):
     def test_a_folder_that_is_not_there_is_a_usage_error(self):
         self.assertEqual(e2e.gate_main([str(self.repo), "--change", "/no/such", "--sha", "a" * 40], self.out, self.err), 2)
 
-    def test_the_command_line_reaches_the_gate_and_the_json_form_is_a_list(self):
+    def test_the_command_line_reaches_the_gate(self):
         self.clone({"addons/mock/README.md": "x\n"})
         out = io.StringIO()
-        code = ci_main(["e2e-gate", str(self.repo), "--change", str(self.change), "--sha", "c" * 40, "--format", "json"], out, io.StringIO())
+        code = ci_main(["e2e-gate", str(self.repo), "--change", str(self.change), "--sha", "c" * 40], out, io.StringIO())
         self.assertEqual(code, 1)
-        self.assertEqual([each["code"] for each in json.loads(out.getvalue())], ["E2E03"])
+        self.assertIn("    E2E03 ", out.getvalue())
 
 
 class Real(Case):

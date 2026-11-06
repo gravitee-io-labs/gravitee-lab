@@ -76,7 +76,7 @@ def units_with_app(units, root: str, name: str, lab=None) -> List[str]:
 
 @entry
 def main(argv, out, err, **seams) -> int:
-    found = parser("run", "Plan, manifests, build and test on this machine, as CI does.", fmt=False, ci=False)
+    found = parser("run", "Plan, manifests, build and test on this machine, as CI does.", ci=False)
     found.add_argument("--all", action="store_true", help="every unit, not only those changed since the base")
     found.add_argument("--base", default="", help="the commit the change is measured from (default: origin/main)")
     found.add_argument("--app", default=None, help="build and test this app only (the folder of its build context)")

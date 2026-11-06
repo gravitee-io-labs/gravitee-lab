@@ -16,7 +16,7 @@ cannot do it (a stage that cannot run is never a green one).
 
 What every stage shares is here:
 
-- **The output.** `--format text|github|json` for the findings (`report`), `--ci` for the Markdown summary in
+- **The output.** The findings as text (`report`); with `--ci` as GitHub annotations, and the Markdown summary in
   `$GITHUB_STEP_SUMMARY`; the outputs of a step in `$GITHUB_OUTPUT` are written by `write_outputs` and by nothing else, one
   line each, a flag or a `json.dumps(..., ensure_ascii=True)`: a name from the tree never reaches a line of its own.
 - **The messages of the stages**: `problem(code, path, **fields)`.
@@ -106,7 +106,6 @@ SUMMARY = {
 
 UNIT = re.compile(r"(addon|playground|setup):([a-z0-9-]{1,100})")
 MAX_UNITS = 1000   # the most --units may name; a catalog is limited to 500 (ST10)
-FORMATS = report.FORMATS
 
 # What an image reference may be made of (a registry host, a path, a tag, a digest): anything else is not given to a registry or to
 # Docker. The first character is a letter or a digit, so that no name is an option
@@ -176,26 +175,22 @@ class Parser(argparse.ArgumentParser):
         raise Usage((message or "").strip() or "usage")
 
 
-def parser(stage: str, text: str, units: bool = False, fmt: bool = True, ci: bool = True) -> Parser:
-    """The parser of a stage: PATH (the catalog, `.` by default), and `--units`, `--format`, `--ci` when asked."""
+def parser(stage: str, text: str, units: bool = False, ci: bool = True) -> Parser:
+    """The parser of a stage: PATH (the catalog, `.` by default), and `--units`, `--ci` when asked."""
     found = Parser(prog=f"catalog.py ci {stage}", description=text)
     found.add_argument("path", nargs="?", default=".", help="the catalog folder (default: the current folder)")
     if units:
         found.add_argument("--units", required=True, help='the units to work on, a JSON list: ["playground:bank"]')
-    if fmt:
-        found.add_argument("--format", choices=FORMATS, default=None, help="text (default), github or json")
     if ci:
         found.add_argument("--ci", action="store_true", help="the run is CI's: GitHub annotations and the step summary")
     return found
 
 
 def parsed(found: Parser, argv: Sequence[str]) -> argparse.Namespace:
-    """The arguments, with `--ci` meaning `--format github` unless a format was given. A PATH that is not a folder is a Usage."""
+    """The arguments. A PATH that is not a folder is a Usage."""
     args = found.parse_args(list(argv))
     if not os.path.isdir(args.path):
         raise Usage(f"{report.printable(args.path)} is not a folder")
-    if getattr(args, "format", "x") is None:
-        args.format = "github" if getattr(args, "ci", False) else "text"
     return args
 
 
@@ -328,12 +323,11 @@ def tail(text: str, count: int = 15) -> List[str]:
 
 
 def conclude(problems: List[Problem], args, out, command: str, skipped: Sequence[str] = (), extra: str = "", title: str = "") -> int:
-    """The end of a stage: the findings in the format asked for, the summary with `--ci`, and the exit code (1 for an error).
+    """The end of a stage: the findings, as annotations and with the summary under `--ci`, and the exit code (1 for an error).
     `extra` is Markdown that goes before the findings in the summary (a table of images)."""
     ordered = report.ordered(problems)
-    rendered = report.render(ordered, args.format, skipped=list(skipped))
-    out.write(rendered)
-    if getattr(args, "ci", False):
+    out.write(report.render(ordered, "github" if args.ci else "text", skipped=list(skipped)))
+    if args.ci:
         write_summary((extra + "\n" if extra else "") + report.summary(ordered, command, list(skipped), title))
     return 1 if any(each.severity == ERROR for each in ordered) else 0
 

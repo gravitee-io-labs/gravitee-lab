@@ -410,7 +410,7 @@ class Command(support.WithGit, Run):
         files = {f"playgrounds/big/apps/app{n}/Dockerfile": "FROM busybox:1.36\n" for n in range(21)}
         head = self.change({**files, "playgrounds/big/compose.yml": COMPOSE.format(name="big")})
         code, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                               "--github-output", "--format", "github")
+                                               "--github-output", "--ci")
         self.assertEqual(code, 1)
         self.assertIsNone(written)   # no file and no key: the result job turns red on an empty answer
         self.assertIn("::error title=BD06::Split this pull request: it changes 21 apps, the limit is 20.", shown)
@@ -418,7 +418,7 @@ class Command(support.WithGit, Run):
     def test_a_standard_that_names_no_known_platform_writes_nothing_and_exits_1(self):
         head = self.change({".github/standard.json": '{"platforms": ["linux/riscv64"], "standard": 1}\n'})
         code, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                               "--github-output", "--format", "github")
+                                               "--github-output", "--ci")
         self.assertEqual((code, written), (1, None))
         self.assertIn("title=SD04::.github/standard.json: platforms must be a non-empty list made of linux/amd64 and "
                       "linux/arm64.", shown)
@@ -436,20 +436,13 @@ class Command(support.WithGit, Run):
         self.assertIn("What the change touches", text)
         self.assertIn("1 problem to look at. To see them on your machine, run `make ci`.", text)
 
-    def test_the_json_format_is_the_plan_and_its_problems(self):
-        head = self.change({"addons/plain/compose.yml": COMPOSE.format(name="plain") + "# x\n"})
-        code, shown, _, _ = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                         "--format", "json")
-        document = json.loads(shown)
-        self.assertEqual((code, document["units"], document["problems"], document["scope"]), (0, ["addon:plain"], [], "change"))
-
     def test_the_outputs_need_a_workflow_step(self):
         code, _, said, _ = self.command(self.repo, "--event", "push", "--github-output", outputs=False)
         self.assertEqual(code, 2)
         self.assertIn("--github-output needs $GITHUB_OUTPUT", said)
 
     def test_a_usage_that_is_wrong_is_exit_2(self):
-        for argv in (["--event", "Push; rm"], ["--event", ""], ["--format", "xml"], ["/nonexistent-folder-xyz"]):
+        for argv in (["--event", "Push; rm"], ["--event", ""], ["/nonexistent-folder-xyz"]):
             with self.subTest(argv=argv):
                 out, err = io.StringIO(), io.StringIO()
                 self.assertEqual(plan.main(argv, out, err), 2)

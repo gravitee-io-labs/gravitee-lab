@@ -193,5 +193,5 @@ def main(argv, out, err, **seams) -> int:
     args = parsed(found, argv)
     problems = scan(args.path, args.base, seams.get("runner"))
     out.write(("Secrets: no commit of the range holds one\n" if not problems else
-               f"Secrets: {len(problems)} found in the commits of the range\n") if args.format == "text" else "")
+               f"Secrets: {len(problems)} found in the commits of the range\n") if not args.ci else "")
     return conclude(problems, args, out, "make ci", title="Secrets in every commit")

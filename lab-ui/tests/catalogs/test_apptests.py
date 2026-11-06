@@ -339,7 +339,7 @@ class Stage(Disk):
 
     def test_the_tests_of_an_app_run_in_its_image_with_the_guide_of_its_playground(self):
         context = self.with_tests("web")
-        code = self.stage({"bakery-web": self.service(context=context)}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=context)}, "--ci")
         self.assertEqual((code, self.err.getvalue()), (0, ""))
         runs = self.runs()
         self.assertEqual(len(runs), 1)
@@ -359,14 +359,14 @@ class Stage(Disk):
     def test_a_failed_test_is_ts01_with_how_many(self):
         context = self.with_tests("web")
         self.fake.when("run", "--entrypoint", code=1, stderr=UNITTEST_FAILED)
-        code = self.stage({"bakery-web": self.service(context=context)}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=context)}, "--ci")
         self.assertEqual(code, 1)
         self.assertIn("::error file=playgrounds/bank/compose.yml,title=TS01::web: 3 tests failed. Fix: run make ci APP=web to see "
                       "them.", self.out.getvalue())
 
     def test_an_app_with_no_tests_is_ts02_a_warning(self):
         context = self.app(name="web")
-        code = self.stage({"bakery-web": self.service(context=context)}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=context)}, "--ci")
         self.assertEqual(code, 0)
         self.assertIn("::warning file=playgrounds/bank/compose.yml,title=TS02::web has no tests. Fix: COPY tests ./tests in the "
                       "Dockerfile and add some.", self.out.getvalue())
@@ -375,13 +375,13 @@ class Stage(Disk):
     def test_tests_the_image_does_not_hold_are_ts02_too(self):
         context = self.with_tests("web")
         self.fake.when("run", "--entrypoint", code=1, stderr="ImportError: Start directory is not importable: 'tests'\n")
-        self.stage({"bakery-web": self.service(context=context)}, "--format", "github")
+        self.stage({"bakery-web": self.service(context=context)}, "--ci")
         self.assertIn("title=TS02::web has no tests.", self.out.getvalue())
 
     def test_what_the_tests_printed_is_data_between_the_stop_commands(self):
         context = self.with_tests("web")
         self.fake.when("run", "--entrypoint", code=1, stderr="::error::boom ::add-mask::hunter2\n" + UNITTEST_FAILED)
-        self.stage({"bakery-web": self.service(context=context)}, "--format", "github")
+        self.stage({"bakery-web": self.service(context=context)}, "--ci")
         lines = self.out.getvalue().splitlines()
         start = next(number for number, line in enumerate(lines) if line.startswith("::stop-commands::"))
         end = lines.index("::" + lines[start].split("::")[2] + "::")
@@ -410,7 +410,7 @@ class Stage(Disk):
         self.fake.when("image", "inspect", NODE, code=1, stderr="Error: No such image")
         self.fake.when("pull", "-q", code=1, stderr=self.RATE)
         slept = []
-        code = self.stage({"bakery-web": self.service(context=context)}, "--format", "github", sleep=slept.append)
+        code = self.stage({"bakery-web": self.service(context=context)}, "--ci", sleep=slept.append)
         self.assertEqual(code, 2)
         self.assertEqual(slept, [20, 60])
         self.assertEqual(len(self.fake.commands("pull")), 3)
@@ -457,7 +457,7 @@ class Stage(Disk):
         self.patch(apptests, "PYTHON_TIMEOUT", 1)
         self.patch(apptests, "NODE_TIMEOUT", 1)
         self.fake.when("run", sleep=30)   # (the process group is ended at the limit, the container would not be)
-        code = self.stage({"bakery-web": self.service(context=context)}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=context)}, "--ci")
         self.assertEqual(code, 1)
         self.assertIn("title=TS01::web: ", self.out.getvalue())
         runs = self.runs()
@@ -533,7 +533,7 @@ class Stage(Disk):
 
     def test_a_unit_the_lab_refused_is_never_tested(self):
         loading = ci.Loading([], [ci.Refused("playground", "bank", "playgrounds/bank/compose.yml", ("Runs with full privileges",), "T03")])
-        code = self.stage({}, "--format", "github", loading=loading)
+        code = self.stage({}, "--ci", loading=loading)
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
         self.assertIn("title=T03::playground:bank was not tested: Runs with full privileges.", self.out.getvalue())

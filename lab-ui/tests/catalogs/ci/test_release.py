@@ -385,9 +385,9 @@ class Images(Fixture):
         self.assertEqual(ci.STAGES["release-notes"], ("release", "main"))
         out = io.StringIO()
         code = ci_main(["release-notes", str(self.repo), "--tag", "v1.0.0", "--records", str(self.records), "--notes", str(self.notes),
-                        "--images", str(self.images), "--format", "json"], out, io.StringIO())
+                        "--images", str(self.images)], out, io.StringIO())
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out.getvalue())["new"], ["addon:mock", "addon:old", "playground:bank", "setup:pair"])
+        self.assertIn("Notes for v1.0.0: 4 new, 0 changed, 0 removed, since the start;", out.getvalue())
         self.assertEqual(ci_main(["release-notes"], io.StringIO(), io.StringIO()), 2)
 
 
@@ -409,15 +409,12 @@ class Unreleased(Fixture):
         self.commit(self.repo, "Add the new add-on")
         self.assertEqual(self.unreleased(), "2 items changed since v1.0.0 and the Lab does not offer them until the next release: "
                                             "addon:new-one, playground:bank. Release: make release VERSION=1.1.0\n")
-        self.assertTrue(self.unreleased("--format", "github").startswith("::warning title=Unreleased::2 items changed since v1.0.0"))
-        self.assertEqual(json.loads(self.unreleased("--format", "json")),
-                         {"changed": ["playground:bank"], "new": ["addon:new-one"], "previous": "v1.0.0", "removed": [], "next": "1.1.0",
-                          "tag_only": False})
+        self.assertTrue(self.unreleased("--ci").startswith("::warning title=Unreleased::2 items changed since v1.0.0"))
 
     def test_a_catalog_with_no_release_is_told_how_to_make_its_first_and_not_warned(self):
         self.assertEqual(self.unreleased(), "No release yet: the Lab offers the newest commit of main until there is one. Release it: "
                                             "make release VERSION=1.0.0 TAG=1\n")
-        self.assertTrue(self.unreleased("--format", "github").startswith("::notice title=Unreleased::"))
+        self.assertTrue(self.unreleased("--ci").startswith("::notice title=Unreleased::"))
 
     def test_the_summary_holds_the_notes_the_next_release_would_have(self):
         self.release("v1.0.0")

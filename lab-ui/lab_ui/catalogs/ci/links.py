@@ -352,7 +352,6 @@ def main(argv, out, err, **seams) -> int:
         skipped.append(f"{total['left']} addresses were not asked: the ten minutes of the run were up")
     if total["private"]:
         skipped.append(f"{total['private']} addresses are not on the public network and were not asked")
-    if args.format != "json":
-        out.write(f"Links: {total['addresses']} addresses in {len({link.path for link in links})} files, "
-                  f"{total['broken']} that do not answer\n")
+    out.write(f"Links: {total['addresses']} addresses in {len({link.path for link in links})} files, "
+              f"{total['broken']} that do not answer\n")
     return conclude(problems, args, out, "catalog.py ci links", skipped, title="The links of the guides answer")

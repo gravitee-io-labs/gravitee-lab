@@ -263,8 +263,7 @@ def main(argv, out, err, **seams) -> int:
     meta = catalog_meta(trees.FolderTree(root).text("catalog.yml") or "")
     prefix = meta.get("images", "")
     if not prefix:
-        if args.format != "json":
-            out.write("Published images: catalog.yml names no registry in images, so nothing is published and nothing is scanned\n")
+        out.write("Published images: catalog.yml names no registry in images, so nothing is published and nothing is scanned\n")
         return conclude([], args, out, "catalog.py ci scan-published", [],
                         title="The published images have no flaw to fix")
     if not prefix.startswith(HOST + "/") or not REPOSITORY.fullmatch(prefix[len(HOST) + 1:]):
@@ -277,12 +276,11 @@ def main(argv, out, err, **seams) -> int:
     if references:
         docker_ready(seams.get("runner"))
         user = os.environ.get("GITHUB_ACTOR") or prefix[len(HOST) + 1:].split("/", 1)[0]
-        flaws, missing = scan_images(references, scanner, token_of(seams.get("environ")), user, seams, err if args.format == "json" else out)
+        flaws, missing = scan_images(references, scanner, token_of(seams.get("environ")), user, seams, out)
         problems += flaws
         skipped += [f"{report.printable(each)} is not in the registry yet, so it was not scanned" for each in missing]
-        if args.format != "json":
-            out.write(f"Published images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
-    elif args.format != "json":
+        out.write(f"Published images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
+    else:
         out.write("Published images: this catalog builds no image under its prefix, so nothing is scanned\n")
     return conclude(problems, args, out, "catalog.py ci scan-published", skipped,
                     title="The published images have no flaw to fix")
@@ -305,11 +303,10 @@ def built_main(argv, out, err, **seams) -> int:
     if references:
         scanner = pinned_image(seams.get("dockerfile"), TOOL)
         docker_ready(seams.get("runner"))
-        flaws, missing = scan_images(references, scanner, "", "", seams, err if args.format == "json" else out, pull=False)
+        flaws, missing = scan_images(references, scanner, "", "", seams, out, pull=False)
         problems += flaws
         skipped += [f"{report.printable(each)} was not built here, so it was not scanned" for each in missing]
-        if args.format != "json":
-            out.write(f"Built images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
-    elif args.format != "json":
+        out.write(f"Built images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
+    else:
         out.write("Built images: the change builds no image, so nothing is scanned\n")
     return conclude(problems, args, out, "make ci", skipped, title="The images built have no flaw to fix")
