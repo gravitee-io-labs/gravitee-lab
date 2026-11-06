@@ -1034,7 +1034,7 @@ class Delegated(Tool):
         code, out, err = self.run_tool("repo-settings", "--help")
         self.assertEqual((code, err), (0, ""))
         self.assertIn("catalog.py repo-settings [OWNER/REPO or FOLDER]", out)
-        self.assertEqual(self.run_tool("repo-settings", "--yes"), (2, "", "--yes and --warnings go with --apply.\n"))
+        self.assertEqual(self.run_tool("repo-settings", "--yes"), (2, "", "--yes goes with --apply.\n"))
 
 
 class Help(Tool):

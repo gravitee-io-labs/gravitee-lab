@@ -1227,7 +1227,7 @@ class _Audit:
             self.add("security.scanning", OK)
         else:
             # On a private repository it is a paid add-on, also when the repository is audited as a public one: something
-            # to do when it is bought and never sent without --warnings, not a failure. The standard asks for it on a
+            # to do when it is bought, not a failure. The standard asks for it on a
             # private or internal repository nowhere, so --strict leaves it alone unless the audit is the go-public
             # gate, which lists what only a public repository can have
             wanted = {"security_and_analysis": {key: {"status": "enabled"} for key in ANALYSIS_KEYS}}
@@ -1353,13 +1353,12 @@ def _merge(wanted: List[Tuple[str, dict]]) -> List[Tuple[tuple, dict, List[str]]
     return [(key, req, ids) for key, (req, ids) in steps.items()]
 
 
-def apply(repo: str, runner: Callable, findings: list, yes: bool, warnings: bool = False) -> List[Applied]:
-    """The requests that bring `repo` to the standard, from the fixes of `findings` that failed (and that warn, with
-    `warnings`). Without `yes` they are only listed: no request but a read is made. A request of one fix is not made when an
+def apply(repo: str, runner: Callable, findings: list, yes: bool) -> List[Applied]:
+    """The requests that bring `repo` to the standard, from the fixes of `findings` that failed. Without `yes` they are only listed: no request but a read is made. A request of one fix is not made when an
     earlier request of that fix was refused or skipped, so an allow-list never comes in without its patterns. Rulesets are
     looked for by name just before they are sent: replaced if there, else created. A request is `done` when GitHub answered
     2xx; no answer is `refused` like a refusal is."""
-    wanted = [(finding.id, req) for finding in findings if finding.status == FAIL or (warnings and finding.status == WARN)
+    wanted = [(finding.id, req) for finding in findings if finding.status == FAIL
               for req in (finding.fix if isinstance(finding.fix, list) else [])]
     steps = _merge(wanted)
     chain: Dict[str, list] = {}
@@ -1539,7 +1538,7 @@ class Parser(argparse.ArgumentParser):
         raise Usage(text)
 
 
-USAGE = """catalog.py repo-settings [OWNER/REPO or FOLDER] [--apply [--yes] [--warnings]] [--effective-only]
+USAGE = """catalog.py repo-settings [OWNER/REPO or FOLDER] [--apply [--yes]] [--effective-only]
                          [--strict] [--as public or private or internal]
                          [--fleet OWNER] [--format text or json or github]
 
@@ -1553,7 +1552,6 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("target", nargs="?", help="OWNER/REPO or a folder (default: this folder)")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--yes", action="store_true")
-    p.add_argument("--warnings", action="store_true")
     p.add_argument("--effective-only", action="store_true")
     p.add_argument("--strict", action="store_true")
     p.add_argument("--as", dest="visibility", choices=("public", "private", "internal"))
@@ -1573,8 +1571,8 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
         return 0
     try:
         args = parser().parse_args(argv)
-        if (args.yes or args.warnings) and not args.apply:
-            raise Usage("--yes and --warnings go with --apply.")
+        if args.yes and not args.apply:
+            raise Usage("--yes goes with --apply.")
         if args.fleet is not None and (args.target or args.apply):
             raise Usage("--fleet audits every catalog of an owner: it takes no repository and no --apply.")
         options = {"as": args.visibility, "effective_only": args.effective_only}
@@ -1589,7 +1587,7 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
         if not args.apply:
             print(render(findings, args.format), file=out)
             return exit_code(findings, args.strict)
-        applied = apply(repo, runner, findings, args.yes, args.warnings)
+        applied = apply(repo, runner, findings, args.yes)
         if args.format == "json":
             document = json.loads(render(findings, "json"))
             document["requests"] = [item._asdict() for item in applied]

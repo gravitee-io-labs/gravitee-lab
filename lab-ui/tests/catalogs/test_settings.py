@@ -1801,14 +1801,12 @@ class Apply(Case):
                           "squash_merge_commit_message": "BLANK"}, applied[0].body)      # the merge findings, one request
         self.assertTrue(all(call[0] == "GET" for call in scene.hub.calls))
 
-    def test_warnings_are_applied_only_when_asked(self):
+    def test_warnings_are_shown_and_never_applied(self):
         scene = Scene("user-private-free")
         findings = scene.audit()
-        more = settings.apply(scene.repo, scene.hub, findings, False, warnings=True)
-        self.assertEqual({"PUT repos/acme/lab-hub/immutable-releases", "PUT repos/acme/lab-hub/actions/permissions/artifact-and-log-retention"},
-                         {f"{item.method} {item.path}" for item in more} - {f"{item.method} {item.path}" for item in
-                                                                              settings.apply(scene.repo, scene.hub, findings, False)})
-        self.assertNotIn("selected-actions", " ".join(item.path for item in more))       # the list of actions waits for V3
+        planned = {f"{item.method} {item.path}" for item in settings.apply(scene.repo, scene.hub, findings, False)}
+        self.assertFalse({"PUT repos/acme/lab-hub/immutable-releases", "PUT repos/acme/lab-hub/actions/permissions/artifact-and-log-retention"} & planned)
+        self.assertNotIn("selected-actions", " ".join(planned))       # the list of actions waits for V3
 
     def test_with_yes_the_requests_are_made_in_order(self):
         scene = Scene("user-private-free")
@@ -1823,12 +1821,12 @@ class Apply(Case):
         scene = self.broken()
         findings = scene.audit()
         self.assertGreater(len([f for f in findings if f.status == FAIL]), 10)
-        done = settings.apply(scene.repo, scene.hub, findings, True, warnings=True)
+        done = settings.apply(scene.repo, scene.hub, findings, True)
         self.assertEqual({"done"}, {item.outcome for item in done}, [item for item in done if item.outcome != "done"])
         self.no_removal(scene.hub)
         again = scene.audit()
-        self.assertEqual([], [(f.id, f.status, f.now) for f in again if f.status in (FAIL, WARN)])
-        self.assertEqual([], settings.apply(scene.repo, scene.hub, again, True, warnings=True))
+        self.assertEqual([], [(f.id, f.status, f.now) for f in again if f.status == FAIL])
+        self.assertEqual([], settings.apply(scene.repo, scene.hub, again, True))
         self.assertEqual("Nothing to change", settings.render_applied([]))
         writes = len(scene.hub.writes())
         settings.apply(scene.repo, scene.hub, scene.audit(), True)
@@ -1913,7 +1911,7 @@ class Apply(Case):
 
     def test_nothing_is_ever_removed(self):
         scene = self.broken()
-        settings.apply(scene.repo, scene.hub, scene.audit(), True, warnings=True)
+        settings.apply(scene.repo, scene.hub, scene.audit(), True)
         self.no_removal(scene.hub)
         for module in ("settings.py", "fleet.py"):
             self.assertNotRegex(Path(settings.__file__).with_name(module).read_text(encoding="utf-8"), r"\bDELETE\b", module)
@@ -2029,9 +2027,9 @@ class Apply(Case):
             done = [i for i in settings.apply(scene.repo, scene.hub, scene.audit(), True) if i.path.endswith("/topics")]
             self.assertEqual([outcome], [i.outcome for i in done], code)
 
-    def test_a_paid_feature_is_never_sent_without_warnings(self):
-        """Secret scanning on a private repository is an add-on that is paid for, also under --as public (the gate): it is
-        planned and sent only with --warnings."""
+    def test_a_paid_feature_is_never_sent(self):
+        """Secret scanning on a private repository is an add-on that is paid for, also under --as public (the gate): it is said
+        and never sent."""
         disabled = {"secret_scanning": {"status": "disabled"}, "secret_scanning_push_protection": {"status": "disabled"}}
         for options in ({}, {"as": "public"}, {"as": "internal"}):
             scene = Scene("org-private", live=True)
@@ -2040,15 +2038,10 @@ class Apply(Case):
             plain = settings.apply(scene.repo, scene.hub, findings, True)
             self.assertEqual([], [i for i in plain if "security_and_analysis" in (i.body or {})], options)
             self.assertEqual([], [w for w in scene.hub.writes() if "security_and_analysis" in (w[2] or {})], options)
-            paid = settings.apply(scene.repo, scene.hub, findings, True, warnings=True)
-            self.assertEqual(1, len([i for i in paid if "security_and_analysis" in (i.body or {})]), options)
-            self.assertEqual({"secret_scanning": {"status": "enabled"}, "secret_scanning_push_protection": {"status": "enabled"}},
-                             scene.get().body["security_and_analysis"], options)
         scene = Scene("org-private")
         scene.edit(security_and_analysis=copy.deepcopy(disabled))
         run = Run(["acme-labs/lab-internal", "--as", "public", "--apply"], scene)
         self.assertNotIn("secret_scanning", run.text.split("Summary:")[1])             # no request of the dry run carries it
-        self.assertIn("secret_scanning", Run(["acme-labs/lab-internal", "--as", "public", "--apply", "--warnings"], scene).text.split("Summary:")[1])
 
     def test_a_request_the_plan_does_not_allow_is_skipped_and_the_others_go_on(self):
         scene = self.broken()
@@ -2077,8 +2070,7 @@ class Apply(Case):
             self.assertEqual([], settings.apply(scene.repo, scene.hub, crafted(req, status=status), True), status)
         self.assertEqual([], settings.apply(scene.repo, scene.hub, [settings.Finding("repo.merge", FAIL, "t", "", "words")], True))
         self.assertEqual([], settings.apply(scene.repo, scene.hub, crafted(req, status=WARN), True))
-        self.assertEqual(1, len(settings.apply(scene.repo, scene.hub, crafted(req, status=WARN), True, warnings=True)))
-        self.assertEqual([], scene.hub.writes()[1:])
+        self.assertEqual([], scene.hub.writes())
 
     def test_the_requests_are_printed_as_commands_a_person_can_type(self):
         planned = [settings.Applied("PATCH", "repos/acme/lab-hub", {"allow_forking": False, "name": "it's"}, "planned", ""),
@@ -2144,15 +2136,14 @@ class Command(Case):
 
     def test_apply_with_yes_and_a_second_apply(self):
         scene = Apply.broken(Apply())
-        run = Run(["acme-labs/lab-internal", "--apply", "--yes", "--warnings"], scene)
+        run = Run(["acme-labs/lab-internal", "--apply", "--yes"], scene)
         self.assertEqual("", run.error)
         self.assertEqual(0, run.code)
         self.assertIn("done     PATCH repos/acme-labs/lab-internal", run.text)
         self.assertNotIn("refused", run.text)
-        again = Run(["acme-labs/lab-internal", "--apply", "--yes", "--warnings"], scene)
+        again = Run(["acme-labs/lab-internal", "--apply", "--yes"], scene)
         self.assertEqual(0, again.code)
         self.assertTrue(again.text.rstrip().endswith("Nothing to change"))
-        self.assertEqual(0, Run(["acme-labs/lab-internal", "--strict"], scene).code)
 
     def test_the_exit_code_after_yes_is_the_one_of_what_is_there_now(self):
         scene = Scene("user-private-free", live=True)
@@ -2163,7 +2154,7 @@ class Command(Case):
         failing = [f["id"] for f in json.loads(again.text)["findings"] if f["status"] == "fail"]
         self.assertEqual(["files.codeowners"], failing)
         scene.set("/codeowners/errors", {"errors": []})
-        self.assertEqual(0, Run(["acme/lab-hub", "--apply", "--yes", "--warnings"], scene).code)
+        self.assertEqual(0, Run(["acme/lab-hub", "--apply", "--yes"], scene).code)
         none = Scene("user-private-free")
         none.set("/codeowners/errors", {"errors": []})
         none.table = {key: value for key, value in none.table.items()}
@@ -2201,7 +2192,7 @@ class Command(Case):
 
     def test_a_command_line_that_makes_no_sense_is_one_line_and_exit_2(self):
         scene = Scene("org-private")
-        for argv in (["acme-labs/lab-internal", "--yes"], ["acme-labs/lab-internal", "--warnings"], ["--bogus"],
+        for argv in (["acme-labs/lab-internal", "--yes"], ["--bogus"],
                      ["acme-labs/lab-internal", "--as", "secret"], ["acme-labs/lab-internal", "--format", "xml"],
                      ["acme-labs/lab-internal", "--fleet", "acme-labs"],
                      ["--fleet", "acme-labs", "--apply"], ["a/b", "c/d"], ["--as", "private", "acme-labs/lab-hub"], ["not a repository"]):
@@ -2367,7 +2358,7 @@ class Isolation(Case):
 
         def action():
             findings = scene.audit()
-            settings.apply(scene.repo, scene.hub, findings, True, warnings=True)
+            settings.apply(scene.repo, scene.hub, findings, True)
             settings.render(scene.audit(), "text")
         opened, touched = self.watched(scene, action)
         root = os.path.realpath(str(settings.RULESETS))
