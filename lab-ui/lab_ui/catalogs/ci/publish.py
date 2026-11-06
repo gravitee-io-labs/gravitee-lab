@@ -158,7 +158,7 @@ def carries_tool_credit(commit: trees.Commit) -> bool:
 def read(call: Callable, path: str) -> settings.Reply:
     """A GET through `gh api`: the Reply, or Unavailable when `gh` is not there or not signed in."""
     try:
-        return settings.as_reply(call("GET", path))
+        return call("GET", path)
     except settings.Unusable as error:
         raise Unavailable(report.printable(str(error))) from None
 
