@@ -109,12 +109,6 @@ def step_with(body, marker):
     return found[0]
 
 
-def texts():
-    """Every file the rules read, by name: the workflows and actions of the engine, and the workflow a catalog copies."""
-    found = {file.name: file.read_text(encoding="utf-8") for file in FILES}
-    return found
-
-
 class WorkflowsTest(unittest.TestCase):
     def test_there_are_workflows_to_read(self):
         self.assertIn("e2e.yml", [file.name for file in WORKFLOWS])
@@ -398,17 +392,15 @@ class ShellTest(unittest.TestCase):
 class PrepareTest(ShellTest):
     """What an event and a maintainer's words become before anything is checked out: the first job of e2e.yml."""
 
-    SOURCES = {"engine": (E2E, "id: prepare")}
     ENV = {"EVENT": "pull_request", "REF": "refs/pull/7/merge", "HEAD": SHA, "BASE": "b" * 40, "PR": "", "SHA": "", "ITEMS": "",
            "CATALOG_REPOSITORY": "owner/catalog", "CATALOG_REF": "c" * 40, "E2E_ENABLED": "true"}
 
-    def prepare(self, source, **env):
-        path, marker = self.SOURCES[source]
-        text = path.read_text(encoding="utf-8")
-        return self.execute(script(step_with(jobs(text)["prepare"], marker)), {**self.ENV, **env})
+    def prepare(self, **env):
+        text = E2E.read_text(encoding="utf-8")
+        return self.execute(script(step_with(jobs(text)["prepare"], "id: prepare")), {**self.ENV, **env})
 
     def test_a_pull_request_of_the_engine_is_tried_where_it_changes_the_catalog_s_known_good_commit(self):
-        done = self.prepare("engine")
+        done = self.prepare()
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.outputs(), {"lab_ref": SHA, "catalog_ref": "c" * 40, "items": "changed", "base": "b" * 40, "expect_sha": "",
                                           "skip": "false"})
@@ -416,29 +408,29 @@ class PrepareTest(ShellTest):
     def test_an_engine_whose_repository_has_not_enabled_end_to_end_tries_nothing(self):
         for enabled in ("", "false", "yes"):
             with self.subTest(enabled=enabled):
-                done = self.prepare("engine", E2E_ENABLED=enabled)
+                done = self.prepare(E2E_ENABLED=enabled)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertIn("The variable E2E_ENABLED is not true", done.stdout)
                 self.assertEqual(self.outputs()["skip"], "true")
 
     def test_the_night_tries_the_canary_on_the_default_branch_of_the_catalog(self):
-        done = self.prepare("engine", EVENT="schedule", REF="refs/heads/main", BASE="")
+        done = self.prepare(EVENT="schedule", REF="refs/heads/main", BASE="")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.outputs(), {"lab_ref": SHA, "catalog_ref": "", "items": "canary", "base": "", "expect_sha": "", "skip": "false"})
 
     def test_a_maintainer_who_read_a_pull_request_tries_that_commit_from_main(self):
-        done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", PR="123", SHA="d" * 40, ITEMS="canary")
+        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", PR="123", SHA="d" * 40, ITEMS="canary")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.outputs()["lab_ref"], "refs/pull/123/head")
         self.assertEqual(self.outputs()["expect_sha"], "d" * 40)
         self.assertEqual(self.outputs()["items"], "canary")
 
     def test_a_dispatch_with_nothing_typed_tries_the_canary_of_the_commit_it_runs_on(self):
-        done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/main", BASE="")
+        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="")
         self.assertEqual((done.returncode, self.outputs()["items"], self.outputs()["lab_ref"]), (0, "canary", SHA))
 
     def test_a_pull_request_is_tried_from_main_and_from_nowhere_else(self):
-        done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/e2e/7", PR="7", SHA="d" * 40)
+        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/e2e/7", PR="7", SHA="d" * 40)
         self.assertEqual(done.returncode, 1)
         self.assertIn("E2E02", done.stdout)
         self.assertEqual(self.outputs(), {})
@@ -451,24 +443,24 @@ class PrepareTest(ShellTest):
         for env in hostile:
             with self.subTest(env=env):
                 self.output.write_text("", encoding="utf-8")
-                done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", **env)
+                done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", **env)
                 self.assertEqual(done.returncode, 1, done.stdout)
                 self.assertIn("::error title=E2E04::", done.stdout)
                 self.assertNotIn("hacked", done.stderr + self.output.read_text(encoding="utf-8"))
                 self.assertEqual(self.outputs(), {}, "nothing is passed on")
 
     def test_words_that_name_items_pass_with_their_catalog_and_their_spaces(self):
-        done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", ITEMS="playground:a addon:@hub/b  setup:c")
+        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", ITEMS="playground:a addon:@hub/b  setup:c")
         self.assertEqual((done.returncode, self.outputs()["items"]), (0, "playground:a addon:@hub/b  setup:c"))
 
     def test_an_engine_with_no_catalog_to_try_says_so_and_goes_on_to_nothing(self):
-        done = self.prepare("engine", CATALOG_REPOSITORY="", CATALOG_REF="")
+        done = self.prepare(CATALOG_REPOSITORY="", CATALOG_REF="")
         self.assertEqual(done.returncode, 0)
         self.assertIn("::notice title=E2E not tried::The variable CATALOG_REPOSITORY is not set", done.stdout)
         self.assertEqual(self.outputs()["skip"], "true")
 
     def test_the_outputs_are_six_lines_whatever_the_event(self):
-        self.prepare("engine")
+        self.prepare()
         self.assertEqual(len(self.output.read_text(encoding="utf-8").splitlines()), 6)
 
 
