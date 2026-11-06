@@ -8,12 +8,11 @@ import os
 import posixpath
 import re
 import shutil
-import stat
 
-from . import check, files, layers, moves, starred, tested
+from . import check, files, layers, starred, tested
 from ..docker import compose, images
 from .. import paths
-from ..catalogs import registry, resolve
+from ..catalogs import registry, renames, resolve
 from ..catalogs.registry import CatalogError
 from ..paths import NOUNS
 from .project import brought
@@ -406,21 +405,8 @@ def _including(path):
 
 def follow(old, new):
     """Writes again, in the files of this machine that name the file or folder `old` (relative to the project, as an include or
-    a path), the place `new` it has now (`moves.repoint`: only the paths that lead to what moved change). Each file is
-    replaced whole and the change is journaled. A file that is a link or is not text is left. Idempotent."""
-    for file in _personal_files():
-        path = paths.ROOT / file
-        if path.is_symlink() or not path.is_file():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, ValueError):
-            continue
-        folder = posixpath.dirname(file)
-        written = moves.repoint(text, folder, folder, [(old, new)])
-        if written != text:
-            paths.write_atomic(path, written, mode=stat.S_IMODE(path.stat().st_mode))
-            moves.journal("repoint", path=file, old=old, new=new)
+    a path), the place `new` it has now (`renames._includes`)."""
+    renames._includes(old, new, renames._quiet)
 
 
 def _move(path, target):
