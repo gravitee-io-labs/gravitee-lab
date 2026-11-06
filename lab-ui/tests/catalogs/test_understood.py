@@ -171,4 +171,3 @@ class Lock(Case):
         self.assertEqual(understood.levels(), {"contract": 3, "contract_min": 1})
         os.remove(self.root / "contract.lock")
         self.assertIsNone(understood.levels())
-
