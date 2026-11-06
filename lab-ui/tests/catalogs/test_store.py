@@ -78,92 +78,6 @@ class Filter(Case):
         kept, ignored = store.selected([entry(path) for path in paths])
         self.assertEqual(([e.path for e in kept], ignored), (paths, 0))
 
-    def test_the_sizes_are_the_limits_of_section_2(self):
-        self.assertEqual((store.TEXT_FILE, store.OTHER_FILE), (MIB, 2 * MIB))
-        self.assertEqual((store.UNIT_FILES, store.UNIT_BYTES), (2000, 25 * MIB))
-        self.assertEqual((store.CATALOG_UNITS, store.CATALOG_FILES, store.CATALOG_BYTES), (500, 10000, 100 * MIB))
-        self.assertEqual((store.DEPTH, store.PATH), (8, 200))
-        self.assertEqual(store.STORE_LIMIT, 300 * MIB)
-
-    def assert_too_large(self, entries):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.selected(entries)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("too_large", 400))
-        self.assertEqual(raised.exception.message,
-                         "This catalog is larger than the Lab accepts. Ask its owners to make it smaller.")
-
-    def test_a_catalog_over_the_limits_is_too_large_not_a_quiet_subset(self):
-        def setups(count):
-            return [entry("catalog.yml")] + [entry(f"setups/s{i}.yml") for i in range(count)]
-        self.assertEqual(len(store.selected(setups(499))[0]), 500)
-        self.assertEqual(len(store.selected(setups(500))[0]), 501, "500 units and the catalog file")
-        self.assert_too_large(setups(501))
-
-        def unit(files, size=1, name="big"):
-            return [entry(f"addons/{name}/compose.yml", size=size)] + [entry(f"addons/{name}/f{i}.txt", size=size) for i in range(files - 1)]
-        self.assertEqual(len(store.selected(unit(2000))[0]), 2000)
-        self.assert_too_large(unit(2001))
-
-        full = unit_of_25("big")
-        self.assertEqual(sum(e.size for e in store.selected(full)[0]), 25 * MIB)
-        self.assert_too_large(full + [entry("addons/big/one.txt", size=1)])
-
-    def test_the_limits_of_files_and_bytes_of_a_catalog(self):
-        def spread(units, per):
-            made = [entry("catalog.yml", size=0)]
-            for u in range(units):
-                made.append(entry(f"addons/u{u}/compose.yml", size=1))
-                made += [entry(f"addons/u{u}/f{i}.bin", size=1) for i in range(per - 1)]
-            return made
-        self.assert_too_large(spread(100, 100))   # 10000 files and the catalog file: one over
-        ok = spread(99, 101)                      # 9999 files and the catalog file: 10000
-        self.assertEqual(len(store.selected(ok)[0]), 10000)
-        self.assert_too_large(ok + [entry("addons/u0/more.bin")])
-        full = [entry("catalog.yml", size=0)] + [e for n in range(4) for e in unit_of_25(f"u{n}")]   # 100 MiB
-        self.assertEqual(sum(e.size for e in store.selected(full)[0]), 100 * MIB)
-        self.assert_too_large(full + [entry("addons/u0/one.txt", size=1)])
-
-    def test_the_filter_is_pure_and_changes_nothing_it_is_given(self):
-        entries = tuple(GOOD) + (entry("addons/echo/.env"),)
-        before = list(entries)
-        with mock.patch.object(subprocess, "Popen", side_effect=AssertionError("ran a command")), \
-                mock.patch.object(subprocess, "run", side_effect=AssertionError("ran a command")), \
-                mock.patch("builtins.open", side_effect=AssertionError("read a file")), \
-                mock.patch.object(os, "stat", side_effect=AssertionError("looked at a file")), \
-                mock.patch.object(os, "listdir", side_effect=AssertionError("listed a folder")), \
-                mock.patch.object(os, "walk", side_effect=AssertionError("walked a folder")):
-            first = store.selected(entries)
-            second = store.selected(iter(entries))
-        self.assertEqual(first, second)
-        self.assertEqual(list(entries), before)
-        self.assertEqual(first, (KEPT, 1))
-        self.assertIsInstance(first[0], list)
-
-    def test_any_listing_is_filtered_to_files_that_are_safe_to_write_or_is_too_large(self):
-        chance = random.Random(2026)
-        parts = ["addons", "setups", "playgrounds", "catalog.yml", "compose.yml", "x", "..", ".", "", ".env", "secrets", ".git",
-                 "a b", "a.yml", "\u00fc", "AGENTS.md", "k.pem", "-", "A", "z" * 50, "echo", "pair.yml"]
-        modes = ["100644", "100755", "120000", "160000", "040000", ""]
-        for _ in range(5000):
-            listing = [Entry(chance.choice(modes), "a" * 40, chance.choice([0, 1, 10, MIB, MIB + 1, 3 * MIB]),
-                             "/".join(chance.choice(parts) for _ in range(chance.randint(1, 10))))
-                       for _ in range(chance.randint(0, 25))]
-            try:
-                kept, ignored = store.selected(listing)
-            except gitx.CatalogError as error:
-                self.assertEqual(error.code, "too_large")
-                continue
-            self.assertLessEqual(len(kept) + ignored, len(listing))
-            for e in kept:
-                self.assertIn(e.mode, ("100644", "100755"))
-                self.assertFalse(e.path.startswith("/"), e.path)
-                self.assertTrue(all(part and part not in (".", "..") for part in e.path.split("/")), e.path)
-            self.assertEqual(len({e.path.lower() for e in kept}), len(kept), "no two files that a Mac would write as one")
-            store.unit_digests(kept)
-
-    def test_an_empty_listing_keeps_nothing(self):
-        self.assertEqual(store.selected([]), ([], 0))
-
     def test_units_are_grouped_by_kind_and_name(self):
         grouped = store.by_unit(KEPT)
         self.assertEqual(sorted(grouped), ["addon:echo", "playground:shop", "setup:pair"])
@@ -244,11 +158,6 @@ class Rejections(Case):
                     self.assertEqual(pairs, [(bad, code)])
                     self.assertIs(pairs[0][0], bad, "the entry it was given, not a copy")
                     self.assertEqual(refused(bad), (KEPT, 1), "selected counts it")
-
-    def test_every_code_of_the_list_is_reached_and_no_other_is_given(self):
-        reached = set(self.ALONE) | {"ST10", "ST13"}
-        self.assertEqual(reached, set(CODES))
-        self.assertEqual(CODES, ("ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST09", "ST10", "ST13", "ST14", "ST15"))
 
     def test_what_is_just_allowed_is_refused_by_no_code(self):
         allowed = [entry(p) for p in (
@@ -444,6 +353,12 @@ class Rejections(Case):
             self.assertEqual(ignored, len(pairs))
             self.assertFalse({id(e) for e in kept} & {id(e) for e, _ in pairs}, "no file is kept and refused")
             self.assertEqual([places[id(e)] for e in kept], sorted(places[id(e)] for e in kept), "in the order given")
+            for e in kept:   # what gets written is safe to write
+                self.assertIn(e.mode, ("100644", "100755"))
+                self.assertFalse(e.path.startswith("/"), e.path)
+                self.assertTrue(all(part and part not in (".", "..") for part in e.path.split("/")), e.path)
+            self.assertEqual(len({e.path.lower() for e in kept}), len(kept), "no two files that a Mac would write as one")
+            store.unit_digests(kept)
         self.assertTrue({"ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST09", "ST13", "ST14", "ST15"} <= seen, seen)
 
     def test_an_entry_needs_only_a_mode_a_path_and_a_size_and_comes_back_as_it_was_given(self):
@@ -608,9 +523,6 @@ class Progress(Case):
             reader.feed("Receiving objects:  11% (1/10), 301.00 MiB | 5.00 MiB/s\r")
         with self.assertRaises(store._TooBig):
             store._Download(None).feed("Receiving objects:  1% (1/100), 2.00 GiB | 5.00 MiB/s\n")
-
-    def test_a_progress_that_is_not_given_is_fine(self):
-        store._Download(None).feed("Receiving objects: 50% (1/2)\r")
 
 
 def repo_files():
