@@ -829,9 +829,8 @@ class Adding(Base):
 
     def test_the_choice_to_use_the_machine_is_stored_for_a_catalog_that_is_not_listed(self):
         staged, address, roots = self.prepare("partner")
-        install.commit_add(staged, address, "main", "private", roots, meta_of("partner"), host=True, auto=False)
-        entry = registry.entry("partner")
-        self.assertEqual((entry["host"], entry["auto"]), (True, False))
+        install.commit_add(staged, address, "main", "private", roots, meta_of("partner"), host=True)
+        self.assertTrue(registry.entry("partner")["host"])
 
     def test_the_array_order_is_the_order_the_catalogs_were_added(self):
         self.add("partner")

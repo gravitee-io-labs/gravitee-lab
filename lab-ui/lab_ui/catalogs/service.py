@@ -956,7 +956,7 @@ def add(ticket, host=False):
     staged, ns = data["staged"], data["ns"]
     with _changing():
         install.commit_add(staged, data["address"], data["branch"], data["audience"], data["roots"], meta=data["meta"],
-                           host=bool(host) and not data["listed"], auto=True)
+                           host=bool(host) and not data["listed"])
         if data.get("imported"):   # an imported playground: what its file held is recorded, and settings kept for it go back
             from . import exports   # here and not above: exports reads this module
             exports.added(ns, data)

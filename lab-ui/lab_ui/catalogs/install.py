@@ -871,7 +871,7 @@ def _config_with(entry):
 
 
 def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], audience: str, roots: list,
-               meta: Optional[dict] = None, host: bool = False, auto: bool = True) -> dict:
+               meta: Optional[dict] = None, host: bool = False) -> dict:
     """The install of a catalog, with the first download of a listed catalog (whose entry exists already) as the same
     pipeline. Under the locks: the namespace is still free and the stage is what was judged (every file has the id and
     the mode git gave it, no other file is there); the manifest is written into the stage; the store is renamed to
@@ -926,7 +926,7 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
         row = entry
         if entry is None:
             _step("add:config")
-            row = {"id": ns, "kind": "git", "url": address.url, "auto": bool(auto), "added": now}
+            row = {"id": ns, "kind": "git", "url": address.url, "auto": True, "added": now}
             asked = gitx.asked_branch(branch, address)
             if asked:
                 row["branch"] = asked
@@ -1214,7 +1214,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
         same = after == old["units"] and digests.get("@catalog") == _rec(old["files"], manifest.FILE).get("oid")
         if target == held["pin"]:
             return {"upToDate": True}
-        if same and not _rewritten(ns, store_path, held, target, context):   # the same files on another history are still news
+        if same and not _rewritten(store_path, held, target, context):   # the same files on another history are still news
             return {"upToDate": True}
         op = "undo" if target == held.get("previous") else "update"
         _write_stage(registry.stage_dir(ns), store_path, kept)
@@ -1242,7 +1242,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
                  "change": sorted(path for path in set(now) & set(old["files"])
                                   if (now[path].oid, now[path].mode)
                                   != (_rec(old["files"], path).get("oid"), _rec(old["files"], path).get("mode")))}
-        rewritten = _rewritten(ns, store_path, held, target, context, op) or (op == "update" and bool(context.get("moved")))
+        rewritten = _rewritten(store_path, held, target, context, op) or (op == "update" and bool(context.get("moved")))
         news = _whatsnew(store_path, held["pin"], target, updates + adds + removes + sorted(renamed) + sorted(renamed.values())) \
             if op == "update" else []
         touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
@@ -1262,7 +1262,7 @@ def _renamed_units(items, before, after) -> Dict[str, str]:
             if old in before and old not in after and new in after and new not in before}
 
 
-def _rewritten(ns, store_path, held, target, context, op="update") -> bool:
+def _rewritten(store_path, held, target, context, op="update") -> bool:
     """Whether the history of `target` is not the one installed: the roots differ, or the pin is not an ancestor of the target (for a
     Go back, the two are not one history), unless the new roots are the ones the engine lists for this catalog."""
     roots, vouched = bare.roots(store_path, target), sorted(set(context.get("vouched") or ()))
@@ -1272,12 +1272,12 @@ def _rewritten(ns, store_path, held, target, context, op="update") -> bool:
     return (not joined or roots != sorted(held.get("roots") or [])) and not (vouched and roots == vouched)
 
 
-def _whatsnew(store_path, old, new, keys, limit=WHATSNEW):
+def _whatsnew(store_path, old, new, keys):
     """What's new of an update: the notes of the units it touches (`store.notes`), their subjects one after the other, each
-    once, at most `limit`; with no unit touched, those of catalog.yml."""
+    once, at most WHATSNEW; with no unit touched, those of catalog.yml."""
     lines = [subject for _, subjects in bare.notes(store_path, old, new, keys) for subject in subjects] if keys \
         else bare.log(store_path, old, new, [manifest.FILE])
-    return list(dict.fromkeys(lines))[:limit]
+    return list(dict.fromkeys(lines))[:WHATSNEW]
 
 
 def _only(folder, rel, going) -> bool:

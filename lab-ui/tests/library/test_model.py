@@ -1759,7 +1759,7 @@ class Catalogs(Built):
     def test_what_the_first_start_answers_goes_through_as_it_is(self):
         # Whatever firstrun.content answers, now or when it is written, is the state's content
         from lab_ui.catalogs import firstrun
-        content = firstrun.content(self.project, {})
+        content = firstrun.content({})
         self.assertEqual(self.build(content=content)["content"], content)
 
     def test_git_is_said_as_the_page_reads_it(self):

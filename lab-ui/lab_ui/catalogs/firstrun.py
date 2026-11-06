@@ -212,7 +212,7 @@ def _failure(ns: str, held: dict) -> Optional[str]:
     return one.get("error") or (said[0] if said and one.get("pending") else None)
 
 
-def content(project: dict, inputs: dict) -> dict:
+def content(inputs: dict) -> dict:
     """What the state says of the content, from the disk and from memory, never from the network:
     {key, line, code, progress, address, offer}. `key` is `ready` when a catalog has a copy or a folder catalog is there;
     else `downloading` while a git catalog has an attempt a person can see, or has not failed yet (one that is under way,
@@ -375,7 +375,7 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             meta = _read(staged, answered, contract, ns, listed)
             _set(ns, "stage", 1.0)
             _set(ns, "commit", 0.0)
-            install.commit_add(staged, address, remote["branch"], audience, roots, meta=meta, host=False, auto=True)
+            install.commit_add(staged, address, remote["branch"], audience, roots, meta=meta, host=False)
         except Exception:
             _forget_stage(ns)
             raise
