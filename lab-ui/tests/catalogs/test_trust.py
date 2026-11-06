@@ -783,7 +783,7 @@ class Builds(Golden):
 
 
 # What an author can write so that a reading line by line does not see the key, and Compose reads it. Each text was run through
-# Compose 5.6.0 with a real file outside the folder, and Compose read it: test_compose_reads_what_the_screen_refuses runs them
+# Compose 5.6 with a real file outside the folder, and Compose read it: test_compose_reads_what_the_screen_refuses runs them
 # again when Compose is installed. @SECRET@, @INC@ and @BASE@ stand for a file outside the project.
 HIDDEN = {
     "explicit-key-alone": 'services:\n  a:\n    image: busybox\n    ?\n      "env_file"\n    :\n      @SECRET@\n',
