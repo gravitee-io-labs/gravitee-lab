@@ -79,9 +79,6 @@ let spent = 0;         // the time of the frame before, for that
 let seen = null;       // what the lab was when the numbers were read: when it moves, they are read again
 let reading = null;    // the read on its way, and whether another is wanted once it ends
 let rereads = false;
-let platforms = null;  // the platforms registered, null until they are read
-let cloudFailed = "";  // why they could not be read
-let listing = null;    // the read of them on its way
 // What each platform's last check answered and when, in milliseconds: the Gravitee Cloud page's too (store.cloud), so that an answer either
 // page read, and what an action on that page changed, is what both say
 const { checks, at: checked } = store.cloud;
@@ -237,7 +234,7 @@ function productsBody(state) {
 // and the state of its gateway on this machine, as the Gravitee Cloud page says it; then the one thing to do that is not a start (Start
 // all starts the gateway), else its console. Until the account is read, it says it is loading; one that cannot be read says why.
 function cloudProductRow(unit) {
-  const core = coreOf(), p = platforms?.find((found) => found.id === core.platform.id), check = p && checks.get(p.id);
+  const core = coreOf(), p = store.platforms.find((found) => found.id === core.platform.id), check = p && checks.get(p.id);
   const env = check?.environments?.find((found) => found.id === core.environment.id);
   const st = env && check.state === "ok" ? environmentStatus(p, check, env) : null;
   let status = loading("Loading"), dot = "", word = "State not known", open = "";
@@ -250,7 +247,7 @@ function cloudProductRow(unit) {
   } else if (check && check.state !== "ok") {
     const [tone, said] = accountState(check);
     status = stated(tone === "err" ? "issue" : tone, said, check.message);
-  } else if (cloudFailed && !platforms) status = stated("issue", "Accounts cannot be read", cloudFailed);
+  }
   const where = environmentControl({ short: true }) || `<span class="dash-account" data-tip="${esc(core.name)}">${esc(core.environment.name)}</span>`;
   return { key: `product:${unit.id}`, cls: "dash-row dash-product", html: `
     <span class="dash-name"><span class="dash-dot" role="img" aria-label="${esc(word)}"><span class="dot-status ${esc(dot)}"></span></span>${nameOf(unit)}</span>
@@ -304,17 +301,14 @@ function countLink(found, several) {
 // Gravitee Cloud, one row of the platform's card on the grid of its products: its name, the accounts connected (muted), how many hybrid
 // gateways they have, which leads to the Gravitee Cloud page. What keeps it from saying so is said in its place, with what changes it: no
 // account (and Connect account; that a hybrid gateway runs here when one does, so that the two never contradict), an account that
-// cannot be read (Replace Account Token, Check again), accounts that cannot be listed, one not read yet.
+// cannot be read (Replace Account Token, Check again), one not read yet.
 function cloudRow(state) {
   const row = (accounts, what, action = "") => ({ key: "cloud", cls: "dash-row dash-cloud", html: `
     <span class="dash-name"><strong class="list-name" role="heading" aria-level="3">${CLOUD_NAME}</strong></span>
     <span class="dash-ver">${accounts}</span>
     <span class="dash-upd">${what}</span>
     <span class="dash-open">${action}</span>` });
-  if (cloudFailed && !platforms) {
-    return row("", stated("issue", "Accounts cannot be read", cloudFailed), listing ? loading("Checking") : '<button class="btn" data-reload>Check again</button>');
-  }
-  if (!platforms) return row("", loading("Loading"));
+  const { platforms } = store;
   if (!platforms.length) {
     const here = !dockerDown() && state.addons.some((addon) => addon.gateway && addon.up);
     return row("", said(here ? "A hybrid gateway runs here, with no account connected" : "No account connected"),
@@ -885,31 +879,19 @@ function check(id, loud = false) {
 function follow() {
   clearTimeout(watch);
   watch = null;
-  const waiting = (platforms || []).filter((p) => (checks.get(p.id)?.gateways || []).some((gateway) => gateway.here && gateway.connection !== "CONNECTED"));
+  const waiting = store.platforms.filter((p) => (checks.get(p.id)?.gateways || []).some((gateway) => gateway.here && gateway.connection !== "CONNECTED"));
   if (!waiting.length) polls = 0;
   else if (shown && !document.hidden && polls < POLLS) watch = setTimeout(() => { polls += 1; waiting.forEach((p) => check(p.id)); }, POLL * 2 ** polls);
 }
 
-// The platforms registered, then each one's check, all at once: what is read draws as it comes. One read at a time: whoever asks
-// meanwhile gets the one on its way. `fresh` false leaves alone the check of an account that was read a moment ago.
-function loadPlatforms(fresh = true) {
-  listing ||= (async () => {
-    try {
-      platforms = (await api("/api/platforms")).platforms;
-      cloudFailed = "";
-    } catch (err) {
-      cloudFailed = err.message;
-    }
-    draw(["cloud"]);
-    (platforms || []).filter((p) => fresh || stale(p.id)).forEach((p) => check(p.id));
-    follow();   // a gateway that has not connected is looked at again, whether it was read now or a moment ago
-  })().finally(() => {
-    listing = null;
-    if (cloudFailed) draw(["cloud"]);
-  });
-  if (cloudFailed) draw(["cloud"]);   // the row says it is checking
-  return listing;
+// Each platform's check, all at once: what is read draws as it comes. The check of an account that was read a moment ago is left alone.
+function readCloud() {
+  store.platforms.filter((p) => stale(p.id)).forEach((p) => check(p.id));
+  follow();   // a gateway that has not connected is looked at again, whether it was read now or a moment ago
 }
+
+// An account connected or set up: the state lists it, and what it holds is read again
+const connected = (p) => { store.refresh(); check(p.id); };
 
 // Nothing is listened to or asked for while the page is not seen
 function stop() {
@@ -921,7 +903,6 @@ function stop() {
   clearTimeout(reopen);
   clearInterval(lookout);
   again = watch = reopen = lookout = null;
-  listing = null;   // a read that was on its way is not waited for when the page is seen again
 }
 
 // --- Clicks -----------------------------------------------------------------------------
@@ -963,19 +944,18 @@ function init(section) {
       return $("[data-filter]", page).focus();   // the button that was pressed is gone
     }
     if (on("[data-refresh]")) busy("dashboard", "refresh", read(true)).catch(() => {});
-    else if (on("[data-connect]")) connectAccount(() => loadPlatforms());
-    else if (on("[data-core]")) chooseCore(on("[data-core]").dataset.core, { anchor: on("[data-core]"), connected: () => loadPlatforms() });
+    else if (on("[data-connect]")) connectAccount(connected);
+    else if (on("[data-core]")) chooseCore(on("[data-core]").dataset.core, { anchor: on("[data-core]"), connected });
     else if (on("[data-core-env]")) pickEnvironment(on("[data-core-env]"));
     else if (on("[data-core-do]")) {
-      const what = on("[data-core-do]").dataset.coreDo, core = coreOf(), p = platforms?.find((found) => found.id === core.platform.id);
+      const what = on("[data-core-do]").dataset.coreDo, core = coreOf(), p = store.platforms.find((found) => found.id === core.platform.id);
       const env = p && checks.get(p.id)?.environments?.find((found) => found.id === core.environment.id);
       if (env) perform(p, () => checks.get(p.id), env, what, () => check(p.id));
     }
     else if (on("[data-star]")) toggleStar(rowOf(on("[data-star]"))).then(() => refocus("#page-dashboard [data-filter]"));   // a row that left took the focus
-    else if (on("[data-reload]")) loadPlatforms();
     else if (on("[data-recheck]")) check(on("[data-recheck]").dataset.recheck, true);
     else if (on("[data-account]")) {
-      const id = on("[data-account]").dataset.account, p = platforms?.find((x) => x.id === id);
+      const id = on("[data-account]").dataset.account, p = store.platforms.find((x) => x.id === id);
       if (p) openReplaceToken({ platform: p, done: () => check(id, true) });
     }
     else if (on("[data-res-head]")) fold(!unfolded);   // the chevron, or anywhere on the line of Resources
@@ -1002,7 +982,7 @@ function init(section) {
     if (document.hidden) return stop();
     connect();
     read().catch(() => {});
-    loadPlatforms(false);
+    readCloud();
   });
 }
 
@@ -1016,7 +996,7 @@ export const dashboardPage = {
     store.refreshPlaces();   // what a Start of a playground waits for is in the places
     connect();
     read().catch(() => {});   // what was read before stays drawn meanwhile
-    loadPlatforms(false);     // an account read less than FRESH ago is not asked again: a trip through the menu costs Cloud nothing
+    readCloud();              // an account read less than FRESH ago is not asked again: a trip through the menu costs Cloud nothing
   },
   hide() {
     shown = false;
@@ -1027,6 +1007,7 @@ export const dashboardPage = {
   render(state) {
     paintHead(page, state);
     draw();
+    store.platforms.filter((p) => !checks.has(p.id)).forEach((p) => check(p.id));   // an account the state lists now
     const now = signature(state);
     if (now === seen) return;
     seen = now;

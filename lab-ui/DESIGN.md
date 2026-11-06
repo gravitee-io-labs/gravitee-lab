@@ -843,11 +843,10 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
       account that cannot be read says its state as the Gravitee Cloud page does (`accountState`: Account Token refused in red,
       Unreachable in amber), the server's reason in its popover (with the account's name when there are several; never a sentence beside
       it), and what can change it: a refused token is replaced (*Replace Account Token*, the Gravitee Cloud page's form), an account that
-      does not answer is asked again (*Check again*, which says "Checking" while it asks). An account not read yet: *Loading*. Accounts
-      that cannot be listed: "Accounts cannot be read" in red, the reason in its popover, and *Check again*, once however many times it is
-      pressed. The row is one line in every state, so nothing under it moves when the Cloud answers.
-    - **Only the routes of the Gravitee Cloud page are used**: `GET /api/platforms`, then `POST /api/platforms/<id>/check` of each
-      platform at once whose last answer is more than 30 seconds old (`FRESH`), when the page is shown and when the tab is seen
+      does not answer is asked again (*Check again*, which says "Checking" while it asks). An account not read yet: *Loading*.
+      The row is one line in every state, so nothing under it moves when the Cloud answers.
+    - **The accounts are the state's** (`state.platforms`), and the one route of the Gravitee Cloud page used is
+      `POST /api/platforms/<id>/check`, of each platform at once whose last answer is more than 30 seconds old (`FRESH`), when the page is shown and when the tab is seen
       again: a trip through the menu costs Gravitee Cloud nothing; Refresh of the Gravitee Cloud page asks again whatever its age. They never hold up the rest of the page. A check that fails is *Unreachable*. The
       answers and their time are one record for this page and the Gravitee Cloud page (`store.cloud`), so that what one read, and what
       an action on the other changed, is what both say. A gateway that runs here and has not connected yet is read again after 5
