@@ -111,13 +111,6 @@ def t18(path: str, service: str, variant: int = 0) -> Problem:
     return Problem("T18", ERROR, path, 0, f"{service}: {reason}. Fix: {fix}".rstrip())
 
 
-def pinned(context: str) -> bool:
-    """Whether a remote build context is a git repository at a commit: a git address, then # and 40 hexadecimal characters (T18)."""
-    address, _, ref = context.partition("#")
-    git = address.endswith(".git") or address.startswith(("git@", "git://", "ssh://", "github.com/"))
-    return bool(git and trust.PINNED.fullmatch(ref))
-
-
 def inside(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
@@ -183,7 +176,7 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
         return None, [], Row(unit.key, name, "", "skipped", note="no image name to give the build")
     if REMOTE.match(context):
         remote = True
-        if not pinned(context):   # a git repository at a commit, or not at all (T18)
+        if not trust.pinned(context):   # a git repository at a commit, or not at all (T18)
             return None, [t18(where, name, 1)], Row(unit.key, name, image, "refused", note="its context is not pinned")
     elif os.path.isabs(context):
         real = os.path.realpath(context)

@@ -988,7 +988,7 @@ def _source(build):
     return re.sub(r"\.git$", "", address)
 
 
-def _pinned(context):
+def pinned(context):
     """Whether a remote build context is a git repository at a commit: a git address, then # and 40 hex digits."""
     address, _, ref = context.partition("#")
     git = address.endswith(".git") or address.startswith(("git@", "git://", "ssh://", "github.com/"))
@@ -1287,7 +1287,7 @@ class _Run:
         context, roots = str(build.get("context") or ""), self.roots
         seeder = roots["seeder"]
         if context and not posixpath.isabs(context):   # Compose gives a local context as an absolute path
-            if not _pinned(context):
+            if not pinned(context):
                 self.say("T18", 1)
         else:
             path = self.resolve(context, roots["unit"]) if context else roots["unit"]
