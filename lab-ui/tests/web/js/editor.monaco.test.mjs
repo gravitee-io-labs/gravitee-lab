@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { flush, installDom, isOff, offWhy } from "./dom-stub.mjs";
+import { flush, installDom, reply, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, catalog, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -16,7 +16,6 @@ const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filt
 const HUB = ".lab/catalogs/acme-hub/playgrounds/bank";
 const MINE = ".lab/catalogs/local/addons/mine";
 
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({ ids, fetch: async (path) => {
   const [route, query = ""] = path.split("?");
   const file = decodeURIComponent((query.match(/(?:path|file)=([^&]*)/) || [])[1] || "");

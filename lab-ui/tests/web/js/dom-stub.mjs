@@ -424,6 +424,8 @@ export function installDom({ ids = [], stored = {}, fetch = async () => { throw 
 }
 
 export const text = (node) => node.textContent.replace(/\s+/g, ' ').trim();
+// What a fetch answers
+export const reply = (body, status = 200) => ({ ok: status < 400, status, statusText: '', headers: { get: () => '' }, json: async () => body });
 export const flush = () => new Promise((resolve) => setImmediate(resolve));
 // What the bubble of a tooltip or a popover says, a line each: a tooltip's line; a popover's title, its sentence, then each line of
 // its rows (a row's subject is a line of its own), then its foot

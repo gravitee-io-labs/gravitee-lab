@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
@@ -31,7 +31,6 @@ const JOB = { id: "ab12cd34", for: "addon:hybrid", verb: "start", title: "Start 
 // What the server answers: the records, and the check of each, which a test changes; every call the page made; the refusal it gets
 // in answer to a POST when a test sets one; the plan of a gateway's start
 const server = { platforms: [PLATFORM], check: null, checks: 0, states: 0, calls: [], refusal: null, refuse: null, plan: { dialog: null }, hold: null, made: "g-made" };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
   ids,
   fetch: async (path, options = {}) => {

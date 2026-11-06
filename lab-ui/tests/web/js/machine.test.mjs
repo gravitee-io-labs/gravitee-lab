@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { flush, installDom, text } from "./dom-stub.mjs";
+import { flush, installDom, reply, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
@@ -22,7 +22,6 @@ const DOWN = { ready: false, problems: 3, checks: [
 ] };
 
 const server = { machine: READY, calls: [] };
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
 const page = installDom({ ids, fetch: async (path, options = {}) => {
   server.calls.push({ path, method: options.method || "GET" });
   return reply(path.startsWith("/api/machine") ? server.machine : {});

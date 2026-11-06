@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { flush, installDom, text } from "./dom-stub.mjs";
+import { flush, installDom, reply, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
@@ -40,7 +40,6 @@ const INSTALLED = {
   feature_by_id: {}, licensed: Object.fromEntries(Object.keys(FEATURES).map((name) => [name, NEEDS])),
 };
 
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
   ids,
   fetch: async (path) => reply(path.startsWith("/api/plugins/catalog") ? { plugins: CATALOG }

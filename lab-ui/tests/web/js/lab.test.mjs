@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
@@ -28,7 +28,6 @@ const LAB = (more = {}) => ({ version: "1.0.0", ahead: 0, commit: "abc1234", run
   checked: new Date(Date.now() - 5 * 60000).toISOString(), checking: false, error: null, blocked: null, ...more });
 
 const server = { calls: [], releases: RELEASES };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
   ids,
   stored: { "lab:version": "1.0.0" },

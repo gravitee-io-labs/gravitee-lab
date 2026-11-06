@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { HOSTILE, catalog as catalogRow, content, FIRST, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -23,7 +23,6 @@ const found = { answers: true, frameable: true, reason: "" };
 const JOB = { id: "ab12cd34", for: "playground:hotels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // What the server answers beyond a guide: the places, the checks (for the place asked) and their dialog, and every call the page made
 const server = { places: [], down: false, checks: () => [], dialog: () => null, calls: [] };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
   ids,
   fetch: async (path, options = {}) => {

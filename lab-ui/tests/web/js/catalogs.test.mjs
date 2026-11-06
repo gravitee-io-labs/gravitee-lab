@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { El, Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
 import { ADDRESS, FIRST, FOLDER, HOSTILE, HOSTILE_QUOTED, NOT_ADDED, PERSONAL, STATES, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -23,7 +23,6 @@ const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filt
 
 // What the server answers: the calls the page made, in order, the answer to each route (a value, or a function of the body), and a refusal
 const server = { calls: [], answers: {}, refuse: {}, states: 0 };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
   ids,
   fetch: async (path, options = {}) => {

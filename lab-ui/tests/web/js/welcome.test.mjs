@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { Ev, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, catalog, content, lab as labState } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -24,7 +24,6 @@ const DOWN = { ready: false, problems: 1, checks: [
   row("git", "ok", "Git 2.43.2"),
 ] };
 const server = { machine: DOWN };
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
 const page = installDom({ ids, fetch: async (path, options = {}) => {
   calls.push({ path, body: options.body ? JSON.parse(options.body) : undefined });
   if (path.startsWith("/api/machine")) return reply(server.machine);

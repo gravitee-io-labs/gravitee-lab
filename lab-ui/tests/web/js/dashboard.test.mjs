@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, HOSTILE, catalog as catalogRow, content, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -20,7 +20,6 @@ const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filt
 
 // What the server answers, and every request it was asked
 const server = { dashboard: null, platforms: [], checks: {}, calls: [], refusal: "" };
-const reply = (body, status = 200) => ({ ok: status < 400, status, statusText: "", headers: { get: () => "" }, json: async () => body });
 const page = installDom({
   ids,
   fetch: async (path, options = {}) => {

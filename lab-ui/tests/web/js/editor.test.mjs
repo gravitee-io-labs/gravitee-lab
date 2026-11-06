@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { Ev, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, catalog, gains, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -21,7 +21,6 @@ const FOLDER = ".lab/catalogs/my-catalog/addons/own";
 
 // What the server answers, and every call made
 const server = { calls: [], files: {} };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({ ids, fetch: async (path, options = {}) => {
   const [route, query = ""] = path.split("?");
   server.calls.push({ method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined });

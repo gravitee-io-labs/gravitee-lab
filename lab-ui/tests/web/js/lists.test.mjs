@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { BLOCKED, FIRST, HOSTILE, NEEDS, PERSONAL, catalog, content, gains, origin } from "./fixtures.mjs";
 
 // The clock is the mock's too: what a button says of how its action went lasts a time that only the ticks of the tests make pass, never the
@@ -30,7 +30,6 @@ const ENVIRONMENTS = [{ id: "development", name: "Development" }, { id: "test", 
 const CANNOT = { "acme-bakery": "Needs Access Management" };   // what a place says Acme Bakery cannot go there for
 // What the server answers, and every call the page made
 const server = { calls: [], dialog: null };
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
 const JOB = { id: "ab12cd34", for: "playground:acme-hostels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // The groups of the Stack the page remembers open, and the place that was last chosen to deploy to (the default of every playground)
 const stored = { expanded: JSON.stringify({ "group:api-management": true, "addon:kafka": true }), deploy: "acme/development" };

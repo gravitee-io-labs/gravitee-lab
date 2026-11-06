@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { El, Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
 import { FIRST, catalog, content, gains, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -48,7 +48,6 @@ const k3s = () => {
 };
 const stateNow = () => lab({ catalogs: world.added ? [FIRST(), row()] : [FIRST()], addons: world.added ? [k3s()] : [], content: content("ready") });
 
-const reply = (body, status = 200) => ({ ok: status < 400, status, statusText: "", headers: { get: () => "" }, json: async () => body });
 const page = installDom({
   ids,
   fetch: async (path, options = {}) => {
