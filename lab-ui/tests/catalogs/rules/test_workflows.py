@@ -6,7 +6,6 @@ unreadable file. The aggregator of `ci.yml` is run with bash on blank, empty, sk
 without bash). No network, no Docker."""
 
 import ast
-import json
 import os
 import random
 import re
@@ -24,7 +23,6 @@ from lab_ui.catalogs.rules import workflows as wf
 HERE = Path(__file__).resolve().parents[2]
 DATA = HERE / "data" / "workflows"
 ROOT = HERE.parents[1]
-STD = {"repository": "OWNER/gravitee-lab", "ref": "0123456789abcdef0123456789abcdef01234567"}
 CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 PYTHON = "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
 LOGIN = "docker/login-action@dbcb813823bdd20940b903addbd779551569679f"
@@ -36,8 +34,6 @@ FILES = {
     "ci": ("inline", ".github/workflows/ci.yml"), "publish": ("inline", ".github/workflows/publish.yml"),
     "nightly": ("inline", ".github/workflows/nightly.yml"), "e2e": ("inline", ".github/workflows/e2e.yml"),
     "lab": ("inline", ".github/actions/lab/action.yml"),
-    "r-ci": ("reusable", ".github/workflows/ci.yml"), "r-publish": ("reusable", ".github/workflows/publish.yml"),
-    "r-nightly": ("reusable", ".github/workflows/nightly.yml"), "r-e2e": ("reusable", ".github/workflows/e2e.yml"),
 }
 
 def text_of(name):
@@ -49,9 +45,9 @@ def path_of(name):
     return FILES[name][1]
 
 
-def codes(name, text, rules=wf.ALL, standard=STD):
+def codes(name, text, rules=wf.ALL):
     """The codes a text breaks, as the file called `name` (its place and its name decide what it may do)."""
-    return sorted({found.code for found in wf.problems(path_of(name), text, rules, standard)})
+    return sorted({found.code for found in wf.problems(path_of(name), text, rules)})
 
 
 def line_of(text, fragment, after=0):
@@ -164,8 +160,6 @@ RUNNER = "    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n"
 MATRIX = "      matrix: ${{ fromJSON(needs.static.outputs.matrix) }}\n"
 IMAGES = "    environment: publish\n    permissions:\n      contents: read\n      packages: write\n    outputs:"
 ATTEST = "    environment: publish\n    permissions:\n      contents: read\n      packages: write\n      id-token: write"
-CALL = "    uses: OWNER/gravitee-lab/.github/workflows/catalog-ci.yml@0123456789abcdef0123456789abcdef01234567\n"
-SECRETS = "    secrets:\n      LAB_DEPLOY_KEY: ${{ secrets.LAB_DEPLOY_KEY }}\n"
 # A backslash is made here and no escape sequence is written in this file, so that nothing that reads source text can turn
 # `<backslash>x24` into a `$` (that happened once to a table of the module itself)
 BS = chr(92)
@@ -214,7 +208,7 @@ MUTATIONS = {
         step("ci", "an expression in a folder", ["WF02"], "uses: ./${{ inputs.action }}"),
         step("ci", "a repository called ..", ["WF02"], "uses: actions/../checkout@" + "a" * 40),
         step("ci", "unpinned and quoted", ["WF02", "WF07"], 'uses: "actions/checkout@v4"'),
-        swap("r-ci", "a reusable workflow at a branch", ["WF02", "WF15"], "@0123456789abcdef0123456789abcdef01234567", "@main"),
+        job_key("ci", "a reusable workflow at a branch", ["WF02"], "static", "uses: o/r/.github/workflows/x.yml@main"),
         swap("ci", "an action in a list of one", ["WF02", "WF21"], "uses: " + CHECKOUT, "uses: [actions/checkout@v4]"),
     ],
     "WF03": [
@@ -331,10 +325,7 @@ MUTATIONS = {
              "  REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}", "run: docker login graviteeio.azurecr.io"),
         step("e2e", "the registry token under another name", ["WF08"], "env:",
              "  TOKEN: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}", "run: docker login graviteeio.azurecr.io", job="e2e"),
-        swap("r-ci", "secrets: inherit", ["WF08", "WF16"], SECRETS, "    secrets: inherit\n"),
-        swap("r-ci", "a second secret", ["WF08", "WF16"], SECRETS, SECRETS + "      OTHER: ${{ secrets.OTHER }}\n"),
-        swap("r-ci", "the Lab key from another secret", ["WF08", "WF16"], SECRETS,
-             "    secrets:\n      LAB_DEPLOY_KEY: ${{ secrets.OTHER }}\n"),
+        job_key("ci", "secrets: inherit", ["WF08"], "static", "secrets: inherit"),
         # the Lab action is the one of the catalog's own folder, not any folder that ends in .github/actions/lab
         step("ci", "the Lab key to a lab action in another folder", ["WF08"], "uses: ./other/.github/actions/lab", "with:",
              "  key: ${{ secrets.LAB_DEPLOY_KEY }}"),
@@ -382,9 +373,6 @@ MUTATIONS = {
              "  verify-latest:\n    if: ${{ !github.event.repository.fork }}\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    permissions:\n      contents: read\n      issues: write\n"),
         swap("nightly", "the report job writes contents", ["WF09"], "    permissions:\n      issues: write\n",
              "    permissions:\n      issues: write\n      contents: write\n"),
-        swap("r-ci", "a caller of ci.yml writes", ["WF09"], CALL, CALL + "    permissions:\n      issues: write\n"),
-        swap("r-publish", "the caller of publish.yml holds more than the union", ["WF09"], "      checks: read\n",
-             "      checks: read\n      pull-requests: write\n"),
     ],
     "WF10": [
         swap("publish", "images without an environment", ["WF10"], IMAGES, "    permissions:\n      contents: read\n      packages: write\n    outputs:"),
@@ -445,7 +433,6 @@ MUTATIONS = {
         step("ci", "the exporter spelt with an escape", ["WF13", "WF02"], 'uses: "crazy-max/ghaction-github-runtim%s@v3"' % esc("e")),
         swap("publish", "the runtime token in the publish lane", ["WF13"], "        with:\n          name: records\n          path: records.json\n",
              "        env:\n          T: ${{ env.ACTIONS_RUNTIME_TOKEN }}\n        with:\n          name: records\n          path: records.json\n"),
-        swap("r-ci", "id-token on a caller of ci.yml", ["WF09", "WF13"], CALL, CALL + "    permissions:\n      id-token: write\n"),
     ],
     "WF14": [
         step("ci", "a step", ["WF14"], "run: exit 1", "continue-on-error: true"),
@@ -455,23 +442,6 @@ MUTATIONS = {
         step("ci", "a capital letter", ["WF14"], "run: exit 1", "continue-on-error: True"),
         step("ci", "another letter case of the key", ["WF14", "WF21"], "run: exit 1", "Continue-On-Error: true"),
         swap("ci", "the Lab's own check", ["WF14"], "        name: Check\n", "        name: Check\n        continue-on-error: true\n"),
-    ],
-    "WF15": [
-        swap("r-ci", "another commit", ["WF15"], "@0123456789abcdef0123456789abcdef01234567", "@" + "f" * 40),
-        swap("r-ci", "another repository", ["WF15"], "OWNER/gravitee-lab/.github", "OWNER/other-lab/.github"),
-        swap("r-ci", "a tag", ["WF02", "WF15"], "@0123456789abcdef0123456789abcdef01234567", "@v1"),
-        swap("r-ci", "another owner", ["WF15"], "OWNER/gravitee-lab/.github", "EVIL/gravitee-lab/.github"),
-        swap("r-nightly", "a caller of nightly.yml", ["WF15"], "@0123456789abcdef0123456789abcdef01234567", "@" + "e" * 40),
-        swap("r-publish", "a caller of publish.yml", ["WF15"], "@0123456789abcdef0123456789abcdef01234567", "@" + "e" * 40),
-        swap("r-e2e", "a caller of e2e.yml", ["WF15"], "@0123456789abcdef0123456789abcdef01234567", "@" + "e" * 40),
-    ],
-    "WF16": [
-        swap("r-ci", "secrets: inherit", ["WF08", "WF16"], SECRETS, "    secrets: inherit\n"),
-        swap("r-ci", "another secret too", ["WF08", "WF16"], SECRETS, SECRETS + "      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n"),
-        swap("r-ci", "the key from another secret", ["WF08", "WF16"], SECRETS, "    secrets:\n      LAB_DEPLOY_KEY: ${{ secrets.OTHER }}\n"),
-        swap("r-ci", "another name for the key", ["WF08", "WF16"], SECRETS, "    secrets:\n      KEY: ${{ secrets.LAB_DEPLOY_KEY }}\n"),
-        swap("r-ci", "a flow mapping", ["WF16", "WF21"], SECRETS, "    secrets: {LAB_DEPLOY_KEY: x}\n"),
-        swap("r-e2e", "the end-to-end caller", ["WF08", "WF16"], SECRETS, "    secrets: inherit\n"),
     ],
     "WF17": [
         step("ci", "actions/cache", ["WF17"], "uses: actions/cache@" + "c" * 40, "with:", "  path: x", "  key: y"),
@@ -567,8 +537,8 @@ MUTATIONS = {
         swap("ci", "a flow value of runs-on", ["WF06", "WF21"], RUNNER, "    runs-on: [ubuntu-24.04]\n    timeout-minutes: 15\n"),
         swap("ci", "a flow value of on", ["WF21"], ON_CI, "on: [pull_request, push]\n"),
         swap("ci", "a flow value of permissions", ["WF03", "WF21"], "permissions:\n  contents: read\n", "permissions: {contents: read}\n"),
-        swap("r-ci", "a flow value of secrets", ["WF16", "WF21"], SECRETS, "    secrets: {LAB_DEPLOY_KEY: x}\n"),
-        swap("r-ci", "a flow value of uses", ["WF02", "WF21"], CALL, "    uses: [OWNER/gravitee-lab/.github/workflows/catalog-ci.yml@" + "0" * 40 + "]\n"),
+        job_key("ci", "a flow value of secrets", ["WF21"], "static", "secrets: {A: b}"),
+        job_key("ci", "a flow value of uses", ["WF02", "WF21"], "static", "uses: [o/r/.github/workflows/x.yml@" + "0" * 40 + "]"),
         swap("publish", "a flow value of environment", ["WF21"], IMAGES,
              "    environment: [publish]\n    permissions:\n      contents: read\n      packages: write\n    outputs:"),
         swap("ci", "a flow mapping anywhere", ["WF21"], "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n",
@@ -689,9 +659,6 @@ NEAR = {
              "password: ${{ secrets.GITHUB_TOKEN }}"),
         swap("publish", "the two in the other order", [], "password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}",
              "password: ${{ secrets.GITHUB_TOKEN || secrets.REGISTRY_TOKEN }}"),
-        swap("r-ci", "no secret passed", [], SECRETS, ""),
-        swap("r-ci", "the key passed in a mapping with a comment", [], SECRETS,
-             "    secrets:\n      LAB_DEPLOY_KEY: ${{ secrets.LAB_DEPLOY_KEY }}   # the one\n"),
     ],
     "WF09": [
         job_key("publish", "a job that reads", [], "guard", "permissions:", "  contents: read"),
@@ -733,15 +700,6 @@ NEAR = {
     "WF14": [
         step("ci", "false", [], "run: exit 0", "continue-on-error: false"),
         step("ci", "a quoted false", [], "run: exit 0", "continue-on-error: 'false'"),
-    ],
-    "WF15": [
-        swap("r-ci", "the repository in other letters", [], "OWNER/gravitee-lab/.github", "owner/GRAVITEE-LAB/.github"),
-        swap("r-ci", "a workflow of this repository", [], "uses: OWNER/gravitee-lab/.github/workflows/catalog-ci.yml@0123456789abcdef0123456789abcdef01234567",
-             "uses: ./.github/workflows/catalog-ci.yml"),
-    ],
-    "WF16": [
-        swap("r-ci", "no secret", [], SECRETS, ""),
-        swap("r-ci", "no value for secrets", [], SECRETS, "    secrets:\n"),
     ],
     "WF17": [
         step("ci", "a cache turned off", [], "uses: " + PYTHON, "with:", "  cache: false"),
@@ -806,10 +764,9 @@ class Contract(unittest.TestCase):
     def test_the_sets_are_the_ones_of_section_6_4(self):
         self.assertEqual(wf.GENERIC, {"WF01", "WF02", "WF03", "WF04", "WF05", "WF07", "WF11", "WF12", "WF14", "WF17", "WF19",
                                       "WF20", "WF21"})
-        self.assertEqual(wf.LANES, {"WF06", "WF08", "WF09", "WF10", "WF13", "WF15", "WF16", "WF18"})
+        self.assertEqual(wf.LANES, {"WF06", "WF08", "WF09", "WF10", "WF13", "WF18"})
         self.assertEqual(wf.ALL, wf.GENERIC | wf.LANES)
         self.assertFalse(wf.GENERIC & wf.LANES)
-        self.assertEqual(sorted(wf.ALL), ["WF%02d" % number for number in range(1, 22)])
         self.assertEqual(sorted(wf.RULES), sorted(wf.ALL))
 
     def test_every_rule_has_a_planted_violation(self):
@@ -835,7 +792,7 @@ class Contract(unittest.TestCase):
                 modules.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and not node.level:
                 modules.add((node.module or "").split(".")[0])
-        self.assertEqual(modules, {"bisect", "json", "re", "typing"})
+        self.assertEqual(modules, {"bisect", "re", "typing"})
 
     def test_the_module_writes_and_runs_nothing(self):
         """No import that could, and none of the builtins that read a file, run text or import by name."""
@@ -854,37 +811,19 @@ class Passing(unittest.TestCase):
         for name in FILES:
             for form, make in FORMS.items():
                 with self.subTest(file=name, form=form):
-                    self.assertEqual([], [each.message for each in wf.problems(path_of(name), make(text_of(name)), wf.ALL, STD)])
+                    self.assertEqual([], [each.message for each in wf.problems(path_of(name), make(text_of(name)))])
 
-    def test_the_callee_of_the_reusable_form_breaks_nothing(self):
-        """The Lab's `catalog-ci.yml`: the head of 5.11 and the `jobs:` block of the inline file, byte for byte."""
-        head = (DATA / "lab" / ".github/workflows/catalog-ci.head.yml").read_text(encoding="utf-8")
-        callee = head + text_of("ci").split("\njobs:\n", 1)[1]
-        self.assertEqual([], wf.problems(".github/workflows/catalog-ci.yml", callee, wf.ALL, STD))
-        # a file that is only called needs no concurrency group, and one that is also run on a push does
-        self.assertEqual(["WF11"], codes("ci", edit(callee, "  workflow_call:\n", "  push:\n  workflow_call:\n")))
-        # and the callee has the rights of ci.yml, not more
-        wrote = in_job(callee, "static", "permissions:", "  issues: write")
-        self.assertEqual(["WF09"], [each.code for each in wf.problems(".github/workflows/catalog-ci.yml", wrote, wf.ALL, STD)])
-
-    def test_the_other_callees_have_the_rights_of_the_file_they_are_called_from(self):
-        inline = text_of("publish")
-        self.assertEqual([], wf.problems(".github/workflows/catalog-publish.yml", inline, wf.ALL, STD))
-        self.assertEqual([], wf.problems(".github/workflows/catalog-nightly.yml", text_of("nightly"), wf.ALL, STD))
-        self.assertEqual([], wf.problems(".github/workflows/catalog-e2e.yml", text_of("e2e"), wf.ALL, STD))
-        # the same text under a name that is not one of the standard's has the rights of none
-        other = wf.problems(".github/workflows/other.yml", inline, wf.ALL, STD)
+    def test_a_name_that_is_not_one_of_the_standards_has_the_rights_of_none(self):
+        other = wf.problems(".github/workflows/other.yml", text_of("publish"))
         self.assertEqual(sorted({each.code for each in other}), ["WF08", "WF09", "WF13"])
 
     def test_the_directory_and_the_extension_are_not_the_rights(self):
-        self.assertEqual([], wf.problems("publish.yml", text_of("publish"), wf.ALL, STD))
-        self.assertNotEqual([], wf.problems("publish.yaml", text_of("publish"), wf.ALL, STD))
+        self.assertEqual([], wf.problems("publish.yml", text_of("publish"), wf.ALL))
+        self.assertNotEqual([], wf.problems("publish.yaml", text_of("publish"), wf.ALL))
 
     def test_a_catalog_tree_is_checked_by_the_function_the_audit_calls(self):
-        for variant in ("inline", "reusable"):
-            with self.subTest(variant=variant):
-                self.assertEqual([], wf.check(tree_of(variant)))
-                self.assertEqual([], wf.check(tree_of(variant), object()))
+        self.assertEqual([], wf.check(tree_of("inline")))
+        self.assertEqual([], wf.check(tree_of("inline"), object()))
 
     def test_each_rule_passes_what_is_close_to_its_violations(self):
         """One or more passing fixtures for each rule: the spellings that look like a violation and are not."""
@@ -978,20 +917,20 @@ class Mutations(unittest.TestCase):
 
     def test_a_rule_names_the_line(self):
         text = with_step(text_of("ci"), "static", "run: echo hi", "env:", "  X: ${{ secrets.NPM_TOKEN }}")
-        found = wf.problems(path_of("ci"), text, {"WF08"}, STD)
+        found = wf.problems(path_of("ci"), text, {"WF08"})
         self.assertEqual([(each.code, each.line) for each in found], [("WF08", line_of(text, "NPM_TOKEN"))])
         text = with_step(text_of("ci"), "static", "run: |", "  echo one", "  echo ${{ x }}")
-        found = wf.problems(path_of("ci"), text, {"WF04"}, STD)
+        found = wf.problems(path_of("ci"), text, {"WF04"})
         self.assertEqual([each.line for each in found], [line_of(text, "echo ${{ x }}")])
 
     def test_each_line_of_a_script_that_breaks_a_rule_is_named(self):
         text = with_step(text_of("ci"), "static", "run: |", "  echo ${{ a }}", "  echo fine", "  echo ${{ b }}")
         first = line_of(text, "echo ${{ a }}")
-        self.assertEqual([each.line for each in wf.problems(path_of("ci"), text, {"WF04"}, STD)], [first, first + 2])
+        self.assertEqual([each.line for each in wf.problems(path_of("ci"), text, {"WF04"})], [first, first + 2])
 
     def test_messages_carry_the_values_the_spec_asks_for(self):
-        def message(name, text, code, standard=STD):
-            return [each.message for each in wf.problems(path_of(name), text, {code}, standard)][0]
+        def message(name, text, code):
+            return [each.message for each in wf.problems(path_of(name), text, {code})][0]
         path = path_of("ci")
         self.assertEqual(message("ci", edit(text_of("ci"), "  pull_request:\n  push:", "  issue_comment:\n  push:"), "WF01"),
                          path + ": the trigger issue_comment is not allowed. Use pull_request: pull_request_target and "
@@ -1015,9 +954,6 @@ class Mutations(unittest.TestCase):
         self.assertEqual(message("publish", text, "WF18"),
                          ".github/workflows/publish.yml:%d: needs.images.result is tested with !=. Fix: name what you accept: "
                          "contains(fromJSON('[\"success\",\"skipped\"]'), needs.images.result)." % line_of(text, "!= 'failure'"))
-        self.assertEqual(message("r-ci", edit(text_of("r-ci"), "@0123456789abcdef0123456789abcdef01234567", "@" + "f" * 40), "WF15"),
-                         ".github/workflows/ci.yml: the Lab pinned here is not lab.ref of .github/standard.json. Fix: catalog.py "
-                         "upgrade --lab-ref 0123456789abcdef0123456789abcdef01234567.")
         text = with_step(text_of("ci"), "static", "uses: " + DOWNLOAD, "with:", "  run-id: 7")
         self.assertEqual(message("ci", text, "WF20"),
                          path + ":%d: run-id on download-artifact reads an artifact of another run, which someone may have written. "
@@ -1259,12 +1195,6 @@ class Aggregator(unittest.TestCase):
                 code, output = self.run_it("e2e", **{**sane, **changes})
                 self.assertEqual(code, 1, output)
 
-    def test_the_caller_of_the_reusable_form_is_red_unless_the_called_workflow_succeeded(self):
-        self.assertEqual(self.run_it("r-ci", CALLED="success")[0], 0)
-        for result in ("failure", "cancelled", "skipped", ""):
-            with self.subTest(result):
-                self.assertEqual(self.run_it("r-ci", CALLED=result)[0], 1)
-
     def test_the_script_found_is_the_script_of_the_workflow(self):
         self.assertIn('fail "The plan gave no answer: open the job static"', self.script("ci"))
         self.assertIn('[ "$STATIC" = success ]', self.script("ci"))
@@ -1284,7 +1214,7 @@ class Trees(unittest.TestCase):
         tree = Tree({**files_of("inline"), "docs/ci.yml": bad, ".github/workflows/sub/ci.yml": bad, ".github/workflows/notes.txt": bad,
                      ".github/workflows/ci.yml.bak": bad, "playgrounds/x/.github/workflows/ci.yml": bad, ".github/actions/lab/readme.yml": bad})
         self.assertEqual(wf.check(tree), [])
-        self.assertEqual(set(tree.reads), {".github/standard.json", *[path for path in files_of("inline") if path.endswith((".yml",))]})
+        self.assertEqual(set(tree.reads), {path for path in files_of("inline") if path.endswith((".yml",))})
 
     def test_yaml_and_deeper_actions_are_read_too(self):
         bad = "name: x\non: pull_request_target\n"
@@ -1345,7 +1275,7 @@ class Trees(unittest.TestCase):
         files = {".github/workflows/w%03d.yml" % number: good for number in range(wf.MAX_FILES + 20)}
         tree = Tree(files)
         found = wf.check(tree)
-        self.assertEqual(len(tree.reads), wf.MAX_FILES + 1)
+        self.assertEqual(len(tree.reads), wf.MAX_FILES)
         self.assertEqual(sorted({(each.path, each.code, each.line) for each in found if each.code == "WF21"}),
                          [(".github/workflows/w%03d.yml" % number, "WF21", 1) for number in range(wf.MAX_FILES, wf.MAX_FILES + 20)])
 
@@ -1362,35 +1292,6 @@ class Trees(unittest.TestCase):
                 return None
         found = wf.check(Silent({".github/workflows/ci.yml": b"name: x\n"}))
         self.assertEqual([(each.code, each.line) for each in found], [("WF21", 1)])
-
-    def test_the_lab_pin_comes_from_standard_json(self):
-        reusable = dict(files_of("reusable"))
-        self.assertEqual(wf.check(Tree(reusable)), [])
-        for label, standard in {"missing": None, "not json": b"{", "not an object": b"[1]", "no lab": b"{}", "a lab that is a list": b'{"lab": []}',
-                                "a number": b'{"lab": {"repository": 1, "ref": 2}}', "too big": b'{"lab": {"x": "' + b"a" * 5000 + b'"}}',
-                                "deeply nested": b"[" * 2000 + b"]" * 2000, "other commit": json.dumps({"lab": {"repository": "OWNER/gravitee-lab", "ref": "f" * 40}}).encode(),
-                                "not utf-8": b"\xff\xfe"}.items():
-            with self.subTest(label):
-                files = dict(reusable)
-                if standard is None:
-                    del files[".github/standard.json"]
-                else:
-                    files[".github/standard.json"] = standard
-                found = wf.check(Tree(files))
-                self.assertEqual(sorted({each.code for each in found}), ["WF15"])
-                self.assertEqual({each.path for each in found}, {".github/workflows/ci.yml", ".github/workflows/e2e.yml",
-                                                                    ".github/workflows/nightly.yml", ".github/workflows/publish.yml"})
-
-    def test_a_pin_written_in_capital_letters_is_the_same_repository(self):
-        files = dict(files_of("reusable"))
-        files[".github/workflows/ci.yml"] = edit(files[".github/workflows/ci.yml"], "OWNER/gravitee-lab", "owner/GRAVITEE-LAB")
-        self.assertEqual(wf.check(Tree(files)), [])
-
-    def test_a_local_reusable_workflow_is_not_the_lab(self):
-        files = dict(files_of("reusable"))
-        files[".github/workflows/ci.yml"] = edit(files[".github/workflows/ci.yml"], CALL.strip().replace("    ", "", 1),
-                                                 "uses: ./.github/workflows/other.yml")
-        self.assertEqual(wf.check(Tree(files)), [])
 
     def test_the_problems_are_sorted_and_the_same_twice(self):
         files = dict(files_of("inline"))
@@ -1520,7 +1421,7 @@ class Hostile(unittest.TestCase):
             for label, text in shapes_for(path):
                 with self.subTest(label, path=path):
                     start = time.process_time()
-                    found = wf.problems(path, text, wf.ALL, STD)
+                    found = wf.problems(path, text, wf.ALL)
                     spent = time.process_time() - start
                     # A rule that backtracks takes tens of seconds here; a linear one takes about 0.3 s of a laptop's CPU and three
                     # times that on a runner of GitHub, so the bound leaves the runner its room and still catches the first
@@ -1534,7 +1435,7 @@ class Hostile(unittest.TestCase):
         def spent(count):
             text = step_line("if: ${{ " + "!contains(" * count + " }}")
             start = time.process_time()
-            wf.problems(".github/workflows/publish.yml", text, wf.ALL, STD)
+            wf.problems(".github/workflows/publish.yml", text, wf.ALL)
             return time.process_time() - start
         small, big = max(spent(4000), 0.001), spent(40000)
         self.assertLess(big, 40 * small + 0.5, "4000 calls took %.3f s, 40000 took %.3f s" % (small, big))
@@ -1615,7 +1516,7 @@ class Hostile(unittest.TestCase):
                     text = "\n".join(rows)
             with self.subTest(number=number, file=name):
                 start = time.process_time()
-                found = wf.problems(path_of(name), text, wf.ALL, STD)
+                found = wf.problems(path_of(name), text, wf.ALL)
                 wf.run_blocks(text)
                 wf.jobs(text)
                 wf.triggers(text)

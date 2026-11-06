@@ -79,12 +79,11 @@ class Dependabot(unittest.TestCase):
 class Rules(unittest.TestCase):
 
     def test_every_managed_workflow_and_action_passes_every_workflow_rule(self):
-        std = {"repository": PARAMS["lab_repository"], "ref": PARAMS["lab_ref"]}
         seen = 0
         for path, data in standard.render_new({**PARAMS, **EVERYTHING}).items():
             if path.startswith(".github/workflows/") or path.endswith("/action.yml"):
                 seen += 1
-                self.assertEqual(workflows.problems(path, data.decode("utf-8"), workflows.ALL, std), [], path)
+                self.assertEqual(workflows.problems(path, data.decode("utf-8"), workflows.ALL), [], path)
         self.assertGreaterEqual(seen, 6)
 
     def test_the_engines_generic_rules_hold_on_the_template_too(self):

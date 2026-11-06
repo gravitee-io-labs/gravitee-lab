@@ -8,7 +8,7 @@ written for the lanes of a catalog (which file may read which secret, which job 
 lane) and runs on catalogs only: the engine's `e2e.yml` and `lab-images.yml` trip it by design.
 
     check(tree, ctx) -> [Problem]            every workflow and local action of a catalog, both sets
-    problems(path, text, rules, standard)    one file, any set of codes; `standard` is {"repository", "ref"} for WF15
+    problems(path, text, rules)              one file, any set of codes
     run_blocks(text), jobs(text), triggers(text)   the readers of the engine's test, now over the outline below
 
 The reader is an outline by indentation (`_Reader`), not one regular expression per line: a rule that looks for `^      timeout`
@@ -36,7 +36,6 @@ token read-only, and `Continue-On-Error: true` is still found. The rules are a t
 warning and not a proof: the code owner reads the workflows too."""
 
 import bisect
-import json
 import re
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
@@ -52,7 +51,6 @@ MAX_PIPES = 1000        # pipes in one pipeline that starts with a download
 MAX_FILES = 100         # workflows and actions that `check` reads in one tree; the others are WF21
 MAX_ESCAPES = 20000     # backslashes in one double-quoted scalar that are decoded; more is WF21
 FILE_LIMIT = 1024 * 1024
-STANDARD_LIMIT = 4096   # what `.github/standard.json` may weigh (SD04)
 
 EVENTS = ("pull_request", "push", "schedule", "workflow_dispatch", "workflow_call")
 RUNNERS = ("ubuntu-24.04", "ubuntu-24.04-arm")
@@ -91,10 +89,9 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
      "this file makes: a self-hosted runner keeps what a pull request leaves on it."),
     ("WF07", "Every `actions/checkout` says `persist-credentials: false`",
      "{file}:{line}: actions/checkout leaves its token in .git. Add persist-credentials: false."),
-    ("WF08", "Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action or "
-             "as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the "
-             "`password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable "
-             "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
+    ("WF08", "Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action; "
+             "`GITHUB_TOKEN` or `REGISTRY_TOKEN` as the `password:` of `docker/login-action` in `publish.yml`; "
+             "`GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
              "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; "
              "`GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` "
              "that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never "
@@ -103,33 +100,24 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
      "it."),
     ("WF09", "Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the "
              "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and "
-             "`attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call "
-             "job of `publish.yml` holds their union",
+             "`attestations` in `attest`, `contents` in `release`, of `publish.yml`",
      "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the "
      "report jobs of nightly.yml and versions.yml, may write."),
-    ("WF10", "A job with steps and `packages: write` declares an `environment` (a call job of the reusable form is "
-             "exempt: the jobs of its callee are checked)",
+    ("WF10", "A job with steps and `packages: write` declares an `environment`",
      "{file}: job {job} writes packages without an environment. Add environment: publish."),
     ("WF11", "A `concurrency:` group exists (not in a reusable file)",
      "{file}: add a concurrency group, so that a push does not pile runs up."),
     ("WF12", "No download piped into a shell",
      "{file}:{line}: a download is piped into a shell. Download it, check a digest, then run it."),
-    ("WF13", "`id-token: write` appears in the job `attest` of `publish.yml` and `catalog-publish.yml` only, and "
-             "no step exports the runtime token of Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, "
+    ("WF13", "`id-token: write` appears in the job `attest` of `publish.yml` only, and no step exports the runtime token of Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, "
              "`ACTIONS_RESULTS_URL`, `ghaction-github-runtime`)",
      "{file}: the identity token and the runtime token of Actions go to the attest job of publish.yml only."),
     ("WF14", "No `continue-on-error: true`",
      "{file}:{line}: continue-on-error hides a failure. Make the step decide its own exit code."),
-    ("WF15", "Reusable form: the Lab repository and commit named by a caller equal `lab.repository` and `lab.ref` "
-             "of `standard.json`",
-     "{file}: the Lab pinned here is not lab.ref of .github/standard.json. Fix: catalog.py upgrade --lab-ref "
-     "{ref}."),
-    ("WF16", "Reusable form: a caller passes `LAB_DEPLOY_KEY` and nothing else",
-     "{file}: pass the Lab key by name and nothing else; secrets: inherit hands over every secret."),
     ("WF17", "No cache of any kind: no `actions/cache`, no `cache:` input of a `setup-*` action, no `cache-from` "
              "or `cache-to`, no `type=gha` or `type=registry`",
      "{file}:{line}: a cache lets a pull request write what main later reads. Remove it."),
-    ("WF18", "In `publish.yml` and `catalog-publish.yml` a `needs.<job>.result` is compared with `== 'success'` or "
+    ("WF18", "In `publish.yml` a `needs.<job>.result` is compared with `== 'success'` or "
              '`contains(fromJSON(\'["success","skipped"]\'), ...)`, never with `!=` (a canceled or timed-out job '
              "is neither a failure nor a success)",
      "{file}:{line}: needs.{job}.result is tested with !=. Fix: name what you accept: "
@@ -151,16 +139,12 @@ RULES = table((code, ERROR, rule, message) for code, rule, message in (
 ))
 
 GENERIC = frozenset(("WF01", "WF02", "WF03", "WF04", "WF05", "WF07", "WF11", "WF12", "WF14", "WF17", "WF19", "WF20", "WF21"))
-LANES = frozenset(("WF06", "WF08", "WF09", "WF10", "WF13", "WF15", "WF16", "WF18"))
+LANES = frozenset(("WF06", "WF08", "WF09", "WF10", "WF13", "WF18"))
 ALL = GENERIC | LANES
 
-# The workflows the standard ships, by file name, and the family each belongs to: a file of the Lab that a caller calls
-# (`catalog-*.yml`) has the rights of the file that calls it. Any other name has the rights of none.
-FAMILY = {"ci.yml": "ci", "catalog-ci.yml": "ci", "publish.yml": "publish", "catalog-publish.yml": "publish",
-          "nightly.yml": "nightly", "catalog-nightly.yml": "nightly", "e2e.yml": "e2e", "catalog-e2e.yml": "e2e",
-          "versions.yml": "versions", "catalog-versions.yml": "versions"}
-# The jobs that may hold a write permission, and which. A job that calls a reusable workflow holds the union of its file
-# (the reusable form, 5.11: the callee cannot hold more than its caller)
+# The workflows the standard ships, by file name, and the family each belongs to. Any other name has the rights of none.
+FAMILY = {"ci.yml": "ci", "publish.yml": "publish", "nightly.yml": "nightly", "e2e.yml": "e2e", "versions.yml": "versions"}
+# The jobs that may hold a write permission, and which
 MAY_WRITE = {
     "publish": {"images": ("packages",), "attest": ("packages", "id-token", "attestations"), "release": ("contents",)},
     "nightly": {"report": ("issues",)},
@@ -716,7 +700,7 @@ class _Job(NamedTuple):
 class _Doc(object):
     """One file read: the outline, what the rules ask of it, and the reasons it could not read some of it."""
 
-    def __init__(self, path: str, text: str, standard: Optional[dict] = None, is_action: bool = False) -> None:
+    def __init__(self, path: str, text: str, is_action: bool = False) -> None:
         reader = _Reader(text)
         self.path = path
         self.lines = reader.lines
@@ -724,7 +708,6 @@ class _Doc(object):
         self.kind = "action" if is_action else "workflow"
         self.name = path.rsplit("/", 1)[-1]
         self.family = None if is_action else FAMILY.get(self.name)
-        self.standard = standard
         self.unreadable: Dict[int, str] = dict(reader.bad)
         self.content = reader.content
         self.entries: List[_Entry] = []
@@ -1091,8 +1074,6 @@ def _blessed(doc: _Doc) -> Tuple[Set[int], Set[int]]:
             uses = doc.get(step, "uses")
             if uses is not None and uses.value.kind == "scalar" and _LAB_ACTION.match(uses.value.text.strip()):
                 allowed.add(entry.line)
-        elif entry.name == "LAB_DEPLOY_KEY" and text == _KEY and name == "secrets" and doc.get(step, "uses") is not None:
-            allowed.add(entry.line)
         elif entry.name == "NEEDS_DEPLOY_KEY" and text == _NEEDS_KEY and name == "env" and doc.get(step, "run") is not None \
                 and "catalog.py ci needs" in _text_of(doc.get(step, "run").value):
             allowed.add(entry.line)
@@ -1166,9 +1147,8 @@ def _wf08(doc):
 @_rule("WF09", ("workflow",))
 def _wf09(doc):
     table = MAY_WRITE.get(doc.family, {})
-    union = {scope for scopes in table.values() for scope in scopes}
     for job in doc.jobs:
-        may = union if doc.get(job.node, "uses") is not None else set(table.get(job.name, ()))
+        may = table.get(job.name, ())
         for scope, value, line in _permissions(doc, job.node):
             if value == "write" and scope.lower() not in may:
                 yield line, {"job": job.name, "permission": scope}
@@ -1319,7 +1299,7 @@ def _wf13(doc):
         if entry.name.lower() != "permissions":
             continue
         job = by_node.get(id(entry.map))
-        if doc.family == "publish" and job is not None and (job.name == "attest" or doc.get(job.node, "uses") is not None):
+        if doc.family == "publish" and job is not None and job.name == "attest":
             continue
         for scope, value, line in _permissions(doc, entry.map):
             if scope.lower() == "id-token" and value == "write" and line not in seen:
@@ -1339,39 +1319,6 @@ def _wf14(doc):
             node = entry.value
             if node.kind != "null" and not (node.kind == "scalar" and node.text.strip().lower() == "false"):
                 yield entry.line, {}
-
-
-_CALLEE = re.compile(r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/\.github/workflows/[A-Za-z0-9_./-]+@(\S*)\Z")
-
-
-@_rule("WF15", ("workflow",))
-def _wf15(doc):
-    standard = doc.standard or {}
-    repository, ref = standard.get("repository"), standard.get("ref")
-    for job in doc.jobs:
-        uses = doc.get(job.node, "uses")
-        if uses is None or uses.value.kind != "scalar" or uses.value.text.strip().startswith("./"):
-            continue
-        found = _CALLEE.match(uses.value.text.strip())
-        if not (found and isinstance(repository, str) and isinstance(ref, str)
-                and found.group(1).lower() == repository.lower() and found.group(2) == ref):
-            yield uses.line, {"ref": ref if isinstance(ref, str) else "COMMIT"}
-
-
-@_rule("WF16", ("workflow",))
-def _wf16(doc):
-    for job in doc.jobs:
-        if doc.get(job.node, "uses") is None:
-            continue
-        for entry in doc.named(job.node, "secrets"):
-            node = entry.value
-            if node.kind == "null":
-                continue
-            if node.kind == "map" and entry.name == "secrets" and all(
-                    each.name == "LAB_DEPLOY_KEY" and each.value.kind == "scalar" and each.value.text.strip() == _KEY
-                    for each in node.entries):
-                continue
-            yield entry.line, {}
 
 
 _CACHE = re.compile(r"cache[-_](?:from|to)|type\s*=\s*(?:gha|registry)\b", re.I)
@@ -1645,8 +1592,8 @@ def _is_action(path: str) -> bool:
     return path.startswith(".github/actions/") or path.rsplit("/", 1)[-1].lower() in ("action.yml", "action.yaml")
 
 
-def _problems(path: str, text: str, rules: Iterable[str], standard: Optional[dict], is_action: bool) -> List[Problem]:
-    doc = _Doc(path, text, standard, is_action)
+def _problems(path: str, text: str, rules: Iterable[str], is_action: bool) -> List[Problem]:
+    doc = _Doc(path, text, is_action)
     wanted, found = set(rules), []
     for code in sorted(wanted & set(_CHECKS)):
         function, kinds = _CHECKS[code]
@@ -1659,33 +1606,19 @@ def _problems(path: str, text: str, rules: Iterable[str], standard: Optional[dic
     return sorted(set(found), key=lambda each: (each.line, each.code, each.message))
 
 
-def problems(path: str, text: str, rules: Iterable[str] = ALL, standard: Optional[dict] = None) -> List[Problem]:
+def problems(path: str, text: str, rules: Iterable[str] = ALL) -> List[Problem]:
     """The problems of one file. `path` decides what it is: a workflow (and the rights its name gives it) or an action.
-    `rules` is a set of codes, GENERIC for the engine's own workflows. `standard` is `{"repository", "ref"}` of the Lab."""
-    return _problems(path, text, rules, standard, _is_action(path))
-
-
-def _lab_pin(tree) -> dict:
-    """`lab.repository` and `lab.ref` of .github/standard.json; empty when the file cannot give them (SD04 says why)."""
-    data = tree.read(".github/standard.json", STANDARD_LIMIT + 1)
-    if data is None or len(data) > STANDARD_LIMIT:
-        return {}
-    try:
-        lab = json.loads(data.decode("utf-8")).get("lab")
-    except (ValueError, RecursionError, AttributeError):
-        return {}
-    return lab if isinstance(lab, dict) else {}
+    `rules` is a set of codes, GENERIC for the engine's own workflows."""
+    return _problems(path, text, rules, _is_action(path))
 
 
 def check(tree, ctx=None) -> List[Problem]:
     """Every workflow and every local action of a catalog against both sets. Pure: it reads the tree and writes nothing."""
-    found, standard, count = [], None, 0
+    found, count = [], 0
     for entry in sorted(tree.entries(), key=lambda each: each.path):
         path = entry.path
         if not (_WORKFLOW_FILE.match(path) or _ACTION_FILE.match(path)):
             continue
-        if standard is None:
-            standard = _lab_pin(tree)
         text = None
         count += 1
         size = entry.size if isinstance(entry.size, int) else 0
@@ -1699,7 +1632,7 @@ def check(tree, ctx=None) -> List[Problem]:
         if text is None:
             found.append(Problem("WF21", ERROR, path, 1, _say("WF21", path, 1, {})))
             continue
-        found.extend(_problems(path, text, ALL, standard, _ACTION_FILE.match(path) is not None))    # the place decides, as above
+        found.extend(_problems(path, text, ALL, _ACTION_FILE.match(path) is not None))    # the place decides, as above
     return found
 
 

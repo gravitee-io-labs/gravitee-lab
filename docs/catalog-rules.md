@@ -445,19 +445,19 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF08
 
-*Error.* Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action or as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the `password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; `VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; `GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never `secrets: inherit`.
+*Error.* Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the `password:` of `docker/login-action` in `publish.yml`; `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; `VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; `GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never `secrets: inherit`.
 
 - **Message**: {file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs it.
 
 ### WF09
 
-*Error.* Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call job of `publish.yml` holds their union.
+*Error.* Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in `attest`, `contents` in `release`, of `publish.yml`.
 
 - **Message**: {file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the report jobs of nightly.yml and versions.yml, may write.
 
 ### WF10
 
-*Error.* A job with steps and `packages: write` declares an `environment` (a call job of the reusable form is exempt: the jobs of its callee are checked).
+*Error.* A job with steps and `packages: write` declares an `environment`.
 
 - **Message**: {file}: job {job} writes packages without an environment. Add environment: publish.
 
@@ -475,7 +475,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF13
 
-*Error.* `id-token: write` appears in the job `attest` of `publish.yml` and `catalog-publish.yml` only, and no step exports the runtime token of Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, `ACTIONS_RESULTS_URL`, `ghaction-github-runtime`).
+*Error.* `id-token: write` appears in the job `attest` of `publish.yml` only, and no step exports the runtime token of Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, `ACTIONS_RESULTS_URL`, `ghaction-github-runtime`).
 
 - **Message**: {file}: the identity token and the runtime token of Actions go to the attest job of publish.yml only.
 
@@ -485,19 +485,6 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 - **Message**: {file}:{line}: continue-on-error hides a failure. Make the step decide its own exit code.
 
-### WF15
-
-*Error.* Reusable form: the Lab repository and commit named by a caller equal `lab.repository` and `lab.ref` of `standard.json`.
-
-- **Message**: {file}: the Lab pinned here is not lab.ref of .github/standard.json. Fix: catalog.py upgrade --lab-ref {ref}.
-- **Fix**: catalog.py upgrade --lab-ref {ref}.
-
-### WF16
-
-*Error.* Reusable form: a caller passes `LAB_DEPLOY_KEY` and nothing else.
-
-- **Message**: {file}: pass the Lab key by name and nothing else; secrets: inherit hands over every secret.
-
 ### WF17
 
 *Error.* No cache of any kind: no `actions/cache`, no `cache:` input of a `setup-*` action, no `cache-from` or `cache-to`, no `type=gha` or `type=registry`.
@@ -506,7 +493,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF18
 
-*Error.* In `publish.yml` and `catalog-publish.yml` a `needs.&lt;job>.result` is compared with `== 'success'` or `contains(fromJSON('["success","skipped"]'), ...)`, never with `!=` (a canceled or timed-out job is neither a failure nor a success).
+*Error.* In `publish.yml` a `needs.&lt;job>.result` is compared with `== 'success'` or `contains(fromJSON('["success","skipped"]'), ...)`, never with `!=` (a canceled or timed-out job is neither a failure nor a success).
 
 - **Message**: {file}:{line}: needs.{job}.result is tested with !=. Fix: name what you accept: contains(fromJSON('["success","skipped"]'), needs.{job}.result).
 - **Fix**: name what you accept: contains(fromJSON('["success","skipped"]'), needs.{job}.result).

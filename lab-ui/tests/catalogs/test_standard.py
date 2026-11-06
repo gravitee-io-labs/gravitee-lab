@@ -1918,11 +1918,9 @@ class Rules(unittest.TestCase):
 
     def test_every_managed_workflow_and_action_passes_every_rule(self):
         files = render(**EVERYTHING)
-        standard_json = json.loads(files[".github/standard.json"])
-        std = {"repository": standard_json["lab"]["repository"], "ref": standard_json["lab"]["ref"]}
         for path, data in files.items():
             if path.startswith(".github/workflows/") or (path.startswith(".github/actions/") and path.endswith("action.yml")):
-                self.assertEqual(workflows.problems(path, data.decode("utf-8"), workflows.ALL, std), [], path)
+                self.assertEqual(workflows.problems(path, data.decode("utf-8"), workflows.ALL), [], path)
         self.assertEqual([each for each in workflows.check(tree_of(files)) if each.severity == "error"], [])
 
     def test_the_lab_action_is_called_from_the_checkout_of_the_catalog_beside_the_labs_so_the_key_is_allowed_there(self):
