@@ -644,8 +644,8 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None
 @contextlib.contextmanager
 def _staged_all(items, ns):
     """The files of several copies in one hidden folder beside the installs, laid out as the target holds them, so that what one of
-    them includes of the others is found there: yields ({(kind, slug): (the project path of its compose file, its folder)}, the
-    project path of the hidden folder). Removed when the block ends, whatever happens."""
+    them includes of the others is found there: yields ({(kind, slug): (the project path of its compose file, its folder)},
+    {its stage path: its path in the catalog}). Removed when the block ends, whatever happens."""
     name = f".stage-share~{os.urandom(4).hex()}"
     top, stage = paths.ROOT / paths.CATALOGS_DIR / name, f"{paths.CATALOGS_DIR}/{name}"
     table, places = [], {}
@@ -663,7 +663,7 @@ def _staged_all(items, ns):
             for path, (mode, data) in copy.files.items():
                 install.safe_write(top, path, text.encode("utf-8") if path == head else data, int(mode[-3:], 8))
         yield ({key: (f"{stage}/{head}", None if key[0] == "setup" else paths.ROOT / there)
-                for key, (_, there, head) in places.items()}, stage,
+                for key, (_, there, head) in places.items()},
                {f"{stage}/{head}": f"{paths.CATALOGS_DIR}/{ns}/{head}" for _, there, head in places.values()})
     finally:
         shutil.rmtree(top, ignore_errors=True)
@@ -738,27 +738,24 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
     catalog on a Public target; answers the other problems, [str] ("Blocked: ..." for what the policy gives a reason for). `along`:
     [(kind, id, slug, copy)] of what goes with the item, each checked the same way, and judged with it in one stage; `allowed`: the
     ids of what goes with it or the target has, which its includes may name."""
-    problems = []
-    if along:   # the rules of the standard read the files together, as the catalog will hold them: a link of one to another resolves
-        merged = dict(copy.files)
-        for _, _, _, other in along:
-            merged.update(other.files)
-        found = _rules(copy._replace(files=merged), kind, slug, ns, row)
-        for each in found:
-            if each.code in SECRETS:
-                raise _refusal("share_secret", file=each.path)
-        problems += [each.message for each in found]
-    rules = None if not along else []
+    merged = dict(copy.files)   # the rules of the standard read the files together, as the catalog will hold them: a link of one to another resolves
+    for _, _, _, other in along:
+        merged.update(other.files)
+    found = _rules(copy._replace(files=merged), kind, slug, ns, row)
+    for each in found:
+        if each.code in SECRETS:
+            raise _refusal("share_secret", file=_shown(each.path, kind, slug))
+    problems = [each.message for each in found]
     for k, one, s, other in along:
         problems += [f"{one.rsplit('/', 1)[-1]}: {line}" for line in _checked(project, k, one, paths.unit_file(k, one), s, ns, row,
-                                                                              rows, other, allowed, rules)]
-    problems += _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed, rules)
+                                                                              rows, other, allowed)]
+    problems += _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed)
     every = [(kind, uid, slug, copy), *along]
     # What the screen refuses is not given to Compose, nor what includes in a form the check cannot follow
     if any(trust.prescreen(c.text, f"{paths.CATALOGS_DIR}/{ns}/{_place(k, s, ns)[2]}") for k, _, s, c in every) \
             or any(_includes(project, paths.unit_file(k, one)) is None for k, one, _, _ in every):
         return list(dict.fromkeys(problems))
-    with _staged_all([(k, s, c) for k, _, s, c in every], ns) as (stages, top, aliases):
+    with _staged_all([(k, s, c) for k, _, s, c in every], ns) as (stages, aliases):
         for k, one, s, c in every:
             stage, folder = stages[(k, s)]
             others = [there for key, (_, there) in stages.items() if key != (k, s) and there is not None]
@@ -777,9 +774,9 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
     return list(dict.fromkeys(problems))
 
 
-def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozenset(), found=None):
+def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozenset()):
     """The checks of one item of a share that need no Compose: its includes, a secret, a private catalog named on a Public target,
-    the rules of a catalog's item (`found`: given when they were read of all the files together), what the screen refuses."""
+    the rules of a catalog's item, what the screen refuses."""
     included = _includes(project, file)
     problems = list(copy.problems)
     if included is None:
@@ -795,15 +792,10 @@ def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozen
     leak = _leaked(copy, kind, slug)
     if leak:
         raise leak
-    found = _rules(copy, kind, slug, ns, row) if found is None else found
-    for each in found:
-        if each.code in SECRETS:
-            raise _refusal("share_secret", file=_shown(each.path, kind, slug))
     if row["audience"] == "public":
         private = _named_private(copy, ns, kind, slug, rows)
         if private:
             raise private
-    problems += [each.message for each in found]
     # An include of what goes with it, or the target has, is no part of this machine left behind
     going = {_here(*paths.unit_of(target)) for target in (trust.include_targets(copy.kept, file) or ())
              if paths.unit_of(target) and paths.unit_of(target)[1] in allowed}
