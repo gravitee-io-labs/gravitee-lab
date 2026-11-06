@@ -41,6 +41,7 @@ const page = installDom({
       }
       return reply({ platforms: server.platforms });
     }
+    if (path === "/api/places") return reply({ places: server.places || [] });
     if (path.endsWith("/plan")) return reply(server.plan || { dialog: null });
     const check = path.match(/^\/api\/platforms\/([a-z0-9-]+)\/check$/);
     if (check) {
@@ -1203,6 +1204,24 @@ test("API Management in the Cloud that cannot start says why on Start all, and T
   coreButtons()[0].click();
   await flush();
   assert.deepEqual(server.calls.find((call) => call.path === "/api/core").body, { place: "machine" });
+  dashboardPage.hide();
+  store.state = lab();
+});
+
+test("Fix it on a row opens the form that takes what its place lacks, as on its list", async () => {
+  const lacking = { id: "cloud-eu/env-development", name: "Development (Gravitee Cloud)", platform: { id: "cloud-eu", name: "Gravitee Cloud", kind: "cloud" }, cannot: [],
+    environment: { id: "env-development", name: "Development" }, state: "missing", missing: "No hybrid gateway", reason: "Set up a gateway first", token: { state: "unset" } };
+  server.places = [lacking];
+  const state = { ...lab({ playgrounds: [item("playground", "shop", "Acme Shop", { starred: true, deploys_to: ["cloud"], requires: {} })] }), platforms: [PLATFORM], core: CLOUD_CORE };
+  await open({ state, listed: [PLATFORM], checks: { "cloud-eu": check([]) } });
+  const gatewayForm = page.doc.querySelector("#gateway-name").closest("form");
+  gatewayForm.checkValidity = () => true;
+  catalog().find((one) => text(one).includes("Acme Shop")).querySelector("[data-fix]").click();
+  await flush();
+  assert.equal(text(gatewayForm.querySelector("h2")), "Create hybrid gateway for Development");
+  gatewayForm.closest("dialog").close();
+  server.places = [];
+  await store.refreshPlaces();
   dashboardPage.hide();
   store.state = lab();
 });

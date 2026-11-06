@@ -17,7 +17,7 @@ import { actionButton, paintActions, paintBusy, paintProgress, stateDot, noteHtm
   contentStatus } from "../components/ui.js";
 import { Combo } from "../components/combo.js";
 import { platformHead, paintHead, onHeadClick } from "./stack.js";
-import { itemButton, itemState, actOn, alive, words, startWarning } from "./list.js";
+import { itemButton, itemState, actOn, alive, words, startWarning, fix } from "./list.js";
 import { accountState } from "./platforms.js";
 import { gatewayList, gatewayCount, environmentStatus, gatewayCell } from "../platform/environments.js";
 import { connectAccount, perform } from "../platform/environment-actions.js";
@@ -999,6 +999,9 @@ function init(section) {
     } else if (on("[data-settings]")) {
       const x = rowOf(on("[data-settings]"));
       if (x) openSettings(x);
+    } else if (on("[data-fix]")) {
+      const x = rowOf(on("[data-fix]"));
+      if (x) fix(x, on("[data-fix]").dataset.fix);
     } else if (on("button[data-act]")) {
       const x = rowOf(on("button[data-act]"));
       if (x) actOn(x);

@@ -93,7 +93,7 @@ export function startWarning(x) {
 }
 
 // The form that takes what the place lacks, in its environment
-function fix(x, what) {
+export function fix(x, what) {
   const place = unready(x);
   if (!place) return;
   const form = { platform: place.platform, environmentId: place.environment.id, done: () => store.refreshPlaces() };
