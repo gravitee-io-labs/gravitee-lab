@@ -521,40 +521,16 @@ def _is_empty(folder: Path) -> bool:
 
 
 def create(root, params: dict) -> List[str]:
-    """Renders a new catalog into `root`, which does not exist or is empty, and answers the paths written. What was made is
-    taken away again when a write fails."""
+    """Renders a new catalog into `root`, which does not exist or is empty, and answers the paths written."""
     files = render_new(params)
     root = Path(root)
     if os.path.lexists(root) and (not root.is_dir() or not _is_empty(root)):
         raise TemplateError(f"{printable(str(root))[:200]} is not empty. Choose a new folder.")
-    made_folders: List[Path] = []   # the folders this call makes, outermost first
-    done: List[Path] = []
-    try:
-        for path, data in files.items():
-            target = root.joinpath(*path.split("/"))
-            missing = []
-            for folder in [target.parent, *target.parent.parents]:
-                if folder.exists():
-                    break
-                missing.append(folder)
-            for folder in reversed(missing):
-                folder.mkdir()
-                made_folders.append(folder)
-            paths.write_atomic(target, data.decode("utf-8"))
-            done.append(target)
-        return sorted(files)
-    except BaseException:
-        for target in reversed(done):
-            try:
-                target.unlink()
-            except OSError:
-                pass
-        for folder in reversed(made_folders):
-            try:
-                folder.rmdir()
-            except OSError:
-                pass
-        raise
+    for path, data in files.items():
+        target = root.joinpath(*path.split("/"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        paths.write_atomic(target, data.decode("utf-8"))
+    return sorted(files)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

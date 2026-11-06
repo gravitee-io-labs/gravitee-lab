@@ -1207,26 +1207,6 @@ class Commands(Case):
         self.assertTrue(out.startswith("Created Acme Hub in " + str(self.work / "hub") + " (a folder catalog, 7 files)\n"))
         self.assertEqual(sorted(path.name for path in (self.work / "hub").iterdir()), [".gitignore", "LICENSE", "Makefile", "README.md", "addons", "catalog.yml"])
 
-    def test_a_catalog_that_cannot_be_written_leaves_nothing(self):
-        real = standard.paths.write_atomic
-        calls = []
-
-        def fail_on_the_fifth(file, text, mode=0o644):
-            calls.append(file)
-            if len(calls) == 5:
-                raise OSError(28, "No space left on device")
-            return real(file, text, mode)
-        self.patch(standard.paths, "write_atomic", fail_on_the_fifth)
-        with self.assertRaises(OSError):
-            standard.create(self.work / "hub", params())
-        self.assertFalse((self.work / "hub").exists())
-        (self.work / "mine").mkdir()
-        calls.clear()
-        with self.assertRaises(OSError):
-            standard.create(self.work / "mine", params())
-        self.assertEqual(list((self.work / "mine").iterdir()), [])
-
-
 class Upgrading(Case):
     """The plan and the writing."""
 
