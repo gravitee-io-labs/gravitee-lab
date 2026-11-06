@@ -98,9 +98,10 @@ def annotation(problem: Problem) -> str:
         properties.append("file=" + escape_property(printable(problem.path, BREAKS)))
         if problem.line and int(problem.line) > 0:
             properties.append(f"line={int(problem.line)}")
-    properties.append(f"title={escape_property(printable(problem.code))}")
+    if problem.code:
+        properties.append(f"title={escape_property(printable(problem.code))}")
     level = LEVELS.get(problem.severity, "notice")
-    return "::" + level + " " + ",".join(properties) + "::" + escape_data(printable(problem.message, BREAKS))
+    return "::" + " ".join(filter(None, (level, ",".join(properties)))) + "::" + escape_data(printable(problem.message, BREAKS))
 
 
 def ordered(problems: Iterable[Problem], verbose: bool = True) -> List[Problem]:
@@ -141,9 +142,9 @@ def verdict(problems: Sequence[Problem], skipped: Sequence[str] = ()) -> str:
     if not parts:
         return "All good"
     line = ", ".join(parts)
-    shown = [p for p in problems if p.severity in (ERROR, WARNING)]
-    if shown:
-        first = sorted(shown, key=lambda p: (p.severity != ERROR, p.path, int(p.line or 0), p.code))[0]
+    coded = [p for p in problems if p.severity in (ERROR, WARNING) and p.code]
+    if coded:
+        first = sorted(coded, key=lambda p: (p.severity != ERROR, p.path, int(p.line or 0), p.code))[0]
         line += f". Run make explain CODE={printable(first.code)} for more."
     return line
 
@@ -163,7 +164,7 @@ def as_text(problems: Sequence[Problem], checked: Iterable[str] = (), skipped: S
         mine = by_path.get(name, [])
         mark = "✗" if any(p.severity == ERROR for p in mine) else "!" if mine else "✓"
         lines.append(f"{mark} {printable(name) or 'the catalog'}")
-        lines += [f"    {printable(p.code)} {printable(p.message)}" for p in mine]
+        lines += ["    " + " ".join(filter(None, (printable(p.code), printable(p.message)))) for p in mine]
     lines += [f"Not checked: {printable(why)}" for why in skipped]
     lines.append("")
     lines.append(verdict(shown, skipped))

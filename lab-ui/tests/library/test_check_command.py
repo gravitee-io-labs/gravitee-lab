@@ -21,7 +21,7 @@ from lab_ui.catalogs import cli as catalog
 from lab_ui.library import check, project
 from lab_ui.docker import compose
 from lab_ui import paths
-from lab_ui.catalogs import gitx, registry, standard
+from lab_ui.catalogs import gitx, registry, report, standard
 from lab_ui.catalogs import store as bare
 from lab_ui.catalogs import tree as trees
 
@@ -538,13 +538,11 @@ class Options(Folder):
         self.assertEqual(self.check(folder, "--format", "json")[1], self.check(folder, "--format", "json")[1], "the same bytes")
 
     def test_a_finding_with_no_code_is_an_annotation_with_no_title_and_one_with_a_code_has_it(self):
-        given = ("::error file=a.yml,title=::no code\n::error file=b.yml,line=3,title=ST05::coded\n::warning title=::no file\n"
-                 "::notice title=check::kept\n::error file=a%2Ctitle=::x,title=::message that says ,title=:: and  title=:: itself\n"
-                 "::error file=c.yml,title=::so does this ,title=:: one\n")
-        self.assertEqual(catalog._untitled(given),
-                         "::error file=a.yml::no code\n::error file=b.yml,line=3,title=ST05::coded\n::warning::no file\n"
-                         "::notice title=check::kept\n::error file=a%2Ctitle=::x,title=::message that says ,title=:: and  title=:: itself\n"
-                         "::error file=c.yml::so does this ,title=:: one\n")
+        no_code = report.Problem("", "error", "a.yml", 0, "no code")
+        self.assertEqual(report.annotation(no_code), "::error file=a.yml::no code")
+        self.assertEqual(report.annotation(report.Problem("ST05", "error", "b.yml", 3, "coded")), "::error file=b.yml,line=3,title=ST05::coded")
+        self.assertEqual(report.annotation(report.Problem("", "warning", "", 0, "no file")), "::warning::no file")
+        self.assertEqual(report.as_text([no_code]), "\u2717 a.yml\n    no code\n\n1 problem\n")   # no make explain with no code
 
     def test_ci_is_github_annotations_and_a_summary_in_the_file_the_runner_names(self):
         folder = self.catalog(files={".env": "A=1\n"})
@@ -1034,7 +1032,6 @@ class Hostile(Folder):
         self.quick(check._hidden, "/tmp/x/" * (self.MEGABYTE // 7), folders)
         for text in (line, "Reads settings that are not its own: " + line, "Same name as " + line, "Needs " + line + ", which is blocked"):
             self.quick(check._blocked, text, ["T20", "T21", "T25", "T26"], "hub", "a.yml")
-        self.quick(catalog._tidy, line + "\n" + "     " + line + "\n" + line, [])
         self.quick(catalog._codes, [line])
         self.quick(catalog._codes, [",".join(["ST05"] * 100000)])
         self.quick(catalog._pull_number, "1" * self.MEGABYTE, "https://github.com/a/b.git")

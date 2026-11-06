@@ -775,42 +775,15 @@ def _pull(spec, target, stack, notes):
     return Pulled(str(folder), options, seeder)
 
 
-def _tidy(text, problems):
-    """The text of a check as `make check` prints it, for a problem that has no code (what the rules of the items say: the standard
-    has none for them): its line starts where the others' code does, and the verdict does not send to `make explain` with no code."""
-    text = re.sub(r"(?m)^     (?! )", "    ", text)
-    lines = text.split("\n")
-    last = max((number for number, line in enumerate(lines) if line.strip()), default=None)
-    tail = ". Run make explain CODE= for more."
-    if last is not None and lines[last].endswith(tail):
-        coded = [one for one in problems if one.severity in (report.ERROR, report.WARNING) and one.code]
-        lines[last] = lines[last][:-len(tail)]
-        if coded:
-            first = sorted(coded, key=lambda one: (one.severity != report.ERROR, one.path, int(one.line or 0), one.code))[0]
-            lines[last] += f". Run make explain CODE={check.printable(first.code)} for more."
-    return "\n".join(lines)
-
-
-UNTITLED = (re.compile(r"^(::(?:error|warning|notice) [^:\n]*),title=::", re.M), re.compile(r"^(::(?:error|warning|notice)) title=::", re.M))
-
-
-def _untitled(text):
-    """The annotations without the empty `title=` of a finding that has no code. Only the properties of a command are touched (they
-    hold no colon: a colon in a value is escaped), never the message after them."""
-    for pattern in UNTITLED:
-        text = pattern.sub(r"\1::", text)
-    return text
-
-
 def _render(found, files, skipped, fmt, verbose, header, ci):
     """The report of a check in the format asked. What was not checked is never left out: `text` says it with the verdict, `github`
     as an annotation (an error under --ci) and `json`, which is a list of problems, on standard error."""
     if fmt == "text":
-        return _tidy(report.render(found, "text", checked=files, skipped=skipped, verbose=verbose, header=header), found), ""
+        return report.render(found, "text", checked=files, skipped=skipped, verbose=verbose, header=header), ""
     if fmt == "github":
         level = "error" if ci else "warning"
         extra = "".join(f"::{level} title=check::{report.escape_data(check.printable('Not checked: ' + why))}\n" for why in skipped)
-        return _untitled(report.render(found, "github", verbose=verbose)) + extra, ""
+        return report.render(found, "github", verbose=verbose) + extra, ""
     return report.render(found, "json", verbose=verbose), "".join(f"Not checked: {check.printable(why)}\n" for why in skipped)
 
 
