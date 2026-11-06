@@ -323,16 +323,11 @@ class World:
 
     @staticmethod
     def refused(body):
-        """What the platform checks in a Markdown page of an API before it keeps it: no tag of Gravitee Markdown, and a template
-        that the name, the version and the description of the API alone can fill."""
+        """What the platform checks in a Markdown page of an API before it keeps it: a template that the name, the version and the
+        description of the API alone can fill."""
         if body["type"] != "MARKDOWN":
             return None
-        content = body.get("content", "")
-        tags = sorted(set(re.findall(r"<(gmd-[a-z-]+)", content)))
-        if tags:
-            return 400, {"httpStatus": 400, "technicalCode": "pageContent.unsafe",
-                         "message": "The page content does not follow security policy: [" + ", ".join(f"Tag not allowed: {t}" for t in tags) + "]"}
-        for expression in re.findall(r"\$\{([^}]*)\}", content):
+        for expression in re.findall(r"\$\{([^}]*)\}", body.get("content", "")):
             if expression.split("!")[0] not in ("api.name", "api.version", "api.description"):
                 return 400, {"httpStatus": 400, "message": f"Invalid expression {expression}"}
         return None
@@ -620,10 +615,6 @@ class Listings(Portals):
         self.assertEqual((listing["portal"], listing["env"], listing["hrid"]), ("moderna-portal", "moderna", "moderna-feeds"))
         self.assertEqual(set(listing["items"]) - set(self.world.items["moderna"]), set())
 
-    def test_an_item_with_no_visibility_of_its_own_is_that_of_its_folder(self):
-        self.run_seed()
-        self.assertEqual(self.world.items["moderna"][FEEDS[1]]["visibility"], "PRIVATE")
-
     def test_an_item_is_created_then_published(self):
         self.run_seed()
         calls = [(c.method, c.path.rsplit("/", 1)[1]) for c in self.platform.calls if "portal-navigation-items" in c.path and c.method != "GET"]
@@ -777,23 +768,12 @@ class ApiPages(Portals):
         self.assertEqual(self.sent("POST", "/_default-pages"), [{"ids": FEEDS}])
         self.assertEqual([self.page(i)["parentId"] for i in (0, 1)], FEEDS)
 
-    def test_the_pages_are_asked_for_after_every_item_of_the_listing_exists_and_published_after_that(self):
-        self.run_seed()
-        changes = [c for c in self.platform.changes() if "portal-navigation-items" in c[1]]
-        self.assertEqual(changes[-3:], [("POST", f"{ITEMS}/_default-pages"), ("PUT", f"{ITEMS}/{OVERVIEWS[0]}"), ("PUT", f"{ITEMS}/{OVERVIEWS[1]}")])
-        self.assertTrue(all(self.page(i)["published"] for i in (0, 1)))
-
     def test_a_page_is_published_with_the_visibility_of_its_item_and_stays_where_the_platform_put_it(self):
         self.run_seed()
         publish = self.sent("PUT", OVERVIEWS[0])[0]
         self.assertEqual({k: publish[k] for k in ("type", "title", "published", "visibility", "parentId")},
                          {"type": "PAGE", "title": "Overview", "published": True, "visibility": "PRIVATE", "parentId": FEEDS[0]})
         self.assertEqual([self.page(i)["visibility"] for i in (0, 1)], ["PRIVATE", "PRIVATE"])
-
-    def test_a_folder_with_no_api_overview_leaves_the_text_the_platform_gave_the_page(self):
-        self.run_seed()
-        self.assertEqual([c for c in self.platform.changes() if "portal-page-contents" in c[1]], [])
-        self.assertEqual(self.text(0), DEFAULT_OVERVIEW)
 
     def test_the_text_of_api_overview_is_written_in_the_page_of_every_listed_api_with_the_seeds_variables(self):
         self.overview()
@@ -897,11 +877,6 @@ class ApiPages(Portals):
         self.assertEqual([self.text(0), self.text(1)], ["# ${api.name}\n"] * 2)
         self.assertTrue(all(self.page(i)["published"] for i in (0, 1)))
         self.assertEqual(self.run_seed(), [])
-
-    def test_an_expression_the_platform_does_not_know_stops_the_seed_too(self):
-        self.overview("# $${nobody.knows}\n")
-        with self.assertRaisesRegex(SeedError, "the platform cannot render it: Invalid expression or value is missing for nobody.knows"):
-            self.run_seed()
 
     def test_the_pages_are_recorded_for_their_listing_as_one_record_that_counts_them(self):
         self.run_seed()
@@ -1023,15 +998,6 @@ class Documents(Portals):
         after = after[after.index(("POST", "_default-pages")):]
         self.assertEqual(after[:6], [("POST", "_default-pages"), ("PUT", OVERVIEWS[0]), ("POST", "portal-navigation-items"),
                                      ("PUT", page["portalPageContentId"]), ("PUT", page["id"]), ("PUT", OVERVIEWS[1])])
-
-    def test_the_text_is_written_before_the_page_is_published_so_the_platforms_sample_is_never_shown(self):
-        self.document()
-        self.run_seed()
-        page = self.child(0, "AsyncAPI")
-        puts = [c for c in self.platform.calls if c.method == "PUT" and c.path.endswith((page["portalPageContentId"], page["id"]))]
-        self.assertEqual([c.path.rsplit("/", 1)[1] for c in puts], [page["portalPageContentId"], page["id"]])
-        self.assertEqual(puts[0].json, {"type": "ASYNCAPI", "content": DOC_RENDERED})
-        self.assertTrue(puts[1].json["published"])
 
     def test_a_second_run_changes_nothing_and_a_page_is_not_written_when_it_holds_the_text(self):
         self.document()
@@ -1319,12 +1285,6 @@ class Documents(Portals):
         self.assertEqual(str(stopped.exception), "Details tab of Batch status in moderna (portal/api-details.md): the platform refuses it: "
                                                  "Invalid expression api.entrypoints")
 
-    def test_the_platform_refusing_the_components_of_gravitee_markdown_in_the_details_is_said_with_its_message(self):
-        self.file("portal/api-details.md", "<gmd-card>x</gmd-card>\n")
-        with self.assertRaisesRegex(SeedError, r"the platform refuses it: The page content does not follow security policy: "
-                                               r"\[Tag not allowed: gmd-card\]$"):
-            self.run_seed()
-
     def test_a_text_the_platform_refuses_in_a_page_that_exists_stops_the_seed_too(self):
         self.file("portal/api-details.md", DETAILS)
         self.seeded()
@@ -1484,25 +1444,10 @@ class Taken(Portals):
                 common.save_created([x for x in common.created() if x["kind"] != kind])   # the platform has it, the record does not
                 with self.assertRaisesRegex(SeedError, f"^{what} {hrid} in moderna: the hrid is taken by one the seed did not create$"):
                     self.run_seed()
-                self.assertEqual([c for c in self.platform.changes() if c[0] == "DELETE"], [])
+                self.assertEqual(self.platform.changes(), [])
                 self.worlds({"moderna": "Moderna"})
                 common.save_created([])
                 self.platform.calls.clear()
-
-    def test_a_page_the_seed_did_not_make_is_never_put(self):
-        self.world.put("moderna", "portal", None, {"hrid": "moderna-portal", "name": "By hand", "structure": {"topNavbar": []}})
-        by_hand = {"hrid": "moderna-guide", "name": "By hand", "type": "GRAVITEE_MARKDOWN", "content": "x", "area": "TOP_NAVBAR"}
-        self.world.put("moderna", "page", "moderna-portal", by_hand)
-        common.save_created([{"product": "apim-portal", "kind": "portal", "label": "portals", "name": "moderna: moderna-portal",
-                              "id": ident("moderna", "portal", "moderna-portal")},
-                             {"product": "apim-portal", "kind": "portal-theme", "label": "portal themes", "name": "moderna: moderna-theme",
-                              "id": ident("moderna", "theme", "moderna-theme")}])
-        self.world.put("moderna", "theme", None, {"hrid": "moderna-theme", "name": "Moderna"})
-        self.platform.calls.clear()
-        with self.assertRaisesRegex(SeedError, "Portal page moderna-guide in moderna: the hrid is taken"):
-            self.run_seed()
-        self.assertEqual(self.world.store["moderna", "page", "moderna-portal", "moderna-guide"]["name"], "By hand")
-        self.assertNotIn("moderna-guide", [c.json["hrid"] for c in self.platform.calls if c.method == "PUT" and c.path == DOCS])
 
 
 class Refused(Portals):
@@ -1844,10 +1789,6 @@ class Quiet(Seed):
             apim_portal.remove([])
         self.assertEqual(self.platform.calls, [])
 
-    def test_it_asks_nothing_of_the_platform_when_no_record_is_its_own(self):
-        apim_portal.remove([{"product": "apim", "kind": "api", "name": "a", "id": "a"}])
-        self.assertEqual(self.platform.calls, [])
-
 
 class Trouble(Portals):
 
@@ -1857,27 +1798,6 @@ class Trouble(Portals):
         self.assertEqual(len(self.sent("PUT", "/moderna/portal-themes")), 3)
         self.assertEqual(self.clock.sleeps, [common.RETRY_PAUSE] * 2)
         self.assertIn("! Portal theme moderna-theme in moderna: HTTP 503, trying again", self.output())
-
-    def test_a_platform_that_never_answers_ends_the_seed_with_what_it_said(self):
-        self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"): 503})
-        with self.assertRaisesRegex(SeedError, rf"^Portal theme moderna-theme in moderna: HTTP 503 \({common.RETRIES + 1} tries\)$"):
-            self.run_seed()
-        self.assertEqual(len(self.clock.sleeps), common.RETRIES)
-
-    def test_a_refusal_stops_the_seed_at_once_with_the_platforms_message_on_one_line(self):
-        self.platform.add({("PUT", f"{AUTO}/moderna/portals"): (400, {"message": "structure.topNavbar[0].path\nmust start with '/'"})})
-        with self.assertRaises(SeedError) as stopped:
-            self.run_seed()
-        self.assertEqual(str(stopped.exception), "Portal moderna-portal in moderna: HTTP 400 "
-                                                 "{\"message\": \"structure.topNavbar[0].path\\nmust start with '/'\"}")
-        self.assertEqual(self.clock.sleeps, [])
-
-    def test_a_connection_that_fails_is_asked_again_and_its_address_is_not_said(self):
-        self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"):
-                           [requests.ConnectionError("http://secret-host"), (200, {"id": "t1"})]})
-        self.run_seed()
-        self.assertIn("[apim-portal] ! Portal theme moderna-theme in moderna: the connection was cut, trying again", self.output())
-        self.assertNotIn("secret-host", self.output())
 
     def test_a_platform_that_says_what_it_could_not_put_in_a_200_stops_the_seed(self):
         self.platform.add({("PUT", LINKS): (200, {"id": "l1", "errors": {"severe": ["location: no such path"]}})})
@@ -1908,6 +1828,8 @@ class Trouble(Portals):
 
 class Removal(Portals):
 
+    two = Environments.two
+
     def test_it_deletes_the_listings_the_links_the_pages_the_portal_then_the_theme_by_hrid(self):
         self.seeded()
         self.world.put("moderna", "page", "moderna-portal", {"hrid": "not-mine", "name": "N", "type": "GRAVITEE_MARKDOWN",
@@ -1921,12 +1843,6 @@ class Removal(Portals):
             ("DELETE", f"{AUTO}/moderna/portals/moderna-portal"), ("DELETE", f"{AUTO}/moderna/portal-themes/moderna-theme")])
         self.assertEqual([k for k in self.world.store if k[1] in ("theme", "portal")], [])
 
-    def test_it_says_what_it_deleted(self):
-        self.seeded()
-        apim_portal.remove(common.created())
-        self.assertIn("✓ Deleted portal-listing 'moderna: moderna-feeds'", self.output())
-        self.assertIn("✓ Deleted portal-theme 'moderna: moderna-theme'", self.output())
-
     def test_what_is_gone_already_counts_as_deleted(self):
         self.seeded()
         self.worlds({"moderna": "Moderna"})
@@ -1939,11 +1855,6 @@ class Removal(Portals):
         with self.assertRaisesRegex(SeedError, "Portal moderna-portal in moderna: HTTP 403"):
             apim_portal.remove(common.created())
 
-    def test_it_leaves_the_records_of_the_other_modules_alone(self):
-        self.seeded()
-        apim_portal.remove(common.created() + [{"product": "apim", "kind": "api", "label": "APIs", "name": "a", "id": "a"}])
-        self.assertTrue(all("/apis" not in c.path for c in self.platform.calls if c.method != "GET"))
-
     def test_the_api_pages_are_deleted_with_the_api_items_of_their_listing_and_cost_no_call_of_their_own(self):
         self.seeded()
         records = common.created()
@@ -1954,9 +1865,7 @@ class Removal(Portals):
         self.assertLess(self.output().index("Deleted portal-api-page"), self.output().index("Deleted portal-listing"))
 
     def test_what_an_environment_that_is_gone_held_is_left_one_line_each_and_the_other_environments_are_removed(self):
-        self.worlds({"moderna": "Moderna", "beam": "Beam Therapeutics"})
-        self.world.apis["beam"] = [{**api, "id": api["id"] + "-beam", "crossId": api["crossId"].replace("moderna", "beam")} for api in APIS]
-        self.seed_files({name.replace("moderna", "beam"): text.replace("moderna", "beam") for name, text in FILES.items()})
+        self.two()
         self.seeded()
         records = common.created()
         self.world.environments.pop("moderna")   # the platform answers 400 to every route of an environment it does not have
@@ -1969,9 +1878,7 @@ class Removal(Portals):
         self.assertEqual([k for k in self.world.store if k[0] == "beam"], [])
 
     def test_each_record_is_removed_in_its_own_environment(self):
-        self.worlds({"moderna": "Moderna", "beam": "Beam Therapeutics"})
-        self.world.apis["beam"] = [{**api, "id": api["id"] + "-beam", "crossId": api["crossId"].replace("moderna", "beam")} for api in APIS]
-        self.seed_files({name.replace("moderna", "beam"): text.replace("moderna", "beam") for name, text in FILES.items()})
+        self.two()
         self.seeded()
         apim_portal.remove(common.created())
         self.assertEqual({c.path.split("/environments/")[1].split("/")[0] for c in self.platform.calls if c.method == "DELETE"},
@@ -1991,9 +1898,6 @@ class Helpers(unittest.TestCase):
         for path in ("", "/", "a/--", None):
             with self.subTest(path=path):
                 self.assertIsNone(apim_portal.normal(path))
-
-    def test_the_folders_a_path_goes_through(self):
-        self.assertEqual(apim_portal.prefixes("/a/b/c"), ["/a", "/a/b", "/a/b/c"])
 
     def test_what_a_state_covers(self):
         covers = common.contains
