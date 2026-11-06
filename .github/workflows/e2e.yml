@@ -1,7 +1,7 @@
 # End to end for a change of the engine: the catalog this engine lists first (CATALOG_REPOSITORY) is started on a machine with no lab, on the
 # engine as the change leaves it, and its canary has to work (the items its catalog.yml names). The engine holds no item, so a change that
-# touches nothing every item shares (documentation, the page) runs nothing. The run itself is e2e-run.yml, which each catalog calls for
-# its own changes; docs/maintaining.md says how to set both up.
+# touches nothing every item shares (documentation, the page) runs nothing. The run itself is e2e-run.yml; docs/maintaining.md says how to
+# set both up.
 #
 # What runs when, and why:
 #   pull_request  a branch of this repository starts the jobs by itself, and the e2e job waits for a maintainer to approve the environment
@@ -110,7 +110,6 @@ jobs:
       lab-ref: ${{ needs.prepare.outputs.lab_ref }}
       catalog-repository: ${{ vars.CATALOG_REPOSITORY }}
       catalog-ref: ${{ needs.prepare.outputs.catalog_ref }}
-      change: engine
       items: ${{ needs.prepare.outputs.items }}
       base: ${{ needs.prepare.outputs.base }}
       expect-sha: ${{ needs.prepare.outputs.expect_sha }}

@@ -84,8 +84,8 @@ class CatalogTest(unittest.TestCase):
         patch_catalogs(self)
 
     def args(self, **more):
-        return argparse.Namespace(**{"catalog": None, "default_catalog": False, "where": "catalog", "all": False, "canary": False,
-                                     "items": None, "changed": None, **more})
+        return argparse.Namespace(**{"catalog": None, "default_catalog": False, "all": False, "canary": False, "items": None,
+                                     "changed": None, **more})
 
     def items(self, found):
         return [job["item"] for job in found["matrix"]["include"]]
@@ -113,27 +113,11 @@ class CatalogTest(unittest.TestCase):
             e2e_matrix.main(["--catalog", "hub", "--items", "--", "addon:echo"])   # the command ends with the same words
         self.assertIn("is not a shared item of hub", str(stopped.exception))
 
-    def test_a_change_in_the_catalog_is_read_in_the_folder_of_the_catalog(self):
-        asked = []
-
-        def changes(base, head, folder=None):
-            asked.append((base, head, folder))
-            return ["playgrounds/bank/guide.md", "README.md"]
-        with mock.patch.object(e2e_matrix, "git_changes", changes):
+    def test_a_change_in_the_engine_is_read_in_the_engine_and_runs_the_canary(self):
+        with mock.patch.object(e2e_matrix.e2e, "changed_files", return_value=["seeder/seed.py"]) as changes:
             found = e2e_matrix.matrix(self.args(catalog="hub", changed=["a", "b"]), HUB)
         self.assertEqual(self.items(found), ["playground:@hub/bank"])
-        self.assertEqual(asked, [("a", "b", e2e_matrix.ROOT / ".lab/catalogs/hub")])
-
-    def test_a_change_in_the_engine_is_read_in_the_engine_and_runs_the_canary(self):
-        asked = []
-
-        def changes(base, head, folder=None):
-            asked.append(folder)
-            return ["seeder/seed.py"]
-        with mock.patch.object(e2e_matrix, "git_changes", changes):
-            found = e2e_matrix.matrix(self.args(catalog="hub", changed=["a", "b"], where="engine"), HUB)
-        self.assertEqual(self.items(found), ["playground:@hub/bank"])
-        self.assertEqual(asked, [e2e_matrix.ROOT])
+        changes.assert_called_once_with(e2e_matrix.ROOT, "a", "b")
 
     def test_a_catalog_that_is_not_linked_stops_the_plan_with_how_to_link_it(self):
         with self.assertRaises(SystemExit) as caught:
@@ -144,36 +128,21 @@ class CatalogTest(unittest.TestCase):
         broken = {**HUB, "catalog_problems": {"hub": [{"display": "addons/mailer/compose.yml", "message": "Cannot be read: go-yaml load error"}]}}
         out = io.StringIO()
         with mock.patch.object(e2e_matrix, "load_project", return_value=broken), \
-                mock.patch.object(e2e_matrix, "git_changes", return_value=["addons/mailer/compose.yml"]), \
                 contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as caught:
-            e2e_matrix.main(["--catalog", "hub", "--changed", "a", "b", "--github-output"])
+            e2e_matrix.main(["--catalog", "hub", "--all", "--github-output"])
         self.assertEqual(str(caught.exception), "addon:mailer of hub cannot be tried, its files do not load: Cannot be read: go-yaml load "
                                                 "error. Fix: catalog.py check hub")
         self.assertEqual(out.getvalue(), "", "no matrix, so no empty one for the next job to take for a pass")
 
-    def test_a_catalog_with_no_canary_is_an_error_for_the_canary_and_the_engine_and_a_warning_for_its_own_change(self):
+    def test_a_catalog_with_no_canary_is_an_error_for_the_canary_and_the_engine(self):
         patcher = mock.patch.object(e2e_matrix.e2e.manifest, "read_catalog", lambda path: {"canary": []})
         patcher.start()
         self.addCleanup(patcher.stop)
-        for argv in (["--default-catalog", "--canary"], ["--default-catalog", "--changed", "a", "b", "--in", "engine"]):
+        for argv in (["--default-catalog", "--canary"], ["--default-catalog", "--changed", "a", "b"]):
             with self.subTest(argv=argv), mock.patch.object(e2e_matrix, "load_project", return_value=HUB), \
-                    mock.patch.object(e2e_matrix, "git_changes", return_value=["seeder/seed.py"]), self.assertRaises(SystemExit) as caught:
+                    mock.patch.object(e2e_matrix.e2e, "changed_files", return_value=["seeder/seed.py"]), self.assertRaises(SystemExit) as caught:
                 e2e_matrix.main(argv)
             self.assertIn("The catalog base names no canary, so there is nothing to try", str(caught.exception))
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(e2e_matrix, "load_project", return_value=HUB), mock.patch.object(e2e_matrix, "git_changes", return_value=["Makefile"]), \
-                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            e2e_matrix.main(["--default-catalog", "--changed", "a", "b"])
-        self.assertEqual(json.loads(out.getvalue()), {"matrix": {"include": []}, "count": 0}, "standard output is the matrix and only that")
-        self.assertRegex(err.getvalue(), r"^::warning title=E2E canary::The catalog base names no canary, so a change of what its items "
-                                         r"share tries nothing: add `canary: \[kind:name\]`.*\n$")
-
-    def test_what_the_plan_has_to_say_is_a_warning_on_github_and_a_line_elsewhere(self):
-        for github, wanted in (("true", "::warning title=E2E canary::50%25 of it%0Aand more\n"), ("", "Warning: 50% of it\nand more\n")):
-            err = io.StringIO()
-            with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": github}), contextlib.redirect_stderr(err):
-                e2e_matrix.announce("50% of it\nand more")
-            self.assertEqual(err.getvalue(), wanted)
 
 
 class MainTest(unittest.TestCase):
@@ -225,8 +194,8 @@ class CommandTest(unittest.TestCase):
         return said.getvalue()
 
     def test_a_catalog_and_what_to_try_in_it(self):
-        args = self.read("--catalog", "hub", "--changed", "abc", "HEAD", "--in", "engine", "--github-output")
-        self.assertEqual((args.catalog, args.changed, args.where, args.github_output), ("hub", ["abc", "HEAD"], "engine", True))
+        args = self.read("--catalog", "hub", "--changed", "abc", "HEAD", "--github-output")
+        self.assertEqual((args.catalog, args.changed, args.github_output), ("hub", ["abc", "HEAD"], True))
         self.assertTrue(self.read("--default-catalog", "--canary").canary)
         self.assertTrue(self.read("--catalog", "hub", "--all").all)
 
@@ -239,8 +208,6 @@ class CommandTest(unittest.TestCase):
                            (["--catalog", "hub", "--all", "--canary"], "not allowed with"),
                            (["--catalog", "hub", "--default-catalog", "--all"], "not allowed with"),
                            (["--canary"], "name the catalog"), (["--all"], "name the catalog"),
-                           (["--all", "--in", "engine"], "name the catalog"),
-                           (["--catalog", "hub", "--all", "--in", "engine"], "--in engine is for --changed of a catalog"),
                            (["--all", "--", "addon:a"], "words after --"), (["--catalog", "hub", "--changed", "a"], "expected 2")):
             with self.subTest(argv=argv):
                 self.assertIn(said, self.refused(*argv))

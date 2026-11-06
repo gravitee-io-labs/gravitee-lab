@@ -13,10 +13,10 @@ it, the lab runs on the defaults of the core.
 Exit code: 0 it works, 1 it does not, 2 it cannot be tried here (no lab-free machine, no usable license, a setting only a
 person can give): said, never taken for a pass.
 
-The second half of the module is the plan CI makes before it tries anything: which items of a catalog a change touches, the
-jobs of each (one for each set of versions it says it was tested with), and the canary a catalog names in `catalog.yml` for a
-change that touches no item. `.github/scripts/e2e_matrix.py` prints it for the workflow, and `catalog.py matrix` for a person.
-No Docker and no network: the plan reads Compose files and asks git what changed."""
+The second half of the module is the plan CI makes before it tries anything: the items of a catalog to try, the jobs of each
+(one for each set of versions it says it was tested with), and the canary a catalog names in `catalog.yml`, which a change of
+what every item shares in the engine tries. `.github/scripts/e2e_matrix.py` prints it for the workflow. No Docker and no
+network: the plan reads Compose files and asks git what changed."""
 
 import contextlib
 import http.client
@@ -547,9 +547,6 @@ ENGINE_PATHS = ("docker-compose.yml", ".env.example", "Makefile", "contract.lock
                 "lab-ui/lab_ui/", "lab-ui/server.py", "lab-ui/catalog.py", "certs/", "lab-ui/frames/", ".github/actions/",
                 ".github/workflows/e2e.yml", ".github/workflows/e2e-run.yml", ".github/scripts/e2e_matrix.py",
                 ".github/scripts/image_manifests.py")
-# What every item shares in a catalog: its description, its commands, its workflows and the pin of the engine they use
-CATALOG_PATHS = ("catalog.yml", "Makefile", ".github/workflows/", ".github/actions/", ".github/scripts/",
-                 ".github/standard.json", ".catalog/")
 # A commit or a branch, as git is asked for it: no option can start with one of these characters
 REF = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./@^~-]{0,199}")
 
@@ -576,20 +573,6 @@ def lab_item(ns, item):
     if ns == paths.default_ns():
         return f"{kind}:{name}"
     return f"{kind}:@{ns}/{name}"
-
-
-def touched(files, shared, canary, named=True, alive=None):
-    """The `kind:name` items that `files` touch, sorted. When none does and a file is one of `shared`, the items `canary()`
-    gives: no item changed of its own, so what they share is tried on the ones that say the most. `named` False reads no
-    item from the files: the change is in a repository that holds none (the engine's). `alive(item)` says whether a touched
-    item is still there, and leaves out the ones that are not: a change that deletes the one item it touches and changes
-    what they share is a change of what they share, and has no item of its own left."""
-    found = sorted({item for item in map(item_of, files) if item}) if named else []
-    if alive is not None:
-        found = [item for item in found if alive(item)]
-    if found or not any(path.startswith(shared) for path in files):
-        return found
-    return list(canary())
 
 
 def exists(item, built, ns=None):
@@ -709,76 +692,39 @@ def canary_names(ns, built, unreadable=None):
     return names
 
 
-def _top(folder):
-    """Whether `folder` is the top of a repository of its own, a work tree or a bare one (a linked work tree is one, and so is the
-    checkout of a submodule): git run in a folder of a repository above would answer for that one."""
-    bare = gitx.run(["rev-parse", "--is-bare-repository", "--git-dir"], cwd=str(folder), timeout=20)
-    if bare.code != 0:
-        return False
-    answer = bare.out.decode("utf-8", "replace").split()
-    if answer[:1] == ["true"]:
-        return answer[1:2] == ["."]
-    top = gitx.run(["rev-parse", "--show-toplevel"], cwd=str(folder), timeout=20)
-    return top.code == 0 and os.path.realpath(top.out.decode("utf-8", "replace").strip()) == os.path.realpath(folder)
-
-
 def changed_files(folder, base, head):
     """The files `head` changes since it left `base`, in the repository at `folder`, as paths from its top. A rename counts as
-    the deletion of the old path and the addition of the new, so that the item that lost a file is touched as well. The folder
-    has to be the top of a repository of its own (_top)."""
+    the deletion of the old path and the addition of the new."""
     for ref in (base, head):
         if not isinstance(ref, str) or not REF.fullmatch(ref):
             raise PlanError(f"{shortened(ref)} is not a commit or a branch")
     try:
         # The `--` ends the revisions: a range that git cannot resolve is an error, and never the name of a file of the change
         # (a file called like the range would be read as a path, and the change as empty)
-        done = gitx.run(["diff", "--name-only", "--no-renames", "-z", f"{base}...{head}", "--"], cwd=str(folder), timeout=60) \
-            if _top(folder) else None
+        done = gitx.run(["diff", "--name-only", "--no-renames", "-z", f"{base}...{head}", "--"], cwd=str(folder), timeout=60)
     except (registry.CatalogError, gitx.OutputLimit, OSError) as error:
         raise PlanError(f"git cannot tell what {head} changes since {base}: "
                         f"{getattr(error, 'message', None) or error}") from None
-    if done is None:
-        raise PlanError("The folder of the catalog is not a git repository of its own: a change is read in the working copy "
-                        "linked with catalog.py link")
     if done.code != 0:
         raise PlanError(f"git cannot tell what {head} changes since {base}: "
                         f"{' '.join(str(done.err).split())[:300] or 'no reason given'}")
     return [name for name in done.out.decode("utf-8", "replace").split("\0") if name]
 
 
-def plan(ns, built, changed=None, engine=False, everything=False, canary_only=False, words=None, git=changed_files, warn=None):
+def plan(ns, built, changed=None, everything=False, canary_only=False, words=None):
     """The matrix of what to try in catalog `ns` (the default catalog when None): {"matrix": {"include": [...]}, "count": n}.
 
-    Exactly one of: `changed` (base, head), the commits a change is read between; `everything`, every shared item of the
-    catalog; `canary_only`, the items it names as its canary; `words`, the items a person named. `changed` is read in the
-    repository of the catalog, or in the engine's when `engine` is true. A change in the catalog tries the items it touches,
-    and its canary when it touches none but changes what they share (CATALOG_PATHS). A change in the engine touches no item,
-    and tries the canary when it changes what every item shares (ENGINE_PATHS). `git(folder, base, head)` gives the files.
+    Exactly one of: `changed` (base, head), the commits a change of the engine is read between, which touches no item and tries
+    the canary when it changes what every item shares (ENGINE_PATHS); `everything`, every shared item of the catalog;
+    `canary_only`, the items it names as its canary; `words`, the items a person named.
 
-    An item whose files do not load is never taken for one the change deleted: asked for, touched by the change, named by the
-    canary, or among those of `everything`, it ends the plan (PlanError, `unreadable_items`). A canary that is asked for, or that
-    an engine change needs, and that catalog.yml does not name, ends it too: a check with nothing to try would pass. A change of
-    the catalog that would have tried it is told to `warn(sentence)`, when given, and tries nothing."""
+    An item whose files do not load is never taken for one that is gone: asked for, named by the canary, or among those of
+    `everything`, it ends the plan (PlanError, `unreadable_items`). A canary that is asked for, or that an engine change needs,
+    and that catalog.yml does not name, ends it too: a check with nothing to try would pass."""
     ns = available(default_catalog() if ns is None else ns)
     if sum(1 for one in (changed is not None, everything, canary_only, words is not None) if one) != 1:
         raise PlanError("Ask for one of: a change, everything, the canary, or named items")
     unreadable = unreadable_items(built, ns)
-
-    def canary():
-        names = canary_names(ns, built, unreadable)
-        if not names:
-            fix = "add `canary: [kind:name]` to the x-gravitee-catalog block of its catalog.yml"
-            if engine or canary_only:
-                raise PlanError(f"The catalog {ns} names no canary, so there is nothing to try: {fix}")
-            if warn:
-                warn(f"The catalog {ns} names no canary, so a change of what its items share tries nothing: {fix}")
-        return names
-
-    def alive(item):
-        if item in unreadable:
-            raise unreadable_error(ns, item, unreadable[item])
-        return exists(lab_item(ns, item), built, ns)
-
     if words is not None:
         ids = {lab_item(ns, item): item for item in unreadable}
         for word in words:
@@ -794,11 +740,12 @@ def plan(ns, built, changed=None, engine=False, everything=False, canary_only=Fa
             first = min(unreadable)
             raise unreadable_error(ns, first, unreadable[first])
         items = shared_items(built, ns)
-    elif canary_only:
-        items = [lab_item(ns, name) for name in canary()]
+    elif canary_only or any(path.startswith(ENGINE_PATHS) for path in changed_files(paths.ROOT, *changed)):
+        names = canary_names(ns, built, unreadable)
+        if not names:
+            raise PlanError(f"The catalog {ns} names no canary, so there is nothing to try: add `canary: [kind:name]` to the "
+                            "x-gravitee-catalog block of its catalog.yml")
+        items = [lab_item(ns, name) for name in names]
     else:
-        folder = paths.ROOT if engine else paths.ROOT / paths.CATALOGS_DIR / ns
-        files = git(folder, *changed)
-        items = [lab_item(ns, name) for name in touched(files, ENGINE_PATHS if engine else CATALOG_PATHS, canary,
-                                                        named=not engine, alive=alive)]
+        items = []
     return matrix(items, built)

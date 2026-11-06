@@ -1,6 +1,6 @@
 """e2e: the run of an item on a machine with no lab: how it is named (any id of any catalog), the versions it runs on, the machine
 it needs, what it checks once started, and how it says it. No Docker, no server: the Lab UI's answers, the time and the shell are
-given. Then the plan CI makes before it tries anything: which items of a catalog a change touches, and the jobs of each."""
+given. Then the plan CI makes before it tries anything: the items of a catalog to try, and the jobs of each."""
 
 import fcntl
 import json
@@ -787,44 +787,6 @@ class Files(Case):
         self.patch(paths, "default_ns", return_value=None)
         self.assertEqual(e2e.lab_item("hub", "addon:echo"), "addon:@hub/echo")
 
-    def canary(self):
-        self.asked = getattr(self, "asked", 0) + 1
-        return ["playground:tour"]
-
-    def test_a_change_touches_the_items_of_its_files_each_once_in_order(self):
-        files = ["setups/pair.yml", "playgrounds/shop/guide.md", "addons/echo/compose.yml", "addons/echo/README.md", "docs/a.md"]
-        self.assertEqual(e2e.touched(files, e2e.CATALOG_PATHS, self.canary), ["addon:echo", "playground:shop", "setup:pair"])
-        self.assertEqual(getattr(self, "asked", 0), 0, "the canary is for a change that touches no item")
-
-    def test_a_change_of_what_the_items_share_runs_the_canary_when_no_item_changed(self):
-        for path in ("catalog.yml", "Makefile", ".github/workflows/ci.yml", ".github/actions/lab/action.yml", ".github/standard.json",
-                     ".github/scripts/plan.py", ".catalog/rules.json"):
-            with self.subTest(path=path):
-                self.assertEqual(e2e.touched([path, "docs/a.md"], e2e.CATALOG_PATHS, self.canary), ["playground:tour"])
-
-    def test_an_item_that_changed_is_tried_alone_even_with_what_they_share(self):
-        self.assertEqual(e2e.touched(["catalog.yml", "addons/echo/compose.yml"], e2e.CATALOG_PATHS, self.canary), ["addon:echo"])
-
-    def test_a_change_that_deletes_the_only_item_it_touches_and_changes_what_they_share_runs_the_canary(self):
-        gone = lambda item: item != "addon:gone"   # noqa: E731 - a table, not a function worth a name
-        files = ["addons/gone/compose.yml", "addons/gone/README.md", "Makefile"]
-        self.assertEqual(e2e.touched(files, e2e.CATALOG_PATHS, self.canary, alive=gone), ["playground:tour"])
-        self.assertEqual(e2e.touched(files, e2e.CATALOG_PATHS, self.canary), ["addon:gone"], "without the question: the item it names")
-        self.assertEqual(e2e.touched(["addons/gone/compose.yml", "docs/a.md"], e2e.CATALOG_PATHS, self.canary, alive=gone), [],
-                         "a deletion alone has nothing to run")
-        self.assertEqual(e2e.touched([*files, "addons/echo/compose.yml"], e2e.CATALOG_PATHS, self.canary, alive=gone), ["addon:echo"])
-
-    def test_documentation_and_the_description_of_a_repository_run_nothing(self):
-        self.assertEqual(e2e.touched(["README.md", "docs/a.md", ".github/dependabot.yml", ".github/CODEOWNERS"],
-                                     e2e.CATALOG_PATHS, self.canary), [])
-        self.assertEqual(e2e.touched([], e2e.CATALOG_PATHS, self.canary), [])
-
-    def test_a_change_of_the_engine_reads_no_item_from_its_files(self):
-        # an engine that held a folder called addons would not be telling the catalog which of its items changed
-        files = ["addons/echo/compose.yml", "docs/a.md"]
-        self.assertEqual(e2e.touched(files, e2e.ENGINE_PATHS, self.canary, named=False), [])
-        self.assertEqual(e2e.touched([*files, "seeder/seed.py"], e2e.ENGINE_PATHS, self.canary, named=False), ["playground:tour"])
-
     def test_what_every_item_shares_in_the_engine_is_listed_and_the_page_is_not(self):
         for path in ("docker-compose.yml", ".env.example", "Makefile", "contract.lock", "catalogs.default.json", "seeder/seed.py",
                      "lab-ui/lab_ui/library/layers.py", "lab-ui/lab_ui/catalogs/trust.py", "lab-ui/server.py", "lab-ui/catalog.py",
@@ -921,13 +883,9 @@ class Planning(Case):
         self.patch(registry, "entry", lambda ns: {"id": ns} if ns in self.linked else None)
         self.canary = ["playground:tour"]
         self.patch(manifest, "read_catalog", lambda path: {"canary": list(self.canary)})
-        self.folders = []
 
-    def git(self, files):
-        def read(folder, base, head):
-            self.folders.append((folder, base, head))
-            return files
-        return read
+    def changes(self, *files):
+        return self.patch(e2e, "changed_files", return_value=list(files))
 
     def items(self, found):
         return [job["item"] for job in found["matrix"]["include"]]
@@ -959,28 +917,15 @@ class Planning(Case):
     def test_a_catalog_that_names_no_canary_cannot_be_asked_for_it_and_an_engine_change_needs_it(self):
         """A check with nothing to try passes: the engine's gate and the night would be green with no start at all."""
         self.canary = []
-        said = []
         fix = "add `canary: \\[kind:name\\]` to the x-gravitee-catalog block of its catalog.yml"
         with self.assertRaisesRegex(e2e.PlanError, f"The catalog hub names no canary, so there is nothing to try: {fix}"):
             e2e.plan("hub", PROJECT, canary_only=True)
+        self.changes("seeder/seed.py")
         with self.assertRaisesRegex(e2e.PlanError, "The catalog hub names no canary"):
-            e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), engine=True, git=self.git(["seeder/seed.py"]), warn=said.append)
-        self.assertEqual(said, [], "an error and not a warning")
-        self.assertEqual(e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), engine=True, git=self.git(["docs/a.md"]))["count"], 0,
+            e2e.plan("hub", PROJECT, changed=("abc", "HEAD"))
+        self.changes("docs/a.md")
+        self.assertEqual(e2e.plan("hub", PROJECT, changed=("abc", "HEAD"))["count"], 0,
                          "a change of the engine that touches nothing the items share needs no canary")
-
-    def test_a_change_of_a_catalog_that_names_no_canary_tries_nothing_and_says_so(self):
-        self.canary = []
-        said = []
-        found = e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), git=self.git(["Makefile", "README.md"]), warn=said.append)
-        self.assertEqual(found["count"], 0)
-        self.assertEqual(said, ["The catalog hub names no canary, so a change of what its items share tries nothing: "
-                                "add `canary: [kind:name]` to the x-gravitee-catalog block of its catalog.yml"])
-        said.clear()
-        e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), git=self.git(["README.md"]), warn=said.append)
-        e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), git=self.git(["playgrounds/bank/guide.md", "Makefile"]), warn=said.append)
-        self.assertEqual(said, [], "nothing to say when no canary was needed")
-        self.assertEqual(e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), git=self.git(["Makefile"]))["count"], 0, "warn is optional")
 
     def test_a_catalog_yml_that_cannot_be_read_is_said(self):
         def refuse(path):
@@ -994,40 +939,16 @@ class Planning(Case):
         with self.assertRaisesRegex(e2e.PlanError, "is not a shared item of hub"):
             e2e.plan("hub", PROJECT, words=["playground:tour"])
 
-    def test_a_change_in_the_catalog_is_read_in_its_folder_and_touches_its_items(self):
-        found = e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), git=self.git(["playgrounds/bank/guide.md", "docs/a.md", "addons/gone/x.yml"]))
-        self.assertEqual(self.items(found), ["playground:@hub/bank"], "an item the change deleted has nothing to run")
-        self.assertEqual(self.folders, [(paths.ROOT / ".lab/catalogs/hub", "abc", "HEAD")])
-
-    def test_a_change_in_the_catalog_that_touches_no_item_runs_the_canary_when_it_changes_what_they_share(self):
-        self.canary = ["playground:bank"]
-        found = e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), git=self.git([".github/workflows/e2e.yml", "README.md"]))
-        self.assertEqual(self.items(found), ["playground:@hub/bank"])
-        self.assertEqual(e2e.plan("hub", PROJECT, changed=("abc", "HEAD"), git=self.git(["README.md"]))["count"], 0)
-
     def test_a_change_in_the_engine_is_read_in_the_engine_and_runs_the_canary_when_it_changes_what_every_item_shares(self):
-        found = e2e.plan("base", PROJECT, changed=("abc", "HEAD"), engine=True, git=self.git(["seeder/seed.py", "docs/a.md"]))
-        self.assertEqual(self.items(found), ["playground:tour"])
-        self.assertEqual(self.folders, [(paths.ROOT, "abc", "HEAD")])
-        self.assertEqual(e2e.plan("base", PROJECT, changed=("abc", "HEAD"), engine=True, git=self.git(["docs/a.md"]))["count"], 0)
+        changes = self.changes("seeder/seed.py", "docs/a.md")
+        self.assertEqual(self.items(e2e.plan("base", PROJECT, changed=("abc", "HEAD"))), ["playground:tour"])
+        changes.assert_called_once_with(paths.ROOT, "abc", "HEAD")
+        self.changes("docs/a.md")
+        self.assertEqual(e2e.plan("base", PROJECT, changed=("abc", "HEAD"))["count"], 0)
 
     def test_a_change_in_the_engine_never_tries_an_item_for_a_file_that_looks_like_one(self):
-        found = e2e.plan("base", PROJECT, changed=("abc", "HEAD"), engine=True, git=self.git(["addons/echo/compose.yml"]))
-        self.assertEqual(found["count"], 0)
-
-    def test_an_item_that_does_not_load_is_not_one_the_change_deleted(self):
-        """Compose could not read the file: the project lists the item among the problems of the catalog and not among its items,
-        and a plan that asked only whether it is there would find nothing to run, and pass."""
-        built = broken("hub", "addons/mailer/compose.yml")
-        for files in (["addons/mailer/compose.yml"], ["addons/mailer/README.md", "docs/a.md"], ["playgrounds/bank/guide.md", "addons/mailer/x.yml"],
-                      ["Makefile", "addons/mailer/compose.yml"]):
-            with self.subTest(files=files), self.assertRaises(e2e.PlanError) as caught:
-                e2e.plan("hub", built, changed=("abc", "HEAD"), git=self.git(files))
-            self.assertEqual(str(caught.exception), "addon:mailer of hub cannot be tried, its files do not load: Cannot be read: "
-                                                   "go-yaml load error. Fix: catalog.py check hub")
-        found = e2e.plan("hub", built, changed=("abc", "HEAD"), git=self.git(["playgrounds/bank/guide.md", "addons/gone/compose.yml"]))
-        self.assertEqual(self.items(found), ["playground:@hub/bank"], "an item that was really deleted is still left out")
-        self.assertEqual(e2e.plan("hub", built, changed=("abc", "HEAD"), git=self.git(["addons/gone/compose.yml"]))["count"], 0)
+        self.changes("addons/echo/compose.yml")
+        self.assertEqual(e2e.plan("base", PROJECT, changed=("abc", "HEAD"))["count"], 0)
 
     def test_the_night_does_not_leave_out_an_item_that_does_not_load(self):
         built = broken("hub", "setups/duo.yml")
@@ -1040,8 +961,9 @@ class Planning(Case):
         self.canary = ["playground:bank"]
         with self.assertRaisesRegex(e2e.PlanError, "playground:bank of hub cannot be tried, its files do not load"):
             e2e.plan("hub", built, canary_only=True)
+        self.changes("Makefile")
         with self.assertRaisesRegex(e2e.PlanError, "playground:bank of hub cannot be tried"):
-            e2e.plan("hub", built, changed=("abc", "HEAD"), git=self.git(["Makefile"]))
+            e2e.plan("hub", built, changed=("abc", "HEAD"))
         with self.assertRaisesRegex(e2e.PlanError, "playground:bank of hub cannot be tried"):
             e2e.plan("hub", built, words=["addon:@hub/ledger", "playground:@hub/bank"])
         self.canary = ["addon:ledger"]
@@ -1053,8 +975,8 @@ class Planning(Case):
     def test_a_change_of_the_engine_runs_the_canary_even_when_another_item_does_not_load(self):
         built = broken("hub", "addons/mailer/compose.yml")
         self.canary = ["addon:ledger"]
-        found = e2e.plan("hub", built, changed=("abc", "HEAD"), engine=True, git=self.git(["seeder/seed.py"]))
-        self.assertEqual(self.items(found), ["addon:@hub/ledger"])
+        self.changes("seeder/seed.py")
+        self.assertEqual(self.items(e2e.plan("hub", built, changed=("abc", "HEAD"))), ["addon:@hub/ledger"])
 
     def test_what_does_not_load_is_read_from_the_problems_of_the_catalog(self):
         built = {"catalog_problems": {"hub": [
@@ -1136,37 +1058,11 @@ class Repositories(Case):
             with self.subTest(failure=type(failure).__name__), mock.patch.object(gitx, "run", side_effect=failure):
                 with self.assertRaisesRegex(e2e.PlanError, "git cannot tell what main changes since abc"):
                     e2e.changed_files(self.repo, "abc", "main")
-        top = gitx.Result(0, b"true\n.\n", "")
         slow = gitx.Result(124, b"", "git did not answer within 60 s\nkilled")
-        with mock.patch.object(gitx, "run", side_effect=[top, slow]), self.assertRaisesRegex(e2e.PlanError, "did not answer within 60 s killed"):
+        with mock.patch.object(gitx, "run", return_value=slow), self.assertRaisesRegex(e2e.PlanError, "did not answer within 60 s killed"):
             e2e.changed_files(self.repo, "abc", "main")
-        with mock.patch.object(gitx, "run", side_effect=[top, gitx.Result(128, b"", "")]), self.assertRaisesRegex(e2e.PlanError, "no reason given"):
+        with mock.patch.object(gitx, "run", return_value=gitx.Result(128, b"", "")), self.assertRaisesRegex(e2e.PlanError, "no reason given"):
             e2e.changed_files(self.repo, "abc", "main")
-
-    def test_a_folder_inside_another_repository_is_not_read_as_the_repository_above_it(self):
-        """A catalog installed from git is a copy with no history, in a folder of the engine: asking git there would answer for
-        the engine's own."""
-        working = self.repo.parent / "working"
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t",
-               "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
-        (working / "catalog" / "addons" / "echo").mkdir(parents=True)
-        (working / "catalog" / "addons" / "echo" / "compose.yml").write_text("a\n", encoding="utf-8")
-        for command in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "first"]):
-            subprocess.run(["git", *command], cwd=working, env=env, check=True, capture_output=True)
-        (working / "catalog" / "addons" / "echo" / "compose.yml").write_text("b\n", encoding="utf-8")
-        subprocess.run(["git", "commit", "-q", "-am", "second"], cwd=working, env=env, check=True, capture_output=True)
-        self.assertEqual(e2e.changed_files(working, "main~1", "main"), ["catalog/addons/echo/compose.yml"], "the top of a working copy")
-        with self.assertRaisesRegex(e2e.PlanError, "not a git repository of its own"):
-            e2e.changed_files(working / "catalog", "main~1", "main")
-        # a linked work tree, where .git is a file, is the top of a repository: it is how a maintainer keeps a catalog
-        subprocess.run(["git", "worktree", "add", "-q", "-b", "other", str(working.parent / "linked")], cwd=working, env=env, check=True,
-                       capture_output=True)
-        self.assertEqual(e2e.changed_files(working.parent / "linked", "main~1", "main"), ["catalog/addons/echo/compose.yml"])
-        (working.parent / "alias").symlink_to(working, target_is_directory=True)
-        self.assertEqual(e2e.changed_files(working.parent / "alias", "main~1", "main"), ["catalog/addons/echo/compose.yml"],
-                         "a link to the folder, as catalog.py link makes it, is the folder")
-        with self.assertRaisesRegex(e2e.PlanError, "not a git repository of its own"):
-            e2e.changed_files(self.repo.parent, "main~1", "main")   # no repository here, nor above
 
     def test_a_range_git_cannot_resolve_is_an_error_and_never_a_file_named_like_it(self):
         """In a repository where the base is not a branch (the default branch is not main, or the commit was not fetched), a
@@ -1183,7 +1079,7 @@ class Repositories(Case):
         self.assertEqual(e2e.changed_files(working, "HEAD", "HEAD"), [], "a range that does resolve is read as before")
 
     def test_a_folder_that_is_no_repository_is_said(self):
-        with tempfile.TemporaryDirectory() as folder, self.assertRaisesRegex(e2e.PlanError, "not a git repository of its own"):
+        with tempfile.TemporaryDirectory() as folder, self.assertRaisesRegex(e2e.PlanError, "git cannot tell"):
             e2e.changed_files(folder, "main", "main")
 
 
@@ -1231,12 +1127,9 @@ class FixtureCatalogs(Case):
         self.assertEqual(self.items(found), ["playground:tour", "addon:echo"])
         self.assertEqual(found["count"], 2)
 
-    def test_a_change_that_touches_no_item_but_the_catalog_file_runs_that_canary(self):
-        found = e2e.plan("fixture", self.built, changed=("a", "b"), git=lambda folder, base, head: ["catalog.yml"])
-        self.assertEqual(self.items(found), ["playground:tour", "addon:echo"])
-
     def test_a_change_of_the_engine_runs_that_canary_too(self):
-        found = e2e.plan(None, self.built, changed=("a", "b"), engine=True, git=lambda folder, base, head: ["docker-compose.yml"])
+        self.patch(e2e, "changed_files", return_value=["docker-compose.yml"])
+        found = e2e.plan(None, self.built, changed=("a", "b"))
         self.assertEqual(self.items(found), ["playground:tour", "addon:echo"], "the default catalog of the project folder is fixture")
 
     def test_the_first_catalog_is_planned_with_bare_ids_and_the_others_with_their_catalog(self):
@@ -1256,11 +1149,8 @@ class FixtureCatalogs(Case):
         found = e2e.unreadable_items(built, "fixture")
         self.assertEqual(list(found), ["addon:echo-twin"], found)
         self.assertRegex(found["addon:echo-twin"], r"^Cannot be read: ")
-        git = lambda folder, base, head: ["addons/echo-twin/compose.yml"]   # noqa: E731
         with self.assertRaisesRegex(e2e.PlanError, "addon:echo-twin of fixture cannot be tried, its files do not load: Cannot be read: "
                                                    ".*Fix: catalog.py check fixture"):
-            e2e.plan("fixture", built, changed=("a", "b"), git=git)
-        with self.assertRaisesRegex(e2e.PlanError, "addon:echo-twin of fixture cannot be tried"):
             e2e.plan("fixture", built, everything=True)
         self.assertEqual(self.items(e2e.plan("fixture", built, canary_only=True)), ["playground:tour", "addon:echo"])
 

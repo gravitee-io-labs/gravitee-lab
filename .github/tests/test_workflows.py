@@ -22,7 +22,7 @@ FILES = sorted([*(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / ".gith
 WORKFLOWS = [file for file in FILES if file.parent.name == "workflows"]
 INDENT = re.compile(r"^( *)")
 E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # the engine's own: a change of the engine tried on a catalog
-RUN = ROOT / ".github" / "workflows" / "e2e-run.yml"       # the run, which the engine and each catalog call
+RUN = ROOT / ".github" / "workflows" / "e2e-run.yml"       # the run, which the engine calls
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -142,7 +142,7 @@ class WorkflowsTest(unittest.TestCase):
 
 
 class RunTest(unittest.TestCase):
-    """e2e-run.yml: the end-to-end run, which the engine and each catalog call. The license is the one thing it must not leak."""
+    """e2e-run.yml: the end-to-end run, which the engine calls. The license is the one thing it must not leak."""
 
     def setUp(self):
         self.text = RUN.read_text(encoding="utf-8")
@@ -198,16 +198,13 @@ class RunTest(unittest.TestCase):
         body = self.jobs["e2e"]
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", body)
 
-    def test_the_change_is_read_from_the_history_of_the_repository_it_is_in_and_nothing_else_is_fetched_whole(self):
-        """`git diff base...head` needs the history of the repository the change is in: a depth of 1 there fails every plan that
-        reads a change, and a full history of the other one costs a download for nothing."""
+    def test_the_change_is_read_from_the_history_of_the_engine_and_nothing_else_is_fetched_whole(self):
+        """`git diff base...head` needs the history of the engine: a depth of 1 there fails every plan that reads a change, and a
+        full history of another costs a download for nothing."""
         checkouts = {re.search(r"(?m)^          path: (\w+)$", one).group(1): one for one in steps(self.jobs["plan"]) if "actions/checkout@" in one}
         self.assertEqual(sorted(checkouts), ["catalog", "lab", "needs"])
-        for path, change in (("lab", "engine"), ("catalog", "catalog")):
-            with self.subTest(path=path):
-                depth = re.findall(r"(?m)^          fetch-depth: (.+?)(?:\s+#.*)?$", checkouts[path])
-                self.assertEqual(depth, ["${{ inputs.change == '%s' && '0' || '1' }}" % change])
-        self.assertNotIn("fetch-depth", checkouts["needs"])
+        self.assertEqual(re.findall(r"(?m)^          fetch-depth: (.+?)(?:\s+#.*)?$", checkouts["lab"]), ["0"])
+        self.assertNotIn("fetch-depth", checkouts["catalog"] + checkouts["needs"])
         for name in ("manifests", "e2e", "result"):
             self.assertNotIn("fetch-depth", self.jobs[name], f"{name} reads no change")
 
@@ -336,8 +333,7 @@ class EngineCallerTest(unittest.TestCase):
         required = {name for name, lines in declared.items() if "required: true" in "\n".join(lines)}
         self.assertLessEqual(required, given)
 
-    def test_it_says_the_change_is_the_engine_s_and_only_the_night_may_write(self):
-        self.assertRegex(self.text, r"(?m)^      change: engine$")
+    def test_only_the_night_may_write(self):
         writers = [name for name, body in self.jobs.items() if re.search(r"(?m)^\s+[a-z-]+: write$", body)]
         self.assertEqual(writers, ["nightly"])
         self.assertNotRegex(self.text.split("\njobs:\n", 1)[0], r"(?m)^\s+[a-z-]+: write$")
@@ -476,7 +472,7 @@ class InputsTest(ShellTest):
     """The first step of the run: a name that reaches a path, a ref or a word is what it says and nothing else."""
 
     GOOD = {"LAB_REPOSITORY": "owner/lab", "LAB_REF": "a" * 40, "CATALOG_REPOSITORY": "owner/catalog", "CATALOG_REF": "refs/pull/12/head",
-            "CATALOG_ID": "hub", "CHANGE": "catalog", "ITEMS": "changed", "BASE": "origin/main", "EXPECT_SHA": "", "NEEDS_ID": "",
+            "CATALOG_ID": "hub", "ITEMS": "changed", "BASE": "origin/main", "EXPECT_SHA": "", "NEEDS_ID": "",
             "NEEDS_REPOSITORY": "", "NEEDS_REF": ""}
 
     def check(self, **env):
@@ -486,7 +482,7 @@ class InputsTest(ShellTest):
     def test_what_the_callers_pass_is_accepted(self):
         for env in ({}, {"LAB_REF": "main"}, {"LAB_REF": "refs/pull/7/head", "EXPECT_SHA": "b" * 40}, {"CATALOG_REF": ""}, {"CATALOG_ID": ""},
                     {"ITEMS": "all"}, {"ITEMS": "canary"}, {"ITEMS": ""}, {"ITEMS": "playground:@hub/bank addon:echo"}, {"BASE": ""},
-                    {"BASE": "b" * 40}, {"CHANGE": "engine"}, {"NEEDS_ID": "base", "NEEDS_REPOSITORY": "owner/base", "NEEDS_REF": "c" * 40},
+                    {"BASE": "b" * 40}, {"NEEDS_ID": "base", "NEEDS_REPOSITORY": "owner/base", "NEEDS_REF": "c" * 40},
                     {"NEEDS_ID": "base", "NEEDS_REPOSITORY": "owner/base", "NEEDS_REF": ""}):
             with self.subTest(env=env):
                 done = self.check(**env)
@@ -496,7 +492,7 @@ class InputsTest(ShellTest):
         hostile = {"LAB_REPOSITORY": ["owner", "a/b/c", "o/l; id", "../x/y", "o/l\n::error::x", ""],
                    "LAB_REF": ["", "-x", "a b", "$(id)", "x\ny", "refs/pull/x/head;", "a" * 101],
                    "CATALOG_REPOSITORY": ["", "owner", "o/c$(id)"], "CATALOG_REF": ["-x", "a;b", "a b"],
-                   "CATALOG_ID": ["Hub", "h", "../x", "a" * 30, "hub;id"], "CHANGE": ["", "both", "engine; id"],
+                   "CATALOG_ID": ["Hub", "h", "../x", "a" * 30, "hub;id"],
                    "ITEMS": ["a;b", "$(id)", "x" * 501, "a\nb", "a|b", "a&b", "`id`", "a>b"], "BASE": ["-x", "a b", "$(id)"],
                    "EXPECT_SHA": ["short", "G" * 40, "a" * 41], "NEEDS_ID": ["Hub"]}
         for name, values in hostile.items():
@@ -520,15 +516,15 @@ class PlanShellTest(ShellTest):
 
     def matrix(self, **env):
         text = RUN.read_text(encoding="utf-8")
-        base = {"CATALOG_ID": "hub", "CHANGE": "catalog", "ITEMS": "changed", "BASE": ""}
+        base = {"CATALOG_ID": "hub", "ITEMS": "changed", "BASE": ""}
         done = self.execute(script(step_with(jobs(text)["plan"], "id: matrix")), {**base, **env})
         self.assertEqual(done.returncode, 0, done.stderr)
         return self.called()
 
     def test_a_catalog_and_what_a_change_touches_in_it(self):
         self.assertEqual(self.matrix(), ["-I", "lab/.github/scripts/e2e_matrix.py", "--catalog", "hub", "--changed", "origin/main", "HEAD",
-                                         "--in", "catalog", "--github-output"])
-        self.assertEqual(self.matrix(BASE="b" * 40, CHANGE="engine", ITEMS="")[4:9], ["--changed", "b" * 40, "HEAD", "--in", "engine"])
+                                         "--github-output"])
+        self.assertEqual(self.matrix(BASE="b" * 40, ITEMS="")[4:7], ["--changed", "b" * 40, "HEAD"])
 
     def test_the_default_catalog_when_none_is_named(self):
         self.assertEqual(self.matrix(CATALOG_ID="", ITEMS="all")[2:], ["--default-catalog", "--all", "--github-output"])
@@ -599,15 +595,12 @@ class StepsShellTest(ShellTest):
         text = self.step("plan", "The change is the one that was read")
         git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]
         env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
-        for name in ("lab", "catalog"):
-            subprocess.run([*git, "init", "-q", name], cwd=self.folder, check=True, env=env)
-            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", name], cwd=self.folder / name, check=True, env=env)
-        head = {name: subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.folder / name, capture_output=True, text=True, env=env).stdout.strip()
-                for name in ("lab", "catalog")}
-        for change, sha, wanted in (("catalog", head["catalog"], 0), ("engine", head["lab"], 0), ("catalog", head["lab"], 1),
-                                    ("engine", "f" * 40, 1)):
-            with self.subTest(change=change, sha=sha[:7]):
-                done = self.execute(text, {"CHANGE": change, "EXPECT_SHA": sha})
+        subprocess.run([*git, "init", "-q", "lab"], cwd=self.folder, check=True, env=env)
+        subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "lab"], cwd=self.folder / "lab", check=True, env=env)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.folder / "lab", capture_output=True, text=True, env=env).stdout.strip()
+        for sha, wanted in ((head, 0), ("f" * 40, 1)):
+            with self.subTest(sha=sha[:7]):
+                done = self.execute(text, {"EXPECT_SHA": sha})
                 self.assertEqual(done.returncode, wanted, done.stdout + done.stderr)
                 if wanted:
                     self.assertIn("::error title=E2E03::The change is", done.stdout)

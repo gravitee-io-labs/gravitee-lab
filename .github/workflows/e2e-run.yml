@@ -41,10 +41,6 @@ on:
         description: "Its namespace; empty is the catalog the engine lists first"
         type: string
         default: ""
-      change:
-        description: "Where the change is read: catalog or engine"
-        type: string
-        default: catalog
       items:
         description: "changed (what the change touches), all, canary, or items as kind:id separated by spaces"
         type: string
@@ -118,7 +114,6 @@ jobs:
           CATALOG_REPOSITORY: ${{ inputs.catalog-repository }}
           CATALOG_REF: ${{ inputs.catalog-ref }}
           CATALOG_ID: ${{ inputs.catalog-id }}
-          CHANGE: ${{ inputs.change }}
           ITEMS: ${{ inputs.items }}
           BASE: ${{ inputs.base }}
           EXPECT_SHA: ${{ inputs.expect-sha }}
@@ -138,7 +133,6 @@ jobs:
           [[ $BASE =~ $ref ]] || fail base "write a commit or a branch"
           [[ $CATALOG_ID =~ $namespace ]] || fail catalog-id "write the namespace of the catalog"
           [[ $NEEDS_ID =~ $namespace ]] || fail needs-catalog-id "write the namespace of the catalog"
-          [[ $CHANGE == catalog || $CHANGE == engine ]] || fail change "write catalog or engine"
           [[ $EXPECT_SHA =~ ^([0-9a-f]{40})?$ ]] || fail expect-sha "write the 40 characters of a commit"
           [[ ${#ITEMS} -le 500 && $ITEMS =~ $words ]] || fail items "write changed, all, canary, or kind:id words separated by spaces"
           if [ -n "$NEEDS_ID" ]; then
@@ -152,7 +146,7 @@ jobs:
           ref: ${{ inputs.lab-ref }}
           ssh-key: ${{ secrets.LAB_DEPLOY_KEY }}
           path: lab
-          fetch-depth: ${{ inputs.change == 'engine' && '0' || '1' }}   # a change of the engine is read from the history
+          fetch-depth: 0   # a change of the engine is read from the history
           persist-credentials: false
       - name: Check out the catalog
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -161,7 +155,6 @@ jobs:
           ref: ${{ inputs.catalog-ref }}
           ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
           path: catalog
-          fetch-depth: ${{ inputs.change == 'catalog' && '0' || '1' }}
           persist-credentials: false
       - name: Check out the catalog it includes from
         if: ${{ inputs.needs-catalog-id != '' }}
@@ -176,11 +169,9 @@ jobs:
       - name: The change is the one that was read
         if: ${{ inputs.expect-sha != '' }}
         env:
-          CHANGE: ${{ inputs.change }}
           EXPECT_SHA: ${{ inputs.expect-sha }}
         run: |
-          [ "$CHANGE" = engine ] && folder=lab || folder=catalog
-          head=$(git -C "$folder" rev-parse HEAD)
+          head=$(git -C lab rev-parse HEAD)
           [ "$head" = "$EXPECT_SHA" ] || { echo "::error title=E2E03::The change is ${head:0:7}, not the commit you read (${EXPECT_SHA:0:7}). Fix: read the new commits, then run again with the new one."; exit 1; }
       - name: Install Compose
         uses: ./lab/.github/actions/compose
@@ -197,7 +188,6 @@ jobs:
         id: matrix
         env:
           CATALOG_ID: ${{ inputs.catalog-id }}
-          CHANGE: ${{ inputs.change }}
           ITEMS: ${{ inputs.items }}
           BASE: ${{ inputs.base }}
         run: |
@@ -207,7 +197,7 @@ jobs:
           case "$ITEMS" in
             all) python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --all --github-output ;;
             canary) python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --canary --github-output ;;
-            changed | "") python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --changed "${BASE:-origin/main}" HEAD --in "$CHANGE" --github-output ;;
+            changed | "") python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --changed "${BASE:-origin/main}" HEAD --github-output ;;
             # Words after --, never an option and never a command: the script checks that each one names an item
             *) python3 -I lab/.github/scripts/e2e_matrix.py "${which[@]}" --github-output --items -- $ITEMS ;;
           esac
@@ -309,11 +299,9 @@ jobs:
       - name: The change is the one that was read
         if: ${{ inputs.expect-sha != '' }}
         env:
-          CHANGE: ${{ inputs.change }}
           EXPECT_SHA: ${{ inputs.expect-sha }}
         run: |
-          [ "$CHANGE" = engine ] && folder=lab || folder=catalog
-          head=$(git -C "$folder" rev-parse HEAD)
+          head=$(git -C lab rev-parse HEAD)
           [ "$head" = "$EXPECT_SHA" ] || { echo "::error title=E2E03::The change is ${head:0:7}, not the commit you read (${EXPECT_SHA:0:7}). Fix: read the new commits, then run again with the new one."; exit 1; }
       - name: Install Compose
         uses: ./lab/.github/actions/compose

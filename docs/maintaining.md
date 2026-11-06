@@ -39,8 +39,7 @@ A fork builds the images only when you run its *Lab images* workflow by hand, fr
 
 ## End-to-end runs
 
-The **E2E** workflow starts the canary of the default catalog on the engine as a pull request leaves it, and every night on `main`; each
-catalog runs the same test (`e2e-run.yml`) for its own changes. It proves what the checks cannot: that the thing works. Its jobs and what they prove are in
+The **E2E** workflow starts the canary of the default catalog on the engine as a pull request leaves it, and every night on `main`. It proves what the checks cannot: that the thing works. Its jobs and what they prove are in
 [CONTRIBUTING.md](../CONTRIBUTING.md#what-ci-does). Two things need you, once.
 
 ### What it needs

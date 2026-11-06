@@ -1,11 +1,10 @@
 """Which items the end-to-end run of CI tries, as the matrix of its jobs: one job for each item and each set of versions it was
-tested with (`x-gravitee.tested`), or one on the core's defaults when it says none. The plan itself is `lab_ui/e2e.py`'s, which
-`catalog.py matrix` shares; this is the command a workflow runs, and what it prints for the next job to read.
+tested with (`x-gravitee.tested`), or one on the core's defaults when it says none. The plan itself is `lab_ui/e2e.py`'s; this is
+the command a workflow runs, and what it prints for the next job to read.
 
 The engine holds no item: the items are a catalog's, linked into the engine before this runs (`catalog.py link`).
 
-    python3 -I .github/scripts/e2e_matrix.py --catalog ID --changed BASE HEAD            # what a change in the catalog touches
-    python3 -I .github/scripts/e2e_matrix.py --catalog ID --changed BASE HEAD --in engine   # what a change in the engine is for it
+    python3 -I .github/scripts/e2e_matrix.py --catalog ID --changed BASE HEAD            # what a change in the engine is for it
     python3 -I .github/scripts/e2e_matrix.py --catalog ID --all                          # every shared item: the nightly run
     python3 -I .github/scripts/e2e_matrix.py --catalog ID --canary                       # the items its catalog.yml names
     python3 -I .github/scripts/e2e_matrix.py --catalog ID --items [KIND:ID ...] [-- KIND:ID ...]   # these items
@@ -14,13 +13,11 @@ The engine holds no item: the items are a catalog's, linked into the engine befo
 Lab: bare for the first catalog, `@catalog/name` for another. Words after `--` are items too, and never an option.
 
 Prints the matrix as JSON, {"matrix": {"include": [...]}, "count": n}. With --github-output it is also appended to the file
-GITHUB_OUTPUT names, for a later job to read. An item changes when a file of its folder does (a setup is one file). When no item
-changed but what they all share did (the core, the seeder, the Lab UI, the Makefile and this folder for the engine; the catalog
-file, the Makefile and the workflows for a catalog), the canary of the catalog is tried. What belongs to a machine (`local/`) is
-never run.
+GITHUB_OUTPUT names, for a later job to read. When what all items share changes (the core, the seeder, the Lab UI, the Makefile
+and this folder), the canary of the catalog is tried. What belongs to a machine (`local/`) is never run.
 
-An item whose files do not load is an error and is never left out as if the change had deleted it; a catalog that names no canary
-is an error for `--canary` and for a change of the engine, and a warning (on standard error) for a change of the catalog.
+An item whose files do not load is an error and is never left out as if it had gone; a catalog that names no canary is an error
+for `--canary` and for a change of what all items share.
 
 A catalog is always named (`--catalog ID` or `--default-catalog`): the engine holds no item."""
 
@@ -39,33 +36,15 @@ from lab_ui import e2e   # noqa: E402
 jobs = e2e.jobs
 
 
-def git_changes(base, head, folder=None):
-    """The files `head` changes since it left `base`, in the repository at `folder` (the engine's by default)."""
-    try:
-        return e2e.changed_files(folder or ROOT, base, head)
-    except e2e.PlanError as error:
-        sys.exit(str(error))
-
-
 def load_project():
     from lab_ui.library import project   # the repository's own reader of its Compose files
     return project.load()
 
 
-def announce(sentence):
-    """What the plan has to say and is no reason to stop, for the log of the job: a warning on GitHub, a plain line elsewhere. On
-    standard error, so that what is printed on standard output stays the matrix."""
-    if os.environ.get("GITHUB_ACTIONS") == "true":
-        print(f"::warning title=E2E canary::{e2e.escaped(sentence)}", file=sys.stderr)
-    else:
-        print(f"Warning: {sentence}", file=sys.stderr)
-
-
 def matrix(args, project):
     """{"matrix": {"include": [job, ...]}, "count": n} for what the arguments ask of the catalog they name."""
     return e2e.plan(args.catalog or None, project, changed=tuple(args.changed) if args.changed else None,
-                    engine=args.where == "engine", everything=bool(args.all), canary_only=bool(args.canary), words=args.items,
-                    git=lambda folder, base, head: git_changes(base, head, folder), warn=announce)
+                    everything=bool(args.all), canary_only=bool(args.canary), words=args.items)
 
 
 def parser():
@@ -74,12 +53,10 @@ def parser():
     which.add_argument("--catalog", metavar="ID", help="the catalog to try, linked into this engine")
     which.add_argument("--default-catalog", action="store_true", help="the catalog this engine lists first")
     what = top.add_mutually_exclusive_group(required=True)
-    what.add_argument("--changed", nargs=2, metavar=("BASE", "HEAD"), help="the items a change touches")
+    what.add_argument("--changed", nargs=2, metavar=("BASE", "HEAD"), help="the canary, when a change touches what every item shares")
     what.add_argument("--all", action="store_true", help="every shared item")
     what.add_argument("--canary", action="store_true", help="the items catalog.yml names as its canary")
     what.add_argument("--items", nargs="*", metavar="KIND:ID", help="these items")
-    top.add_argument("--in", dest="where", choices=("catalog", "engine"), default="catalog",
-                     help="with --changed: the repository the change is in (the engine's, or the catalog's)")
     top.add_argument("--github-output", action="store_true", help="also append the result to the file GITHUB_OUTPUT names")
     return top
 
@@ -101,8 +78,6 @@ def read(argv):
         top.error("--items needs at least one item")
     if not (args.catalog or args.default_catalog):
         top.error("name the catalog: --catalog ID or --default-catalog")
-    if args.where == "engine" and not args.changed:
-        top.error("--in engine is for --changed of a catalog")
     return args
 
 

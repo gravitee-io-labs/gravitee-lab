@@ -1534,27 +1534,7 @@ class Spelling(Tool):
 
 
 class Other(Tool):
-    """images, matrix and the way the tool is run."""
-
-    @COMPOSE
-    def test_the_end_to_end_matrix_of_a_catalog_that_is_not_there_is_a_usage_error(self):
-        code, out, err = self.run_tool("matrix", "hub", "--changed", "main", "HEAD")
-        self.assertEqual((code, out), (2, ""))
-        self.assertIn("neither installed nor linked", err)
-
-    @COMPOSE
-    def test_the_end_to_end_matrix_is_the_plan_of_the_package_as_json(self):
-        from lab_ui import e2e
-        asked = []
-        self.patch(e2e, "plan", lambda ns, built, **how: asked.append((ns, how)) or {"matrix": {"include": []}, "count": 0})
-        self.assertEqual(self.run_tool("matrix", "hub", "--changed", "main", "HEAD"),
-                         (0, json.dumps({"matrix": {"include": []}, "count": 0}, indent=2) + "\n", ""))
-        self.assertEqual(asked, [("hub", {"changed": ("main", "HEAD")})])
-
-        def refused(ns, built, **how):
-            raise e2e.PlanError("nothing to try")
-        self.patch(e2e, "plan", refused)
-        self.assertEqual(self.run_tool("matrix", "hub", "--changed", "main", "HEAD"), (2, "", "catalog.py: nothing to try\n"))
+    """images and the way the tool is run."""
 
     def test_the_images_a_catalog_builds_are_printed_with_a_dry_run_and_the_seeder_is_the_engines(self):
         fixtures.install(self, PARTNER)
@@ -1636,7 +1616,7 @@ class Other(Tool):
                               text=True, timeout=60, stdin=subprocess.DEVNULL)
         self.assertEqual(done.returncode, 0, done.stderr)
         for command in ("link", "unlink", "add", "provision", "list", "update", "undo", "remove", "suggest", "reset", "check",
-                        "index", "images", "matrix", "new"):
+                        "index", "images", "new"):
             self.assertIn(command, done.stdout)
 
     def test_what_the_machine_refuses_is_a_line_and_exit_2_not_a_traceback(self):
