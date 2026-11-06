@@ -388,12 +388,11 @@ class Branch(Fixture):
         self.assertEqual(self.outputs(), {})
 
     def test_a_catalog_that_names_no_registry_publishes_nothing_and_asks_nothing(self):
-        sha = self.commit({"catalog.yml": catalog_yml(images="")})
+        self.commit({"catalog.yml": catalog_yml(images="")})
         self.assertEqual(self.plan(), 0)
         self.assertEqual(self.planned(), ([], "0", "false"))
         self.assertEqual(self.github.asked, [])
         self.assertIn("catalog.yml names no registry in images, so nothing is published", self.out.getvalue())
-        self.assertTrue(sha)
 
     def test_the_seeder_is_never_planned(self):
         self.github.passed(self.first)

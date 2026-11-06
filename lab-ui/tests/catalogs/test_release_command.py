@@ -87,8 +87,7 @@ class Preparing(Case):
 
     def test_a_branch_off_main_that_is_behind_is_refused(self):
         self.repo.git("switch", "--quiet", "-c", "work")
-        other = support.Repo.git_in(self.repo.top, "clone", "--quiet", str(self.repo.origin), str(self.repo.top / "other"))
-        self.assertEqual(other, "")
+        support.Repo.git_in(self.repo.top, "clone", "--quiet", str(self.repo.origin), str(self.repo.top / "other"))
         support.Repo.git_in(self.repo.top / "other", "commit", "--quiet", "--allow-empty", "-m", "Move main")
         support.Repo.git_in(self.repo.top / "other", "push", "--quiet", "origin", "main")
         with self.assertRaisesRegex(release.ReleaseError, "behind origin/main"):

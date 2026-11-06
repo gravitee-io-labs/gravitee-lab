@@ -2148,7 +2148,6 @@ class Command(Case):
         self.assertEqual(0, Run(["acme/lab-hub", "--apply", "--yes"], scene).code)
         none = Scene("user-private-free")
         none.set("/codeowners/errors", {"errors": []})
-        none.table = {key: value for key, value in none.table.items()}
         run = Run(["acme/lab-hub", "--apply", "--yes"], none)
         self.assertEqual(1, run.code)
 

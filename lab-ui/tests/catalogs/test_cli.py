@@ -537,7 +537,7 @@ class Starting(Tool):
         gitfixture.require()
         self.run_tool("reset")
         home = isolated(self)
-        installed = fixtures.install(self, PARTNER, kind="git", store=True)
+        fixtures.install(self, PARTNER, kind="git", store=True)
         self.patch(gitx, "home", lambda: Path(os.path.realpath(home)))
         folder = home / "work-partner"
         shutil.copytree(fixtures.CATALOGS / PARTNER, folder)
@@ -547,7 +547,6 @@ class Starting(Tool):
         self.assertEqual((code, out), (1, ""))
         self.assertEqual(err, "partner is linked to a folder on this machine. Unlink it first, with catalog.py unlink partner.\n")
         self.assertEqual(snapshot(self.root), before)
-        self.assertTrue(installed.commit)
 
     def test_a_file_that_lists_the_catalogs_and_cannot_be_read_is_none_of_its_business_to_remove(self):
         self.write(".lab/catalogs.json", "{ not json")
@@ -574,7 +573,7 @@ class Reset(Tool):
     def test_a_git_catalog_goes_with_its_settings_kept(self):
         gitfixture.require()
         isolated(self)
-        installed = fixtures.install(self, PARTNER, kind="git", store=True)
+        fixtures.install(self, PARTNER, kind="git", store=True)
         (self.link_of(PARTNER) / "addons/ledger/.env").write_text("SECRET=1\n", encoding="utf-8")
         self.assertEqual(self.run_tool("reset")[0], 0)
         self.assertIsNone(self.config())
@@ -582,7 +581,6 @@ class Reset(Tool):
         self.assertEqual((self.link_of(PARTNER) / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
         self.assertTrue((self.link_of(PARTNER) / ".kept").is_file(), "the marker that keeps the sweeper away")
         self.assertFalse((self.link_of(PARTNER) / "addons/ledger/compose.yml").exists(), "the content goes")
-        self.assertTrue(installed.commit)
 
 
 @COMPOSE

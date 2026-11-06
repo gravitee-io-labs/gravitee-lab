@@ -210,8 +210,7 @@ class Answers(Asking):
     def test_each_image_is_asked_once_whoever_pulls_it(self):
         self.registry = Registry({"https://registry-1.docker.io/v2/library/busybox/manifests/1.36": 200})
         one, two = loaded("addon", "one"), loaded("playground", "two")
-        problems, results, _ = manifests.run([one, two], self.ask(), module=self.script)
-        self.assertEqual(problems[:0], [])
+        manifests.run([one, two], self.ask(), module=self.script)
         busybox = [url for _, url, _ in self.registry.asked if "library/busybox" in url]
         self.assertEqual(len(busybox), 1)
 

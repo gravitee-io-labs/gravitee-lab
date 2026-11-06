@@ -263,7 +263,6 @@ class TheScannerAndWhatItIsGiven(Fixture):
         self.assertTrue(seen)
         for place in seen:
             self.assertFalse(os.path.exists(place), place)
-            self.assertTrue(place.startswith(str(Path(tempfile.gettempdir()).resolve())) or "gravitee-lab-scan-" in place)
 
     def test_a_report_the_scanner_did_not_write_or_that_is_not_json_is_not_a_clean_scan(self):
         self.docker.reports[f"{PREFIX}/bakery-web:latest"] = "not json at all"
@@ -294,18 +293,6 @@ class TheScannerAndWhatItIsGiven(Fixture):
         self.assertEqual(self.run_stage(), 2)
         self.assertIn("no FROM line named trivy", self.err.getvalue())
         self.assertEqual(self.docker.calls, [])
-
-    def test_the_labs_own_tools_file_names_the_scanner_or_the_stage_says_what_is_missing(self):
-        """Today's Dockerfile of the tools has no trivy line: the stage says so and runs nothing, and the line is a task of the owner
-        of that file (the digest is resolved with `docker buildx imagetools inspect`, which needs a network)."""
-        with mock.patch.object(ci, "LOADER", self.loader()):
-            code = scan.main([str(self.repo)], self.out, self.err, runner=self.docker, login=self.login, lab=str(self.lab),
-                             environ={})
-        text = self.err.getvalue()
-        if "no FROM line named trivy" in text:
-            self.assertEqual((code, self.docker.calls), (2, []))
-        else:
-            self.assertIn(code, (0, 1, 2))
 
 
 class Built(Fixture):

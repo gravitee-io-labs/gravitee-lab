@@ -138,11 +138,10 @@ class Order(Fixture):
 
     def test_the_base_may_be_another_commit(self):
         self.change({"addons/plain/compose.yml": COMPOSE.format(name="plain") + "# 1\n"})
-        second = self.change({"addons/mock/compose.yml": COMPOSE.format(name="mock") + "# 2\n"})
+        self.change({"addons/mock/compose.yml": COMPOSE.format(name="mock") + "# 2\n"})
         self.run_ci("--base", self.git(self.repo, "rev-parse", "HEAD~1").strip())
         self.assertEqual(json.loads(self.recorder.calls[0][1][2]), ["addon:mock", "playground:bank", "setup:pair"])
         self.assertEqual(self.recorder.calls[-1][1][2], self.git(self.repo, "rev-parse", "HEAD~1").strip())
-        self.assertTrue(second)
 
     def test_a_base_that_is_no_commit_is_a_usage_error(self):
         for base in ("nonexistent", "f" * 40, "--output=x"):

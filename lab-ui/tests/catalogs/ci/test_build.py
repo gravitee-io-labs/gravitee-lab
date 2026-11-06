@@ -664,7 +664,6 @@ class Real(Case):
         self.assertEqual(commands[0][-1], context)
         self.assertEqual(option(commands[0], "--file"), context + "/Dockerfile")
         self.assertEqual(option(commands[0], "--tag"), "registry.example.invalid/lab/fixture-shop-web:latest")
-        self.assertIn("left out: the Lab's own seeder", self.out.getvalue() + "left out: the Lab's own seeder")
 
     def test_nothing_of_the_runner_is_in_what_is_built(self):
         with mock.patch.dict(os.environ, {"FIXTURE_SHOP_CUSTOMER_KEY": "ghp_" + "Z" * 36}):

@@ -51,6 +51,7 @@ class Dockerfile(unittest.TestCase):
         reference = line.split()[1]
         self.assertRegex(reference, r"^ghcr\.io/gitleaks/gitleaks:v8\.\d+\.\d+@sha256:[0-9a-f]{64}$")
         self.assertTrue(line.endswith(" AS gitleaks"))
+        self.assertRegex(gitleaks.image(gitleaks.DOCKERFILE, "trivy"), r"@sha256:[0-9a-f]{64}$")
 
     def test_a_reference_must_be_pinned_by_digest(self):
         for reference in ("ghcr.io/example/gitleaks:v8.0.0", "ghcr.io/example/gitleaks", "ghcr.io/example/gitleaks@sha256:abc",
