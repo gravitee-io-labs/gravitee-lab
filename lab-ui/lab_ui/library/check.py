@@ -2,9 +2,8 @@
 is published.
 
 The engine profile (`problems`, `run`) is `make check`: the core file (images, restart policies, labels, comments, literal
-secrets, loopback ports, the seeder key), the skills and their stubs, the `CLAUDE.md` next to each `AGENTS.md`, Gemini's
-settings. It loops over no unit: what an installed catalog holds is that catalog's to check, and with none installed it
-prints All good. An item of this machine about to be shared (`sharing`) is the one exception, checked as what it will be.
+secrets, loopback ports, the seeder key), the skills and their stubs, the `CLAUDE.md` next to each `AGENTS.md`. It loops over
+no unit: what an installed catalog holds is that catalog's to check, and with none installed it prints All good. An item of this machine about to be shared (`sharing`) is the one exception, checked as what it will be.
 
 The catalog profile (`catalog_problems`, `catalog_files`) is the second half of `catalog.py check`, after the rules of
 `catalogs.audit` (structure, secrets, commits, workflows, Dockerfiles, guides, images): the per-item rules for each unit of
