@@ -31,8 +31,8 @@ reaches the image's registry. The scanner is asked for the critical and the high
 that has a fixed version is SC01, an error; the others (high ones, and critical ones nobody can fix yet) are one SC02 warning for each
 image that has some, with their number and the first identifiers: what can be done today fails the check, the rest is said.
 
-Exit 0 nothing to fix, 1 a finding (or a unit that cannot be read), 2 the scan could not run (no Docker, a scanner that is not pinned
-yet, a registry that refuses, no sign-in): a scan that did not run is never a green one.
+Exit 0 nothing to fix, 1 a finding (or a unit that cannot be read), 2 the scan could not run (no Docker, a scanner that is not pinned,
+a registry that refuses, no sign-in): a scan that did not run is never a green one.
 
 Python 3.9 and later, standard library only."""
 

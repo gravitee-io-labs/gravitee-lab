@@ -52,12 +52,6 @@ class Dockerfile(unittest.TestCase):
         self.assertRegex(reference, r"^ghcr\.io/gitleaks/gitleaks:v8\.\d+\.\d+@sha256:[0-9a-f]{64}$")
         self.assertTrue(line.endswith(" AS gitleaks"))
 
-    def test_the_digest_that_is_not_resolved_yet_is_not_run(self):
-        with self.assertRaises(ci.Unavailable) as raised:
-            gitleaks.image(self.write(f"FROM ghcr.io/example/gitleaks:v8.0.0@sha256:{'0' * 64} AS gitleaks\n"))
-        self.assertIn("is not pinned yet", str(raised.exception))
-        self.assertIn("docker buildx imagetools inspect", str(raised.exception))
-
     def test_a_reference_must_be_pinned_by_digest(self):
         for reference in ("ghcr.io/example/gitleaks:v8.0.0", "ghcr.io/example/gitleaks", "ghcr.io/example/gitleaks@sha256:abc",
                           f"ghcr.io/example/gitleaks:v8@{DIGEST}x", "--privileged", f"x y@{DIGEST}", f"X/Y@{DIGEST}"):
@@ -394,12 +388,6 @@ class Scan(support.WithGit):
         with mock.patch.object(gitleaks, "read_report", broken):
             self.assertEqual(self.stage(repo, "--base", ""), 2)
         self.assertIn("the report of the scan is not JSON", self.err.getvalue())
-
-    def test_a_placeholder_digest_is_exit_2_before_docker_is_asked(self):
-        repo = self.work(files=FILES)
-        self.dockerfile.write_text(f"FROM ghcr.io/example/gitleaks:v8@sha256:{'0' * 64} AS gitleaks\n")
-        self.assertEqual(self.stage(repo, "--base", ""), 2)
-        self.assertEqual(self.fake.calls(), [])
 
     def test_the_dispatcher_reaches_it(self):
         repo = self.work(files=FILES)

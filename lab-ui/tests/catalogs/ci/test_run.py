@@ -225,8 +225,7 @@ class Ends(Fixture):
 
     def test_a_scan_that_cannot_run_here_is_skipped_with_its_reason_and_does_not_fail_the_run(self):
         for said in ("Docker is not installed or not on the PATH: this stage runs containers",
-                     "Docker is not running: start Docker Desktop (or the docker service), then run it again",
-                     "the gitleaks image of the Lab is not pinned yet (its digest is the placeholder of zeros): write the digest"):
+                     "Docker is not running: start Docker Desktop (or the docker service), then run it again"):
             with self.subTest(said=said[:30]):
                 self.out, self.err = io.StringIO(), io.StringIO()
                 self.recorder = Recorder({"gitleaks": 2}, {"gitleaks": f"catalog.py ci: {said}\n"})
@@ -237,7 +236,7 @@ class Ends(Fixture):
                 self.assertEqual(self.err.getvalue(), "")   # (the reason is in the line of the stage)
 
     def test_the_scan_of_the_images_that_cannot_run_here_is_skipped_with_its_reason_as_the_scan_of_the_commits_is(self):
-        said = "the trivy image of the Lab is not pinned yet (its digest is the placeholder of zeros): write the digest"
+        said = "Docker is not running: start Docker Desktop (or the docker service), then run it again"
         self.recorder = Recorder({"scan": 2}, {"scan": f"catalog.py ci: {said}\n"})
         self.assertEqual(self.run_ci(), 0)
         self.assertRegex(self.out.getvalue(), r"- scan\s+skipped: " + re.escape(said[:40]))
@@ -266,15 +265,10 @@ class Ends(Fixture):
 
     def test_the_words_that_make_a_scan_a_skip_are_the_ones_the_stages_say(self):
         from lab_ui.catalogs.ci import gitleaks
-        self.assertEqual(ci.SKIPPABLE, (ci.NO_DOCKER, ci.DOCKER_DOWN, ci.NOT_PINNED_YET))
-        fake = Path(self.holder, "Dockerfile")
-        fake.write_text(f"FROM ghcr.io/example/gitleaks:v8@sha256:{'0' * 64} AS gitleaks\n")
-        with self.assertRaises(ci.Unavailable) as raised:
-            gitleaks.image(fake)
-        self.assertIsNotNone(run.not_here(str(raised.exception)))
         with mock.patch.dict(os.environ, {"PATH": "/nonexistent-bin"}), self.assertRaises(ci.Unavailable) as raised:
             ci.docker_ready()
         self.assertIsNotNone(run.not_here(str(raised.exception)))
+        fake = Path(self.holder, "Dockerfile")
         fake.write_text("FROM ghcr.io/example/gitleaks:v8 AS gitleaks\n")
         with self.assertRaises(ci.Unavailable) as raised:
             gitleaks.image(fake)
@@ -363,23 +357,18 @@ class Real(Fixture):
         self.assertEqual(len([call for call in self.fake.commands("run") if "git" in call]), 1)
         self.assertIn("https://registry-1.docker.io/v2/graviteeio/apim-gateway/manifests/4.12.0", [url for _, url, _ in registry.asked])
 
-    def test_the_real_scan_with_no_digest_yet_is_a_skip_with_that_reason_and_with_a_wrong_dockerfile_a_fault(self):
+    def test_the_real_scan_with_a_wrong_dockerfile_is_a_fault(self):
         from lab_ui.catalogs.ci import gitleaks, manifests
         self.fake = FakeDocker(self)
         dockerfile = Path(self.holder, "Dockerfile.tools")
         script = manifests.script()
         script.RESOLVE = lambda name, port, type=None: [(2, 1, 6, "", ("93.184.216.34", port))]
         self.change({"addons/plain/README.md": "# Plain\n"})
-        for text, code, shown in ((f"FROM ghcr.io/example/gitleaks:v8@sha256:{'0' * 64} AS gitleaks\n", 0,
-                                   r"- gitleaks\s+skipped: the gitleaks image of the Lab is not pinned yet"),
-                                  ("FROM ghcr.io/example/gitleaks:v8 AS gitleaks\n", 2, r"! gitleaks\s+could not run")):
-            with self.subTest(code=code):
-                self.out, self.err = io.StringIO(), io.StringIO()
-                dockerfile.write_text(text)
-                with mock.patch.object(gitleaks, "DOCKERFILE", dockerfile):
-                    self.assertEqual(self.real(loader(), script, Registry(default=200)), code)
-                self.assertRegex(self.out.getvalue(), shown)
-                self.assertEqual("not pinned by digest" in self.err.getvalue(), code == 2)
+        dockerfile.write_text("FROM ghcr.io/example/gitleaks:v8 AS gitleaks\n")
+        with mock.patch.object(gitleaks, "DOCKERFILE", dockerfile):
+            self.assertEqual(self.real(loader(), script, Registry(default=200)), 2)
+        self.assertRegex(self.out.getvalue(), r"! gitleaks\s+could not run")
+        self.assertIn("not pinned by digest", self.err.getvalue())
 
     def real(self, load, script, registry, **seams):
         with mock.patch.object(ci, "LOADER", load):

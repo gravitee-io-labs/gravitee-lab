@@ -12,13 +12,12 @@ machine what the CI of a catalog runs without a license, in the order CI runs it
 (`make ci` runs `check` first.) The plan is the CI's own function with the same inputs, so the units a person builds before the
 push are the units the pull request will build; the one difference is the architecture, which here is the machine's.
 
-A scan that cannot run here because Docker is not installed or not running, or because the Lab's gitleaks or trivy image has no
-digest yet, is **said and skipped, never silent**, with that reason, and a run that skipped something does not say it is all good;
-the scan that cannot run for any other reason (a base git does not know, a container that failed, a report that is not JSON) is a
-stage that could not run, with the stage's own words. A stage the change does not ask for (no unit changed, or nothing in it builds: a README alone, or no app) is not
-asked, as CI does not ask it, so that such a change can end in All good. A unit the trust policy refuses ends the run before
-anything is built (that is what `check` is for); a build that fails ends the tests of that run (they would test an image that
-is not there).
+A scan that cannot run here because Docker is not installed or not running is **said and skipped, never silent**, with that
+reason, and a run that skipped something does not say it is all good; the scan that cannot run for any other reason (a base git
+does not know, a container that failed, a report that is not JSON) is a stage that could not run, with the stage's own words. A
+stage the change does not ask for (no unit changed, or nothing in it builds: a README alone, or no app) is not asked, as CI does
+not ask it, so that such a change can end in All good. A unit the trust policy refuses ends the run before anything is built (that
+is what `check` is for); a build that fails ends the tests of that run (they would test an image that is not there).
 
 The folder is read where it is, as `make check` reads it (a temporary project of this run in which it is linked: nothing is linked
 into the Lab and nothing of it is written), so `make ci` needs no `make dev` first; the catalogs it includes from have to be the
@@ -180,7 +179,7 @@ def main(argv, out, err, **seams) -> int:
 
 def not_here(said: str) -> Optional[str]:
     """Why a stage that is not asked of a person's machine cannot run here, from the one line it wrote on exit 2, when it is one of
-    the reasons that make it a skip (SKIPPABLE: no Docker, Docker not running, an image with no digest yet); None for any other
+    the reasons that make it a skip (SKIPPABLE: no Docker, Docker not running); None for any other
     reason, which is shown as it was said."""
     for line in said.splitlines():
         if any(mark in line for mark in SKIPPABLE):

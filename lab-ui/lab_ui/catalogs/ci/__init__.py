@@ -128,12 +128,11 @@ BD01_PLAIN = "{image}: the build failed (exit {code}). Fix: run make ci to see i
              "summary."
 
 
-# What a stage says when Docker is not here, and what the Lab's gitleaks image says before its digest is written: the words that
-# `make ci` reads to skip the scan on a machine that cannot run it, and to show every other reason a stage could not run
+# What a stage says when Docker is not here: the words that `make ci` reads to skip the scan on a machine that cannot run it, and
+# to show every other reason a stage could not run
 NO_DOCKER = "Docker is not installed or not on the PATH"
 DOCKER_DOWN = "Docker is not running"
-NOT_PINNED_YET = "is not pinned yet"
-SKIPPABLE = (NO_DOCKER, DOCKER_DOWN, NOT_PINNED_YET)
+SKIPPABLE = (NO_DOCKER, DOCKER_DOWN)
 
 # The longest line of a stranger's program that a message or a summary holds (and the most a summary file is given)
 LINE_WIDTH = 500

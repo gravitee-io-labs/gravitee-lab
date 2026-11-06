@@ -25,7 +25,7 @@ The container has no network, a read-only root, no capability and the user that 
 read-only. The report is written to a folder of ours and read from there; findings are redacted (`--redact`) and the secret is
 not in what this prints: only the rule, the file and the line (SE03).
 
-Exit 0 nothing found, 1 a finding, 2 the scan could not run (no Docker, an image that is not pinned yet, a base git does not
+Exit 0 nothing found, 1 a finding, 2 the scan could not run (no Docker, an image that is not pinned, a base git does not
 know, a container that failed): a scan that did not run is never a green one.
 
 Python 3.9 and later, standard library only."""
@@ -41,7 +41,7 @@ from typing import Callable, List, NamedTuple, Optional
 from .. import report, tree as trees
 from ..report import Problem
 from ..rules import secrets
-from . import NOT_PINNED_YET, Unavailable, conclude, docker_ready, entry, parsed, parser, run_docker, tail
+from . import Unavailable, conclude, docker_ready, entry, parsed, parser, run_docker, tail
 
 TOOLS = Path(__file__).resolve().parent / "tools"
 DOCKERFILE = TOOLS / "Dockerfile"
@@ -51,7 +51,6 @@ TOOL = "gitleaks"
 LOG_TEXT = "--text --no-textconv --no-ext-diff"
 LOG_ALL = "--full-history --all"
 PIN = re.compile(r"[a-z0-9]+(?:[._/-][a-z0-9]+)*(?::[\w][\w.-]{0,127})?@sha256:[0-9a-f]{64}")
-UNPINNED = "sha256:" + "0" * 64
 FROM = re.compile(r"^FROM\s+(\S+)\s+AS\s+(\S+)\s*$", re.I | re.M)
 RULE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 ZEROS = re.compile(r"0{40}")
@@ -73,7 +72,7 @@ class Mounts(NamedTuple):
 
 def image(dockerfile: Optional[Path] = None, name: str = TOOL) -> str:
     """The reference of a tool in `tools/Dockerfile`, `name@sha256:...`, from the FROM line named for the tool. Unavailable when
-    the file cannot be read, has no such line, does not pin a digest, or has the digest that stands for one not resolved yet."""
+    the file cannot be read, has no such line or does not pin a digest."""
     try:
         text = (dockerfile or DOCKERFILE).read_text(encoding="utf-8")
     except (OSError, UnicodeError):
@@ -83,9 +82,6 @@ def image(dockerfile: Optional[Path] = None, name: str = TOOL) -> str:
             reference = found.group(1)
             if not PIN.fullmatch(reference):
                 raise Unavailable(f"the {name} image of the Lab is not pinned by digest: {report.printable(reference)[:80]}")
-            if reference.endswith(UNPINNED):
-                raise Unavailable(f"the {name} image of the Lab {NOT_PINNED_YET} (its digest is the placeholder of zeros): write "
-                                  f"the digest that `docker buildx imagetools inspect` prints in {DOCKERFILE.name}")
             return reference
     raise Unavailable(f"the Lab has no {name} image to run: tools/Dockerfile has no FROM line named {name}")
 

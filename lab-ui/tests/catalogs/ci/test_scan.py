@@ -286,11 +286,7 @@ class TheScannerAndWhatItIsGiven(Fixture):
         self.assertEqual(self.run_stage(), 2)
         self.assertIn("could not be saved to scan it", self.err.getvalue())
 
-    def test_the_scanner_that_is_not_pinned_yet_is_not_a_clean_scan(self):
-        self.tools.write_text("FROM ghcr.io/aquasecurity/trivy:0.58.0@sha256:" + "0" * 64 + " AS trivy\n")
-        self.assertEqual(self.run_stage(), 2)
-        self.assertIn("is not pinned yet", self.err.getvalue())
-        self.err = io.StringIO()
+    def test_a_scanner_that_is_not_pinned_is_not_a_clean_scan(self):
         self.tools.write_text("FROM ghcr.io/aquasecurity/trivy:latest AS trivy\n")
         self.assertEqual(self.run_stage(), 2)
         self.assertIn("not pinned by digest", self.err.getvalue())
@@ -390,11 +386,6 @@ class Built(Fixture):
         self.assertEqual(code, 1)
         self.assertEqual([each["code"] for each in json.loads(self.out.getvalue())], ["T10"])
         self.assertEqual(self.docker.calls, [])
-
-    def test_a_scanner_that_is_not_pinned_yet_is_a_scan_that_could_not_run(self):
-        self.tools.write_text("FROM ghcr.io/aquasecurity/trivy:0.58.0@sha256:" + "0" * 64 + " AS trivy\n")
-        self.assertEqual(self.run_built(), 2)
-        self.assertIn("is not pinned yet", self.err.getvalue())
 
 
 class SigningIn(Fixture):
