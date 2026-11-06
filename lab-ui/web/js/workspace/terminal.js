@@ -45,13 +45,13 @@ export class Shell {
 
   // The shell on screen, once its libraries are there; false when they are not
   async open() {
-    if (this.term) return true;
     try {
       await (libs ||= loadLibs().catch((err) => { libs = null; throw err; }));
     } catch {
       this.notice("The terminal needs the internet to load");
       return false;
     }
+    if (this.term) return true;   // another call made it while the libraries loaded
     if (!this.body.isConnected) return false;
     const term = this.term = new Terminal({ fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', fontSize: 12.5,
       cursorBlink: true, scrollback: 5000, theme: colors(), allowProposedApi: false });
@@ -78,10 +78,11 @@ export class Shell {
     this.term?.focus();
   }
 
-  // Reads the shell's output from where it left off, for as long as it is wanted: a stream that is lost is opened again
+  // Reads the shell's output from where it left off, for as long as it is wanted: a stream that is lost is opened again. A shell that
+  // ended waits for the key its message asks for: a new stream would start another. A draw may call this while another call is on its way.
   async connect() {
     this.wanted = true;
-    if (this.source || !(await this.open())) return;
+    if (this.source || this.ended || !(await this.open()) || this.source) return;
     this.notice("");
     const source = this.source = new EventSource(`/api/playgrounds/${this.id}/terminal?from=${this.offset}`);
     source.addEventListener("out", (e) => {
