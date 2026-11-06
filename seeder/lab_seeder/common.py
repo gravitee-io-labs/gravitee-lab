@@ -67,8 +67,6 @@ def configure(workers=None):
         raise SeedError("SEED_WORKERS is a number of requests") from None
     _gate = threading.BoundedSemaphore(WORKERS)
     STOP.clear()
-    _later.clear()
-    _deferring[0] = False
 
 
 def check():
@@ -120,30 +118,6 @@ def together(jobs):
     """Calls each of `jobs`, no argument, at the same time as SEED_WORKERS allows: steps of different kinds that do not depend on
     one another."""
     return parallel(lambda job: job(), jobs)
-
-
-_later = []
-_deferring = [False]
-
-
-def defer_waits():
-    """From now on `later` puts a wait off to the end of the seed (seed.py asks for it; a module run alone waits where it is)."""
-    _deferring[0] = True
-
-
-def later(what, function):
-    """A wait that nothing else depends on, put off to the end of the seed, where all of them are made at the same time, so that
-    the steps that do not need it go on meanwhile. Made at once when the seed does not defer them."""
-    if _deferring[0]:
-        _later.append((what, function))
-    else:
-        function()
-
-
-def run_later():
-    pending = list(_later)
-    _later.clear()
-    parallel(lambda each: each[1](), pending)
 
 
 def excerpt(text, limit=500):

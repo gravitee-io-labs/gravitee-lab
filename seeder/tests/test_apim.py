@@ -1214,7 +1214,6 @@ class Waiting(Playground):
         self.gateway(llm=[NO_API], ace=[NO_API])
         self.env(SEED_WAIT_GATEWAY="0", LLM_PROBE_KEY="dev-key-0001")
         apim.seed()
-        common.run_later()
         self.assertEqual([call for call in self.platform.calls if call.url.startswith(GATEWAY)], [])
         self.assertEqual(self.clock.sleeps, [])
 

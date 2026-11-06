@@ -168,7 +168,7 @@ class Requests(Seed):
 
 
 class Parallel(unittest.TestCase):
-    """What a module does at the same time (`parallel`, `together`, `later`): bounded in one place, the first failure stopping
+    """What a module does at the same time (`parallel`, `together`): bounded in one place, the first failure stopping
     the others."""
 
     def setUp(self):
@@ -224,17 +224,6 @@ class Parallel(unittest.TestCase):
                 common.parallel(lambda number: common.record("p", "k", "ks", f"n{number}", number), range(40))
                 self.assertEqual(sorted(x["id"] for x in common.created()), list(range(40)))
                 self.assertEqual(len(json.loads(common.STATE_FILE.read_text())), 40)
-
-    def test_a_wait_put_off_runs_at_the_end_and_at_once_when_nothing_is_put_off(self):
-        ran = []
-        common.later("a wait", lambda: ran.append("now"))
-        self.assertEqual(ran, ["now"])
-        common.defer_waits()
-        common.later("a wait", lambda: ran.append("at the end"))
-        common.later("another", lambda: ran.append("also at the end"))
-        self.assertEqual(ran, ["now"])
-        common.run_later()
-        self.assertEqual(sorted(ran[1:]), ["also at the end", "at the end"])
 
 
 class Provided(Seed):

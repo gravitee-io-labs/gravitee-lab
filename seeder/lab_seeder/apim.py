@@ -65,7 +65,7 @@ import requests
 
 from . import controls
 from . import common
-from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, created, excerpt, files, folders, forget, later, load, log, making,
+from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, created, excerpt, files, folders, forget, load, log, making,
                      owned, parallel, pause, together, record, recorded, seed_file, setting, unmade, wait_until)
 
 SECTION = "apim"
@@ -1010,7 +1010,7 @@ def seed():
     together([lambda: seed_own(apim, settings, loaded, applications, subscriptions)]
              + [lambda each=each: seed_environment(*each) for each in zip(scopes, environments)])
     if common.waits_for_gateway():
-        later("the gateway", lambda: wait_for_gateway(apim, definitions))
+        wait_for_gateway(apim, definitions)
 
 
 def remove(records):

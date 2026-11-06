@@ -69,7 +69,6 @@ def main():
     log("seed", "Removing what the playground created" if removing else "Seeding the playground")
     try:
         common.configure()
-        common.defer_waits()
         if removing:
             records = created()
             for module in reversed(MODULES):   # each forgets a record as its object goes; what the platform refused stays
@@ -91,7 +90,6 @@ def main():
             module.seed()
         if not common.waits_for_gateway() and os.getenv("GATEWAY_INTERNAL_URL"):
             log("seed", "The gateway takes what was deployed within seconds; SEED_WAIT_GATEWAY=1 waits for it")
-        common.run_later()   # the waits that nothing depended on: the gateway has taken what was deployed
         refills.finish()
         controls.finish()
     except SeedError as e:
