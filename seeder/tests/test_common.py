@@ -212,7 +212,7 @@ class Parallel(unittest.TestCase):
         self.assertEqual(most[0], 2)
 
     def test_a_request_does_not_start_once_the_seed_stops(self):
-        common.stop(common.SeedError("x"))
+        common.STOP.set()
         with self.assertRaises(common.Stopped):
             common.check()
         with self.assertRaises(common.Stopped):

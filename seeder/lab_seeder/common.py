@@ -54,7 +54,6 @@ def log(section, message):
 
 WORKERS = 1
 STOP = threading.Event()   # set by the first failure
-_failures = []
 _gate = threading.BoundedSemaphore(1)
 _state = threading.RLock()   # held by whoever reads what the seed created, changes it and writes it back
 
@@ -68,22 +67,8 @@ def configure(workers=None):
         raise SeedError("SEED_WORKERS is a number of requests") from None
     _gate = threading.BoundedSemaphore(WORKERS)
     STOP.clear()
-    _failures.clear()
     _later.clear()
     _deferring[0] = False
-
-
-def stop(error):
-    """Records the first failure and tells every other step to stop."""
-    with _state:
-        if not _failures and not isinstance(error, Stopped):
-            _failures.append(error)
-        STOP.set()
-
-
-def failure():
-    """The first failure of the seed, or None."""
-    return _failures[0] if _failures else None
 
 
 def check():
@@ -99,11 +84,11 @@ def pause(seconds):
 
 
 def guarded(function, *args):
-    """function(*args); an error ends the seed for everyone, and is the one reported when it is the first."""
+    """function(*args); an error ends the seed for everyone."""
     try:
         return function(*args)
-    except BaseException as error:
-        stop(error)
+    except BaseException:
+        STOP.set()
         raise
 
 
@@ -120,8 +105,6 @@ def parallel(function, items):
         error = future.exception()
         if error is not None and not isinstance(error, Stopped):
             raise error
-    if STOP.is_set():
-        raise failure() or SeedError("the seed was stopped")
     return [future.result() for future in futures]
 
 
