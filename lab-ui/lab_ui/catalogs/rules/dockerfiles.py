@@ -52,7 +52,8 @@ RULES = table([
 
 _FRONTEND = re.compile(r"(?:docker\.io/)?docker/dockerfile(?::[\w.-]{1,128})?(?:@sha256:[0-9a-f]{64})?")
 _DIRECTIVE = re.compile(r"#\s{0,8}([A-Za-z]{1,16})\s{0,8}=\s{0,8}(\S.{0,512})\Z")
-_HEREDOC = re.compile(r"<<(-?)\s{0,4}([\"']?)([A-Za-z_][A-Za-z0-9_]{0,64})\2")
+# At the start of a word, where the builder looks: `<<<` and `$((1<<X))` open nothing
+_HEREDOC = re.compile(r"(?<!\S)[0-9]{0,9}<<(-?)\s{0,4}([\"']?)([A-Za-z_][A-Za-z0-9_]{0,64})\2")
 _SOURCE_URL = re.compile(r"(?:https?://|git@|git://|ssh://)|\.git(?:#|\Z)", re.I)
 # A program that runs what follows it (`sudo -E bash`, `env FOO=1 sh`, `xargs sh`), then the interpreter, with the folders of its
 # path in front (`/bin/sh`, `/usr/bin/env python3`)

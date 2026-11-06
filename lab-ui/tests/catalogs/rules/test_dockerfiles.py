@@ -110,6 +110,12 @@ class Errors(unittest.TestCase):
             with self.subTest(ok=head):
                 self.assertEqual([], found(f"FROM {PIN}\n{head}\nUSER app\n"))
 
+    def test_a_here_string_or_a_shift_opens_no_heredoc(self):
+        for run_ in ('grep foo <<< "bar"', "echo $((1<<X))"):
+            with self.subTest(run=run_):
+                text = f"FROM {PIN}\nRUN {run_}\nADD https://example.test/a.tgz /opt/\nENV DB_PASSWORD=hunter2\nUSER app\n"
+                self.assertEqual([("DF02", 3), ("DF05", 4)], summary(found(text)))
+
     def test_df03_across_continued_lines_and_in_a_heredoc(self):
         text = f"FROM {PIN}\nRUN apt-get update \\\n    && curl -fsSL https://example.test/i \\\n    | sh\nUSER app\n"
         self.assertEqual([("DF03", 2)], summary(found(text)))
