@@ -9,7 +9,7 @@ import { installDom } from "./dom-stub.mjs";
 import { catalog, content, lab } from "./fixtures.mjs";
 
 const page = installDom({});
-const { ID_PATTERN, hrefOf, router, splitKey, store } = await import("../../../web/js/core.js");
+const { ID_PATTERN, compareVersions, hrefOf, router, splitKey, store } = await import("../../../web/js/core.js");
 
 const shown = [];   // the pages the router showed, in order
 for (const [id, pattern] of [["dashboard", /^#\/dashboard$/], ["stack", /^#\/containers$/], ["logs", /^#\/logs$/]]) {
@@ -40,6 +40,11 @@ test("an address that is no page leads to the Dashboard too, the old address of 
   location.hash = "#/over" + "view";   // what the page was named, and may be bookmarked as
   assert.equal(shown.at(-1), "dashboard");
   assert.equal(location.hash, "#/dashboard");
+});
+
+test("versions go newest first, a release before its pre-releases", () => {
+  assert.deepEqual(["2.0", "4.12.0-alpha.1", "4.11.9", "4.12.0-alpha.2", "4.12.0", "2.0.1", "4.12.1"].sort(compareVersions),
+    ["4.12.1", "4.12.0", "4.12.0-alpha.2", "4.12.0-alpha.1", "4.11.9", "2.0.1", "2.0"]);
 });
 
 // --- The id of an item in an address -----------------------------------------------------------------------------------------

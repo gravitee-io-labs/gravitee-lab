@@ -78,11 +78,12 @@ export const bareTag = (tag = "") => {
   return variant ? tag.slice(0, -variant.length - 1) : tag;
 };
 
-// Versions newest first: by their numbers, a release before its pre-releases (4.12.0 before 4.12.0-alpha.1)
+// Versions newest first: by their numbers, a release before its pre-releases (4.12.0 before 4.12.0-alpha.1): where the shorter ends, 2.0 is
+// 2.0.0, and past its three numbers a release is above any pre-release
 export function compareVersions(a, b) {
   const x = (a.match(/\d+/g) || []).map(Number), y = (b.match(/\d+/g) || []).map(Number);
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (y[i] ?? -1) - (x[i] ?? -1);
+    const d = (y[i] ?? (i < 3 ? 0 : Infinity)) - (x[i] ?? (i < 3 ? 0 : Infinity));
     if (d) return d;
   }
   return (a.includes("-") ? 1 : 0) - (b.includes("-") ? 1 : 0);
