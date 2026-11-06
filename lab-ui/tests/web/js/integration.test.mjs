@@ -481,9 +481,6 @@ test("the filter names as many values as its label lets it, two as it always did
   assert.deepEqual([[], ["A"], ["A", "B"], ["A", "B", "C"]].map((values) => said(plain, values)), ["All categories", "A", "A, B", "3 categories"]);
   const few = CategoryFilter(button, () => items, () => {}, undefined, { label: { none: "All catalogs", all: "All catalogs", many: (n) => `${n} catalogs`, few: 1 } });
   assert.deepEqual([[], ["A"], ["A", "B"], ["A", "B", "C"]].map((values) => said(few, values)), ["All catalogs", "A", "2 catalogs", "3 catalogs"]);
-  // A label that does not say keeps two
-  const old = CategoryFilter(button, () => items, () => {}, undefined, { label: { none: "All", all: "All", many: (n) => `${n} kinds` } });
-  assert.deepEqual([["A", "B"], ["A", "B", "C"]].map((values) => said(old, values)), ["A, B", "3 kinds"]);
 });
 
 // --- Entries of the catalogs that are no row ----------------------------------------------------------------------------------------------

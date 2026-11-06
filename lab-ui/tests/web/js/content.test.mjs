@@ -146,9 +146,6 @@ test("with items to show the block is one line above them, whatever the key but 
     assert.equal(above.querySelectorAll('[role="status"]').length, 1);
   }
   assert.equal(contentStatus(withContent("ready"), { kind: "setup", items: 3 }), "", "removed once the content is there");
-  // A caller may say it either way
-  assert.equal(block(draw(contentStatus(withContent("none"), { items: 3, line: false }))).hasAttribute("data-line"), false);
-  assert.equal(block(draw(contentStatus(withContent("none"), { line: true }))).hasAttribute("data-line"), true);
 });
 
 // --- What comes from the server is text --------------------------------------------------------------------------------------

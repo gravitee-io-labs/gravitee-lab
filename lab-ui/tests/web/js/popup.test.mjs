@@ -226,7 +226,7 @@ test("a category is said by the function it is given", async () => {
 // The catalogs an item comes from: the first, the others as they were added, this machine's last; each said by its name
 const NAMES = { gravitee: "Gravitee public", "acme-hub": "Acme Hub", "partner-bank": "Partner Bank", local: "Personal" };
 const ORDER = ["gravitee", "acme-hub", "partner-bank", "local"];
-const WORDS = { none: "All catalogs", all: "All catalogs", many: (n) => `${n} catalogs` };
+const WORDS = { none: "All catalogs", all: "All catalogs", many: (n) => `${n} catalogs`, few: 2 };
 const origin = (x) => x.origin?.id || (x.personal ? "local" : "gravitee");
 const catalogs = (entries) => ORDER.map((id) => entries.find(([value]) => value === id)).filter(Boolean);
 const FROM = [thing("one", "x"), thing("two", "x"), thing("three", "y"), thing("four", "x", { origin: { id: "acme-hub" } }), thing("five", "x", { personal: true }),

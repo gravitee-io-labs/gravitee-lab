@@ -961,10 +961,10 @@ function offerOf(content, onPage) {
   return onPage ? "" : '<a class="btn" href="#/catalogs">Browse catalogs</a>';
 }
 
-export function contentStatus(state, { kind = "", items = 0, line = items > 0 } = {}) {
+export function contentStatus(state, { kind = "", items = 0 } = {}) {
   const content = state?.content, onPage = kind === "catalog";
   if (!content) return "";
-  const block = (key, inner) => `<div class="empty" role="status" data-content="${key}"${line ? " data-line" : ""}>${inner}</div>`;
+  const block = (key, inner) => `<div class="empty" role="status" data-content="${key}"${items > 0 ? " data-line" : ""}>${inner}</div>`;
   if (content.key === "downloading" && !onPage) {
     // Where a title says what is fetched, the block says only that it is: the address is behind its mark
     const word = content.address ? tipHtml(`<span>Downloading</span>${icon("info")}`, `From ${content.address}`, "", "Downloading", { title: false }) : "Downloading";
