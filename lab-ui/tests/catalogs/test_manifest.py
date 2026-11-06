@@ -49,53 +49,20 @@ def pick(*args, **how):
 class Levels(Case):
     """compat over the table of 4.4."""
 
-    def test_a_level_between_the_floor_and_the_newest_is_read(self):
-        for level in (2, 3, 4):
-            self.assertEqual(manifest.compat(level, 4, 2), "ok", level)
-
-    def test_a_newer_level_needs_a_newer_lab_and_an_older_one_was_written_for_an_older_lab(self):
-        self.assertEqual(manifest.compat(5, 4, 2), "new")
-        self.assertEqual(manifest.compat(99, 4, 2), "new")
-        self.assertEqual(manifest.compat(1, 4, 2), "old")
-        self.assertEqual(manifest.compat(0, 4, 2), "old")
-        self.assertEqual(manifest.compat(-3, 4, 2), "old")
-
-    def test_a_core_without_levels_reads_level_one(self):
-        self.assertEqual([manifest.compat(level, None, None) for level in (0, 1, 2)], ["old", "ok", "new"])
-        self.assertEqual(manifest.compat(1, 1, None), "ok")
-        self.assertEqual(manifest.compat(2, None, 1), "new")
-
-    def test_a_level_that_is_not_a_whole_number_is_not_one_this_lab_reads(self):
-        for level in (None, "1", 1.0, True, False, [1], {}):
-            self.assertEqual(manifest.compat(level, 4, 1), "old", repr(level))
-
-    def test_the_floor_is_never_above_what_is_read(self):
-        self.assertEqual([manifest.compat(level, 1, 1) for level in (0, 1, 2)], ["old", "ok", "new"])
+    def test_a_level_against_the_newest_and_the_floor(self):
+        for level, contract, floor, answer in (
+                (2, 4, 2, "ok"), (3, 4, 2, "ok"), (4, 4, 2, "ok"), (5, 4, 2, "new"), (99, 4, 2, "new"), (1, 4, 2, "old"),
+                (0, 4, 2, "old"), (-3, 4, 2, "old"), (0, 1, 1, "old"), (1, 1, 1, "ok"), (2, 1, 1, "new"),
+                # a core without levels reads level one
+                (0, None, None, "old"), (1, None, None, "ok"), (2, None, None, "new"), (1, 1, None, "ok"), (2, None, 1, "new"),
+                # what is not a whole number is not a level this Lab reads
+                (None, 4, 1, "old"), ("1", 4, 1, "old"), (1.0, 4, 1, "old"), (True, 4, 1, "old"), (False, 4, 1, "old"),
+                ([1], 4, 1, "old"), ({}, 4, 1, "old")):
+            self.assertEqual(manifest.compat(level, contract, floor), answer, (level, contract, floor))
 
 
 class Picking(Case):
     """Pick returns the newest readable commit on every case of the table."""
-
-    def test_a_readable_tip_is_the_pin(self):
-        self.assertEqual(pick([("t", 2), ("a", 1)], 3, 1), ("t", "ok"))
-        self.assertEqual(pick([("t", 1)], 1, 1), ("t", "ok"))
-
-    def test_a_tip_that_needs_a_newer_lab_gives_the_newest_older_version_that_is_read(self):
-        self.assertEqual(pick([("t", 3), ("a", 2), ("b", 1)], 2, 1), ("a", "new"))
-        self.assertEqual(pick([("t", 9), ("a", 8), ("b", 2), ("c", 1)], 2, 1), ("b", "new"))
-
-    def test_when_no_version_is_read_there_is_no_commit_and_the_tip_says_why(self):
-        self.assertEqual(pick([("t", 5), ("a", 4)], 3, 1), (None, "new"))
-        self.assertEqual(pick([("t", 1), ("a", 0)], 3, 2), (None, "old"))
-
-    def test_a_tip_that_is_too_old_has_no_readable_version_and_is_old(self):
-        self.assertEqual(pick([("t", 1)], 4, 3), (None, "old"))
-
-    def test_a_revert_to_an_older_level_is_one_more_version_not_a_loop(self):
-        levels = [("t", 3), ("r", 1), ("o", 2)]   # the newest changed to 3, before it was 1 (a revert of 2), before 2
-        self.assertEqual(pick(levels, 2, 1), ("r", "new"))
-        self.assertEqual(pick(levels, 1, 1), ("r", "new"))
-        self.assertEqual(pick([("t", 1), ("r", 2), ("o", 1)], 1, 1), ("t", "ok"))
 
     def test_a_version_it_could_not_tell_of_stops_the_search_and_no_older_one_is_taken(self):
         def reads(commit):
@@ -104,15 +71,6 @@ class Picking(Case):
             return commit == "b"
         with self.assertRaises(CatalogError):
             pick([("t", None), ("a", None), ("b", None)], 2, 1, readable=reads)
-
-    def test_the_newest_is_taken_even_when_older_ones_are_read_too(self):
-        self.assertEqual(pick([("t", 2), ("a", 2), ("b", 1)], 2, 1), ("t", "ok"))
-
-    def test_a_version_below_the_floor_is_skipped_for_the_one_above_it(self):
-        self.assertEqual(pick([("t", 4), ("a", 1), ("b", 2)], 3, 2), ("b", "new"))
-
-    def test_nothing_to_choose_from_is_no_commit(self):
-        self.assertEqual(pick([], 3, 1), (None, "old"))
 
     def test_a_version_the_reader_was_not_sure_of_is_one_the_strict_reading_decides(self):
         """A `lab` of None is "cannot say" (`levels`), which is neither a level this Lab reads nor one it does not: the version
@@ -182,23 +140,36 @@ class Picking(Case):
                          "past the reads none is taken")
 
     def test_the_case_table_of_9_2(self):
-        # contract 3 and contract_min 2 are this Lab; a level is what a catalog.yml says
-        this = (3, 2)
+        # A level is what a catalog.yml says; the two numbers are the contract and the floor of this Lab
+        reverted = [("t", 3), ("r", 1), ("o", 2)]   # the newest changed to 3, before it was 1 (a revert of 2), before 2
         table = [
-            ("A. the tip is readable", [("tip", 3), ("old", 2)], ("tip", "ok"), None),
-            ("B. the tip needs a newer Lab and an older version is readable", [("tip", 4), ("old", 3), ("older", 1)],
+            ("A. the tip is readable", [("tip", 3), ("old", 2)], 3, 2, ("tip", "ok"), None),
+            ("B. the tip needs a newer Lab and an older version is readable", [("tip", 4), ("old", 3), ("older", 1)], 3, 2,
              ("old", "new"), None),
-            ("C. no version is readable", [("tip", 5), ("old", 4)], (None, "new"), "no_readable_version"),
-            ("D. the Lab was updated and the pin is now too old, the tip is readable", [("tip", 3), ("pin", 1)],
+            ("C. no version is readable", [("tip", 5), ("old", 4)], 3, 2, (None, "new"), "no_readable_version"),
+            ("D. the Lab was updated and the pin is now too old, the tip is readable", [("tip", 3), ("pin", 1)], 3, 2,
              ("tip", "ok"), None),
-            ("E. the pin is too old and no readable tip exists", [("tip", 1), ("pin", 1)], (None, "old"), "lab_old"),
-            ("F. the tip is too old at Add", [("tip", 0)], (None, "old"), "lab_old"),
+            ("E. the pin is too old and no readable tip exists", [("tip", 1), ("pin", 1)], 3, 2, (None, "old"), "lab_old"),
+            ("F. the tip is too old at Add", [("tip", 0)], 3, 2, (None, "old"), "lab_old"),
+            ("a readable tip is the pin", [("t", 2), ("a", 1)], 3, 1, ("t", "ok"), None),
+            ("the only version, at the only level", [("t", 1)], 1, 1, ("t", "ok"), None),
+            ("the newest older version that is read", [("t", 3), ("a", 2), ("b", 1)], 2, 1, ("a", "new"), None),
+            ("several back", [("t", 9), ("a", 8), ("b", 2), ("c", 1)], 2, 1, ("b", "new"), None),
+            ("none read, the tip says why: newer", [("t", 5), ("a", 4)], 3, 1, (None, "new"), None),
+            ("none read, the tip says why: older", [("t", 1), ("a", 0)], 3, 2, (None, "old"), None),
+            ("a tip that is too old", [("t", 1)], 4, 3, (None, "old"), None),
+            ("a revert is one more version, not a loop", reverted, 2, 1, ("r", "new"), None),
+            ("a revert, at another level", reverted, 1, 1, ("r", "new"), None),
+            ("a revert under a tip that is read", [("t", 1), ("r", 2), ("o", 1)], 1, 1, ("t", "ok"), None),
+            ("the newest, when older ones are read too", [("t", 2), ("a", 2), ("b", 1)], 2, 1, ("t", "ok"), None),
+            ("below the floor is skipped for the one above it", [("t", 4), ("a", 1), ("b", 2)], 3, 2, ("b", "new"), None),
+            ("nothing to choose from", [], 3, 1, (None, "old"), None),
         ]
-        for name, levels, answer, refusal in table:
+        for name, levels, contract, floor, answer, refusal in table:
             with self.subTest(name):
-                self.assertEqual(pick(levels, *this), answer)
+                self.assertEqual(pick(levels, contract, floor), answer)
                 if refusal:
-                    self.assertEqual(manifest.no_commit(levels, *this).code, refusal)
+                    self.assertEqual(manifest.no_commit(levels, contract, floor).code, refusal)
 
     def test_pick_is_pure(self):
         levels = [("t", 3), ("a", 2)]
