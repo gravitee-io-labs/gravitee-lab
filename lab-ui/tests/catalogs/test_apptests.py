@@ -16,7 +16,6 @@ from lab_ui.catalogs.ci import apptests
 from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import apps, build
 from lab_ui.catalogs.ci import main as ci_main
-from tests import Case
 from tests.fakedocker import FakeDocker, option
 from tests.catalogs.ci.test_build import Disk
 
@@ -244,12 +243,6 @@ class Runs(unittest.TestCase):
         outcome = apptests.run_app(folder, "img", self.runner([([NODE], (1, NODE_FAILED, ""))]), NODE)
         self.assertEqual((outcome.status, outcome.failed, outcome.python), ("failed", 2, "none"))
 
-    def test_no_node_image_fails_the_javascript_tests_and_says_so(self):
-        folder = self.app({"tests/js/a.test.mjs": ""})
-        outcome = apptests.run_app(folder, "img", self.runner([]), None)
-        self.assertEqual((outcome.status, outcome.js, outcome.failed), ("failed", "failed", 1))
-        self.assertIn("The Node image of the JavaScript tests could not be had", outcome.output)
-
     def test_an_app_with_no_tests_is_none_and_runs_nothing(self):
         outcome = apptests.run_app(self.app({"Dockerfile": ""}), "img", self.runner([]))
         self.assertEqual((outcome.status, self.calls), ("none", []))
@@ -319,126 +312,6 @@ class Runs(unittest.TestCase):
         folder = self.app({"tests/test_a.py": ""})
         apptests.run_app(folder, "img", self.runner([(["--entrypoint"], (1, "", UNITTEST_FAILED))]))
         self.assertEqual([call for call in self.calls if "rm" in call], [])
-
-
-class Make(Case):
-    """`apptests.main`, against the fake docker."""
-
-    def setUp(self):
-        self.fake = FakeDocker(self)
-        holder = tempfile.TemporaryDirectory()
-        self.addCleanup(holder.cleanup)
-        self.root = Path(holder.name).resolve()
-        self.out, self.err = io.StringIO(), io.StringIO()
-        self.patch(apptests, "node_image", lambda *a, **k: NODE)
-
-    def app(self, folder, name, tests=True, js=False, guide=True):
-        base = self.root / folder
-        (base / "apps" / name).mkdir(parents=True, exist_ok=True)
-        (base / "apps" / name / "Dockerfile").write_text("FROM scratch\n")
-        if tests:
-            (base / "apps" / name / "tests").mkdir(exist_ok=True)
-            (base / "apps" / name / "tests" / "test_a.py").write_text("")
-        if js:
-            (base / "apps" / name / "tests" / "js").mkdir(parents=True, exist_ok=True)
-            (base / "apps" / name / "tests" / "js" / "a.test.mjs").write_text("")
-        if guide:
-            (base / "guide.md").write_text("# Guide")
-        return base / "apps" / name
-
-    def main(self, *argv):
-        return apptests.main(list(argv), out=self.out, err=self.err)
-
-    def test_every_app_is_built_tested_and_removed(self):
-        web = self.app("playgrounds/bank", "bakery-web", js=True)
-        self.app("playgrounds/bank", "bakery-api")
-        code = self.main(str(self.root / "playgrounds"))
-        self.assertEqual((code, self.err.getvalue()), (0, ""))
-        calls = [call.argv for call in self.fake.calls()]
-        self.assertEqual([call[:2] for call in calls if call[0] == "build"], [["build", "-q"], ["build", "-q"]])
-        self.assertEqual([call[2:] for call in calls if call[0] == "build"][0][0:2], ["-t", "lab-test-bakery-api"])
-        runs = [call for call in calls if call[0] == "run"]
-        self.assertEqual(len(runs), 3)   # two Python runs and one JavaScript run
-        guide = os.path.realpath(self.root / "playgrounds/bank/guide.md")
-        python = [call for call in runs if "--entrypoint" in call]
-        self.assertEqual([option(call, "-v") for call in python], [f"{guide}:/guide.md:ro"] * 2)
-        node = [call for call in runs if NODE in call]
-        self.assertEqual(node[0][node[0].index("-v") + 1], f"{web}:/app:ro")
-        self.assertEqual([call for call in calls if call[0] == "rmi"], [["rmi", "lab-test-bakery-api"], ["rmi", "lab-test-bakery-web"]])
-
-    def test_the_node_image_is_pulled_quietly_when_it_is_missing_and_not_when_it_is_there(self):
-        self.app("playgrounds/bank", "bakery-web")
-        self.fake.when("image", "inspect", code=1)
-        self.main(str(self.root / "playgrounds"))
-        self.assertEqual(self.fake.commands("pull"), [["pull", "-q", NODE]])
-        self.fake.reset()
-        self.main(str(self.root / "playgrounds"))
-        self.assertEqual(self.fake.commands("pull"), [])
-
-    def test_a_node_image_docker_hub_refuses_is_pulled_again_and_then_the_javascript_tests_fail_with_the_reason(self):
-        self.app("playgrounds/bank", "bakery-web", tests=False, js=True)
-        self.fake.when("image", "inspect", NODE, code=1)
-        self.fake.when("pull", "-q", code=1, stderr="toomanyrequests: You have reached your pull rate limit\n")
-        slept = []
-        code = apptests.main([str(self.root / "playgrounds")], out=self.out, err=self.err, sleep=slept.append)
-        self.assertEqual((code, slept, len(self.fake.commands("pull"))), (1, [20, 60], 3))
-        self.assertIn("The Node image of the JavaScript tests could not be had", self.err.getvalue())
-
-    def test_a_run_of_a_person_is_named_too(self):
-        self.app("playgrounds/bank", "bakery-web")
-        self.main(str(self.root / "playgrounds"))
-        runs = self.fake.commands("run")
-        self.assertEqual(len(runs), 1)
-        unnamed(runs[0])
-
-    def test_an_app_that_fails_ends_the_run_with_1_and_the_others_are_tested(self):
-        self.app("playgrounds/bank", "bakery-web")
-        self.app("playgrounds/bank", "bakery-api")
-        self.fake.when("run", "lab-test-bakery-api", code=1, stderr=UNITTEST_FAILED)
-        code = self.main(str(self.root / "playgrounds"))
-        self.assertEqual(code, 1)
-        self.assertEqual(len(self.fake.commands("run")), 2)
-        self.assertIn("FAILED (failures=2, errors=1, skipped=1)", self.err.getvalue())
-
-    def test_an_image_that_does_not_build_ends_the_run_with_1(self):
-        self.app("playgrounds/bank", "bakery-web")
-        self.fake.when("build", code=1, stderr="failed to solve")
-        self.assertEqual(self.main(str(self.root / "playgrounds")), 1)
-        self.assertEqual(self.fake.commands("run"), [])
-        self.assertIn("failed to solve", self.err.getvalue())
-
-    def test_an_app_with_no_tests_is_said_and_not_a_failure(self):
-        self.app("playgrounds/bank", "bakery-web", tests=False)
-        self.assertEqual(self.main(str(self.root / "playgrounds")), 0)
-        self.assertIn("bakery-web has no tests", self.out.getvalue())
-        self.assertEqual(self.fake.commands("run"), [])
-
-    def test_docker_that_does_not_answer_is_exit_2_before_anything_is_built(self):
-        self.app("playgrounds/bank", "bakery-web")
-        self.fake.when("info", code=1, stderr="Cannot connect to the Docker daemon")
-        self.assertEqual(self.main(str(self.root / "playgrounds")), 2)
-        self.assertIn("Docker is not running", self.err.getvalue())
-        self.assertEqual(self.fake.commands("build"), [])
-
-    def test_the_images_are_kept_when_asked(self):
-        self.app("playgrounds/bank", "bakery-web")
-        self.main("--keep", str(self.root / "playgrounds"))
-        self.assertEqual(self.fake.commands("rmi"), [])
-
-    def test_an_app_may_be_named_alone_and_a_folder_with_no_app_is_nothing_to_test(self):
-        web = self.app("playgrounds/bank", "bakery-web")
-        self.app("playgrounds/bank", "bakery-api")
-        self.main(str(web))
-        self.assertEqual(len(self.fake.commands("build")), 1)
-        self.out = io.StringIO()
-        self.assertEqual(self.main(str(self.root / "empty")), 0)
-        self.assertIn("No app to test", self.out.getvalue())
-
-    def test_a_makefile_with_no_pin_is_exit_2(self):
-        self.app("playgrounds/bank", "bakery-web")
-        self.patch(apptests, "node_image", mock.Mock(side_effect=apptests.Missing("the Makefile of the Lab pins no NODE_IMAGE")))
-        self.assertEqual(self.main(str(self.root / "playgrounds")), 2)
-        self.assertIn("pins no NODE_IMAGE", self.err.getvalue())
 
 
 class Stage(Disk):

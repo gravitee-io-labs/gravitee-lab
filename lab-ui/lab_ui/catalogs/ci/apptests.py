@@ -1,12 +1,5 @@
 """The tests of an app, run in the app's own image: what the CI of a catalog runs (`catalog.py ci test`, standard 5.6).
 
-    python3 -m lab_ui.catalogs.ci.apptests [--keep] [FOLDER ...]      (from lab-ui/; `catalog.py ci test` runs the same)
-
-Each FOLDER is an app (it holds a Dockerfile) or a folder that holds apps in `apps/*/` (a playground, a catalog's
-`playgrounds/`); with none, `playgrounds/` of the project. Each app is built (`docker build`, quietly), its tests are run in its
-image, and the image is removed (`--keep` keeps it). Exit 0 when every app that has tests passed, 1 when one failed, 2 when
-Docker cannot be used.
-
 The tests of an app ship in its image (`COPY tests ./tests`), so they run with the versions the app runs on, offline and
 hardened. The flag set below was run against the images of the engine's tree: every app that has tests passed. Two things it
 found: the default `--tmpfs /tmp` is `noexec` (an app runs a script from /tmp), so `exec` is explicit, and `--read-only` alone
@@ -26,18 +19,14 @@ with its two CPUs and its 2 GB, on a person's machine, until it ended by itself;
 is pulled again after 20 s and after 60 s when Docker Hub or the network refuses, as a build is (`ci build`, BD05), and when it
 still cannot be had that is said as what it is, never as a test that failed.
 
-Importable: `apps.py`, beside it, runs the same commands through the runner of the Lab. Standard library only, Python 3.9 or later."""
+`apps.py`, beside it, runs these commands through the runner of the Lab. Standard library only, Python 3.9 or later."""
 
-import argparse
 import os
 import re
 import secrets
-import signal
-import subprocess
-import sys
 import time
 from pathlib import Path
-from typing import Callable, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Callable, List, NamedTuple, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[4]   # lab-ui/lab_ui/catalogs/ci/ is four folders under the repository
 MAKEFILE = ROOT / "Makefile"
@@ -50,7 +39,6 @@ NODE_TESTS = ["node", "--test", "--test-timeout=60000", "--test-reporter=dot", "
 PYTHON_TIMEOUT = 900   # seconds for the tests of one app; a test that never ends does not hold a job
 NODE_TIMEOUT = 600
 PULL_TIMEOUT = 600
-BUILD_TIMEOUT = 900
 NODE_PIN = re.compile(r"^NODE_IMAGE\s*\?=\s*(\S+)\s*$", re.M)
 SUMMARY = re.compile(r"^FAILED \((.*)\)\s*$", re.M)
 COUNT = re.compile(r"(failures|errors)=(\d+)")
@@ -239,7 +227,7 @@ def ensure_node(node: str, run: Runner, sleep: Callable[[float], None] = time.sl
 def run_app(app: str, image: str, run: Runner, node: Optional[str] = None, guide: Optional[str] = None,
              name: Optional[str] = None, tests: Optional[Tests] = None, namer: Callable[[], str] = container_name) -> Outcome:
     """Runs the tests of one app in its image: Python tests in the image, JavaScript tests in the Node image. An app with no
-    tests is `none`. `node` is the Node image; None when it could not be had (the JavaScript tests then fail with that said)."""
+    tests is `none`. `node` is the Node image, which an app with JavaScript tests needs."""
     name = name or Path(app).name
     found = tests or has_tests(app)
     python = js = "none"
@@ -248,113 +236,10 @@ def run_app(app: str, image: str, run: Runner, node: Optional[str] = None, guide
         python, count, text = run_python(image, run, guide, namer)
         failed, output = failed + (count if python == "failed" else 0), output + text
     if found.js:
-        if node is None:
-            js, failed = "failed", failed + 1
-            output += "\nThe Node image of the JavaScript tests could not be had.\n"
-        else:
-            js, count, text = run_js(app, node, run, namer)
-            failed, output = failed + (count if js == "failed" else 0), output + text
+        js, count, text = run_js(app, node, run, namer)
+        failed, output = failed + (count if js == "failed" else 0), output + text
     if "failed" in (python, js):
         return Outcome(name, "failed", failed, python, js, output)
     if python == "none" and js == "none":
         return Outcome(name, "none", 0, python, js, output)
     return Outcome(name, "passed", 0, python, js, output)
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# On this machine
-# ---------------------------------------------------------------------------------------------------------------------
-
-def local_run(argv: List[str], timeout: float, cwd: Optional[str]) -> Tuple[int, str, str]:
-    """(exit code, output, errors) of a command, with no input and its own process group, ended with everything it started at
-    `timeout` seconds: the runner of a person's terminal. 127 when it cannot be started, 124 at the time limit."""
-    try:
-        process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   encoding="utf-8", errors="replace", start_new_session=True)
-    except OSError as error:
-        return 127, "", str(error)
-    try:
-        out, err = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except OSError:
-            process.kill()
-        process.communicate()
-        return 124, "", f"{argv[0]} did not answer within {int(timeout)} s"
-    return process.returncode, out, err
-
-
-def display(app: str) -> str:
-    """The folder of an app as a person reads it in the log: from where the command runs, else from the project, else whole."""
-    for base in (os.getcwd(), str(ROOT)):
-        relative = os.path.relpath(app, base)
-        if not relative.startswith(".."):
-            return relative + "/"
-    return app + "/"
-
-
-def apps_in(folders: Sequence[str]) -> List[str]:
-    """The apps (folders with a Dockerfile) that these folders are or hold in `apps/*/`, sorted, each once."""
-    found: List[str] = []
-    for each in folders:
-        top = Path(each)
-        if (top / "Dockerfile").is_file():
-            found.append(str(top))
-            continue
-        found += sorted(str(item.parent) for item in top.glob("*/apps/*/Dockerfile")) if top.is_dir() else []
-        found += sorted(str(item.parent) for item in top.glob("apps/*/Dockerfile")) if top.is_dir() else []
-    return list(dict.fromkeys(found))
-
-
-def main(argv: Optional[List[str]] = None, run: Runner = local_run, out=None, err=None, sleep: Callable[[float], None] = time.sleep) -> int:
-    out, err = out or sys.stdout, err or sys.stderr
-    parser = argparse.ArgumentParser(prog="apptests", description="Build each app and run its tests in its image.")
-    parser.add_argument("folders", nargs="*", help="an app, or a folder that holds apps (default: playgrounds/)")
-    parser.add_argument("--keep", action="store_true", help="keep the images")
-    try:
-        args = parser.parse_args(argv)
-    except SystemExit as stop:
-        return stop.code if isinstance(stop.code, int) else 2
-    code, _, said = run(["docker", "info", "--format", "{{.ServerVersion}}"], 60, None)
-    if code != 0:
-        print("Docker is not running: start Docker Desktop (or the docker service), then try again" if code != 127 else
-              "Docker is not installed or not on the PATH", file=err)
-        return 2
-    folders = args.folders or [str(ROOT / "playgrounds")]
-    apps = apps_in(folders)
-    if not apps:
-        print("No app to test: no folder with a Dockerfile in " + ", ".join(folders), file=out)
-        return 0
-    status = 0
-    try:
-        node = node_image()
-    except Missing as error:
-        print(str(error), file=err)
-        return 2
-    node_error = ensure_node(node, run, sleep)
-    for app in apps:
-        shown = display(app)
-        print(f"== {shown}", file=out)
-        tag = "lab-test-" + re.sub(r"[^a-z0-9_.-]", "-", Path(app).name.lower())
-        code, built, error = run(["docker", "build", "-q", "-t", tag, app], BUILD_TIMEOUT, None)
-        if code != 0:
-            print(error or built, file=err)
-            status = 1
-            continue
-        outcome = run_app(app, tag, run, None if node_error else node, guide_of(app))
-        if outcome.output:
-            print(outcome.output.rstrip("\n"), file=err if outcome.status == "failed" else out)
-        if outcome.status == "none":
-            print(f"{Path(app).name} has no tests", file=out)
-        if outcome.status == "failed":
-            status = 1
-        if not args.keep:
-            run(["docker", "rmi", tag], 60, None)
-    return status
-
-
-if __name__ == "__main__":
-    if sys.version_info < (3, 9):
-        sys.exit("Python 3.9 or later is needed: this is " + sys.version.split()[0])
-    sys.exit(main())
