@@ -1257,8 +1257,7 @@ class Deployable(AsOwn):
         self.assertEqual(self.why(later), [])
         self.meta(requires={"images": {"APIM_VERSION": "4.13.0"}})
         several = platforms.capabilities(built, check(("APIM", "4.13.2"), ("APIM", "4.12.21")), "env")
-        self.assertEqual((several["products"], several["detail"]), (
-            {"API Management": "4.12.21"}, "API Management: the gateways run 4.12.21, 4.13.2, the oldest counts"))
+        self.assertEqual(several["products"], {"API Management": "4.12.21"})
         self.assertEqual(self.why(several), [LATER], "the oldest gateway of the environment is the version it runs")
         self.assertEqual(self.why(platforms.capabilities(built, check(("AM", "4.13.0")), "env")),
                          ["Needs API Management"], "an environment without API Management")

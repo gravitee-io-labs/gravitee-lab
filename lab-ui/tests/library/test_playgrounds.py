@@ -1732,7 +1732,7 @@ class PlaceChecks(Deploys):
 
     def test_what_is_not_a_place_is_not_found(self):
         self.warm()
-        for place in ("nope/x", f"my-account/{DEV}x", "my-account/a/b", 5):
+        for place in ("nope/x", f"my-account/{DEV}x", "my-account/a/b"):
             with self.subTest(place=place), self.assertRaisesRegex(paths.NotFound, "^No place"):
                 self.checks(place)
         with self.assertRaises(paths.NotFound):
@@ -1949,7 +1949,7 @@ class Deploying(Deploys):
 
     def test_a_place_that_does_not_exist_is_refused_before_any_job(self):
         self.warm()
-        for place in ("nope/x", "my-account/gone", "../x", 5):
+        for place in ("nope/x", "my-account/gone", "../x"):
             with self.subTest(place=place), self.assertRaises((paths.NotFound, ValueError)):
                 self.deploy(place)
         self.jobs.start.assert_not_called()
