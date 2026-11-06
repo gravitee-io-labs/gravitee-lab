@@ -30,7 +30,7 @@ from http.server import ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 from .docker import compose
-from .library import layers, playgrounds, project
+from .library import playgrounds, project
 from . import paths
 from .catalogs import gitx, manifest, registry
 from .paths import ON_FILE, ROOT
@@ -101,14 +101,13 @@ def parse(text, built=None):
     return kind, uid
 
 
-def target(text, built=None):
-    """The kind and id of an item from `kind:id` (`parse`): the item has to be one of the project, of any catalog. What
+def target(text, built):
+    """The kind and id of an item from `kind:id` (`parse`): the item has to be one of the project `built`, of any catalog. What
     belongs to this machine (`local/`) is never run here: this is the check of what is shared."""
     kind, uid = parse(text, built)
     if paths.personal(uid):
         raise ValueError(f"{kind}:{uid} belongs to this machine: only what is shared with the project is run")
-    found = built if built is not None else project.load()
-    if uid not in found[f"{kind}s"]:
+    if uid not in built[f"{kind}s"]:
         raise ValueError(f"No {paths.NOUNS[kind]} named {uid}")
     return kind, uid
 
@@ -215,7 +214,6 @@ class Run:
         self.clock, self.sleep, self.shell = clock, sleep, shell
         self.get = get or self._get
         self.steps = []
-        self.item = None
 
     # --- Reading -----------------------------------------------------------------------------
 
@@ -473,7 +471,7 @@ def data(out, github):
             out(f"::{token}::")
 
 
-def report(run, outcome, versions_used, message="", logs=None, out=print, summary_file=None):
+def report(run, outcome, versions_used, message="", logs=None, out=print):
     """Prints the run, its logs apart (grouped on GitHub), and appends its summary to the page of the job when it has one.
     The words of a unit (a step's detail, a log) are data: they never run a workflow command."""
     github = os.environ.get("GITHUB_ACTIONS") == "true"
@@ -486,7 +484,7 @@ def report(run, outcome, versions_used, message="", logs=None, out=print, summar
             out(tail(log) or "(empty)")
         if github:
             out("::endgroup::")
-    path = summary_file if summary_file is not None else os.environ.get("GITHUB_STEP_SUMMARY")
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
     if path:
         try:
             with open(path, "a", encoding="utf-8") as file:
@@ -504,7 +502,6 @@ def report(run, outcome, versions_used, message="", logs=None, out=print, summar
 def run(text, tested=None, timeout=1800, keep=False, out=print, given=None):
     """Tries the item named `text` (`kind:id`) on set `tested` of its versions, or on the set `given`, and answers the exit
     code."""
-    layers.prepare()
     built = project.load()
     try:
         kind, uid = target(text, built)

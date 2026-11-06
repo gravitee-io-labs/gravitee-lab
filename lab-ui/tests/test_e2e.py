@@ -534,8 +534,9 @@ class Saying(Case):
 
     def test_the_report_goes_to_the_page_of_the_job_and_groups_the_logs_on_github(self):
         said = []
-        with tempfile.NamedTemporaryFile("r", suffix=".md") as file, mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
-            e2e.report(self.run_of(), e2e.CANNOT, {}, "Needs a license", {"api": "boom"}, said.append, file.name)
+        with tempfile.NamedTemporaryFile("r", suffix=".md") as file, \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": file.name}):
+            e2e.report(self.run_of(), e2e.CANNOT, {}, "Needs a license", {"api": "boom"}, said.append)
             written = file.read()
         self.assertIn("### playground:shop not tried", written)
         self.assertIn("::group::Log of api", said)
@@ -548,8 +549,9 @@ class Saying(Case):
         run = self.run_of()
         run.steps[1].detail = "api\n::add-mask::secret"
         log = "fine\n::error title=Forged::a check that did not fail\n::stop-commands::guess"
-        with tempfile.NamedTemporaryFile("r", suffix=".md") as file, mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
-            e2e.report(run, e2e.CANNOT, {}, "Needs a license\n::set-output name=x::y 100%", {"api": log}, said.append, file.name)
+        with tempfile.NamedTemporaryFile("r", suffix=".md") as file, \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": file.name}):
+            e2e.report(run, e2e.CANNOT, {}, "Needs a license\n::set-output name=x::y 100%", {"api": log}, said.append)
         opened = [i for i, line in enumerate(said) if line.startswith("::stop-commands::")]
         closed = [i for i, line in enumerate(said) if re.fullmatch(r"::[0-9a-f]{32}::", line)]
         self.assertEqual(len(opened), len(closed), "every block that is opened is closed")
@@ -566,7 +568,8 @@ class Saying(Case):
 
     def test_a_summary_that_cannot_be_written_is_said_and_the_run_keeps_what_it_found(self):
         said = []
-        e2e.report(self.run_of(), e2e.FAILED, {}, "x", None, said.append, "/no/such/folder/summary.md")
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": "/no/such/folder/summary.md"}):
+            e2e.report(self.run_of(), e2e.FAILED, {}, "x", None, said.append)
         self.assertIn("The summary could not be written: No such file or directory", said)
         self.assertIn("It does not work: x", said)
 
@@ -683,7 +686,6 @@ class Running(Case):
         self.built = {"playgrounds": {"shop": {"name": "Shop", "tested": [{"APIM_VERSION": "4.13.0"}]}}, "addons": {}, "setups": {}}
         self.patch(project, "load", lambda: self.built)
         self.patch(project, "forget")
-        self.patch(e2e.layers, "prepare")
         self.removed = []
         self.stub_run = mock.Mock()
         self.stub_run.return_value.stop.side_effect = lambda: self.removed.append(True)
