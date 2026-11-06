@@ -57,7 +57,6 @@ INSPECTOR, WHOAMI = unit("fixture", "addon", "agent-lens"), unit("local", "addon
 WELCOME, EVENTS = unit("fixture", "playground", "welcome"), unit("fixture", "setup", "events")
 MINE, HYBRID = unit("local", "setup", "mine"), unit("fixture", "addon", "hybrid")
 LEDGER = unit("partner", "addon", "ledger")
-MISNAMED = "the Lab UI does not see it: name it with lowercase letters, digits and dashes"
 PERSONAL = "what belongs to this machine is not shared with the project"
 ALWAYS = "restart: always starts a stopped container again when Docker restarts: use unless-stopped"
 
@@ -95,30 +94,6 @@ class Machine(Case):
     def lines(self, kind, uid, **context):
         """What is wrong with a unit of the machine."""
         return list(check._unit(kind, uid, self.built, self.given["raw"], context or None))
-
-
-class Misnamed(Case):
-
-    def test_a_file_the_lab_ui_does_not_see_is_a_problem(self):
-        root = self.folder(files=dict.fromkeys((
-            "addons/kafka/compose.yml", "addons/My_Addon/compose.yml", "addons/.hidden/compose.yml",
-            "addons/AGENTS.md", "addons/empty/README.md",
-            "setups/events.yml", "setups/Team_Demo.yml", "setups/.mine.yml", "setups/notes.md",
-            "playgrounds/welcome/compose.yml", "playgrounds/_scratch/compose.yml", "playgrounds/Work Shop/compose.yml"), ""))
-        self.assertEqual(list(check._misnamed(root)), [(path, MISNAMED) for path in (
-            "addons/My_Addon/compose.yml", "setups/Team_Demo.yml", "playgrounds/Work Shop/compose.yml",
-            "playgrounds/_scratch/compose.yml")])
-
-    def test_a_catalog_with_none_of_the_folders_has_nothing_to_name(self):
-        self.assertEqual(list(check._misnamed(self.folder())), [])
-
-    def test_local_is_the_name_of_this_machine_not_one_to_share(self):
-        root = self.folder(files=dict.fromkeys(("addons/local/compose.yml", "setups/local.yml",
-                                                "playgrounds/local/compose.yml", "addons/kafka/compose.yml"), ""))
-        self.assertEqual(list(check._misnamed(root)), [
-            ("addons/local/compose.yml", "a add-on cannot be named local: it would read as one of this machine"),
-            ("setups/local.yml", "a setup cannot be named local: it would read as one of this machine"),
-            ("playgrounds/local/compose.yml", "a playground cannot be named local: it would read as one of this machine")])
 
 
 def skill(name, description="Creates an add-on", head=None):

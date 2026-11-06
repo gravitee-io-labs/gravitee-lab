@@ -49,7 +49,8 @@ DETAILS: Dict[str, Long] = {
     "ST12": Long("Mixed line endings make a diff noisy and break scripts.", SAME),
     "ST13": Long("Two paths that differ only by case cannot both be written on a Mac or on Windows, so the second would "
                  "overwrite the first.", "The later of the two is dropped and counted, so that an install never fails on it."),
-    "ST14": Long("An item is found by the name of its folder, and the names of items are lowercase letters, digits and dashes.",
+    "ST14": Long("An item is found by the name of its folder, and the names of items are lowercase letters, digits and dashes. "
+                 "`local` would read as the items of this machine.",
                  DROPPED),
     "ST15": Long("An item is its `compose.yml` and what it mounts; a folder without one is not an item, and a file loose in a "
                  "kind folder belongs to none.", "The files are dropped: a unit is complete or absent."),

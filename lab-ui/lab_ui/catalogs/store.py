@@ -56,7 +56,7 @@ LISTINGS = tuple(f"{folder}/{name}" for folder in AREAS for name in GUIDES)
 REGULAR = ("100644", "100755")
 
 _SEGMENT = re.compile(r"[A-Za-z0-9._+-]+")
-_NAME = re.compile(r"[a-z0-9-]+")
+_NAME = re.compile(r"(?!local\Z)[a-z0-9-]+")   # `local` would read as the items of this machine
 _SHA = re.compile(r"[0-9a-f]{40}")
 _REF = re.compile(r"refs/lab/[a-z][a-z0-9-]*")
 _SHORT = re.compile(r"tip|pin|previous")

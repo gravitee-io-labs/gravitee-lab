@@ -58,8 +58,8 @@ RULES = table([
      "{path} uses CRLF line endings. Fix: use LF; .gitattributes does for new files."),
     ("ST13", ERROR, "Two paths equal when case is folded",
      "{path} differs from {other} only by case. Fix: rename one; a Mac cannot hold both."),
-    ("ST14", ERROR, "A unit folder or setup file name outside [a-z0-9-]+",
-     "{path}: a unit is named with lowercase letters, digits and dashes."),
+    ("ST14", ERROR, "A unit folder or setup file name outside [a-z0-9-]+, or `local`",
+     "{path}: a unit is named with lowercase letters, digits and dashes, and not `local`."),
     ("ST15", ERROR, "A folder directly under addons/ or playgrounds/ without compose.yml, or a file under setups/ that is "
                     "not setups/<name>.yml",
      "{path} is not a complete unit. Fix: add compose.yml, or delete the folder."),

@@ -108,10 +108,11 @@ class Names(unittest.TestCase):
         self.assertEqual({"ST13"}, codes(found))
 
     def test_st14_a_unit_not_named_as_a_unit(self):
-        message = "{}: a unit is named with lowercase letters, digits and dashes."
+        message = "{}: a unit is named with lowercase letters, digits and dashes, and not `local`."
         one(self, "ST14", "addons/Bad_Name", message.format("addons/Bad_Name"), {"addons/Bad_Name/compose.yml": "services: {}\n",
                                                                                  "addons/Bad_Name/README.md": "x"})
         one(self, "ST14", "setups/Bad.yml", message.format("setups/Bad.yml"), {"setups/Bad.yml": "include: []\n"})
+        one(self, "ST14", "setups/local.yml", message.format("setups/local.yml"), {"setups/local.yml": "include: []\n"})
         quiet(self, {"addons/a-b2/compose.yml": "services: {}\n", "setups/ab-2.yml": "include: []\n"})
 
     def test_st15_a_file_or_folder_that_is_no_complete_unit(self):

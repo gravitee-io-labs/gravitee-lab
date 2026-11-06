@@ -67,7 +67,6 @@ GEMINI_FILE = ".gemini/settings.json"   # where Gemini CLI is told to read AGENT
 LISTINGS = {"addon": ("addons/README.md", "| [{name}]({id}/) | {description} |"),
             "setup": ("setups/README.md", "| [{name}]({id}.yml) | {description} |"),
             "playground": ("playgrounds/README.md", "| [{name}]({id}/) | {description} | {duration} |")}
-AREA = {"addon": "addons", "setup": "setups", "playground": "playgrounds"}   # the folder of each kind in a catalog
 ROW = re.compile(r"^\|\s*\[[^\]]*\]\(([^)\s]*)\)\s*\|")   # a row of a table that starts with a link: where it leads
 FEATURE = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)*")   # a license feature, as the license model writes it
 STEP = re.compile(r"^## (\d+)\.", re.M)   # a numbered section of a guide: one of its steps
@@ -751,33 +750,6 @@ def _noticed(project, raw, found, only):
             yield problem["file"], f"Compose cannot read it: {problem['message']}"
 
 
-def _misnamed(folder):
-    """The files of a catalog whose name is not one the Lab UI sees: [(file, what is wrong)], relative to the catalog.
-    A unit is a folder with a compose.yml, or a setup file, named in lowercase letters, digits and dashes; `local` would read
-    as the items of this machine. Dot files are not meant to be seen."""
-    for kind in KINDS:
-        base = Path(folder) / AREA[kind]
-        try:
-            names = sorted(entry for entry in os.listdir(base) if not entry.startswith("."))
-        except OSError:
-            continue
-        for entry in names:
-            if kind == "setup":
-                stem = entry[:-4] if entry.endswith(".yml") else None
-                if stem is None or not (base / entry).is_file():
-                    continue
-                path = f"{AREA[kind]}/{entry}"
-            else:
-                stem = entry
-                if not (base / entry / "compose.yml").is_file():
-                    continue
-                path = f"{AREA[kind]}/{entry}/compose.yml"
-            if stem == paths.LOCAL:
-                yield path, f"a {NOUNS[kind]} cannot be named local: it would read as one of this machine"
-            elif not re.fullmatch(paths.NAME, stem):
-                yield path, "the Lab UI does not see it: name it with lowercase letters, digits and dashes"
-
-
 def _skill(file):
     """What a skill file says of itself: ({name, description} of its frontmatter, the text after it); (None, its
     text) without a frontmatter. A value that goes on over several lines is read as one."""
@@ -1451,8 +1423,7 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
     """Every problem found in catalog `ns`, as (file, what is wrong), the file relative to the catalog: what its
     catalog.yml says; for each unit the rules of every item (`_unit`), the names it gives, where its paths lead, what the
     screen and the policy say of it (a Blocked reason is an error: "Blocked: ..."); then the README tables the catalog
-    keeps, the ports its units publish, the files whose name the Lab does not see, and whether its declarations of other
-    catalogs and its `lab` are true. The images it builds are the audit's (IM01 to IM04, `audit_units`): `audited` is for a
+    keeps, the ports its units publish, and whether its declarations of other catalogs and its `lab` are true. The images it builds are the audit's (IM01 to IM04, `audit_units`): `audited` is for a
     caller that runs `catalogs.audit` on the same catalog, and leaves out the line about `pull_policy` that IM01 says. It loads
     the project as the Lab does, with the catalog installed or linked in this engine, and never writes. Unavailable when it, or
     a catalog it includes from, is not here."""
@@ -1505,7 +1476,6 @@ def catalog_problems(ns, project=None, inputs=None, audited=False):
         found.append((problem.get("display") or shown(problem["file"]), problem["message"]))
     for kind in KINDS:
         found += list(_table(kind, [unit for one, _, unit in units if one == kind], folder))
-    found += list(_misnamed(folder))
     found += [(shown(file), line) for file, line in _ports(project, raw, None, ns, list(inputs["catalogs"]))]
     if meta is not None:
         found += [(manifest.FILE, line) for line in _dependencies(meta, units, inputs, ns)]
