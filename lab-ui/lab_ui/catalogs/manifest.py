@@ -717,37 +717,31 @@ def _standard(ns) -> Optional[int]:
     return level if type(level) is int and 1 <= level <= STANDARD_MAX else None
 
 
-def _builds(unit, services, raw=None) -> list:
+def _builds(unit, services, raw) -> list:
     """What a unit builds, for the index: [{service, image}], the services of the unit whose file has a `build:` (`raw`, the
     files of the project as gather() read them), with the image each runs as Compose resolved it, or None for a build that
     names none. The file says it, and not the `built` of the project, which also marks a service that runs an image another
     service of the project builds, in this catalog or in another: that service builds nothing, and the same catalog would
-    list other services with other catalogs installed. Without the files (a project given as it is) `built` is all there is.
+    list other services with other catalogs installed.
     No digest and no time, so two runs give the same list, sorted by service. A setup defines no service, and a unit that is
     blocked lists none (the project clears them); the service built from the Lab's seeder is listed like any other, and
     whoever publishes images leaves it out."""
-    defined = None
-    if isinstance(raw, dict):
-        file = raw.get(unit.get("file")) if isinstance(unit.get("file"), str) else None
-        defined = file.get("services") if isinstance(file, dict) else None
-        defined = defined if isinstance(defined, dict) else {}
+    file = raw.get(unit.get("file")) if isinstance(unit.get("file"), str) else None
+    defined = file.get("services") if isinstance(file, dict) else None
+    defined = defined if isinstance(defined, dict) else {}
     found = []
     for name in unit.get("services") or []:
         service = services.get(name) if isinstance(services, dict) and isinstance(name, str) else None
         if not isinstance(service, dict):
             continue
-        if defined is None:
-            builds = bool(service.get("built"))
-        else:
-            written = defined.get(name)
-            builds = isinstance(written, dict) and bool(written.get("build"))
-        if builds:
+        written = defined.get(name)
+        if isinstance(written, dict) and written.get("build"):
             image = registry.shown(service["image"], 300) if service.get("image") else ""
             found.append({"service": registry.shown(name, 100), "image": image or None})
     return sorted(found, key=lambda one: (one["service"], one["image"] or ""))
 
 
-def _index_unit(ns, kind, uid, unit, project, services=None, raw=None):
+def _index_unit(ns, kind, uid, unit, project, services, raw):
     """One entry of the index for a unit of `ns`: its name inside the catalog and what it says of itself."""
     name = paths.split_ref(uid)[1]
     prefix = f"{paths.CATALOGS_DIR}/{ns}/"
@@ -767,28 +761,23 @@ def _index_unit(ns, kind, uid, unit, project, services=None, raw=None):
     return found
 
 
-def build_index(ns: str, loaded: Optional[dict] = None, meta: Optional[dict] = None, raw: Optional[dict] = None) -> dict:
+def build_index(ns: str) -> dict:
     """The generated `catalog.json` of catalog `ns`: {schema, catalog: {id, name, description, version, lab (when its
     catalog.yml states one), license}, standard (the level of the standard the catalog follows, from its `.github/standard.json`; the key is there only
     when that file says one, _standard), units: [{kind, id, path, name, description, category, tags, requires, brings,
     conflicts, builds: [{service, image}]} and, for a playground, duration, first_start, source]}, the units sorted by kind
-    and id. It reads the project as `project.build` gives it (`loaded`) and the catalog's own `catalog.yml` (`meta`, which
-    `read_catalog` answers), so there is one reader and no second parser. When `loaded` is not given, the project is loaded
-    (`project.loaded()`) with the files it was read from (`raw`, {project file: its services as written}), which say what each
-    unit builds (_builds); a project given without them is listed by its own `built`. Nothing in it changes between two runs
+    and id. It reads the project (`project.loaded()`), with the files it was read from, which say what each unit builds (_builds),
+    and the catalog's own `catalog.yml` (`read_catalog`), so there is one reader and no second parser. Nothing in it changes between two runs
     or with what else is installed: no time, no commit, no digest. What a unit says it was tested with is not in it, and was
     not before."""
     from ..library import project   # here and not above: the project reads this package
-    if loaded is None:
-        loaded, read = project.loaded()
-        raw = read.get("raw") if raw is None else raw
-    if meta is None:
-        meta = read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{FILE}")
+    loaded, read = project.loaded()
+    meta = read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{FILE}")
     units = []
     for kind in paths.KINDS:
         for uid, unit in sorted((loaded.get(f"{kind}s") or {}).items()):
             if paths.origin(uid) == ns:
-                units.append(_index_unit(ns, kind, uid, unit, project, loaded.get("services"), raw))
+                units.append(_index_unit(ns, kind, uid, unit, project, loaded.get("services"), read["raw"]))
     units.sort(key=lambda one: (one["kind"], one["id"]))
     found = {"schema": 1,
              "catalog": {key: meta.get(key) for key in ("id", "name", "description", "version", "lab", "license")

@@ -1216,8 +1216,13 @@ class Indexing(Case):
         self.meta = {**GOOD, "license": "Apache-2.0"}
         self.catalog = self.root / paths.CATALOGS_DIR / "acme-hub"
 
-    def index(self, raw=None):
-        return manifest.build_index("acme-hub", self.loaded, self.meta, raw)
+    def index(self, raw=None, ns="acme-hub"):
+        """The index of the project above: `raw` says what its files build, by default the services it marks built."""
+        if raw is None:
+            raw = self.raw(*(name for name, one in self.loaded.get("services", {}).items() if one.get("built")))
+        self.patch(project, "loaded", mock.Mock(return_value=(self.loaded, {"raw": raw})))
+        self.patch(manifest, "read_catalog", mock.Mock(return_value=self.meta))
+        return manifest.build_index(ns)
 
     def raw(self, *building):
         """The files of the project as gather() read them, for the project above: each unit's file holds its services, and those
@@ -1282,27 +1287,14 @@ class Indexing(Case):
         for word in ("commit", "pin", "installed", "checked", "time", "Z\""):
             self.assertNotIn(word, text.replace("\"requires\"", ""), word)
 
-    def test_without_a_project_the_project_is_loaded_with_its_files_and_without_a_meta_the_file_is_read(self):
-        from lab_ui.library import project
-        raw = self.raw("tracer-ui", "tour-web")
-        self.patch(project, "loaded", mock.Mock(return_value=(self.loaded, {"raw": raw})))
-        read = mock.Mock(return_value=self.meta)
-        self.patch(manifest, "read_catalog", read)
-        found = manifest.build_index("acme-hub")
-        self.assertEqual(found, self.index(raw))
-        read.assert_called_once_with(".lab/catalogs/acme-hub/catalog.yml")
+    def test_the_project_is_loaded_with_its_files_and_the_file_of_the_catalog_is_read(self):
+        found = self.index(self.raw("tracer-ui", "tour-web"))
+        manifest.read_catalog.assert_called_once_with(".lab/catalogs/acme-hub/catalog.yml")
         self.assertEqual([one["service"] for unit in found["units"] for one in unit["builds"]], ["tracer-ui", "tour-web"],
                          "what the files say, and not the project's flag")
 
-    def test_a_project_that_is_given_with_the_files_it_was_read_from_is_not_loaded_again(self):
-        from lab_ui.library import project
-        loaded = self.patch(project, "loaded", mock.Mock(side_effect=AssertionError("loaded again")))
-        self.patch(project, "load", mock.Mock(side_effect=AssertionError("loaded again")))
-        manifest.build_index("acme-hub", self.loaded, self.meta, self.raw("tracer-ui"))
-        loaded.assert_not_called()
-
     def test_an_index_of_a_catalog_with_no_unit_is_empty(self):
-        self.assertEqual(manifest.build_index("nobody", self.loaded, self.meta)["units"], [])
+        self.assertEqual(self.index(ns="nobody")["units"], [])
 
     # -- builds: the services a unit builds, 4.5 -------------------------------------------------------------------------
 
@@ -1336,8 +1328,7 @@ class Indexing(Case):
         self.loaded["addons"]["@acme-hub/tracer"]["services"] = ["tracer-ui", "ghost", None, ["x"], 7]
         self.assertEqual([one["service"] for one in self.builds("tracer")], ["tracer-ui"])
         del self.loaded["services"]
-        self.assertEqual(self.builds("tracer"), [], "a project that lists no service")
-        self.assertEqual(manifest.build_index("acme-hub", self.loaded, self.meta, self.raw("tracer-ui"))["units"][1]["builds"], [])
+        self.assertEqual(self.index(self.raw("tracer-ui"))["units"][1]["builds"], [], "a project that lists no service")
 
     def test_what_a_unit_builds_does_not_depend_on_the_order_the_project_lists_it_in(self):
         first = manifest.render_index(self.index())
@@ -1406,7 +1397,7 @@ class Indexing(Case):
         self.loaded["services"]["tracer-db"] = {"image": "registry.example.invalid/partner/ledger:1", "built": True}
         raw[".lab/catalogs/partner/addons/ledger/compose.yml"] = {"services": {"partner-ledger": {"build": "./app"}}}
         self.assertEqual(manifest.render_index(self.index(raw)), first)
-        self.assertEqual(manifest.build_index("partner", self.loaded, self.meta, raw)["units"][0]["builds"],
+        self.assertEqual(self.index(raw, ns="partner")["units"][0]["builds"],
                          [{"service": "partner-ledger", "image": "registry.example.invalid/acme-hub/tour-web:latest"}])
 
     def test_what_the_file_says_wins_over_the_flag_of_the_project_both_ways(self):
@@ -1433,10 +1424,6 @@ class Indexing(Case):
                 found = next(one for one in self.index(odd)["units"] if one["id"] == "tracer")["builds"]
                 self.assertEqual(found, [])
 
-    def test_without_the_files_the_flag_of_the_project_is_all_there_is(self):
-        self.assertEqual([one["service"] for one in self.index()["units"][1]["builds"]], ["tracer-agent", "tracer-ui"])
-        self.assertEqual(self.index(None), self.index())
-
     def test_a_megabyte_of_file_is_read_at_once(self):
         raw = self.raw("tracer-ui")
         raw[self.loaded["addons"]["@acme-hub/tracer"]["file"]]["services"].update(
@@ -1462,7 +1449,9 @@ class Standard(Case):
         self.meta = {**GOOD, "license": "Apache-2.0"}
 
     def index(self):
-        return manifest.build_index("acme-hub", {"addons": {}, "setups": {}, "playgrounds": {}}, self.meta)
+        self.patch(project, "loaded", mock.Mock(return_value=({"addons": {}, "setups": {}, "playgrounds": {}}, {"raw": {}})))
+        self.patch(manifest, "read_catalog", mock.Mock(return_value=self.meta))
+        return manifest.build_index("acme-hub")
 
     def standard(self, content, name="standard.json"):
         """`.github/<name>` of the catalog written with these bytes (text is UTF-8)."""
