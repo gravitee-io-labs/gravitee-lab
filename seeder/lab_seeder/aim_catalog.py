@@ -47,12 +47,11 @@ import os
 import re
 import zipfile
 
-import requests
 import yaml
 
 from . import aim_proxies
 from . import common
-from .common import Api, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, trouble, wait_until
+from .common import Api, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
 from .gamma import CATALOG, WORKSPACES, Gamma
 
 SECTION = "aim-catalog"
@@ -303,7 +302,7 @@ def catalog_card(card):
 def fetch_card(url):
     try:
         return Api(url).get(CARD_PATH).json()
-    except (SeedError, requests.RequestException, ValueError) as e:
+    except (SeedError, ValueError) as e:
         raise SeedError(f"The agent card of {url}: {e}")
 
 
@@ -339,7 +338,7 @@ class McpServer:
     """Just enough of the MCP protocol, over streamable HTTP, to list what a server offers."""
 
     def __init__(self, url):
-        self.url, self.api = url, Api(url)
+        self.url, self.api = url, Api(url, SECTION)
         self.api.session.headers["Accept"] = "application/json, text/event-stream"
         self.headers = {"MCP-Protocol-Version": MCP_VERSION}
 
@@ -347,12 +346,7 @@ class McpServer:
         body = {"jsonrpc": "2.0", "method": method, "params": params or {}}
         if not notification:
             body["id"] = 1
-        try:
-            answer = self.api.send("POST", "", json=body, headers=self.headers, timeout=30)
-        except requests.RequestException as e:
-            raise SeedError(f"MCP {method} at {self.url}: {trouble(e, 30)}") from None
-        if answer.status_code >= 400:
-            raise SeedError(f"MCP {method} at {self.url}: HTTP {answer.status_code} {excerpt(answer.text, 200)}")
+        answer = self.api.post("", json=body, headers=self.headers, what=f"MCP {method} at {self.url}")
         if "Mcp-Session-Id" in answer.headers:
             self.headers["Mcp-Session-Id"] = answer.headers["Mcp-Session-Id"]
         if notification:
