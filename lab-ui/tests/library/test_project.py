@@ -1906,8 +1906,6 @@ class Needs(Case):
         _, built, _ = self.pair(catalogs={"lab-new": {}})
         self.assertEqual(built["addons"]["echo"]["needs_catalogs"], [])
         self.assertTrue(built["addons"]["future"]["blocked"])
-        self.assertEqual(built["catalogs"]["fixture"]["needs"],
-                         [{key: self.PARTNER[key] for key in ("id", "name", "url", "min")}])
 
     def test_a_catalog_that_is_added_and_not_downloaded_is_downloading_or_failed(self):
         for error, reason in ((None, "downloading"), ("unreachable", "failed")):

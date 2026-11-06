@@ -44,7 +44,7 @@ export const catalog = (more = {}) => ({
   state: STATES.uptodate, progress: null, attention: null,
   auto: true, has_previous: false, writable: false, host: "no",
   held: { update: "", remove: "", undo: "No previous version" },
-  blocked: [], uses_machine: [], ignored: 0, problems: [], needs: [], ...more,
+  blocked: [], uses_machine: [], ignored: 0, problems: [], ...more,
 });
 
 // The first catalog the Lab lists, the one whose items have bare ids; this machine's own row; a listed catalog the person removed; a folder

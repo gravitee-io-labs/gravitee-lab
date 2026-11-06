@@ -249,7 +249,7 @@ class Rows(Seam):
         self.assertEqual(sorted(row), sorted([
             "id", "kind", "listed", "name", "imported", "description", "address", "url", "web_url", "version", "commit", "updated",
             "checked", "audience", "counts", "state", "progress", "attention", "auto", "has_previous", "writable", "host",
-            "held", "blocked", "uses_machine", "ignored", "problems", "needs"]))
+            "held", "blocked", "uses_machine", "ignored", "problems"]))
         self.assertEqual((row["name"], row["version"], row["commit"], row["counts"], row["audience"]),
                          ("Partner fixture", "2.0.0", self.remotes["partner"].head()[:7],
                           {"playground": 0, "setup": 0, "addon": 1}, "private"))
@@ -277,34 +277,26 @@ class Rows(Seam):
         rows = service.describe({}, {})
         self.assertEqual([row["id"] for row in rows if row.get("id")], ["fixture", "partner"])
 
-    def test_the_summary_of_the_project_gives_the_blocked_items_what_uses_the_machine_the_needs_and_the_problems(self):
+    def test_the_summary_of_the_project_gives_the_blocked_items_what_uses_the_machine_and_the_problems(self):
         self.installed("partner")
         summary = {"partner": {
             "blocked": [{"kind": "addon", "id": "@partner/x", "name": "X", "reasons": ["Mounts the Docker socket"]}],
             "uses_machine": [{"id": "@partner/k3s", "name": "Kubernetes", "service": "k3s", "what": ["runs privileged"],
                               "why": "Runs containerd and the kubelet", "extra": "not part of the row"}],
-            "needs": [{"id": "other", "name": "Other", "url": "https://example.invalid/o.git", "min": "1.0.0"}],
             "problems": [{"file": ".lab/catalogs/partner/addons/y/compose.yml", "display": "addons/y/compose.yml",
                           "message": "Cannot be read: boom"}]}}
         row = next(one for one in service.describe({"catalogs": summary}, {}) if one["id"] == "partner")
         self.assertEqual(row["blocked"], summary["partner"]["blocked"])
         self.assertEqual(row["uses_machine"], [{"id": "@partner/k3s", "name": "Kubernetes", "service": "k3s",
                                                 "what": ["runs privileged"], "why": "Runs containerd and the kubelet"}])
-        self.assertEqual(row["needs"], summary["partner"]["needs"])
         self.assertEqual(row["problems"], ["addons/y/compose.yml: Cannot be read: boom"])
 
-    def test_a_catalog_an_item_needs_is_preselected_for_the_allowance_when_the_suggestions_file_says_so(self):
-        self.installed("partner")
+    def test_a_suggestion_preselects_the_allowance_when_the_suggestions_file_says_so(self):
         suggestions = self.home / "suggestions.json"
         suggestions.write_text(json.dumps({"schema": 1, "catalogs": [
             {"name": "Other", "url": "https://git.example.invalid/team/other.git", "host_access": True},
             {"name": "Plain", "url": "https://git.example.invalid/team/plain.git"}]}), encoding="utf-8")
         self.environ(LAB_CATALOGS_FILE=str(suggestions))
-        needs = [{"id": "other", "name": "Other", "url": "https://git.example.invalid/team/other.git", "min": "1.0.0"},
-                 {"id": "plain", "name": "Plain", "url": "git@git.example.invalid:team/plain.git", "min": None},
-                 {"id": "none", "name": "None", "url": None, "min": None}]
-        row = next(one for one in service.describe({"catalogs": {"partner": {"needs": needs}}}, {}) if one.get("id") == "partner")
-        self.assertEqual(row["needs"], [dict(needs[0], host_access=True), needs[1], needs[2]])
         rows = [one for one in service.describe({}, {}) if one["kind"] == "suggested"]
         self.assertEqual([(one["name"], one.get("host_access", False)) for one in rows], [("Other", True), ("Plain", False)])
 

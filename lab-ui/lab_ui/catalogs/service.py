@@ -502,14 +502,6 @@ def _held_of(ns, project_, held, on):
     return {"update": why or "", "remove": why or turn or "", "undo": previous or why or turn or ""}
 
 
-def _with_access(needs, asked):
-    """The needs of a catalog or of a preview with `host_access: true` on the ones whose address the suggestions file lists with
-    `host_access`: what the Add dialog preselects as the allowance when the person arrives at it from that address. A
-    suggestion can preselect, never imply. `asked` is the display form of those addresses."""
-    return [dict(one, host_access=True) if one.get("url") and registry.display_address(one["url"]) in asked else dict(one)
-            for one in needs]
-
-
 def _remembered(ns, found, held):
     """The code of the failure this process remembers for a catalog that is in the commit of a download, else None. The disk
     says Downloading for the milliseconds of a commit (`pending`, with the `error` the commit cleared), but when the attempt
@@ -526,7 +518,7 @@ def _remembered(ns, found, held):
     return firstrun._failure(ns, {ns: held})
 
 
-def _git_row(ns, found, summary, project_, entry, contract, asked=frozenset(), on=frozenset()):
+def _git_row(ns, found, summary, project_, entry, contract, on=frozenset()):
     held = registry.lock_of(ns)
     code = _remembered(ns, found, held)
     if code:   # the failure the page says, through the milliseconds of a silent retry's commit
@@ -555,7 +547,6 @@ def _git_row(ns, found, summary, project_, entry, contract, asked=frozenset(), o
         "ignored": found.get("ignored") or 0,
         "problems": [f"{one.get('display') or one.get('file')}: {one.get('message')}"
                      for one in summary.get("problems") or [] if isinstance(one, dict)],
-        "needs": _with_access(summary.get("needs") or [], asked),
     }
 
 
@@ -590,8 +581,6 @@ def describe(project, inputs):
     summaries = project.get("catalogs") if isinstance(project.get("catalogs"), dict) else {}
     contract = inputs.get("contract") if isinstance(inputs.get("contract"), dict) else {}
     entries = {one["id"]: one for one in registry.entries()}
-    suggestions = registry.suggestions()
-    asked = {registry.display_address(one["url"]) for one in suggestions if one.get("host_access")}
     on = install.on_by_catalog()
     rows = []
     for ns, one in found.items():
@@ -599,9 +588,8 @@ def describe(project, inputs):
             if sum(_counts(one.get("units") or {}).values()):
                 rows.append(_machine_row(one, summaries.get(ns) or {}))
         else:
-            rows.append(_git_row(ns, one, summaries.get(ns) or {}, project, entries.get(ns), contract, asked,
-                                 on.get(ns, frozenset())))
-    rows += [_suggested_row(one) for one in suggestions]
+            rows.append(_git_row(ns, one, summaries.get(ns) or {}, project, entries.get(ns), contract, on.get(ns, frozenset())))
+    rows += [_suggested_row(one) for one in registry.suggestions()]
     with _lock:
         fetching = list(_checking.values())
     if fetching:
@@ -691,8 +679,7 @@ def _preview_rows(meta, judged, verdicts, mine, listed):
             "ports": list(surface["ports"]), "core": sorted({one["label"] for one in surface["core"]}),
             "reads": list(surface["reads"]),
             "uses_machine": [] if listed else _uses_of(judged, verdicts, mine),
-            "needs": _with_access(_needs_of(judged, mine, meta),
-                                  {registry.display_address(one["url"]) for one in registry.suggestions() if one.get("host_access")})}
+            "needs": _needs_of(judged, mine, meta)}
 
 
 # ---------------------------------------------------------------------------------------------------------------------

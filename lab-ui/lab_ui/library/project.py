@@ -1851,26 +1851,22 @@ def _apart(problems, given):
 
 
 def _summaries(units, verdicts, catalogs, problems):
-    """What the units found out about each catalog: {namespace: {id, name, kind, counts, blocked, uses_machine, needs,
-    problems}}, for each catalog that has a unit, and for this machine's own area when it has one. The registry says the rest
-    of a row (version, state, address); this is what only the project knows. `blocked` lists the units that cannot start
-    and why, `uses_machine` the services that take more of this machine than a container does and the reason each gave, `needs`
-    the catalogs its units include from that are not here."""
+    """What the units found out about each catalog: {namespace: {id, name, kind, counts, blocked, uses_machine, problems}}, for
+    each catalog that has a unit, and for this machine's own area when it has one. The registry says the rest of a row (version,
+    state, address); this is what only the project knows. `blocked` lists the units that cannot start and why, `uses_machine` the
+    services that take more of this machine than a container does and the reason each gave."""
     found = {}
     for key, unit in units.items():
         ns = unit["catalog"]
         row = catalogs.get(ns) or {}
         one = found.setdefault(ns, {"id": ns, "name": row.get("name") or ns, "kind": row.get("kind"),
                                     "counts": {"playground": 0, "setup": 0, "addon": 0}, "blocked": [], "uses_machine": [],
-                                    "needs": [], "problems": list(problems.get(ns) or [])})
+                                    "problems": list(problems.get(ns) or [])})
         one["counts"][key[0]] += 1
         if unit["blocked"]:
             one["blocked"].append({"kind": key[0], "id": unit["id"], "name": unit["name"], "reasons": list(unit["blocked"]["reasons"])})
         one["uses_machine"] += [{"id": unit["id"], "name": use["label"], "service": use["service"], "what": list(use["what"]),
                                  "why": use["why"]} for use in ((verdicts.get(key) or {}).get("surface") or {}).get("uses_machine", [])]
-        for need in unit["needs_catalogs"]:
-            if not any(seen["id"] == need["id"] for seen in one["needs"]):
-                one["needs"].append({field: need.get(field) for field in ("id", "name", "url", "min")})
     return found
 
 
