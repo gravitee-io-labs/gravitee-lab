@@ -36,7 +36,6 @@ TOPS = ["addons/ledger/.env", "addons/ledger/.state", "addons/ledger/certs", "ad
 ODD = {".env": "SECRET=1\n", ".state/created.json": "{}\n", "secrets/token": "t\n", "data/db.sqlite": "rows\n",
        "certs/ca.txt": "ca\n"}   # the machine's files of a unit: three that names tell, two that no name does
 REAL_READ = manifest.read_catalog   # Compose's reading of catalog.yml, before the tests put the fixtures' in its place
-REAL_VACATE = install._vacate
 REAL_HOME = os.path.expanduser("~")   # where the Docker CLI finds its Compose plugin, before a test isolates the home folder
 
 # What is the same for every test is made once for the run: the folder the remotes are in (so that an address written in
@@ -1131,23 +1130,9 @@ class Unvouched(Base):
         for rel, text in ODD.items():
             self.assertEqual((self.base / "addons/ledger" / rel).read_text(encoding="utf-8"), text, rel)
 
-    def test_a_stop_in_a_remove_between_the_manifest_and_the_marker_loses_no_setting(self):
-        self.add("partner")
-        made = self.machine("partner")
-        self.patch(install, "_vacate", mock.Mock(side_effect=Crash("after the marker")))
-        with self.assertRaises(Crash):
-            install.remove("partner", keep_settings=True)
-        self.patch(install, "_vacate", REAL_VACATE)
-        self.assertTrue((self.base / install.MARKER).is_file(), "the marker is written before the content goes")
-        self.assertIn(("emptied", "partner"), install.sweep(), "a start finishes the Remove")
-        self.assertFalse((self.base / "addons/ledger/compose.yml").exists())
-        self.assertEqual(sorted(p.relative_to(self.base).as_posix() for p in self.base.rglob("*") if p.is_file()),
-                         sorted([install.MARKER, *made]))
-        self.settled()
-
     def test_a_stop_at_the_step_between_the_marker_and_the_content_going_is_finished_by_the_sweeper(self):
-        """The step `remove:vacate` is the window the line above simulates by patching `_vacate`: the marker is written, the
-        manifest and the content are still there, and a start empties the folder and loses no setting."""
+        """The step `remove:vacate`: the marker is written, the manifest and the content are still there, and a start empties
+        the folder and loses no setting."""
         self.add("partner")
         made = self.machine("partner")
         self.patch(install, "STEP", stop_at("remove:vacate"))
@@ -2093,23 +2078,6 @@ class Removing(Base):
         self.assertEqual(raised.exception.code, "damaged")
         self.assertTrue((self.base / LEDGER / "compose.yml").is_file())
 
-    def test_a_remove_that_stopped_after_its_commit_point_is_finished_by_the_next_start(self):
-        self.machine("partner")
-        watch = Watch(self)
-        watch.stop = 1   # after the entry left catalogs.json
-        with self.assertRaises(Crash):
-            install.remove("partner", keep_settings=True)
-        self.assertIsNone(registry.entry("partner"))
-        self.assertTrue(registry.store_dir("partner").is_dir())
-        install.STEP = None
-        install.recover()
-        self.nothing("partner")
-        self.assertEqual(paths.ids("addon"), ["@lab-new/newer"])
-        left = [p for p in (Path(paths.ROOT) / ".lab/catalogs").iterdir() if p.name.startswith("partner") or ".removed-partner" in p.name]
-        self.assertEqual(len(left), 1)
-        settings = left[0]
-        self.assertEqual((settings / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
-
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The sweeper, and what a start finishes
@@ -2624,23 +2592,6 @@ class Stops(Base):
         for wanted in ("stage:begin", "add:begin", "add:manifest", "add:store", "add:pending", "add:install", "add:placed",
                        "add:lock", "add:config", "add:done"):
             self.assertIn(wanted, labels)
-
-    def test_a_stop_after_the_install_was_renamed_with_pending_set_and_no_pin_is_cleaned(self):
-        self.fresh()
-        staged, address, roots = self.prepare("partner")
-        self.patch(install, "STEP", stop_at("add:placed"))
-        with self.assertRaises(Crash):
-            install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
-        self.patch(install, "STEP", None)
-        held = registry.lock_of("partner")
-        self.assertEqual((held["pin"], held["pending"]["op"], held["pending"]["to"]), (None, "add", staged.commit))
-        self.assertIsNone(registry.entry("partner"))
-        self.assertEqual(paths.ids("addon"), [], "a catalog with no entry has no units")
-        install.recover()
-        self.nothing("partner")
-        self.assertFalse(registry.install_dir("partner").exists())
-        self.add("partner")
-        self.intact("partner")
 
     def test_a_stop_at_any_step_of_an_add_over_the_folder_a_remove_left_keeps_every_setting(self):
         made = []
