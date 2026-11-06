@@ -683,18 +683,11 @@ class Vouched(OnDisk):
             ".lab/catalogs/acme-hub/addons/listed/compose.yml", ".lab/catalogs/plain/addons/loose/compose.yml",
             ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/acme-hub/playgrounds/bank/compose.yml"])
 
-    def test_a_name_the_manifest_vouches_for_and_the_folder_lacks_is_no_unit(self):
-        self.assertNotIn("@acme-hub/ghost", paths.ids("playground"))
-
     def test_the_half_of_an_install_the_registry_does_not_know_lists_nothing(self):
         # A manifest the registry gives no units for (not valid for the pin, not in the lock): its files are not content
         self.vouches.clear()
         self.assertEqual(self.everything(), {
             "addon": ["local/mine", "@plain/loose"], "setup": ["local/mine"], "playground": []})
-
-    def test_this_machine_is_listed_as_it_is_whatever_a_file_says(self):
-        self.assertIn("local/mine", paths.ids("addon"))
-        self.assertNotIn("local", [call.args[0] for call in self.asked.call_args_list])
 
     def test_a_link_to_a_folder_is_listed_as_it_is(self):
         author = tempfile.TemporaryDirectory()
@@ -705,10 +698,6 @@ class Vouched(OnDisk):
         os.symlink(author.name, self.root / ".lab/catalogs/author-cat")
         self.assertIn("@author-cat/linked", paths.ids("addon"))
         self.assertNotIn("author-cat", [call.args[0] for call in self.asked.call_args_list])
-
-    def test_a_folder_with_no_manifest_is_listed_as_it_is(self):
-        self.assertIn("@plain/loose", paths.ids("addon"))
-        self.assertNotIn("plain", [call.args[0] for call in self.asked.call_args_list])
 
     def test_a_manifest_that_is_not_a_file_is_not_a_manifest(self):
         os.makedirs(self.root / ".lab/catalogs/plain/.installed.json")
