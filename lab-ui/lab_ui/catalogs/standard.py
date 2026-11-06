@@ -1814,9 +1814,3 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
     else:
         _say(f"Wrote {len(written)} files.")
     return 0
-
-
-__all__ = ["LEVEL", "RULES", "TemplateError", "UpgradeError", "apply_command", "carry_pins", "comparable", "create", "declared", "describe",
-           "dirty_files", "drift", "dump_standard", "gitlinks", "golden_now", "golden_problems", "levels", "main_new", "main_upgrade",
-           "manifest", "managed_paths", "managed_roots", "managed_text", "marker", "marker_level", "normalize", "render_files", "render_new",
-           "upgrade_apply", "upgrade_plan", "values", "write_golden"]

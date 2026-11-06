@@ -303,6 +303,3 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
                     is_seeder=ctx.is_seeder, private=(), repository=ctx.repository, ci=ctx.ci, online=ctx.online)
     earlier = _run_families(before, quiet, [code for code in ORDER if code in HYGIENE], [])
     return subtract(found, promote(earlier, ctx.standard, options.error))
-
-
-__all__ = ["Options", "Result", "family", "lab_seeder_images", "origin_repository", "promote", "run", "status", "subtract"]

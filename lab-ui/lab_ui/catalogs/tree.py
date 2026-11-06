@@ -581,7 +581,3 @@ def git_dir_of(repo) -> Optional[str]:
 def is_repository(path) -> bool:
     """Whether a folder is the top of a git work tree."""
     return os.path.lexists(os.path.join(str(path), ".git"))
-
-
-__all__ = ["Added", "Commit", "Entry", "FolderTree", "GitTree", "History", "ListTree", "REGULAR", "Tree", "TreeError",
-           "default_base", "diff_path", "git_dir_of", "is_repository", "read_inside", "resolve", "unquote"]

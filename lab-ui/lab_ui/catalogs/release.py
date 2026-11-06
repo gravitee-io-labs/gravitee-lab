@@ -310,6 +310,3 @@ def main(argv: Optional[List[str]] = None, gh: Optional[Callable] = None) -> int
         return 0
     print(printable("\n".join(lines), keep=("\n",)))
     return 0
-
-
-__all__ = ["ReleaseError", "edit_version", "latest_tag", "main", "numbers", "release"]

@@ -283,6 +283,3 @@ def document() -> str:
                 lines.append(f"- **Why**: {_text(entry.why)}")
             lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
-
-
-__all__ = ["DETAILS", "FAMILY_NAMES", "T_FIXES", "codes", "document", "explain", "table"]
