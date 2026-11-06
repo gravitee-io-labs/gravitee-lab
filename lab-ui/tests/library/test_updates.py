@@ -13,7 +13,7 @@ from unittest import mock
 
 from lab_ui import paths
 from lab_ui.catalogs.registry import CatalogError
-from lab_ui.docker import jobs
+from lab_ui.docker import compose, jobs
 from lab_ui.library import updates
 
 from .. import Case
@@ -53,6 +53,7 @@ class Versions(Case):
         self.lab = self.top / "lab"
         git(self.top, "clone", "-q", str(self.remote), str(self.lab))
         self.patch(paths, "ROOT", self.lab)
+        self.patch(compose, "ROOT", self.lab)   # where a job runs its commands: never the clone these tests run from
         updates.forget()
         self.addCleanup(updates.forget)
         self.patch(updates, "_checked", {"at": None, "error": None, "checking": False})
