@@ -2,7 +2,7 @@
 // one for each playground), what is typed or run from the guide sent back by POST, in order. The libraries come from a CDN the
 // first time a terminal is shown; without them the panel says so. The rules are in split.js, the panel around it is termpane.js.
 
-import { api, loadScript, loadStyle } from "../core.js";
+import { api, loadScript, loadStyle, withoutDefine } from "../core.js";
 import { bytesOf, commandOf } from "./split.js";
 
 // Each library at one version, with the sha384 hash of its file: the browser refuses a file that differs. Another version needs its
@@ -17,17 +17,7 @@ const RETRY = 2000;   // how long after the stream was lost it is opened again, 
 
 let libs = null;      // the libraries, loaded once
 
-// The libraries give globals. Once the editor has been opened, its loader offers `define` to every script and they would
-// register with it instead: it is put aside while they load.
-async function loadLibs() {
-  const define = window.define;
-  if (define) window.define = undefined;
-  try {
-    await Promise.all([loadStyle(XTERM_CSS, XTERM_CSS_HASH), loadScript(XTERM, XTERM_HASH), loadScript(FIT, FIT_HASH)]);
-  } finally {
-    if (define) window.define = define;
-  }
-}
+const loadLibs = () => withoutDefine(() => Promise.all([loadStyle(XTERM_CSS, XTERM_CSS_HASH), loadScript(XTERM, XTERM_HASH), loadScript(FIT, FIT_HASH)]));
 
 // The terminal's colors are the page's, read when it is made and again when the theme changes
 function colors() {

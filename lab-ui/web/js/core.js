@@ -102,6 +102,18 @@ export function loadStyle(href, integrity) {
     { rel: "stylesheet", href, integrity, crossOrigin: "anonymous", onload: resolve, onerror: () => reject(new Error(`${href} did not load`)) })));
 }
 
+// Libraries give globals. Once the editor has been opened, its loader offers `define` to every script and they would register with it
+// instead: it is put aside while `load` loads them.
+export async function withoutDefine(load) {
+  const define = window.define;
+  if (define) window.define = undefined;
+  try {
+    await load();
+  } finally {
+    if (define) window.define = define;
+  }
+}
+
 // What the browser keeps from one visit to the next; nothing when its storage is unavailable
 export function recall(key) {
   try { return localStorage.getItem(key); } catch { return null; }
