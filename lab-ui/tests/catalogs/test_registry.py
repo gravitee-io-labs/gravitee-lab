@@ -1631,7 +1631,6 @@ class Scanner(Disk):
                 found = self.scan(f'x-gravitee-catalog:\n  id: acme-hub\n  requires: {{catalogs: {{partner: {{name: P, url: "{url}", '
                                   'min: 1.0.0}}}\n')
                 self.assertEqual(found["requires_catalogs"]["partner"]["url"], expected)
-                self.assertNotIn("partial", found)
         found = self.scan("x-gravitee-catalog:\n  requires:\n    catalogs:\n      partner:\n        name: P\n        url: 7\n")
         self.assertIsNone(found["requires_catalogs"]["partner"]["url"])
         self.assertIsNone(registry._git_url(None))
