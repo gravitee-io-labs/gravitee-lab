@@ -476,7 +476,7 @@ class _Audit:
         self.owner, self.name = repo.split("/", 1)
         self.reads = Reads(runner)
         self.found = Findings()
-        self.effective_only = options["effective_only"]
+        self.effective_only = bool(options.get("effective_only"))
         self.no_rulesets = False           # GitHub said the plan has none
         self.protected_paths_ok = False
         self.secret_state = ""
@@ -514,7 +514,7 @@ class _Audit:
             ("public" if meta.get("private") is False else "private")
         self.org = as_dict(meta.get("owner")).get("type") == "Organization"
         self.personal = self.visibility == "private" and not self.org
-        asked = self.options["as"]
+        asked = self.options.get("as")
         if asked in ("private", "internal") and self.visibility == "public":
             raise Usage(f"--as {asked} cannot describe a public repository.")
         self.profile = asked or self.visibility
@@ -530,7 +530,7 @@ class _Audit:
         """The standard of the repository: the one given in the options, else the one read from `.github/standard.json` on
         the default branch. None when the file is not there, which is a repository that is not a catalog yet."""
         if self._standard is False:
-            given = self.options["standard"]
+            given = self.options.get("standard")
             self._standard = parse_standard(given) if given is not None else self.read_standard()
         return self._standard
 
@@ -854,12 +854,10 @@ class _Audit:
             if reply.code != 200:
                 return self.unreadable("actions.org_secrets", reply)
             names += names_of(items)
-        extra = sorted(set(names) - set(self.options["allow_org_secrets"]))
-        if not extra:
+        if not names:
             return self.add("actions.org_secrets", OK)
-        self.add("actions.org_secrets", FAIL, now="also: " + ", ".join(clean(name, 60) for name in extra),
-                 fix="Scope them to other repositories, or name them as the maintainers' own with --allow-org-secret NAME: "
-                     "they reach a workflow on any branch")
+        self.add("actions.org_secrets", FAIL, now="also: " + ", ".join(clean(name, 60) for name in sorted(set(names))),
+                 fix="Scope them to other repositories: they reach a workflow on any branch")
 
     def runners(self):
         repo, setting = self.repo, "Runner groups: Selected repositories, never a catalog; Allow public repositories off"
@@ -1301,30 +1299,14 @@ class _Audit:
         self.add("people.write", MANUAL, now=shown)
 
 
-def _options(options) -> dict:
-    given = dict(options or {})
-    asked = given.get("as")
-    if asked not in (None, "public", "private", "internal"):
-        raise Usage("--as takes public, private or internal.")
-    out = {}
-    for key, what in (("allow_org_secrets", "--allow-org-secret takes a name."),):
-        names = list(as_list(given.get(key)))
-        if not all(isinstance(name, str) and 1 <= len(name) <= 100 and name.isprintable() for name in names):
-            raise Usage(what)
-        out[key] = names
-    return {"as": asked, "effective_only": bool(given.get("effective_only")),
-            "standard": given.get("standard"), **out}
-
-
 def audit(repo: str, runner: Callable, options: Optional[dict] = None) -> Findings:
     """The findings for `repo` ("OWNER/REPO"), read through `runner`. `options`: `as` (public, private or internal: the
-    visibility the repository is audited against, else its own), `effective_only`, `allow_org_secrets` (the names of the organization secrets and variables that are the
-    maintainers' own), `standard` (the parsed `.github/standard.json`, else it is read from the repository). Writes nothing.
+    visibility the repository is audited against, else its own), `effective_only`, `standard` (the parsed `.github/standard.json`, else it is read from the repository). Writes nothing.
     Raises Unusable for a repository that cannot be read and for a sign-in that is missing."""
     if not isinstance(repo, str) or not REPO_NAME.fullmatch(repo) or repo.endswith(".git") \
             or repo.split("/")[1] in (".", ".."):
         raise Usage("The repository is OWNER/REPO on github.com.")
-    return _Audit(repo, runner, _options(options)).run()
+    return _Audit(repo, runner, options or {}).run()
 
 
 # ---------------------------------------------------------------- apply
@@ -1557,15 +1539,9 @@ class Parser(argparse.ArgumentParser):
         raise Usage(text)
 
 
-def _name(text: str) -> str:
-    if not 1 <= len(text) <= 100 or not text.isprintable():
-        raise argparse.ArgumentTypeError("a name of 1 to 100 printable characters")
-    return text
-
-
 USAGE = """catalog.py repo-settings [OWNER/REPO or FOLDER] [--apply [--yes] [--warnings]] [--effective-only]
                          [--strict] [--as public or private or internal]
-                         [--allow-org-secret NAME] [--fleet OWNER] [--format text or json or github]
+                         [--fleet OWNER] [--format text or json or github]
 
 Audits the repository standard of a catalog on GitHub, through the gh command of the maintainer. --apply lists the
 requests that bring the repository to the standard, --yes makes them. Exit 0 when nothing failed, 1 when a rule failed
@@ -1581,7 +1557,6 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--effective-only", action="store_true")
     p.add_argument("--strict", action="store_true")
     p.add_argument("--as", dest="visibility", choices=("public", "private", "internal"))
-    p.add_argument("--allow-org-secret", action="append", default=[], type=_name)
     p.add_argument("--fleet", metavar="OWNER")
     p.add_argument("--format", choices=("text", "json", "github"), default="text")
     return p
@@ -1602,8 +1577,7 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
             raise Usage("--yes and --warnings go with --apply.")
         if args.fleet is not None and (args.target or args.apply):
             raise Usage("--fleet audits every catalog of an owner: it takes no repository and no --apply.")
-        options = {"as": args.visibility, "effective_only": args.effective_only,
-                   "allow_org_secrets": args.allow_org_secret}
+        options = {"as": args.visibility, "effective_only": args.effective_only}
         runner = runner or Gh()
         if args.fleet is not None:
             from . import fleet

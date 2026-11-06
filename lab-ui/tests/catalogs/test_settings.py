@@ -658,7 +658,6 @@ class Audit(Case):
         scene.set("/actions/organization-secrets", {"total_count": 1, "secrets": [{"name": "LEAKY_TOKEN"}]})
         found = scene.finding("actions.org_secrets")
         self.assertEqual((FAIL, "also: LEAKY_TOKEN"), (found.status, found.now))
-        self.assertEqual(OK, scene.finding("actions.org_secrets", allow_org_secrets=["LEAKY_TOKEN"]).status)
         scene = Scene("org-private")
         scene.set("/actions/organization-variables", {"total_count": 1, "variables": [{"name": "WIDE_OPEN"}]})
         found = scene.finding("actions.org_secrets")
@@ -1539,9 +1538,6 @@ class Whole(Case):
                 self.assertEqual(f"--as {kind} cannot describe a public repository.", str(raised.exception))
         self.assertEqual(NA, {f.id: f for f in Scene("org-private").audit(**as_public())}["rules.push"].status)
         self.assertEqual(OK, {f.id: f for f in Scene("org-private").audit(**{"as": "internal"})}["rules.push"].status)
-        for bad in ("secret", "", 3):
-            with self.assertRaises(settings.Usage):
-                Scene("org-private").audit(**{"as": bad})
 
     def test_an_internal_repository_is_audited_as_it_is(self):
         scene = Scene("org-private")
@@ -1556,9 +1552,6 @@ class Whole(Case):
         for repo in ("a b/c", "../x/y", "x", "a/b/c", "a/.git", "a/b.git", "a/..", "", "-x/y", "a/b\n", None, 3):
             with self.assertRaises(settings.Usage):
                 settings.audit(repo, scene.hub, {})
-        for options in ({"allow_org_secrets": [""]}, {"allow_org_secrets": ["a\nb"]}):
-            with self.assertRaises(settings.Usage):
-                settings.audit(scene.repo, scene.hub, options)
         self.assertEqual([], scene.hub.calls)
         scene.table.pop(f"GET repos/{scene.repo}")
         with self.assertRaises(settings.Refused) as raised:
@@ -2200,7 +2193,6 @@ class Command(Case):
         scene = Scene("org-private")
         scene.set("/actions/organization-secrets", {"secrets": [{"name": "MINE"}]})
         self.assertEqual(1, Run(["acme-labs/lab-internal"], scene).code)
-        self.assertEqual(0, Run(["acme-labs/lab-internal", "--allow-org-secret", "MINE"], scene).code)
         run = Run(["acme-labs/lab-internal", "--as", "public"], Scene("org-private"))
         self.assertIn("(private, organization-owned, audited as public)", run.text)
         run = Run(["acme-labs/lab-internal", "--effective-only"], Scene("org-private"))
@@ -2211,7 +2203,7 @@ class Command(Case):
         scene = Scene("org-private")
         for argv in (["acme-labs/lab-internal", "--yes"], ["acme-labs/lab-internal", "--warnings"], ["--bogus"],
                      ["acme-labs/lab-internal", "--as", "secret"], ["acme-labs/lab-internal", "--format", "xml"],
-                     ["acme-labs/lab-internal", "--allow-org-secret", ""], ["acme-labs/lab-internal", "--fleet", "acme-labs"],
+                     ["acme-labs/lab-internal", "--fleet", "acme-labs"],
                      ["--fleet", "acme-labs", "--apply"], ["a/b", "c/d"], ["--as", "private", "acme-labs/lab-hub"], ["not a repository"]):
             run = Run(argv, Scene("public-standard") if "lab-hub" in " ".join(argv) else scene)
             self.assertEqual(2, run.code, argv)
