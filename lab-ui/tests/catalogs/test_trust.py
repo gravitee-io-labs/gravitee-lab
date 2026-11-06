@@ -1236,24 +1236,6 @@ class Screen(Case):
                     read += found is not None
         self.assertGreater(read, 100, "most of them are read")
 
-    def test_include_targets_cost_little_whatever_the_text_is(self):
-        n = 6000
-        attacks = ("include:\n" + "  - ../a.yml\n" * 30000, "x: {" + ", ".join("include: a" for _ in range(n * 5)) + "}\n",
-                   "include: " + "- a, " * 80000, "include: " + "'a " * 80000, "include: '\n" + "a\n" * 50000, "x: " + "*a : " * 50000,
-                   "x: " + ", ? " * 50000, "x: " + " " * 400000 + "include: a\n", "include: " + "a: " * 50000,
-                   "".join(" " * (number % 400) + "include:\n" for number in range(3000)),
-                   ("include:\n" + "  - a.yml\n" * 200) * 150, "include: " + "[" * 50000 + "]" * 50000, "include:\n" + "- " * 100000 + "\n",
-                   # a chain of folds is one line to join: it is joined once, not once for each line
-                   "a\\\n" * 60000 + "include: [b.yml]\n", "\\\n" * 60000, "x: \"" + "\\x41" * 60000 + "\"\ninclude: [b.yml]\n",
-                   "\\\n  " * 30000 + "\"inc\\x6cude\": [b.yml]\n")
-        for text in attacks:
-            started = time.process_time()
-            self.targets(text)
-            self.assertLess(time.process_time() - started, 3.0, text[:60])
-            started = time.process_time()
-            self.screen(text)
-            self.assertLess(time.process_time() - started, 3.0, text[:60])
-
     def test_t19_an_extends_of_another_file_blocks_and_one_of_its_own_does_not(self):
         self.assertEqual(self.screen("services:\n  a:\n    extends:\n      file: other.yml\n      service: b\n"), [self.FILES])
         self.assertEqual(self.screen("services:\n  a:\n    extends: {file: ./o.yml, service: b}\n"), [self.FILES])
@@ -1398,11 +1380,15 @@ class Screen(Case):
                    "include: " + "'a " * 80000, "include: '\n" + "a\n" * 50000, "x: " + "*a : " * 50000, "x: " + ", ? " * 50000,
                    "x: " + " " * 400000 + "include: a\n", "include: " + "a: " * 50000,
                    "".join(" " * (number % 400) + "include:\n" for number in range(3000)),
-                   ("include:\n" + "  - a.yml\n" * 200) * 150, "include: " + "[" * 50000 + "]" * 50000)
+                   ("include:\n" + "  - a.yml\n" * 200) * 150, "include: " + "[" * 50000 + "]" * 50000, "include:\n" + "- " * 100000 + "\n",
+                   # a chain of folds is one line to join: it is joined once, not once for each line
+                   "a\\\n" * 60000 + "include: [b.yml]\n", "\\\n" * 60000, "x: \"" + "\\x41" * 60000 + "\"\ninclude: [b.yml]\n",
+                   "\\\n  " * 30000 + "\"inc\\x6cude\": [b.yml]\n")
         for text in attacks:
-            started = time.process_time()
-            self.screen(text)
-            self.assertLess(time.process_time() - started, 3.0, text[:60])
+            for read in (self.screen, self.targets):
+                started = time.process_time()
+                read(text)
+                self.assertLess(time.process_time() - started, 3.0, text[:60])
 
     def test_t19_the_work_is_bounded_by_the_characters_read(self):
         """A file whose keys have more to read than SCREEN_CHARS is refused, not read for an hour."""
