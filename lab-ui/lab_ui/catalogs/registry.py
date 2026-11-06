@@ -62,8 +62,6 @@ ENTRIES_LIMIT, SUGGESTIONS_MAX = 200, 50
 RACY = 2.0
 # How deep a JSON document of the Lab may nest: the formats of are 5 deep, and a newer Lab's keys are kept
 DEPTH_LIMIT = 64
-# A temporary file of a write that was killed is removed after this long
-LEFTOVER_AGE = 86400.0
 
 # The keys of an entry of catalogs.json that this Lab reads; any other is a newer Lab's and is kept as it is
 ENTRY_KEYS = ("id", "kind", "url", "path", "branch", "auto", "host", "added", "shadows")
@@ -544,37 +542,14 @@ def _set_aside(file):
     return target
 
 
-_LEFTOVER = re.compile(r"\.catalogs\.(?:json|lock)\.[a-z0-9_]{1,16}\.tmp")
-
-
-def _sweep(folder):
-    """Removes from `folder` the temporary files of a write that was killed half way (`paths.write_atomic` makes
-    `.catalogs.json.<random>.tmp` and `.catalogs.lock.<random>.tmp` next to the file and renames it): the regular files
-    of those names that are older than LEFTOVER_AGE. Called by the writers under the locks, so none is a live
-    write's."""
-    try:
-        with os.scandir(folder) as listing:
-            found = [one for one in listing if _LEFTOVER.fullmatch(one.name)]
-    except OSError:
-        return
-    for one in found:
-        try:
-            info = one.stat(follow_symlinks=False)
-            if stat.S_ISREG(info.st_mode) and time.time() - info.st_mtime > LEFTOVER_AGE:
-                os.unlink(one.path)
-        except OSError:
-            pass
-
-
 def _write(relative, text, problems):
     """`text` written to a file of .lab replaced whole with mode 0600, after a file that has `problems` (it cannot be
-    read: a person's file, or a newer Lab's) is kept aside. The leftovers of a write that was killed are swept."""
+    read: a person's file, or a newer Lab's) is kept aside."""
     file = Path(paths.ROOT) / relative
     file.parent.mkdir(parents=True, exist_ok=True)
     if problems:
         _set_aside(file)
     paths.write_atomic(file, text, mode=0o600)
-    _sweep(file.parent)
 
 
 def _checked_config(config):

@@ -649,47 +649,6 @@ class LockWrite(Disk):
         self.assertEqual(order, [True, True, True, True])
         self.assertFalse(registry.LOCK._is_owned())
 
-    def test_the_leftovers_of_a_write_that_was_killed_are_swept_when_they_are_old(self):
-        lab = self.root / ".lab"
-        days = 3 * 86400
-        old = [self.old(self.raw(f".lab/{name}", b"{"), days) for name in (".catalogs.json.ab12cd34.tmp",
-                                                                          ".catalogs.lock.zz_99aa1.tmp")]
-        young = [self.raw(".lab/.catalogs.json.young0_1.tmp", b"{"),
-                 self.old(self.raw(".lab/.catalogs.lock.hour0001.tmp", b"{"), 3600)]   # a write may be under way in a Lab
-        kept = [self.old(self.raw(f".lab/{name}", b"{"), days) for name in (
-            ".catalogs.json.bak", ".other.ab12cd34.tmp", ".catalogs.json.AB12.tmp", "catalogs.json.ab12cd34.tmp",
-            ".catalogs.json..tmp", ".catalogs.json.ab12cd34.tmp.old")]
-        folder = lab / ".catalogs.lock.dir00001.tmp"
-        folder.mkdir()
-        victim = self.old(self.raw("victim", b"keep"), days)
-        link = lab / ".catalogs.json.link0001.tmp"
-        os.symlink(victim, link)
-        if os.utime in os.supports_follow_symlinks:
-            os.utime(link, (1, 1), follow_symlinks=False)   # an old link is not a file of a killed write either
-        registry.set_lock("acme-hub", pin=A)
-        self.assertEqual([one.exists() for one in old], [False, False])
-        self.assertTrue(all(one.exists() for one in young + kept))
-        self.assertTrue(folder.is_dir())
-        self.assertTrue(os.path.islink(link))
-        self.assertEqual(victim.read_bytes(), b"keep")
-
-    def test_every_writer_sweeps_and_a_reader_never_does(self):
-        old = self.old(self.raw(".lab/.catalogs.lock.ab12cd34.tmp", b"{"), 3 * 86400)
-        registry.read_lock(), registry.read_config(), registry.inputs(), registry.config_problem()
-        self.assertTrue(old.exists())
-        registry.write_config({"schema": 1, "catalogs": []})
-        self.assertFalse(old.exists())
-        old = self.old(self.raw(".lab/.catalogs.json.ab12cd34.tmp", b"{"), 3 * 86400)
-        registry.drop_lock("acme-hub")   # nothing to drop: nothing written, nothing swept
-        self.assertTrue(old.exists())
-        registry.write_lock({"schema": 1, "catalogs": {}})
-        self.assertFalse(old.exists())
-
-    def test_a_write_in_a_folder_that_cannot_be_listed_still_succeeds(self):
-        with mock.patch("os.scandir", side_effect=PermissionError("no")):
-            registry.set_lock("acme-hub", pin=A)
-        self.assertEqual(registry.lock_of("acme-hub")["pin"], A)
-
     def test_threads_never_lose_one_another_s_change(self):
         def work(n):
             for step in range(10):
