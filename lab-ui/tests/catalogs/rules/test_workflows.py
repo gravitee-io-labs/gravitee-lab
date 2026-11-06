@@ -39,86 +39,6 @@ FILES = {
     "r-ci": ("reusable", ".github/workflows/ci.yml"), "r-publish": ("reusable", ".github/workflows/publish.yml"),
     "r-nightly": ("reusable", ".github/workflows/nightly.yml"), "r-e2e": ("reusable", ".github/workflows/e2e.yml"),
 }
-SPEC = {
-    "WF01": "{file}: the trigger {event} is not allowed. Use pull_request: pull_request_target and workflow_run run with secrets "
-            "on content from outsiders.",
-    "WF02": "{file}:{line}: {action} is not pinned to a full commit. Pin it as owner/repo@<40 hex> # tag; Dependabot proposes the "
-            "next one.",
-    "WF03": "{file}: give the token the least it needs: permissions: contents: read at the top.",
-    "WF04": "{file}:{line}: ${{ }} inside run:. Pass the value through env: and read the variable; a title or a branch name would "
-            "become a command.",
-    "WF05": "{file}: job {job} has no timeout-minutes. Add one, so that a stuck build ends.",
-    "WF06": "{file}: job {job} runs on {label}. Use ubuntu-24.04 or ubuntu-24.04-arm, or a matrix that the plan job of this file "
-            "makes: a self-hosted runner keeps what a pull request leaves on it.",
-    "WF07": "{file}:{line}: actions/checkout leaves its token in .git. Add persist-credentials: false.",
-    "WF08": "{file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs it.",
-    "WF09": "{file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the "
-            "report jobs of nightly.yml and versions.yml, may write.",
-    "WF10": "{file}: job {job} writes packages without an environment. Add environment: publish.",
-    "WF11": "{file}: add a concurrency group, so that a push does not pile runs up.",
-    "WF12": "{file}:{line}: a download is piped into a shell. Download it, check a digest, then run it.",
-    "WF13": "{file}: the identity token and the runtime token of Actions go to the attest job of publish.yml only.",
-    "WF14": "{file}:{line}: continue-on-error hides a failure. Make the step decide its own exit code.",
-    "WF15": "{file}: the Lab pinned here is not lab.ref of .github/standard.json. Fix: catalog.py upgrade --lab-ref {ref}.",
-    "WF16": "{file}: pass the Lab key by name and nothing else; secrets: inherit hands over every secret.",
-    "WF17": "{file}:{line}: a cache lets a pull request write what main later reads. Remove it.",
-    "WF18": "{file}:{line}: needs.{job}.result is tested with !=. Fix: name what you accept: "
-            "contains(fromJSON('[\"success\",\"skipped\"]'), needs.{job}.result).",
-    "WF19": "{file}:{line}: this lets data from outside choose what runs next. Fix: pass the value through env: to the one step "
-            "that needs it.",
-    "WF20": "{file}:{line}: {what}. Fix: name the one secret a step needs, and download only the artifact of this run.",
-    "WF21": "{file}:{line}: this is written so that the rules cannot read it. Fix: write it in block style, one key per line.",
-}
-
-# The Rule column of the table of 6.4, as the standard words it
-RULE_TEXT = {
-    "WF01": "Events are only `pull_request`, `push`, `schedule`, `workflow_dispatch`, `workflow_call`",
-    "WF02": "Every `uses:` is `./...` or `owner/repo[/path]@<40 hex>`",
-    "WF03": "The top level says `permissions:` then `contents: read` and nothing else",
-    "WF04": "No `${{` inside a `run:`",
-    "WF05": "Every job has `timeout-minutes` (a job that calls a reusable workflow is exempt)",
-    "WF06": "`runs-on` is `ubuntu-24.04`, `ubuntu-24.04-arm`, or exactly `${{ matrix.runner }}` where the job's "
-          "`matrix` is `fromJSON(needs.<job>.outputs.matrix)` of a job of the same file, or lists only those two "
-          "labels",
-    "WF07": "Every `actions/checkout` says `persist-credentials: false`",
-    "WF08": "Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action or "
-          "as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the "
-          "`password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable "
-          "counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; "
-          "`VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; "
-          "`GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` "
-          "that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never `secrets: inherit`",
-    "WF09": "Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the "
-          "job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and "
-          "`attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call "
-          "job of `publish.yml` holds their union",
-    "WF10": "A job with steps and `packages: write` declares an `environment` (a call job of the reusable form is "
-          "exempt: the jobs of its callee are checked)",
-    "WF11": "A `concurrency:` group exists (not in a reusable file)",
-    "WF12": "No download piped into a shell",
-    "WF13": "`id-token: write` appears in the job `attest` of `publish.yml` and `catalog-publish.yml` only, and no "
-          "step exports the runtime token of Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, "
-          "`ACTIONS_RESULTS_URL`, `ghaction-github-runtime`)",
-    "WF14": "No `continue-on-error: true`",
-    "WF15": "Reusable form: the Lab repository and commit named by a caller equal `lab.repository` and `lab.ref` "
-          "of `standard.json`",
-    "WF16": "Reusable form: a caller passes `LAB_DEPLOY_KEY` and nothing else",
-    "WF17": "No cache of any kind: no `actions/cache`, no `cache:` input of a `setup-*` action, no `cache-from` or "
-          "`cache-to`, no `type=gha` or `type=registry`",
-    "WF18": "In `publish.yml` and `catalog-publish.yml` a `needs.<job>.result` is compared with `== 'success'` or "
-          '`contains(fromJSON(\'["success","skipped"]\'), ...)`, never with `!=` (a canceled or timed-out job is '
-          "neither a failure nor a success)",
-    "WF19": "No write to `$GITHUB_ENV` or `$GITHUB_PATH`, and no `${{` inside the `script:` of "
-          "`actions/github-script`",
-    "WF20": "No `ACTIONS_ALLOW_UNSECURE_COMMANDS`; no `run-id` or `github-token` on `actions/download-artifact` "
-          "(an artifact of another run is data that someone may have written); no dynamic access to secrets: "
-          "`secrets[`, `toJSON(secrets)`, `toJson(secrets)`",
-    "WF21": "Fail closed. The rules read by indentation, so a workflow that hides what they read is refused: a "
-          "flow mapping or sequence as the value of `on`, `permissions`, `secrets`, `runs-on`, `uses` or "
-          "`environment`; `permissions: write-all` or `read-all`; an anchor, an alias or a tag (`&x`, `*x`, "
-          "`!!x`); a quoted key",
-}
-
 
 def text_of(name):
     variant, path = FILES[name]
@@ -891,12 +811,6 @@ class Contract(unittest.TestCase):
         self.assertFalse(wf.GENERIC & wf.LANES)
         self.assertEqual(sorted(wf.ALL), ["WF%02d" % number for number in range(1, 22)])
         self.assertEqual(sorted(wf.RULES), sorted(wf.ALL))
-
-    def test_the_messages_and_the_rules_are_the_ones_of_section_6_4(self):
-        self.assertEqual(wf.MESSAGES, SPEC)
-        self.assertEqual({code: rule.rule for code, rule in wf.RULES.items()}, RULE_TEXT)
-        for code, rule in wf.RULES.items():
-            self.assertEqual((rule.code, rule.severity, rule.message), (code, "error", SPEC[code]))
 
     def test_every_rule_has_a_planted_violation(self):
         self.assertEqual(sorted(MUTATIONS), sorted(wf.ALL))

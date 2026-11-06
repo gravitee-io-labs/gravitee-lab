@@ -40,18 +40,8 @@ import json
 import re
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
-try:
-    from ..report import Problem
-except ImportError:   # report.py lands in parallel: the same five fields in the same order
-    class Problem(NamedTuple):
-        code: str
-        severity: str
-        path: str
-        line: int
-        message: str
-
-__all__ = ["ALL", "FAMILY", "GENERIC", "LANES", "MAY_WRITE", "MESSAGES", "Problem", "RULES", "Rule", "check", "jobs", "problems",
-           "run_blocks", "triggers", "unreadable"]
+from ..report import ERROR, Problem
+from . import say, table
 
 MAX_LINES = 20000       # a workflow longer than this is not read: WF21
 MAX_DEPTH = 40          # levels of nesting
@@ -80,18 +70,7 @@ KNOWN = {
 }
 
 
-class Rule(NamedTuple):
-    code: str
-    severity: str
-    rule: str        # the rule, as the table of 6.4 words it
-    message: str     # the message, with {file}, {line} and the fields of the rule
-
-
-def _table(rows: Iterable[Tuple[str, str, str]]) -> Dict[str, Rule]:
-    return {code: Rule(code, "error", rule, message) for code, rule, message in rows}
-
-
-RULES = _table([
+RULES = table((code, ERROR, rule, message) for code, rule, message in (
     ("WF01", "Events are only `pull_request`, `push`, `schedule`, `workflow_dispatch`, `workflow_call`",
      "{file}: the trigger {event} is not allowed. Use pull_request: pull_request_target and workflow_run run with "
      "secrets on content from outsiders."),
@@ -169,8 +148,7 @@ RULES = _table([
              "`!!x`); a quoted key",
      "{file}:{line}: this is written so that the rules cannot read it. Fix: write it in block style, one key per "
      "line."),
-])
-MESSAGES = {code: rule.message for code, rule in RULES.items()}
+))
 
 GENERIC = frozenset(("WF01", "WF02", "WF03", "WF04", "WF05", "WF07", "WF11", "WF12", "WF14", "WF17", "WF19", "WF20", "WF21"))
 LANES = frozenset(("WF06", "WF08", "WF09", "WF10", "WF13", "WF15", "WF16", "WF18"))
@@ -887,15 +865,10 @@ def _clip(value: str, limit: int = 80) -> str:
     return value if len(value) <= limit else value[:limit - 3] + "..."
 
 
-_FIELD = re.compile(r"\{(file|line|event|action|job|label|name|permission|ref|what)\}")
-
-
 def _say(code: str, file: str, line: int, fields: dict) -> str:
-    """The message of a rule. The fields go in in one pass, so that a value that looks like a field stays a value."""
-    values = {"file": _clip(file, 200), "line": str(line)}
-    # `what` is the module's own words; every other field is a value from the file
-    values.update({key: str(value) if key == "what" else _clip(str(value)) for key, value in fields.items()})
-    return _FIELD.sub(lambda found: values.get(found.group(1), found.group()), MESSAGES[code])
+    """The message of a rule. `what` is the module's own words; every other field is a value from the file."""
+    values = {key: str(value) if key == "what" else _clip(str(value)) for key, value in fields.items()}
+    return say(RULES[code].message, file=_clip(file, 200), line=line, **values)
 
 
 # ---------------------------------------------------------------- the rules
@@ -1682,7 +1655,7 @@ def _problems(path: str, text: str, rules: Iterable[str], standard: Optional[dic
         for count, (line, fields) in enumerate(function(doc)):
             if count >= MAX_PER_RULE:
                 break
-            found.append(Problem(code, "error", path, line, _say(code, path, line, fields)))
+            found.append(Problem(code, ERROR, path, line, _say(code, path, line, fields)))
     return sorted(set(found), key=lambda each: (each.line, each.code, each.message))
 
 
@@ -1724,7 +1697,7 @@ def check(tree, ctx=None) -> List[Problem]:
                 except UnicodeDecodeError:
                     text = None
         if text is None:
-            found.append(Problem("WF21", "error", path, 1, _say("WF21", path, 1, {})))
+            found.append(Problem("WF21", ERROR, path, 1, _say("WF21", path, 1, {})))
             continue
         found.extend(_problems(path, text, ALL, standard, _ACTION_FILE.match(path) is not None))    # the place decides, as above
     return found
