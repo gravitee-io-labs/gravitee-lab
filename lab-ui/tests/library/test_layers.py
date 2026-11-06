@@ -1111,7 +1111,7 @@ class Plans(Case):
         plan = self.plan(on(self.project, ["kiosk"]), up("kiosk", platform=False), "addon", "kiosk", "stop")
         self.assertEqual(layers.waits(self.project, plan), [{("Container", "lab-kiosk"): "stop"}])
         plan = self.plan(on(self.project, ["jade"]), up(platform=False), "addon", "kafka", "stop")
-        self.assertEqual((layers.commands(plan), layers.waits(self.project, plan)), ([], []))
+        self.assertEqual((plan["services"], layers.waits(self.project, plan)), ({"remove": [], "start": []}, []))
 
 
 # The plans of this project on main, before a place existed, and whether each asks, in the situations of snapshot(); since
@@ -1195,7 +1195,7 @@ class Places(Case):
 
     def assertAlone(self, plan):
         """Nothing of the core is in the plan but what the playground needs of it (layers.local_needs): not the platform
-        nor a group, not another service as a row, a service it starts or removes, a command, a container it waits for,
+        nor a group, not another service as a row, a service it starts or removes, a container it waits for,
         or what its job's changes cover."""
         allowed = set(layers.local_needs(self.project, self.project["playgrounds"]["hotels"]))
         rows = [found for part in (*layers.ROWS, *layers.PLACE_ROWS) for found in plan[part]]
@@ -1203,12 +1203,10 @@ class Places(Case):
             self.assertNotIn(found["kind"], ("platform", "group"), found)
             self.assertFalse(found["kind"] == "service" and found["id"] in self.core and found["id"] not in allowed, found)
         named = {*plan["services"]["start"], *plan["services"]["remove"]}
-        words = {word for command in layers.commands(plan) for word in command}
         moves = layers.changing(self.project, layers.changes(self.project, plan))
         waited = {container for found in layers.waits(self.project, plan) for _, container in found}
         for name in set(self.core) - allowed:
             self.assertNotIn(name, named)
-            self.assertNotIn(name, words)
             self.assertNotIn(name, moves)
             self.assertNotIn(f"lab-{name}", waited)
 
@@ -1264,7 +1262,6 @@ class Places(Case):
         self.check(plan, playground="hotels", explicit=["hybrid"])
         self.assertEqual(plan["services"], {"remove": [], "start": []})
         self.assertTrue(layers.asks(plan))
-        self.assertEqual(layers.commands(plan), [])
         # Its apps do not run: they start, it does not
         plan = self.plan(state, self.up("hybrid"))
         self.check(plan, starts=[HOTELS], playground="hotels", explicit=["hybrid"])
@@ -1289,8 +1286,8 @@ class Places(Case):
                    playground="hotels", explicit=["hybrid"])
         # Both of its services, by name, without what they depend on; its Redis, unchanged, is left as it is
         self.assertEqual(plan["services"], {"remove": [], "start": ["apim-hybrid-gateway", "hybrid-redis"]})
-        self.assertEqual(layers.commands(plan), [[*compose.COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway",
-                                                  "hybrid-redis"]])
+        self.assertEqual(layers.starting(plan["services"]["start"]),
+                         [[*compose.COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway", "hybrid-redis"]])
         # Its row says Starting, and the playground's, as for any start that runs what runs again
         self.assertEqual(layers.changes(self.project, plan), {"start": [["addon", "hybrid"], ["playground", "hotels"]],
                                                               "stop": []})
@@ -1350,9 +1347,6 @@ class Places(Case):
         self.project["playgrounds"]["welcome"]["restarts"] = ["apim-gateway"]
 
     def test_no_core_service_is_in_the_plan_of_a_remote_place(self):
-        # commands() names the project from the core file, which compose.project_name() reads through the Docker CLI: given
-        # here, so the test needs none
-        self.patch(compose, "project_name", lambda: "lab")
         # Over every service of the core, in every situation: of what is on, of what runs, of the place and the start
         self.worst()
         states = [on(self.project), on(self.project, playground="hotels"), on(self.project, ["hybrid"], "hotels"),
@@ -1376,9 +1370,6 @@ class Places(Case):
             self.assertAlone(self.plan(state, running, "addon", "hybrid", where=where))
 
     def test_the_core_services_another_playground_restarts_are_not_restarted(self):
-        # commands() names the project from the core file, which compose.project_name() reads through the Docker CLI: given
-        # here, so the test needs none
-        self.patch(compose, "project_name", lambda: "lab")
         # Welcome is on with AI Agent Lens, which configures the gateway: on this machine, Hotels' start stops them
         # and restarts the gateway, to take the change off; to a remote place it stops them, and the gateway is left
         # as it is, which the Stack says (Apply needed) and the Stack's Apply makes right
@@ -1873,7 +1864,6 @@ class Files(Case):
         remove = self.applied(plan)[1][1]
         self.assertEqual(remove[len(compose.COMPOSE):], ["-p", "lab", "rm", "--stop", "--force", "-v",
                                                          "kafka", "kafka-desk", "kafka-ui"])
-        self.assertEqual(layers.commands(plan)[0], remove)
 
     def test_what_goes_is_removed_before_the_on_file_says_it_is_off(self):
         # The removal fails, or is canceled, or the Lab UI ends there: Kafka is still on, stopped, never off and still running

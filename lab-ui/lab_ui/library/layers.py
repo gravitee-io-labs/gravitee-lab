@@ -1478,14 +1478,6 @@ def make_binds(project, plan):
     return made
 
 
-def commands(plan):
-    """The Compose runs of a plan, each only when it has something to do (with no service, Compose would take them
-    all): what goes is removed by name, Compose asked by project name, whatever the files include; then what starts
-    and what restarts, by name, without what they depend on (`--no-deps`), which the plan names when it does not
-    run. What runs is left as it is, what was stopped stays stopped, what was started outside the Lab UI stays."""
-    return _removal(plan["services"]["remove"]) + starting(plan["services"]["start"])
-
-
 def _removal(names):
     """The run that removes these services by name, with the anonymous volumes of their containers (`-v`): an image that
     declares a VOLUME gets one at each start, which nothing reaches once its container is gone, not even a Reset. Named
@@ -1494,8 +1486,8 @@ def _removal(names):
 
 
 def starting(names):
-    """The run that starts these services by name, as every start of an item does (commands()): none for no service,
-    which Compose would read as every one."""
+    """The run that starts these services by name, as every start of an item does, without what they depend on
+    (`--no-deps`), which the plan names when it does not run: none for no service, which Compose would read as every one."""
     return [[*compose.COMPOSE, "up", "-d", "--no-deps", *names]] if names else []
 
 
@@ -1530,8 +1522,8 @@ def steps(project, plan, start=None, swap=None, undo=None):
     is canceled, the Lab UI stops): nothing for a plan the on file changed since (unchanged()); then what goes is
     removed, while the on file still names it, so that it is on and stopped rather than off and still running, which
     would read as started by hand; then a gateway's token is swapped (`swap`, the step swapping() makes, when the plan
-    starts one that does not run here); then the on file is written (written()); then what starts and restarts, by name
-    (commands()). `start`: the services the last one names, when they are more than the plan's (a playground's product,
+    starts one that does not run here); then the on file is written (written()); then what starts and restarts, by name.
+    `start`: the services the last one names, when they are more than the plan's (a playground's product,
     stopped to load its plugins). `undo`: the first gate's (unchanged())."""
     return [lambda job: unchanged(plan, undo), *_removal(plan["services"]["remove"]), *([swap] if swap else []),
             lambda job: written(job, project, plan), *starting(plan["services"]["start"] if start is None else start)]
@@ -1610,7 +1602,7 @@ def awaits(project, pairs, named=()):
 
 
 def waits(project, plan):
-    """What each command of a plan waits for, in the order of commands(): the containers it removes, then those it
+    """What each command of a plan waits for, in the order of steps(): the containers it removes, then those it
     starts or restarts."""
     services, remove, start = project["services"], plan["services"]["remove"], plan["services"]["start"]
     return ([awaited(services, stop=remove)] if remove else []) + ([awaited(services, start=start)] if start else [])

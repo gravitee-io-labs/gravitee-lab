@@ -1563,7 +1563,8 @@ class GatewayRoutes(GatewayCase):
         self.assertEqual((title, more["key"], more["verb"]), ("Start Hybrid gateway", "addon:hybrid", "start"))
         self.assertEqual(more["changes"], layers.changes(self.project, plan))
         self.assertEqual(more["waits"], layers.waits(self.project, plan))
-        self.assertEqual([step for step in steps if isinstance(step, list)], layers.commands(plan),
+        self.assertEqual([step for step in steps if isinstance(step, list)],
+                         [step for step in layers.steps(self.project, plan) if isinstance(step, list)],
                          "the commands of the plan, by name, without the core")
         self.write.assert_called_once_with(None, ["hybrid"], {}, {}, blocked={}, since=None)   # the gateway is turned on
         self.binds.assert_called_once_with(self.project, self.binds.call_args.args[1])

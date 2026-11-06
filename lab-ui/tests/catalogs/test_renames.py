@@ -582,9 +582,6 @@ class EndToEnd(Case):
         self.patch(stack, "JOBS", mock.Mock())
         stack.unit_action(found, "addon", "local/board", "stop")
         self.assertEqual(self.started(stack.JOBS)[1], [[*compose.by_name(), "stop", "acme-board"]])
-        start = {"services": {"remove": [], "start": ["acme-cluster-board"]}}
-        self.assertEqual(layers.commands(start), [[*compose.COMPOSE, "up", "-d", "--no-deps", "acme-cluster-board"]],
-                         "turning the catalog's item on removes nothing of the copy")
         self.assertEqual(layers.current(found)["problems"], [])
 
     def test_a_renamed_item_that_is_on_whose_new_version_cannot_run_holds_the_update(self):
