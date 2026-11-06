@@ -46,9 +46,8 @@ from typing import Callable, Dict, FrozenSet, List, NamedTuple, Optional, Sequen
 from ...library import check
 from ...docker import compose
 from ... import paths
-from .. import report, tree as trees
+from .. import report
 from ..report import Problem
-from ..rules import outline
 from . import (Loaded, Refused, Unavailable, conclude, docker_ready, entry, fence, load, parse_units, parsed, parser, problem,
                refusals, run_docker, seconds, tail)
 
@@ -83,42 +82,6 @@ def needs_settings(refused: Refused) -> bool:
     it without one, which the Lab shows as "Needs settings". That is not a fault of the unit (`check` does not fail it), so a stage
     that starts it says it was not tried; the others (a Blocked unit, a file that does not load) stay errors."""
     return bool(refused.reasons) and bool(NEEDS_SETTING.match(refused.reasons[0] if isinstance(refused.reasons[0], str) else ""))
-
-
-def x_gravitee(text: Optional[str]):
-    """The `x-gravitee` node of a unit's file read as the text it is, None when it has none."""
-    if not text:
-        return None
-    return next((node for node in outline(text).root.children if node.key == "x-gravitee"), None)
-
-
-def runs_remote_gateway(text: Optional[str]) -> bool:
-    """Whether the `x-gravitee` block of a unit's file says `gateway:` with something in it: the unit runs the gateway of a
-    remote platform, which works only with that platform's token. Read as the text it is, as requires_license reads it."""
-    found = x_gravitee(text)
-    if found is None:
-        return False
-    if found.value.startswith("{"):   # the block in flow style, on one line
-        return bool(re.search(r"\bgateway\s*:\s*\{\s*[^}\s]", found.value))
-    gateway = found.get("gateway")
-    return gateway is not None and bool(gateway.children)
-
-
-def requires_license(text: Optional[str]) -> bool:
-    """Whether the `x-gravitee` block of a unit's file says `requires: license:` with something in it. Read as the text it is
-    (the merged JSON of Compose has the core's `x-gravitee`, not the unit's)."""
-    found = x_gravitee(text)
-    if found is None:
-        return False
-    if found.value.startswith("{"):   # the block in flow style, on one line
-        return bool(re.search(r"\blicense\s*:\s*(?:\[\s*[^\]\s]|\{\s*[^}\s]|[^\s,}\]\[{])", found.value))
-    requires = found.get("requires")
-    license_ = requires.get("license") if requires is not None else None
-    if license_ is None:
-        return False
-    if license_.children:
-        return True
-    return license_.value.strip() not in ("", "[]", "{}", "null", "~", '""', "''")
 
 
 def dependencies(service: dict) -> Set[str]:
@@ -475,7 +438,6 @@ def main(argv, out, err, **seams) -> int:
             outcomes.append(Outcome(f"{each.kind}:{each.name}", "not_tried", (), 0.0, "it needs settings or a license"))
         else:
             problems += refusals([each], "tried")
-    tree = trees.FolderTree(root)
     logs: Dict[str, List[str]] = {}
     ready = False
     for unit in loading.units:
@@ -483,8 +445,7 @@ def main(argv, out, err, **seams) -> int:
             outcomes.append(Outcome(unit.key, "nothing", (), 0.0, "it only includes other units"))
             continue
         selection = select(unit)
-        text = tree.text(unit.file)
-        if requires_license(text) or runs_remote_gateway(text):
+        if unit.needs_credentials:
             problems.append(problem("SM03", unit.file, unit=unit.key))
             outcomes.append(Outcome(unit.key, "not_tried", (), 0.0, "it needs settings or a license"))
             continue

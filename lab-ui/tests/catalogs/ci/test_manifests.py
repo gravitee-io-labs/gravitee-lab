@@ -384,6 +384,8 @@ class Hostile(Case):
         "addons/gated/compose.yml": "services:\n  shown:\n    image: busybox\n  evil:\n    profiles: [debug]\n    image: example.test/lab/evil:1\n"
                                     "    privileged: true\n    pid: host\n    build:\n      context: .\n      dockerfile_inline: |\n"
                                     "        FROM busybox\n",
+        # a gateway this catalog is not trusted with: the project clears it (N04), and the unit still works only with its token
+        "addons/foreign/compose.yml": "x-gravitee: {gateway: {platform: cloud, service: f, token: FOREIGN_TOKEN}}\nservices:\n  f:\n    image: busybox\n",
     }
 
     def setUp(self):
@@ -415,6 +417,14 @@ class Hostile(Case):
         every = " ".join(" ".join(cmd) for cmd, _ in self.calls[before:])
         for name in ("remote", "absolute", "env", "zero"):   # (the screen refuses these: no call names them. `privileged` passes the
             self.assertNotIn(f"hostile/addons/{name}/", every)   # screen and is refused by the policy, so the project read it)
+
+    def test_a_gateway_the_project_clears_still_says_the_unit_needs_a_token(self):
+        elsewhere = self.folder + "-unlisted"   # (the Lab does not list this id and it does not say host_access: N04)
+        shutil.copytree(self.folder, elsewhere, symlinks=True)
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        meta = Path(elsewhere, "catalog.yml")
+        meta.write_text(meta.read_text(encoding="utf-8").replace("id: hostile", "id: unlisted"), encoding="utf-8")
+        self.assertEqual([each.needs_credentials for each in ci.lab_loader(elsewhere, [("addon", "foreign")]).units], [True])
 
     def test_the_resolved_json_is_read_with_the_scrubbed_environment(self):
         with mock.patch.dict(os.environ, {"HOSTILE_TAG": "from-the-shell", "HOSTILE_TOKEN": "ghp_" + "B" * 36}):

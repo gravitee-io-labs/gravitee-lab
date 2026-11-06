@@ -470,6 +470,7 @@ class Loaded(NamedTuple):
     variables    the variables the images of the project are written with (the only ones a set of versions may set)
     resolve      `f(variables) -> config`: the same JSON with these variables set for Compose (a set of `x-gravitee.tested`),
                  read the same way
+    needs_credentials   its file says `requires.license` or `gateway`: it works only with a license or a platform's token
     """
     kind: str
     name: str
@@ -480,6 +481,7 @@ class Loaded(NamedTuple):
     tested: Tuple[dict, ...]
     variables: frozenset
     resolve: Callable = None
+    needs_credentials: bool = False
 
     @property
     def key(self) -> str:
@@ -662,7 +664,7 @@ def lab_loader(folder: str, names: List[Tuple[str, str]], hidden: Iterable[Tuple
     real = os.path.realpath(folder)
     try:
         with check.temporary_link(folder, ns, needs) as linked, check.scrubbed(), hidden_units(ns, hidden):
-            built, _ = check.loaded()
+            built, inputs = check.loaded()
             for kind, name in names:
                 file = unit_path(kind, name)
                 item = paths.unit_of(paths.CATALOG_FILES[kind].format(ns=ns, name=name))
@@ -686,9 +688,12 @@ def lab_loader(folder: str, names: List[Tuple[str, str]], hidden: Iterable[Tuple
                     continue
                 where = os.path.realpath(os.path.join(real, *file.split("/")))
                 folder_here = "" if kind == "setup" else os.path.dirname(where)
+                # (the gateway as the file says it: the project clears one that N04 does not offer, and the unit still wants its token)
                 found.append(Loaded(kind, name, file, folder_here, _realized(config, linked),
                                     tuple(sorted(unit.get("services") or ())), tuple(unit.get("tested") or ()),
-                                    frozenset(e2e.image_variables(built)), _resolver(folder, ns, needs, unit["file"], scrubbed)))
+                                    frozenset(e2e.image_variables(built)), _resolver(folder, ns, needs, unit["file"], scrubbed),
+                                    bool((unit.get("requires") or {}).get("license")
+                                         or check._meta(inputs["raw"][unit["file"]]).get("gateway"))))
     except check.ComposeGone:
         raise Unavailable("Docker Compose 5 was not found: " + compose.NO_COMPOSE) from None
     return Loading(found, refused)

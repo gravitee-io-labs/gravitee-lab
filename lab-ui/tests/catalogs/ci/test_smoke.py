@@ -169,36 +169,6 @@ class Selection(unittest.TestCase):
 
 class Reading(unittest.TestCase):
 
-    def test_requires_license_reads_the_unit_file_as_text(self):
-        for text, expected in (
-                ("x-gravitee:\n  requires:\n    license: [apim-x]\nservices: {}\n", True),
-                ("x-gravitee:\n  requires:\n    license:\n      apim-x: step 4\n", True),
-                ("x-gravitee:\n  requires:\n    license:\n      - apim-x\n", True),
-                ("x-gravitee: {requires: {license: [apim-x]}}\n", True),
-                ("x-gravitee:\n  requires:\n    license: []\n", False),
-                ("x-gravitee:\n  requires:\n    images: {APIM_VERSION: '4.13'}\n", False),
-                ("x-gravitee:\n  name: Bank\n", False), ("services: {}\n", False), ("", False), (None, False)):
-            with self.subTest(text=text):
-                self.assertEqual(smoke.requires_license(text), expected)
-
-    def test_runs_remote_gateway_reads_the_unit_file_as_text(self):
-        for text, expected in (
-                ("x-gravitee:\n  gateway:\n    platform: cloud\n    service: gw\n    token: GW_TOKEN\nservices: {}\n", True),
-                ("x-gravitee: {gateway: {platform: cloud, service: gw, token: GW_TOKEN}}\n", True),
-                ("x-gravitee:\n  gateway:\n", False), ("x-gravitee: {gateway: {}}\n", False),
-                ("x-gravitee:\n  name: Gateway\n", False), ("services:\n  gateway: {}\n", False), ("", False), (None, False)):
-            with self.subTest(text=text):
-                self.assertEqual(smoke.runs_remote_gateway(text), expected)
-
-    def test_a_line_of_a_megabyte_is_read_in_under_a_second(self):
-        for text in ("x-gravitee: {" + "[" * 1_000_000, "x-gravitee:\n  requires:\n    license: " + "[" * 1_000_000,
-                     "x-gravitee: {requires: {license: " + "a" * 60_000 + "}}", "services:\n" + "  a: &x\n" * 100_000,
-                     "x-gravitee:\n" + "  - \n" * 200_000, "x" * 1_000_000):
-            with self.subTest(start=text[:24]):
-                for read in (smoke.requires_license, smoke.runs_remote_gateway):
-                    _, spent = support.timed(read, text)
-                    self.assertLess(spent, 1.0)
-
     def test_a_unit_refused_for_a_setting_it_lacks_is_not_a_fault_of_the_unit(self):
         needs = ci.Refused("addon", "x", "addons/x/compose.yml", (
             "Cannot be read: error while interpolating services.web.environment.TOKEN: required variable TOKEN is missing a "
@@ -245,11 +215,7 @@ class Stage(Case):
             yield smoke.Session(str(self.project), lambda each: ["-f", "docker-compose.yml", "-f", f"on-{each.name}.yml"])
         return opened()
 
-    def run_stage(self, *units, refused=(), only=None, extra=(), files=None):
-        for path, text in (files or {}).items():
-            file = self.catalog / path
-            file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text(text, encoding="utf-8")
+    def run_stage(self, *units, refused=(), only=None, extra=()):
         wanted = only if only is not None else [f"{each.kind}:{each.name}" for each in units]
         wanted += [f"{each.kind}:{each.name}" for each in refused]
         with mock.patch.object(ci, "LOADER", loader(*units, refused=refused)):
@@ -386,25 +352,14 @@ class Stage(Case):
                          [("SM03", "warning", "addon:apigee was not tried: it needs settings or a license.")])
         self.assertEqual(self.fake.calls(), [])   # (not even a docker version: there was nothing to start)
 
-    def test_a_unit_that_needs_a_license_is_not_tried(self):
-        text = "x-gravitee:\n  requires:\n    license: [apim-x]\nservices:\n  a:\n    image: example.test/a:1\n"
-        code = self.run_stage(unit(kind="addon", name="lic", services={"a": service()}), files={"addons/lic/compose.yml": text})
-        self.assertEqual(code, 0)
-        text = self.out.getvalue()
-        self.assertIn("Smoke: 0 started, 0 failed, 1 not tried", text)
-        self.assertRegex(text, r"- addon:lic  it needs settings or a license")
-        self.assertNotIn("✓", text)
-        self.assertEqual(self.up_calls(), [])
-
-    def test_a_unit_that_runs_the_gateway_of_a_remote_platform_is_not_tried(self):
-        # It works only with the platform's token: started without it, its gateway never becomes healthy
-        text = ("x-gravitee:\n  gateway:\n    platform: cloud\n    service: gw\n    token: GW_TOKEN\n"
-                "services:\n  gw:\n    image: example.test/gw:1\n")
-        code = self.run_stage(unit(kind="addon", name="hub", services={"gw": service()}), files={"addons/hub/compose.yml": text})
+    def test_a_unit_that_needs_a_license_or_the_token_of_a_platform_is_not_tried(self):
+        # Started without them, its gateway never becomes healthy and its services exit
+        code = self.run_stage(unit(kind="addon", name="hub", services={"gw": service()}, needs_credentials=True))
         self.assertEqual(code, 0)
         text = self.out.getvalue()
         self.assertIn("Smoke: 0 started, 0 failed, 1 not tried", text)
         self.assertRegex(text, r"- addon:hub  it needs settings or a license")
+        self.assertNotIn("✓", text)
         self.assertEqual(self.up_calls(), [])
 
     def test_a_unit_with_nothing_that_starts_without_the_platform_is_left_to_the_end_to_end_run(self):
