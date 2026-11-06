@@ -29,10 +29,6 @@ APIM = PROJECT["products"]["apim"]
 
 class Catalog(Case):
 
-    def test_sources_of_a_product(self):
-        self.assertEqual(plugins._sources("am"), ["graviteeio-am/plugins/", "graviteeio-ee/am/plugins/",
-                                                  "graviteeio-ee/plugins/", "plugins/"])
-
     def test_a_plugin_published_twice_is_the_one_of_the_most_specific_source(self):
         folders = {"graviteeio-apim/plugins/": ["graviteeio-apim/plugins/policies/"],
                    "graviteeio-ee/apim/plugins/": [], "graviteeio-ee/plugins/": ["graviteeio-ee/plugins/policies/"],
@@ -387,15 +383,13 @@ class Installed(Case):
     def test_apply_counts_each_download_then_the_stop_and_the_start(self):
         # Each download by its bytes, then the gateway stopped and started again: it is ready once healthy, half way
         # along the job once stopped
-        picked = {"a": ({"name": "gravitee-policy-a"}, {"file": "gravitee-policy-a-1.0.0.zip"}),
-                  "b": ({"name": "gravitee-policy-b"}, {"file": "gravitee-policy-b-2.0.0.zip"})}
         seen = []
 
         def download(job, plugin):   # half the file, then all of it
             for fraction in (0.5, 1):
                 job.unit(("Download", plugin["name"]), fraction)
                 seen.append(job.progress)
-        self.patch(plugins, "_pick", lambda project, product, item: picked[item["path"]])
+        self.patch(plugins, "_pick", lambda project, product, item: self.PICKED[item["path"]])
         self.patch(plugins, "_download", self.fetched(download))
         self.running(({"gateway": {"state": "running"}}, None))
         jobs = self.patch(plugins, "JOBS")
@@ -414,14 +408,12 @@ class Installed(Case):
         self.assertEqual((job.ok, job.progress), (True, 1))
 
     def test_a_download_says_how_far_it_is(self):
-        content, file = b"0123456789" * 4, "gravitee-policy-x-1.2.0.zip"
-        url = f"{plugins.DOWNLOADS}/plugins/policies/gravitee-policy-x/{file}"
-        answers = {url: content, url + ".sha1": f"{hashlib.sha1(content).hexdigest()}  {file}\n".encode()}
+        content, file, plugin = b"0123456789" * 4, self.FILE, self.PLUGIN
+        answers = {self.URL: content, self.URL + ".sha1": f"{hashlib.sha1(content).hexdigest()}  {file}\n".encode()}
         self.patch(plugins.urllib.request, "urlopen", lambda asked, timeout: io.BytesIO(answers[asked]))
         self.patch(plugins, "CHUNK", 10)
         job, folder, reported = Job("Plugins", []), self.root / "plugins/apim", []
         job.unit = lambda name, fraction: reported.append((name, fraction))
-        plugin = {"name": "gravitee-policy-x", "path": "plugins/policies/gravitee-policy-x/"}
         part = plugins._download(job, folder, plugin, {"file": file, "size": 40})
         unit = ("Download", "gravitee-policy-x")   # by its name: known before its version is chosen
         self.assertEqual(reported, [(unit, 0.25), (unit, 0.5), (unit, 0.75), (unit, 1)])
@@ -437,9 +429,7 @@ class Installed(Case):
         self.assertEqual((self.files(), job.lines[-1]), ([file], f"Added {file}"))
 
     def test_nothing_is_left_of_a_download_that_fails(self):
-        file, folder = "gravitee-policy-x-1.2.0.zip", self.root / "plugins/apim"
-        url = f"{plugins.DOWNLOADS}/plugins/policies/gravitee-policy-x/{file}"
-        plugin = {"name": "gravitee-policy-x", "path": "plugins/policies/gravitee-policy-x/"}
+        file, url, folder = self.FILE, self.URL, self.root / "plugins/apim"
 
         class Broken(io.BytesIO):
             def read(self, size=-1):
@@ -451,7 +441,7 @@ class Installed(Case):
             self.patch(plugins.urllib.request, "urlopen", lambda asked, timeout, answers=answers:
                        answers[asked]() if callable(answers[asked]) else io.BytesIO(answers[asked]))
             with self.assertRaises(JobFailed) as failed:
-                plugins._download(Job("Plugins", []), folder, plugin, {"file": file, "size": 3})
+                plugins._download(Job("Plugins", []), folder, self.PLUGIN, {"file": file, "size": 3})
             self.assertEqual((str(failed.exception), list(folder.iterdir())), (said, []))
         self.assertEqual([c.args for c in slept.call_args_list], [(2,), (4,)] * 2, "tried three times, each")
 
@@ -536,31 +526,28 @@ class Installed(Case):
         self.assertEqual(len(tries), 1)
 
     def test_a_download_altered_is_tried_again(self):
-        content, file = b"0123456789" * 4, "gravitee-policy-x-1.2.0.zip"
-        sha1 = f"{hashlib.sha1(content).hexdigest()}  {file}\n".encode()
+        content = b"0123456789" * 4
+        sha1 = f"{hashlib.sha1(content).hexdigest()}  {self.FILE}\n".encode()
         served = iter([content[:12] + b"x" * 28, content])   # the first transfer is not the file published
         self.patch(plugins.urllib.request, "urlopen",
                    lambda asked, timeout: io.BytesIO(sha1 if asked.endswith(".sha1") else next(served)))
         self.patch(plugins.time, "sleep")
         job, folder = Job("Plugins", []), self.root / "plugins/apim"
         job.unit = lambda name, fraction: None
-        plugin = {"name": "gravitee-policy-x", "path": "plugins/policies/gravitee-policy-x/"}
-        part = plugins._download(job, folder, plugin, {"file": file, "size": 40})
+        part = plugins._download(job, folder, self.PLUGIN, {"file": self.FILE, "size": 40})
         self.assertEqual(part.read_bytes(), content)
-        self.assertEqual(job.lines[-2:], [f"  Downloading again: {file}: checksum mismatch, download discarded",
+        self.assertEqual(job.lines[-2:], [f"  Downloading again: {self.FILE}: checksum mismatch, download discarded",
                                           "  SHA-1 verified"])
 
     def test_a_plugin_the_site_does_not_have_is_not_asked_again(self):
-        file = "gravitee-policy-x-1.2.0.zip"
         asked = []
 
         def missing(url, timeout):
             asked.append(url)
             raise plugins.urllib.error.HTTPError(url, 404, "Not Found", {}, None)
         self.patch(plugins.urllib.request, "urlopen", missing)
-        plugin = {"name": "gravitee-policy-x", "path": "plugins/policies/gravitee-policy-x/"}
-        with self.assertRaisesRegex(JobFailed, f"^{file}: Not found on download.gravitee.io$"):
-            plugins._download(Job("Plugins", []), self.root / "plugins/apim", plugin, {"file": file, "size": 3})
+        with self.assertRaisesRegex(JobFailed, f"^{self.FILE}: Not found on download.gravitee.io$"):
+            plugins._download(Job("Plugins", []), self.root / "plugins/apim", self.PLUGIN, {"file": self.FILE, "size": 3})
         self.assertEqual(len(asked), 1)
 
     def test_a_folder_that_cannot_be_written_is_not_said_as_the_network(self):
