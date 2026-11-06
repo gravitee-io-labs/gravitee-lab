@@ -60,7 +60,7 @@ class Manifests(Seed):
                         ("GET", SERVER + "/api/v1"): (200, CORE),
                         ("GET", SERVER + "/apis/gravitee.io/v1alpha1"): (200, GRAVITEE),
                         ("PATCH", NAMESPACE): (200, {}), ("PATCH", SECRET): (200, {}), ("PATCH", CONTEXT): (200, {}),
-                        ("GET", CONTEXT): (200, ACCEPTED)}
+                        ("GET", NAMESPACE): (404, {}), ("GET", SECRET): (404, {}), ("GET", CONTEXT): [(404, {}), (200, ACCEPTED)]}
 
     def test_a_manifest_that_asks_the_loader_for_a_bomb_of_pairs_is_refused_before_anything_is_built(self):
         self.seed_files({"k8s/01-bomb.yaml": doubling(40)})
@@ -87,20 +87,32 @@ class Manifests(Seed):
                          [("namespace", "acme"), ("resource", "Secret acme/lab-credentials"),
                           ("resource", "ManagementContext acme/lab")])
 
+    def test_what_was_there_before_the_seed_is_applied_and_not_recorded_and_a_second_run_keeps_the_record(self):
+        self.seed_files(FILES)
+        self.answer({**self.cluster, ("GET", NAMESPACE): (200, {})})
+        k8s.seed()
+        self.assertEqual(len(self.platform.sent("PATCH", NAMESPACE)), 1)
+        made = [x["name"] for x in common.created()]
+        self.assertEqual(made, ["Secret acme/lab-credentials", "ManagementContext acme/lab"])
+        self.platform.add({("GET", SECRET): (200, {}), ("GET", CONTEXT): (200, ACCEPTED)})
+        k8s.seed()
+        self.assertEqual([x["name"] for x in common.created()], made)
+
     def test_a_resource_of_the_operator_is_waited_for_until_it_is_accepted(self):
         self.seed_files(FILES)
-        self.answer({**self.cluster, ("GET", CONTEXT): [(200, {}), (200, ACCEPTED)]})
+        self.answer({**self.cluster, ("GET", CONTEXT): [(404, {}), (200, {}), (200, ACCEPTED)]})
         k8s.seed()
-        self.assertEqual(len(self.platform.sent("GET", CONTEXT)), 2)
+        self.assertEqual(len(self.platform.sent("GET", CONTEXT)), 3)
 
     def test_a_resource_the_operator_refuses_stops_the_seed_with_its_message(self):
         self.seed_files(FILES)
         refused = {"status": {"conditions": [{"type": "Accepted", "status": "False", "reason": "ControlPlaneError",
                                               "message": "401 unauthorized"}]}}
-        self.answer({**self.cluster, ("GET", CONTEXT): (200, refused)})
+        self.answer({**self.cluster, ("GET", CONTEXT): [(404, {}), (200, refused)]})
         with self.assertRaises(common.SeedError) as e:
             k8s.seed()
         self.assertIn("ControlPlaneError: 401 unauthorized", str(e.exception))
+        self.assertIn("ManagementContext acme/lab", [x["name"] for x in common.created()], "the next run finds it there, so it is recorded now")
 
     def test_a_webhook_refusal_stops_the_seed_at_once(self):
         self.seed_files(FILES)
@@ -218,7 +230,6 @@ stringData: {label: desk}
 
     def test_a_secret_without_the_annotation_is_applied_as_written(self):
         self.seed_files({self.SECRET: self.FILE.replace("gravitee-lab/generate", "other-note")})
-        self.answer({**self.cluster, ("PATCH", self.PATH): (200, {})})
+        self.answer({**self.cluster, ("GET", self.PATH): (404, {}), ("PATCH", self.PATH): (200, {})})
         k8s.seed()
         self.assertEqual(self.applied()[0]["stringData"], {"label": "desk"})
-        self.assertEqual(len(self.platform.sent("GET", self.PATH)), 0)

@@ -146,6 +146,7 @@ def apply(cluster, doc):
     if namespaced and not namespace:
         raise SeedError(f"{label(doc)}: a {kind} needs metadata.namespace")
     path = cluster.path(api_version, kind, namespace, name)
+    made = cluster.call("GET", path, expect=(200, 404)).status_code == 404
 
     def attempt():
         try:
@@ -157,7 +158,7 @@ def apply(cluster, doc):
             raise
 
     wait_until(SECTION, f"{label(doc)} to be accepted by the cluster", attempt)
-    return path
+    return made
 
 
 def status_of(cluster, api_version, kind, namespace, name):
@@ -195,13 +196,13 @@ def seed():
     for doc in docs:
         api_version, kind, namespace, name = identity(doc)
         wait_until(SECTION, f"the cluster to know {kind}", lambda: cluster.resource(api_version, kind))
-        apply(cluster, generated(cluster, doc))
+        if apply(cluster, generated(cluster, doc)):   # recorded before the wait: the next run finds what the operator refused as there before
+            if kind == "Namespace" and api_version == "v1":
+                record(SECTION, "namespace", "namespaces", name, name)
+            else:
+                record(SECTION, "resource", "Kubernetes resources", label(doc), name, apiVersion=api_version, kind_name=kind,
+                       namespace=namespace)
         wait_accepted(cluster, doc)
-        if kind == "Namespace" and api_version == "v1":
-            record(SECTION, "namespace", "namespaces", name, name)
-        else:
-            record(SECTION, "resource", "Kubernetes resources", label(doc), name, apiVersion=api_version, kind_name=kind,
-                   namespace=namespace)
         log(SECTION, f"✓ {label(doc)}")
 
 
