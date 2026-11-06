@@ -1,6 +1,6 @@
 // Logs: what the chosen services write, followed live, through their restarts, filtered by level and by text
 
-import { $, $$, esc, icon, setHTML, loading, store, router, api } from "../core.js";
+import { $, $$, esc, icon, setHTML, loading, store, router } from "../core.js";
 import { emptyHtml, dockerDown, actionButton, paintActions, paintBusy, setOff } from "../components/ui.js";
 import { runPlatform } from "../activity/jobs.js";
 import { Combo } from "../components/combo.js";
@@ -306,16 +306,8 @@ let serving = "";
 async function loadServing() {
   const found = [];
   for (const platform of store.platforms) {
-    let check = store.cloud.checks.get(platform.id);
-    if (!check) {
-      try {
-        check = await api(`/api/platforms/${platform.id}/check`, {});
-        store.cloud.checks.set(platform.id, check);
-      } catch {
-        continue;
-      }
-    }
-    const here = (check.gateways || []).find((gateway) => gateway.here);
+    if (!store.cloud.checks.has(platform.id)) await store.cloud.read(platform.id);
+    const check = store.cloud.checks.get(platform.id), here = (check.gateways || []).find((gateway) => gateway.here);
     if (here) found.push(`${platform.name}, ${(check.environments || []).find((env) => env.id === here.environmentId)?.name || here.name}`);
   }
   serving = found.join("; ");

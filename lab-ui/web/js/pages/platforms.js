@@ -25,7 +25,6 @@ let section;
 let platforms = null;       // the platforms registered, null until they are read
 let failed = "";            // why they could not be read
 const { checks } = store.cloud;   // platform id -> what its last check answered: the Dashboard's too
-const reading = new Map();  // platform id -> its check on its way
 const asked = new Set();    // the ids whose check a person asked for: the card says it is checking
 const wide = new Set();     // the ids of the cards that list every environment not set up
 const waits = new Map();    // platform id -> how many looks its gateway that runs here has waited to connect
@@ -290,34 +289,17 @@ function draw() {
 
 // --- Reading --------------------------------------------------------------------------
 
-// What an answer changes in what the page knows. An account that does not answer keeps what it said before, with its new state: a
-// moment of trouble does not empty its card.
-function keep(id, answer) {
-  const before = checks.get(id);
-  if (answer.state === "unreachable" && before?.environments?.length) checks.set(id, { ...before, state: answer.state, message: answer.message, stale: true });
-  else checks.set(id, answer);
-}
-
-// Asks the platform, through the server, what it holds for the account. One read at a time for a platform: whoever asks
-// meanwhile gets the one on its way. A read that fails is said as the state of the platform. `loud`: a person asked, so the card says
-// it is checking; the reads the page makes by itself change nothing until they find something.
+// Asks the platform what it holds for the account. `loud`: a person asked, so the card says it is checking; the reads the page makes by
+// itself change nothing until they find something.
 function check(id, loud = false) {
   if (loud) {
     asked.add(id);
     draw();
   }
-  if (!reading.has(id)) {
-    reading.set(id, api(`/api/platforms/${id}/check`, {}).then(
-      (answer) => keep(id, answer),
-      (err) => keep(id, { state: "unreachable", message: err.message, environments: [], gateways: [] }),
-    ).finally(() => {
-      store.cloud.at.set(id, Date.now());
-      reading.delete(id);
-      asked.delete(id);
-      draw();
-    }));
-  }
-  return reading.get(id);
+  return store.cloud.read(id).finally(() => {
+    asked.delete(id);
+    draw();
+  });
 }
 
 async function load() {

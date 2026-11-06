@@ -284,8 +284,27 @@ export const store = {
   },
 
   // What each Gravitee Cloud platform's last check answered (`checks`, by platform id) and when (`at`, in milliseconds): one record for the
-  // Dashboard and the Gravitee Cloud page, so that what one read or changed is what the other says
-  cloud: { checks: new Map(), at: new Map() },
+  // Dashboard and the Gravitee Cloud page, so that what one read or changed is what the other says. `read` asks the platform, through the
+  // server, one read at a time: whoever asks meanwhile gets the one on its way. A read that fails is said as the state of the platform, and
+  // an account that does not answer keeps what it said before, with its new state: a moment of trouble does not empty its card.
+  cloud: {
+    checks: new Map(), at: new Map(), reading: new Map(),
+    read(id) {
+      const { checks, at, reading } = store.cloud;
+      const keep = (answer) => {
+        const before = checks.get(id);
+        checks.set(id, answer.state === "unreachable" && before?.environments?.length ? { ...before, state: answer.state, message: answer.message, stale: true } : answer);
+      };
+      if (!reading.has(id)) {
+        reading.set(id, api(`/api/platforms/${id}/check`, {}).then(keep,
+          (err) => keep({ state: "unreachable", message: err.message, environments: [], gateways: [] })).finally(() => {
+          at.set(id, Date.now());
+          reading.delete(id);
+        }));
+      }
+      return reading.get(id);
+    },
+  },
 
   // The platforms registered with this lab, as the state lists them: none until one is added
   get platforms() { return store.state?.platforms || []; },

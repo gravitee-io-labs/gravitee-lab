@@ -85,7 +85,6 @@ let listing = null;    // the read of them on its way
 // What each platform's last check answered and when, in milliseconds: the Gravitee Cloud page's too (store.cloud), so that an answer either
 // page read, and what an action on that page changed, is what both say
 const { checks, at: checked } = store.cloud;
-const checking = new Map();  // platform id -> its check on its way
 const asked = new Set();     // the ids whose check a person asked for again: the row says it is checking
 let watch = null;      // the timer of the next look at a gateway that has not connected
 let polls = 0;         // the looks at it so far
@@ -240,7 +239,7 @@ function productsBody(state) {
 function cloudProductRow(unit) {
   const core = coreOf(), p = platforms?.find((found) => found.id === core.platform.id), check = p && checks.get(p.id);
   const env = check?.environments?.find((found) => found.id === core.environment.id);
-  const st = env ? environmentStatus(p, check, env) : null;
+  const st = env && check.state === "ok" ? environmentStatus(p, check, env) : null;
   let status = loading("Loading"), dot = "", word = "State not known", open = "";
   if (st) {
     ({ dot, word } = st.gateway);
@@ -866,26 +865,17 @@ function disconnect() {
 // Whether the last check of a platform is more than FRESH milliseconds old: a tab that is seen again leaves the Cloud alone for a moment
 const stale = (id) => Date.now() - (checked.get(id) || 0) > FRESH;
 
-// Asks a platform, through the server, what it holds for the account. One read at a time for a platform; one that fails
-// is said as its state. `loud`: a person asked again, so its row says it is checking.
+// Asks a platform what it holds for the account. `loud`: a person asked again, so its row says it is checking.
 function check(id, loud = false) {
   if (loud) {
     asked.add(id);
     draw(["cloud"]);
   }
-  if (!checking.has(id)) {
-    checking.set(id, api(`/api/platforms/${id}/check`, {}).then(
-      (answer) => checks.set(id, answer),
-      (err) => checks.set(id, { state: "unreachable", message: err.message, environments: [], gateways: [] }),
-    ).finally(() => {
-      checked.set(id, Date.now());
-      checking.delete(id);
-      asked.delete(id);
-      draw(["cloud", "products"]);   // the row of API Management in the Cloud is its environment
-      follow();
-    }));
-  }
-  return checking.get(id);
+  return store.cloud.read(id).finally(() => {
+    asked.delete(id);
+    draw(["cloud", "products"]);   // the row of API Management in the Cloud is its environment
+    follow();
+  });
 }
 
 // The gateway that runs here and has not connected yet is read again soon, until it has: a person who just started it is
