@@ -44,30 +44,6 @@ def problems(**changes):
     return manifest.validate_catalog(meta)
 
 
-class Versions(Case):
-
-    def test_a_version_is_three_numbers_with_dots(self):
-        self.assertEqual(manifest.parse_version("1.4.0"), (1, 4, 0))
-        self.assertEqual(manifest.parse_version("10.20.300"), (10, 20, 300))
-        self.assertEqual(manifest.parse_version("0.0.0"), (0, 0, 0))
-
-    def test_anything_else_is_refused(self):
-        for text in ("1.4", "1.4.0.1", "v1.4.0", "1.4.0-beta", "1.4.x", "", " 1.4.0", "1.4.0 ", "1..0", "-1.0.0",
-                     "1.0.0\n", "１.０.０", "١.٠.٠", "1" * 12 + ".0.0", None, 1, 1.4, ("1", "4", "0")):
-            with self.assertRaises(ValueError, msg=repr(text)):
-                manifest.parse_version(text)
-
-    def test_a_version_is_at_least_another_by_its_numbers_not_its_text(self):
-        for have, need, answer in (("1.4.0", "1.4.0", True), ("1.4.1", "1.4.0", True), ("1.10.0", "1.9.0", True),
-                                   ("1.9.0", "1.10.0", False), ("2.0.0", "1.99.99", True), ("1.0.0", "2.0.0", False),
-                                   ("0.9.9", "1.0.0", False), ("10.0.0", "9.0.0", True)):
-            self.assertIs(manifest.at_least(have, need), answer, (have, need))
-
-    def test_a_doubt_is_never_enough(self):
-        for have, need in (("1.0", "1.0.0"), ("1.0.0", "1.0"), (None, "1.0.0"), ("1.0.0", None), ("", ""), ("x", "y")):
-            self.assertIs(manifest.at_least(have, need), False, (have, need))
-
-
 class Shared(Case):
     """What the registry shares with the package is public: `shown` and `scan`, not the names they had when they were private."""
 
@@ -960,7 +936,7 @@ class Legacy(Case):
     def test_the_template_writes_them_with_the_comment_with_legacy_writes(self):
         """`catalog.py new` renders the template and `with_legacy` adds missing lines: the two say the same, from one constant."""
         template = (standard.TEMPLATE / "seeded" / "catalog.yml").read_text(encoding="utf-8")
-        lines = [line for line in template.splitlines() if line.strip().split(":")[0] in manifest.LEGACY]
+        lines = [line for line in template.splitlines() if line.strip().split(":")[0] in ("schema", "lab")]
         self.assertEqual(lines, [f"  schema: {manifest.SCHEMA}   {manifest.LEGACY_NOTE}", f"  lab: 1   {manifest.LEGACY_NOTE}"])
         bare = "".join(line for line in template.splitlines(True) if line.rstrip("\n") not in lines)
         self.assertEqual(manifest.with_legacy(bare, 1), template, "the lines it adds are the template's, in the same places")

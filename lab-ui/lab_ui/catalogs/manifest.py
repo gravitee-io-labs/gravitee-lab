@@ -14,7 +14,7 @@ check` and the template's tests use it. It does not judge a namespace against th
 person has (`registry.check_namespace`) nor a name against the address that serves it: the listed names are `borrowed`,
 and the caller that knows the address says which.
 
-`compat`, `pick`, `parse_version` and `at_least` are pure and tested over tables. `levels` is the git half of `pick`:
+`compat` and `pick` are pure and tested over tables. `levels` is the git half of `pick`:
 the versions of `catalog.yml` in the first-parent history of the tip, read from the bare store, newest first, and each version of
 the units within each of them. `releases` is the other half, for a catalog that makes releases: its release tags that lead to the
 tip and that its catalog.yml agrees with. `offer` says which of the two a catalog follows, and the commit it offers
@@ -26,7 +26,7 @@ import re
 import stat
 import time
 from pathlib import Path
-from typing import Iterable, List, NamedTuple, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional
 
 from ..docker import compose
 from .. import paths
@@ -35,7 +35,6 @@ from . import store as bare
 from .registry import CatalogError
 
 SCHEMA = 1   # the format of catalog.yml and of the layout that this Lab reads
-LEGACY = ("schema", "lab")   # what older Gravitee Labs need in catalog.yml, and this Lab does not
 LEGACY_NOTE = "# For older Gravitee Labs: written by catalog.py"   # the comment of their lines in a file catalog.py writes
 # The versions of a catalog whose files `pick` reads to find one this Lab understands, and the seconds it spends on them: a real
 # history has its newest readable version among the first few, and a catalog this Lab cannot read is said once the budget is spent
@@ -80,30 +79,11 @@ _LICENSE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*(?: (?:AND|OR|WITH) [A-Za-z0-9
 _IMAGES = re.compile(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+")
 _SETTING = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 _UNIT = re.compile(r"(addon|setup|playground):[a-z0-9-]+")
-_SHA = re.compile(r"[0-9a-f]{40}")
 
 NAMESPACE_PROBLEM = "id must be 2 to 24 lowercase letters, digits and dashes"
 
 
 # ---------------------------------------------------------------- versions and levels
-
-def parse_version(text: str) -> Tuple[int, int, int]:
-    """(major, minor, patch) of a version of three numbers with dots, `1.4.0`; ValueError for anything else (a fourth
-    number, a suffix, a sign, a digit that is not an ASCII one)."""
-    if not isinstance(text, str) or not _VERSION.fullmatch(text):
-        raise ValueError(f"not a version of three numbers: {text!r}")
-    major, minor, patch = (int(part) for part in text.split("."))
-    return major, minor, patch
-
-
-def at_least(have: str, need: str) -> bool:
-    """Whether the version `have` is `need` or later (`min` of a required catalog, 5.3). False when either is not a
-    version, so that a doubt never counts as enough."""
-    try:
-        return parse_version(have) >= parse_version(need)
-    except ValueError:
-        return False
-
 
 def _level(value, default):
     return value if type(value) is int else default
