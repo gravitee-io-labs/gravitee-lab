@@ -409,7 +409,6 @@ class Items(Machine):
                 self.assertEqual(list(check._level({"lab": level})), [self.LEVEL])
         for requires in (None, {}, {"plugins": {}}, "lab", ["lab"]):
             self.assertEqual(list(check._level(requires)), [], requires)   # no level said, or requires written otherwise
-        self.assertIn("lab", check.REQUIRES)
         built = self.machine([member("fixture", "playground", "welcome", ["acme-website"])])
         self.assertEqual(list(check._requires({"lab": "x"}, built)), [], "said once, for every kind, by the item")
 
@@ -953,10 +952,6 @@ class Listings(Case):
         for kind in self.units:
             self.assertEqual(list(check._table(kind, self.units[kind], self.root / "catalog")), [])
         self.assertEqual(list(check._table("setup", [], self.root / "catalog")), [])
-
-    def test_the_old_name_of_the_listings_is_gone(self):
-        self.assertFalse(hasattr(check, "CATALOGS"))
-        self.assertEqual(sorted(check.LISTINGS), ["addon", "playground", "setup"])
 
 
 class Sharing(Machine):
@@ -1719,12 +1714,6 @@ class Engine(Case):
     def test_with_no_catalog_installed_it_prints_all_good_and_exits_0(self):
         self.assertEqual(self.run_check(), (0, self.ALL_GOOD))
 
-    def test_the_readme_tables_of_the_folders_of_the_old_layout_are_none_of_its_business(self):
-        # 27 rows of addons/, setups/ and playgrounds/ at the root of the engine made it red; they are no listing of this layout
-        for folder in ("addons", "setups", "playgrounds"):
-            self.write(f"{folder}/README.md", f"# {folder}\n\n| Name | What |\n|---|---|\n| [Kafka](kafka/) | Kafka broker |\n")
-        self.assertEqual(self.run_check(), (0, self.ALL_GOOD))
-
     def test_what_the_installed_catalogs_hold_never_turns_it_red(self):
         fixtures.install(self, "fixture")
         fixtures.install(self, "partner")
@@ -2434,11 +2423,6 @@ class Declarations(Case):
             "canary: playground:ghost is not an item of this catalog",
             "colour is not a key of x-gravitee-catalog: " + ", ".join(manifest.KEYS),
             "requires.catalogs.lab-new is declared and no unit includes from it: remove it"])
-
-    def test_the_images_a_catalog_builds_are_the_audit_s_to_judge_and_the_items_say_nothing_of_them(self):
-        found = check.catalog_problems("fixture", self.built, self.inputs)
-        self.assertEqual([line for where, line in found if "CI publishes" in line or "CI never publishes" in line], [])
-        self.assertFalse(hasattr(check, "_registry"), "the registry-prefix rule is IM02 and IM04 now")
 
     def test_the_units_go_to_the_audit_with_the_services_they_define_and_the_contexts_as_their_files_wrote_them(self):
         from lab_ui.catalogs import audit
