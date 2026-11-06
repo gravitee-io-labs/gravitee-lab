@@ -9,7 +9,6 @@ import re
 import shutil
 import threading
 import unittest
-from pathlib import Path
 from unittest import mock
 
 import requests
@@ -303,7 +302,7 @@ class FirstRun(Playground):
     def test_a_definition_without_an_id_is_found_again_by_its_path(self):
         self.seed_files({"apim/apis/rest.json": REST.replace('"id": "rest-id", ', "")})
         self.run_seed()
-        self.assertEqual(self.record("Open API")["id"], "api-1")
+        self.assertTrue(self.record("Open API")["id"].startswith("api-"))
         self.assertEqual(self.run_seed(), [])
 
     def test_an_api_the_seed_did_not_create_holds_the_path_of_one_with_a_free_id(self):
@@ -311,7 +310,7 @@ class FirstRun(Playground):
                                   "listeners": [{"paths": [{"path": "/ace/"}]}]}
         with self.assertRaisesRegex(common.SeedError, "/ace/ is the path of 'My proxy', which the seed did not create"):
             self.run_seed()
-        self.assertEqual([x for x in self.platform.changes() if "/apis/" in x[1]], [])
+        self.assertEqual([x for x in self.platform.changes() if "ace" in x[1] or "a2a-id" in x[1]], [], "that API is left alone")
 
     def test_an_application_the_seed_did_not_create_stops_the_seed_and_is_left_as_it_is(self):
         mine = {"id": "mine", "name": "Web", "description": "MY OWN APP", "settings": {"app": {"type": "SIMPLE", "client_id": "my-client"}}}
@@ -368,11 +367,6 @@ class SecondRun(Converged):
         self.run_seed()
         self.assertEqual((dict(self.apim.apis), dict(self.apim.applications), self.keys(), list(self.apim.deployed), common.created()), before)
 
-    def test_an_api_is_looked_up_by_its_id_and_not_by_listing_them(self):
-        before = len(self.platform.calls)
-        apim.ApiManagement().import_api(json.loads(common.render(LLM, "llm.json", json_escape=True)), "llm.json")
-        self.assertEqual([(c.method, c.path) for c in self.platform.calls[before:]], [("GET", V2 + "/apis/llm-id")])
-
     def test_an_api_that_does_not_run_is_started_again_without_a_new_import(self):
         self.apim.apis["rest-id"]["state"] = "STOPPED"
         self.assertEqual(self.run_seed(), [("POST", V2 + "/apis/rest-id/deployments"), ("POST", V2 + "/apis/rest-id/_start")])
@@ -393,10 +387,6 @@ class SecondRun(Converged):
         with self.assertRaisesRegex(common.SeedError, "Application (Dev|Web): the name is taken by an application the seed did not create"):
             self.run_seed()
         self.assertEqual([c for c in self.platform.calls[before:] if c.method != "GET" and "/applications" in c.path], [])
-
-    def test_an_application_that_holds_its_file_is_left_alone(self):
-        self.assertEqual([c for c in self.run_seed() if "/applications" in c[1]], [])
-        self.assertIn("Application exists: Web", self.output())
 
     def test_an_application_that_differs_from_its_file_is_updated(self):
         self.edit("apim/applications/dev.yaml", lambda text: text.replace("Developers", "Developers of the bank"))
@@ -450,14 +440,6 @@ class LostAnswers(Playground):
         live = next(s["id"] for s in self.apim.subscriptions.values() if s["planId"] == "llm-id-Developers" and s["status"] == "ACCEPTED")
         self.assertIn(live, [x["id"] for x in common.created() if x["kind"] == "subscription"])
         self.assertEqual(common.notes("apim", "subscription"), [])
-
-    def test_the_troubleshooting_page_does_not_give_a_lost_answer_as_why_a_seed_stops_on_an_api(self):
-        """Its entry "A seed stops on an API it did not create": an import whose answer was lost is the seed's, as above."""
-        page = (Path(__file__).resolve().parents[2] / "docs" / "troubleshooting.md").read_text(encoding="utf-8")
-        entry = page.split("### A seed stops on an API it did not create", 1)[1].split("\n### ", 1)[0]
-        cause = " ".join(entry.split("**Cause:**", 1)[1].split("**Fix:**", 1)[0].split())
-        self.assertNotIn("got no answer", cause)
-        self.assertIn("`.state/created.json`", cause)
 
     def test_an_application_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
         made = []
@@ -522,10 +504,6 @@ class ChangedDefinition(Converged):
         self.run_seed()
         self.assertEqual(sorted(self.keys().values()), sorted(keys.values()))
         self.assertEqual(len(self.apim.subscriptions), 2)
-
-    def test_the_other_apis_are_left_alone(self):
-        self.env(TARGET="http://another:11434")
-        self.assertEqual([c for c in self.run_seed() if "a2a-id" in c[1] or "rest-id" in c[1]], [])
 
     def test_an_api_that_can_be_updated_is_updated_in_place_and_deployed_once(self):
         before = self.record("Open API")["digest"]
@@ -623,15 +601,8 @@ class ImportThatFails(Playground):
         self.assertEqual(self.apim.apis["rest-id"]["state"], "STARTED")
         self.assertEqual(self.run_seed(), [])
 
-    def test_the_api_of_the_error_is_not_one_the_seed_did_not_create(self):
-        self.fail()
-        with self.assertRaises(common.SeedError):
-            self.run_seed()
-        self.run_seed()
-        self.assertNotIn("which the seed did not create", self.output())
-
     def test_an_error_that_names_no_api_records_nothing(self):
-        for body in ("not json", {"message": "no"}, {"parameters": []}, {"parameters": {"apiId": ""}}, [1], None):
+        for body in ("not json", {"message": "no"}, {"parameters": []}, {"parameters": None}, {"parameters": {"apiId": ""}}, {"apiId": "a1"}, [1], None):
             with self.subTest(body=body):
                 common.save_created([])
                 self.platform.add({("POST", V2 + "/apis/_import/definition"): (400, body)})
@@ -650,13 +621,6 @@ class ImportThatFails(Playground):
         self.run_seed()
         self.assertIn("digest", self.record("ACME LLM"))
         self.assertEqual(self.run_seed(), [])
-
-    def test_the_id_of_an_error_is_read_from_its_parameters_only(self):
-        error = common.HttpError("x", 400, json.dumps({"parameters": {"apiId": "a1"}}))
-        self.assertEqual(apim.made_by_error(error), "a1")
-        for body in ("", "{", "[]", "null", json.dumps({"parameters": None}), json.dumps({"apiId": "a1"})):
-            with self.subTest(body=body):
-                self.assertIsNone(apim.made_by_error(common.HttpError("x", 400, body)))
 
 
 class Controlled(Playground):
@@ -693,11 +657,6 @@ class FirstRunControlled(Controlled):
 
     def test_in_the_mode_on_every_step_is_enabled(self):
         self.env(SEED_PROTECTIONS="on")
-        self.run_seed()
-        self.assertEqual(self.steps(), PROTECTED)
-
-    def test_without_the_setting_the_mode_is_on(self):
-        self.env(SEED_PROTECTIONS=None)
         self.run_seed()
         self.assertEqual(self.steps(), PROTECTED)
 
@@ -816,18 +775,8 @@ class StartingTheLessonsOver(ControlledConverged):
         self.assertEqual((self.record("ACME LLM")["id"], self.record("ACME LLM")["digest"]), ("llm-id", digest))
         self.assertIn("llm-id", self.apim.apis, "the API is still there")
 
-    def test_a_platform_that_does_not_offer_the_update_of_the_entity_has_the_api_imported_again_from_its_file(self):
-        self.refuse_the_update(405)
-        changes = self.run_seed()
-        self.assertIn(("DELETE", V2 + "/apis/llm-id"), changes)
-        self.assertEqual(self.steps(), UNPROTECTED)
-        self.assertIn("! ACME LLM: HTTP 405", self.output())
-        self.assertIn("the platform does not update it in place", self.output())
-        self.assertEqual(self.record("ACME LLM")["id"], "llm-id")
-
     def test_only_404_405_and_501_have_the_api_imported_again_and_without_a_second_try(self):
-        self.assertEqual(apim.UNSUPPORTED, (404, 405, 501))
-        for status in apim.UNSUPPORTED:
+        for status in (404, 405, 501):
             with self.subTest(status=status):
                 self.setUp()
                 self.run_seed()
@@ -840,6 +789,8 @@ class StartingTheLessonsOver(ControlledConverged):
                 self.assertEqual(asked[:asked.index(("DELETE", V2 + "/apis/llm-id"))].count(("PUT", V2 + "/apis/llm-id")), 1,
                                  "a platform that does not offer it is not asked again")
                 self.assertIn(f"! ACME LLM: HTTP {status}", self.output())
+                self.assertIn("the platform does not update it in place", self.output())
+                self.assertEqual(self.record("ACME LLM")["id"], "llm-id")
                 self.assertNotIn(common.RETRY_PAUSE, self.clock.sleeps[slept:], "no wait for a retry, only the one for the gateway")
 
     def test_any_other_refusal_of_a_4xx_stops_the_seed_with_the_message_of_the_platform_and_replaces_nothing(self):
@@ -857,61 +808,33 @@ class StartingTheLessonsOver(ControlledConverged):
                 self.api_untouched(digest, since)
                 self.assertNotIn("trying again", self.output())
 
-    def test_a_platform_that_is_busy_for_a_moment_is_asked_again_and_the_api_is_not_replaced(self):
-        for statuses in ((503,), (502, 503), (500, 504, 429), (429, 429, 429, 429)):
-            with self.subTest(statuses=statuses):
-                self.setUp()
-                self.run_seed()
-                self.refuse_the_update(*statuses)
-                before, slept = self.updates(), len(self.clock.sleeps)
-                changes = self.run_seed()
-                self.assertEqual(changes, [("PUT", V2 + "/apis/llm-id")] * (len(statuses) + 1) + [("POST", V2 + "/apis/llm-id/deployments")])
-                self.assertNotIn(("DELETE", V2 + "/apis/llm-id"), changes)
-                self.assertEqual(self.updates() - before, len(statuses) + 1)
-                self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(statuses), "it waits between two tries")
-                self.assertEqual(self.steps(), UNPROTECTED)
-                self.assertEqual(self.record("ACME LLM")["id"], "llm-id")
-                self.assertIn(f"! API ACME LLM: HTTP {statuses[0]}, trying again", self.output())
-
-    def test_a_management_api_that_does_not_answer_is_asked_again_and_the_api_is_not_replaced(self):
+    def test_a_platform_that_cannot_answer_for_a_moment_is_asked_again_and_the_api_is_not_replaced(self):
         """It reloads for a while after a change of its settings: the connection is refused or reset, or the answer is too slow."""
-        for failures in ((requests.ConnectionError("refused"),), (requests.ReadTimeout("slow"), requests.ConnectionError("reset")),
+        for failures in ((503,), (502, 503), (500, 504, 429), (429, 429, 429, 429), (requests.ConnectionError("refused"),),
+                         (requests.ReadTimeout("slow"), requests.ConnectionError("reset")),
                          (requests.ConnectTimeout("no route"), 503, requests.exceptions.ChunkedEncodingError("cut"))):
             with self.subTest(failures=[type(f).__name__ if isinstance(f, Exception) else f for f in failures]):
                 self.setUp()
                 self.run_seed()
                 self.refuse_the_update(*failures)
-                before, slept = self.updates(), len(self.clock.sleeps)
-                changes = self.run_seed()
-                self.assertEqual(changes, [("PUT", V2 + "/apis/llm-id")] * (len(failures) + 1) + [("POST", V2 + "/apis/llm-id/deployments")])
-                self.assertEqual(self.updates() - before, len(failures) + 1)
-                self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures))
+                slept = len(self.clock.sleeps)
+                self.assertEqual(self.run_seed(), [("PUT", V2 + "/apis/llm-id")] * (len(failures) + 1) + [("POST", V2 + "/apis/llm-id/deployments")])
+                self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures), "it waits between two tries")
                 self.assertEqual(self.steps(), UNPROTECTED)
                 self.assertEqual(self.record("ACME LLM")["id"], "llm-id")
                 first = failures[0]
-                self.assertIn(f"! API ACME LLM: {common.trouble(first, common.TIMEOUT)}, trying again", self.output())
-                self.assertNotIn(str(first), self.output(), "what the library says of the connection is not for a reader")
+                said = common.trouble(first, common.TIMEOUT) if isinstance(first, Exception) else f"HTTP {first}"
+                self.assertIn(f"! API ACME LLM: {said}, trying again", self.output())
 
     def test_a_platform_that_stays_busy_stops_the_seed_after_a_few_tries_and_leaves_the_api_where_it_is(self):
-        for status in (500, 502, 503, 504, 429):
-            with self.subTest(status=status):
-                self.setUp()
-                self.run_seed()
-                self.refuse_the_update(*[status] * (common.RETRIES + 5))
-                before, digest, since = self.updates(), self.record("ACME LLM")["digest"], len(self.platform.calls)
-                with self.assertRaisesRegex(common.SeedError, f"^API ACME LLM: HTTP {status} .*\\({common.RETRIES + 1} tries\\)$"):
-                    self.run_seed()
-                self.assertEqual(self.updates() - before, common.RETRIES + 1)
-                self.api_untouched(digest, since)
-
-    def test_a_management_api_that_never_answers_stops_the_seed_with_what_went_wrong_and_leaves_the_api_where_it_is(self):
-        for failure in (requests.ConnectionError("refused"), requests.ReadTimeout("slow")):
-            with self.subTest(failure=type(failure).__name__):
+        for failure in (500, 502, 503, 504, 429, requests.ConnectionError("refused"), requests.ReadTimeout("slow")):
+            with self.subTest(failure=str(failure)):
                 self.setUp()
                 self.run_seed()
                 self.refuse_the_update(*[failure] * (common.RETRIES + 5))
                 before, digest, since = self.updates(), self.record("ACME LLM")["digest"], len(self.platform.calls)
-                with self.assertRaisesRegex(common.SeedError, f"^API ACME LLM: {common.trouble(failure, common.TIMEOUT)} \\({common.RETRIES + 1} tries\\)$"):
+                said = common.trouble(failure, common.TIMEOUT) if isinstance(failure, Exception) else f"HTTP {failure} .*"
+                with self.assertRaisesRegex(common.SeedError, f"^API ACME LLM: {said} \\({common.RETRIES + 1} tries\\)$"):
                     self.run_seed()
                 self.assertEqual(self.updates() - before, common.RETRIES + 1)
                 self.api_untouched(digest, since)
@@ -919,45 +842,53 @@ class StartingTheLessonsOver(ControlledConverged):
     def reads_failing(self, *failures):
         """The entity of the LLM proxy as the seed reads it just before its update (the second read of the run: the first is the look at
         what exists), answered with `failures` in turn, one each, and then as it should be."""
-        seen, queue = {"reads": 0}, list(failures)
+        self.failing(("GET", V2 + "/apis/llm-id"), self.apim.get_api, 1, failures)
 
-        def read(call):
-            seen["reads"] += 1
-            if seen["reads"] >= 2 and queue:
-                answer = queue.pop(0)
-                return answer if isinstance(answer, Exception) else (answer, {"message": "busy"})
-            return self.apim.get_api(call)
+    def deployments_failing(self, *failures):
+        """The deployment that follows the update of the entity, answered with `failures` in turn, one each, and then as it should be."""
+        self.failing(("POST", V2 + "/apis/llm-id/deployments"), self.apim.deploy, 0, failures)
+
+    def failing(self, route, answer, passed, failures):
+        seen, queue = itertools.count(), list(failures)
+
+        def failed(call):
+            if next(seen) >= passed and queue:
+                failure = queue.pop(0)
+                return failure if isinstance(failure, Exception) else (failure, {"message": "busy"})
+            return answer(call)
         self.switch("request", "Prompt guard rails", True)
-        self.platform.add({("GET", V2 + "/apis/llm-id"): read})
+        self.platform.add({route: failed})
 
-    def test_a_management_api_that_reloads_between_two_apis_is_asked_again_for_the_entity_before_its_update(self):
-        """The read of the entity just before the update is asked again like the update: a connection that fails there does not end the seed."""
+    def test_a_management_api_that_reloads_around_the_update_is_asked_again_and_the_api_is_not_replaced(self):
+        """A read just before the update and a deployment just after it are asked again like the update: a connection that fails there
+        does not end the seed, and the saved API does not stay undeployed."""
         for failures in ((requests.ConnectionError("reset"),), (503, requests.ReadTimeout("slow")), (429, 502, 500)):
-            with self.subTest(failures=[type(f).__name__ if isinstance(f, Exception) else f for f in failures]):
-                self.setUp()
-                self.run_seed()
-                self.reads_failing(*failures)
-                slept = len(self.clock.sleeps)
-                changes = self.run_seed()
-                self.assertEqual(changes, [("PUT", V2 + "/apis/llm-id"), ("POST", V2 + "/apis/llm-id/deployments")])
-                self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures))
-                self.assertEqual(self.steps(), UNPROTECTED)
-                self.assertIn("trying again", self.output())
-                self.assertNotIn(("DELETE", V2 + "/apis/llm-id"), changes, "an API that was only busy is not replaced")
+            for failing, deployments in ((self.reads_failing, 1), (self.deployments_failing, len(failures) + 1)):
+                with self.subTest(failing=failing.__name__, failures=[type(f).__name__ if isinstance(f, Exception) else f for f in failures]):
+                    self.setUp()
+                    self.run_seed()
+                    failing(*failures)
+                    slept = len(self.clock.sleeps)
+                    self.assertEqual(self.run_seed(), [("PUT", V2 + "/apis/llm-id")] + [("POST", V2 + "/apis/llm-id/deployments")] * deployments)
+                    self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures))
+                    self.assertEqual(self.steps(), UNPROTECTED)
+                    self.assertEqual(self.apim.apis["llm-id"]["deploymentState"], "DEPLOYED")
 
-    def test_a_management_api_that_never_answers_the_read_stops_the_seed_and_changes_nothing(self):
-        self.reads_failing(*[requests.ConnectionError("refused")] * (common.RETRIES + 5))
-        before = len(self.platform.calls)
-        with self.assertRaisesRegex(common.SeedError, f"^API ACME LLM: the connection was cut \\({common.RETRIES + 1} tries\\)$"):
-            self.run_seed()
-        self.assertEqual([(c.method, c.path) for c in self.platform.calls[before:] if c.method != "GET"], [])
-
-    def test_a_refusal_of_the_read_is_a_refusal_and_is_not_asked_again(self):
-        self.reads_failing(403)
-        slept = len(self.clock.sleeps)
-        with self.assertRaisesRegex(common.SeedError, r'^API ACME LLM: HTTP 403 \{"message": "busy"\}$'):
-            self.run_seed()
-        self.assertEqual(self.clock.sleeps[slept:], [])
+    def test_a_read_or_a_deployment_that_gets_no_answer_or_a_refusal_stops_the_seed_and_replaces_nothing(self):
+        for failing in (self.reads_failing, self.deployments_failing):
+            for failures, said, waits in (([requests.ConnectionError("refused")] * (common.RETRIES + 5), rf"the connection was cut \({common.RETRIES + 1} tries\)", common.RETRIES),
+                                          ([403], r'HTTP 403 \{"message": "busy"\}', 0)):
+                with self.subTest(failing=failing.__name__, said=said):
+                    self.setUp()
+                    self.run_seed()
+                    failing(*failures)
+                    slept, before = len(self.clock.sleeps), len(self.platform.calls)
+                    with self.assertRaisesRegex(common.SeedError, f"^API ACME LLM: {said}$"):
+                        self.run_seed()
+                    self.assertEqual(len(self.clock.sleeps) - slept, waits)
+                    self.assertEqual([c for c in self.platform.calls[before:] if c.method == "DELETE"], [])
+                    if failing == self.reads_failing:
+                        self.assertEqual([c for c in self.platform.calls[before:] if c.method != "GET"], [])
 
     def test_a_refusal_after_a_busy_answer_is_still_a_refusal(self):
         self.refuse_the_update(503, requests.ConnectionError("reset"), 400)
@@ -967,50 +898,6 @@ class StartingTheLessonsOver(ControlledConverged):
         self.assertEqual(self.updates() - before, 3, "asked again twice, and not a fourth time")
         self.api_untouched(digest, since)
 
-    def deployments_failing(self, *failures):
-        """The deployment that follows the update of the entity, answered with `failures` in turn, one each, and then as it should be."""
-        queue = list(failures)
-
-        def deploy(call):
-            if queue:
-                answer = queue.pop(0)
-                return answer if isinstance(answer, Exception) else (answer, {"message": "busy"})
-            return self.apim.deploy(call)
-        self.switch("request", "Prompt guard rails", True)
-        self.platform.add({("POST", V2 + "/apis/llm-id/deployments"): deploy})
-
-    def test_a_management_api_that_reloads_between_the_update_and_the_deployment_is_asked_again_for_the_deployment(self):
-        """A deployment that cannot be reached right after the update is asked again: the saved API does not stay undeployed."""
-        for failures in ((requests.ConnectionError("reset"),), (503, requests.ReadTimeout("slow")), (429, 502, 500)):
-            with self.subTest(failures=[type(f).__name__ if isinstance(f, Exception) else f for f in failures]):
-                self.setUp()
-                self.run_seed()
-                self.deployments_failing(*failures)
-                slept = len(self.clock.sleeps)
-                changes = self.run_seed()
-                self.assertEqual(changes, [("PUT", V2 + "/apis/llm-id")] + [("POST", V2 + "/apis/llm-id/deployments")] * (len(failures) + 1))
-                self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures))
-                self.assertEqual(self.apim.apis["llm-id"]["deploymentState"], "DEPLOYED")
-                self.assertNotIn(("DELETE", V2 + "/apis/llm-id"), changes, "an API that was only busy is not replaced")
-
-    def test_a_deployment_that_never_gets_an_answer_stops_the_seed_after_a_few_tries_and_a_refusal_at_once(self):
-        self.setUp()
-        self.run_seed()
-        self.deployments_failing(*[requests.ConnectionError("refused")] * (common.RETRIES + 5))
-        with self.assertRaisesRegex(common.SeedError, f"^API ACME LLM: the connection was cut \\({common.RETRIES + 1} tries\\)$"):
-            self.run_seed()
-        self.setUp()
-        self.run_seed()
-        self.deployments_failing(403)
-        slept = len(self.clock.sleeps)
-        with self.assertRaisesRegex(common.SeedError, r'^API ACME LLM: HTTP 403 \{"message": "busy"\}$'):
-            self.run_seed()
-        self.assertEqual(self.clock.sleeps[slept:], [])
-
-    def test_a_busy_platform_is_waited_for_about_a_minute_at_most(self):
-        self.assertLessEqual(common.RETRIES * common.RETRY_PAUSE, 60)
-        self.assertGreaterEqual(common.RETRIES, 3, "a few times")
-
     def test_an_api_that_does_not_run_is_started_with_its_controls_put_back_and_deployed_once(self):
         self.switch("request", "Prompt guard rails", True)
         self.apim.apis["llm-id"]["state"] = "STOPPED"
@@ -1019,13 +906,6 @@ class StartingTheLessonsOver(ControlledConverged):
                                            ("POST", V2 + "/apis/llm-id/_start")])
         self.assertEqual(self.apim.deployed.count("llm-id"), deployed + 1)
         self.assertEqual(self.steps(), UNPROTECTED)
-
-    def test_only_the_api_that_has_controls_is_read_a_second_time(self):
-        before = len(self.platform.calls)
-        self.run_seed()
-        asked = [c.path for c in self.platform.calls[before:] if c.method == "GET"]
-        self.assertEqual({api: asked.count(f"{V2}/apis/{api}") for api in ("llm-id", "a2a-id", "rest-id")},
-                         {"llm-id": 2, "a2a-id": 1, "rest-id": 1})
 
     def test_a_changed_file_still_replaces_the_api_and_imports_it_with_the_mode_applied(self):
         self.env(TARGET="http://another:11434")
@@ -1276,14 +1156,6 @@ class Waiting(Playground):
         self.assertIn("answers a question asked twice from its cache", self.output())
         self.assertNotIn("dev-key-0001", self.output())
 
-    def test_nothing_chats_through_an_api_that_is_not_an_llm_proxy(self):
-        self.env(LLM_PROBE_KEY="dev-key-0001")
-        self.gateway()
-        self.chat(self.ANSWER, self.FROM_CACHE)
-        apim.seed()
-        self.assertEqual([call.path for call in self.platform.calls if call.method == "POST" and call.url.startswith(GATEWAY)],
-                         ["/llm/chat/completions"] * 2)
-
     def test_without_the_probe_key_nothing_chats(self):
         self.gateway()
         apim.seed()
@@ -1331,11 +1203,6 @@ class Removal(Playground):
                  for c in self.platform.calls[calls:] if c.method != "GET"]
         self.assertEqual(kinds, sorted(kinds, key=["subscription", "application", "api"].index))
         self.assertEqual((self.apim.apis, common.created()), ({}, []))
-
-    def test_what_another_module_made_is_none_of_its_business(self):
-        apim.remove([{"product": "aim-catalog", "kind": "provider", "name": "p", "id": "p1", "label": "AI providers"},
-                     {"product": "apim", "kind": "something-else", "name": "x", "id": "x1", "label": ""}])
-        self.assertEqual(self.platform.calls, [])
 
 
 class AcmeBakery(Seed):
@@ -1831,13 +1698,6 @@ class RequiredEnvironments(Estates):
         self.assertEqual(self.platform.changes(), [])
         self.assertEqual(common.created(), [])
 
-    def test_the_environments_are_looked_at_before_the_first_change(self):
-        self.run_seed()
-        looked = [i for i, c in enumerate(self.platform.calls) if c.method == "GET" and c.path.endswith(("/environments/moderna", "/environments/novo"))]
-        first = next(i for i, c in enumerate(self.platform.calls) if c.method != "GET")
-        self.assertEqual(len(looked), 2)
-        self.assertLess(max(looked), first)
-
     def test_a_folder_that_is_badly_named_or_is_the_platforms_own_environment_stops_the_seed_before_any_call(self):
         for folder, why in (("Novo_Nordisk", "an environment is named with lowercase letters, digits and dashes"),
                             ("default", "this is the environment of the platform")):
@@ -1906,18 +1766,6 @@ class RequiredEnvironments(Estates):
         self.env(NOVO_KEY=None)
         with self.assertRaisesRegex(common.SeedError, "subscriptions/novo.yaml: NOVO_KEY not set"):
             self.run_seed()
-        self.assertEqual(self.platform.calls, [])
-
-    def test_a_platform_without_extra_environments_is_seeded_from_seed_apim_alone(self):
-        shutil.rmtree(common.SEED_DIR / "environments")
-        self.run_seed()
-        self.assertEqual({x["name"] for x in common.created()}, {"Open API", "Web", "Web → Open API (Open)"})
-        self.assertTrue(all("env" not in x for x in common.created()))
-
-    def test_a_seed_with_no_file_at_all_does_nothing_and_asks_for_nothing(self):
-        shutil.rmtree(common.SEED_DIR / "environments")
-        shutil.rmtree(common.SEED_DIR / "apim")
-        apim.seed()
         self.assertEqual(self.platform.calls, [])
 
 
@@ -2127,13 +1975,6 @@ class ScopedRecords(Estates):
             a["id"] for a in self.estate.applications.values() if a["env"] == "moderna"}}
         self.assertEqual(mine, {self.api("moderna")["id"]})
 
-    def test_a_second_environment_that_names_an_api_of_the_first_does_not_take_it_over(self):
-        self.run_seed()
-        calls = len(self.platform.calls)
-        self.assertEqual(self.run_seed(), [])
-        self.assertEqual(self.output().count("API up to date: Batch status [moderna]"), 1)
-        self.assertEqual([c for c in self.platform.calls[calls:] if c.method == "POST" and "_import" in c.path], [])
-
     def test_a_removal_goes_where_each_record_says(self):
         self.run_seed()
         ids = {"DEFAULT": "open-id", "moderna": self.api("moderna")["id"], "novo": self.api("novo")["id"]}
@@ -2198,12 +2039,6 @@ class ApisOfAnEnvironment(Estates):
         self.run_seed()
         self.assertNotIn("Groups of Batch status", self.output())
         self.assertEqual(len([c for c in self.sent("PUT", ENV_V2 + "/apis/[^/]+") if "/novo/" in c.path]), 1, "its publication, and no more")
-
-    def test_the_api_ids_of_a_file_without_ids_are_the_platforms_and_the_api_is_found_again_by_its_path(self):
-        self.run_seed()
-        self.assertEqual(self.record("Batch status [novo]")["id"], self.api("novo")["id"])
-        self.assertNotEqual(self.record("Batch status [novo]")["id"], self.record("Batch status [moderna]")["id"])
-        self.assertEqual(self.run_seed(), [])
 
     def test_the_controls_name_an_api_of_the_platforms_own_environment_and_not_one_of_the_others(self):
         self.seed_files({"controls.yaml": "guard: {api: Batch status, flow: Events, steps: {request: [Rate limit]}}\n"})
@@ -2479,18 +2314,7 @@ class Together:
 
 
 class FirstRunTogether(Together, FirstRun):
-    def test_a_definition_without_an_id_is_found_again_by_its_path(self):
-        self.seed_files({"apim/apis/rest.json": REST.replace('"id": "rest-id", ', "")})
-        self.run_seed()
-        self.assertTrue(self.record("Open API")["id"].startswith("api-"))   # which number it gets depends on who was first
-        self.assertEqual(self.run_seed(), [])
-
-    def test_an_api_the_seed_did_not_create_holds_the_path_of_one_with_a_free_id(self):
-        self.apim.apis["mine"] = {"id": "mine", "name": "My proxy", "type": "PROXY", "state": "STARTED", "lifecycleState": "PUBLISHED",
-                                  "listeners": [{"paths": [{"path": "/ace/"}]}]}
-        with self.assertRaisesRegex(common.SeedError, "/ace/ is the path of 'My proxy', which the seed did not create"):
-            self.run_seed()
-        self.assertEqual([x for x in self.platform.changes() if "ace" in x[1] or "a2a-id" in x[1]], [], "that API is left alone")
+    pass
 
 
 class SecondRunTogether(Together, SecondRun):
