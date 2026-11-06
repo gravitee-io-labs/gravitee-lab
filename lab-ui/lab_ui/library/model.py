@@ -5,7 +5,7 @@ given, nothing is read here but the names of the license's packs, as license.nam
 import re
 
 from ..docker import compose, images
-from ..gravitee import frames, license, platforms
+from ..gravitee import frames, license
 from . import layers, machine, personal, reasons, tested
 from .. import paths
 from ..catalogs import resolve
@@ -26,7 +26,7 @@ FINE = ("healthy", "running", "done")
 # `needs_license`: it exits without a usable license
 SERVICE_KEYS = ("label", "description", "container", "image", "tag", "registry", "built", "role", "needs_license")
 PLAYGROUND_KEYS = ("tags", "duration", "first_start", "source", "chapters", "guide", "accounts", "requires", "services",
-                   "apps", "seed")
+                   "apps")
 APPLY = "Apply needed"   # what runs behind what is saved, as a row says it
 NEWER = "Needs newer versions"   # a playground whose images are older than it needs
 UNTESTED = "Not tested with these versions"   # a playground whose images are not those it was tested with
@@ -869,13 +869,6 @@ def _platform_runs(c, runs):
     return {"needed": runs, "enabled": not reason, "reason": reason}
 
 
-def _platform_update(c, runs):
-    """The Stack's Update, for its head: a pull, then what runs made again with the images pulled (stack.action), as
-    an apply would make it. It starts nothing that was stopped, and what it makes again is not known before the pull:
-    it never asks first."""
-    return {**_platform_runs(c, runs), "dialog": None}
-
-
 def _platform_apply(c, states, behind):
     """The Stack's Apply, for its head, the banner, the editor and Images: whether it makes again anything that runs
     behind what is saved (`needed`: not while nothing of what is on runs, when it does nothing), what it makes again
@@ -932,7 +925,7 @@ def _platform(c):
     found = {"name": project["name"], "state": state, "containers": _containers(c, groups),
             "progress": _progress(c, "platform", [name for group in groups for name in group["services"]], state),
             "license_var": project["license_var"], "groups": groups, "start": _platform_start(c, behind),
-            "update": _platform_update(c, runs), "restart": _platform_runs(c, runs),
+            "update": _platform_runs(c, runs), "restart": _platform_runs(c, runs),
             # The playground that Reset turns off as it deletes what its seed created; not in an on file with the
             # user's own changes, which is never written
             "reset_turns_off": playground["name"] if playground and not c["state"]["locked"] else None,
@@ -940,10 +933,10 @@ def _platform(c):
             "behind": behind, "apply": _platform_apply(c, states, behind),
             # Its files, like a group's: the core's compose file, and its .env with every setting of the core
             "file": paths.CORE_FILE, "env_file": paths.ENV_FILE,
-            "settings": [variable["key"] for variable in project["core_variables"]]}
-    # The add-on that runs the gateway of each kind of platform here, as the project chose it: the page reads it
-    gateways = (project.get("platform") or {}).get("gateways")
-    return {**found, "gateways": {kind: gateways.get(kind) for kind in platforms.KINDS}} if gateways is not None else found
+            "settings": [variable["key"] for variable in project["core_variables"]],
+            # The add-on that runs the gateway of each kind of platform here, as the project chose it: the page reads it
+            "gateways": (project.get("platform") or {}).get("gateways")}
+    return found
 
 
 def _problem(problem, readonly=()):

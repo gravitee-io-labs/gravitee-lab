@@ -811,16 +811,13 @@ class State(Built):
         # starts what was stopped, and what Update makes again is not known before its pull: it never asks
         running = {**CORE, **healthy("kafka", "kafka-ui")}
         platform = self.build(explicit=["kafka"], containers=running)["platform"]
-        self.assertEqual(platform["update"], {"needed": True, "enabled": True, "reason": None, "dialog": None})
+        self.assertEqual(platform["update"], {"needed": True, "enabled": True, "reason": None})
         self.assertEqual(platform["restart"], {"needed": True, "enabled": True, "reason": None})
-        platform = self.build(explicit=["kafka"], containers={**CORE, **healthy("kafka"), "kafka-ui": exited(143)},
-                              saved=SAVED)["platform"]
-        self.assertIsNone(platform["update"]["dialog"])
         # Nothing of what is on runs: neither is offered, and each says why
         down = stopped("apim-gateway", "apim-management-api", "mongodb", "kafka", "kafka-ui")
         platform = self.build(explicit=["kafka"], containers=down)["platform"]
         nothing = {"needed": False, "enabled": False, "reason": "Nothing runs"}
-        self.assertEqual((platform["restart"], platform["update"]), (nothing, {**nothing, "dialog": None}))
+        self.assertEqual((platform["restart"], platform["update"]), (nothing, nothing))
         # An add-on that is on runs alone: both act on it; one that runs without being on does not count
         platform = self.build(explicit=["kafka"], containers={**down, **healthy("kafka")})["platform"]
         self.assertEqual(platform["restart"], {"needed": True, "enabled": True, "reason": None})
@@ -1145,8 +1142,7 @@ class State(Built):
         self.project["playgrounds"]["welcome"]["setups"] = ["observability", "gone"]
         self.assertEqual(self.build()["playgrounds"][0]["setups"], [{"id": "observability", "name": "Observability"}])
         self.assertEqual([link["label"] for link in playground["links"]], ["Hello", "AI Agent Lens"])
-        self.assertEqual((playground["apps"], playground["seed"], playground["guide"], playground["created"]),
-                         (["hello-app"], "seed", "0123456789ab", []))
+        self.assertEqual((playground["apps"], playground["guide"], playground["created"]), (["hello-app"], "0123456789ab", []))
 
     def test_a_service_named_like_another_says_what_it_belongs_to(self):
         # Two gateways: in what an action restarts, each with its group
@@ -1323,7 +1319,7 @@ class State(Built):
                          ("docker-compose.yml", ".env", ["GRAVITEE_LICENSE"]))
         self.assertEqual([(g["id"], g["state"]["key"], g["note"], g["note_tone"]) for g in platform["groups"]],
                          [("api-management", "issue", "Gateway exited (1)", "err"), ("databases", "running", "", "")])
-        self.assertEqual(sorted(platform), ["apply", "behind", "containers", "env_file", "file", "groups",
+        self.assertEqual(sorted(platform), ["apply", "behind", "containers", "env_file", "file", "gateways", "groups",
                                             "license_var", "name", "progress", "reset_turns_off", "restart",
                                             "settings", "start", "state", "update"])
         self.assertEqual({link["service"]: link["up"] for link in body["links"] if link["section"] == "Kafka"},
@@ -1741,11 +1737,9 @@ class Catalogs(Built):
     # --- The body ---------------------------------------------------------------------------------------------------
 
     def test_the_gateway_of_each_kind_of_platform_is_in_the_platform_when_the_project_chose_one(self):
-        self.assertNotIn("gateways", self.build()["platform"], "a project that did not choose says nothing")
+        self.assertIsNone(self.build()["platform"]["gateways"], "a project that did not choose says nothing")
         self.project["platform"] = {"gateways": {"cloud": "hybrid"}}
         self.assertEqual(self.build()["platform"]["gateways"], {"cloud": "hybrid"})
-        self.project["platform"] = {"gateways": {}}
-        self.assertEqual(self.build()["platform"]["gateways"], {"cloud": None}, "every kind of platform is there")
 
     def test_what_the_catalogs_and_the_first_start_say_is_in_the_body_as_it_is_given(self):
         body = self.build()

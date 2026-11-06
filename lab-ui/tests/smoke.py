@@ -23,7 +23,7 @@ ITEM = {"kind", "id", "name", "personal", "held", "category", "description", "fi
         "up", "state", "progress", "note", "note_tone", "note_title", "note_target", "note_file", "links", "action",
         "secondary", "failed_job", "login"}
 OF_KIND = {"playgrounds": {"tags", "duration", "first_start", "source", "chapters", "guide", "accounts", "requires",
-                           "setups", "addons", "includes", "services", "apps", "seed", "created", "stop", "reseed",
+                           "setups", "addons", "includes", "services", "apps", "created", "stop", "reseed",
                            "brings", "recreates", "tabs"},
            "setups": {"includes", "members"},
            "addons": {"services", "needs", "conflicts", "restarts", "brings", "recreates"}}
@@ -115,7 +115,7 @@ def state(lab_ui):
     has(body["platform"]["containers"], {"running", "total"}, "the platform's containers")
     has(body["platform"]["start"], {"needed", "starts", "restarts", "enabled", "reason", "dialog"},
         "the platform's Start")
-    has(body["platform"]["update"], {"needed", "enabled", "reason", "dialog"}, "the platform's Update")
+    has(body["platform"]["update"], {"needed", "enabled", "reason"}, "the platform's Update")
     has(body["platform"]["restart"], {"needed", "enabled", "reason"}, "the platform's Restart")
     has(body["platform"]["apply"], {"needed", "restarts", "starts", "enabled", "reason", "dialog"},
         "the platform's Apply")
