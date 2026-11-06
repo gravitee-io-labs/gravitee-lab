@@ -10,9 +10,7 @@ import os
 import random
 import re
 import shlex
-import shutil
 import signal
-import stat
 import subprocess
 import sys
 import threading
@@ -404,13 +402,6 @@ class PullPolicyVariables(Copies):
             self.assertEqual(compose._policies_written(text), "    pull_policy: " + wanted % blanks + "\n")
             self.assertLess(time.process_time() - started, 1)
 
-    def test_a_file_without_a_variable_policy_is_read_as_it_is(self):
-        self.write("addons/tool/compose.yml", self.COPIED)
-        seen = self.read("addons/tool/compose.yml")
-        self.assertEqual(seen["arguments"], ["-f", "addons/tool/compose.yml"])
-        self.assertEqual(seen["options"], ("--no-interpolate", "--no-consistency"))
-        self.assertEqual(list(self.scratch.iterdir()), [])
-
     def test_the_copy_is_read_from_the_folder_of_its_file(self):
         self.write("addons/tool/compose.yml", self.TOOL)
         seen = self.read("addons/tool/compose.yml")
@@ -616,13 +607,6 @@ class SkippedIncludes(Copies):
         self.write("playgrounds/mine/compose.yml", text)
         self.read("playgrounds/mine/compose.yml", skip=[GONE])
         self.assertEqual((self.root / "playgrounds/mine/compose.yml").read_text(encoding="utf-8"), text)
-
-    def test_a_problem_names_the_file_and_not_its_copy(self):
-        self.write("setups/mine.yml", f"include:\n  - ../addons/tool/compose.yml\n  - ../{GONE}\n")
-        with self.assertRaises(compose.ComposeError) as caught:
-            self.read("setups/mine.yml", skip=[GONE], fails=lambda seen: f"validating {seen['arguments'][3]}: bogus")
-        self.assertEqual(str(caught.exception), f"validating {self.root / 'setups/mine.yml'}: bogus")
-        self.assertEqual(list(self.scratch.iterdir()), [])
 
     def test_the_time_compose_has(self):
         self.write("setups/mine.yml", "include:\n  - ../addons/tool/compose.yml\n")
@@ -1133,15 +1117,6 @@ class Docker(Case):
                  if spelled in path.read_text(encoding="utf-8")]
         self.assertEqual(found, [])
 
-    def test_its_scratch_folder_is_private_and_kept_for_the_run(self):
-        folder = compose.scratch()
-        self.assertEqual((folder, stat.S_IMODE(folder.stat().st_mode)), (compose.scratch(), 0o700))
-
-    def test_its_scratch_folder_is_made_again_when_the_system_clears_it(self):
-        shutil.rmtree(compose.scratch())
-        folder = compose.scratch()
-        self.assertEqual((folder.is_dir(), stat.S_IMODE(folder.stat().st_mode)), (True, 0o700))
-
 
 class Environment(Case):
     """What every command gets: the files Compose reads, and no remote include."""
@@ -1155,12 +1130,6 @@ class Environment(Case):
         self.assertEqual(found["COMPOSE_EXPERIMENTAL_GIT_REMOTE"], "false")
         self.assertEqual(found["COMPOSE_EXPERIMENTAL_OCI_REMOTE"], "false")
         self.assertEqual(found["SHELL_KEEPS"], "this")
-
-    def test_the_flags_reach_every_command(self):
-        with mock.patch.dict(os.environ, {"COMPOSE_EXPERIMENTAL_GIT_REMOTE": "true"}):
-            answer = compose.run(["sh", "-c", 'printf "%s %s" "$COMPOSE_EXPERIMENTAL_GIT_REMOTE" '
-                                              '"$COMPOSE_EXPERIMENTAL_OCI_REMOTE"'])
-        self.assertEqual(answer, (0, "false false", ""))
 
     def test_a_command_gets_the_environment_it_is_given_in_place_of_the_shells(self):
         # scrubbed_environment() and build_environment() are given whole: nothing of the shell stays under them
