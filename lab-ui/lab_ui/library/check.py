@@ -952,20 +952,12 @@ def _gemini():
 
 def _contract_keys(core):
     """What the core says of the contract it keeps with the catalogs: the seeder image, the one image a seed service
-    may have (N01), a repository without a tag, and the two levels, whole numbers from 1 with the floor not above the top.
-    A core without the levels reads as level 1, so only a level that is written wrong is told."""
+    may have (N01), a repository without a tag."""
     meta = core.get("x-gravitee") if isinstance(core.get("x-gravitee"), dict) else {}
     seeder = meta.get("seeder") if isinstance(meta.get("seeder"), dict) else {}
     if not (isinstance(seeder.get("image"), str) and SEEDER_IMAGE.fullmatch(seeder["image"])):
         yield ("x-gravitee.seeder.image is missing or is no repository: write the seeder's image without a tag, such as "
                "ghcr.io/owner/repo/seeder, the only image a seed service may have")
-    levels = {key: meta[key] for key in ("contract", "contract_min") if key in meta}
-    for key, value in levels.items():
-        if type(value) is not int or value < 1:
-            yield f"x-gravitee.{key} must be a whole number from 1"
-    if all(type(value) is int for value in levels.values()) and len(levels) == 2 \
-            and levels["contract_min"] > levels["contract"]:
-        yield "x-gravitee.contract_min is above contract: the oldest level still read cannot pass the newest"
 
 
 # ---------------------------------------------------------------------------------------------------------------------

@@ -1347,21 +1347,6 @@ class Core(unittest.TestCase):
             with self.subTest(core=core):
                 self.assertEqual(list(check._contract_keys(core)), [wanted])
 
-    def test_the_levels_are_whole_numbers_from_1_and_the_floor_is_not_above_the_top(self):
-        seeder = {"seeder": {"image": "ghcr.io/o/r/seeder"}}
-        self.assertEqual(list(check._contract_keys({"x-gravitee": seeder})), [], "a core without levels reads as level 1")
-        self.assertEqual(list(check._contract_keys({"x-gravitee": {**seeder, "contract": 3, "contract_min": 2}})), [])
-        for meta, said in (({"contract": 0}, ["x-gravitee.contract must be a whole number from 1"]),
-                           ({"contract": "1"}, ["x-gravitee.contract must be a whole number from 1"]),
-                           ({"contract_min": 1.5}, ["x-gravitee.contract_min must be a whole number from 1"]),
-                           ({"contract": True}, ["x-gravitee.contract must be a whole number from 1"]),
-                           ({"contract": 2, "contract_min": 3},
-                            ["x-gravitee.contract_min is above contract: the oldest level still read cannot pass the newest"])):
-            with self.subTest(meta=meta):
-                self.assertEqual(list(check._contract_keys({"x-gravitee": {**seeder, **meta}})), said)
-
-
-
 
 class Contract(Machine):
     """`lab` in catalog.yml is the true minimum: the highest level among the contract items a catalog uses."""
