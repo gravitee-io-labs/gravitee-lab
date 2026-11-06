@@ -37,21 +37,12 @@ def target_of(path):
     return namespace, KIND_OF[folder or setups], name or setup_name
 
 
-def _key(item):
-    """A unit key as a tuple, whether it came as a tuple or as the list of a JSON file."""
-    return tuple(item) if isinstance(item, (list, tuple)) else item
-
-
 def _direct(units, node):
-    """The units that a unit includes itself. `units` is either {(kind, id): [(kind, id), ...]}, or the project's own
-    grouping, {kind: {id: unit}}, whose units say what they include in `setups` and `includes` (a playground), `includes`
-    (a setup) and `needs` (an add-on, already every add-on it brings)."""
-    if node in units:
-        return [_key(item) for item in units[node] or ()]
+    """The units that a unit includes itself. `units` is the project's own grouping, {kind: {id: unit}}, whose units say
+    what they include in `setups` and `includes` (a playground), `includes` (a setup) and `needs` (an add-on, already every
+    add-on it brings)."""
     kind, uid = node
-    unit = (units.get(kind) or {}).get(uid) if isinstance(units.get(kind), dict) else None
-    if not isinstance(unit, dict):
-        return []
+    unit = (units.get(kind) or {}).get(uid) or {}
     return ([("setup", other) for other in unit.get("setups") or ()]
             + [("addon", other) for other in unit.get("includes") or () if kind != "addon"]
             + [("addon", other) for other in unit.get("needs") or () if kind == "addon"])
@@ -77,7 +68,7 @@ def precedence_order(units, catalogs):
     namespace that `catalogs` does not list claims last, in alphabetical order: losing is the safe side."""
     known = list(catalogs)
     order = known + sorted(ns for ns in units if ns not in known)
-    return [key for ns in order for key in sorted(_key(item) for item in units.get(ns) or ())]
+    return [key for ns in order for key in sorted(units.get(ns) or ())]
 
 
 def same_item(local, other):
@@ -112,22 +103,22 @@ def collisions(order, owned, closures, blocked=()):
     tier-default owner like any other: a caller that wants a clash with them said gives them a key and a record
     {name, tier: default, services, containers} and puts it first in `order`.
 
-    The keys are the keys of `order`, whatever the callers made them: (kind, id) for the units of the project."""
+    The keys are (kind, id)."""
     claimed = {"services": {}, "containers": {}, "volumes": {}}   # kind of name -> name -> (owner's key, its name, its record)
     answers = {"services": ("services", "containers"), "containers": ("services", "containers"), "volumes": ("volumes",)}
-    hit, skip = {}, {_key(key) for key in blocked}
-    for key in map(_key, order):
+    hit, skip = {}, set(blocked)
+    for key in order:
         mine = owned.get(key) or {}
         found = None
         if mine.get("tier", "other") == "other" and key not in skip:
-            together = {_key(other) for other in closures.get(key) or ()}
+            together = set(closures.get(key) or ())
             found = next((owner for group in claimed for name in mine.get(group) or ()
                           for owner in (claimed[other].get(name) for other in answers[group])
                           if owner and owner[0] not in together and not _twins(owner[2], mine)), None)
         if found:
             hit[key] = f"Same name as {shown(found[1], 80)}"
         elif key not in skip:
-            display = mine.get("name") or (key[-1] if isinstance(key, tuple) else str(key))
+            display = mine.get("name") or key[-1]
             for group in claimed:
                 for name in mine.get(group) or ():
                     claimed[group].setdefault(name, (key, display, mine))
@@ -184,10 +175,6 @@ def _parse(version):
     return tuple(int(part) for part in found.groups()) if found else (0, 0, 0)
 
 
-def _state_key(state):
-    return state.get("key") if isinstance(state, dict) else state
-
-
 def catalog_needs(unit, catalogs, missing):
     """The `needs_catalogs` entries of a unit: [{id, name, url, min, have, reason}], the catalogs its include closure
     reaches that it cannot use yet, in the order of their namespaces.
@@ -241,9 +228,8 @@ def _need(ns, want, installed, gone):
     if installed is None:
         return dict(base, reason="missing")
     base["have"] = installed.get("version")
-    state = _state_key(installed.get("state"))
-    copy = installed["pin"] if "pin" in installed else installed.get("version")   # a copy exists when it has a pin, else a version
-    if state == "downloading" or not copy:   # no copy yet: under way, or it failed
+    state = installed.get("state")
+    if state == "downloading" or not installed.get("version"):   # no copy yet: under way, or it failed
         failed = state in FAILED or bool(installed.get("error"))
         return dict(base, reason="failed" if failed and state != "downloading" else "downloading")
     if gone:
@@ -253,14 +239,13 @@ def _need(ns, want, installed, gone):
     return None
 
 
-def gateway_addon(units, kind, order=None):
+def gateway_addon(units, kind, order):
     """The id of the add-on that runs the gateway of this kind of platform on this machine, or None (the only
     definition). `units`: {id: add-on}, each with `gateway` ({platform, service, token}, already cleared for a catalog that
     is neither listed, allowed nor local: N04), `blocked` (None or {reasons}) or `verdict`, `compat` and `needs_catalogs`.
     A candidate says it runs the gateway of this kind, is not blocked, is readable by this Lab and misses no catalog. The
-    first in the precedence of 6.5 wins, so the answer never depends on an alphabet: `order` lists the ids that way, else
-    the order of `units`."""
-    for uid in (order if order is not None else list(units)):
+    first in the precedence of 6.5 wins, so the answer never depends on an alphabet: `order` lists the ids that way."""
+    for uid in order:
         unit = units.get(uid)
         if not isinstance(unit, dict):
             continue

@@ -339,6 +339,15 @@ def _key(name):
     return load(name)["unit"]["kind"], name
 
 
+def grouped(direct):
+    """{(kind, id): [the (kind, id) it includes]} as the project groups units, which is what resolve.closure reads."""
+    units = {}
+    for (kind, uid), others in direct.items():
+        units.setdefault(kind, {})[uid] = {"setups": [one for what, one in others if what == "setup"],
+                                           "needs" if kind == "addon" else "includes": [one for what, one in others if what == "addon"]}
+    return units
+
+
 def _same(path):
     return path
 
@@ -365,7 +374,7 @@ def pipeline(root, listed=False, realpath=_same, **more):
         if config:
             owned[_key(name)] = dict(resolve.owned_names(config, core, own), name=gold["unit"]["name"], tier="other",
                                      kind=gold["unit"]["kind"], id=gold["unit"]["id"])
-    closures = {key: resolve.closure(includes, *key) for key in includes}
+    closures = {key: resolve.closure(grouped(includes), *key) for key in includes}
     order = resolve.precedence_order({"fixture": [earlier], NS: list(includes)}, ["fixture", NS])
     clashes = resolve.collisions(order, owned, closures, [_key(n) for n in names() if verdicts[n]["state"] == "blocked"])
     found = {}

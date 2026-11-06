@@ -46,6 +46,7 @@ from unittest import mock
 from lab_ui import paths
 
 from . import Case
+from .data import regen
 
 __all__ = ["CATALOGS", "DATA", "EXPECTED", "KINDS", "LOCAL", "Installed", "Remote", "RenderError", "catalog_meta",
            "closure", "core", "declare", "default", "expected", "have_compose", "have_git", "install", "local", "lock",
@@ -1436,7 +1437,7 @@ class FixtureCatalogs(Case):
                 direct[(kind, unit_id(ns, kind, name))] = _direct(ns, kind, name)
         for ns in ("fixture", "partner", "local"):
             for kind, name in units(ns):
-                found = [f"{one[0]}:{one[1]}" for one in resolve.closure(direct, kind, unit_id(ns, kind, name))]
+                found = [f"{one[0]}:{one[1]}" for one in resolve.closure(regen.grouped(direct), kind, unit_id(ns, kind, name))]
                 self.assertEqual(found, closure(ns, kind, name), f"{ns}:{name}")
 
     # -- Compose reads the fixtures -----------------------------------------------------------------------------
