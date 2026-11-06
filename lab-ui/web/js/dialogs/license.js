@@ -270,7 +270,8 @@ function render() {
 // What the variable holds is the license in base64. A file is the license itself, or already its base64 (a key
 // kept as text): either way the variable gets base64. Pasted text is taken as base64 when it is, else encoded.
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-const base64 = (bytes) => {
+// In pieces, which a long argument list would not take whole
+export const base64 = (bytes) => {
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(binary);

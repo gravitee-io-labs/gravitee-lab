@@ -11,6 +11,7 @@ import { $, $$, esc, icon, setHTML, loading, api, store, router, copyButton } fr
 import { toast, tipHtml, actionButton, paintActions, progressBar, effectsDialog } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { field, formDialog } from "./form.js";
+import { base64 } from "./license.js";
 import { agentLinks, agentFolder, forAgent } from "../components/agent.js";
 
 export const NO_GIT = "Git is not installed";
@@ -451,14 +452,6 @@ function fileScreen() {
   slot("secondary", "");
 }
 
-// The bytes of a file as base64, the form the server takes; in pieces, which a long argument list would not take whole
-async function base64Of(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let text = "";
-  for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  return btoa(text);
-}
-
 async function importFile(file) {
   if (!file || asking) return;
   problem();
@@ -469,7 +462,7 @@ async function importFile(file) {
   reading("");
   screen("effects", "Import playground");
   try {
-    const preview = { ...await api("/api/catalogs/import", { data: await base64Of(file) }), file: file.name };
+    const preview = { ...await api("/api/catalogs/import", { data: base64(new Uint8Array(await file.arrayBuffer())) }), file: file.name };
     if (mine !== seq) return;
     if (preview.warning) toast(preview.warning, true);   // what a change that stopped midway had left, now back
     dest = (preview.blocked || []).length ? "imported" : "personal";
