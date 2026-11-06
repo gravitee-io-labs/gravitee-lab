@@ -21,7 +21,6 @@ catalog from the template and keep it in step with the Lab's standard. `python3 
     suggest ADDRESS --name NAME [--description TEXT] [--allow-machine]   one entry of the suggestions file
     reset [--empty]                   start over: the next start is a first run, or has no catalog at all
     index [PATH or ID] [--out FILE]   the generated catalog.json, of a folder as it is or of an added catalog
-    matrix ID --changed BASE HEAD     the end-to-end matrix of a change
 
 The five commands marked with a module are run by it: everything after their name is handed over as it is. Of those,
 `new`, `upgrade` and `release` answer `--help` here (HELP): their modules have none, and `repo-settings` and `ci` have their own.
@@ -988,18 +987,6 @@ def index(args):
     return 0
 
 
-def matrix(args):
-    """The end-to-end matrix of the items a change touches (lab_ui.e2e.plan), as JSON on standard output."""
-    from .. import e2e   # only this command needs it
-    _compose()
-    try:
-        found = e2e.plan(args.id, project.load(), changed=tuple(args.changed))
-    except e2e.PlanError as error:
-        raise Usage(str(error)) from None
-    say(json.dumps(found, indent=2))
-    return 0
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # explain, and the commands that the modules of the standard run: new, upgrade, release, repo-settings, ci
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1127,9 +1114,6 @@ def parser():
     sub = one("index", index, "the generated catalog.json, of a folder (default: this one) or of an added catalog")
     sub.add_argument("target", nargs="?", metavar="PATH_or_ID", help="a folder, or an added catalog (default: this folder; the id of a catalog wins over a folder of the same name, write ./ID)")
     sub.add_argument("--out", metavar="FILE", help="write it to this file and not to standard output")
-    sub = one("matrix", matrix, "the end-to-end matrix of a change")
-    sub.add_argument("id")
-    sub.add_argument("--changed", nargs=2, metavar=("BASE", "HEAD"), required=True)
     sub = formatted(one("explain", explain_command, "the long form of a rule code"))
     sub.add_argument("code", metavar="CODE")
     for name, text in (("new", "a catalog from the template of the standard (catalog.py new DIR --id ID --name NAME --maintainers @A)"),

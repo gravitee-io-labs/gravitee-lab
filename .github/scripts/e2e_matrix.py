@@ -1,6 +1,6 @@
 """Which items the end-to-end run of CI tries, as the matrix of its jobs: one job for each item and each set of versions it was
-tested with (`x-gravitee.tested`), or one on the core's defaults when it says none. The plan itself is `lab_ui/e2e.py`'s, which
-`catalog.py matrix` shares; this is the command a workflow runs, and what it prints for the next job to read.
+tested with (`x-gravitee.tested`), or one on the core's defaults when it says none. The plan itself is `lab_ui/e2e.py`'s; this is the command a workflow
+runs, and what it prints for the next job to read.
 
 The engine holds no item: the items are a catalog's, linked into the engine before this runs (`catalog.py link`).
 

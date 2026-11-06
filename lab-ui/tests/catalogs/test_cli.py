@@ -1534,34 +1534,14 @@ class Spelling(Tool):
 
 
 class Other(Tool):
-    """matrix and the way the tool is run."""
-
-    @COMPOSE
-    def test_the_end_to_end_matrix_of_a_catalog_that_is_not_there_is_a_usage_error(self):
-        code, out, err = self.run_tool("matrix", "hub", "--changed", "main", "HEAD")
-        self.assertEqual((code, out), (2, ""))
-        self.assertIn("neither installed nor linked", err)
-
-    @COMPOSE
-    def test_the_end_to_end_matrix_is_the_plan_of_the_package_as_json(self):
-        from lab_ui import e2e
-        asked = []
-        self.patch(e2e, "plan", lambda ns, built, **how: asked.append((ns, how)) or {"matrix": {"include": []}, "count": 0})
-        self.assertEqual(self.run_tool("matrix", "hub", "--changed", "main", "HEAD"),
-                         (0, json.dumps({"matrix": {"include": []}, "count": 0}, indent=2) + "\n", ""))
-        self.assertEqual(asked, [("hub", {"changed": ("main", "HEAD")})])
-
-        def refused(ns, built, **how):
-            raise e2e.PlanError("nothing to try")
-        self.patch(e2e, "plan", refused)
-        self.assertEqual(self.run_tool("matrix", "hub", "--changed", "main", "HEAD"), (2, "", "catalog.py: nothing to try\n"))
+    """The way the tool is run."""
 
     def test_the_tool_runs_as_a_script_with_the_isolated_mode_and_says_its_commands(self):
         done = subprocess.run([sys.executable, "-I", str(REPO / "lab-ui" / "catalog.py"), "--help"], capture_output=True,
                               text=True, timeout=60, stdin=subprocess.DEVNULL)
         self.assertEqual(done.returncode, 0, done.stderr)
         for command in ("link", "unlink", "add", "provision", "list", "update", "undo", "remove", "suggest", "reset", "check",
-                        "index", "matrix", "new"):
+                        "index", "new"):
             self.assertIn(command, done.stdout)
 
     def test_what_the_machine_refuses_is_a_line_and_exit_2_not_a_traceback(self):
@@ -1581,7 +1561,7 @@ class Other(Tool):
         self.assertNotIn("\x1b", err)
 
     def test_a_usage_error_is_exit_2(self):
-        for argv in ((), ("nothing",), ("link",), ("check", "x", "--format", "xml"), ("suggest", "a/b"), ("matrix", "x")):
+        for argv in ((), ("nothing",), ("link",), ("check", "x", "--format", "xml"), ("suggest", "a/b")):
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(catalog.main(list(argv)), 2)
         with contextlib.redirect_stdout(io.StringIO()):

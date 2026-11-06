@@ -15,7 +15,7 @@ person can give): said, never taken for a pass.
 
 The second half of the module is the plan CI makes before it tries anything: which items of a catalog a change touches, the
 jobs of each (one for each set of versions it says it was tested with), and the canary a catalog names in `catalog.yml` for a
-change that touches no item. `.github/scripts/e2e_matrix.py` prints it for the workflow, and `catalog.py matrix` for a person.
+change that touches no item. `.github/scripts/e2e_matrix.py` prints it for the workflow.
 No Docker and no network: the plan reads Compose files and asks git what changed."""
 
 import contextlib
