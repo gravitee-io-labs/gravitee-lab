@@ -1,5 +1,5 @@
 """The standard of a catalog repository: the template and its levels, `new`, the drift of a repository
-from it (SD01 to SD06, SD08 to SD10) and `upgrade`. The template is rendered, never run; the shell of the `lab` action and of the
+from it (SD01 to SD05, SD08 to SD10) and `upgrade`. The template is rendered, never run; the shell of the `lab` action and of the
 `result` job is taken out of the managed files and run with bash on hostile inputs; the repositories are real folders and real
 git, made in a temporary home; there is no network and no Docker daemon. Compose 5 (a visible skip without) reads the sample
 add-on in the day-one test.
@@ -21,7 +21,7 @@ from unittest import mock
 
 from lab_ui.catalogs import audit, gitx, manifest, standard
 from lab_ui.catalogs.rules import commits, workflows
-from lab_ui.catalogs.tree import FolderTree, ListTree, TreeError
+from lab_ui.catalogs.tree import FolderTree, ListTree
 from tests import Case
 from tests.data.standard import support
 from tests.data.standard.support import LAB_COMMIT, NEWER_COMMIT, params, render
@@ -915,20 +915,6 @@ class Drift(Case):
                 found = self.check(edited(render(), path, change))
                 self.assertEqual((where(found, "SD02"), where(found, "SD08")), ([path], []), path)
 
-    def test_a_base_that_cannot_be_read_is_the_trees_to_say_and_any_other_fault_is_not_hidden(self):
-        class Broken:
-            def __init__(self, error):
-                self.error = error
-
-            def entry(self, path):
-                raise self.error
-
-            def read(self, *more):
-                raise self.error
-        self.assertNotIn("SD06", codes(self.check(render(), base_tree=Broken(TreeError("the base cannot be read")))))
-        with self.assertRaises(RuntimeError):
-            self.check(render(), base_tree=Broken(RuntimeError("a fault")))
-
     def test_the_makefile_has_to_include_the_standard(self):
         for text in (b"all:\n\ttrue\n", b"# include .catalog/standard.mk\n", b"include .catalog/standard.mkx\n", b"x include .catalog/standard.mk\n"):
             found = self.check({**render(), "Makefile": text})
@@ -956,29 +942,6 @@ class Drift(Case):
         self.assertEqual([(each.code, each.severity, each.path, each.message) for each in found],
                          [("SD05", "warning", ".github/standard.json", ".github/standard.json says standard 10; this Lab knows 9. Fix: "
                                                                         "update the Lab with git pull, then run again.")])
-
-    def test_the_level_going_down_since_the_base_is_sd06(self):
-        base = at(2)
-        now = at(1)
-        found = self.check(now, level=2, base_tree=tree_of(base))
-        self.assertIn(("SD06", "error", ".github/standard.json"), [(each.code, each.severity, each.path) for each in found])
-        self.assertIn(".github/standard.json lowered the standard from 2 to 1. Fix: undo that change; the level only goes up and a "
-                      "managed file keeps its marker.", [each.message for each in found])
-
-    def test_a_managed_file_that_lost_its_marker_since_the_base_is_sd06_and_is_owned_now(self):
-        base = render()
-        now = edited(base, ".github/workflows/ci.yml", lambda text: text.split("\n", 1)[1])
-        found = self.check(now, base_tree=tree_of(base))
-        self.assertEqual(codes(found), ["SD06", "SD08"])
-        self.assertEqual([each.message for each in found if each.code == "SD06"],
-                         [".github/workflows/ci.yml lost its marker. Fix: undo that change; the level only goes up and a managed file "
-                          "keeps its marker."])
-
-    def test_a_base_that_was_already_owned_or_the_same_says_nothing(self):
-        base = edited(render(), ".github/workflows/ci.yml", lambda text: text.split("\n", 1)[1])
-        self.assertNotIn("SD06", codes(self.check(base, base_tree=tree_of(base))))
-        self.assertNotIn("SD06", codes(self.check(render(), base_tree=tree_of(render()))))
-        self.assertNotIn("SD06", codes(self.check(at(2), level=2, base_tree=tree_of(at(1)))))
 
     def test_standard_json_problems_are_sd04_with_the_words_of_section_6(self):
         cases = {
@@ -1087,7 +1050,7 @@ class Drift(Case):
         for code, rule, message in ((each[0], each[2], each[3]) for each in explain.SD if each[0].startswith("SD")):
             self.assertEqual(standard.RULES[code].message, message, code)
             self.assertEqual(standard.RULES[code].severity, [row for row in explain.SD if row[0] == code][0][1], code)
-        self.assertEqual(sorted(standard.RULES), [f"SD{n:02d}" for n in range(1, 12)])
+        self.assertEqual(sorted(standard.RULES), [f"SD{n:02d}" for n in range(1, 12) if n != 6])
 
     def test_the_audit_runs_it(self):
         with tempfile.TemporaryDirectory() as folder:

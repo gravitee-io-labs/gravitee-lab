@@ -1,11 +1,11 @@
 """The catalog repository standard: the template that `catalog.py new` renders, the levels it
-ships by, the drift of a repository from it (SD01 to SD06, SD08 to SD10), and the upgrade that brings a repository back.
+ships by, the drift of a repository from it (SD01 to SD05, SD08 to SD10), and the upgrade that brings a repository back.
 
     LEVEL                         the level this Lab ships: the highest whose CI stages are all here (`manifest.json`)
     manifest() -> dict            the template's table of files, edits and level notes
     render_new(params) -> dict    {path: bytes} of a new catalog at LEVEL, and nothing above it
     normalize(text) -> str        the form two managed files are compared in: a Dependabot bump is no difference
-    drift(tree, level, base_tree=None) -> list   SD01 to SD06 and SD08 to SD10 of a repository, at the Lab's level (SD06 needs the base)
+    drift(tree, level) -> list    SD01 to SD05 and SD08 to SD10 of a repository, at the Lab's level
     upgrade_plan(tree, options)   what an upgrade would do; upgrade_apply(root, plan) does it and answers what it wrote
     main_new(argv), main_upgrade(argv)   the commands (`catalog.py new`, `catalog.py upgrade`), exit codes 0, 1 and 2
 
@@ -85,8 +85,6 @@ RULES = table([
      ".github/standard.json: {problem}."),
     ("SD05", WARNING, "The repository's level is above the Lab's",
      ".github/standard.json says standard {n}; this Lab knows {m}. Fix: update the Lab with git pull, then run again."),
-    ("SD06", ERROR, "The level went down, or a managed file lost its marker in this change (--base)",
-     "{what}. Fix: undo that change; the level only goes up and a managed file keeps its marker."),
     ("SD07", ERROR, "The Lab could not be fetched (CI)",
      "The Lab could not be fetched. This is the repository's settings, not your change: a maintainer will run it again. Fix "
      "(maintainers): while the Lab is private this repository needs the secret LAB_DEPLOY_KEY (also as a Dependabot secret), "
@@ -719,7 +717,7 @@ def create(root, params: dict) -> List[str]:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Drift: SD01 to SD06 and SD08 to SD10
+# Drift: SD01 to SD05 and SD08 to SD10
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _urgent(have: int, now: int) -> bool:
@@ -760,10 +758,10 @@ def _want(path: str, level: int, form: str, repo: str, ref: str) -> Optional[str
     return text
 
 
-def drift(tree, level: int, base_tree=None) -> List[Problem]:
-    """SD01 to SD06 and SD08 to SD10 of the repository in `tree`, against the Lab's render at `level`: the files are compared
-    as `comparable` makes them, so a Dependabot bump of a pin and the number of the marker are no difference. With `base_tree` (the
-    tree of the base commit, `check --base`) SD06 is asked too. Pure: it reads the tree and writes nothing."""
+def drift(tree, level: int) -> List[Problem]:
+    """SD01 to SD05 and SD08 to SD10 of the repository in `tree`, against the Lab's render at `level`: the files are compared
+    as `comparable` makes them, so a Dependabot bump of a pin and the number of the marker are no difference. Pure: it reads the tree
+    and writes nothing."""
     found: List[Problem] = []
     state = declared(tree)
     for severity, problem in state.problems:
@@ -773,7 +771,7 @@ def drift(tree, level: int, base_tree=None) -> List[Problem]:
     fatal = any(severity == ERROR for severity, _ in state.problems)
     if have is not None and have > level:
         found.append(_issue("SD05", STANDARD, n=have, m=level))
-        return found + _owned_checks(tree) + _regressions(tree, base_tree, state)
+        return found + _owned_checks(tree)
     form, repo, ref = "inline", "", ""
     if state.data and not fatal:
         form = state.data["form"]
@@ -812,7 +810,7 @@ def drift(tree, level: int, base_tree=None) -> List[Problem]:
             found.append(_issue("SD03", path, have=asked, now=level))
             if _urgent(asked, level):
                 found[-1] = found[-1]._replace(severity=ERROR)
-    return found + _owned_checks(tree) + _regressions(tree, base_tree, state)
+    return found + _owned_checks(tree)
 
 
 _ECOSYSTEM = re.compile(r"^[ \t]*(?:-[ \t]+)?package-ecosystem:", re.M)
@@ -836,33 +834,6 @@ def _owned_checks(tree) -> List[Problem]:
     kind, text = _file(tree, "Makefile")
     if kind != "file" or not _INCLUDE.search(text.replace("\r\n", "\n")):
         found.append(_issue("SD10", "Makefile"))
-    return found
-
-
-def _regressions(tree, base_tree, state: Declared) -> List[Problem]:
-    """SD06 (`--base`): the level went down since the base commit, or a managed file lost its marker in this change."""
-    if base_tree is None:
-        return []
-    found: List[Problem] = []
-    try:
-        before = declared(base_tree)
-        if before.level is not None and state.level is not None and state.level < before.level:
-            found.append(_issue("SD06", STANDARD, what=f".github/standard.json lowered the standard from {before.level} to "
-                                                      f"{state.level}"))
-        for entry in entries():
-            if entry["class"] != "managed":
-                continue
-            path = entry["path"]
-            kind_before, text_before = _file(base_tree, path)
-            if kind_before != "file" or marker_level(text_before, path) is None:
-                continue
-            kind_now, text_now = _file(tree, path)
-            if kind_now == "file" and marker_level(text_now, path) is None:
-                found.append(_issue("SD06", path, what=f"{path} lost its marker"))
-            elif kind_now == "odd":
-                found.append(_issue("SD06", path, what=f"{path} is not a file any more"))
-    except TreeError:   # a base that cannot be read is a tree error the caller reports, never a crash here
-        pass
     return found
 
 

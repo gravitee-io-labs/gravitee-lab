@@ -68,14 +68,6 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 - **Fix**: update the Lab with git pull, then run again.
 - **At Add**: Not judged at Add: this is a rule about the repository, and the Lab judges the files it installs.
 
-### SD06
-
-*Error.* The level went down, or a managed file lost its marker in this change (--base).
-
-- **Message**: {what}. Fix: undo that change; the level only goes up and a managed file keeps its marker.
-- **Fix**: undo that change; the level only goes up and a managed file keeps its marker.
-- **At Add**: Not judged at Add: this is a rule about the repository, and the Lab judges the files it installs.
-
 ### SD07
 
 *Error.* The Lab could not be fetched (CI).

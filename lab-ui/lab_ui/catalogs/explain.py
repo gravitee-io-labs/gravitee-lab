@@ -142,8 +142,6 @@ SD = (
      ".github/standard.json: {problem}."),
     ("SD05", WARNING, "The repository's level is above the Lab's",
      ".github/standard.json says standard {n}; this Lab knows {m}. Fix: update the Lab with git pull, then run again."),
-    ("SD06", ERROR, "The level went down, or a managed file lost its marker in this change (--base)",
-     "{what}. Fix: undo that change; the level only goes up and a managed file keeps its marker."),
     ("SD07", ERROR, "The Lab could not be fetched (CI)",
      "The Lab could not be fetched. This is the repository's settings, not your change: a maintainer will run it again. Fix "
      "(maintainers): while the Lab is private this repository needs the secret LAB_DEPLOY_KEY (also as a Dependabot secret), "
