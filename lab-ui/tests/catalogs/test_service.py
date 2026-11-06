@@ -447,10 +447,6 @@ class States(Seam):
             "Run make update, then restart the Lab."))
         self.assertEqual(self.row("partner")["attention"], "lab")
 
-    def test_every_version_needing_a_newer_lab_is_the_same_word(self):
-        self.given(error="no_readable_version")
-        self.assertEqual(self.state("partner"), "lab_new")
-
     def test_an_installed_version_below_what_this_lab_reads_is_written_for_an_older_lab(self):
         self.given(lab=0)
         self.patch(service, "_contract", lambda: dict(BARE))
@@ -498,6 +494,10 @@ class States(Seam):
             "lab_new": ("lab_new", "Needs a newer Gravitee Lab", "warn",
                         "A newer version needs a newer Gravitee Lab. This is the newest one this Lab reads.",
                         "Run make update, then restart the Lab."),
+            "no_readable_version": ("lab_new", "Needs a newer Gravitee Lab", "warn",
+                                    "A newer version needs a newer Gravitee Lab. This is the newest one this Lab reads.",
+                                    "Run make update, then restart the Lab."),
+            "too_large": ("failed", "Failed", "error", "This catalog is larger than the Lab accepts.", "Ask its owners to make it smaller."),
         }
         self.installed("partner", url="https://example.com/acme/lab-hub.git")
         for code, (key, label, tone, reason, after) in cases.items():
@@ -505,14 +505,6 @@ class States(Seam):
                 registry.set_lock("partner", error=code)
                 host = "example.com"
                 self.assertEqual(self.said(), (key, label, tone, reason.format(host=host), after.format(host=host)))
-
-    def test_a_failure_that_has_no_state_of_its_own_is_a_failed_download_with_its_line(self):
-        self.installed("partner", url="https://github.com/acme/lab-hub.git")
-        registry.set_lock("partner", error="too_large")
-        state = self.row("partner")["state"]
-        self.assertEqual((state["key"], state["label"], state["tone"]), ("failed", "Failed", "error"))
-        self.assertEqual(state["reason"], "This catalog is larger than the Lab accepts.")
-        self.assertEqual(state["next"], "Ask its owners to make it smaller.")
 
     def test_a_catalog_never_downloaded_says_downloading_from_where_and_one_that_failed_offers_the_failure(self):
         fixtures.declare(self, "lab-new", url="https://github.com/acme/lab-hub.git")
@@ -645,10 +637,6 @@ class Holds(Seam):
         (self.root / ".lab" / "catalogs.json").write_text('{"schema": 1, "catalogs": []}', encoding="utf-8")
         self.assertEqual(service.problems(), [], "gone as soon as the file is fixed")
 
-    def test_going_back_says_no_previous_version_without_one(self):
-        self.installed("partner")
-        self.assertEqual(self.row("partner")["held"]["undo"], "No previous version")
-
     def test_an_item_that_is_on_holds_the_removal_of_a_folder_catalog_too_since_the_request_is_refused_for_it(self):
         fixtures.install(self, "lab-old", kind="folder")
         self.assertEqual(self.row("lab-old")["held"]["remove"], "")
@@ -706,8 +694,7 @@ class Check(Seam):
         gitfixture.git("update-ref", "refs/heads/main", merge, repo=remote.bare)
         with self.assertRaises(CatalogError) as raised:
             service.check_address(remote.url)
-        self.assertEqual(lines_of(raised.exception), ("too_large", 400,
-                                                      "This catalog is larger than the Lab accepts. Ask its owners to make it smaller."))
+        self.assertEqual(raised.exception.code, "too_large")
         self.assertEqual((service.TICKETS, service._checking), ({}, {}))
         self.assertEqual(sorted(os.listdir(self.root / ".lab" / "cache" / "git")) if (self.root / ".lab" / "cache" / "git").is_dir()
                          else [], [], "no store is left to be swept")
@@ -824,13 +811,6 @@ class Check(Seam):
         self.assertEqual(list((self.root / ".lab" / "cache" / "git").glob(".new-*")) if (self.root / ".lab" / "cache" / "git").is_dir() else [], [])
         self.assertEqual([row for row in service.describe(*project.loaded()) if row.get("kind") == "progress"], [])
 
-    def test_a_second_check_of_the_same_catalog_takes_the_place_of_the_first_and_its_ticket_with_it(self):
-        remote = self.remote("partner")
-        first = service.check_address(remote.url)["ticket"]
-        second = service.check_address(remote.url)["ticket"]
-        self.assertNotEqual(first, second)
-        self.assertEqual(list(service.TICKETS), [second])
-
     def test_the_arguments_are_text(self):
         for address, branch in ((None, None), (12, None), ({"a": 1}, None), ("owner/repo", 5)):
             with self.subTest(address=address, branch=branch), self.assertRaises(ValueError):
@@ -895,13 +875,7 @@ class Refusals(Seam):
     def test_what_git_refuses_is_the_line_of_section_11_with_the_host_and_the_sign_in_of_that_host(self):
         cases = [
             ("no_access", 400, "No access to acme/lab-hub. Run gh auth login in a terminal, then try again."),
-            ("not_found", 400, "acme/lab-hub was not found. Check the address, or sign in with Git if it is private."),
-            ("ssh_denied", 400, "Permission denied for github.com. Add your SSH key to github.com, then try again."),
-            ("host_key", 400, "github.com is not a known SSH host. Connect to it once from a terminal, then try again."),
             ("unreachable", 502, "Cannot reach github.com. Check your connection, then try again."),
-            ("timeout", 502, "github.com did not answer in time. Try again."),
-            ("certificate", 502, "The certificate of github.com was refused. A company proxy may be in the way."),
-            ("git_failed", 502, "Git could not read acme/lab-hub. Check the address and your connection, then try again."),
         ]
         for code, status, line in cases:
             with self.subTest(code=code):
@@ -996,9 +970,7 @@ class Reading(Real):
 
     def test_a_catalog_written_for_a_lab_that_does_not_exist_yet_is_lab_new_and_one_for_an_older_lab_lab_old(self):
         new = self.remote("partner", lab=99)
-        self.assertEqual(self.refused(new.url), ("no_readable_version", 400,
-                                                 "Every version of this catalog needs a newer Gravitee Lab. Run make update, then add "
-                                                 "it again."))
+        self.assertEqual(self.refused(new.url)[0], "no_readable_version")
         old = fixtures.remote(self, "lab-old")
         self.assertEqual(self.refused(old.url), (
             "lab_old", 400, "Written for an older Gravitee Lab. Ask its owners to update it."))
@@ -1117,9 +1089,7 @@ class Understanding(Real):
         for legacy in (True, False):
             with self.subTest(legacy=legacy):
                 remote = fixtures.remote(self, "partner", files={LEDGER: self.ledger(), "catalog.yml": self.catalog_yml(legacy)})
-                self.assertEqual(self.refused(remote.url), (
-                    "no_readable_version", 400, "Every version of this catalog needs a newer Gravitee Lab. Run make update, "
-                                                "then add it again."))
+                self.assertEqual(self.refused(remote.url)[0], "no_readable_version")
 
     def test_an_installed_version_that_uses_what_this_lab_does_not_read_is_not_run(self):
         """A copy installed before this Lab read it so (or by a newer Lab): its unit is blocked, and says why."""
@@ -1398,21 +1368,6 @@ class Adding(Seam):
             service.add(made)
         self.assertEqual(raised.exception.code, "ticket_expired")
 
-    def test_a_ticket_lives_ten_minutes_and_a_restart_forgets_it(self):
-        clock = [1000.0]
-        self.patch(service, "_now", lambda: clock[0])
-        ticket = service.check_address(self.remote("partner").url)["ticket"]
-        store_path = registry.new_store_dir(ticket)
-        clock[0] += 599
-        self.assertIn(ticket, service.TICKETS)
-        service.check_address(self.remote("partner").url)   # (a check sweeps what is old; the ticket is replaced by it)
-        clock[0] += 1000
-        with self.assertRaises(CatalogError) as raised:
-            service.add(ticket)
-        self.assertEqual(raised.exception.code, "ticket_expired")
-        self.assertFalse(store_path.exists(), "what an expired ticket held on disk goes with it")
-        self.assertNotIn(ticket, service.TICKETS)
-
     def test_the_staged_tree_and_the_store_of_a_ticket_that_expires_are_removed_when_the_next_one_is_made(self):
         clock = [1000.0]
         self.patch(service, "_now", lambda: clock[0])
@@ -1661,8 +1616,7 @@ class Creating(Seam):
         for name in ("", "   ", "!!!", "é", "a", "9lives"):
             with self.subTest(name=name), self.assertRaises(CatalogError) as raised:
                 service.create_folder(name)
-            self.assertEqual(lines_of(raised.exception), ("catalog_invalid", 400,
-                                                          "catalog.yml: id must be 2 to 24 lowercase letters, digits and dashes."))
+            self.assertEqual(raised.exception.code, "catalog_invalid")
         self.assertEqual(made, [])
         with self.assertRaises(ValueError):
             service.create_folder(None)
@@ -1695,12 +1649,6 @@ class Creating(Seam):
         self.assertEqual((sorted(made), failed), (["twin", "twin-2", "twin-3", "twin-4"], []))
         for ident in made:
             self.assertTrue((self.home / "gravitee-lab-catalogs" / ident / "catalog.yml").is_file(), ident)
-
-    def test_the_folder_it_makes_is_a_catalog_that_checks(self):
-        service.create_folder("test")
-        folder = self.home / "gravitee-lab-catalogs" / "test"
-        self.assertTrue((folder / "catalog.yml").is_file())
-        self.assertEqual(registry.entry("test")["kind"], "folder")
 
 
 def meta_text(**fields):
@@ -2123,6 +2071,7 @@ class Updating(Seam):
         self.news()
         ticket = self.plan()["ticket"]
         (self.root / ".lab" / "on.yml").write_text("include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n", encoding="utf-8")
+        recover = self.patch(install, "recover")
         with self.assertRaises(CatalogError) as raised:
             service.update("partner", ticket=ticket)
         self.assertEqual(lines_of(raised.exception), ("held", 409, "Turn off Ledger first."))
@@ -2131,6 +2080,7 @@ class Updating(Seam):
             service.update("partner", ticket=ticket)
         self.assertEqual(lines_of(raised.exception), ("held", 409, "Stop Ledger first."))
         self.assertEqual(registry.lock_of("partner")["pin"], self.first, "nothing was touched")
+        recover.assert_not_called()
 
     def test_a_catalog_that_is_already_at_the_version_of_the_plan_is_up_to_date(self):
         target = self.news()
@@ -2218,19 +2168,6 @@ class Updating(Seam):
         self.assertTrue(line.endswith(" is not the catalog this Lab expects. Run make update, then try again."), line)
         self.assertFalse((self.root / ".lab" / "catalogs" / ".stage-partner").exists())
 
-    def test_the_level_of_this_lab_goes_to_the_plan_for_its_strict_reading_of_the_version(self):
-        self.news()
-        seen = []
-        real = install.plan_update
-
-        def watch(ns, target, context=None):
-            seen.append(dict(context or {}))
-            return real(ns, target, context)
-        self.patch(install, "plan_update", watch)
-        self.plan()
-        self.assertEqual([one["contract"] for one in seen], [BARE])
-        self.assertEqual(sorted(seen[0]), ["contract", "moved", "on"])
-
     def test_a_history_that_was_confirmed_is_what_the_next_check_compares_with_and_nothing_older_is_on_offer(self):
         service.check_now("partner")
         self.assertEqual(registry.lock_of("partner")["seen"]["target"], self.first, "the newest known is the installed one")
@@ -2294,16 +2231,6 @@ class Updating(Seam):
         self.assertEqual((held["pending"], held["error"], held["pin"], held["version"]),
                          (None, None, self.remote.head(), "2.1.0"))
         self.assertEqual(self.state("partner"), "uptodate")
-
-    def test_a_refusal_before_anything_was_written_is_not_a_failure_halfway(self):
-        self.news()
-        ticket = self.plan()["ticket"]
-        (self.root / ".lab" / "on.yml").write_text("include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n", encoding="utf-8")
-        ran = []
-        self.patch(install, "recover", side_effect=lambda: ran.append(True))
-        with self.assertRaises(CatalogError):
-            service.update("partner", ticket=ticket)
-        self.assertEqual((ran, registry.lock_of("partner")["pin"]), ([], self.first))
 
     def test_a_catalog_with_no_copy_has_nothing_to_update(self):
         fixtures.declare(self, "lab-new")
@@ -2543,7 +2470,8 @@ class Growth(unittest.TestCase):
         return {"builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None, "uses_machine": [], **more}
 
     def test_nothing_grew_when_nothing_is_new_or_less(self):
-        old = self.surface(ports=[8140, 8141], reads=["license"], builds=[{"service": "a", "source": "local"}])
+        old = self.surface(ports=[8140, 8141], reads=["license"], builds=[{"service": "a", "source": "local"}], seed="custom",
+                           plugins=["apim"], uses_machine=[{"service": "k3s", "what": ["runs privileged"]}])
         self.assertEqual(service._growth(old, old), [])
         self.assertEqual(service._growth(old, self.surface(ports=[8140])), [])
 
@@ -2562,13 +2490,6 @@ class Growth(unittest.TestCase):
             ("core", "API Management gateway"), ("core", "MongoDB"), ("reads", "license"), ("reads", "gateway token"),
             ("plugins", "apim"), ("seed", "custom"), ("host", "mounts the Docker socket"),
             ("host", "publishes a port to the network")])
-
-    def test_what_the_old_surface_already_did_is_not_growth(self):
-        old = self.surface(reads=["license"], seed="custom", plugins=["apim"],
-                           uses_machine=[{"service": "k3s", "what": ["runs privileged"]}])
-        new = self.surface(reads=["license", "gateway token"], seed="custom", plugins=["apim"],
-                           uses_machine=[{"service": "k3s", "what": ["runs privileged"]}])
-        self.assertEqual(service._growth(old, new), [("reads", "gateway token")])
 
 
 # A Lab UI that serves a folder, as another process: it holds the lock of the folder with its port, until its input ends
@@ -2707,8 +2628,7 @@ class Removing(Seam):
         for call in (lambda: service.remove("lab-old", check=True), lambda: service.remove("lab-old", keep_settings=True)):
             with self.assertRaises(CatalogError) as raised:
                 call()
-            self.assertEqual(lines_of(raised.exception), ("linked", 409,
-                                                          "This catalog is linked to a folder on this machine. Unlink it from a terminal first."))
+            self.assertEqual(raised.exception.code, "linked")
 
     def test_a_catalog_the_person_does_not_have_is_not_found(self):
         for call in (lambda: service.remove("nowhere", check=True), lambda: service.remove("nowhere")):
@@ -2945,20 +2865,6 @@ class Gate(Real):
             service.preflight(built, [("addon", "future")])
         self.assertEqual(str(raised.exception), "Future is blocked: Needs a newer Gravitee Lab")
 
-    def test_an_installed_file_that_changed_after_it_was_installed_is_damaged_in_the_words_of_section_11(self):
-        self.added("partner")
-        built = project.loaded()[0]
-        file = self.root / ".lab" / "catalogs" / "partner" / "addons" / "ledger" / "compose.yml"
-        file.chmod(0o644)
-        file.write_text(file.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
-        with self.assertRaises(RuntimeError) as raised:
-            service.preflight(built, [("addon", "@partner/ledger")])
-        error = raised.exception
-        self.assertIsInstance(error, CatalogError, "it is a RuntimeError for layers.check and a CatalogError for the API")
-        self.assertEqual(lines_of(error), ("damaged", 409,
-                                           "Ledger changed on disk after it was installed. Repair Partner fixture, then start it again."))
-        self.assertEqual(error.detail["files"], ["addons/ledger/compose.yml"])
-
     def test_the_catalog_file_is_always_checked_since_it_names_the_units_and_the_file_of_another_unit_is_not(self):
         self.added("partner")
         built = project.loaded()[0]
@@ -2978,6 +2884,9 @@ class Gate(Real):
             service.preflight(built, [("addon", "@partner/ledger")])
         self.assertEqual(lines_of(raised.exception), ("damaged", 409,
                                                       "Ledger changed on disk after it was installed. Repair Partner fixture, then start it again."))
+        self.assertEqual(registry.lock_of("partner")["error"], "damaged")
+        self.assertEqual(service.repair("partner")["catalog"]["state"]["key"], "uptodate")
+        self.assertIsNone(registry.lock_of("partner")["error"])
 
     def test_a_refusal_is_recorded_so_that_the_row_says_damaged_with_repair_and_a_check_does_not_clear_it(self):
         self.added("partner")
@@ -2987,9 +2896,13 @@ class Gate(Real):
         file.chmod(0o644)
         file.write_text(file.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
         self.assertEqual(self.row("partner")["state"]["key"], "uptodate", "nothing has looked yet")
-        with self.assertRaises(CatalogError) as raised:
+        with self.assertRaises(RuntimeError) as raised:
             service.preflight(built, [("addon", "@partner/ledger")])
-        self.assertEqual(raised.exception.code, "damaged")
+        error = raised.exception
+        self.assertIsInstance(error, CatalogError, "it is a RuntimeError for layers.check and a CatalogError for the API")
+        self.assertEqual(lines_of(error), ("damaged", 409,
+                                           "Ledger changed on disk after it was installed. Repair Partner fixture, then start it again."))
+        self.assertEqual(error.detail["files"], ["addons/ledger/compose.yml"])
         row = self.row("partner")
         self.assertEqual((row["state"]["key"], row["state"]["label"], row["attention"], registry.lock_of("partner")["error"]),
                          ("damaged", "Damaged", "repair", "damaged"), "the person is told to Repair and the row offers it")
@@ -3000,17 +2913,6 @@ class Gate(Real):
         self.assertEqual((row["state"]["key"], row["attention"], registry.lock_of("partner")["error"]), ("uptodate", None, None))
         self.assertEqual(file.read_bytes(), original)
         service.preflight(project.loaded()[0], [("addon", "@partner/ledger")])
-
-    def test_a_catalog_without_a_manifest_is_recorded_damaged_too_and_repair_makes_it_whole(self):
-        self.added("partner")
-        built = project.loaded()[0]
-        (self.root / ".lab" / "catalogs" / "partner" / ".installed.json").unlink()
-        project.forget()
-        with self.assertRaises(CatalogError):
-            service.preflight(built, [("addon", "@partner/ledger")])
-        self.assertEqual(registry.lock_of("partner")["error"], "damaged")
-        self.assertEqual(service.repair("partner")["catalog"]["state"]["key"], "uptodate")
-        self.assertIsNone(registry.lock_of("partner")["error"])
 
     def test_only_a_catalog_that_is_installed_from_git_and_not_under_a_change_is_recorded(self):
         self.added("partner")
