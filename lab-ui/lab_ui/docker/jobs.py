@@ -101,7 +101,7 @@ def _pull_before(cmd):
 
 def _json(cmd):
     """A pull as Compose writes it in JSON."""
-    return cmd[:2] + ["--progress", "json"] + cmd[4:] if cmd[2:4] == ["--progress", "plain"] else cmd
+    return cmd[:2] + ["--progress", "json"] + cmd[4:]
 
 
 def _event(line):
@@ -128,13 +128,11 @@ def awaited(services, start=(), stop=(), images=()):
 
 
 def _share(how, status):
-    """How far a line of Compose says a unit is; None when it says nothing of it. A download says it itself."""
+    """How far a line of Compose says a unit is; None when it says nothing of it."""
     if how == "stop":
         return STOPS.get(status)
     if how == "image":
         return IMAGES.get(status)
-    if how == "download":
-        return None
     if (how, status) == ("once", "Exited"):
         return READY
     return STARTS.get(status)
@@ -441,7 +439,7 @@ class Job:
 
     def _watch(self, process, over):
         """Ends a command that printed nothing for SILENT seconds: a pull that stalls, a wait that has no end."""
-        while not over.wait(min(WATCH, SILENT)):
+        while not over.wait(WATCH):
             if time.monotonic() - self._heard >= SILENT:
                 self._cut(process, f"Stopped: nothing happened for {SILENT // 60} min")
                 return
@@ -510,7 +508,7 @@ class Job:
         if code != 0 and not lenient:
             raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}", code)
 
-    def _pulled(self, event, lenient, refused, buildable=None):
+    def _pulled(self, event, lenient, refused, buildable):
         """A line of a pull's progress: what a plain one would print, and how far the image is; an image it could not
         pull goes to `refused`, one it skipped because a service builds it to `buildable`. Compose's own last word when
         the command fails ({"error": true, "message"}), which names no image, is a line of the output too, but of a
@@ -526,7 +524,7 @@ class Job:
             if event.get("text") == "Error" and (event.get("id") or "").startswith("Image "):
                 refused.append(event["id"][6:])
             built = event.get("text") == "Skipped" and "can be built" in str(event.get("details"))
-            if buildable is not None and built and (event.get("id") or "").startswith("Image "):
+            if built and (event.get("id") or "").startswith("Image "):
                 buildable.add(event["id"][6:])
             if line:
                 self.lines.append(line)
