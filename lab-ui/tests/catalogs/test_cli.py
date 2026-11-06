@@ -865,6 +865,17 @@ class Damaged(Tool):
         isolated(self)
         project.forget()
 
+    def test_the_machine_files_beside_an_install_are_not_the_catalogs(self):
+        fixtures.install(self, PARTNER, kind="git")
+        project.forget()
+        unit = Path(self.root) / paths.CATALOGS_DIR / PARTNER / "addons" / "ledger"
+        (unit / ".env").write_text("LEDGER_TOKEN=x\n")
+        (unit / ".state").mkdir()
+        (unit / ".state" / "created.json").write_text("[]\n")
+        (unit / ".state" / "server.key").write_text("-----BEGIN " + "PRIVATE KEY-----\nx\n")
+        self.assertEqual(self.run_tool("check", PARTNER)[0], 0, "what the Lab keeps there is no problem of the catalog")
+        self.assertEqual(self.run_tool("check", str(unit.parent.parent))[0], 1, "a folder read as one is about to be shared")
+
     def test_a_damaged_install_is_not_all_good_and_has_no_index(self):
         fixtures.install(self, PARTNER, kind="git")
         project.forget()

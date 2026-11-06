@@ -905,7 +905,7 @@ def run_check(args):
         raise Usage(f"{check.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
     notes = []
     why = check.compose_missing()
-    install = target.kind == "catalog" and (registry.entry(target.ns) or {}).get("kind") == "git"
+    installed = target.kind == "catalog" and (registry.entry(target.ns) or {}).get("kind") == "git"
     with contextlib.ExitStack() as stack:
         pulled = _pull(args.pr, target, stack, notes) if args.pr is not None else None
         folder = pulled.folder if pulled else target.path
@@ -923,8 +923,9 @@ def run_check(args):
         options = audit.Options(**how)
         result = audit.run(Path(target.path), options)
         pins = _pin_problems(options.tree or trees.FolderTree(target.path), notes) if args.online else []
-    # An installed copy holds what the Lab installs and not the repository it came from: the files a repository has are not asked of it
-    kept = [one for one in result.problems if not (install and one.code == "ST17")]
+    # An installed copy holds what the Lab installs and not the repository it came from: the files a repository has are not asked of
+    # it. The Lab keeps its machine files beside what it installs (`.env`, `.state/`), and never installs one of a catalog
+    kept = [one for one in result.problems if not (installed and (one.code == "ST17" or install.machine_name(one.path)))]
     problems = [*kept, *items.problems, *pins]
     skipped = [*result.skipped, *notes, *items.skipped, *([why] if why else [])]
     if args.soft:
