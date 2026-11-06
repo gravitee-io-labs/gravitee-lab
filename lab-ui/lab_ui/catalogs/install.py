@@ -79,8 +79,6 @@ _REMOVED = re.compile(r"\.removed-({ns})-([0-9]{{8}}T[0-9]{{6}}Z)".format(ns=pat
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SECRET_DIRS = (".state", "secrets")
 _DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
-_UNITS = re.compile(r"(addons|playgrounds)/([a-z0-9-]+)/|setups/([a-z0-9-]+)\.yml")
-_KIND = {"addons": "addon", "playgrounds": "playground"}
 
 # What a start survives in one catalog and goes on: a refusal, the disk, a name that is none, a move the Lab will not
 # make
@@ -1549,10 +1547,8 @@ def verify(ns: str, names: Iterable[str]) -> List[str]:
 
 def unit_key(path):
     """`kind:name` of the unit a path of a catalog belongs to, None for catalog.yml and what belongs to no unit."""
-    found = _UNITS.match(path)
-    if not found:
-        return None
-    return f"{_KIND[found.group(1)]}:{found.group(2)}" if found.group(1) else f"setup:{found.group(3)}"
+    unit = bare._unit_of(path.split("/"))
+    return f"{unit[0]}:{unit[1]}" if unit else None
 
 
 # ---------------------------------------------------------------- removing
