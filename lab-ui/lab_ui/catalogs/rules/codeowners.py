@@ -98,7 +98,7 @@ def maintainers(text) -> List[str]:
 def parse(text: str) -> List[Line]:
     """The rule lines of a CODEOWNERS text: (line number, pattern, owner words). A comment line, a blank one and a section
     header (`[Docs]`) are not rule lines. Words are split at blanks and tabs only, as GitHub splits them: any other kind of
-    blank stays inside a word and makes it a name that is none."""
+    blank stays inside a word and makes it a name that is none. A word that starts with `#` starts a comment."""
     lines: List[Line] = []
     if text.startswith("\U0000feff"):
         text = text[1:]
@@ -107,7 +107,8 @@ def parse(text: str) -> List[Line]:
         if not line or line.startswith("#") or line.startswith(("[", "^[")):
             continue
         words = SEPARATE.split(line)
-        lines.append(Line(number, words[0], tuple(words[1:])))
+        end = next((at for at, word in enumerate(words) if word.startswith("#")), len(words))
+        lines.append(Line(number, words[0], tuple(words[1:end])))
     return lines
 
 

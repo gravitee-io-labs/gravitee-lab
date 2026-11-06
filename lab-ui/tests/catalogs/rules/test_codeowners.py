@@ -71,6 +71,10 @@ class Passing(unittest.TestCase):
         text = "\U0000feff# who owns what\n\n[Docs]\n*\t@acme/maintainers   \n\n/.github/\t\t@acme/maintainers\r\n/docs/ @alice @bob\n"
         self.assertEqual(found(text), [])
 
+    def test_a_comment_at_the_end_of_a_line_is_no_owner(self):
+        self.assertEqual(found("* @acme/maintainers # all\n/.github/ @acme/maintainers #the team\n"), [])
+        self.assertEqual(found(GOOD + "/docs/ #nobody\n"), [(3, no_owner("/docs/", "@acme/maintainers"))])
+
     def test_a_later_line_with_the_same_owners_changes_nothing(self):
         self.assertEqual(found(GOOD + "/.github/workflows/ @acme/maintainers\n*.yml @acme/maintainers\n"), [])
 
@@ -115,7 +119,7 @@ class Failing(unittest.TestCase):
         self.assertEqual(found(GOOD + "/docs/\n"), [(3, no_owner("/docs/", "@acme/maintainers"))])
 
     def test_an_owner_that_is_not_a_github_name(self):
-        for word in ("alice", "alice@example.test", "@", "@a/b/c", "@org/", "@\U00000430cme", "#comment", "@x,@y"):
+        for word in ("alice", "alice@example.test", "@", "@a/b/c", "@org/", "@\U00000430cme", "@x#y", "@x,@y"):
             self.assertEqual(found(f"* @acme/maintainers\n/.github/ @acme/maintainers {word}\n"), [(2, not_a_name(word))])
 
     def test_an_email_is_not_an_owner_here(self):
