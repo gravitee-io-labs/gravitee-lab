@@ -115,9 +115,9 @@ class Fixture(Case):
     def loader(self):
         def load(folder, names):
             services = self.services()
-            return ci.Loading([ci.Loaded("playground", "bank", "bank", "playgrounds/bank/compose.yml",
+            return ci.Loading([ci.Loaded("playground", "bank", "playgrounds/bank/compose.yml",
                                          str(self.repo / "playgrounds/bank"), {"services": services}, tuple(services), (), None)],
-                              [], [])
+                              [])
         return load
 
     def login(self, registry, user, token, config):
@@ -191,7 +191,7 @@ class Scanning(Fixture):
         blocked = ci.Refused("addon", "bad", "addons/bad/compose.yml", ("Mounts the Docker socket",), "T10")
 
         def load(folder, names):
-            return ci.Loading([], [blocked], [])
+            return ci.Loading([], [blocked])
         (self.repo / "addons" / "bad").mkdir(parents=True)
         (self.repo / "addons" / "bad" / "compose.yml").write_text("services: {}\n")
         with mock.patch.object(ci, "LOADER", load):
@@ -367,8 +367,8 @@ class Built(Fixture):
 
     def test_a_change_that_builds_nothing_scans_nothing_and_needs_no_docker(self):
         def load(folder, names):
-            return ci.Loading([ci.Loaded("addon", "plain", "plain", "addons/plain/compose.yml", str(self.repo / "addons/plain"),
-                                         {"services": {"plain": {"image": "busybox:1.36"}}}, ("plain",), (), None)], [], [])
+            return ci.Loading([ci.Loaded("addon", "plain", "addons/plain/compose.yml", str(self.repo / "addons/plain"),
+                                         {"services": {"plain": {"image": "busybox:1.36"}}}, ("plain",), (), None)], [])
         with mock.patch.object(ci, "LOADER", load):
             code = scan.built_main([str(self.repo), "--units", '["addon:plain"]'], self.out, self.err, runner=self.docker,
                                    lab=str(self.lab), dockerfile=self.tools)
@@ -379,7 +379,7 @@ class Built(Fixture):
         blocked = ci.Refused("addon", "bad", "addons/bad/compose.yml", ("Mounts the Docker socket",), "T10")
 
         def load(folder, names):
-            return ci.Loading([], [blocked], [])
+            return ci.Loading([], [blocked])
         with mock.patch.object(ci, "LOADER", load):
             code = scan.built_main([str(self.repo), "--units", '["addon:bad"]', "--format", "json"], self.out, self.err,
                                    runner=self.docker, lab=str(self.lab), dockerfile=self.tools)

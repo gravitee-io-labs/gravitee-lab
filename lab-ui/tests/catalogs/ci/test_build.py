@@ -90,7 +90,7 @@ class Disk(Case):
 
     def unit(self, services, kind="playground", name="bank", own=None):
         file = ci.unit_path(kind, name)
-        return ci.Loaded(kind, name, name, file, os.path.dirname(os.path.join(self.root, file)),
+        return ci.Loaded(kind, name, file, os.path.dirname(os.path.join(self.root, file)),
                          {"services": {"gateway": {"image": "graviteeio/apim-gateway:4.12.0"}, **services}},
                          tuple(own if own is not None else services), (), None)
 
@@ -400,7 +400,7 @@ class Running(Disk):
         self.out, self.err = io.StringIO(), io.StringIO()
 
     def stage(self, services, *argv, platform="linux/amd64", loading=None):
-        units = loading or ci.Loading([self.unit(services)], [], [])
+        units = loading or ci.Loading([self.unit(services)], [])
         with mock.patch.object(ci, "LOADER", mock.Mock(return_value=units)):
             return build.main([self.root, "--units", '["playground:bank"]', "--platform", platform, *argv], self.out, self.err,
                               lab=self.lab, sleep=self.sleeps.append)
@@ -560,7 +560,7 @@ class Running(Disk):
                       self.out.getvalue())
 
     def test_a_unit_the_lab_refused_is_never_built(self):
-        loading = ci.Loading([], [ci.Refused("playground", "bank", "playgrounds/bank/compose.yml", ("Runs with full privileges",), "T03")], [])
+        loading = ci.Loading([], [ci.Refused("playground", "bank", "playgrounds/bank/compose.yml", ("Runs with full privileges",), "T03")])
         code = self.stage({}, "--format", "github", loading=loading)
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
@@ -624,7 +624,7 @@ class Running(Disk):
 
     def test_the_dispatcher_reaches_it(self):
         self.app()
-        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([self.unit({"bakery-web": self.service(context=self.app())})], [], []))):
+        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([self.unit({"bakery-web": self.service(context=self.app())})], []))):
             code = ci_main(["build", self.root, "--units", '["playground:bank"]', "--platform", "linux/arm64"], self.out, self.err,
                            lab=self.lab, sleep=self.sleeps.append)
         self.assertEqual((code, option(self.builds()[0], "--platform")), (0, "linux/arm64"))

@@ -40,7 +40,7 @@ CONFIG = {"services": {
 
 
 def loaded(kind="addon", name="mock", config=None, tested=(), resolve=None, variables=None):
-    return ci.Loaded(kind, name, name, ci.unit_path(kind, name), "", config if config is not None else CONFIG, ("mock",),
+    return ci.Loaded(kind, name, ci.unit_path(kind, name), "", config if config is not None else CONFIG, ("mock",),
                      tuple(tested), None if variables is None else frozenset(variables), resolve)
 
 
@@ -259,7 +259,7 @@ class Stage(Asking):
         self.refused = []
 
     def run_stage(self, *argv, units='["addon:mock"]'):
-        loader = mock.Mock(return_value=ci.Loading(self.units, self.refused, []))
+        loader = mock.Mock(return_value=ci.Loading(self.units, self.refused))
         with mock.patch.object(ci, "LOADER", loader):
             code = manifests.main([".", "--units", units, *argv], self.out, self.err, ask=self.ask(), module=self.script)
         return code, loader
@@ -332,7 +332,7 @@ class Stage(Asking):
         loader.assert_not_called()
 
     def test_the_dispatcher_reaches_it(self):
-        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([], [], []))):
+        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([], []))):
             code = ci_main(["manifests", ".", "--units", "[]"], self.out, self.err)
         self.assertEqual(code, 0, self.err.getvalue())
 

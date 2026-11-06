@@ -56,9 +56,9 @@ def loader(config_for=None, own_for=None):
 
     def load(folder, names):
         asked.append((folder, list(names)))
-        return ci.Loading([ci.Loaded(kind, name, name, ci.unit_path(kind, name), "",
+        return ci.Loading([ci.Loaded(kind, name, ci.unit_path(kind, name), "",
                                      (config_for or (lambda k, n: {"services": {}}))(kind, name),
-                                     (own_for or (lambda k, n: ()))(kind, name), (), None) for kind, name in names], [], [])
+                                     (own_for or (lambda k, n: ()))(kind, name), (), None) for kind, name in names], [])
     load.asked = asked
     return load
 
@@ -277,7 +277,7 @@ class Ends(Fixture):
     def test_a_unit_the_trust_policy_refuses_ends_the_run_before_anything_is_built(self):
         def refusing(folder, names):
             return ci.Loading([], [ci.Refused(kind, name, ci.unit_path(kind, name), ("Runs with full privileges",), "T03")
-                                   for kind, name in names], [])
+                                   for kind, name in names])
         self.assertEqual(self.run_ci(loading=refusing), 1)
         self.assertEqual(self.recorder.calls, [])
         self.assertIn("playground:bank was not tried: Runs with full privileges. Fix: make check says how.", self.out.getvalue())
@@ -336,10 +336,10 @@ class Real(Fixture):
                                "gateway": {"image": "graviteeio/apim-gateway:4.12.0"}}}
 
         def load(folder, names):
-            return ci.Loading([ci.Loaded(kind, name, name, ci.unit_path(kind, name), str(self.repo / "playgrounds" / "bank"),
+            return ci.Loading([ci.Loaded(kind, name, ci.unit_path(kind, name), str(self.repo / "playgrounds" / "bank"),
                                          config if (kind, name) == ("playground", "bank") else {"services": {}},
                                          ("bakery-web",) if (kind, name) == ("playground", "bank") else (), (), None)
-                               for kind, name in names], [], [])
+                               for kind, name in names], [])
         from lab_ui.catalogs.ci import gitleaks, manifests
         script = manifests.script()
         script.RESOLVE = lambda name, port, type=None: [(2, 1, 6, "", ("93.184.216.34", port))]

@@ -54,15 +54,12 @@ VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0
 
 
 class Release(NamedTuple):
-    """What the notes are made from: the tag and its commit, the previous tag and its commit (None for the first), the units new,
-    changed (each with its subjects) and removed."""
+    """What the notes are made from: the tag, the previous tag (None for the first), the units new, changed (each with its subjects)
+    and removed."""
     tag: str
-    sha: str
     previous: Optional[str]
-    previous_sha: Optional[str]
     name: str
     version: str
-    lab: str
     new: List[str]
     changed: List[Tuple[str, List[str]]]
     removed: List[str]
@@ -129,8 +126,7 @@ def gather(root: str, tag: str, seams: Optional[dict] = None) -> Release:
     previous = tags_before(root, sha, tag)
     tree, (new, changed, removed) = between(root, git_dir, previous, sha, seams)
     meta = catalog_meta(tree.text("catalog.yml") or "")
-    return Release(tag, sha, previous, trees.resolve(root, "refs/tags/" + previous) if previous else None, meta.get("name", ""),
-                   meta.get("version", "") or tag[1:], meta.get("lab", ""), new, changed, removed)
+    return Release(tag, previous, meta.get("name", ""), meta.get("version", "") or tag[1:], new, changed, removed)
 
 
 def between(root: str, git_dir: str, previous: Optional[str], sha: str, seams: dict):
@@ -298,5 +294,5 @@ def unreleased_main(argv, out, err, **seams) -> int:
         out.write((line or f"Nothing changed since {previous}.") + "\n")
     if args.ci and line:
         write_summary("### Not released yet\n\n" + line + "\n\n" + notes_text(Release(
-            "HEAD", sha, previous, None, meta.get("name", ""), "(next)", meta.get("lab", ""), new, changed, removed)))
+            "HEAD", previous, meta.get("name", ""), "(next)", new, changed, removed)))
     return 0

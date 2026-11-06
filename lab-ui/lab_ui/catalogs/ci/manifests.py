@@ -131,7 +131,7 @@ def main(argv, out, err, **seams) -> int:
     names = parse_units(args.units)
     loading = load(os.path.abspath(args.path), names)
     problems = refusals(loading.refused, "read")
-    skipped = list(loading.notes)
+    skipped: List[str] = []
     if loading.units:
         more, results, notes = run(loading.units, seams.get("ask"), seams.get("module"))
         problems += more

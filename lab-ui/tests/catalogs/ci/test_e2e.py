@@ -47,7 +47,7 @@ def unit(kind, name, tested=(), own=(), leaks=(), resolve="auto", folder=""):
         marker = variables.get("GRAVITEE_LICENSE", "")
         return {"services": {name_: ({**definition, "environment": {"LICENSE": marker}} if name_ in leaks else definition)
                              for name_, definition in services.items()}}
-    return ci.Loaded(kind, name, name, ci.unit_path(kind, name), folder, {"services": services}, tuple(own), tuple(tested), None,
+    return ci.Loaded(kind, name, ci.unit_path(kind, name), folder, {"services": services}, tuple(own), tuple(tested), None,
                      read if resolve == "auto" else resolve)
 
 
@@ -89,7 +89,7 @@ class Fixture(support.WithGit):
             wanted = [(kind, name) for kind, name in names]
             return ci.Loading([self.table.get(f"{kind}:{name}", unit(kind, name)) for kind, name in wanted
                                if f"{kind}:{name}" not in getattr(self, "refused", {})],
-                              [self.refused[f"{kind}:{name}"] for kind, name in wanted if f"{kind}:{name}" in getattr(self, "refused", {})], [])
+                              [self.refused[f"{kind}:{name}"] for kind, name in wanted if f"{kind}:{name}" in getattr(self, "refused", {})])
         return load
 
     def plan(self, *argv, words=(), change=True, sha=None, ref=MAIN, default_ns="acme-hub", **seams):

@@ -165,14 +165,14 @@ class Fixture(support.WithGit):
                 services = {"mock-api": {"image": f"{PREFIX}/mock-api:latest", "build": {"context": self.folder(APPS["mock"])}}}
             else:
                 services = {}
-            loaded.append(ci.Loaded(kind, name, name, ci.unit_path(kind, name), str(self.repo / ci.unit_path(kind, name)).rsplit("/", 1)[0],
+            loaded.append(ci.Loaded(kind, name, ci.unit_path(kind, name), str(self.repo / ci.unit_path(kind, name)).rsplit("/", 1)[0],
                                     {"services": services}, tuple(services), (), None))
         return loaded
 
     def loader(self, refused=()):
         def load(folder, names):
             left_out = {(each.kind, each.name) for each in refused}
-            return ci.Loading(self.units([each for each in names if each not in left_out]), list(refused), [])
+            return ci.Loading(self.units([each for each in names if each not in left_out]), list(refused))
         return load
 
     def commit(self, change, message="Change the apps", advance=True):
@@ -381,7 +381,7 @@ class Branch(Fixture):
                 services = {name: ({**service, "image": "ghcr.io/someone/else/bakery-web:latest"} if name == "bakery-web" else service)
                             for name, service in unit.config["services"].items()}
                 out.append(unit._replace(config={"services": services}))
-            return ci.Loading(out, [], [])
+            return ci.Loading(out, [])
         self.assertEqual(self.plan(loading=other), 1)
         self.assertIn("IM02", self.out.getvalue())
         self.assertIn("the image ghcr.io/someone/else/bakery-web:latest is outside ghcr.io/acme/lab-hub", self.out.getvalue())
@@ -810,7 +810,7 @@ class Publishing(Fixture):
             return ci.Loading([unit._replace(config={"services": {"bakery-web": {
                 "image": f"{PREFIX}/bakery-web:latest", "build": {"context": remote, "labels": {
                     "org.opencontainers.image.licenses": "MIT"}}}}}, own=("bakery-web",)) if unit.name == "bank" else unit
-                               for unit in loaded], [], [])
+                               for unit in loaded], [])
         self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], loading=loading), 1)
         self.assertIn(f"PB06 {PREFIX}/bakery-web carries a license label but is built from another project's source.", self.out.getvalue())
         self.assertEqual(self.registry.builds(), [])
@@ -822,7 +822,7 @@ class Publishing(Fixture):
             loaded = self.units(names_)
             return ci.Loading([unit._replace(config={"services": {"bakery-web": {
                 "image": f"{PREFIX}/bakery-web:latest", "build": {"context": remote}}}}, own=("bakery-web",)) if unit.name == "bank" else unit
-                               for unit in loaded], [], [])
+                               for unit in loaded], [])
         self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], loading=loading), 0, self.out.getvalue())
         build = self.registry.builds()[0]
         self.assertFalse([label for label in options(build, "--label") if "licenses" in label])
@@ -839,7 +839,7 @@ class Publishing(Fixture):
             return ci.Loading([unit._replace(config={"services": {"bakery-web": {
                 "image": f"{PREFIX}/bakery-web:latest", "build": {"context": self.folder(APPS["web"]), "labels": {
                     "org.opencontainers.image.revision": "forged", "org.example.keep": "yes"}}}}}, own=("bakery-web",))
-                               if unit.name == "bank" else unit for unit in self.units(names_)], [], [])
+                               if unit.name == "bank" else unit for unit in self.units(names_)], [])
         self.publish([f"{PREFIX}/bakery-web"], loading=loading)
         labels = options(self.registry.builds()[0], "--label")
         self.assertIn("org.example.keep=yes", labels)
@@ -852,7 +852,7 @@ class Publishing(Fixture):
             return ci.Loading([unit._replace(config={"services": {"bakery-web": {
                 "image": f"{PREFIX}/bakery-web:latest", "build": {"context": self.folder(APPS["web"]), "target": "final",
                                                                 "args": {"B": "2", "A": "1"}}}}}, own=("bakery-web",))
-                               if unit.name == "bank" else unit for unit in self.units(names_)], [], [])
+                               if unit.name == "bank" else unit for unit in self.units(names_)], [])
         self.publish([f"{PREFIX}/bakery-web"], loading=loading)
         build = self.registry.builds()[0]
         self.assertEqual(options(build, "--build-arg"), ["A=1", "B=2"])

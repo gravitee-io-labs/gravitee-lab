@@ -40,7 +40,7 @@ def unit(kind="playground", name="bank", services=None, own=None, folder="", **m
     """A loaded unit: its resolved services and the names of those it defines itself (all of them by default)."""
     services = services if services is not None else {"web": service()}
     file = ci.unit_path(kind, name)
-    return ci.Loaded(kind, name, name, file, folder, {"services": services}, tuple(services if own is None else own), (), None,
+    return ci.Loaded(kind, name, file, folder, {"services": services}, tuple(services if own is None else own), (), None,
                      **more)
 
 
@@ -51,7 +51,7 @@ def loader(*units, refused=()):
         asked.append((folder, list(names)))
         wanted = set(names)
         return ci.Loading([each for each in units if (each.kind, each.name) in wanted],
-                          [each for each in refused if (each.kind, each.name) in wanted], [])
+                          [each for each in refused if (each.kind, each.name) in wanted])
     load.asked = asked
     return load
 

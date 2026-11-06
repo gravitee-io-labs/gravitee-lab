@@ -71,9 +71,7 @@ class Plan(NamedTuple):
     compile: bool
     matrix: dict
     scope: str
-    apps: int
     problems: List[Problem]
-    changed: int = 0
 
     def outputs(self) -> Dict[str, str]:
         """The four lines of `$GITHUB_OUTPUT`."""
@@ -254,7 +252,7 @@ def compute(tree, event: str, changed: Optional[List[str]], base: str = "", plat
     own_tests = found.tests and (touches_tests or bool(ordered))
     return Plan([unit.key for unit in ordered], bool(seeds or own_tests),
                 bool(more_than_readme and any(found.dockerfiles.get(unit) for unit in ordered)), grid or {"include": []},
-                scope or "change", apps, problems, len(paths_changed))
+                scope or "change", problems)
 
 
 def lines_of(plan: Plan) -> List[str]:

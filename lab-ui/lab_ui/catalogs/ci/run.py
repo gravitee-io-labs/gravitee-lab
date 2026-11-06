@@ -139,7 +139,7 @@ def main(argv, out, err, **seams) -> int:
         """The one reading, given to every stage for the units it asks for."""
         keep = set(wanted_names)
         return package.Loading([each for each in loading.units if (each.kind, each.name) in keep],
-                               [each for each in loading.refused if (each.kind, each.name) in keep], list(loading.notes))
+                               [each for each in loading.refused if (each.kind, each.name) in keep])
     if loading is not None:
         package.LOADER = given
     try:

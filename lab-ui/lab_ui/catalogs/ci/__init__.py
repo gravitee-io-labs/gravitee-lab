@@ -462,7 +462,6 @@ class Loaded(NamedTuple):
     """A unit the trust policy judged OK, as the stages that run Docker read it.
 
     kind, name   `playground`, `bank`
-    uid          the Lab's id of it (`bank` in the default catalog, `@acme/bank` in another)
     file         its compose file, relative to the catalog: `playgrounds/bank/compose.yml`
     folder       the real path of its folder ("" for a setup, which has none)
     config       `docker compose config` of the Lab's core and the unit, read with the scrubbed environment: the JSON that
@@ -475,7 +474,6 @@ class Loaded(NamedTuple):
     """
     kind: str
     name: str
-    uid: str
     file: str
     folder: str
     config: dict
@@ -503,7 +501,6 @@ class Refused(NamedTuple):
 class Loading(NamedTuple):
     units: List[Loaded]
     refused: List[Refused]
-    notes: List[str]
 
 
 def unit_path(kind: str, name: str) -> str:
@@ -557,12 +554,12 @@ def load(folder, names: Sequence[Tuple[str, str]]) -> Loading:
             refused.append(Refused(kind, name, unit_path(kind, name), (f"{where} {STRUCTURE[code]}",), code))
     survivors = [each for each in asked if each not in unreadable]
     if not survivors:
-        return Loading([], refused, [])
+        return Loading([], refused)
     loader = LOADER
     found = loader(str(folder), survivors) if loader is not None else lab_loader(str(folder), survivors, hidden=sorted(unreadable))
     refused = list(found.refused) + refused
     kept = [unit for unit in found.units if (unit.kind, unit.name) not in unreadable]
-    return Loading(kept, refused, list(found.notes))
+    return Loading(kept, refused)
 
 
 def blocked_reasons(unit: dict) -> Tuple[str, ...]:
@@ -691,12 +688,12 @@ def lab_loader(folder: str, names: List[Tuple[str, str]], hidden: Iterable[Tuple
                     continue
                 where = os.path.realpath(os.path.join(real, *file.split("/")))
                 folder_here = "" if kind == "setup" else os.path.dirname(where)
-                found.append(Loaded(kind, name, item[1], file, folder_here, _realized(config, linked),
+                found.append(Loaded(kind, name, file, folder_here, _realized(config, linked),
                                     tuple(sorted(unit.get("services") or ())), tuple(unit.get("tested") or ()),
                                     _variables(e2e, built), _resolver(folder, ns, needs, unit["file"], scrubbed)))
     except check.ComposeGone:
         raise Unavailable("Docker Compose 5 was not found: " + compose.NO_COMPOSE) from None
-    return Loading(found, refused, [])
+    return Loading(found, refused)
 
 
 def _variables(e2e, built) -> Optional[frozenset]:

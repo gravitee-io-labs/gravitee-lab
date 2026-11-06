@@ -270,7 +270,7 @@ class Limit(unittest.TestCase):
         files["playgrounds/big2/compose.yml"] = "include:\n  - ../big/compose.yml\nservices: {}\n"
         files.update({f"playgrounds/big2/apps/app{n}/Dockerfile": "FROM busybox:1.36\n" for n in range(10)})
         found = plan_of(files, ["playgrounds/big/compose.yml"])
-        self.assertEqual(found.apps, 25)   # big (15) and big2 (10), which includes it and is built again
+        self.assertIn("it changes 25 apps", found.problems[0].message)   # big (15) and big2 (10), which includes it and is built again
         self.assertEqual([each.code for each in found.problems], ["BD06"])
 
     def test_a_push_or_a_change_to_the_standard_is_never_split(self):

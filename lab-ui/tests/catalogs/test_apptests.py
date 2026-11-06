@@ -330,7 +330,7 @@ class Stage(Disk):
         return str(folder)
 
     def stage(self, services, *argv, loading=None, **seams):
-        units = loading or ci.Loading([self.unit(services)], [], [])
+        units = loading or ci.Loading([self.unit(services)], [])
         with mock.patch.object(ci, "LOADER", mock.Mock(return_value=units)):
             return apps.main([self.root, "--units", '["playground:bank"]', *argv], self.out, self.err, lab=self.lab, **seams)
 
@@ -532,7 +532,7 @@ class Stage(Disk):
             self.assertEqual([name for name in call.env if name.startswith(("ACTIONS_", "GITHUB_", "GH_")) or name == "SSH_AUTH_SOCK"], [])
 
     def test_a_unit_the_lab_refused_is_never_tested(self):
-        loading = ci.Loading([], [ci.Refused("playground", "bank", "playgrounds/bank/compose.yml", ("Runs with full privileges",), "T03")], [])
+        loading = ci.Loading([], [ci.Refused("playground", "bank", "playgrounds/bank/compose.yml", ("Runs with full privileges",), "T03")])
         code = self.stage({}, "--format", "github", loading=loading)
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
@@ -540,7 +540,7 @@ class Stage(Disk):
 
     def test_the_dispatcher_reaches_it(self):
         context = self.with_tests("web")
-        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([self.unit({"bakery-web": self.service(context=context)})], [], []))):
+        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([self.unit({"bakery-web": self.service(context=context)})], []))):
             code = ci_main(["test", self.root, "--units", '["playground:bank"]'], self.out, self.err, lab=self.lab)
         self.assertEqual(code, 0, self.err.getvalue())
 

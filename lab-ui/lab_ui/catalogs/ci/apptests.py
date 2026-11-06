@@ -74,7 +74,6 @@ class Tests(NamedTuple):
 class Outcome(NamedTuple):
     """How the tests of one app ended. `status`: passed, failed or none (no tests in the app, or none in its image).
     `failed` is how many tests failed; `output` is what they printed."""
-    app: str
     status: str
     failed: int = 0
     python: str = "none"
@@ -225,10 +224,9 @@ def ensure_node(node: str, run: Runner, sleep: Callable[[float], None] = time.sl
 
 
 def run_app(app: str, image: str, run: Runner, node: Optional[str] = None, guide: Optional[str] = None,
-             name: Optional[str] = None, tests: Optional[Tests] = None, namer: Callable[[], str] = container_name) -> Outcome:
+            tests: Optional[Tests] = None, namer: Callable[[], str] = container_name) -> Outcome:
     """Runs the tests of one app in its image: Python tests in the image, JavaScript tests in the Node image. An app with no
     tests is `none`. `node` is the Node image, which an app with JavaScript tests needs."""
-    name = name or Path(app).name
     found = tests or has_tests(app)
     python = js = "none"
     failed, output = 0, ""
@@ -239,7 +237,7 @@ def run_app(app: str, image: str, run: Runner, node: Optional[str] = None, guide
         js, count, text = run_js(app, node, run, namer)
         failed, output = failed + (count if js == "failed" else 0), output + text
     if "failed" in (python, js):
-        return Outcome(name, "failed", failed, python, js, output)
+        return Outcome("failed", failed, python, js, output)
     if python == "none" and js == "none":
-        return Outcome(name, "none", 0, python, js, output)
-    return Outcome(name, "passed", 0, python, js, output)
+        return Outcome("none", 0, python, js, output)
+    return Outcome("passed", 0, python, js, output)

@@ -322,7 +322,6 @@ def project_session(folder: str):
 class Outcome(NamedTuple):
     """How a unit went: `state` is started, failed, not_tried or nothing (no service of it can start without the platform)."""
     unit: str
-    path: str
     state: str
     started: Tuple[str, ...] = ()
     seconds: float = 0.0
@@ -479,7 +478,7 @@ def main(argv, out, err, **seams) -> int:
     for each in loading.refused:
         if needs_settings(each):
             problems.append(problem("SM03", each.file, unit=f"{each.kind}:{each.name}"))
-            outcomes.append(Outcome(f"{each.kind}:{each.name}", each.file, "not_tried", (), 0.0, "it needs settings or a license"))
+            outcomes.append(Outcome(f"{each.kind}:{each.name}", "not_tried", (), 0.0, "it needs settings or a license"))
         else:
             problems += refusals([each], "tried")
     tree = trees.FolderTree(root)
@@ -487,17 +486,17 @@ def main(argv, out, err, **seams) -> int:
     ready = False
     for unit in loading.units:
         if unit.kind == "setup":   # (it only includes: its units are the ones that start, when they are touched)
-            outcomes.append(Outcome(unit.key, unit.file, "nothing", (), 0.0, "it only includes other units"))
+            outcomes.append(Outcome(unit.key, "nothing", (), 0.0, "it only includes other units"))
             continue
         selection = select(unit)
         text = tree.text(unit.file)
         if requires_license(text) or runs_remote_gateway(text):
             problems.append(problem("SM03", unit.file, unit=unit.key))
-            outcomes.append(Outcome(unit.key, unit.file, "not_tried", (), 0.0, "it needs settings or a license"))
+            outcomes.append(Outcome(unit.key, "not_tried", (), 0.0, "it needs settings or a license"))
             continue
         if not selection.waves:
             why = "; ".join(f"{report.printable(name)}: {why}" for name, why in selection.left[:3]) or "it has no service of its own"
-            outcomes.append(Outcome(unit.key, unit.file, "nothing", (), 0.0, why))
+            outcomes.append(Outcome(unit.key, "nothing", (), 0.0, why))
             continue
         if not ready:
             docker_ready(runner)
@@ -521,10 +520,9 @@ def main(argv, out, err, **seams) -> int:
         logs.update({f"{unit.key} {name}": lines for name, lines in result.logs.items()})
         if result.problems:
             bad = [each.message for each in result.problems]
-            outcomes.append(Outcome(unit.key, unit.file, "failed", tuple(result.started), spent, "; ".join(bad)))
+            outcomes.append(Outcome(unit.key, "failed", tuple(result.started), spent, "; ".join(bad)))
         else:
-            outcomes.append(Outcome(unit.key, unit.file, "started", tuple(result.started), spent))
-    skipped = list(loading.notes)
+            outcomes.append(Outcome(unit.key, "started", tuple(result.started), spent))
     if args.format != "json":
         out.write("\n".join(lines_of(outcomes)) + "\n")
         for label, lines in logs.items():
@@ -535,4 +533,4 @@ def main(argv, out, err, **seams) -> int:
         extra = "### Units started\n\n" + (table(outcomes) if outcomes else "No unit to start.\n")
         for label, lines in logs.items():
             extra += f"\nThe last {len(lines)} lines of the log of `{label.replace('`', '')}`:\n\n" + fence(lines)
-    return conclude("smoke", problems, args, out, "make ci", skipped, title="Start what does not need the platform", extra=extra)
+    return conclude("smoke", problems, args, out, "make ci", title="Start what does not need the platform", extra=extra)

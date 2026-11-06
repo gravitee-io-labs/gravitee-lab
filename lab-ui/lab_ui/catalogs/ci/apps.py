@@ -43,7 +43,6 @@ TAIL = 15
 class Result(NamedTuple):
     """How one app's tests went: `outcome` is apptests.Outcome, `seconds` how long it took."""
     unit: str
-    image: str
     app: str
     path: str
     outcome: object
@@ -97,11 +96,11 @@ def run_all(units: Sequence[Loaded], specs, runner: Optional[Callable] = None, a
         name = app_of(spec.context)
         started = time.monotonic()
         if not found.any:
-            results.append(Result(spec.unit, spec.image, name, spec.path, apptests.Outcome(name, "none"), 0.0))
+            results.append(Result(spec.unit, name, spec.path, apptests.Outcome("none"), 0.0))
             continue
         guide = apptests.guide_of(spec.context, folders.get(spec.unit) or None)
-        outcome = apptests.run_app(spec.context, spec.image, run, node, guide, name, found)
-        results.append(Result(spec.unit, spec.image, name, spec.path, outcome, time.monotonic() - started))
+        outcome = apptests.run_app(spec.context, spec.image, run, node, guide, found)
+        results.append(Result(spec.unit, name, spec.path, outcome, time.monotonic() - started))
     return results
 
 
