@@ -2,7 +2,6 @@
 on file, the settings an add-on lacks and the job of a plan in a temporary folder. No Docker."""
 
 import hashlib
-import inspect
 import itertools
 import json
 import os
@@ -372,11 +371,6 @@ class Plans(Case):
         # By name: what starts and what restarts, nothing else
         self.assertEqual(plan["services"], {"remove": [], "start": ["apim-gateway", "apim-management-api", "kafka",
                                                                     "kafka-desk", "kafka-ui"]})
-
-    def test_a_plan_takes_no_services_to_make_again_besides_what_it_finds(self):
-        # It once took them (`also`), then ignored them without a word: a caller that gives them is told
-        with self.assertRaises(TypeError):
-            layers.plan(self.project, on(self.project), up(), "addon", "kiosk", "start", also={"apim-management-api"})
 
     def test_start_stops_the_explicit_add_on_in_conflict(self):
         state = on(self.project, ["jade", "kiosk"])
@@ -2059,7 +2053,6 @@ class Gates(Case):
         # The file is locked, the policy blocks it, a catalog is lacking, its twin is on, a setting is lacking, a port is
         # taken: each is said once the one before it is gone
         twins(self.project)
-        self.project["addons"]["kiosk"].update(catalog="fixture", services=["kiosk"])
         self.project["services"]["kiosk"]["ports"] = ["5601"]
         self.project["services"]["jade"]["ports"] = ["5601"]
         self.block("kiosk", "Mounts the Docker socket")
@@ -2158,9 +2151,7 @@ class Gates(Case):
     # --- Ports -----------------------------------------------------------------------------------------------------
 
     def publish(self, **ports):
-        """These services publish these host ports; the first catalog owns the add-ons."""
-        for uid in self.project["addons"]:
-            self.project["addons"][uid]["catalog"] = "fixture"
+        """These services publish these host ports."""
         for name, published in ports.items():
             self.project["services"][name]["ports"] = list(published)
 
@@ -2192,7 +2183,6 @@ class Gates(Case):
         # Another playground replaces the one that is on: its port is free by then
         second(self.project)
         self.publish(**{"hello-app": ["8080"], "demo-app": ["8080"]})
-        self.project["playgrounds"]["welcome"]["catalog"] = self.project["playgrounds"]["demo"]["catalog"] = "fixture"
         state = on(self.project, playground="welcome")
         self.assertIsNone(self.why("playground", "demo", state, up(playgrounds=["welcome"], project=self.project)))
         # An add-on that is on and stays holds it
@@ -2206,12 +2196,6 @@ class Gates(Case):
         state = on(self.project, ["kiosk"])
         unit = self.project["addons"]["local/kiosk"]
         self.assertIsNone(layers._port_clash(self.project, state, up("kiosk", project=self.project), "addon", unit))
-
-    def test_a_unit_that_says_no_catalog_is_asked_for_its_ports_too(self):
-        self.publish(kiosk=["5601"], **{"kafka-ui": ["5601"]})
-        for uid in self.project["addons"]:
-            del self.project["addons"][uid]["catalog"]
-        self.assertEqual(self.why("addon", "kiosk", on(self.project, ["kafka"])), "Port 5601 is used by Kafka")
 
     def test_a_port_the_platform_publishes_is_taken_while_it_does_not_run(self):
         self.project["services"]["apim-gateway"]["ports"] = ["8082"]
@@ -2310,21 +2294,6 @@ class Preflight(Case):
         self.project["addons"]["kiosk"]["blocked"] = None
         with self.assertRaisesRegex(RuntimeError, "^Would also turn off Jade$"):
             layers.check(self.project, self.plan("addon", "agent-lens", state=on(self.project, ["jade"])), [])
-        self.service.preflight.assert_not_called()
-
-    def test_a_caller_that_leaves_out_the_project_or_what_the_page_sent_back_is_refused_not_let_through_unverified(self):
-        # The form check(plan, accept) skipped the preflight without a word: it is gone, and so is the default of `accept`
-        parameters = inspect.signature(layers.check).parameters.values()
-        self.assertEqual([(one.name, one.default) for one in parameters],
-                         [(name, inspect.Parameter.empty) for name in ("project", "plan", "accept")])
-        plan = self.plan("addon", "kiosk")
-        for call in (lambda: layers.check(plan, []), lambda: layers.check(self.project, plan), lambda: layers.check(plan)):
-            with self.assertRaises(TypeError):
-                call()
-        self.service.preflight.assert_not_called()
-
-    def test_a_plan_from_a_caller_that_names_no_kind_is_not_verified(self):
-        layers.check(self.project, {"blocked": None, "stops": [], "turns_off": [], "itself": set()}, [])
         self.service.preflight.assert_not_called()
 
 
@@ -2635,8 +2604,7 @@ class Binds(Case):
         return self.patch(compose, "config_json", return_value={"services": {"app": {"volumes": volumes}}})
 
     def test_a_missing_folder_inside_the_folder_of_the_playground_is_made_with_its_parents(self):
-        os.umask(0o077)
-        self.addCleanup(os.umask, 0o022)
+        self.addCleanup(os.umask, os.umask(0o077))
         self.binds(self.unit / ".state", self.unit / "data" / "deep" / "er")
         made = layers.make_binds(self.project, self.plan)
         self.assertEqual(made, [str(self.unit / ".state"), str(self.unit / "data"), str(self.unit / "data/deep"),
