@@ -69,6 +69,8 @@ catalog runs the same test for its own changes. It proves what the checks cannot
    /seeder/              @OWNER/maintainers
    /lab-ui/              @OWNER/maintainers
    ```
+6. **The catalog to try**: the repository variable `CATALOG_REPOSITORY` (`owner/name`), without which nothing is tried, and `CATALOG_REF`
+   for a known-good commit. While that catalog is private, the repository secret `CATALOG_DEPLOY_KEY`, a read-only deploy key of it.
 
 A runner has 4 CPUs and 16 GB of memory in a public repository, enough for the playgrounds that ask for 10 GB. Disk is the tighter limit:
 the job removes what the runner comes with and the lab does not use before it starts. If a job runs out of one or the other, use a larger
