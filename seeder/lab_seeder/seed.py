@@ -85,7 +85,7 @@ def main():
         if found:
             log("seed", f"Protections {controls.mode()}: {controls.named(found)}")
         require_modules(gamma_modules())
-        am.seed(openfga.seed() or {})
+        am.seed(openfga.seed())
         for module in AFTER_AM:
             module.seed()
         if not common.waits_for_gateway() and os.getenv("GATEWAY_INTERNAL_URL"):

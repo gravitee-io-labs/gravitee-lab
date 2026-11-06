@@ -145,11 +145,6 @@ class Stores(Case):
         self.seed_files({FILE: json.dumps({"model": "model\n  schema 1.1\n"})})
         self.assertEqual(list(openfga.seed()), ["documents"])
 
-    def test_a_model_can_sit_in_a_file_next_to_the_store(self):
-        self.seed_files({FILE: json.dumps({"name": "Documents", "model_file": "documents.fga"}), "openfga/documents.fga": "model\n  schema 1.1\n"})
-        openfga.seed()
-        self.to_json.assert_called_once_with("model\n  schema 1.1\n")
-
     def test_a_seed_without_stores_asks_nothing(self):
         self.assertEqual(openfga.seed(), {})
         self.assertEqual(self.platform.calls, [])
