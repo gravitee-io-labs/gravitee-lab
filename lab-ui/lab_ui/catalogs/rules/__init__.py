@@ -20,7 +20,7 @@ import json
 import re
 from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
-from ..report import ERROR, WARNING, Problem
+from ..report import Problem
 
 # The most a rule reads of a file, which is what ST09 lets it be: 1 MB for the files the Lab reads as text (`TEXT_SUFFIXES`), 2 MB
 # for any other. A file over its limit is an error of its own, so no file is left unread without a finding
@@ -206,19 +206,6 @@ def garbled(text: str) -> bool:
     return text.count("�") * 4 >= len(text) > 0
 
 
-def texts(tree, limit: Optional[int] = None) -> Iterator[Tuple[str, str]]:
-    """(path, text) of every regular file of a tree that is at most `limit` bytes (by default what `read_limit` says of its
-    name), in the order of the listing, as `text_of` reads it. A file that is larger or cannot be read is not given."""
-    for entry in tree.entries():
-        wanted = limit if limit is not None else read_limit(entry.path)
-        if entry.mode not in ("100644", "100755") or entry.size > wanted:
-            continue
-        data = tree.read(entry.path, wanted)
-        if data is None:
-            continue
-        yield entry.path, text_of(data)
-
-
 def line_of(offsets: List[int], position: int) -> int:
     """The number (from 1) of the line that holds the character at `position`, given the offsets of the line feeds."""
     return bisect.bisect_left(offsets, position) + 1
@@ -246,21 +233,18 @@ _BLOCK = re.compile(r"[|>][+-]?[0-9]?[+-]?")
 class Node:
     """A line of a YAML file: its `key` (None for a list item that is a plain value), the `value` text after the colon
     (comment removed, quotes kept; "" when the value is the block below), its `line`, its `indent` (the column of the key) and
-    its `children`. `anchor` is the `&name` it carries, `item` whether it came from a list item."""
-    __slots__ = ("key", "value", "line", "indent", "children", "anchor", "item")
+    its `children`. `item` is whether it came from a list item."""
+    __slots__ = ("key", "value", "line", "indent", "children", "item")
 
-    def __init__(self, key, value, line, indent, anchor=None, item=False):
+    def __init__(self, key, value, line, indent, item=False):
         self.key, self.value, self.line, self.indent = key, value, line, indent
-        self.anchor, self.item, self.children = anchor, item, []
+        self.item, self.children = item, []
 
     def get(self, key: str) -> Optional["Node"]:
         for child in self.children:
             if child.key == key:
                 return child
         return None
-
-    def __repr__(self):
-        return f"Node({self.key!r}, {self.value!r}, line {self.line}, {len(self.children)} children)"
 
 
 class Outline(NamedTuple):
@@ -411,7 +395,7 @@ def outline(text: str) -> Outline:
                         break
                 elif _balanced(value):
                     break
-        node = Node(key, value, number, indent if key is not None else dash, anchor, item)
+        node = Node(key, value, number, indent if key is not None else dash, item)
         _attach(stack, node, indent if key is not None else dash, key is None)
         if anchor:
             anchors[anchor] = node
@@ -463,9 +447,3 @@ def merged(node: Node, anchors: Dict[str, Node]) -> Dict[str, Node]:
                     out[child.key] = child
         depth += 1
     return out
-
-
-__all__ = ["AREAS", "COMPOSE_NAMES", "Context", "ERROR", "FAMILIES", "HYGIENE", "Node", "Outline", "PER_FILE", "Problem", "Rule",
-           "OTHER_LIMIT", "TEXT_LIMIT", "TEXT_SUFFIXES", "WARNING", "basename", "catalog_meta", "context", "garbled",
-           "is_binary", "is_compose", "line_of", "merged", "newlines", "outline", "problem", "read_limit", "say", "scalar",
-           "strip_comment", "table", "text_of", "texts", "unit_of", "walk"]

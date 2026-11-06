@@ -23,8 +23,8 @@ from .. import store
 from ..report import ERROR, WARNING, Problem
 from ..tree import REGULAR
 from .secrets import flow_items, flow_key
-from . import AREAS, TEXT_LIMIT, Context, basename, context, garbled, is_binary, line_of, newlines, outline, problem, read_limit, \
-    say, scalar, table, text_of, unit_of
+from . import AREAS, TEXT_LIMIT, Context, basename, garbled, is_binary, line_of, newlines, outline, problem, read_limit, scalar, \
+    table, text_of, unit_of
 
 RULES = table([
     ("ST01", ERROR, "Symbolic link (git mode 120000)",
@@ -251,8 +251,6 @@ def _place(entries, flagged: Set[str]) -> List[Problem]:
             continue   # a folder that is already an error (case twins) is not also a warning for each file below it
         if len(parts) == 1 and path.startswith("."):
             continue
-        if runs_on_reader(path):
-            continue
         found.append(problem(RULES, "ST08", path))
     return found
 
@@ -277,13 +275,10 @@ def scanner_file(path: str) -> bool:
 
 
 def _license(text: str, spdx: str) -> bool:
-    """Whether the text of a LICENSE is the license named by `spdx`: the phrases of its fingerprint, for the three the
-    standard can tell apart; any text for another."""
-    wanted = FINGERPRINTS.get(spdx.lower())
-    if wanted is None:
-        return True
+    """Whether the text of a LICENSE is the license named by `spdx`, one the standard can tell apart: the phrases of its
+    fingerprint."""
     folded = " ".join(text.lower().split())
-    return all(phrase in folded for phrase in wanted)
+    return all(phrase in folded for phrase in FINGERPRINTS[spdx.lower()])
 
 
 def _contents(tree, entries, ctx: Context) -> List[Problem]:
@@ -395,9 +390,8 @@ def _named(tree, entries) -> List[Problem]:
     return found
 
 
-def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
+def check(tree, ctx: Context) -> List[Problem]:
     """ST01 to ST23 over a tree."""
-    ctx = ctx if ctx is not None else context(tree)
     entries = tree.entries()
     found, flagged = _from_store(entries)
     more, outside = _outside(entries, flagged)
@@ -412,6 +406,3 @@ def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
     flagged |= {each.path for each in found if each.path and each.severity == ERROR}
     found += _place(entries, flagged)
     return found
-
-
-__all__ = ["MORE", "RULES", "check", "case_twins", "program", "runs_on_reader", "scanner_file", "say"]

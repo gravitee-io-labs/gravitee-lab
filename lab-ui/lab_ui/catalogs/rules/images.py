@@ -28,7 +28,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 from ..report import ERROR, Problem
 from ..tree import REGULAR
-from . import COMPOSE_NAMES, TEXT_LIMIT, Context, Node, Outline, basename, context, merged, outline, problem, read_limit, scalar, \
+from . import COMPOSE_NAMES, TEXT_LIMIT, Context, Node, Outline, basename, merged, outline, problem, read_limit, scalar, \
     table, text_of, unit_of
 from .secrets import flow_items, flow_pairs
 
@@ -95,10 +95,6 @@ def repository(image: str) -> Optional[str]:
 
 def _clip(text: str) -> str:
     return text if len(text) <= SHOWN else text[:SHOWN - 1] + "…"
-
-
-def _pull_policy(node) -> bool:
-    return node is not None
 
 
 MAX_FILES = 16   # files one unit's Compose file reaches through `include` and `extends`
@@ -371,12 +367,7 @@ def check_publish(tree, ctx: Context) -> List[Problem]:
     return [problem(RULES, "IM04", "catalog.yml", _images_line(tree), x=_clip(images), y=wanted)]
 
 
-def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
+def check(tree, ctx: Context) -> List[Problem]:
     """IM01 to IM04: the services of the units the caller has loaded (`ctx.units`), else the Compose files of the tree."""
-    ctx = ctx if ctx is not None else context(tree)
     rows = services_of_units(ctx.units) if ctx.units is not None else services_of_tree(tree, ctx.notes)
     return evaluate(rows, ctx) + check_publish(tree, ctx)
-
-
-__all__ = ["MORE", "RULES", "Service", "check", "check_publish", "evaluate", "known", "publishes_to", "repository",
-           "services_of_tree", "services_of_units"]

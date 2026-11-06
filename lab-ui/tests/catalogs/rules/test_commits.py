@@ -132,7 +132,6 @@ class Credits(unittest.TestCase):
     def test_without_the_commits_there_is_nothing_to_say(self):
         listing = support.tree()
         self.assertEqual([], commits.check(listing, context(listing, history=None)))
-        self.assertEqual([], commits.check(listing))
 
 
 class Hostile(unittest.TestCase):

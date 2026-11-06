@@ -471,7 +471,3 @@ def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
     if ctx.history is not None:
         found += scan_added(ctx.history.added(), ctx, tree)
     return found
-
-
-__all__ = ["KINDS", "NOT_SECRET", "RULES", "SECRET_NAME", "check", "compose_literals", "env_literal", "flow_items", "flow_key", "flow_pairs",
-           "jwts", "names_a_secret", "scan_added", "scan_text", "se03", "token_hits"]

@@ -313,7 +313,7 @@ def _decode_double(pieces: List[str]) -> str:
 class _Node(object):
     """A value: a mapping (`entries`), a sequence (`items`), a scalar (`text`, and the lines it takes in `parts`), a flow
     collection on one line (`text`), or nothing (`null`). `style` says how a scalar is written."""
-    __slots__ = ("kind", "line", "col", "style", "entries", "items", "parts", "text", "owner", "parent")
+    __slots__ = ("kind", "line", "col", "style", "entries", "items", "parts", "text", "owner")
 
     def __init__(self, kind: str, line: int, col: int, style: str = "") -> None:
         self.kind, self.line, self.col, self.style = kind, line, col, style
@@ -322,14 +322,13 @@ class _Node(object):
         self.parts: List[Tuple[int, str]] = []
         self.text = ""
         self.owner: Optional["_Entry"] = None    # the entry this node is the value of
-        self.parent: Optional["_Node"] = None    # the sequence this node is an item of
 
 
 class _Entry(object):
-    __slots__ = ("name", "line", "col", "value", "map", "quoted")
+    __slots__ = ("name", "line", "col", "value", "map")
 
-    def __init__(self, name: str, line: int, col: int, holder: _Node, quoted: bool) -> None:
-        self.name, self.line, self.col, self.map, self.quoted = name, line, col, holder, quoted
+    def __init__(self, name: str, line: int, col: int, holder: _Node) -> None:
+        self.name, self.line, self.col, self.map = name, line, col, holder
         self.value = _Node("null", line, col)
         self.value.owner = self
 
@@ -465,7 +464,6 @@ class _Reader(object):
             pending.value = node
             node.owner = pending
         else:
-            node.parent = frame.node
             frame.node.items[-1] = node
         frame.pending = None
 
@@ -481,7 +479,6 @@ class _Reader(object):
             if child:
                 frame = self._open(frame, "seq", number, col)
             item = _Node("null", number, col)
-            item.parent = frame.node
             frame.node.items.append(item)
             frame.pending = item
             rest = text[1:]
@@ -503,7 +500,7 @@ class _Reader(object):
         name, start, quoted = key
         if child:
             frame = self._open(frame, "map", number, col)
-        entry = _Entry(name, number, col, frame.node, quoted)
+        entry = _Entry(name, number, col, frame.node)
         if name in frame.names:
             self.flag(number, "a key that appears twice")
         frame.names.add(name)
@@ -693,7 +690,6 @@ class _Job(NamedTuple):
     name: str
     line: int
     node: _Node
-    entry: _Entry
 
 
 class _Doc(object):
@@ -736,7 +732,7 @@ class _Doc(object):
         if self.root.kind == "map" and self.kind == "workflow":
             for entry in self.root.entries:
                 if entry.name == "jobs" and entry.value.kind == "map":
-                    self.jobs.extend(_Job(job.name, job.line, job.value, job) for job in entry.value.entries
+                    self.jobs.extend(_Job(job.name, job.line, job.value) for job in entry.value.entries
                                      if job.value.kind == "map")
         levels = [("step", self._steps())]
         if self.kind == "workflow":

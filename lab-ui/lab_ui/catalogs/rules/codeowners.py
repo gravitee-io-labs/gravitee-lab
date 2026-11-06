@@ -298,6 +298,3 @@ def _shadowed(lines: List[Line]) -> List[Problem]:
         if _reaches(later.pattern, seen, work):
             return [_no_owner(later.number, "/.github/", " ".join(ruling.owners))]
     return []
-
-
-__all__ = ["FILE", "MORE", "OwnerError", "REQUIRED", "RULES", "check", "maintainers", "matches", "owner_ok", "parse"]

@@ -23,7 +23,7 @@ from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 from ..report import ERROR, WARNING, Problem
 from ..tree import REGULAR
-from . import PER_FILE, Context, basename, context, problem, read_limit, table, text_of, unit_of
+from . import PER_FILE, Context, basename, problem, read_limit, table, text_of, unit_of
 from .images import known, services_of_tree, services_of_units
 from .secrets import names_a_secret
 
@@ -352,10 +352,9 @@ def built_files(tree, ctx: Context) -> Set[str]:
     return found
 
 
-def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
+def check(tree, ctx: Context) -> List[Problem]:
     """DF01 to DF24 over every Dockerfile of a tree: the files named like one, the files a build of the unit names, and the files
     of a unit that start like one."""
-    ctx = ctx if ctx is not None else context(tree)
     entries = [each for each in tree.entries() if each.mode in REGULAR and each.size <= read_limit(each.path)]
     named = built_files(tree, ctx) if any(unit_of(each.path) is not None for each in entries) else set()
     found: List[Problem] = []
@@ -370,7 +369,3 @@ def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
         if data is not None:
             found += check_text(entry.path, text_of(data))
     return found
-
-
-__all__ = ["RULES", "built_files", "check", "check_text", "downloads_to_shell", "instructions", "is_dockerfile",
-           "looks_like_dockerfile"]

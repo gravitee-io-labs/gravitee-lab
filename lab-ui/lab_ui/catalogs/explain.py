@@ -179,8 +179,7 @@ STAGES = (
 
 def _module_rules(name: str) -> Dict[str, Rule]:
     """The RULES table of a rule module of this package."""
-    module = importlib.import_module(f"{__package__}.{name}")
-    return {code: rule for code, rule in getattr(module, "RULES", {}).items() if isinstance(rule, tuple) and len(rule) >= 4}
+    return importlib.import_module(f"{__package__}.{name}").RULES
 
 
 def _more(name: str) -> Dict[str, Tuple[str, ...]]:
@@ -290,6 +289,3 @@ def document() -> str:
                 lines.append(f"- **At Add**: {_text(entry.lab)}")
             lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
-
-
-__all__ = ["DETAILS", "FAMILY_NAMES", "codes", "document", "explain", "table"]
