@@ -1182,7 +1182,7 @@ def _bad_network(name, definition, project):
 
 
 class _Run:
-    """One judgement: the inputs, the findings of each rule, the surface. Built and read by judge and surface alone."""
+    """One judgement: the inputs, the findings of each rule, the surface. Built and read by judge alone."""
 
     def __init__(self, unit, unit_config, core_config, own, overlaid, roots, env, context):
         self.unit, self.context = _dict(unit), _dict(context)
@@ -1613,14 +1613,3 @@ def judge(unit, unit_config, core_config, own, overlaid, roots, env, context):
     except Exception as error:   # noqa: BLE001 hostile input blocks one unit, it never breaks the project
         return _verdict([line("T27", last=f"unexpected {type(error).__name__}")], (), None, ["T27"],
                         _dict(unit).get("name") or "")
-
-
-def surface(unit_config, core_config, own, overlaid, roots, context):
-    """What a unit will do, for the preview: the `surface` of its verdict. `context["unit"]` is the unit judge reads,
-    for what only it says (the reasons it gives for using this machine, its terminal, its gateway, its includes)."""
-    if not isinstance(unit_config, dict):
-        return empty_surface()
-    context = _dict(context)
-    run = _Run(context.get("unit"), unit_config, core_config, own, overlaid, roots, (), context)
-    run.scan()
-    return run.surface()

@@ -2335,16 +2335,6 @@ class Surface(Golden):
         self.assertEqual(self.judge("t24-public-needs-private")["surface"]["needs"], ["partner"])
         self.assertEqual(self.judge("p-pair")["surface"]["needs"], [])
 
-    def test_the_surface_function_gives_the_surface_of_the_verdict(self):
-        for name in (CLEAN, PLAYGROUND, "n02-seed-reads-token", "h-privileged-declared", "p-overlay-ok", "p-terminal"):
-            arguments = self.args(name, listed=True)
-            context = dict(arguments["context"], unit=arguments["unit"])
-            with self.subTest(unit=name):
-                self.assertEqual(trust.surface(arguments["unit_config"], arguments["core_config"], arguments["own"],
-                                               arguments["overlaid"], arguments["roots"], context),
-                                 trust.judge(**arguments)["surface"])
-        self.assertEqual(trust.surface(None, {}, [], {}, {}, {}), trust.empty_surface())
-
     def test_surfaces_add_up(self):
         one = {"images": ["a"], "builds": [{"service": "x", "source": "local"}], "ports": [2, 1], "core": [{"service": "g", "label": "G", "keys": ["environment"]}],
                "reads": ["license"], "plugins": [], "seed": "official", "shell": None, "uses_machine": [], "needs": ["p"]}
@@ -2751,7 +2741,6 @@ class Hostile(Golden):
 
     def test_the_other_functions_are_as_tolerant(self):
         for value in (None, 0, "x", [], {}, [None], {"a": None}, {"services": {"a": 1}}):
-            trust.surface(value, value, [value], value, value, value)
             trust.elevations(value)
             trust.overlays(value, set(), [value])
             trust.combine([value])
@@ -2821,9 +2810,6 @@ class Pure(Golden):
         resolve.target_of("x")   # the module is loaded before the world is taken away
         with self.untouched():
             after = {name: trust.judge(**arguments) for name, arguments in cases.items()}
-            for name, arguments in cases.items():
-                trust.surface(arguments["unit_config"], arguments["core_config"], arguments["own"], arguments["overlaid"],
-                              arguments["roots"], dict(arguments["context"], unit=arguments["unit"]))
         self.assertEqual(after, before)
         self.assertGreater(len(after), 40)
 
