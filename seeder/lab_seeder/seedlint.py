@@ -1071,7 +1071,3 @@ def main(argv=None, out=None):
     for line in ([text] if text else []) + ([] if args.format == "json" else lines):
         out.write(line.encode("utf-8", "replace").decode("utf-8") + "\n")
     return 1 if found else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
