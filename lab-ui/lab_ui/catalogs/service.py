@@ -1103,9 +1103,9 @@ def check_now(ns):
 
 def check_all():
     """One pass of the background checker: Check again for every git catalog that has a copy, is checked
-    automatically and is not linked to a working copy, with the 60 s of a check for each; and, for a listed catalog this Lab
-    can no longer read, the one automatic update of 9.3b. Nothing is asked without Git. The module starts no thread: the
-    worker of `firstrun` calls this on its schedule. A failure of one catalog is its row's state and never stops the pass."""
+    automatically and is not linked to a working copy, with the 60 s of a check for each. Nothing is asked without Git. The module
+    starts no thread: the worker of `firstrun` calls this on its schedule. A failure of one catalog is its row's state and never
+    stops the pass."""
     if git_version(fresh=True) is None:
         return
     for entry in registry.entries():
@@ -1115,27 +1115,8 @@ def check_all():
             continue
         try:
             check_now(ns)
-            _bring_forward(ns, entry)
         except Exception as error:  # noqa: BLE001 - one catalog's trouble is not the pass's
             print(f"Gravitee Lab UI: could not check {ns} ({type(error).__name__})", file=sys.stderr)
-
-
-def _bring_forward(ns, entry):
-    """A listed catalog whose installed version this Lab can no longer read, and that has a newer one it can, is brought
-    to it with no dialog when nothing of it is on or up and nothing needs deciding. `previous` is kept, so Go back exists."""
-    held = registry.lock_of(ns)
-    found = registry.inputs().get(ns) or {}
-    old = isinstance(found.get("lab"), int) and manifest.compat(
-        found["lab"], _contract()["contract"], _contract()["contract_min"]) == "old"
-    if not (defaults.listed(entry) and old and _update_available(held)) or _hold(ns) is not None:
-        return
-    try:
-        plan = update(ns, check=True)
-        if plan.get("upToDate") or plan.get("held") or plan.get("rewritten"):
-            return
-        update(ns, ticket=plan["ticket"])
-    except CatalogError:   # a change under way, an item that came on meanwhile: what it says is the row's, and the next pass tries
-        return
 
 
 def set_auto(ns, enabled):

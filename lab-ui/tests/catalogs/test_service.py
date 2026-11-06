@@ -2065,59 +2065,14 @@ class io_stderr:   # noqa: N801 - a context manager used like a function
         return self.buffer.getvalue()
 
 
-class BringingForward(Seam):
-    """The one update nobody asks for, a listed catalog this Lab can no longer read, with nothing of it on."""
-
-    def setUp(self):
-        super().setUp()
-        self.partner = self.installed("partner", lab=0)
-        self.remote = self.remotes["partner"]
-        self.list_at("partner", self.remote)
-        self.remote.commit({"catalog.yml": meta_text(version="2.1.0", lab=1), **NEWER}, "Written for this Lab")
-
-    def test_it_is_brought_to_the_newest_readable_version_with_go_back_kept(self):
-        service.check_all()
-        held = registry.lock_of("partner")
-        self.assertEqual((held["pin"], held["previous"], held["version"]), (self.remote.head(), self.partner.commit, "2.1.0"))
-        self.assertEqual(self.state("partner"), "uptodate")
-
-    def test_a_newer_version_the_strict_reading_of_its_level_refuses_is_not_brought_and_nothing_is_left_behind(self):
-        # `pick` chooses by a tolerant reading that is unsure of a level spelled with an anchor; the plan reads it strictly
-        self.remote.commit({"catalog.yml": meta_text(version="3.0.0").replace("lab: 1", "lab: &level 99"), **NEWER}, "Needs a newer Gravitee Lab")
-        before = registry.lock_of("partner")
-        service.check_all()
-        held = registry.lock_of("partner")
-        self.assertEqual((held["pin"], held["previous"], held["version"]), (before["pin"], before["previous"], before["version"]))
-        self.assertEqual((held["pending"], held["error"]), (None, None), "a refusal of the plan is no failure of the catalog")
-        self.assertFalse((self.root / ".lab" / "catalogs" / ".stage-partner").exists())
-        self.assertEqual(service.TICKETS, {})
-        self.assertEqual(self.state("partner"), "lab_old")
-
-    def test_the_level_of_this_lab_is_what_decides_whether_it_is_brought(self):
-        self.patch(service, "_contract", lambda: {"contract": 1, "contract_min": 1, "seeder_image": ""})
-        self.remote.commit({"catalog.yml": meta_text(version="3.0.0", lab=2), **NEWER}, "Written for the Lab after this one")
-        service.check_all()
-        self.assertEqual(registry.lock_of("partner")["version"], "2.1.0", "the newest it can read is the one it moves to")
-
-    def test_something_on_a_job_that_runs_or_a_catalog_that_is_not_listed_keeps_it_from_moving(self):
-        on = self.root / ".lab" / "on.yml"
-        on.write_text("include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n", encoding="utf-8")
+class Unreadable(Seam):
+    def test_a_listed_catalog_this_lab_can_no_longer_read_waits_for_a_click_and_lights_the_dot(self):
+        partner = self.installed("partner", lab=0)
+        self.list_at("partner", self.remotes["partner"])
+        self.remotes["partner"].commit({"catalog.yml": meta_text(version="2.1.0", lab=1), **NEWER}, "Written for this Lab")
         service.check_all()
         row = self.row("partner")
-        self.assertEqual((registry.lock_of("partner")["pin"], row["state"]["key"], row["attention"]),
-                         (self.partner.commit, "lab_old", "update"), "it waits, and the dot lights")
-        on.write_text("", encoding="utf-8")
-        job = jobs.Job("Start Ledger", [["true"]], key="addon:x", verb="start")
-        jobs.JOBS.jobs.append(job)
-        jobs.JOBS.current = job
-        service.check_all()
-        self.assertEqual(registry.lock_of("partner")["pin"], self.partner.commit)
-        job.done = True
-        fixtures.default(self, "fixture")   # listed no more
-        self.patch(defaults, "_seen", (None, []))
-        project.forget()
-        service.check_all()
-        self.assertEqual(registry.lock_of("partner")["pin"], self.partner.commit, "only a catalog the engine lists is moved by itself")
+        self.assertEqual((registry.lock_of("partner")["pin"], row["state"]["key"], row["attention"]), (partner.commit, "lab_old", "update"))
 
 
 GAINS = {"addons/ledger/compose.yml": "x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps the entries of "
