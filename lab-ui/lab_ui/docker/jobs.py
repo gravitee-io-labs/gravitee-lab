@@ -52,9 +52,6 @@ SILENT, WATCH = 15 * 60, 5
 # Compose would wait on. Longer than compose.RESTART_WINDOW: one that restarted while what it needs warmed up, and runs
 # since, is out of its issue before
 STUCK = 120
-# What the catalog turns on and off, as a job's key names it ("addon:kafka"): a stop of one that failed is a failure of
-# what it stopped with it too (Jobs.failed_job). The Stack's stop leaves what is on as it is
-ITEMS = ("addon", "setup", "playground")
 # A registry the Lab UI logs Docker in to (an Azure one, GitHub's) refusing a pull for want of a login, as Docker says it
 # in the last lines of a job: the registry and the refusal on one line, in either order ("pull access denied for
 # x.azurecr.io/…", "…azurecr.io…: unauthorized", "Image ghcr.io/… Error unauthorized")
@@ -629,7 +626,7 @@ class Jobs:
                     return None
                 login = None if job._canceled else job.login()
                 return {"id": job.id, "verb": job.verb, "error": job.error(), "login": login}
-            if job.done and job.ok is False and job.verb == "stop" and (job.key or "").split(":")[0] in ITEMS \
+            if job.done and job.ok is False and job.verb == "stop" and (job.key or "").split(":")[0] in paths.KINDS \
                     and [kind, uid] in job.changes["stop"]:
                 return {"id": job.id, "verb": "stop", "error": job.error(), "login": None}
             if job.ok and [kind, uid] in job.changes["start"] + job.changes["stop"]:
