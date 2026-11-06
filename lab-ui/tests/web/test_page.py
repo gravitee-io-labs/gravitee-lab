@@ -1,7 +1,4 @@
-"""The page's own rules (web/js/workspace/split.js: the widths of the split, when it falls back, which tab shows, where a link or a
-message of an app loads, the actions of a guide) and the page of a running playground over a small DOM (web/js/workspace/workspace.js: its
-history, its tabs, its frames, the actions it sends), the tags the Images page offers (web/js/pages/images.js) and the guide's
-markdown (web/js/components/markdown.js), tested by node in tests/js, and the places where the page's files must agree with them."""
+"""The page's JS tests (tests/web/js, run by node) and the places where the page's files must agree with them."""
 
 import ast
 import re
@@ -30,10 +27,10 @@ def node_reads_modules():
 class Split(Case):
 
     @unittest.skipUnless(node_reads_modules(), "node 20.19 or 22.7 or later is not installed")
-    def test_the_rules_of_the_split_page(self):
+    def test_every_js_test_of_the_page(self):
         files = sorted(str(file) for file in JS.glob("*.test.mjs"))
         self.assertTrue(files)
-        run = subprocess.run(["node", "--test", *files], capture_output=True, text=True, timeout=120)
+        run = subprocess.run(["node", "--test", *files], capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
 
