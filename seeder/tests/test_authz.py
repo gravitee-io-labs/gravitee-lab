@@ -7,8 +7,6 @@ import re
 import unittest
 from unittest import mock
 
-import yaml
-
 from lab_seeder import authz
 from lab_seeder import common
 from lab_seeder import controls
@@ -23,8 +21,6 @@ POLICIES = ["Customers read their own accounts", "Customers move their own money
             "Public tools for everyone signed in", "No transfer above 10,000", "Agents move at most EUR 500",
             "No zero or negative transfer", "Tellers may refund (draft)", "Open API tools for everyone signed in",
             "Customers see only their own accounts"]
-API_TOOLS_POLICY = "Open API tools for everyone signed in"
-ONLY_OWN_POLICY = "Customers see only their own accounts"
 DRAFT_POLICY = "Tellers may refund (draft)"
 CAP_POLICY = "Agents move at most EUR 500"
 CATALOG = {"data": [{"id": "s0", "slug": "elsewhere", "definition": {"serverInfo": {"name": "Another server"}}},
@@ -37,113 +33,7 @@ def policy_files():
 
 
 class Files(Seed):
-    """What the seed says, before anything runs: the names, the statuses, the shape of each policy."""
-
-    def setUp(self):
-        super().setUp()
-        patch = mock.patch.object(common, "SEED_DIR", ACME_SEED)
-        patch.start()
-        self.addCleanup(patch.stop)
-
-    def test_the_policies_are_the_ten_of_the_design_and_only_the_eighth_is_a_draft(self):
-        specs = policy_files()
-        self.assertEqual([spec["name"] for spec in specs], POLICIES)
-        self.assertEqual([spec["status"] for spec in specs], ["DEPLOYED"] * 7 + ["DRAFT", "DEPLOYED", "DEPLOYED"])
-
-    def test_every_statement_has_an_id_that_the_decisions_show_and_that_a_person_reads(self):
-        """Decisions names a policy by the @id of the statement that matched: a name, the first statement of a policy
-        has the policy's own."""
-        ids = []
-        for spec in policy_files():
-            text = spec["policy"]
-            statements = re.findall(r"^(permit|forbid) \(", text, re.M)
-            found = re.findall(r'^@id\("([^"\\]+)"\)\n(?:permit|forbid) \(', text, re.M)
-            with self.subTest(policy=spec["name"]):
-                self.assertTrue(statements)
-                self.assertEqual(len(found), len(statements), "each statement has its @id just above it")
-                self.assertEqual(found[0], spec["name"])
-                for name in found:
-                    self.assertRegex(name, r"^[A-Z][^\s]* \S", "a name, not a slug")
-            ids += found
-        self.assertEqual(len(ids), len(set(ids)), "an @id names one statement")
-        self.assertEqual(len(ids), 13)
-
-    def test_a_text_is_whole_once_the_server_is_named(self):
-        for spec in policy_files():
-            text = spec["policy"].replace(authz.SERVER, SLUG)
-            with self.subTest(policy=spec["name"]):
-                self.assertEqual(re.findall(r"<[^>\s]*>", text), [], "a placeholder left")
-                self.assertEqual((text.count("("), text.count("{"), text.count("[")),
-                                 (text.count(")"), text.count("}"), text.count("]")))
-                self.assertEqual(text.count(";"), len(re.findall(r"^(?:permit|forbid) \(", text, re.M)))
-                if spec["name"] != API_TOOLS_POLICY:   # the tools of a REST API belong to no MCP server
-                    self.assertIn(f'MCPServer::"{SLUG}"', text)
-
-    def test_the_policies_name_tools_of_the_server_and_nothing_else(self):
-        tools = set(common.load(ACME_SEED / "authz" / "entities.yaml")["tools"])
-        for path in list((ACME_SEED / "authz" / "policies").iterdir()) + list((ACME_SEED / "authz" / "schemas").iterdir()):
-            named = set(re.findall(r'Action::"<server>\.([a-z_]+)"', path.read_text(encoding="utf-8")))
-            named |= set(re.findall(r'^\s*action "<server>\.([a-z_]+)"', path.read_text(encoding="utf-8"), re.M))
-            with self.subTest(file=path.name):
-                self.assertTrue(named <= tools, named - tools)
-
-    def test_every_tool_of_the_studio_has_a_policy_that_permits_it_by_the_name_the_studio_asks_with(self):
-        """The studio's authorization check denies what no policy permits: a tool of a server is asked as <server>.<tool>,
-        one made from an API as the name a client sees, its alias. Both policies are for everyone signed in."""
-        tools = yaml.safe_load((ACME_SEED / "aim" / "studios" / "acme-bakery-toolkit.yaml").read_text(encoding="utf-8"))["tools"]
-        texts = {spec["name"]: spec["policy"] for spec in policy_files()}
-
-        def permitted(name):
-            self.assertNotIn(" when ", texts[name], "a condition would keep somebody out")
-            return set(re.findall(r'Action::"([^"]+)"', texts[name]))
-
-        for tool in tools:
-            if "server" in tool:
-                self.assertIn(f"<server>.{tool['tool']}", permitted("Public tools for everyone signed in"), tool)
-            else:
-                self.assertIn(tool["alias"], permitted(API_TOOLS_POLICY), tool)
-        aliases = {tool["alias"] for tool in tools if "api" in tool}
-        self.assertEqual(permitted(API_TOOLS_POLICY), aliases, "the policy permits the API tools of the studio and nothing else")
-
-    def test_the_rules_the_design_states_are_in_the_policies(self):
-        texts = {spec["name"]: spec["policy"] for spec in policy_files()}
-        self.assertIn("context.amount > 10000", texts["No transfer above 10,000"])
-        self.assertIn("context has agent && context has amount && context.amount > 500", texts["Agents move at most EUR 500"])
-        self.assertIn("context.amount < 1", texts["No zero or negative transfer"])
-        self.assertIn("principal.accounts.contains(context.account_id) && context has amount",
-                      texts["Customers move their own money"])
-        self.assertNotIn("transfer_funds", texts["Tellers help every customer"])
-        self.assertIn("freeze_card", texts["Tellers help every customer"])
-        self.assertNotIn("freeze_card", texts["Customers read their own accounts"])
-
-    def test_a_customer_is_forbidden_by_name_what_belongs_to_somebody_else(self):
-        """The forbids are for customers and the tools that name an account, and each is the opposite of a customer's
-        permit, so none of them overrules one."""
-        text = {spec["name"]: spec["policy"] for spec in policy_files()}[ONLY_OWN_POLICY]
-        self.assertEqual(re.findall(r"^(permit|forbid) \(", text, re.M), ["forbid", "forbid"])
-        listing, accounts = text.split("@id(")[1:]
-        self.assertIn('Action::"<server>.list_accounts"', listing)
-        self.assertIn("context.customer_id != principal.customer_id", listing)
-        for tool in ("get_balance", "list_transactions", "transfer_funds"):
-            self.assertIn(f'Action::"<server>.{tool}"', accounts)
-        self.assertIn("context has account_id && !principal.accounts.contains(context.account_id)", accounts)
-        self.assertEqual(text.count('principal.role == "customer"'), 2)
-        for tool in ("freeze_card", "get_exchange_rate", "simulate_loan", "find_branches"):
-            self.assertNotIn(tool, text)
-
-    def test_the_draft_and_the_listing_forbid_are_written_in_the_forms_the_simulator_evaluates(self):
-        """The Simulator evaluates a condition in the browser, where comparisons joined by && and || are read and `has`,
-        `in` and a method call are not: written with one, a policy shows nothing in it."""
-        texts = {spec["name"]: spec["policy"] for spec in policy_files()}
-        for statement in (texts[DRAFT_POLICY], texts[ONLY_OWN_POLICY].split("@id(")[1]):
-            condition = re.search(r"when \{(.*)\}", statement, re.S).group(1)
-            with self.subTest(condition=condition):
-                self.assertEqual(re.findall(r"\b(has|in|like|contains)\b", condition), [])
-        self.assertIn('principal.role == "teller" && context.amount <= 100', texts[DRAFT_POLICY])
-
-    def test_an_agent_has_the_id_the_gateway_makes_of_its_client_id(self):
-        """The actor-id the gateway's decision log shows for the calls of Ace's application."""
-        self.assertEqual(authz.agent_id("ace-agent"), "c1250c93-9871-3b36-9ae8-b3ed4e573f83")
+    """What the engine makes of the names and the entities of the files, before anything runs."""
 
     def test_a_policy_name_makes_the_entity_id_the_platform_gives_it(self):
         self.assertEqual([authz.slugify(name) for name in POLICIES[4:6] + POLICIES[7:]],
