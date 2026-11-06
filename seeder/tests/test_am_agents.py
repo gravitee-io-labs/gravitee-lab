@@ -10,8 +10,8 @@ import unittest
 
 from lab_seeder import am
 from lab_seeder import common
-from lab_seeder.testkit import Seed
-from tests.test_am import DOMAINS, GRANTS_OF_AN_AGENT, LOGIN, AccessManagement
+from tests import test_am
+from tests.test_am import DOMAINS, GRANTS_OF_AN_AGENT, AccessManagement
 
 SCOPES = re.compile(DOMAINS + "/[^/]+/scopes")
 APPLICATIONS = re.compile(DOMAINS + "/[^/]+/applications")
@@ -163,7 +163,7 @@ class Am(AccessManagement):
         return super().patch_application(call)
 
 
-class Case(Seed):
+class Case(test_am.Case):
 
     def setUp(self):
         super().setUp()
@@ -176,13 +176,6 @@ class Case(Seed):
         if not agent:
             (common.SEED_DIR / "am" / "applications" / "care-copilot.yaml").unlink(missing_ok=True)
 
-    def seed(self):
-        am.seed({})
-
-    def writes(self):
-        """What the seed changed: signing in again is not a change."""
-        return [change for change in self.platform.changes() if change != LOGIN]
-
     def agent(self):
         return self.am.one("applications", clientId="care-copilot")
 
@@ -194,11 +187,6 @@ class Case(Seed):
 
     def domain_id(self):
         return next(iter(self.am.domains))
-
-    def settle(self):
-        """What AM does at the first sign-in of a person: fields of its own in a profile."""
-        for user in self.am.objects("users"):
-            user["additionalInformation"].update(sub=user["id"], given_name=user["firstName"], auth_time=1)
 
 
 class Scopes(Case):

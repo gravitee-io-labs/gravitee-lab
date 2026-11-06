@@ -211,6 +211,11 @@ class Case(Seed):
     def seed(self):
         am.seed({})
 
+    def settle(self):
+        """What AM does at the first sign-in of a person: fields of its own in a profile."""
+        for user in self.am.objects("users"):
+            user["additionalInformation"].update(sub=user["id"], given_name=user["firstName"], auth_time=1)
+
 
 class Bank(Case):
     """What the files of the seed make."""
@@ -243,8 +248,7 @@ class Bank(Case):
         self.assertEqual({x["kind"] for x in common.created()} - set(am.ORDER), set())
 
     def test_a_second_seed_saves_nothing(self):
-        for user in self.am.objects("users"):   # AM adds fields of its own to a profile at the first sign-in
-            user["additionalInformation"].update(sub=user["id"], given_name=user["firstName"], auth_time=1)
+        self.settle()
         self.platform.calls.clear()
         self.seed()
         self.assertEqual(self.writes(), [])
@@ -252,8 +256,7 @@ class Bank(Case):
 
     def test_the_log_says_what_it_saved_for_an_application_and_what_it_left_as_the_file_says(self):
         self.assertEqual(self.output().count("✓ OAuth settings and identity provider"), 3, "the three applications were saved")
-        for user in self.am.objects("users"):
-            user["additionalInformation"].update(sub=user["id"], given_name=user["firstName"], auth_time=1)
+        self.settle()
         self.stdout.seek(0)
         self.stdout.truncate()
         self.seed()

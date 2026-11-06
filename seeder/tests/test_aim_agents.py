@@ -229,6 +229,11 @@ class Agents(Seed):
         """What was written, which is not signing in to Access Management."""
         return [change for change in self.platform.changes() if change != ("POST", "/management/auth/token")]
 
+    def fails(self, problem):
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_agents.seed()
+        self.assertEqual(str(stopped.exception), problem)
+
 
 class FirstRun(Agents):
     def test_it_makes_the_application_attaches_the_identity_and_subscribes_in_that_order(self):
@@ -420,12 +425,6 @@ class KillSwitch(Agents):
         self.assertEqual(self.changed(), [("POST", self.RESTORE)])
         self.assertEqual((self.world.agents[0]["state"], self.world.subscriptions[0]["status"]), ("ACTIVE", "ACCEPTED"))
         self.assertIn("[aim-agents]   ✓ Access restored: Care copilot", self.output())
-
-    def test_the_restore_comes_before_the_subscriptions_are_looked_at_so_none_is_made_again(self):
-        self.made()
-        self.world.revoke()
-        aim_agents.seed()
-        self.assertEqual(self.platform.sent("POST", SUBSCRIPTIONS), [])
         self.platform.calls.clear()
         aim_agents.seed()
         self.assertEqual(self.changed(), [])
@@ -434,10 +433,8 @@ class KillSwitch(Agents):
         self.made()
         self.world.revoke()
         self.world.restore_error = "The subscription could not be resumed"
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "The access of the agent 'Care copilot' could not be restored: The "
-                                                 "subscription could not be resumed")
+        self.fails("The access of the agent 'Care copilot' could not be restored: The "
+                   "subscription could not be resumed")
         self.assertEqual(self.world.agents[0]["state"], "INACTIVE")
 
     def test_the_restore_is_for_the_agent_that_is_revoked_and_no_other(self):
@@ -460,10 +457,8 @@ class KillSwitch(Agents):
 class WhatItDidNotMake(Agents):
     def test_an_application_that_acts_for_the_agent_and_was_not_made_by_the_seed_stops_it(self):
         self.world.applications["agent-1"] = {"applicationId": "app-by-hand", "name": "Care copilot"}
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "An application already acts for the agent 'Care copilot' and was not created "
-                                                 "by this playground: delete it, the seed leaves it alone")
+        self.fails("An application already acts for the agent 'Care copilot' and was not created "
+                   "by this playground: delete it, the seed leaves it alone")
         self.assertEqual(self.changed(), [])
         self.assertEqual(self.records(), [])
 
@@ -495,11 +490,9 @@ class WhatItDidNotMake(Agents):
     def test_an_identity_of_another_client_id_attached_to_the_application_stops_it(self):
         self.made()
         self.world.applications["agent-1"]["identityId"] = "am-app-9"
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "The application of the agent 'Care copilot' presents another identity "
-                                                 "than the client id 'care-copilot': detach it in Agent Identity, the "
-                                                 "seed leaves it alone")
+        self.fails("The application of the agent 'Care copilot' presents another identity "
+                   "than the client id 'care-copilot': detach it in Agent Identity, the "
+                   "seed leaves it alone")
         self.assertEqual(self.changed(), [])
 
     def test_an_identity_that_a_person_attached_is_accepted_and_not_recorded(self):
@@ -531,25 +524,19 @@ class WhatItNeeds(Agents):
 
     def test_an_agent_that_is_not_in_the_catalog_stops_the_seed_before_it_writes(self):
         self.world.agents.clear()
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "The agent 'agent.care-copilot' is not in the catalog: aim_catalog registers "
-                                                 "it from the same file")
+        self.fails("The agent 'agent.care-copilot' is not in the catalog: aim_catalog registers "
+                   "it from the same file")
         self.assertEqual(self.changed(), [])
 
     def test_an_identity_that_access_management_does_not_have_stops_it_naming_the_domain(self):
         self.world.am_applications.clear()
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "No application of the AM domain 'harbor' has the client id 'care-copilot': "
-                                                 "seed/am/applications makes it before the agent takes it as its identity")
+        self.fails("No application of the AM domain 'harbor' has the client id 'care-copilot': "
+                   "seed/am/applications makes it before the agent takes it as its identity")
         self.assertEqual(self.changed(), [("POST", APPLICATION)])   # the application is there for the next run
 
     def test_a_domain_that_is_not_there_stops_it(self):
         self.world.domains.clear()
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "AM domain 'harbor' not found")
+        self.fails("AM domain 'harbor' not found")
 
     def test_an_identity_without_the_link_that_names_the_domain_stops_it_before_any_call(self):
         (common.SEED_DIR / "am" / "gamma-link.yaml").unlink()
@@ -560,16 +547,12 @@ class WhatItNeeds(Agents):
 
     def test_a_link_without_a_domain_stops_it(self):
         self.seed_files({"am/gamma-link.yaml": "serviceAccount: x\n"})
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "seed/am/gamma-link.yaml: domain missing")
+        self.fails("seed/am/gamma-link.yaml: domain missing")
 
     def test_a_studio_that_is_not_there_stops_it(self):
         self.world.studios.clear()
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "The MCP studio 'Customer care' is not there: aim/studios makes it before the "
-                                                 "agent subscribes")
+        self.fails("The MCP studio 'Customer care' is not there: aim/studios makes it before the "
+                   "agent subscribes")
 
     def test_a_proxy_of_that_name_is_not_a_studio(self):
         self.world.studios[0]["mode"] = "PROXY"
@@ -579,16 +562,12 @@ class WhatItNeeds(Agents):
 
     def test_two_studios_of_that_name_are_not_chosen_between(self):
         self.world.studios.append({**self.world.studios[0], "id": "studio-2"})
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "2 MCP studios are named 'Customer care': the agent cannot tell which one to "
-                                                 "subscribe to")
+        self.fails("2 MCP studios are named 'Customer care': the agent cannot tell which one to "
+                   "subscribe to")
 
     def test_a_plan_that_is_not_published_is_not_there(self):
         self.world.plans["studio-1"][1]["status"] = "STAGING"
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertEqual(str(stopped.exception), "The MCP studio 'Customer care' has no published plan 'Agents'")
+        self.fails("The MCP studio 'Customer care' has no published plan 'Agents'")
 
     def test_a_plan_of_another_name_is_not_there(self):
         self.seed_files({"aim/agents/care-copilot.yaml": AGENT.replace("plan: Agents", "plan: Humans")})
@@ -607,9 +586,7 @@ class WhatItNeeds(Agents):
                               (AGENT.replace("plan: Agents}", "plan: Agents, apiKey: k}"), access)):
             with self.subTest(problem=problem):
                 self.seed_files({"aim/agents/care-copilot.yaml": text})
-                with self.assertRaises(common.SeedError) as stopped:
-                    aim_agents.seed()
-                self.assertEqual(str(stopped.exception), problem)
+                self.fails(problem)
                 self.assertEqual(self.platform.calls, [])
 
 

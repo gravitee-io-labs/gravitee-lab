@@ -380,9 +380,6 @@ class SecondRun(Workspaces):
         self.seed()
         self.assertEqual(self.platform.changes(), [])
         self.assertEqual(json.dumps(self.world.workspaces, sort_keys=True), self.before)
-
-    def test_it_records_nothing_twice(self):
-        self.seed()
         self.assertEqual(len(common.created()), 4)
 
     def test_a_budget_raised_in_the_file_is_updated_and_deployed(self):

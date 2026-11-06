@@ -901,25 +901,7 @@ class Skills(Catalog):
         self.assertEqual(len(self.world.of_kind("skill")), 1)
         self.assertEqual(self.run_seed(), [])
 
-    def test_a_skill_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
-        self.run_seed()
-        self.seed_files({"aim/skills/complaints/references/escalation.md": "Hand over money and cards.\n"})
-
-        def made(call):   # the platform makes the new skill, and the seed never gets the answer
-            self.world.upload_skill(call)
-            raise requests.ReadTimeout("slow")
-        self.platform.add({("POST", SCOPE + "/catalog/skills"): made})
-        with self.assertRaises(common.SeedError):
-            self.run_seed()
-        self.platform.add({("POST", SCOPE + "/catalog/skills"): self.world.upload_skill})
-        self.run_seed()
-        [skill] = self.world.of_kind("skill")
-        self.assertEqual([x["id"] for x in self.records("skill")], [skill["id"]])
-
-    def test_a_skill_deleted_by_hand_and_uploaded_again_with_a_lost_answer_is_the_seeds_at_the_next_run(self):
-        self.run_seed()
-        del self.world.items[self.world.named("skill", "complaints")["id"]]   # the person deletes it in the Gamma console
-
+    def upload_loses_its_answer(self):
         def made(call):   # the platform makes the skill, and the seed never gets the answer
             self.world.upload_skill(call)
             raise requests.ReadTimeout("slow")
@@ -930,6 +912,16 @@ class Skills(Catalog):
         self.run_seed()
         [skill] = self.world.of_kind("skill")
         self.assertEqual([x["id"] for x in self.records("skill")], [skill["id"]])
+
+    def test_a_skill_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        self.run_seed()
+        self.seed_files({"aim/skills/complaints/references/escalation.md": "Hand over money and cards.\n"})
+        self.upload_loses_its_answer()
+
+    def test_a_skill_deleted_by_hand_and_uploaded_again_with_a_lost_answer_is_the_seeds_at_the_next_run(self):
+        self.run_seed()
+        del self.world.items[self.world.named("skill", "complaints")["id"]]   # the person deletes it in the Gamma console
+        self.upload_loses_its_answer()
 
     def test_a_skill_without_a_front_matter_with_a_name_and_a_description_is_refused_before_any_call(self):
         for text in ("# No front matter\n", "---\nname: x\n---\n", "---\ndescription: y\n---\n"):
