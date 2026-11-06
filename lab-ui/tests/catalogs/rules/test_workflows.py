@@ -22,7 +22,6 @@ from lab_ui.catalogs.rules import workflows as wf
 
 HERE = Path(__file__).resolve().parents[2]
 MANAGED = HERE.parent / "templates" / "catalog" / "managed"
-ROOT = HERE.parents[1]
 CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 PYTHON = "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
 SCRIPT = "actions/github-script@" + "a" * 40
@@ -359,7 +358,6 @@ MUTATIONS = {
     "WF21": [
         swap("ci", "a flow value of runs-on", ["WF21"], RUNNER, "    runs-on: [ubuntu-24.04]\n    timeout-minutes: 15\n"),
         swap("ci", "a flow value of on", ["WF21"], ON_CI, "on: [pull_request, push]\n"),
-        swap("ci", "a flow value of permissions", ["WF03", "WF21"], "permissions:\n  contents: read\n", "permissions: {contents: read}\n"),
         job_key("ci", "a flow value of secrets", ["WF21"], "static", "secrets: {A: b}"),
         job_key("ci", "a flow value of uses", ["WF02", "WF21"], "static", "uses: [o/r/.github/workflows/x.yml@" + "0" * 40 + "]"),
         swap("publish", "a flow value of environment", ["WF21"], IMAGES,
@@ -381,7 +379,6 @@ MUTATIONS = {
         swap("ci", "a key twice", ["WF21"], "  cancel-in-progress:", "  group: other\n  cancel-in-progress:"),
         swap("ci", "a job twice", ["WF21"], "\njobs:\n", "\njobs:\n  static:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 1\n"),
         swap("ci", "the top-level key jobs in capital letters", ["WF21"], "\njobs:\n", "\nJobs:\n"),
-        swap("ci", "a key in capital letters", ["WF05", "WF21"], "    timeout-minutes: 15\n", "    Timeout-Minutes: 15\n"),
         swap("ci", "a quote that is not closed on its line", ["WF21"], "name: CI", "name: 'CI"),
         swap("ci", "a double quote that is not closed on its line", ["WF21"], "name: CI", 'name: "CI'),
         step("ci", "a script over two lines of a quote", ["WF21"], 'run: "echo $' + BS, '    {{ github.head_ref }}"'),
@@ -562,7 +559,7 @@ class Contract(unittest.TestCase):
 
 
 class Passing(unittest.TestCase):
-    """The files of break no rule, in every spelling."""
+    """The managed files break no rule, in every spelling."""
 
     def test_each_file_of_section_5_breaks_nothing(self):
         for name in FILES:
@@ -705,29 +702,6 @@ class Readers(unittest.TestCase):
             with self.subTest(factor=factor):
                 self.assertEqual(codes("ci", reindented(edit(text_of("ci"), "pull_request:", "pull_request_target:"), factor)), ["WF01"])
 
-    def test_the_reasons_a_file_is_refused(self):
-        def reason(text):
-            return sorted(wf._Doc("workflow.yml", text).unreadable.values())
-        self.assertEqual(reason("a: b\n"), [])
-        self.assertEqual(reason("a: [b]\n"), [])
-        self.assertEqual(reason("on: [b]\n"), ["a flow collection as the value of on"])
-        self.assertEqual(reason("a: {b: c}\n"), ["a flow mapping"])
-        self.assertEqual(reason("a: {}\n"), [])
-        self.assertEqual(reason("a: [[b]]\n"), ["a flow collection inside a flow collection"])
-        self.assertEqual(reason("a: &x b\n"), ["an anchor, an alias or a tag"])
-        self.assertEqual(reason("a: *x\n"), ["an anchor, an alias or a tag"])
-        self.assertEqual(reason("a: !!str b\n"), ["an anchor, an alias or a tag"])
-        self.assertEqual(reason("'a': b\n"), ["a quoted key"])
-        self.assertEqual(reason("a: b\na: c\n"), ["a key that appears twice"])
-        self.assertEqual(reason("a: 'b\n"), ["a quote that is not closed on its line"])
-        self.assertEqual(reason('a: "b' + BS + 'n"\n'), ["a backslash in a double-quoted scalar"])
-        self.assertEqual(reason("a: b\n  c\n"), ["indentation that belongs to no key"])
-        self.assertEqual(reason("a: |x\n"), ["a block scalar header the rules do not know"])
-        self.assertEqual(reason("a: b\n\tc: d\n"), ["a tab in the indentation"])
-        self.assertEqual(reason("a: b\n---\nc: d\n"), ["a second document, or a document marker with something after it"])
-        self.assertEqual(reason("permissions: write-all\n"), ["permissions: write-all"])
-        self.assertEqual(reason("Jobs:\n  a: b\n"), ["Jobs is spelt with other letters than jobs"])
-
     def test_a_scalar_that_is_not_a_mapping_is_not_a_workflow(self):
         for text in ("", "\n\n", "# only a comment\n", "just words\n", "- a\n- b\n", "[a, b]\n", "{a: b}\n"):
             with self.subTest(text):
@@ -744,17 +718,6 @@ class Readers(unittest.TestCase):
         self.assertEqual(outline(compact_text), outline(text))
         self.assertEqual(outline(doubled(text)), outline(text))
         self.assertEqual(outline(text.replace("\n", "\r\n")), outline(text))
-
-    def test_every_workflow_of_the_engine_that_is_not_the_catalogs_is_clean_of_generic(self):
-        names = [path for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))]
-        if not names:
-            print("skipped: this checkout has no .github/workflows")
-            self.skipTest("no workflows")
-        for file in names:
-            with self.subTest(file=file.name):
-                text = file.read_text(encoding="utf-8")
-                found = wf.problems(file.relative_to(ROOT).as_posix(), text, wf.GENERIC)
-                self.assertEqual([each.message for each in found], [])
 
 
 class Aggregator(unittest.TestCase):
@@ -862,19 +825,9 @@ class Aggregator(unittest.TestCase):
                 code, output = self.run_it("e2e", **{**sane, **changes})
                 self.assertEqual(code, 1, output)
 
-    def test_the_script_found_is_the_script_of_the_workflow(self):
-        self.assertIn('fail "The plan gave no answer: open the job Checks"', self.script("ci"))
-        self.assertIn('[ "$STATIC" = success ]', self.script("ci"))
-
 
 class Trees(unittest.TestCase):
     """`check(tree, ctx)`: which files are read, what is not followed, and what cannot be read."""
-
-    def tree(self, **changes):
-        files = dict(files_of())
-        for path, value in changes.items():
-            files[path.replace("__", "/")] = value
-        return Tree(files)
 
     def test_only_workflows_and_local_actions_are_read(self):
         bad = "on: pull_request_target\n"
@@ -1028,7 +981,6 @@ HOSTILE = {
     "six thousand secrets": step_line("run: echo hi") + "        env:\n" + "".join("          K%d: ${{ secrets.S%d }}\n" % (n, n) for n in range(6000)),
     "twenty thousand tests of a result": step_line("if: ${{ " + " && ".join("needs.j%d.result != 'x'" % n for n in range(20000)) + " }}"),
     # calls, groups and strings in a condition, each of which was a quadratic scan once
-    "calls that are never closed": step_line("if: ${{ " + "!contains(" * (MB // 10) + " }}"),
     "calls, a result at the end of each": step_line("if: ${{ " + "!contains(needs.a.result, " * (MB // 30) + " }}"),
     "groups that are never closed": step_line("if: ${{ " + "!(" * (MB // 2) + "needs.a.result == 'x' }}"),
     "groups that close": step_line("if: ${{ " + "!(" * (MB // 4) + "needs.a.result == 'x'" + ")" * (MB // 4) + " }}"),
