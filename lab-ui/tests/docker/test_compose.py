@@ -203,6 +203,13 @@ class Interpolated(Case):
         self.assertEqual(self.text("HelloWorld@123"), "HelloWorld@123")
         self.assertEqual(self.text(""), "")
 
+    def test_braces_never_closed_are_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded, and a project read comes here for its accounts and console labels
+        text = "${" * 32000
+        started = time.process_time()
+        self.assertEqual(self.text(text), text)
+        self.assertLess(time.process_time() - started, 1)
+
 
 class Variables(ProjectFolder):
 
@@ -262,6 +269,13 @@ services:
         self.assertFalse(found["SECRET"]["required"])
         self.assertTrue(found["PASSWORD"]["required"])   # ${PASSWORD:-demo} then ${PASSWORD}
         self.assertEqual(found["PASSWORD"]["default"], "demo")
+
+    def test_a_file_of_many_variables_is_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded: no pass over the file for each of its variables
+        text = "x:\n" + "".join(f"  v{number}: ${{V{number}}}\n" for number in range(10000))
+        started = time.process_time()
+        self.assertEqual(len(compose.variables(self.write("addons/many/compose.yml", text))), 10000)
+        self.assertLess(time.process_time() - started, 3)
 
     def test_doubled_dollar_and_comment_text_are_ignored(self):
         found = self.variables()

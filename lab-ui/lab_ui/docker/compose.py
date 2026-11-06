@@ -1019,14 +1019,16 @@ def retargeted(path, text, targets):
     return "\n".join(lines)
 
 
-def _closing(text, start):
-    """Where the brace opened at `start` closes; the end of the text when it never does."""
-    depth = 0
-    for i in range(start, len(text)):
-        depth += (text[i] == "{") - (text[i] == "}")
-        if depth == 0:
-            return i
-    return len(text)
+def _closings(text):
+    """Where each brace of a text closes: {where it opens: where it closes}, without the ones that never close. One pass:
+    the text may be a stranger's."""
+    closes, opened = {}, []
+    for brace in re.finditer("[{}]", text):
+        if brace.group() == "{":
+            opened.append(brace.start())
+        elif opened:
+            closes[opened.pop()] = brace.start()
+    return closes
 
 
 def _braced(body):
@@ -1045,12 +1047,12 @@ def _braced(body):
 def references(text):
     """The variables a text refers to, in order: (key, default or None, required). A default may refer to variables
     too (${A:-${B:-1}}): they follow. `$$` is a dollar sign, not a reference."""
-    found, i = [], text.find("$")
+    found, i, closes = [], text.find("$"), _closings(text)
     while 0 <= i < len(text) - 1:
         if text[i + 1] == "$":
             i += 1
         elif text[i + 1] == "{":
-            end = _closing(text, i + 1)
+            end = closes.get(i + 1, len(text))
             found += _braced(text[i + 2:end])
             i = end
         else:
@@ -1065,9 +1067,9 @@ def interpolated(text, lookup):
     value is empty) and ${VAR-default} (only when it is not set), a default that refers to variables too, `$$` a dollar
     sign. `lookup(name)` gives a value, None when the variable is set nowhere. A ${VAR} set nowhere stays as it is
     written, so that what shows is the name of the setting, not an empty value; so does any other form."""
-    found, i = [], 0
+    found, i, closes = [], 0, _closings(text)
     while i < len(text):
-        end = _closing(text, i + 1) if text.startswith("${", i) else len(text)   # a brace never closed is plain text
+        end = closes.get(i + 1, len(text)) if text.startswith("${", i) else len(text)   # a brace never closed is plain text
         if text.startswith("$$", i):
             found.append("$")
             i += 2
@@ -1104,9 +1106,10 @@ def outside(text, char):
 
 
 def _heading(lines, number):
-    """The comment line heading the block a line is in: the nearest above, as deep or deeper, before a blank line."""
+    """The comment line heading the block a line is in: the nearest above, as deep or deeper, before a blank line, at most 64
+    lines up: a stranger's file costs no pass over it for each of its variables."""
     indent = len(lines[number]) - len(lines[number].lstrip())
-    for above in reversed(lines[:number]):
+    for above in reversed(lines[max(0, number - 64):number]):
         text = above.strip()
         if not text or len(above) - len(above.lstrip()) < indent:
             return ""
