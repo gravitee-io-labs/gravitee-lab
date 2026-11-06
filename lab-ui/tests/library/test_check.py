@@ -53,10 +53,8 @@ def unit(ns, kind, name):
 
 
 KAFKA, JADE = unit("fixture", "addon", "kafka"), unit("fixture", "addon", "jade")
-INSPECTOR, WHOAMI = unit("fixture", "addon", "agent-lens"), unit("local", "addon", "whoami")
-WELCOME, EVENTS = unit("fixture", "playground", "welcome"), unit("fixture", "setup", "events")
-MINE, HYBRID = unit("local", "setup", "mine"), unit("fixture", "addon", "hybrid")
-LEDGER = unit("partner", "addon", "ledger")
+WHOAMI, EVENTS = unit("local", "addon", "whoami"), unit("fixture", "setup", "events")
+MINE = unit("local", "setup", "mine")
 PERSONAL = "what belongs to this machine is not shared with the project"
 ALWAYS = "restart: always starts a stopped container again when Docker restarts: use unless-stopped"
 
