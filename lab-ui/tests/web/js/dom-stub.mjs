@@ -97,7 +97,7 @@ export class El extends Target {
     this.scrolled = [];
     this.focused = 0;
     this.styleValues = {};
-    this.style = { setProperty: (k, v) => { this.styleValues[k] = v; }, removeProperty: (k) => { delete this.styleValues[k]; } };
+    this.style = { setProperty: (k, v) => { this.styleValues[k] = v; } };
     this.classList = {
       add: (...names) => this._classes(new Set([...this._classes(), ...names])),
       remove: (...names) => this._classes(new Set([...this._classes()].filter((c) => !names.includes(c)))),
@@ -152,10 +152,8 @@ export class El extends Target {
   set open(value) { if (value) this.attrs.set('open', ''); else this.attrs.delete('open'); }
 
   get parentElement() { return this.parent instanceof El ? this.parent : null; }
-  get parentNode() { return this.parent; }
   get childNodes() { return this.children; }
   get firstChild() { return this.children[0] || null; }
-  get lastChild() { return this.children[this.children.length - 1] || null; }
   get firstElementChild() { return this.children.find((c) => c instanceof El) || null; }
   get lastElementChild() { return [...this.children].reverse().find((c) => c instanceof El) || null; }
   get isConnected() { return this === this.doc.documentElement || Boolean(this.parent && this.parent.isConnected); }
@@ -181,14 +179,12 @@ export class El extends Target {
 
   get textContent() { return this.children.map((c) => c.textContent).join(''); }
   set textContent(value) { this.replaceChildren(value === '' ? [] : String(value)); }
-  get innerText() { return this.textContent; }
 
   _adopt(nodes) {
     const out = [];
     for (const node of nodes.flat(Infinity)) {
       if (node === null || node === undefined || node === false) continue;
-      const item = node instanceof El || node instanceof Text || node instanceof Fragment ? node : new Text(node);
-      if (item instanceof Fragment) { out.push(...item.children.splice(0)); continue; }
+      const item = node instanceof El || node instanceof Text ? node : new Text(node);
       if (item.parent) item.remove();
       out.push(item);
     }
@@ -301,8 +297,6 @@ function parse(html, doc) {
   return top;
 }
 
-class Fragment { constructor() { this.children = []; } append(...nodes) { for (const node of nodes.flat(Infinity)) if (node !== null && node !== undefined && node !== false) { const item = node instanceof El || node instanceof Text ? node : new Text(node); item.parent = null; this.children.push(item); } } }
-
 export class Ev {
   constructor(type, extra = {}) { this.type = type; this.defaultPrevented = false; Object.assign(this, extra); }
   preventDefault() { this.defaultPrevented = true; }
@@ -318,9 +312,9 @@ function frameWindow() {
   return frame;
 }
 
-export function installDom({ ids = [], media = {}, stored = {}, fetch = async () => { throw new Error('no fetch'); }, visible = true } = {}) {
+export function installDom({ ids = [], stored = {}, fetch = async () => { throw new Error('no fetch'); } } = {}) {
   const define = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
-  const doc = Object.assign(new Target(), { activeElement: null, visibilityState: visible ? 'visible' : 'hidden', title: 'Acme Bakery' });
+  const doc = Object.assign(new Target(), { activeElement: null, visibilityState: 'visible', title: 'Acme Bakery' });
   Object.defineProperty(doc, 'hidden', { get: () => doc.visibilityState === 'hidden' });
   doc.createElement = (tag) => {
     const el = new El(tag, doc);
@@ -328,9 +322,6 @@ export function installDom({ ids = [], media = {}, stored = {}, fetch = async ()
     if (el.tag === 'template') el.content = el;      // its content is its own tree here
     return el;
   };
-  doc.createElementNS = (_ns, tag) => new El(tag, doc);
-  doc.createTextNode = (text) => new Text(text);
-  doc.createDocumentFragment = () => new Fragment();
   const root = new El('html', doc);
   const head = new El('head', doc);
   const body = new El('body', doc);
@@ -348,7 +339,7 @@ export function installDom({ ids = [], media = {}, stored = {}, fetch = async ()
   const queries = new Map();
   const matchMedia = (query) => {
     if (!queries.has(query)) {
-      const state = { matches: Boolean(media[query]), listeners: [] };
+      const state = { matches: false, listeners: [] };
       const list = new Target();
       Object.defineProperty(list, 'matches', { get: () => state.matches });          // a getter: setMedia changes it for everything that holds the list
       Object.assign(list, { media: query, addEventListener: (type, fn) => state.listeners.push(fn), removeEventListener() {} });
