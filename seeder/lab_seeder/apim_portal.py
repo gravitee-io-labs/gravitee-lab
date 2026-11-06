@@ -346,8 +346,8 @@ def api_document(scope, path):
     read here, for what it needs to show."""
     document = scope.text(path)
     try:
-        spec = yaml.safe_load(document)
-    except yaml.YAMLError as e:
+        spec = common.parse_yaml(document, shown(path))
+    except (yaml.YAMLError, ValueError) as e:   # ValueError: a value that YAML reads as a date that is none
         raise SeedError(common.unreadable(shown(path), e)) from None
     if isinstance(spec, dict) and spec.get("openapi") is not None and spec.get("asyncapi") is None:
         info = spec.get("info")

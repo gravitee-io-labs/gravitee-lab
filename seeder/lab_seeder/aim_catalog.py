@@ -453,7 +453,10 @@ def skill_files(folder):
     texts = {path.relative_to(folder).as_posix(): path.read_text(encoding="utf-8") for path in sorted(folder.rglob("*"))
              if path.is_file() and not path.name.startswith(".")}
     head = re.match(r"---\n(.*?)\n---", texts.get("SKILL.md", ""), re.S)
-    meta = yaml.safe_load(head.group(1)) if head else None
+    try:
+        meta = common.parse_yaml(head.group(1), f"{folder.name}/SKILL.md") if head else None
+    except (yaml.YAMLError, ValueError) as e:   # ValueError: a value that YAML reads as a date that is none
+        raise SeedError(common.unreadable(f"{folder.name}/SKILL.md", e)) from None
     if not isinstance(meta, dict) or not meta.get("name") or not meta.get("description"):
         raise SeedError(f"{folder.name}/SKILL.md must start with a front matter that gives a name and a description")
     return texts, meta["name"]

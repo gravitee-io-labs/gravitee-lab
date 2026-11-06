@@ -18,6 +18,7 @@ import yaml
 from lab_seeder import aim_catalog
 from lab_seeder import common
 from lab_seeder.testkit import PLAYGROUNDS, Response, Seed
+from tests import doubling
 
 SCOPE = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
 MCP = "http://bakery-mcp:8000"
@@ -935,6 +936,13 @@ class Skills(Catalog):
             with self.subTest(text=text):
                 self.seed_files({"aim/skills/complaints/SKILL.md": text})
                 with self.assertRaisesRegex(common.SeedError, "complaints/SKILL.md must start with a front matter"):
+                    aim_catalog.seed()
+
+    def test_a_front_matter_that_is_a_bomb_of_pairs_or_no_yaml_stops_the_seed_on_one_line(self):
+        for text, why in (("---\n" + doubling(22) + "---\n", "merges mappings with << keys"), ("---\nx: 2026-13-45\n---\n", "not valid YAML")):
+            with self.subTest(why=why):
+                self.seed_files({"aim/skills/complaints/SKILL.md": text})
+                with self.assertRaisesRegex(common.SeedError, f"complaints/SKILL.md: .*{why}"):
                     aim_catalog.seed()
 
     def test_a_skill_of_that_name_that_the_seed_did_not_create_stops_the_seed_and_is_left_alone(self):

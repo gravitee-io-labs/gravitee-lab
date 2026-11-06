@@ -20,6 +20,7 @@ from lab_seeder import apim_portal
 from lab_seeder import common
 from lab_seeder.common import SeedError
 from lab_seeder.testkit import Seed
+from tests import doubling
 
 ENVS = "/management/organizations/DEFAULT/environments"
 AUTO = "/automation/organizations/DEFAULT/environments"
@@ -1708,6 +1709,10 @@ class Documented(Portals):
     def test_a_document_that_is_not_yaml_is_said_on_one_line(self):
         self.refused(r"^environments/moderna/portal/api-docs/batch-status\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$",
                      {"portal/api-docs/batch-status.yaml": "asyncapi: [unclosed\nx: {\n"})
+        self.refused(r"batch-status\.yaml: it is not valid YAML", {"portal/api-docs/batch-status.yaml": "x: 2026-13-45\n"})
+
+    def test_a_document_that_asks_the_loader_for_a_bomb_of_pairs_is_refused(self):
+        self.refused(r"batch-status\.yaml: merges mappings with << keys", {"portal/api-docs/batch-status.yaml": doubling(22)})
 
     def test_a_file_that_is_no_asyncapi_document(self):
         for text in ("- a\n- b\n", "hello: world\n", "asyncapi:\ninfo: {title: t, version: '1'}\n", ""):
