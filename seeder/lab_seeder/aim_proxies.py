@@ -40,14 +40,13 @@ an API: apim.subscribe, the one way that takes a custom key), and again for a st
 already (accepted, pending or paused) is left as it is, but for one the seed made and left pending, which it accepts.
 """
 
-import hashlib
 import json
 import os
 import re
 
 from . import controls
 from . import gamma
-from .apim import ENDED, UNSUPPORTED, accept, find_application, held_subscription, merge, subscribe
+from .apim import ENDED, UNSUPPORTED, accept, digest_of, find_application, held_subscription, merge, subscribe
 from .common import (OK, Api, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, load, log, making, owned, record,
                      recorded, setting, wait_until, waits_for_gateway)
 
@@ -124,10 +123,6 @@ def jsonrpc(answer):
     if "json" in answer.headers.get("Content-Type", ""):
         return answer.json()
     return next((json.loads(line[5:]) for line in answer.text.splitlines() if line.startswith("data:")), None)
-
-
-def digest(body):
-    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
 
 def pairs(value):
@@ -490,7 +485,7 @@ class McpProxies:
         body = {"name": name, "description": spec.get("description"), "contextPath": path, **protocol_versions(spec),
                 "plans": [spec["plan"]],
                 "specification": {"tools": self.tools(spec["tools"]), "promptIds": [], "resourceIds": []}}
-        wanted = digest(body)
+        wanted = digest_of(body)
         found, recomposed = self.kept(name, path, wanted, body)
         if found is None:
             with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
@@ -615,7 +610,7 @@ class McpProxies:
                                  for u in spec.get("upstreamAuth") or []]}
         if "description" in spec:
             body["description"] = spec["description"]
-        wanted = digest(body)
+        wanted = digest_of(body)
         found, changed = self.kept(name, path, wanted, body)
         if found is None:
             with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):

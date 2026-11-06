@@ -985,9 +985,9 @@ class ApiTools(Catalog):
         self.run_seed()
         [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
         [record] = self.records("api-tools")
-        self.assertEqual(record["digest"], aim_catalog.fingerprint(call.json["tools"]))
+        self.assertEqual(record["digest"], aim_catalog.digest_of(call.json["tools"]))
         common.record(aim_catalog.SECTION, "api-tools", "API tools", record["name"], record["id"],
-                      digest=aim_catalog.fingerprint([{"definition": {"outputSchema": {}}}]))
+                      digest=aim_catalog.digest_of([{"definition": {"outputSchema": {}}}]))
         self.assertEqual([m for m, p in self.run_seed()], ["DELETE", "POST"])
 
     def test_the_studios_the_seed_made_go_before_tools_that_changed_so_that_none_holds_them(self):

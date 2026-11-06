@@ -40,9 +40,7 @@ it holds. A credential's secret is sent when it is created and again when the fi
 the playground's settings): its record keeps the fingerprint of the secret, never the secret.
 """
 
-import hashlib
 import io
-import json
 import os
 import re
 import zipfile
@@ -51,6 +49,7 @@ import yaml
 
 from . import aim_proxies
 from . import common
+from .apim import digest_of
 from .common import Api, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
 from .gamma import CATALOG, WORKSPACES, Gamma
 
@@ -117,10 +116,6 @@ def specs(folder, *keys):
         yield spec
 
 
-def fingerprint(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
-
-
 def own(kind, rows, what, name):
     """The row of the seed among those that have the key it wants, with its record: (None, None) when there is none. A row
     it did not create stops the seed, which names it and leaves it alone, unless it is the one row an earlier seed was making
@@ -151,7 +146,7 @@ def seed_credentials(aim):
     is then sent in an update of the credential. The providers that name it keep it, by its id."""
     for spec in specs("credentials", "name", "credentials"):
         name, secret = spec["name"], spec["credentials"]
-        digest = fingerprint({"credentials": secret, "service": spec.get("service")})
+        digest = digest_of({"credentials": secret, "service": spec.get("service")})
         found, ours = find_credential(aim, name, with_record=True)
         if found and ours.get("digest") == digest:
             say("credential", "up to date", name)
@@ -256,7 +251,7 @@ def seed_item(aim, kind, spec, name, body, source, keep=()):
     wanted = f"{kind}.{slug}"
     rows = [i for i in aim.rows(PATHS[kind], CATALOG) if i["entityId"] == wanted]
     found, ours = own(kind, rows, f"The {noun(kind)} '{wanted}'", name)
-    digest = fingerprint(body)
+    digest = digest_of(body)
     if found is None:
         with common.making(SECTION, kind, LABELS[kind], name, missing=True, source=spec["source"]):
             found, did = aim.post(PATHS[kind], json={**body, "entityId": slug}).json(), "created"
@@ -415,7 +410,7 @@ def seed_mcp_servers(aim):
         rows = [s for s in aim.rows(PATHS["mcp-server"], CATALOG)
                 if s["entityId"] == spec["entityId"] or s.get("extensions", {}).get("endpoint") == spec["endpoint"]]
         found, ours = own("mcp-server", rows, f"The MCP server '{spec['name']}' ({spec['endpoint']})", spec["name"])
-        digest = fingerprint({"endpoint": spec["endpoint"], "discovered": discovered})   # the endpoint is stored with the import
+        digest = digest_of({"endpoint": spec["endpoint"], "discovered": discovered})   # the endpoint is stored with the import
         if found is None or ours.get("digest") != digest:
             found = import_server(aim, spec, discovered, found, digest)
         else:
@@ -464,7 +459,7 @@ def seed_skills(aim):
         texts, name = skill_files(path)
         rows = [s for s in aim.rows(PATHS["skill"], CATALOG) if s["entityId"] == f"skill.{name}"]
         found, ours = own("skill", rows, f"The skill '{name}'", name)
-        digest = fingerprint(texts)
+        digest = digest_of(texts)
         if found and ours.get("digest") == digest:
             say("skill", "up to date", name)
             continue
@@ -649,7 +644,7 @@ def seed_api_tools(aim):
         api = api_source(aim, name)
         generated = aim.post("/catalog/api-tools/_generateCapabilities", json={"apiIds": [api["id"]]}).json()["data"][0]
         tools = tools_of(name, api["id"], generated, operations)
-        digest = fingerprint(tools)
+        digest = digest_of(tools)
         sources = aim.rows("/catalog/sources", CATALOG, sourceKind="apim.api")
         source = next((s for s in sources if s["definition"].get("apiId") == api["id"]), None)
         found, ours = own("api-tools", [source] if source else [], f"The tools of the API '{name}'", name)

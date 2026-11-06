@@ -107,7 +107,7 @@ def merge(base, extra):
 
 
 def digest_of(definition):
-    """What identifies a definition once its variables are replaced: the plans, flows and resources are part of it."""
+    """What identifies what the seed sends once its variables are replaced: of an API, the plans, flows and resources too."""
     return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
 
 

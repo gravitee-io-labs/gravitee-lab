@@ -207,7 +207,7 @@ class Operations(Tools):
         self.run_seed()
         [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
         [record] = self.records("api-tools")
-        self.assertEqual((record["name"], record["digest"]), (CUSTOMERS, aim_catalog.fingerprint(call.json["tools"])))
+        self.assertEqual((record["name"], record["digest"]), (CUSTOMERS, aim_catalog.digest_of(call.json["tools"])))
 
     def test_the_log_counts_the_tools_that_were_imported(self):
         self.run_seed()
@@ -442,7 +442,7 @@ class Tailoring(Tools):
                     "definition": {k: v for k, v in tool["toolDefinition"].items() if k != "outputSchema"}}
                    for tool in order_tools()]
         entries[3]["tailoring"] = wording
-        self.assertEqual(record["digest"], aim_catalog.fingerprint(entries))
+        self.assertEqual(record["digest"], aim_catalog.digest_of(entries))
 
     def test_other_words_replace_the_tools_with_their_source_and_the_studios_that_hold_them(self):
         self.run_seed()
@@ -590,7 +590,7 @@ class AcmeBakery(Catalog):
         self.run_seed()
         [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
         [record] = self.records("api-tools")
-        self.assertEqual(record["digest"], aim_catalog.fingerprint(call.json["tools"]))
+        self.assertEqual(record["digest"], aim_catalog.digest_of(call.json["tools"]))
         self.assertEqual(self.run_seed(), [])
 
     def test_the_file_has_no_operations_and_so_none_are_asked(self):
