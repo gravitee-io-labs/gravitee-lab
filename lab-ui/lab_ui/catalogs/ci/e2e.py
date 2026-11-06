@@ -201,9 +201,6 @@ def license_surface(unit, root: str, tree=None) -> Surface:
     the real license."""
     if not unit.own:   # (it defines no service of its own: there is none that could read the license)
         return Surface([], unit_references_license(unit, root, tree))
-    if unit.resolve is None:
-        raise Unavailable(f"{unit.key} cannot be read again with the license variable set, so the plan cannot tell whether a service of "
-                          "its own reads it: it is not tried")
     marker = "LABMARK-" + secrets.token_hex(12)
     try:
         resolved = unit.resolve({LICENSE_VARIABLE: marker})

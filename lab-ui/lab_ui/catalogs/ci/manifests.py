@@ -52,11 +52,9 @@ def images_of(unit: Loaded, version_sets: Callable, notes: List[str]) -> List[st
     from ... import e2e
     found = set(version_sets(unit.config.get("services") or {}))
     sets = [each for each in unit.tested if each]
-    if sets and unit.resolve is None:
-        notes.append(f"{unit.key}: the sets of versions it was tried with were not read")
-    for number in range(len(sets) if unit.resolve is not None else 0):
+    for number in range(len(sets)):
         try:
-            chosen = e2e.versions({"name": unit.name, "tested": sets}, number, None if unit.variables is None else set(unit.variables))
+            chosen = e2e.versions({"name": unit.name, "tested": sets}, number, set(unit.variables))
         except ValueError:
             notes.append(f"{unit.key}: set {number} of x-gravitee.tested sets something that is not the version or the "
                          "registry of an image, so it was not read")

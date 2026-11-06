@@ -138,11 +138,6 @@ class Images(Asking):
         self.assertEqual(notes, ["addon:mock: set 0 of x-gravitee.tested could not be read: service x has neither an image nor "
                                  "a build context"])
 
-    def test_sets_that_a_loader_cannot_resolve_are_said(self):
-        notes = []
-        manifests.images_of(loaded(tested=[{"APIM_VERSION": "4.12.0"}]), self.script.pulled, notes)
-        self.assertEqual(notes, ["addon:mock: the sets of versions it was tried with were not read"])
-
     def test_a_loader_failure_that_is_no_compose_error_is_not_hidden(self):
         def resolve(variables):
             raise KeyError("a fault of the loader")

@@ -468,9 +468,9 @@ class Loaded(NamedTuple):
                  is judged and built
     own          the services the unit defines itself (neither the core nor an included unit defines them)
     tested       `x-gravitee.tested` of the unit: the sets of versions it was tried with
-    variables    the variables the images of the project are written with (the only ones a set of versions may set), or None
+    variables    the variables the images of the project are written with (the only ones a set of versions may set)
     resolve      `f(variables) -> config`: the same JSON with these variables set for Compose (a set of `x-gravitee.tested`),
-                 read the same way; None when the loader cannot
+                 read the same way
     """
     kind: str
     name: str
@@ -479,8 +479,8 @@ class Loaded(NamedTuple):
     config: dict
     own: Tuple[str, ...]
     tested: Tuple[dict, ...]
-    variables: Optional[frozenset]
-    resolve: Optional[Callable] = None
+    variables: frozenset
+    resolve: Callable = None
 
     @property
     def key(self) -> str:
@@ -690,15 +690,10 @@ def lab_loader(folder: str, names: List[Tuple[str, str]], hidden: Iterable[Tuple
                 folder_here = "" if kind == "setup" else os.path.dirname(where)
                 found.append(Loaded(kind, name, file, folder_here, _realized(config, linked),
                                     tuple(sorted(unit.get("services") or ())), tuple(unit.get("tested") or ()),
-                                    _variables(e2e, built), _resolver(folder, ns, needs, unit["file"], scrubbed)))
+                                    frozenset(e2e.image_variables(built)), _resolver(folder, ns, needs, unit["file"], scrubbed)))
     except check.ComposeGone:
         raise Unavailable("Docker Compose 5 was not found: " + compose.NO_COMPOSE) from None
     return Loading(found, refused)
-
-
-def _variables(e2e, built) -> Optional[frozenset]:
-    known = e2e.image_variables(built)
-    return None if known is None else frozenset(known)
 
 
 def _code_of(unit: dict) -> str:

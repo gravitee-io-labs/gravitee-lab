@@ -270,10 +270,6 @@ class License(Fixture):
                 self.assertIn("addon:mock: a reads GRAVITEE_LICENSE.", self.out.getvalue())
 
     def test_a_unit_that_cannot_be_read_again_cannot_be_tried_with_a_license(self):
-        self.table = {"addon:mock": self.loaded("addon:mock", own=("a",), resolve=None)}
-        self.assertEqual(self.plan("--all", change=False), 2)
-        self.assertIn("cannot be read again with the license variable set", self.err.getvalue())
-
         def explode(variables):
             raise RuntimeError("Compose said no\n::error::forged")
         self.table = {"addon:mock": self.loaded("addon:mock", own=("a",), resolve=explode)}
