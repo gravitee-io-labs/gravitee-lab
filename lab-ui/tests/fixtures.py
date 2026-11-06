@@ -951,7 +951,7 @@ def render(root, *files, timeout=60):
 # ---------------------------------------------------------------------------------------------------------------------
 
 CATALOG_IDS = ("fixture", "partner", "lab-new", "lab-old")
-SURFACE = ("images", "builds", "ports", "core", "reads", "plugins", "seed", "shell", "uses_machine", "needs")   # 8.3
+SURFACE = ("builds", "ports", "core", "reads", "plugins", "seed", "uses_machine")   # 8.3
 LISTING = {
     "fixture": [("addon", "cluster"), ("addon", "echo"), ("addon", "echo-core"), ("addon", "echo-twin"),
                 ("addon", "future"), ("addon", "gateway"), ("addon", "port-core"), ("setup", "pair"),
@@ -1328,13 +1328,11 @@ class FixtureCatalogs(Case):
                          "the only finding the check makes of a fixture unit, which tests/library/test_check.py compares with the "
                          "real check of every unit: a new one is a decision, not a drift")
 
-    def test_expected_closures_are_what_the_include_lines_give_and_needs_are_the_other_catalogs_in_them(self):
+    def test_expected_closures_are_what_the_include_lines_give(self):
         for ns in ("fixture", "partner"):
             for kind, name in units(ns):
                 one = expected()[f"{kind}:{unit_id(ns, kind, name)}"]
                 self.assertEqual(one["closure"], closure(ns, kind, name), f"{ns}:{name}")
-                others = sorted({_ns_of(entry.split(":", 1)[1]) for entry in one["closure"]} - {ns})
-                self.assertEqual(one["surface"]["needs"], others, f"{ns}:{name}")
 
     def test_expected_blocked_units_are_those_the_levels_and_the_audiences_block(self):
         self.built()
@@ -1481,9 +1479,6 @@ class FixtureCatalogs(Case):
                 written = _services(_text_of(ns, kind, name))
                 services = found[key]["services"]
                 own = sorted(n for n in written if n not in core_names)
-                pulled = {services[n]["image"].split(":")[0] for n in own
-                          if services[n].get("image") and not services[n].get("build")}
-                self.assertEqual(sorted(pulled), surface["images"], key)
                 built = sorted(n for n in own if services[n].get("build"))
                 self.assertEqual(built, sorted(row["service"] for row in surface["builds"]), key)
                 ports = {int(p["published"]) for n in own for p in services[n].get("ports") or []}

@@ -4,16 +4,13 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": ["busybox"],
       "builds": [],
       "ports": [8192],
       "core": [],
       "reads": [],
       "plugins": [],
       "seed": null,
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["addon:@partner/ledger"],
     "ports": [8192],
@@ -24,18 +21,15 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": ["busybox"],
       "builds": [],
       "ports": [],
       "core": [],
       "reads": [],
       "plugins": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {"service": "fixture-cluster", "label": "Fixture cluster", "what": ["runs privileged"], "why": "Runs a service manager inside its container, which only a privileged container can do"}
-      ],
-      "needs": []
+      ]
     },
     "closure": ["addon:cluster"],
     "ports": [],
@@ -46,16 +40,13 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": ["busybox"],
       "builds": [],
       "ports": [8191],
       "core": [],
       "reads": [],
       "plugins": [],
       "seed": null,
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["addon:echo"],
     "ports": [8191],
@@ -66,7 +57,6 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": [],
       "builds": [],
       "ports": [],
       "core": [
@@ -75,9 +65,7 @@
       "reads": [],
       "plugins": [],
       "seed": null,
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["addon:echo-core", "addon:echo"],
     "ports": [8191],
@@ -88,16 +76,13 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": ["busybox"],
       "builds": [],
       "ports": [8191],
       "core": [],
       "reads": [],
       "plugins": [],
       "seed": null,
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["addon:echo-twin"],
     "ports": [8191],
@@ -108,16 +93,13 @@
     "reasons": ["Needs a newer Gravitee Lab"],
     "notes": [],
     "surface": {
-      "images": ["busybox"],
       "builds": [],
       "ports": [8194],
       "core": [],
       "reads": [],
       "plugins": [],
       "seed": null,
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["addon:future"],
     "ports": [8194],
@@ -128,16 +110,13 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": ["busybox"],
       "builds": [],
       "ports": [8195],
       "core": [],
       "reads": ["gateway token"],
       "plugins": [],
       "seed": null,
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["addon:gateway"],
     "ports": [8195],
@@ -148,16 +127,13 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": ["busybox"],
       "builds": [],
       "ports": [8082],
       "core": [],
       "reads": [],
       "plugins": [],
       "seed": null,
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["addon:port-core"],
     "ports": [8082],
@@ -168,16 +144,13 @@
     "reasons": ["Depends on private content"],
     "notes": [],
     "surface": {
-      "images": [],
       "builds": [],
       "ports": [],
       "core": [],
       "reads": [],
       "plugins": [],
       "seed": null,
-      "shell": null,
-      "uses_machine": [],
-      "needs": ["partner"]
+      "uses_machine": []
     },
     "closure": ["setup:pair", "addon:@partner/ledger", "addon:echo"],
     "ports": [8191, 8192],
@@ -194,7 +167,6 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": [],
       "builds": [
         {"service": "fixture-shop-web", "source": "local"},
         {"service": "fixture-shop-seed", "source": "local"}
@@ -204,9 +176,7 @@
       "reads": [],
       "plugins": [],
       "seed": "official",
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["playground:shop"],
     "ports": [8193],
@@ -217,7 +187,6 @@
     "reasons": [],
     "notes": [],
     "surface": {
-      "images": [],
       "builds": [
         {"service": "fixture-tour-seed", "source": "local"}
       ],
@@ -226,9 +195,7 @@
       "reads": [],
       "plugins": [],
       "seed": "official",
-      "shell": null,
-      "uses_machine": [],
-      "needs": []
+      "uses_machine": []
     },
     "closure": ["playground:tour"],
     "ports": [],

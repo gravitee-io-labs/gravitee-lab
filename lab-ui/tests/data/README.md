@@ -119,7 +119,7 @@ Public, `partner` is another catalog and Private, the core says contract 1 and c
 | `verdict` | `ok` or `blocked` |
 | `reasons` | The reasons the trust policy gives, in the order of the rules; empty when `ok` |
 | `notes` | The lines of N01 to N05 |
-| `surface` | The ten keys of the surface. Own services only. A service with a `build` is under `builds` and not under `images`, the official seed's build included. `core` lists the core services a unit sets keys on |
+| `surface` | The seven keys of the surface. Own services only. A service with a `build` is under `builds`, the official seed's build included. `core` lists the core services a unit sets keys on |
 | `closure` | The unit first, then the setups it includes, then its add-ons, each sorted by id |
 | `ports` | The host ports published by the services of the closure, the core's own services left out |
 | `lint` | What `catalog.py check` is expected to say of the unit besides its Blocked reasons, which are errors and which `reasons` already holds |

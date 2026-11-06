@@ -170,7 +170,7 @@ SEED_OWN = "Brings its own seed code"   # N01: why a place other than This machi
 SEED_TOKEN = "Seed data reads a token"   # N02: the same for seed data that reads a token
 NOT_OFFERED = "Not offered by this catalog"   # why the terminal pane and the run buttons are disabled (N05)
 SHOWN = 3   # names a line spells out before it counts the rest
-SOURCE_CUT = 120   # an image or the address of a build, as the preview shows it
+SOURCE_CUT = 120   # the address of a build, as the preview shows it
 NAME_CUT = 60   # the characters of one author's name in a reason line
 FIELD_CUT = 240   # and of a whole field: three names, the count of the rest
 
@@ -1016,8 +1016,7 @@ def build_extras(build, seeder=False):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def empty_surface():
-    return {"images": [], "builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None, "shell": None,
-            "uses_machine": [], "needs": []}
+    return {"builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None, "uses_machine": []}
 
 
 def _verdict(reasons=(), notes=(), surface=None, codes=(), name=""):
@@ -1035,10 +1034,10 @@ def add_reason(verdict, code, line):
 
 def sum_surfaces(surfaces):
     """The surface of several units as one: the preview of a catalog, the start of an item and the units it brings. Lists
-    are united in a stable order; the seed is custom when any is, the shell the first there is."""
+    are united in a stable order; the seed is custom when any is."""
     total, seeds = empty_surface(), [s["seed"] for s in surfaces if s.get("seed")]
     for surface in surfaces:
-        for key in ("images", "reads", "plugins", "needs", "ports"):
+        for key in ("reads", "plugins", "ports"):
             total[key] = sorted(set(total[key]) | set(surface.get(key) or ()))
         total["builds"] += [b for b in surface.get("builds") or () if b not in total["builds"]]
         total["uses_machine"] += [u for u in surface.get("uses_machine") or () if u not in total["uses_machine"]]
@@ -1048,7 +1047,6 @@ def sum_surfaces(surfaces):
                 seen["keys"] = sorted(set(seen["keys"]) | set(entry["keys"]))
             else:
                 total["core"].append(dict(entry, keys=list(entry["keys"])))
-        total["shell"] = total["shell"] or surface.get("shell")
     total["seed"] = "custom" if "custom" in seeds else ("official" if seeds else None)
     return total
 
@@ -1536,13 +1534,11 @@ class _Run:
         """What the unit will do, from the same JSON as the verdict."""
         found, context = empty_surface(), self.context
         declared = _dict(self.meta.get("host_access"))
-        images, ports, plugins = set(), set(), set()
+        ports, plugins = set(), set()
         for name in self.own:
             service = self.services[name]
             if service.get("build") is not None:
                 found["builds"].append({"service": name, "source": _clean(_source(service["build"]), SOURCE_CUT)})
-            elif service.get("image"):
-                images.add(_clean(_repository(service["image"]), SOURCE_CUT))
             for port in _list(service.get("ports")):
                 published = str(_dict(port).get("published", ""))
                 if published.isdigit():
@@ -1555,7 +1551,7 @@ class _Run:
                     "service": name, "label": self.label(name),
                     "what": elevations(service, self.roots, self.realpath, context.get("home"), self.members),
                     "why": _clean(declared[name]) if isinstance(declared.get(name), str) else ""})
-        found["images"], found["ports"], found["plugins"] = sorted(images), sorted(ports), sorted(plugins)
+        found["ports"], found["plugins"] = sorted(ports), sorted(plugins)
         found["core"] = [{"service": name, "label": self.label(name), "keys": sorted(added)}
                          for name, added in self.overlaid.items() if added]
         names = {n for n in _list(self.unit.get("references")) if isinstance(n, str)}
@@ -1571,10 +1567,6 @@ class _Run:
                                      or mine and n.startswith(mine) and n in self.env)
         if self.kind == "playground" and self.seeds():
             found["seed"] = "official" if self.official() else "custom"
-        shell = _terminal_services(self.meta.get("terminal"))
-        found["shell"] = shell[0] if shell and self.terminal() else None
-        found["needs"] = sorted({t[0] for t in map(target_of, _list(self.unit.get("includes")))
-                                 if t and t[0] not in (context.get("ns"), "local")})
         return found
 
     def run(self):

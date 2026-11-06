@@ -2229,11 +2229,10 @@ class Notes(Golden):
 
     def test_n05_a_terminal_in_a_service_of_the_platform_is_not_offered(self):
         verdict = self.judge("n05-foreign-terminal")
-        self.assertEqual((verdict["state"], verdict["notes"], verdict["surface"]["shell"]), ("ok", [line("N05")], None))
+        self.assertEqual((verdict["state"], verdict["notes"]), ("ok", [line("N05")]))
 
-    def test_n05_a_terminal_in_a_service_of_its_own_is_offered_and_said(self):
-        verdict = self.judge("p-terminal")
-        self.assertEqual((verdict["notes"], verdict["surface"]["shell"]), ([], "hostile-terminal-shell"))
+    def test_n05_a_terminal_in_a_service_of_its_own_is_offered(self):
+        self.assertEqual(self.judge("p-terminal")["notes"], [])
 
     def test_n05_the_terminal_of_a_unit_in_the_services_it_brings_or_not_its_seed(self):
         arguments = self.args(PLAYGROUND)
@@ -2267,22 +2266,18 @@ class Surface(Golden):
 
     def test_what_a_clean_unit_will_do(self):
         surface = self.judge(CLEAN)["surface"]
-        self.assertEqual(surface, {"images": [], "builds": [{"service": "hostile-clean", "source": "local"}], "ports": [8397],
-                                   "core": [], "reads": [], "plugins": [], "seed": None, "shell": None, "uses_machine": [],
-                                   "needs": []})
+        self.assertEqual(surface, {"builds": [{"service": "hostile-clean", "source": "local"}], "ports": [8397], "core": [],
+                                   "reads": [], "plugins": [], "seed": None, "uses_machine": []})
 
-    def test_the_images_without_their_tags_and_the_builds_by_source(self):
+    def test_the_builds_by_source(self):
         def edit(arguments):
             services = arguments["unit_config"]["services"]
             services["hostile-clean"].pop("build")
-            services["hostile-clean"]["image"] = "registry.invalid:5000/team/app:1.2@sha256:abc"
-            services["other"] = {"image": "redis"}
             services["remote"] = {"build": {"context": "https://user:pw@example.invalid/org/app.git#main"}}
             services["scp"] = {"build": {"context": "git@example.invalid:org/lib.git#0123"}}
             services["short"] = {"build": {"context": "github.com/org/tool"}}
-            arguments["own"] += ["other", "remote", "scp", "short"]
+            arguments["own"] += ["remote", "scp", "short"]
         surface = self.changed(CLEAN, edit)["surface"]
-        self.assertEqual(surface["images"], ["redis", "registry.invalid:5000/team/app"])
         self.assertEqual([(b["service"], b["source"]) for b in surface["builds"]],
                          [("remote", "example.invalid/org/app"), ("scp", "example.invalid/org/lib"), ("short", "github.com/org/tool")])
 
@@ -2331,23 +2326,18 @@ class Surface(Golden):
             arguments["unit_config"]["services"]["hostile-privileged"]["labels"] = {"io.gravitee.name": "Kubernetes"}
         self.assertEqual(self.changed("t03-privileged", edit)["surface"]["uses_machine"][0]["label"], "Kubernetes")
 
-    def test_the_catalogs_a_unit_includes_from(self):
-        self.assertEqual(self.judge("t24-public-needs-private")["surface"]["needs"], ["partner"])
-        self.assertEqual(self.judge("p-pair")["surface"]["needs"], [])
-
     def test_surfaces_add_up(self):
-        one = {"images": ["a"], "builds": [{"service": "x", "source": "local"}], "ports": [2, 1], "core": [{"service": "g", "label": "G", "keys": ["environment"]}],
-               "reads": ["license"], "plugins": [], "seed": "official", "shell": None, "uses_machine": [], "needs": ["p"]}
-        two = {"images": ["a", "b"], "builds": [{"service": "x", "source": "local"}, {"service": "y", "source": "local"}], "ports": [1, 3],
+        one = {"builds": [{"service": "x", "source": "local"}], "ports": [2, 1], "core": [{"service": "g", "label": "G", "keys": ["environment"]}],
+               "reads": ["license"], "plugins": [], "seed": "official", "uses_machine": []}
+        two = {"builds": [{"service": "x", "source": "local"}, {"service": "y", "source": "local"}], "ports": [1, 3],
                "core": [{"service": "g", "label": "G", "keys": ["volumes"]}, {"service": "h", "label": "H", "keys": ["ports"]}],
-               "reads": [], "plugins": ["apim"], "seed": "custom", "shell": "s", "uses_machine": [{"service": "k"}], "needs": ["p", "q"]}
+               "reads": [], "plugins": ["apim"], "seed": "custom", "uses_machine": [{"service": "k"}]}
         total = trust.sum_surfaces([one, two])
-        self.assertEqual(total["images"], ["a", "b"])
         self.assertEqual(total["ports"], [1, 2, 3])
         self.assertEqual([b["service"] for b in total["builds"]], ["x", "y"])
         self.assertEqual(total["core"], [{"service": "g", "label": "G", "keys": ["environment", "volumes"]},
                                          {"service": "h", "label": "H", "keys": ["ports"]}])
-        self.assertEqual((total["seed"], total["shell"], total["needs"], total["plugins"]), ("custom", "s", ["p", "q"], ["apim"]))
+        self.assertEqual((total["seed"], total["plugins"]), ("custom", ["apim"]))
         self.assertEqual(trust.sum_surfaces([]), trust.empty_surface())
         self.assertEqual(trust.sum_surfaces([one])["seed"], "official")
         self.assertNotIn(one["core"][0]["keys"], [total["core"][0]["keys"]])
@@ -2557,14 +2547,9 @@ class Verdicts(Golden):
         again = self.changed(CLEAN, many)
         self.assertTrue(again["reasons"][-1].endswith("and 2 more"), again["reasons"])   # the count of the rest is never the part that is cut
 
-    def test_what_the_preview_shows_of_an_image_a_build_and_a_setting_is_cut(self):
+    def test_what_the_preview_shows_of_a_build_and_a_setting_is_cut(self):
         long = "z" * 100000
 
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["image"] = long + ":1"
-            del arguments["unit_config"]["services"]["hostile-clean"]["build"]
-            arguments["unit"]["references"] = [long]
-        self.assertLessEqual(max(len(image) for image in self.changed(CLEAN, edit, ns="z" * 3)["surface"]["images"]), 120)
         def build(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["build"] = {"context": "github.com/" + long + ".git#" + "a" * 40}
         self.assertLessEqual(len(self.changed(CLEAN, build)["surface"]["builds"][0]["source"]), 120)

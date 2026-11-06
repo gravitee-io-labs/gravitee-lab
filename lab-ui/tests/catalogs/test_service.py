@@ -182,8 +182,8 @@ class Seam(Base):
             reasons = self.against.get(uid) or self.against.get(name)
             judged[k][uid] = {"id": uid, "kind": k, "name": name.capitalize(), "catalog": ns,
                               "blocked": {"reasons": list(reasons)} if reasons else None}
-            surface = {"images": [], "builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None,
-                       "shell": None, "uses_machine": list(self.uses.get(uid) or self.uses.get(name) or ()), "needs": []}
+            surface = {"builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None,
+                       "uses_machine": list(self.uses.get(uid) or self.uses.get(name) or ())}
             verdicts[(k, uid)] = {"state": "ok", "reasons": [], "notes": [], "surface": surface, "codes": [], "name": name}
             mine.append((k, uid))
         return judged, verdicts, mine
@@ -2686,8 +2686,7 @@ class Growth(unittest.TestCase):
     """The growth of power an update makes: only what the new surface does that the old did not."""
 
     def surface(self, **more):
-        return {"images": [], "builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None, "shell": None,
-                "uses_machine": [], "needs": [], **more}
+        return {"builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None, "uses_machine": [], **more}
 
     def test_nothing_grew_when_nothing_is_new_or_less(self):
         old = self.surface(ports=[8140, 8141], reads=["license"], builds=[{"service": "a", "source": "local"}])
