@@ -234,19 +234,10 @@ class Needs(Case):
     def test_a_catalog_that_is_not_added_is_missing(self):
         self.assertEqual(self.needs(missing=[self.INCLUDE]), [dict(self.ENTRY, have=None, reason="missing")])
 
-    def test_a_catalog_being_downloaded_or_that_failed_has_no_copy_yet(self):
-        for state, error, reason in (("downloading", None, "downloading"), ("downloading", "unreachable", "downloading"),
-                                     ("unreachable", "unreachable", "failed"), ("noaccess", None, "failed"), ("checking", None, "downloading"),
-                                     ("needs_git", None, "failed")):
-            catalogs = {"partner": {"name": "Partner", "version": None, "state": state, "error": error}}
-            with self.subTest(state=state):
-                found = self.needs(catalogs, missing=[self.INCLUDE])
-                self.assertEqual([item["reason"] for item in found], [reason])
-                self.assertEqual(found[0]["name"], "Partner Bank")
-
     def test_a_missing_version_says_there_is_no_copy(self):
         """A catalog that was added and never downloaded has no version, and it is `failed` (Try again), never `old` (Update)."""
-        for state, error, reason in (("downloading", None, "downloading"), ("unreachable", "unreachable", "failed"), ("noaccess", None, "failed"),
+        for state, error, reason in (("downloading", None, "downloading"), ("downloading", "unreachable", "downloading"),
+                                     ("unreachable", "unreachable", "failed"), ("noaccess", None, "failed"),
                                      ("needs_git", None, "failed"), ("wrong_catalog", "no catalog.yml", "failed"), ("checking", None, "downloading"),
                                      ("added", None, "downloading")):
             for version in (None, "", 0):
@@ -327,10 +318,6 @@ class Gateway(Case):
         units = {"alpha": self.addon(), "hybrid": self.addon(), "zeta": self.addon()}
         self.assertEqual(resolve.gateway_addon(units, "cloud", list(units)), "alpha")
         self.assertEqual(resolve.gateway_addon(units, "cloud", order=["zeta", "alpha", "hybrid"]), "zeta")
-
-    def test_not_alphabetical(self):
-        units = {"@acme/aaa": self.addon(), "hybrid": self.addon()}
-        self.assertEqual(resolve.gateway_addon(units, "cloud", order=["hybrid", "@acme/aaa"]), "hybrid")
 
     def test_a_unit_that_cannot_run_is_not_a_candidate(self):
         for more in ({"blocked": {"reasons": ["x"]}}, {"verdict": {"state": "blocked"}}, {"compat": "new"}, {"compat": "old"},
