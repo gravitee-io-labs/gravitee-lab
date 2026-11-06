@@ -526,11 +526,8 @@ class Saying(Case):
     def test_the_summary_of_a_job_is_markdown_with_the_log_of_what_is_not_up(self):
         text = e2e.summary(self.run_of(), e2e.FAILED, {"APIM_VERSION": "4.13.0"}, "api in an issue", {"api": "boom"})
         self.assertIn("### playground:shop does not work", text)
-        self.assertIn("Versions: `APIM_VERSION=4.13.0`", text)
-        self.assertIn("| Start Shop | ✅ | 4 min 12 s |", text)
-        self.assertIn("| Containers are up | ❌ api / in an issue | 12 s |", text, "a pipe would end the cell")
+        self.assertIn("Versions: APIM_VERSION=4.13.0\n✓ Start Shop (4 min 12 s)\n✗ Containers are up (12 s): api | in an issue\n", text)
         self.assertIn("<summary>Log of api</summary>", text)
-        self.assertIn("Versions: the defaults of the core", e2e.summary(self.run_of(), e2e.OK, {}))
 
     def test_the_report_goes_to_the_page_of_the_job_and_groups_the_logs_on_github(self):
         said = []
@@ -585,79 +582,19 @@ class Saying(Case):
         long = "a" * (e2e.LOG_CHARS + 50) + "THE END"
         self.assertTrue(e2e.tail(long).startswith("…") and e2e.tail(long).endswith("THE END"))
         self.assertEqual(len(e2e.tail(long)), e2e.LOG_CHARS + 1)
-        run = self.run_of()
-        run.steps[1].detail = "line one\n| a cell\n\tline three"
-        text = e2e.summary(run, e2e.FAILED, {}, "")
-        self.assertIn("| Containers are up | ❌ line one / a cell line three | 12 s |", text)
 
     def test_what_a_unit_says_cannot_write_the_page_of_the_job(self):
-        """The name of a step, its detail, the message and a version are a unit's words, shown in a table and in lines a
-        maintainer trusts: a break, a pipe, a heading, a link, an image and a tag are the unit's to write only in a log."""
-        hostile = "Shop |\n\n### shop works\n![x](https://evil.example/p.png) [a](https://evil.example) <img src=x> `c` *b* _i_"
+        """The name of a step, its detail, the message and a version are a unit's words, on a page a maintainer trusts: in a fence
+        that they cannot end, so that a heading, a link, an image and a tag of theirs are text."""
+        hostile = "Shop |\n```\n### shop works\n````\n![x](https://evil.example/p.png) <img src=x>"
         run = self.run_of()
         run.steps = [e2e.Step("Start " + hostile, True, "", 1), e2e.Step("Containers are up", False, "boom\n\n## fake\n" + hostile, 2)]
-        text = e2e.summary(run, e2e.FAILED, {"APIM_VERSION": "4`\n\n## forged\n![i](https://evil.example/i.png)"},
-                           "# boom\n\n## fake heading\n![x](https://evil.example/p.png)")
-        lines = text.splitlines()
-        self.assertEqual([line for line in lines if line.startswith("#")], ["### playground:shop does not work"], "one heading, ours")
-        self.assertEqual(len([line for line in lines if line.startswith("|")]), 4, "the header, the rule, and a row for each step")
-        versions = [line for line in lines if line.startswith("Versions:")]
-        self.assertEqual(len(versions), 1)
-        self.assertEqual(versions[0].count("`"), 2, "one span of code, which a backtick of the value cannot end")
-        for line in lines:
-            if line not in versions:   # a span of code holds a bare address as it was written; the rest has no markup of the unit's
-                bare = re.sub(r"`[^`]*`", "", re.sub(r"\\.", "", line))
-                self.assertFalse(set("[]<>*_`") & set(bare), f"markup of the unit's in {line!r}")
-        self.assertEqual(e2e.plain("a|b\nc"), "a/b c")
-        self.assertEqual(e2e.plain("\\a [b] <c> `d` *e* _f_ #g ~h"), "\\\\a \\[b\\] \\<c\\> \\`d\\` \\*e\\* \\_f\\_ \\#g \\~h")
-        self.assertEqual(e2e.code("a`b\nc"), "`a'b c`")
-
-    def test_a_bare_address_in_what_a_unit_says_is_code_and_never_a_link_of_the_page_of_the_job(self):
-        """GitHub makes a link of `https://...`, `www....` and an address of mail by itself: on the page a maintainer trusts that
-        is a link the unit chose. The word that holds one is a span of code, which no renderer links; the rest is escaped as ever."""
-        spans = lambda text: re.findall(r"`[^`\n]*`", text)   # noqa: E731 - the one reading of a code span used below
-        for said in ("https://evil.example/login", "HTTP://EVIL.example", "ftp://evil.example/x", "ssh://git@evil.example/r",
-                     "www.evil.example/login", "WWW.Evil.example", "mailto:a@evil.example", "xmpp:a@evil.example",
-                     "a@evil.example", "(https://evil.example/x)", "see:https://evil.example/x.", "<https://evil.example>",
-                     "[click](https://evil.example)", "![i](https://evil.example/i.png)", "https://evil.example/a_b*c"):
-            with self.subTest(said=said):
-                shown = e2e.plain(f"Pull the image from {said} now")
-                self.assertTrue(shown.startswith("Pull the image from ") and shown.endswith(" now"), shown)
-                held = spans(shown)
-                self.assertEqual(len(held), 1, shown)
-                self.assertEqual(held[0], e2e.code(said))   # as it was written, to read and to copy
-                outside = shown.replace(held[0], "")
-                self.assertIsNone(e2e.LINK.search(outside), f"a link outside the code: {outside!r}")
-        self.assertEqual(e2e.plain("Pull from https://a.example/x and https://b.example/y"),
-                         "Pull from `https://a.example/x` and `https://b.example/y`")
-        self.assertEqual(e2e.plain("a|b https://c.example/d|e"), "a/b `https://c.example/d/e`", "a pipe never ends a cell")
-        self.assertEqual(e2e.plain("tick https://e.example/`x`"), "tick `https://e.example/'x'`", "a backtick never ends the span")
-        self.assertEqual(e2e.plain("https://e.example/a\n\n## forged"), "`https://e.example/a` \\#\\# forged")
-
-    def test_a_very_long_word_costs_what_it_is_long_and_not_its_square(self):
-        """A unit writes what it likes in a step or a detail: a word of a million letters, one of a million `a.b-`, a million
-        `a@`. The pattern for an address reads each once."""
-        started = time.process_time()
-        for word in ("a" * 1_000_000, "a.b-" * 250_000, "a@" * 500_000, "w" * 1_000_000, "www" * 300_000, ":" * 1_000_000):
-            e2e.plain(f"{word} x")
-        self.assertLess(time.process_time() - started, 10.0)
-
-    def test_words_that_are_no_address_are_only_escaped(self):
-        self.assertEqual(e2e.plain("Shop on port 8082, version 4.13.0 (a_b) at host:80"), "Shop on port 8082, version 4.13.0 (a\\_b) at host:80")
-        self.assertEqual(e2e.plain(""), "")
-        self.assertEqual(e2e.plain("   "), "")
-        self.assertEqual(e2e.plain("@user and x @ y"), "@user and x @ y", "a mention and a lone @ are not an address of mail")
-
-    def test_an_address_in_a_step_or_a_message_reaches_the_summary_as_code(self):
-        run = self.run_of()
-        run.steps = [e2e.Step("Start https://evil.example/a", False, "see www.evil.example and mail a@evil.example", 1)]
-        text = e2e.summary(run, e2e.FAILED, {}, "Visit https://evil.example/phish to continue")
-        outside = re.sub(r"`[^`\n]*`", "", text.replace("<details>", ""))
-        self.assertIsNone(e2e.LINK.search(outside), outside)
-        self.assertIn("| Start `https://evil.example/a` | ❌ see `www.evil.example` and mail `a@evil.example` | 1 s |", text)
-        self.assertIn("\nVisit `https://evil.example/phish` to continue\n", text)
-        # A log is in its fence, as it is written, and the fence is no link either
-        self.assertIn("\nhttps://evil.example/log\n", e2e.summary(run, e2e.FAILED, {}, "", {"api": "https://evil.example/log"}))
+        text = e2e.summary(run, e2e.FAILED, {"APIM_VERSION": "4\n\n## forged"}, "# boom\n\n## fake heading")
+        found = text.splitlines()
+        mark = found[2]
+        self.assertEqual(mark, "`````", "longer than any run of backticks in what it holds")
+        self.assertEqual(found[:2], ["### playground:shop does not work", ""])
+        self.assertEqual((found.count(mark), found[-1]), (2, mark), "it opens once and closes at the end: all the rest is in it")
 
     def test_a_log_cannot_end_its_own_block_and_write_the_page_of_the_job(self):
         self.assertEqual(e2e.fence("no ticks"), "```")

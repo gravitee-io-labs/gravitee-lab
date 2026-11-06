@@ -409,41 +409,14 @@ def fence(text):
     return "`" * max(3, max((len(run) for run in re.findall(r"`+", text)), default=0) + 1)
 
 
-# What a renderer of GitHub turns into a link by itself: a scheme and `//` (http, https, ftp, and any other a unit writes), `www.`,
-# `mailto:`, `xmpp:` and an address of mail. A word that holds one of these is shown as code (`plain`): a code span is never linked
-# by any renderer, and the word is still there to read and to copy as it was written. The scheme is not matched: `://` is enough,
-# and a pattern for the letters before it would read a long word again from each of its letters (a unit writes what it likes)
-LINK = re.compile(r"(?i)://|www\.|mailto:|xmpp:|[^\s@]@[^\s@]")
-MARKUP = re.compile(r"([\\`*_\[\]<>#~])")
-
-
-def plain(text):
-    """Words of a unit as one line of Markdown that says what they say and no more. A break would end a row of the table and
-    a pipe its cell; a backslash, a backtick, `*`, `_`, brackets, angle brackets, `#` and `~` would write a heading, a link, an
-    image, a tag or a style of the unit's own on the page of the job. A bare address would be a link the unit chose, on a page a
-    maintainer trusts: the word that holds it is a span of code instead (`LINK`), which no renderer makes a link."""
-    words = " ".join(str(text).split()).replace("|", "/").split(" ")
-    return " ".join(code(word) if LINK.search(word) else MARKUP.sub(r"\\\1", word) for word in words)
-
-
-def code(text):
-    """A value of a unit as an inline code span on one line: no break, and no backtick that would end the span."""
-    return "`" + " ".join(str(text).split()).replace("`", "'") + "`"
-
-
 def summary(run, outcome, versions_used, message="", logs=None):
-    """The same as the page of the job on GitHub shows it, in Markdown: a title, a table of what was tried, the logs of what is
-    not up. What the unit says (its name, a detail, a version) goes through `plain` or is cut to one line of code: the page is
-    the one a maintainer trusts; only a log, in its fence, is shown as it is."""
+    """The same as the page of the job on GitHub shows it, in Markdown: a title, what was tried, the logs of what is not up. What
+    the unit says (its name, a detail, a version, a log) is in a fence: the page is the one a maintainer trusts, and a fence makes
+    no link or markup of what it holds."""
     verdict = {OK: "works", FAILED: "does not work", CANNOT: "not tried"}[outcome]
-    text = [f"### {run.kind}:{run.uid} {verdict}", ""]
-    text.append("Versions: " + (", ".join(code(f"{key}={value}") for key, value in versions_used.items()) if versions_used
-                                else "the defaults of the core"))
-    text += ["", "| Step | Result | Time |", "|---|---|---|"]
-    text += [f"| {plain(step.name)} | {'✅' if step.ok else '❌ ' + plain(step.detail)} | {seconds(step.seconds)} |"
-             for step in run.steps]
-    if message:
-        text += ["", plain(message)]
+    said = "\n".join(lines(run, outcome, versions_used, message))
+    mark = fence(said)
+    text = [f"### {run.kind}:{run.uid} {verdict}", "", mark, said, mark]
     for name, log in (logs or {}).items():
         kept = tail(log) or "(empty)"
         mark = fence(kept)
