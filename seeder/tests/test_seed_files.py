@@ -197,6 +197,16 @@ class EnvironmentChecks(unittest.TestCase):
     def api(self, **api):
         return {**self.API, "api": {**self.API["api"], **api}}
 
+    def test_a_folder_is_named_by_an_id_and_is_not_local_or_the_platforms_own(self):
+        for name in ("Novo_Nordisk", "local", "default"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as root:
+                folder = Path(root) / name
+                folder.mkdir()
+                (folder / "environment.yaml").write_text(f"id: {name}\nname: x\n", encoding="utf-8")
+                self.assertEqual(environment_problems(folder, self.VARIABLES), [
+                    "environment.yaml: an environment is named with lowercase letters, digits and dashes, and is not `local` or the "
+                    "platform's own"])
+
     def test_a_good_folder_has_no_problem(self):
         self.assertEqual(self.check(), [])
 

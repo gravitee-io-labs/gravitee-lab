@@ -76,8 +76,6 @@ ACTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")   # as split.js reads it
 ACCOUNT = re.compile(r'\]\(account:([^)"]*?)\s*(?:"[^"]*")?\)')   # an account link of a guide, [text](account:username)
 # A fenced block or a code span: it shows a syntax, it is no link
 CODE = re.compile(r"^(```|~~~).*?^\1|`[^`\n]*`", re.M | re.S)
-# A `key: value` line of a YAML file at its top level: the key, then the value in quotes (2, 3) or without (4), then a comment
-FLAT_LINE = re.compile(r"([A-Za-z_][\w-]*):[ \t]*(?:([\"'])(.*?)\2|([^#\"'\s][^#]*?))?[ \t]*(?:#.*)?")
 SEEDER_IMAGE = re.compile(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+")   # host/path, no tag
 LOCK_FILE = understood.LOCK_FILE   # what the engine promises units, with the level each item appeared at
 KEYWORD = re.compile(r"""(?<![\w.$-])["']?(include|extends|env_file|label_file)["']?[ \t]*:""")   # the words the text screen reads
@@ -493,43 +491,9 @@ def _guide(folder, accounts=()):
             yield f"guide.md: account:{found} is no user of x-gravitee.accounts, so the page cannot show its sign-in"
 
 
-def _flat(text):
-    """The top-level `key: value` lines of a YAML file whose values are plain text: a quote around a value and a
-    comment after it are dropped. All that an environment's file holds, and the Lab UI reads no YAML otherwise."""
-    found = {}
-    for line in text.splitlines():
-        m = FLAT_LINE.fullmatch(line)
-        if m:
-            found[m.group(1)] = m.group(3) if m.group(2) else (m.group(4) or "")
-    return found
-
-
-def _environments(folder):
-    """An environment the seed adds is a folder of seed/environments, which is its id: lowercase letters, digits and
-    dashes, never `local` and never `default`, the platform's own, which the seed and the playground's service that creates
-    the environments both refuse. Its environment.yaml gives the same id and a name, because that service reads them
-    there, written once."""
-    for found in sorted((folder / "seed" / "environments").glob("*")):
-        if not found.is_dir() or found.name.startswith("."):
-            continue
-        where = found.relative_to(folder).as_posix()
-        if not re.fullmatch(r"[a-z0-9-]+", found.name) or found.name in ("local", "default"):
-            yield f"{where}: an environment is named by an id, lowercase letters, digits and dashes, and not `local` or `default`"
-            continue
-        file = found / "environment.yaml"
-        if not file.is_file():
-            yield f"{where}/environment.yaml is missing"
-            continue
-        said = _flat(_read(file) or "")
-        if said.get("id") != found.name:
-            yield f"{where}/environment.yaml: id must be {found.name}, the name of its folder"
-        if not said.get("name"):
-            yield f"{where}/environment.yaml: name is missing"
-
-
 def _seed(folder):
     """The API definitions the seed imports, those of the platform's environment and of each one it adds, are JSON
-    objects: the checks read the plugins they use. The environments it adds are named and described."""
+    objects: the checks read the plugins they use."""
     for file in paths.seed_apis(folder):
         name = file.relative_to(folder).as_posix()
         text = _read(file)
@@ -542,7 +506,6 @@ def _seed(folder):
             continue
         if not isinstance(definition, dict):
             yield f"{name} must hold a JSON object"
-    yield from _environments(folder)
 
 
 def _pull_policy(unit, project):

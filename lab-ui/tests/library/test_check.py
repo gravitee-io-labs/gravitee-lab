@@ -520,50 +520,6 @@ class Items(Machine):
             "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
             "seed/environments/moderna/apis/list.json must hold a JSON object"])
 
-    def test_an_environment_folder_is_named_like_an_id_and_holds_its_environment_file(self):
-        good = "id: {}\nname: Fine\n"
-        root = self.folder(files={
-            "seed/environments/moderna/environment.yaml": good.format("moderna"),
-            "seed/environments/Novo_Nordisk/environment.yaml": good.format("Novo_Nordisk"),
-            "seed/environments/local/environment.yaml": good.format("local"),
-            "seed/environments/default/environment.yaml": good.format("default"),
-            "seed/environments/defaults/environment.yaml": good.format("defaults"),
-            "seed/environments/beam/apis/one.json": "{}",
-            "seed/environments/.hidden/environment.yaml": "",
-            "seed/environments/README.md": "files are no environment"})
-        name = ("an environment is named by an id, lowercase letters, digits and dashes, and not `local` or `default`")
-        self.assertEqual(list(check._environments(root)), [
-            f"seed/environments/Novo_Nordisk: {name}",
-            "seed/environments/beam/environment.yaml is missing",
-            f"seed/environments/default: {name}",
-            f"seed/environments/local: {name}"])
-
-    def test_the_id_of_an_environment_is_its_folder_and_it_has_a_name(self):
-        root = self.folder(files={
-            "seed/environments/beam/environment.yaml": "id: beam-therapeutics\nname: Beam Therapeutics\n",
-            "seed/environments/kyverna/environment.yaml": "id: kyverna\ndescription: No name\n",
-            "seed/environments/moderna/environment.yaml": "name: Moderna\n",
-            "seed/environments/pitt/environment.yaml": "",
-            "seed/environments/boston/environment.yaml":
-                "id: 'boston'   # the folder\nname: \"Boston Children's Hospital\"  # what the Console lists\n",
-            "seed/environments/novo/environment.yaml": "id: novo\nname: Novo's own\n"})
-        self.assertEqual(list(check._environments(root)), [
-            "seed/environments/beam/environment.yaml: id must be beam, the name of its folder",
-            "seed/environments/kyverna/environment.yaml: name is missing",
-            "seed/environments/moderna/environment.yaml: id must be moderna, the name of its folder",
-            "seed/environments/pitt/environment.yaml: id must be pitt, the name of its folder",
-            "seed/environments/pitt/environment.yaml: name is missing"])
-        self.assertEqual(list(check._environments(self.folder())), [], "a seed without environments has none to check")
-
-    def test_the_environments_of_a_seed_are_among_what_the_seed_is_checked_on(self):
-        root = self.folder(files={"seed/environments/beam/apis/one.json": "{}"})
-        self.assertEqual(list(check._seed(root)), ["seed/environments/beam/environment.yaml is missing"])
-
-    def test_a_plain_yaml_file_is_read_by_its_top_level_lines(self):
-        text = "# an environment\nid: beam   # its folder\nname: 'Beam: Therapeutics'\nempty:\nnested:\n  id: not-this\n- id: nor-this\n"
-        self.assertEqual(check._flat(text), {"id": "beam", "name": "Beam: Therapeutics", "empty": "", "nested": ""})
-        self.assertEqual(check._flat("id: x\r\nname: Y\r\n"), {"id": "x", "name": "Y"})
-
     def test_what_an_add_on_or_a_playground_builds_says_how_it_comes(self):
         # Built here or pulled, as its pull policy says: the Lab UI never forces a build
         built = self.machine([member("fixture", "playground", "welcome", ["acme-website"])])

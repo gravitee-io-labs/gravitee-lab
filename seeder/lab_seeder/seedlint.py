@@ -654,8 +654,8 @@ def _environment_findings(folder, variables, found=None):
         says(path, f"id is {_brief(identity.get('id'), quoted=True)}, the folder is {id!r}")
     if not identity.get("name"):
         says(path, "name is missing")
-    if not re.fullmatch(r"[a-z0-9-]+", id) or id == "default":
-        says(path, "an environment is named with lowercase letters, digits and dashes, and is not the platform's own")
+    if not re.fullmatch(r"[a-z0-9-]+", id) or id in ("default", "local"):
+        says(path, "an environment is named with lowercase letters, digits and dashes, and is not `local` or the platform's own")
     given = {"ENV_ID": id, "ENV_NAME": identity.get("name") or ""}
 
     users = set()
