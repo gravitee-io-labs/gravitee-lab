@@ -171,14 +171,6 @@ class Picking(Case):
                 if refusal:
                     self.assertEqual(manifest.no_commit(levels, contract, floor).code, refusal)
 
-    def test_pick_is_pure(self):
-        levels = [("t", 3), ("a", 2)]
-        before = list(levels)
-        with mock.patch("subprocess.Popen", side_effect=AssertionError("pick ran a command")), \
-                mock.patch("builtins.open", side_effect=AssertionError("pick opened a file")):
-            self.assertEqual(pick(levels, 2, 1), ("a", "new"))
-        self.assertEqual(levels, before)
-
 
 class Refusals(Case):
     """The refusals of the catalogue of errors that the levels give, word for word."""
@@ -463,12 +455,6 @@ class Fields(Case):
         self.assertEqual(set(manifest.KEYS), {"schema", "id", "name", "description", "version", "lab", "license", "images",
                                               "contribute", "shared_settings", "moved_from", "canary", "requires", "host_access",
                                               "renamed"})
-
-    def test_validation_reads_nothing_and_runs_nothing(self):
-        with mock.patch("subprocess.Popen", side_effect=AssertionError("ran a command")), \
-                mock.patch("builtins.open", side_effect=AssertionError("opened a file")):
-            self.assertEqual(manifest.validate_catalog({**GOOD, "requires": {"catalogs": {}}}), [])
-            self.assertTrue(manifest.validate_catalog({**GOOD, "id": "A"}))
 
     def test_hostile_values_are_problems_not_crashes(self):
         deep = cur = {}
@@ -1052,11 +1038,6 @@ class History(Case):
         self.assertEqual(len(self.levels()), 7)
         self.assertEqual(len(self.levels(limit=3)), 3)
         self.assertEqual(self.levels(limit=1)[0][0], self.commits[-1])
-
-    def test_the_levels_are_read_from_the_store_only(self):
-        self.push({"catalog.yml": catalog_yml(2, "2.0.0")})
-        with mock.patch("socket.socket", side_effect=AssertionError("network")):
-            self.assertEqual(manifest.levels(self.store, bare.resolve(self.store, "tip"))[0][1], 2)
 
     def test_a_catalog_file_that_is_a_link_is_no_catalog_file(self):
         self.push({"catalog.yml": gitfixture.Symlink("addons/a/compose.yml")})

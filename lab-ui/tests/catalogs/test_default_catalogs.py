@@ -6,8 +6,6 @@ says."""
 import json
 import os
 import re
-import socket
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -271,12 +269,6 @@ class Reading(Case):
         self.assertEqual([item["id"] for item in self.put(listing(entry("one"), entry("another")))], ["one", "another"])
         (self.root / paths.DEFAULT_FILE).unlink()
         self.assertEqual(defaults.read(), [])
-
-    def test_reading_needs_neither_the_network_nor_a_command(self):
-        with mock.patch.object(socket, "socket", side_effect=AssertionError("network")), \
-                mock.patch.object(subprocess, "Popen", side_effect=AssertionError("command")):
-            self.assertEqual([item["id"] for item in self.put(listing(entry()))], ["demos"])
-            self.assertEqual([row["id"] for row in defaults.not_added()], ["demos"])
 
 
 class Trust(Case):

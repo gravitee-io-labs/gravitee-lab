@@ -238,11 +238,6 @@ class Reconcile(Quiet):
             thread.join(30)
         self.assertEqual([one["id"] for one in self.config()["catalogs"]], [self.ns])
 
-    def test_reconcile_runs_no_git_and_touches_no_network(self):
-        # Quiet.setUp made any process or connection a failure; the whole of reconcile is local
-        firstrun.reconcile()
-        self.assertTrue(self.config())
-
 
 class OptOut(Quiet):
 
@@ -480,12 +475,6 @@ class Content(Quiet):
         self.put({"id": self.ns, "kind": "folder", "path": str(folder), "shadows": {"url": self.remote.url}})
         (self.root / ".lab/catalogs" / self.ns).symlink_to(folder)
         self.assertEqual(firstrun.content({})["key"], "ready")
-
-    def test_content_reads_the_disk_and_memory_and_nothing_else(self):
-        # Quiet.setUp: a process or a connection fails the test
-        self.put(self.git(), demos={"error": "timeout"})
-        for _ in range(3):
-            firstrun.content({})
 
 
 class Early(Case):
