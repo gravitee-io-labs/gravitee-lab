@@ -983,6 +983,7 @@ class Refusals(Seam):
         self.assertTrue(line.endswith("has no branch nope. Check the name, or leave it empty for the default."), line)
 
     def test_a_branch_that_is_no_name_is_refused_before_anything_runs(self):
+        self.patch(gitx, "version", return_value=gitx.MINIMUM)
         self.patch(gitx, "run", side_effect=AssertionError("git was run"))
         code, status, line = self.refused("https://github.com/acme/lab-hub", "a b;rm")
         self.assertEqual((code, status), ("branch_missing", 400))

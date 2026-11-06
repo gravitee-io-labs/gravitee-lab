@@ -679,13 +679,9 @@ def require_ok(result: Result, address: Optional[Address] = None) -> Result:
 def version() -> Optional[Tuple[int, int, int]]:
     """The version of git as a tuple of three numbers, or None when there is no git (or only the macOS shim without
     the Command Line Tools: it is never run)."""
-    exe = executable()
-    if exe is None:
-        return None
-    argv, cwd, env = _prepare(exe, ["--version"], None, None)
     try:
-        result = _execute(argv, cwd, env, None, 10, None, None, 4096, None)
-    except (OSError, OutputLimit):
+        result = run(["--version"], timeout=10, limit=4096)
+    except (CatalogError, OSError, OutputLimit):
         return None
     found = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", result.out.decode("utf-8", "replace")) if result.code == 0 else None
     return tuple(int(part or 0) for part in found.groups()) if found else None

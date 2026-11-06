@@ -630,7 +630,8 @@ class State(Served, Case):
 
     def test_the_first_state_says_downloading_the_failure_stays_and_the_lists_fill(self):
         firstrun.reconcile()
-        with mock.patch.object(gitx, "run", side_effect=AssertionError("git was run")), \
+        with mock.patch.object(gitx, "version", return_value=(2, 43, 2)), \
+                mock.patch.object(gitx, "run", side_effect=AssertionError("git was run")), \
                 mock.patch.object(gitx, "stream", side_effect=AssertionError("git was streamed")):
             first = self.state()
         self.assertEqual((first["content"]["key"], first["content"]["progress"], first["content"]["line"]),
