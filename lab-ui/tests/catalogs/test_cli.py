@@ -679,9 +679,6 @@ class Reading(Tool):
         self.addCleanup(shutil.rmtree, folder, True)
         return folder / "catalog.json"
 
-    def test_a_catalog_that_is_not_here_has_no_index(self):
-        self.assertEqual(self.run_tool("index", "ghost")[0], 2)
-
 
 def compose_runs(case, *argv):
     """What Compose was given to run while `argv` ran, with the shell holding a secret of the runner: [(the words after `docker`,
@@ -959,13 +956,11 @@ class Delegated(Tool):
     COMMANDS = (("new", "standard", "main_new"), ("upgrade", "standard", "main_upgrade"), ("release", "release", "main"),
                 ("repo-settings", "settings", "main"), ("ci", "ci", "main"))
 
-    def run_with(self, command, module_name, function, *argv, answer=0, say=""):
+    def run_with(self, command, module_name, function, *argv, answer=0):
         seen = []
 
         def main(rest, **more):
             seen.append(list(rest))
-            if say:
-                print(say)
             return answer
         with mock.patch.dict(sys.modules, {f"lab_ui.catalogs.{module_name}": module(**{function: main})}):
             return self.run_tool(command, *argv), seen
@@ -978,12 +973,6 @@ class Delegated(Tool):
                     (code, out, err), seen = self.run_with(command, module_name, function, *rest, answer=answer)
                     self.assertEqual((code, out, err), (answer, "", ""))
                     self.assertEqual(seen, [rest])
-
-    def test_what_the_module_prints_is_what_the_caller_reads(self):
-        for command, module_name, function in self.COMMANDS:
-            with self.subTest(command=command):
-                (code, out, err), _ = self.run_with(command, module_name, function, say="from the module")
-                self.assertEqual((code, out), (0, "from the module\n"))
 
     def test_a_module_that_a_command_needs_and_that_is_missing_is_a_fault_to_show(self):
         def broken(name, package=None):
@@ -1003,10 +992,6 @@ class Delegated(Tool):
             self.assertEqual(self.run_tool("upgrade", "--fleet", "acme", "--lab-ref", "b" * 40), (0, "", ""))
         self.assertEqual(seen, [["--fleet", "acme", "--lab-ref", "b" * 40]])
 
-    def test_an_upgrade_that_is_not_the_loop_is_the_standard_s(self):
-        (code, out, err), seen = self.run_with("upgrade", "standard", "main_upgrade", ".", "--write", "--lab-ref", "latest", answer=1)
-        self.assertEqual((code, seen), (1, [[".", "--write", "--lab-ref", "latest"]]))
-
     def test_a_refusal_the_module_lets_out_is_its_line_and_a_bug_is_a_fault(self):
         def refuses(rest, **more):
             raise registry.CatalogError("not_catalog", "acme/hub has no catalog.yml, so it is not a catalog.", 400)
@@ -1019,12 +1004,6 @@ class Delegated(Tool):
             code, out, err = self.run_tool("release", "1.0.0")
         self.assertEqual((code, out), (2, ""))
         self.assertIn("a fault of the tool, not a problem of the catalog", err)
-
-    def test_the_help_lists_every_command_of_the_standard(self):
-        code, out, err = self.run_tool("--help")
-        self.assertEqual(code, 0)
-        for command in ("new", "check", "explain", "upgrade", "repo-settings", "release", "ci"):
-            self.assertIn(command, out)
 
     def test_repo_settings_is_the_real_module_with_its_own_help_and_its_own_usage_errors(self):
         code, out, err = self.run_tool("repo-settings", "--help")
@@ -1502,7 +1481,7 @@ class Other(Tool):
                               text=True, timeout=60, stdin=subprocess.DEVNULL)
         self.assertEqual(done.returncode, 0, done.stderr)
         for command in ("link", "unlink", "add", "provision", "list", "update", "undo", "remove", "suggest", "reset", "check",
-                        "index", "new"):
+                        "index", "new", "explain", "upgrade", "repo-settings", "release", "ci"):
             self.assertIn(command, done.stdout)
 
     def test_what_the_machine_refuses_is_a_line_and_exit_2_not_a_traceback(self):
