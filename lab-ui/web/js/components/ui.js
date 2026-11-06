@@ -511,9 +511,6 @@ const rowHtml = (row, columns = COLUMNS) => {
   if (alone) return `<span class="pop-row">${lineHtml(row.lines[0], row.subject, columns)}</span>`;
   return `<span class="pop-row">${row.subject ? `<span class="pop-subject pop-head">${esc(row.subject)}</span>` : ""}${row.lines.map((line) => lineHtml(line, "", columns)).join("")}</span>`;
 };
-// The captions of the two columns of versions, over the rows of a card that has any
-const hasVersions = (card) => (card.rows || []).some((row) => row.lines.some((line) => line.some((part) => part?.versions)));
-const captions = (card) => `<span class="pop-captions" aria-hidden="true"><span class="pop-run">${esc((card.columns || COLUMNS)[0])}</span> <span class="pop-saved">${esc((card.columns || COLUMNS)[1])}</span></span>`;
 
 // A card from lines of text: the first its title when `title` says so, then its sentence when there is one (no hairline: a term and what
 // it means), else each other one a row; one long line is its sentence
@@ -529,7 +526,7 @@ const cardSaid = (card) => [card.title, card.text, ...(card.rows || []).map((row
 // window allows: the card itself keeps its arrow and the bridge to its button, outside its box. A card may end with one button that leads
 // somewhere (`action`: {label, href}, or {label, attrs} for a button that the page's own handler answers): a link the pointer reaches, and the keyboard after its badge, which keeps the card open meanwhile.
 export const cardHtml = (card) => `<span class="pop-body"><span class="pop-title">${esc(card.title || "")}</span>${card.text ? `<span class="pop-text">${esc(card.text)}</span>` : ""}${
-  card.rows?.length ? `<span class="pop-rows">${hasVersions(card) ? captions(card) : ""}${card.rows.map((row) => rowHtml(row, card.columns || COLUMNS)).join("")}</span>` : ""}${card.foot ? `<span class="pop-foot">${esc(card.foot)}</span>` : ""}${
+  card.rows?.length ? `<span class="pop-rows">${card.rows.map((row) => rowHtml(row, card.columns || COLUMNS)).join("")}</span>` : ""}${card.foot ? `<span class="pop-foot">${esc(card.foot)}</span>` : ""}${
   card.action ? (card.action.attrs ? `<button type="button" class="btn" ${card.action.attrs}>${esc(card.action.label)}</button>`
     : `<a class="btn" href="${esc(card.action.href)}">${esc(card.action.label)}</a>`) : ""}</span>`;
 

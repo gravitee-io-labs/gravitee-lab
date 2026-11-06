@@ -276,7 +276,6 @@ a.pill { text-decoration: none; transition: background var(--dur-1) var(--ease);
 .pop-row + .pop-row::before { content: ""; grid-column: 1 / -1; border-top: 1px solid var(--border); margin: var(--sp-1) 0; }
 /* Between two causes of one row: a hairline, so that each list of components stands with the reason that goes with it */
 .pop-line + .pop-line::before { content: ""; grid-column: 1 / -1; border-top: 1px solid var(--border); margin: var(--sp-1) 0; }
-.pop-captions { display: none; }
 .pop-head { grid-column: 1 / -1; }
 .pop-subject { color: var(--text); font-weight: var(--fw-2); line-height: 20px; overflow-wrap: anywhere; }
 .pop-who { display: flex; flex-direction: column; gap: var(--sp-1); max-width: 200px; color: var(--text); line-height: 20px; overflow-wrap: anywhere; }

@@ -446,7 +446,7 @@ test("the card is the Gravitee platform: a row for each product, named once, wit
   assert.deepEqual(products().map((row) => [part(row, "upd").querySelector(".dot-status").getAttribute("class"), cls(part(row, "upd").querySelector(".status"))]),
     [["dot-status warn", "status warn"], ["dot-status done", "status muted"]]);
   assert.deepEqual(tipOf(part(products()[0], "upd").querySelector(".tip-btn")), ["Update available", "4.12.20 4.12.21", "Choose it on the Images page."]);
-  assert.equal(text(part(products()[0], "upd").querySelector(".pop-captions")), "Running Latest release");
+  assert.deepEqual(["pop-run", "pop-saved"].map((cell) => part(products()[0], "upd").querySelector(`.${cell}`).getAttribute("data-cap")), ["Running", "Latest release"]);
   assert.deepEqual(tipOf(part(products()[1], "upd").querySelector(".tip-btn")), ["Up to date", "4.13.0-alpha.7 is the latest pre-release"]);
   assert.deepEqual(products().map((row) => row.querySelectorAll(".pill").map(text)), [[], []], "no pill on a row that is all right");
   assert.deepEqual(products().map((row) => part(row, "ver").querySelectorAll(".s-version").map(text)), [["4.12.20"], ["4.13.0-alpha.7"]], "a version is in mono");

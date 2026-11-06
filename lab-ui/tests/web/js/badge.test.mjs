@@ -214,7 +214,7 @@ test("a row's badge opens the card of its causes: versions and settings as chips
   assert.deepEqual(bubble(root), ["Differs from what is saved", "4.13.0-alpha.4 4.12.20 (older)", "Apply restarts it with what is saved, older versions included."]);
   assert.deepEqual(chips(root), ["4.13.0-alpha.4", "4.12.20"]);
   // The versions are a table: what runs and what is saved under their captions, the one saved marked when Apply goes back to it
-  assert.equal(text(root.querySelector(".pop-captions")), "Running Saved");
+  assert.deepEqual(["pop-run", "pop-saved"].map((cell) => root.querySelector(`.${cell}`).getAttribute("data-cap")), ["Running", "Saved"]);
   assert.deepEqual([root.querySelector(".pop-run .chip").getAttribute("class"), root.querySelector(".pop-saved .chip").getAttribute("class")], ["chip", "chip older"]);
   assert.match(root.querySelector(".tip-btn").getAttribute("aria-label"), /^Apply needed: /);
   assert.deepEqual(bubble(draw(applyBadge("x", [{ ...TAG, older: false }]))).slice(1), ["4.13.0-alpha.4 4.12.20", "Apply restarts it with what is saved."], "a newer one saved is no going back");
@@ -245,7 +245,7 @@ test("the platform's card: how many containers in all, a row for each product wi
   assert.deepEqual(root.querySelectorAll(".pop-subject").map(text), ["API Management", "Databases"]);
   // A product's one cause is on its line; a group's causes are under it, each with whom it is about
   assert.deepEqual(root.querySelectorAll(".pop-who").map(text), ["API Management", "Elasticsearch", "MongoDB"], "who, when not all of the product");
-  assert.deepEqual(root.querySelectorAll(".pop-run").map(text), ["Running", "4.13.0-alpha.4", "9.5.3", "8.3.11"], "every version that runs in one column, under its caption");
+  assert.deepEqual(root.querySelectorAll(".pop-run").map(text), ["4.13.0-alpha.4", "9.5.3", "8.3.11"], "every version that runs in one column");
   assert.equal(root.querySelector(".tip-btn").getAttribute("aria-label"), "Apply needed: a. b");
   assert.equal(behindWhy({ behind: [{ name: "Kafka", count: 1, causes: [{ kind: "config", services: [] }] }] }).title, "1 container differs from what is saved");
   assert.equal(behindWhy({ behind: [{ name: "Kafka", reason: "x" }] }), null, "no causes, no card: the lines say it");
