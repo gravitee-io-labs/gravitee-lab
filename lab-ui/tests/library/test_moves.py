@@ -467,6 +467,12 @@ class Tracked(Moves):
             with self.subTest(path=path):
                 self.assertEqual(moves.tracked(repo / path), expected)
 
+    def test_no_program_runs_to_tell(self):
+        # A move may start in a folder a container wrote: a `.git` it planted makes even `git ls-files` run a command
+        refuse = AssertionError("this ran a program")
+        with mock.patch.object(subprocess, "Popen", side_effect=refuse), mock.patch.object(os, "system", side_effect=refuse):
+            self.assertTrue(moves.tracked(self.checkout(["README.md"]) / "README.md"))
+
     def test_a_name_in_the_other_unicode_form_is_the_same_name(self):
         repo = self.checkout(["caf\u00e9/a.txt"])
         self.assertTrue(moves.tracked(repo / "cafe\u0301"))
