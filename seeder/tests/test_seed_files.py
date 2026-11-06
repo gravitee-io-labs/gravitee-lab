@@ -1,11 +1,10 @@
-"""The seed files of every playground, read as the seed reads them: each ${VAR} they use is one the playground's seed
-service sets (or one the engine gives the files of an environment), no address is written out (it is a variable, so the
-same files work against any platform), and each file parses once its variables are replaced. The folders of seed/environments
-agree with themselves: a member of a group is a user, an application's group is a group, a subscription names an
-application, an API and a plan of the folder. The logins the Lab UI lists for Acme Bakery are the defaults of their settings.
+"""The checks of seed files: a ${VAR} is one the seed service sets (or one the engine gives the files of an environment), no
+address is written out, and the folders of seed/environments agree with themselves: a member of a group is a user, an
+application's group is a group, a subscription names an application, an API and a plan of the folder. The logins the Lab UI
+lists for Acme Bakery are the defaults of their settings.
 
-The checks themselves are those of seedlint.py, which a catalog's CI runs on the command line (test_seedlint.py tests the
-command); this file tests them on files made for it and runs them on the engine's sample, PLAYGROUNDS."""
+The checks are those of seedlint.py, which a catalog's CI runs on the command line (test_seedlint.py tests the command and runs
+it on the engine's sample); this file tests them on files made for it."""
 
 import json
 import os
@@ -21,38 +20,8 @@ from lab_seeder import apim
 from lab_seeder import apim_portal
 from lab_seeder import common
 from lab_seeder.seedlint import (SMALL, compose_value, environment_problems, literal_addresses, provided_to, seed_environment,
-                      seed_paths, seed_service, seeded_playgrounds, unset_variables)
+                                 seed_service, seeded_playgrounds, unset_variables)
 from lab_seeder.testkit import PLAYGROUNDS
-
-
-class SeedFiles(unittest.TestCase):
-
-    def playgrounds(self):
-        found = list(seeded_playgrounds(PLAYGROUNDS))
-        self.assertTrue(found, f"no playground under {PLAYGROUNDS} has a seed folder and a seed service")
-        return found
-
-    def test_every_variable_a_seed_file_uses_is_set_by_its_seed_service(self):
-        for folder, environment in self.playgrounds():
-            for path in seed_paths(folder):
-                with self.subTest(file=str(path.relative_to(PLAYGROUNDS))):
-                    self.assertEqual(unset_variables(path.read_text(encoding="utf-8"), environment, provided_to(path, folder)), set(),
-                                     "set it, with a value, in the seed service's environment, or give it a default")
-
-    def test_no_seed_file_writes_out_an_address(self):
-        for folder, environment in self.playgrounds():
-            for path in seed_paths(folder):
-                with self.subTest(file=str(path.relative_to(PLAYGROUNDS))):
-                    self.assertEqual(literal_addresses(path.read_text(encoding="utf-8")), set(),
-                                     "an address is a ${VARIABLE} set by the seed service")
-
-    def test_every_seed_file_parses_once_its_variables_are_replaced(self):
-        for folder, environment in self.playgrounds():
-            with mock.patch.dict(os.environ, environment, clear=True):
-                for path in seed_paths(folder):
-                    if path.suffix in (".yaml", ".yml", ".json"):
-                        with self.subTest(file=str(path.relative_to(PLAYGROUNDS))):
-                            common.load(path, provided=dict.fromkeys(provided_to(path, folder), "x"))
 
 
 # --- The folders of seed/environments ---------------------------------------------------
@@ -60,13 +29,6 @@ class SeedFiles(unittest.TestCase):
 
 class Environments(unittest.TestCase):
     """The folders of seed/environments of every playground that has some: one in the engine's sample, Acme Hostels'."""
-
-    def test_every_environment_folder_agrees_with_itself(self):
-        for folder, environment in seeded_playgrounds(PLAYGROUNDS):
-            for found in sorted((folder / "seed" / "environments").glob("*")):
-                if found.is_dir():
-                    with self.subTest(environment=f"{folder.name}/{found.name}"):
-                        self.assertEqual(environment_problems(found, environment), [])
 
     def test_every_environment_folder_is_read_by_the_modules_that_seed_it(self):
         """The files of the environment and of its portal, read as the seed reads them: a typo of a hrid, a location or a

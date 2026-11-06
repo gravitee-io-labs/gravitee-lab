@@ -188,11 +188,6 @@ def _walk(seed):
     return sorted(found), sorted(odd)
 
 
-def seed_paths(folder):
-    """The text files of a playground's seed folder, as paths."""
-    return _walk(Path(folder) / "seed")[0]
-
-
 @contextlib.contextmanager
 def _with_environment(values):
     """The environment of this process is exactly `values` inside, and as it was after."""

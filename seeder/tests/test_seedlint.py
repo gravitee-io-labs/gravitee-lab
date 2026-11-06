@@ -1010,7 +1010,6 @@ class Hostile(Made):
         self.link(folder / "seed" / "linked", outside)
         found = seedlint.problems(folder)
         self.assertEqual([(p.check, Path(p.path).name) for p in found], [("read", "linked")])
-        self.assertEqual(seedlint.seed_paths(folder), [folder / "seed" / "a.yaml"])
 
     def test_a_link_for_the_compose_file_the_seed_folder_or_a_playground_is_not_followed(self):
         outside = self.root / "outside"
@@ -1562,13 +1561,6 @@ class InTheEngine(unittest.TestCase):
         self.assertIs(seedlint.MERGES, common.MERGES)
         defined = {node.name for node in ast.walk(self.tree()) if isinstance(node, ast.FunctionDef)}
         self.assertFalse(defined & {"_copied", "_merging", "merged_pairs", "parse_yaml"}, "the count and the guard are common.py's")
-
-    def test_the_playgrounds_the_tests_read_have_nothing_to_lint_through_the_command(self):
-        root = seedlint.SAMPLES
-        report = seedlint.lint(root)
-        self.assertEqual(report.problems, [])
-        self.assertGreater(report.playgrounds, 0, f"no playground of {root} has a seed")
-        self.assertGreater(report.files, 0)
 
     def test_the_sample_is_read_whole(self):
         report = seedlint.lint(seedlint.SAMPLES)

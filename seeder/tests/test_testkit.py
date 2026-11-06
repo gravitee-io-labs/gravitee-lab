@@ -61,10 +61,6 @@ CHECKS = "service: {labels: {io.gravitee.role: seed}, environment: {A: x}}"
 
 class OneSetOfChecks(unittest.TestCase):
 
-    def test_the_sample_is_read_whole_with_nothing_to_say(self):
-        report = seedlint.lint(SAMPLES)
-        self.assertEqual((report.problems, report.playgrounds), ([], 2))
-
     def test_a_compose_file_is_read_with_the_guards_of_the_lint(self):
         """The compose file of a playground is a stranger's: a bomb of YAML, a link, a file that is not text are refused, and the
         loader of YAML does not run on the first."""
