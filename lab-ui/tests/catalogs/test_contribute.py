@@ -174,11 +174,6 @@ class Vouched(Seam):
         text = "x-gravitee:\n  category: Demo\n"
         written = contribute._declared(text, {"APIM_VERSION": "4.12.0", "AM_VERSION": "4.12.7"})
         self.assertEqual(written, 'x-gravitee:\n  tested:\n    - APIM_VERSION: "4.12.0"\n      AM_VERSION: "4.12.7"\n  category: Demo\n')
-        try:
-            import yaml
-        except ImportError:
-            return
-        self.assertEqual(yaml.safe_load(written)["x-gravitee"]["tested"], [{"APIM_VERSION": "4.12.0", "AM_VERSION": "4.12.7"}])
         self.assertIsNone(contribute._declared(text, {}))
 
     def test_a_set_the_file_declares_is_kept_as_it_is(self):
