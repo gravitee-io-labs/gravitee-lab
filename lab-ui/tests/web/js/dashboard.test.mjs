@@ -168,12 +168,12 @@ const gateway = (more) => ({ id: "g1", name: "lab", environmentId: "env-developm
   connection: "CONNECTED", version: "4.12.20", domains: ["localhost:8090"], here: false, kept: true, ...more });
 const check = (gateways = [], more = {}) => ({ state: "ok", message: "", environments: ["Development", "Test", "Production"].map(environment), gateways, ...more });
 
-const product = (id, name, more = {}) => ({ id, name, deployed: "4.12.20", deployed_state: "running", channel: "stable", stable: "4.12.21",
-  prerelease: "4.13.0-alpha.4", latest: "4.12.21", status: "newer", ...more });
+const product = (id, name, more = {}) => ({ id, name, deployed: "4.12.20", deployed_state: "running", channel: "stable",
+  latest: "4.12.21", status: "newer", ...more });
 // What `docker system df` says, as the server gives it: a size and what is unused for each type, and the total of the four
 const DF = (more = {}) => {
-  const found = { images: { count: 122, size: 58890000000, reclaimable: 42700000000 }, containers: { count: 20, running: 19, size: 2243000000, reclaimable: 131100 },
-    volumes: { count: 73, size: 5944000000, reclaimable: 5479000000 }, cache: { count: 1630, size: 18620000000, reclaimable: 9709000000 }, ...more };
+  const found = { images: { size: 58890000000, reclaimable: 42700000000 }, containers: { size: 2243000000, reclaimable: 131100 },
+    volumes: { size: 5944000000, reclaimable: 5479000000 }, cache: { size: 18620000000, reclaimable: 9709000000 }, ...more };
   const total = (field) => ["images", "containers", "volumes", "cache"].reduce((sum, kind) => sum + found[kind][field], 0);
   return { ...found, total: { size: total("size"), reclaimable: total("reclaimable") }, read_at: 1791734641 };
 };
@@ -183,7 +183,7 @@ const dashboard = (more = {}) => ({
   data: DF(),
   products: [
     product("api-management", "API Management"),
-    product("access-management", "Access Management", { deployed: "4.13.0-alpha.7", channel: "pre-release", stable: "4.12.8", prerelease: "4.13.0-alpha.7", latest: "4.13.0-alpha.7", status: "latest" }),
+    product("access-management", "Access Management", { deployed: "4.13.0-alpha.7", channel: "pre-release", latest: "4.13.0-alpha.7", status: "latest" }),
   ],
   gateways: { cloud: { stable: "4.12.21" } },
   pending: false,
@@ -512,7 +512,7 @@ test("a product that runs behind what is saved and has a newer version out says 
   const causes = [{ kind: "tag", saved: "4.12.20", running: "4.13.0-alpha.4", older: true, services: [] }];
   const late = { note: "Apply needed", note_tone: "warn", note_title: "4.12.20 is saved, 4.13.0-alpha.4 still runs.", note_target: null, note_file: null, note_apply: true, note_causes: causes };
   await open({ state: lab({ groups: [group("api-management", "API Management", ["apim-gateway"], RUNNING, late)] }),
-    body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.4", channel: "pre-release", prerelease: "4.13.0-alpha.9", latest: "4.13.0-alpha.9", status: "newer" })] }) });
+    body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.4", channel: "pre-release", latest: "4.13.0-alpha.9", status: "newer" })] }) });
   const badge = part(products()[0], "upd").querySelector(".tip-btn");
   assert.equal(upd(products()[0]), "Apply needed");
   assert.deepEqual(tipOf(badge).slice(-2), ["Update available 4.13.0-alpha.9", "Apply restarts it with what is saved, older versions included."], "the newer version, under the causes");
@@ -583,7 +583,7 @@ test("a console is where its link says, wherever that is: the one of a service o
 });
 
 test("a pre-release is told its newer version, a release once there is one", async () => {
-  await open({ body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.2", channel: "pre-release", stable: "4.13.0", prerelease: null, latest: "4.13.0" })] }) });
+  await open({ body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.2", channel: "pre-release", prerelease: null, latest: "4.13.0" })] }) });
   assert.equal(ver(products()[0]), "4.13.0-alpha.2");
   assert.equal(upd(products()[0]), "Update available");
   assert.deepEqual(tipOf(part(products()[0], "upd").querySelector(".tip-btn")), ["Update available", "4.13.0-alpha.2 4.13.0", "Choose it on the Images page."]);
@@ -1537,7 +1537,7 @@ test("storage says what Docker stores, its images, containers, volumes and build
 
 test("a type that takes nothing is not in the popover of what is unused, and nothing unused says so", async () => {
   const none = { count: 0, size: 0, reclaimable: 0 };
-  await open({ body: dashboard({ data: DF({ containers: { ...none, running: 0 }, volumes: none, cache: none, images: { count: 4, size: 1200000000, reclaimable: 0 } }) }) });
+  await open({ body: dashboard({ data: DF({ containers: { ...none, running: 0 }, volumes: none, cache: none, images: { size: 1200000000, reclaimable: 0 } }) }) });
   assert.equal(tileSaid(cells()[2]), "Storage 1.2 GB in Docker Nothing unused");
   assert.deepEqual(cells()[2].querySelectorAll(".dash-unused .pop-who").map(text), ["Images"]);
   assert.deepEqual(tipOf(cells()[2].querySelector(".dash-unused .tip-btn")), ["Nothing unused", "What no container uses", "Images 1.2 GB, all in use"]);

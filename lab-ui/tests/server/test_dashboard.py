@@ -23,10 +23,10 @@ DF = "\n".join(json.dumps(row) for row in [
     {"Active": "19", "Reclaimable": "131.1kB (0%)", "Size": "2.243GB", "TotalCount": "20", "Type": "Containers"},
     {"Active": "5", "Reclaimable": "5.479GB (92%)", "Size": "5.944GB", "TotalCount": "73", "Type": "Local Volumes"},
     {"Active": "35", "Reclaimable": "9.709GB", "Size": "18.62GB", "TotalCount": "1630", "Type": "Build Cache"}])
-USAGE = {"images": {"count": 122, "size": 58_890_000_000, "reclaimable": 42_700_000_000},
-         "containers": {"count": 20, "running": 19, "size": 2_243_000_000, "reclaimable": 131_100},
-         "volumes": {"count": 73, "size": 5_944_000_000, "reclaimable": 5_479_000_000},
-         "cache": {"count": 1630, "size": 18_620_000_000, "reclaimable": 9_709_000_000},
+USAGE = {"images": {"size": 58_890_000_000, "reclaimable": 42_700_000_000},
+         "containers": {"size": 2_243_000_000, "reclaimable": 131_100},
+         "volumes": {"size": 5_944_000_000, "reclaimable": 5_479_000_000},
+         "cache": {"size": 18_620_000_000, "reclaimable": 9_709_000_000},
          "total": {"size": 85_697_000_000, "reclaimable": 57_888_131_100}}
 # What `docker stats --format '{{json .}}'` prints: the first screen sends the cursor home, the next ones erase before
 # that, every line may end with an erase to the end of the line, and a blank line ends the screen
@@ -60,10 +60,9 @@ class Sizes(Case):
 
     def test_what_is_missing_counts_for_nothing(self):
         found = dashboard.parse_df('{"Type":"Images","TotalCount":"3","Size":"1GB","Reclaimable":"0B"}\nnot json\n')
-        self.assertEqual(found["images"], {"count": 3, "size": 1_000_000_000, "reclaimable": 0})
-        nothing = {"count": 0, "size": 0, "reclaimable": 0}
-        self.assertEqual((found["volumes"], found["cache"], found["containers"]),
-                         (nothing, nothing, {**nothing, "running": 0}))
+        self.assertEqual(found["images"], {"size": 1_000_000_000, "reclaimable": 0})
+        nothing = {"size": 0, "reclaimable": 0}
+        self.assertEqual((found["volumes"], found["cache"], found["containers"]), (nothing, nothing, nothing))
         self.assertEqual(found["total"], {"size": 1_000_000_000, "reclaimable": 0})
         self.assertIsNone(dashboard.parse_df(""))
         self.assertIsNone(dashboard.parse_df("Cannot connect to the Docker daemon"))
@@ -80,8 +79,6 @@ class Sizes(Case):
         self.assertEqual([found[kind]["reclaimable"] for kind in dashboard.TYPES],
                          [42_140_000_000, 1_085_000, 5_479_000_000, 9_846_000_000])
         self.assertEqual(found["total"], {"size": 85_782_000_000, "reclaimable": 57_466_085_000})
-        self.assertEqual(found["containers"]["running"], 20, "the containers that run, not the ones that exist")
-        self.assertEqual(found["volumes"]["count"], 73)
 
     def test_what_is_unused_never_exceeds_what_the_type_takes(self):
         # Docker rounds both columns on their own: 1.0004GB is "1GB" in one and "1.001GB" in the other
@@ -121,7 +118,7 @@ class Docker(Case):
         self.assertIsNone(dashboard._usage())
         self.assertEqual(self.asked("system"), 2)   # a failure is not kept
         self.answers["df"] = (0, DF, "")
-        self.assertEqual(dashboard._usage()["images"]["count"], 122)
+        self.assertEqual(dashboard._usage()["images"]["size"], 58_890_000_000)
 
     def test_a_minute(self):
         self.assertEqual((dashboard.DOCKER_TTL, dashboard.LATEST_TTL), (60, 3600))
@@ -208,8 +205,7 @@ class Products(Case):
             ("api-management", "API Management"), ("access-management", "Access Management"),
             ("alert-engine", "Alert Engine")])
         # What a row says: no link to a page, no text status
-        self.assertEqual(sorted(rows[0]), ["channel", "deployed", "deployed_state", "id", "latest", "name",
-                                           "prerelease", "stable", "status"])
+        self.assertEqual(sorted(rows[0]), ["channel", "deployed", "deployed_state", "id", "latest", "name", "status"])
 
     def test_the_tag_that_runs_else_the_one_configured(self):
         containers = {**running(**{"apim-management-api": "4.13.0-alpha.4"}),
@@ -234,7 +230,7 @@ class Products(Case):
         self.tags.side_effect = lambda p, component, registry=None: block.wait(5) and [{"name": "4.12.21"}]
         rows, pending = dashboard.products(self.project, containers)
         self.assertTrue(pending)
-        self.assertEqual({(row["stable"], row["prerelease"], row["status"]) for row in rows}, {(None, None, "unknown")})
+        self.assertEqual({(row["latest"], row["status"]) for row in rows}, {(None, "unknown")})
         _, pending = dashboard.products(self.project, containers)   # no second read while one is under way
         self.assertTrue(pending)
         block.set()
@@ -243,7 +239,7 @@ class Products(Case):
         self.assertEqual(len([call for call in self.tags.call_args_list if call.args[0] is self.project]), 3)
         rows, pending = dashboard.products(self.project, containers)   # the page asks again, and finds them
         self.assertFalse(pending)
-        self.assertEqual(rows[0]["stable"], "4.12.21")
+        self.assertEqual(rows[0]["latest"], "4.12.21")
 
     def test_the_status_of_each_product(self):
         containers = running(**{"apim-management-api": "4.12.20", "am-gateway": "4.13.0-alpha.7",
@@ -252,11 +248,8 @@ class Products(Case):
         self.settle()
         rows, pending = dashboard.products(self.project, containers)
         self.assertFalse(pending)
-        self.assertEqual([(row["channel"], row["stable"], row["prerelease"], row["latest"], row["status"])
-                          for row in rows], [
-            ("stable", "4.12.21", "4.13.0-alpha.4", "4.12.21", "newer"),
-            ("pre-release", "4.12.8", "4.13.0-alpha.7", "4.13.0-alpha.7", "latest"),
-            ("stable", "3.0.2", None, "3.0.2", "latest")])
+        self.assertEqual([(row["channel"], row["latest"], row["status"]) for row in rows], [
+            ("stable", "4.12.21", "newer"), ("pre-release", "4.13.0-alpha.7", "latest"), ("stable", "3.0.2", "latest")])
 
     def test_a_pre_release_is_followed_along_its_own_channel(self):
         containers = running(**{"apim-management-api": "4.13.0-alpha.3", "am-gateway": "4.13.0-alpha.7"})
@@ -265,7 +258,6 @@ class Products(Case):
         rows, _ = dashboard.products(self.project, containers)
         self.assertEqual([(row["channel"], row["status"], row["latest"]) for row in rows[:2]],
                          [("pre-release", "newer", "4.13.0-alpha.4"), ("pre-release", "latest", "4.13.0-alpha.7")])
-        self.assertEqual(rows[0]["stable"], "4.12.21")   # the stable one is information
 
     def test_a_product_that_does_not_run_is_judged_by_the_version_configured(self):
         dashboard.products(self.project, {})
@@ -287,14 +279,14 @@ class Products(Case):
         self.settle()
         rows, pending = dashboard.products(self.project, {})
         self.assertFalse(pending)   # nothing is awaited: the page says nothing of it
-        self.assertEqual({(row["stable"], row["prerelease"], row["status"]) for row in rows}, {(None, None, "unknown")})
+        self.assertEqual({(row["latest"], row["status"]) for row in rows}, {(None, "unknown")})
         self.assertEqual(self.tags.call_count, 3)   # not before a minute has passed
         self.patch(dashboard, "RETRY", 0)
         self.tags.side_effect = self.listing
         dashboard.products(self.project, {})
         self.settle()
         self.assertEqual(self.tags.call_count, 6)
-        self.assertEqual(dashboard.products(self.project, {})[0][0]["stable"], "4.12.21")
+        self.assertEqual(dashboard.products(self.project, {})[0][0]["latest"], "4.12.21")
 
     def test_a_registry_that_does_not_know_the_repository_is_quiet_too(self):
         self.tags.side_effect = RuntimeError("Not found on Docker Hub")
@@ -383,7 +375,7 @@ class Read(Case):
         release.set()
         waited(self, lambda: dashboard._flight.done())
         found = dashboard.read(self.project)
-        self.assertEqual(found["data"]["images"]["count"], 122)
+        self.assertEqual(found["data"]["images"]["size"], 58_890_000_000)
         self.assertEqual(self.asked("system"), 1)
 
     def test_a_refresh_waits_for_what_docker_holds_as_long_as_it_takes(self):
@@ -392,7 +384,7 @@ class Read(Case):
         self.patch(dashboard, "DF_WAIT", 0)
         threading.Timer(0.1, release.set).start()
         found = dashboard.read(self.project, refresh=True)
-        self.assertEqual(found["data"]["images"]["count"], 122)
+        self.assertEqual(found["data"]["images"]["size"], 58_890_000_000)
         self.assertEqual(self.asked("system"), 2)
 
     def test_a_job_that_ends_drops_what_docker_held(self):
@@ -415,7 +407,7 @@ class Read(Case):
         self.answers["info"] = (1, json.dumps({"ServerVersion": "", "ServerErrors": [DOWN]}), "")
         found = dashboard.read(self.project)
         self.assertEqual(found["docker"]["error"], DOWN)
-        self.assertEqual(found["data"]["images"]["count"], 122)   # what Docker could still say
+        self.assertEqual(found["data"]["images"]["size"], 58_890_000_000)   # what Docker could still say
 
     def test_the_project_that_does_not_load_has_no_products(self):
         found = dashboard.read({"groups": [], "addons": {}, "setups": {}, "playgrounds": {}, "services": {}})

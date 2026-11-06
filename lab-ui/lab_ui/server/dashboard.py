@@ -57,10 +57,6 @@ def _object(text):
     return found if isinstance(found, dict) else {}
 
 
-def _number(text):
-    return int(text) if str(text).isdigit() else 0
-
-
 def parse_df(out):
     """What Docker holds, from `docker system df --format '{{json .}}'` (an object a line): {images, containers, volumes,
     cache, total}, sizes in bytes. `size` is what a type takes and `reclaimable` what no container uses (Docker's word for
@@ -79,13 +75,8 @@ def parse_df(out):
         row = rows.get(kind, {})
         taken = size(row.get("Size"))
         return {"size": taken, "reclaimable": min(size(row.get("Reclaimable")), taken)}
-
-    def count(kind, field="TotalCount"):
-        return _number(rows.get(kind, {}).get(field))
-    found = {"images": {"count": count("Images"), **sizes("Images")},
-             "containers": {"count": count("Containers"), "running": count("Containers", "Active"), **sizes("Containers")},
-             "volumes": {"count": count("Local Volumes"), **sizes("Local Volumes")},
-             "cache": {"count": count("Build Cache"), **sizes("Build Cache")}}
+    found = {"images": sizes("Images"), "containers": sizes("Containers"), "volumes": sizes("Local Volumes"),
+             "cache": sizes("Build Cache")}
     found["total"] = {field: sum(found[kind][field] for kind in TYPES) for field in ("size", "reclaimable")}
     return found
 
@@ -193,7 +184,7 @@ def deployed(project, component, containers):
 def products(project, containers):
     """(the Gravitee products of the platform, whether versions are still being read). A product is a group of the
     platform with Gravitee images, described by its main component (the one most of its services share): {id, name,
-    deployed, deployed_state, channel, stable, prerelease, latest, status}, in the order of the groups. `latest` is the
+    deployed, deployed_state, channel, latest, status}, in the order of the groups. `latest` is the
     newest version of the channel of `deployed` and `status` says whether it is that one (judge)."""
     rows, seen, pending = [], set(), False
     for component in images.components(project):
@@ -206,8 +197,7 @@ def products(project, containers):
         stable, prerelease = found or (None, None)
         status, newest = judge(tag, stable, prerelease)
         rows.append({"id": owner["id"], "name": owner["name"], "deployed": tag, "deployed_state": state,
-                     "channel": channel(tag), "stable": stable, "prerelease": prerelease, "latest": newest,
-                     "status": status})
+                     "channel": channel(tag), "latest": newest, "status": status})
         pending = pending or reading
     return rows, pending
 

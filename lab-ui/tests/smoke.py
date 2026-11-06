@@ -28,7 +28,7 @@ OF_KIND = {"playgrounds": {"tags", "duration", "first_start", "source", "chapter
            "setups": {"includes", "members"},
            "addons": {"services", "needs", "conflicts", "restarts", "brings", "recreates"}}
 ACTION = {"do", "label", "enabled", "reason", "dialog"}
-PRODUCT = {"id", "name", "deployed", "deployed_state", "channel", "stable", "prerelease", "latest", "status"}
+PRODUCT = {"id", "name", "deployed", "deployed_state", "channel", "latest", "status"}
 SERVICE = {"label", "container", "image", "tag", "running_tag", "registry", "ports", "built", "role", "state", "uptime",
            "on", "behind", "needs_license", "note", "note_tone", "note_title", "note_target", "note_file", "brings",
            "recreates"}
