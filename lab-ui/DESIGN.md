@@ -575,10 +575,10 @@ What the server decides and the page shows. A name in backticks is the code to r
 
 - The three kinds are created here, personal or shared: from a form that writes the compose file, or as the prompt that
   has an AI agent follow a skill of `.agents/skills/` (`personal.SKILLS`).
-- A personal item is deleted here, or shared. "Share" moves it into the project with the paths that change, once `make
-  check` has nothing to say of it as a shared item (`personal.share`). Share, and the rename of a setup, list first the
-  other files they write again ("Changes").
-- An item cannot be shared or deleted while it is on (`personal.held`).
+- A personal item is deleted here, or shared. "Share" copies it into a catalog, once the rules of a catalog's item have
+  nothing to say of it (`contribute.share`). Share, and the rename of a setup, list first the other files they write again
+  ("Changes").
+- An item cannot be deleted while it is on (`personal.held`).
   - An add-on or a playground says "Stop it first" while something of it runs, "Turn it off first" otherwise. It is not
     deleted while something of it runs, on or off either: its containers would run on with no file.
   - A setup is held only when the on file names it itself (a person may write it), and it is not renamed either.

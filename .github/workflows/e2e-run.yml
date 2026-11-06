@@ -1,5 +1,5 @@
 # The end-to-end run of a catalog, as a workflow another calls (`uses:`): the engine's own (e2e.yml). Each
-# item a change touches (an add-on, a setup, a playground) is started on a machine with no lab, with the engine, and has to work, on
+# item it tries (an add-on, a setup, a playground) is started on a machine with no lab, with the engine, and has to work, on
 # each set of versions it says it was tested with (`x-gravitee.tested`), as `make e2e` does. The engine holds no item: the items are
 # the catalog's, checked out beside the engine and linked into it.
 #
@@ -42,7 +42,7 @@ on:
         type: string
         default: ""
       items:
-        description: "changed (what the change touches), all, canary, or items as kind:id separated by spaces"
+        description: "changed (the canary, when the change touches what every item shares), all, canary, or items as kind:id separated by spaces"
         type: string
         default: changed
       base:
