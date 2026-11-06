@@ -578,13 +578,11 @@ class Kit(unittest.TestCase):
         folder = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, folder, True)
         pidfile = os.path.join(folder, "pid")
-        program = ("import os, subprocess, sys, time\nchild = subprocess.Popen(['sleep', '120'])\n"
-                   f"open({pidfile!r}, 'w').write(str(child.pid))\ntime.sleep(120)")
         started = time.monotonic()
-        code, out, err = ci.run_limited([sys.executable, "-c", program], timeout=2, environ=dict(os.environ))
+        code, out, err = ci.run_limited(["sh", "-c", f"sleep 120 & echo $! > {pidfile}; wait"], timeout=2, environ=dict(os.environ))
         self.assertLess(time.monotonic() - started, 30)
         self.assertEqual(code, 124)
-        self.assertEqual(err, f"{sys.executable} did not answer within 2 s")
+        self.assertEqual(err, "sh did not answer within 2 s")
         child = int(Path(pidfile).read_text())
         for _ in range(50):   # (the signal is delivered, and the child is collected by init)
             try:

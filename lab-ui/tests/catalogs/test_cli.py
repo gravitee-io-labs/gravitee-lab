@@ -16,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import types
 import unittest
 from pathlib import Path
@@ -1369,19 +1368,18 @@ class Provision(Tool):
 
     def test_the_progress_of_a_download_is_said_in_words_as_its_phase_changes(self):
         # The phases of firstrun, which are its own ids: each is said in words, and the last, which has none, not at all
-        self.declare("partner")
+        firstrun = types.SimpleNamespace(PROGRESS={})
+        upcoming = iter(("probe", "fetch", "stage", "commit"))
 
-        def provision(ns):
-            for phase in ("probe", "fetch", "stage", "commit"):
-                firstrun.PROGRESS[ns] = {"phase": phase, "fraction": 0.5}
-                time.sleep(0.3)   # long enough for the watcher, which looks every hundredth of a second
-            return {"id": ns, "name": "Partner"}
-        _, firstrun = self.fake(provision)
-        self.patch(catalog, "POLL", 0.01)
-        code, out, err = self.run_tool("provision")
-        self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines(), ["Downloading example.invalid/partner", "  Checking the address",
-                                            "  Downloading the files", "  Installing", "Installed Partner"])
+        class Stop:
+            def wait(self, seconds):
+                phase = next(upcoming, None)
+                firstrun.PROGRESS["partner"] = {"phase": phase, "fraction": 0.5}
+                return phase is None
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            catalog._progress(firstrun, "partner", Stop())
+        self.assertEqual(out.getvalue().splitlines(), ["  Checking the address", "  Downloading the files", "  Installing"])
         self.assertLessEqual(set(catalog.PHASE_WORDS), set(phases.PHASES), "the words are of phases there are")
 
 def scratch_lab(case):

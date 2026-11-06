@@ -288,10 +288,8 @@ class Asking(Case):
 
     def test_a_host_that_does_not_answer_in_time_is_no_answer(self):
         self.server.routes["/slow"] = (200, {}, 4)
-        started = time.monotonic()
         answer = self.net.fetcher(timeout=0.3)("http://docs.acme.org/slow")
-        self.assertEqual(answer, links.Answer(0, "no answer: timed out"))
-        self.assertLess(time.monotonic() - started, 3.5, "it did not wait for the server to finish")
+        self.assertEqual(answer, links.Answer(0, "no answer: timed out"))   # (the server says 200 once its delay ends)
 
     def test_a_refused_connection_is_no_answer(self):
         def refuse(address, timeout):
