@@ -333,19 +333,16 @@ class Address(Case):
 
     ENTRY = {"id": "acme-hub", "kind": "git", "url": "https://github.com/acme/lab-hub.git", "branch": "dev"}
 
-    def test_the_form_that_answered_the_last_time_is_the_one_used(self):
-        address, branch = contribute._address(self.ENTRY, {})
+    def test_the_address_is_the_entry_s(self):
+        address, branch = contribute._address(self.ENTRY)
         self.assertEqual((address.url, branch), ("https://github.com/acme/lab-hub.git", "dev"))
-        address, branch = contribute._address(self.ENTRY, {"via": "ssh"})
-        self.assertEqual((address.url, branch), ("git@github.com:acme/lab-hub.git", "dev"))
-        self.assertEqual(contribute._address(self.ENTRY, {"via": "https"})[0].url, "https://github.com/acme/lab-hub.git")
 
     def test_an_address_the_grammar_refuses_is_the_catalogs_refusal(self):
         with self.assertRaises(CatalogError) as raised:
-            contribute._address({**self.ENTRY, "url": "ext::sh -c touch /tmp/x"}, {})
+            contribute._address({**self.ENTRY, "url": "ext::sh -c touch /tmp/x"})
         self.assertEqual(raised.exception.code, "bad_address")
         with self.assertRaises(CatalogError):
-            contribute._address({"id": "x", "kind": "git"}, {})
+            contribute._address({"id": "x", "kind": "git"})
 
 
 class Collect(Seam):
@@ -1086,7 +1083,7 @@ class Published(Seam):
         """What the files shared hold decides, the label the share adds to the copy among it: not the person's project file."""
         level = with_the_lock(self)
         remote = self.remote("fixture")
-        address, branch = contribute._address(registry.entry("fixture"), registry.lock_of("fixture"))
+        address, branch = contribute._address(registry.entry("fixture"))
         text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
         copy = contribute.Copy({"addons/ledger/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
         done = contribute._publish("fixture", "Fixture catalog", "Ledger", "addon", "ledger", address, branch,
@@ -1104,7 +1101,7 @@ class Published(Seam):
 
     def test_a_line_of_older_labs_the_lab_cannot_change_in_a_git_catalog_refuses_the_share_and_pushes_nothing(self):
         with_the_lock(self)
-        address, branch = contribute._address(registry.entry("fixture"), registry.lock_of("fixture"))
+        address, branch = contribute._address(registry.entry("fixture"))
         text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
         copy = contribute.Copy({"addons/ledger/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
         self.patch(manifest, "with_legacy", lambda text, lab: text)   # a layout neither writer changes, such as a value on the next line

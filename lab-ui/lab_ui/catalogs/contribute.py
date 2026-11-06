@@ -151,14 +151,11 @@ def _takes(ns, row) -> bool:
     return row["kind"] != "git" or _yml(ns).get("contribute") != "none"
 
 
-def _address(entry, held):
+def _address(entry):
     """(the Address a repository catalog is pushed to, its branch): the tracked address for a listed catalog, the stored one
-    for any other, in the form (https or ssh) that answered the last time."""
+    for any other."""
     url, branch = defaults.effective(entry)
-    address = gitx.parse_address(url or "")
-    if held.get("via") == "ssh":
-        address = gitx.ssh_form(address) or address
-    return address, branch
+    return gitx.parse_address(url or ""), branch
 
 
 _PROBES = {}   # (url, branch) -> (when, "yes" | "no")
@@ -261,7 +258,7 @@ def destinations(project: dict, kind: str, uid: str) -> list:
                 else UNDECLARED.format(item=outside[0], owner=outside[1], catalog=row["name"])
         elif row["kind"] == "git":
             try:
-                address, branch = _address(entry, registry.lock_of(ns))
+                address, branch = _address(entry)
             except CatalogError:
                 address = None
             if address is not None and _believed(address, branch) == "no":
@@ -1548,7 +1545,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         raise _refusal("share_exists", name=name, catalog=row["name"])
     address = branch = who = None
     if row["kind"] == "git":
-        address, branch = _address(entry, registry.lock_of(to))
+        address, branch = _address(entry)
         if _probe(to, address, branch) == "no":
             raise _refusal("no_write_access", name=row["name"])
         who = _identity()

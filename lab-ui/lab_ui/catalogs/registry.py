@@ -581,7 +581,7 @@ def precedence() -> list:
 
 _SHAS = ("pin", "previous", "tip")
 _ORDER = ("pin", "previous", "tip", "roots", "audience", "name", "version", "release", "lab", "installed", "checked", "error",
-          "pending", "via", "shadowed")
+          "pending", "shadowed")
 
 
 def _blank():
@@ -647,10 +647,6 @@ def _lock_entry(raw, strict):
         found["pending"] = {"op": pending["op"], "from": pending.get("from"), "to": pending["to"]}
     elif pending is not None:
         refuse("pending", "{op, from, to}")
-    if raw.get("via") in ("https", "ssh"):
-        found["via"] = raw["via"]
-    elif raw.get("via") is not None:
-        refuse("via", "https or ssh")
     if isinstance(raw.get("shadowed"), bool):
         found["shadowed"] = raw["shadowed"]
     elif raw.get("shadowed") is not None:
@@ -704,16 +700,15 @@ def lock_of(ns: str) -> dict:
 def set_lock(ns: str, **fields) -> dict:
     """Sets fields of the lock entry of `ns` (made if it has none) and writes the file: read, change and write under
     LOCK and flock, so that two changes never lose one another, in this process or in another. A field set to None is
-    its blank (`via` and `shadowed`: removed). Answers the new entry."""
+    its blank (`shadowed`: removed). Answers the new entry."""
     if not _namespace(ns):
         raise ValueError(f"not a namespace: {ns!r}")
     with flock():
         lock, problems = _load_lock()
         current = lock["catalogs"].get(ns) or _blank()
         merged = {**current, **fields}
-        for optional in ("via", "shadowed"):
-            if merged.get(optional) is None:
-                merged.pop(optional, None)
+        if merged.get("shadowed") is None:
+            merged.pop("shadowed", None)
         lock["catalogs"][ns] = _lock_entry(merged, strict=True)
         _write(LOCK_FILE, _dump(_checked_lock(lock)), problems)
         return copy.deepcopy(lock["catalogs"][ns])

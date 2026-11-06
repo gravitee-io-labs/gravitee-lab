@@ -1007,29 +1007,12 @@ def _vouched(entry):
     return sorted(root.lower() for root in (tracked or {}).get("roots") or ())
 
 
-def _fetch_tip(ns, entry, held):
-    """The branch is fetched into the catalog's store (`refs/lab/tip`), 60 s at most. A
-    listed catalog whose https address answers `no_access` or `not_found` is asked once over ssh, and the form that answered is
-    remembered (`via`) for the next runs. Answers (the tip, the address that answered)."""
+def _fetch_tip(ns, entry):
+    """The branch is fetched into the catalog's store (`refs/lab/tip`), 60 s at most. Answers (the tip, the address)."""
     gitx.require()
     url, branch = defaults.effective(entry)
     address = gitx.parse_address(url)
-    tries = [address]
-    if defaults.listed(entry):
-        again = gitx.ssh_form(address)
-        if again is not None:
-            tries = [again, address] if held.get("via") == "ssh" else [address, again]
-    for number, one in enumerate(tries):
-        try:
-            tip = bare.fetch(one, branch, registry.store_dir(ns), stall=30, cap=CHECK_CAP)
-        except CatalogError as error:
-            if number + 1 == len(tries) or error.code not in ("no_access", "not_found"):
-                raise
-            continue
-        if len(tries) > 1 and held.get("via") != ("ssh" if gitx.is_ssh(one) else "https"):
-            registry.set_lock(ns, via="ssh" if gitx.is_ssh(one) else "https")
-        return tip, one
-    raise AssertionError("unreachable")
+    return bare.fetch(address, branch, registry.store_dir(ns), stall=30, cap=CHECK_CAP), address
 
 
 def _mark_damaged(ns):
@@ -1067,8 +1050,7 @@ def _ask(ns, entry):
     """Fetch, identity, audience, the compatible version, whether it changes anything, and the result in the
     lock. The network steps hold no lock; the lock is written at the end. A refusal is the caller's (`check_now` keeps it).
     A release the owners moved is a history that changed: it is said as one, and Update asks to confirm it."""
-    held = registry.lock_of(ns)
-    tip, answered = _fetch_tip(ns, entry, held)
+    tip, answered = _fetch_tip(ns, entry)
     store_path, contract = registry.store_dir(ns), _contract()
     held = registry.lock_of(ns)   # it may have changed during the fetch
     pin = held.get("pin")

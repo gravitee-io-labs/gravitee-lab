@@ -71,7 +71,7 @@ class Example(Case):
 
 `install` takes a `patch`. The entry: `url`, `branch`, `auto`, `host`, `added`, `shadows`. The catalog file and the lock's
 cache of it: `name`, `version`, `lab`. The lock: `audience`, `pin`, `previous`, `tip`, `roots`, `installed`, `checked`,
-`error`, `pending`, `via`, `shadowed`. The content: `drop` (paths left out) and `files` (`{path: text}` added or
+`error`, `pending`, `shadowed`. The content: `drop` (paths left out) and `files` (`{path: text}` added or
 replaced, which is how a hostile file gets in). How it is put there: `link` (a folder catalog as a link), `readonly`,
 `store` (the Lab's own bare store, `.lab/cache/git/<ns>.git`, made the way `store.init` and `store.fetch` make one).
 

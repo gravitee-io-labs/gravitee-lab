@@ -519,81 +519,28 @@ class Provision(Served, Case):
                          ("0", "", "never", "never"))
         self.assertIn("-o BatchMode=yes", env["GIT_SSH_COMMAND"])
 
-    # -- the ssh form ----------------------------------------------------------------------------------------------
+    # -- an address that refuses ---------------------------------------------------------------------------------------
 
-    def github(self, refuse=("no_access",), ssh_refuses=None, ssh_code="ssh_denied"):
-        """The default file lists a github.com address; the https form is refused with `refuse` and the ssh form is served by
-        the remote of this test (or refused with `ssh_code`). Answers the list of (form, answer) of every ls-remote."""
+    def refused(self, code):
+        """The default file lists a github.com address, which refuses with `code`, and the ssh form of it is never asked."""
         self.listed(self.ns, url="https://github.com/example/demos.git")
-        real_ls, real_fetch = gitx.ls_remote, bare.fetch
-        local = gitx.parse_address(self.remote.url)
-        asked = []
-
-        def served(address):
-            return local if gitx.is_ssh(address) and ssh_refuses is None else address
 
         def ls_remote(address, branch=None, anonymous=False, timeout=20):
-            asked.append((address.url, anonymous))
-            if anonymous:
-                raise gitx.fail("no_access", address)
-            if gitx.is_ssh(address):
-                if ssh_refuses is not None:
-                    raise gitx.fail(ssh_code, address)
-                return real_ls(local, branch, anonymous, timeout)
-            raise gitx.fail(refuse[0], address)
-
-        def fetch(address, branch, store, stall=30, cap=600, progress=None):
-            self.assertTrue(gitx.is_ssh(address), "only the form that answered is fetched")
-            return real_fetch(local, branch, store, stall, cap, progress)
+            self.assertFalse(gitx.is_ssh(address))
+            raise gitx.fail(code, address)
         self.patch(gitx, "ls_remote", ls_remote)
-        self.patch(bare, "fetch", fetch)
-        return asked
 
-    def test_https_refused_and_ssh_accepted_installs_and_records_the_form_that_answered(self):
-        asked = self.github()
-        self.started()
-        firstrun.provision(self.ns)
-        self.assertEqual(self.lock()["via"], "ssh")
-        self.assertEqual(self.lock()["pin"], self.remote.head())
-        self.assertEqual([url for url, anonymous in asked if not anonymous],
-                         ["https://github.com/example/demos.git", "git@github.com:example/demos.git"])
-        self.assertNotIn("git@", json.dumps(self.config()), "the form that answered is never written to the intent")
-
-    def test_the_next_run_starts_with_the_form_that_answered(self):
-        asked = self.github()
-        self.started()
-        registry.set_lock(self.ns, via="ssh")
-        firstrun.provision(self.ns)
-        self.assertEqual([url for url, anonymous in asked if not anonymous][0], "git@github.com:example/demos.git")
-        self.assertEqual(len([url for url, anonymous in asked if not anonymous]), 1, "it answered: no second form")
-        self.assertEqual(self.lock()["via"], "ssh")
-
-    def test_the_form_that_answers_is_https_and_it_is_recorded_for_a_listed_catalog(self):
-        # A public catalog answers over https: nothing is asked over ssh, and the next run starts with https
-        self.listed(self.ns, url="https://github.com/example/demos.git")
-        real_ls, real_fetch = gitx.ls_remote, bare.fetch
-        local = gitx.parse_address(self.remote.url)
-        asked = []
-        self.patch(gitx, "ls_remote", lambda a, b=None, anonymous=False, timeout=20: (asked.append(a.url),
-                                                                                         real_ls(local, b, anonymous, timeout))[1])
-        self.patch(bare, "fetch", lambda a, b, s, stall=30, cap=600, progress=None: real_fetch(local, b, s, stall, cap, progress))
-        self.started()
-        firstrun.provision(self.ns)
-        self.assertEqual(self.lock()["via"], "https")
-        self.assertNotIn("git@github.com:example/demos.git", asked)
-
-    def test_both_forms_refused_is_no_access_with_the_sign_in_hint_of_the_host(self):
-        self.github(ssh_refuses=True, ssh_code="ssh_denied")
+    def test_a_refusal_is_no_access_with_the_sign_in_hint_of_the_host(self):
+        self.refused("no_access")
         self.started()
         with self.assertRaises(CatalogError) as caught:
             firstrun.provision(self.ns)
         self.assertEqual((caught.exception.code, caught.exception.message), ("no_access", OPEN))
         self.assertEqual(self.lock()["error"], "no_access")
         self.assertEqual(registry.inputs()[self.ns]["state"], "noaccess")
-        self.assertNotIn("via", self.lock(), "no form answered")
 
     def test_a_404_over_https_reads_as_no_access_and_keeps_its_code(self):
-        self.github(refuse=("not_found",), ssh_refuses=True, ssh_code="host_key")
+        self.refused("not_found")
         self.started()
         with self.assertRaises(CatalogError) as caught:
             firstrun.provision(self.ns)
@@ -828,30 +775,18 @@ class Provision(Served, Case):
         self.assertIsNone(self.lock()["error"], "the next start downloads it as if nothing had happened")
 
     def test_a_note_that_cannot_be_written_after_the_install_is_no_failure(self):
-        calls = []
+        self.newer()
+        real = registry.set_lock
 
-        def remember(ns, address, answered):
-            calls.append(ns)
-            if len(calls) > 1:   # the second one is after the commit: the lock is held by another process
+        def set_lock(ns, **fields):
+            if "seen" in fields:   # after the commit: the lock is held by another process
                 raise CatalogError("busy", "Another catalog change is running.", 409)
-        self.patch(firstrun, "_remember", remember)
+            return real(ns, **fields)
+        self.patch(registry, "set_lock", set_lock)
         self.started()
         row = firstrun.provision(self.ns)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual((row["id"], self.lock()["pin"], self.lock()["error"]), (self.ns, self.remote.head(), None))
-
-    def test_the_form_that_answered_is_remembered_even_when_the_fetch_then_fails(self):
-        self.github()
-        real = bare.fetch
-
-        def fetch(*args, **how):
-            real(*args, **how)
-            raise gitx.fail("timeout", args[0])
-        self.patch(bare, "fetch", fetch)
-        self.started()
-        with self.assertRaises(CatalogError):
-            firstrun.provision(self.ns)
-        self.assertEqual(self.lock()["via"], "ssh", "and the next attempt starts with it")
+        self.assertEqual((row["id"], self.lock()["error"]), (self.ns, None))
+        self.assertTrue(self.lock()["pin"])
 
     def test_a_catalog_the_person_does_not_have_leaves_no_store_behind_when_it_fails(self):
         registry.write_config({"schema": 1, "catalogs": []})

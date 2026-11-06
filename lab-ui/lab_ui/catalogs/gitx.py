@@ -329,8 +329,8 @@ def parse_address(text: str) -> Address:
 
 
 def ssh_form(address: Address) -> Optional[Address]:
-    """The ssh spelling of an https address (`git@HOST:owner/repo.git`), the second try of the first start and the
-    background check; None for an address that is not https or that names a port (the ssh port is another)."""
+    """The ssh spelling of an https address (`git@HOST:owner/repo.git`), the second try of the short form owner/repo;
+    None for an address that is not https or that names a port (the ssh port is another)."""
     if address.kind != "git" or not address.url.startswith("https://") or ":" in address.display.split("/", 1)[0]:
         return None
     path = _repo_path(address.display.split("/", 1)[1]) if "/" in address.display else None

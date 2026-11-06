@@ -492,14 +492,14 @@ class LockRead(Disk):
         self.lockfile(**{"acme-hub": {
             "pin": "garbage", "previous": 5, "tip": A.upper(), "roots": [B, "x"], "audience": "everyone", "name": 7,
             "version": "1.0", "release": "v1.0.0", "lab": "1", "installed": "yesterday", "checked": 12, "error": "BAD CODE",
-            "pending": {"op": "explode", "to": A}, "via": "ftp", "shadowed": "yes"}})
+            "pending": {"op": "explode", "to": A}, "shadowed": "yes"}})
         found = registry.lock_of("acme-hub")
         self.assertEqual(found, {"pin": None, "previous": None, "tip": None, "roots": [], "audience": "private",
                                  "name": None, "version": None, "release": None, "lab": None, "installed": None,
                                  "checked": None, "error": None, "pending": None})
 
     def test_a_good_entry_reads_as_it_is(self):
-        entry = lock_entry(via="ssh", shadowed=True, pending={"op": "update", "from": A, "to": B})
+        entry = lock_entry(shadowed=True, pending={"op": "update", "from": A, "to": B})
         self.lockfile(**{"acme-hub": entry})
         self.assertEqual(registry.lock_of("acme-hub"), entry)
 
@@ -573,7 +573,7 @@ class LockWrite(Disk):
 
     def test_a_field_of_the_wrong_type_is_a_programmer_s_error_and_nothing_is_written(self):
         table = {"pin": "abc", "previous": 1, "tip": "G" * 40, "roots": "x", "audience": "everyone", "version": "1", "release": "v1",
-                 "lab": True, "installed": "now", "error": "Bad Code", "pending": {"op": "add"}, "via": "ftp",
+                 "lab": True, "installed": "now", "error": "Bad Code", "pending": {"op": "add"},
                  "shadowed": "yes", "name": 3}
         for field, value in table.items():
             with self.subTest(field), self.assertRaises(ValueError):
@@ -595,14 +595,12 @@ class LockWrite(Disk):
         self.assertEqual(sorted(registry.read_lock()["catalogs"]), ["acme-hub", "other-hub"])
 
     def test_set_lock_answers_a_copy_and_removes_what_is_set_to_none(self):
-        made = registry.set_lock("acme-hub", via="ssh", shadowed=True, pending={"op": "add", "from": None, "to": A})
-        self.assertEqual((made["via"], made["shadowed"], made["pending"]["to"]), ("ssh", True, A))
+        made = registry.set_lock("acme-hub", shadowed=True, pending={"op": "add", "from": None, "to": A})
+        self.assertEqual((made["shadowed"], made["pending"]["to"]), (True, A))
         made["pin"] = "changed"
-        again = registry.set_lock("acme-hub", via=None, shadowed=None, pending=None)
-        self.assertNotIn("via", again)
+        again = registry.set_lock("acme-hub", shadowed=None, pending=None)
         self.assertNotIn("shadowed", again)
         self.assertEqual((again["pin"], again["pending"]), (None, None))
-        self.assertNotIn("via", json.loads((self.root / ".lab/catalogs.lock").read_text(encoding="utf-8"))["catalogs"]["acme-hub"])
 
     def test_set_lock_refuses_a_name_that_is_not_a_namespace_and_a_value_that_is_not_one(self):
         for ns in ("../x", "A", "", None, 5, "x"):
@@ -2055,7 +2053,7 @@ class Hostile(Disk):
             registry.suggestions()
 
     def test_a_lock_mutated_at_random(self):
-        good = json.dumps({"schema": 1, "catalogs": {"acme-hub": lock_entry(via="ssh", pending={"op": "add", "from": None, "to": B})}}).encode()
+        good = json.dumps({"schema": 1, "catalogs": {"acme-hub": lock_entry(pending={"op": "add", "from": None, "to": B})}}).encode()
         self.config(git_entry("acme-hub"))
         for data in self.mutations(2, good, 300):
             self.raw(".lab/catalogs.lock", data)

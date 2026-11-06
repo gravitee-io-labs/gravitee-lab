@@ -17,7 +17,6 @@ import subprocess
 import sys
 import threading
 import time
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -1995,29 +1994,6 @@ class Checking(Seam):
         for ns in ("nowhere", "lab", "A", "", None, 5):
             with self.subTest(ns=ns), self.assertRaises(paths.NotFound):
                 service.check_now(ns)
-
-    def test_the_ssh_form_of_a_listed_address_is_tried_once_and_remembered(self):
-        https = "https://github.com/acme/lab-hub.git"
-        self.list_at("partner", types.SimpleNamespace(url=https))
-        registry.write_config({"schema": 1, "catalogs": [dict(registry.entry("partner"), url=https), *[
-            one for one in registry.entries() if one["id"] != "partner"]]})
-        tried = []
-        real = bare.fetch
-
-        def fetch(address, branch, store_path, **how):
-            tried.append(address.url)
-            if address.url.startswith("https://"):
-                raise gitx.fail("no_access", address)
-            return real(gitx.parse_address(self.remote.url), branch, store_path, **how)
-        self.patch(bare, "fetch", fetch)
-        self.patch(gitx, "ls_remote", side_effect=lambda address, branch=None, anonymous=False, timeout=20: {
-            "branch": "main", "head": self.remote.head()})
-        service.check_now("partner")
-        self.assertEqual(tried, [https, "git@github.com:acme/lab-hub.git"])
-        self.assertEqual(registry.lock_of("partner")["via"], "ssh")
-        tried.clear()
-        service.check_now("partner")
-        self.assertEqual(tried, ["git@github.com:acme/lab-hub.git"], "the next runs start with the form that answered")
 
 
 class Checker(Seam):

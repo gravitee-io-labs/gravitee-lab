@@ -75,8 +75,7 @@ INSTALLED, CHECKED = "2026-10-16T09:00:30Z", "2026-10-16T09:01:00Z"
 # What install() takes besides the catalog; each group says where its keys go
 ENTRY_KEYS = {"url", "branch", "auto", "host", "added", "shadows"}   # the entry of catalogs.json
 CATALOG_KEYS = {"name", "version", "lab"}   # catalog.yml, and the lock's cache of it
-LOCK_KEYS = {"audience", "pin", "previous", "tip", "roots", "installed", "checked", "error", "pending", "via",
-             "shadowed"}
+LOCK_KEYS = {"audience", "pin", "previous", "tip", "roots", "installed", "checked", "error", "pending", "shadowed"}
 CONTENT_KEYS = {"drop", "files"}   # paths left out of the copy; {path: text} added to it or replaced in it
 PLACE_KEYS = {"link", "readonly", "store"}   # a folder catalog as a link; files read-only or not; the Lab's bare store
 BOOLEAN = {"auto", "host", "link", "readonly", "store", "shadowed"}   # the keys whose value is true or false
@@ -788,7 +787,7 @@ def install(case, ns, kind="folder", **patch):
     `patch`: the keys of the entry (url, branch, auto, host, added, shadows); name, version and lab, which are written
     in catalog.yml, so that the repository and the manifest agree, and cached in the lock; the keys of the lock
     (audience: that of AUDIENCE, private for a catalog it does not know; pin, previous, tip, roots, installed, checked,
-    error, pending, via, shadowed); `drop` (paths left out of the copy); `files` ({path: text} added or replaced, which
+    error, pending, shadowed); `drop` (paths left out of the copy); `files` ({path: text} added or replaced, which
     is how a hostile file gets in); `readonly`. Every value is of the type its key needs, and `link` is for a folder
     catalog only: a value that is not is a ValueError, as is a key that does not exist. Installing again replaces
     everything of the first time and keeps the entry's place."""
