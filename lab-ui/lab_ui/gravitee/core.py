@@ -50,19 +50,10 @@ def linked(place):
     return bool(place and place.get("environment") and (place["token"]["state"] != "unset" or place["gateway"]))
 
 
-def _place(project, place_id):
-    """The place of a Cloud choice as its platform last said it (places.place): one that cannot be used yet answers for
-    it. None when it is gone: its platform is no longer registered, or said it has no such environment."""
-    uid = place_id.partition("/")[0]
-    if not any(record["id"] == uid for record in platforms.read()):
-        return None
-    return places.place(project, place_id)
-
-
 def current(project):
     """Where API Management runs: {place, chosen, environment}. A Cloud choice that is gone is This machine, still chosen."""
     stored = _stored()
-    if stored["place"] != MACHINE and not _place(project, stored["place"]):
+    if stored["place"] != MACHINE and not places.place(project, stored["place"]):
         return {**stored, "place": MACHINE, "environment": ""}
     return stored
 
@@ -157,7 +148,7 @@ def plan(project, state, containers, saved=None, live=False):
     uid = chosen["place"].partition("/")[0]
     if live:
         places.invalidate(uid)
-    found = _place(project, chosen["place"])
+    found = places.place(project, chosen["place"])
     if not found:
         raise ValueError(here)
     if found["state"] == "unusable":
@@ -202,7 +193,7 @@ def stopping(project, state, containers):
 def _named(project, chosen):
     """The platform {id, name} of a Cloud choice and the name of its environment: as its platform last said it, else as
     it was kept, else its id."""
-    found = _place(project, chosen["place"])
+    found = places.place(project, chosen["place"])
     record = found["platform"] if found else {"id": chosen["place"].partition("/")[0], "name": ""}
     environment = ((found or {}).get("environment") or {}).get("name") or chosen["environment"] \
         or chosen["place"].partition("/")[2]
