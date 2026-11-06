@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import unittest
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
@@ -998,52 +999,28 @@ class Shell(Case):
 class Kept(unittest.TestCase):
     """The cache of what is slow to ask again."""
 
-    def test_asked_at_the_same_time_it_is_asked_once(self):
-        # Two pages' refreshes that both find nothing kept: one `config --hash`, not two
-        cache, calls, release = compose.Cache(), [], threading.Event()
+    def test_asked_at_the_same_time_it_is_asked_once_and_each_gets_what_it_answers_or_raises(self):
+        # Two pages' refreshes that find nothing kept: one `config --hash`, not two. Docker hangs: the Welcome check, the state
+        # and a second tab each have the failure of one `docker info`, not one read more than the caller before
+        waiting = threading.Semaphore(0)
 
-        def slow():
-            calls.append(1)
-            release.wait(5)
-            return {"mongodb": "h"}
-        answers = []
-        threads = [threading.Thread(target=lambda: answers.append(cache.get("config-hash:x", 300, slow)))
-                   for _ in range(3)]
-        for thread in threads:
-            thread.start()
-        deadline = time.monotonic() + 5
-        while not calls and time.monotonic() < deadline:
-            time.sleep(0.01)
-        time.sleep(0.05)   # the others ask meanwhile
-        release.set()
-        for thread in threads:
-            thread.join(5)
-        self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
+        class Awaited(Future):   # says that a caller waits on the read
+            def result(self, timeout=None):
+                waiting.release()
+                return super().result(timeout)
+        for outcome in ({"mongodb": "h"}, compose.ComposeError("Docker does not answer")):
+            cache, calls = compose.Cache(), []
 
-    def test_callers_that_wait_on_a_read_that_fails_each_get_its_failure_after_one_read(self):
-        # Docker hangs: the Welcome check, the state and a second tab ask docker:info at once, and `docker info` fails
-        # after its limit. Each caller has the failure after one read's time, not one read more than the caller before
-        cache, calls, waited, READ = compose.Cache(), [], [], 0.5
-
-        def failing():
-            calls.append(1)
-            time.sleep(READ)
-            raise compose.ComposeError("Docker does not answer")
-
-        def ask():
-            began = time.monotonic()
-            with self.assertRaises(compose.ComposeError):
-                cache.get("docker:info", 600, failing)
-            waited.append(time.monotonic() - began)
-        threads = [threading.Thread(target=ask) for _ in range(3)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(10)
-        self.assertLess(max(waited), READ * 1.6, f"fn ran {len(calls)} times, callers waited {sorted(waited)}")
-        self.assertEqual((len(waited), len(calls)), (3, 1))
-        # Not kept: the next caller asks again
-        self.assertEqual(cache.get("docker:info", 600, lambda: "29.7.2"), "29.7.2")
+            def read():
+                calls.append(1)
+                for _ in range(2):   # it ends once the two others wait on it, however long they take to ask
+                    waiting.acquire(timeout=10)
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return outcome
+            with mock.patch.object(compose, "Future", Awaited), ThreadPoolExecutor(3) as pool:
+                asked = [pool.submit(cache.get, "key", 300, read) for _ in range(3)]
+            self.assertEqual((len(calls), [future.exception() or future.result() for future in asked]), (1, [outcome] * 3))
 
     def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
         # What the read raises is not kept; any answer is, None and "" too (an answer that nothing lacks is one)
