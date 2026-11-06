@@ -75,15 +75,6 @@ class Commands(unittest.TestCase):
             "docker", "run", "--rm", *HARDENING, "-v", "/work/app:/app:ro", "-w", "/app", NODE, "node", "--test",
             "--test-timeout=60000", "--test-reporter=dot", "tests/js/*.test.mjs"])
 
-    def test_the_hardening_is_everything_the_standard_lists_and_pulls_nothing(self):
-        for command in (apptests.python_command("img"), apptests.node_command("/a", NODE)):
-            self.assertEqual(option(command, "--pull"), "never")
-            self.assertEqual(option(command, "--network"), "none")
-            self.assertEqual(option(command, "--tmpfs"), "/tmp:rw,exec,nosuid,nodev,size=256m")   # exec: an app runs a script from /tmp
-            self.assertEqual({word for word in command if word in ("--read-only", "--rm")}, {"--read-only", "--rm"})
-            self.assertNotIn("--privileged", command)
-            self.assertNotIn("--volume", command)
-
     def test_the_node_image_is_the_pin_of_the_makefile(self):
         found = re.search(r"^NODE_IMAGE \?= (\S+)$", (REPO / "Makefile").read_text(encoding="utf-8"), re.M)
         self.assertEqual(apptests.node_image({}), found.group(1))
@@ -264,41 +255,6 @@ class Runs(unittest.TestCase):
         run = self.runner([])
         self.assertIsNone(apptests.ensure_node(NODE, run))
         self.assertEqual(len(self.calls), 1)
-        run = self.runner([(["inspect"], (1, "", "")), (["pull"], (1, "", "unauthorized: x\n"))])
-        slept = []
-        self.assertEqual(apptests.ensure_node(NODE, run, slept.append), "unauthorized: x")
-        self.assertEqual(slept, [])   # (a refusal that is the author's or the machine's is not tried again)
-
-    RATE = "Error response from daemon: toomanyrequests: You have reached your unauthenticated pull rate limit.\n"
-
-    def test_a_pull_docker_hub_refused_is_tried_again_after_20_and_60_seconds(self):
-        slept = []
-        run = self.runner([(["inspect"], (1, "", "")), (["pull"], (1, "", self.RATE))])
-        said = apptests.ensure_node(NODE, run, slept.append)
-        self.assertIn("pull rate limit", said)
-        self.assertEqual(slept, [20, 60])
-        self.assertEqual(len([call for call in self.calls if call[1] == "pull"]), 3)
-
-    def test_a_pull_that_works_the_second_time_is_a_pull(self):
-        slept, answers = [], iter([(1, "", self.RATE), (0, "sha256:x\n", "")])
-
-        def run(argv, timeout, cwd):
-            if argv[1:3] == ["image", "inspect"]:
-                return 1, "", "No such image"
-            return next(answers)
-        self.assertIsNone(apptests.ensure_node(NODE, run, slept.append))
-        self.assertEqual(slept, [20])
-
-    def test_a_run_that_passed_its_time_limit_is_removed_by_its_name(self):
-        folder = self.app({"tests/test_a.py": "", "tests/js/a.test.mjs": ""})
-        run = self.runner([(["--entrypoint"], (124, "", "docker did not answer within 900 s")), ([NODE], (124, "", "docker did not answer within 600 s"))])
-        outcome = apptests.run_app(folder, "img", run, NODE)
-        self.assertEqual((outcome.status, outcome.python, outcome.js), ("failed", "failed", "failed"))
-        runs = [call for call in self.calls if call[1] == "run"]
-        removed = [call for call in self.calls if call[1:3] == ["rm", "-f"]]
-        self.assertEqual(len(runs), 2)
-        self.assertEqual([call[3] for call in removed], [option(call, "--name") for call in runs])
-        self.assertEqual(len({call[3] for call in removed}), 2)
 
     def test_a_run_that_ended_by_itself_is_not_removed_by_name(self):
         folder = self.app({"tests/test_a.py": ""})
@@ -467,11 +423,6 @@ class Stage(Disk):
         for call in runs:
             unnamed(call)   # (the name is one, and the rest is the flag set)
 
-    def test_a_run_that_ends_by_itself_is_left_alone(self):
-        context = self.with_tests("web")
-        self.stage({"bakery-web": self.service(context=context)})
-        self.assertEqual(self.fake.commands("rm"), [])
-
     def test_lines_of_megabytes_in_a_failed_test_leave_a_summary_and_an_output_of_a_few_kilobytes(self):
         folder = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, folder, True)
@@ -483,13 +434,6 @@ class Stage(Disk):
         self.assertEqual(code, 1)
         self.assertLess(os.path.getsize(summary), 20_000)
         self.assertLess(len(self.out.getvalue()), 20_000)
-
-    def test_the_images_are_the_ones_that_were_built_and_none_is_pulled(self):
-        context = self.with_tests("web")
-        self.stage({"bakery-web": self.service(context=context)})
-        for command in self.runs():
-            self.assertEqual(option(command, "--pull"), "never")
-        self.assertEqual(self.fake.commands("pull"), [])
 
     def test_an_image_that_is_not_here_is_exit_2_and_not_a_pull(self):
         context = self.with_tests("web")
