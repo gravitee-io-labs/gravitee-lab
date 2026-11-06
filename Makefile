@@ -35,7 +35,7 @@ help:   # what `make` alone prints
 			printf "  %s%-10s%s %s\n", cyan, name, off, text}' $(makefile)
 
 # What the targets need, checked first so that a missing tool is one line and not a stack trace
-readme := (see Prerequisites in README.md)
+readme := (see Prerequisites in docs/installation.md)
 
 docker-cli:
 	@command -v docker >/dev/null 2>&1 || { \

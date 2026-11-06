@@ -66,7 +66,7 @@ FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is
 # Why, when the download needs Docker that does not answer: the Makefile's words, since nothing runs to download later
-NO_DOCKER = ("Docker is not ready. Start it, or install it with Compose 5.0 or later (see Prerequisites in README.md), then "
+NO_DOCKER = ("Docker is not ready. Start it, or install it with Compose 5.0 or later (see Prerequisites in docs/installation.md), then "
              "start the Lab again.")
 # The phases of a download (firstrun.PHASES) as the terminal says them; one that is not here is not said
 PHASE_WORDS = {"probe": "Checking the address", "fetch": "Downloading the files", "stage": "Installing"}

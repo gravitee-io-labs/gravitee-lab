@@ -48,9 +48,9 @@ stopped from the Containers page stays stopped.
 **Symptom:** `make all`, every other target that uses Docker, and `python3 lab-ui/server.py --check` stop with one line.
 `make ui` opens the Lab UI all the same, and its first step, *Your machine*, says what to install:
 
-- `Docker Compose 5.0 or later is needed, found: 2.40.3 (see Prerequisites in README.md)`, with `found: none` when the
+- `Docker Compose 5.0 or later is needed, found: 2.40.3 (see Prerequisites in docs/installation.md)`, with `found: none` when the
   Compose plugin is missing.
-- `docker not found: install Docker with Compose 5.0 or later (see Prerequisites in README.md)` when there is no
+- `docker not found: install Docker with Compose 5.0 or later (see Prerequisites in docs/installation.md)` when there is no
   `docker` program at all.
 
 Or Compose says an add-on `conflicts with imported resource`.
@@ -76,9 +76,9 @@ GB, more when macOS has an update waiting) or Apple's servers did not answer: fr
 
 **Symptom:** a `make` target stops with one line:
 
-- `python3 not found: install Python 3.9 or later (see Prerequisites in README.md)`
-- `Python 3.9 or later is needed, found: Python 3.8.10 (see Prerequisites in README.md)`
-- `openssl not found: install it (see Prerequisites in README.md)`
+- `python3 not found: install Python 3.9 or later (see Prerequisites in docs/installation.md)`
+- `Python 3.9 or later is needed, found: Python 3.8.10 (see Prerequisites in docs/installation.md)`
+- `openssl not found: install it (see Prerequisites in docs/installation.md)`
 
 `make setup` has two more. `The seeder needs Python 3.10 or later, found: Python 3.9.6` is followed by `Run make setup
 again with a newer python3 (for example PYTHON3=python3.12 make setup)`. And `Cannot make .venv: install Python 3.10 or
