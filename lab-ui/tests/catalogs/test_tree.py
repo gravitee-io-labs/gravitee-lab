@@ -244,9 +244,9 @@ class GitTrees(WithGit):
 
 class ListTrees(unittest.TestCase):
 
-    def test_entries_of_the_stores_listing_or_of_tuples_or_of_this_module(self):
+    def test_entries_of_tuples_or_of_this_module(self):
         held = {"a.txt": b"alpha", "b/c.txt": b"gamma"}
-        entries = [store.Entry("100644", "0" * 40, 5, "a.txt"), tree.Entry("100755", "b/c.txt", 5), ("120000", "l", 1)]
+        entries = [("100644", "a.txt", 5), tree.Entry("100755", "b/c.txt", 5), ("120000", "l", 1)]
         listing = tree.ListTree(entries, lambda path, limit: held.get(path))
         self.assertEqual([tree.Entry("100644", "a.txt", 5), tree.Entry("100755", "b/c.txt", 5), tree.Entry("120000", "l", 1)],
                          listing.entries())
@@ -254,16 +254,6 @@ class ListTrees(unittest.TestCase):
         self.assertEqual(b"al", listing.read("a.txt", 2))
         self.assertIsNone(listing.read("l"), "a link is not read")
         self.assertIsNone(listing.read("missing"))
-
-    def test_a_reader_of_the_path_alone_works_too(self):
-        listing = tree.ListTree([("100644", "a.txt", 1)], {"a.txt": "alpha"}.get)
-        self.assertEqual(b"alpha", listing.read("a.txt"), "a text is read as its bytes")
-        listing = tree.ListTree([("100644", "a.txt", 1)], lambda path: b"x")
-        self.assertEqual(b"x", listing.read("a.txt"))
-
-    def test_a_reader_that_answers_anything_but_content_read_nothing(self):
-        listing = tree.ListTree([("100644", "a.txt", 1)], lambda path, limit: 12345)
-        self.assertIsNone(listing.read("a.txt"))
 
     def test_files_held_in_memory(self):
         listing = tree.ListTree.from_files({"a.txt": "alpha", "run": ("100755", b"#!/bin/sh\n"), "l": ("120000", "a.txt")})

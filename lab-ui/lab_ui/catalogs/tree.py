@@ -1,7 +1,7 @@
 """What the rules read: a catalog as a list of entries (a git mode, a path, a size) and the content of its regular files,
 and the commits a change adds. The rules never open a file or run git themselves; they ask a `Tree`, so the same rule judges
 the folder an author works in (`FolderTree`), a commit of a bare repository that no one has checked out (`GitTree`, for
-`check --pr`) and the listing of a store or the files Share staged (`ListTree`).
+`check --pr`) and the files Share staged (`ListTree`).
 
 The tree is hostile. It is the input of the rules, written by someone who wants a rule to run their code, to read a file of the
 reader's machine, or to stop. So nothing here executes anything of it:
@@ -325,27 +325,12 @@ class GitTree(Tree):
 
 
 class ListTree(Tree):
-    """A listing and a function that reads its files: the Lab's store listing for Add, the files Share staged. `entries` are
-    anything with a `mode`, a `path` and a `size` (a `store.Entry`, an `Entry`) or a `(mode, path, size)` tuple. `reader(path,
-    limit)` gives the content of a file, or None; a function of the path alone works too. Nothing is read until a rule asks."""
+    """A listing and a function that reads its files: the files Share staged. `entries` are `Entry`s or `(mode, path, size)`
+    tuples, and `reader(path, limit)` gives the bytes of a file, or None. Nothing is read until a rule asks."""
 
     def __init__(self, entries: Iterable, reader: Callable):
-        self._entries = [self._entry(each) for each in entries]
+        self._entries = [Entry(*each) for each in entries]
         self._reader = reader
-        try:
-            import inspect
-            parameters = [p for p in inspect.signature(reader).parameters.values()
-                          if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)]
-            self._wide = any(p.kind == p.VAR_POSITIONAL for p in parameters) or len(parameters) >= 2
-        except (TypeError, ValueError):
-            self._wide = True
-
-    @staticmethod
-    def _entry(each) -> Entry:
-        if hasattr(each, "mode") and hasattr(each, "path"):
-            return Entry(str(each.mode), str(each.path), int(getattr(each, "size", 0) or 0))
-        mode, path, size = each
-        return Entry(str(mode), str(path), int(size or 0))
 
     @classmethod
     def from_files(cls, files: Mapping) -> "ListTree":
@@ -367,12 +352,8 @@ class ListTree(Tree):
         entry = self.entry(path)
         if entry is None or entry.mode not in REGULAR or limit < 0:
             return None
-        data = self._reader(path, limit) if self._wide else self._reader(path)
-        if isinstance(data, str):
-            data = data.encode("utf-8")
-        if not isinstance(data, (bytes, bytearray, memoryview)):
-            return None   # a reader that answers anything else (a default, a number) read nothing
-        return bytes(data)[:limit]
+        data = self._reader(path, limit)
+        return None if data is None else data[:limit]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
