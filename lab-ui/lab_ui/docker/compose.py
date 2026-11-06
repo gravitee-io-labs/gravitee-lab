@@ -70,16 +70,12 @@ class Cache:
         # raises
         self._items, self._lock, self._asking = {}, threading.Lock(), {}
 
-    def _hit(self, key, ttl):
-        with self._lock:
-            hit = self._items.get(key)
-        return hit if hit and time.monotonic() - hit[0] < ttl else None
-
     def kept(self, key, ttl):
         """The answer kept under `key` while younger than `ttl` seconds, None otherwise. Nothing is asked, nor waited
         for: a read under way for that key is not."""
-        hit = self._hit(key, ttl)
-        return hit[1] if hit else None
+        with self._lock:
+            hit = self._items.get(key)
+        return hit[1] if hit and time.monotonic() - hit[0] < ttl else None
 
     def get(self, key, ttl, fn):
         """The answer kept under `key` while younger than `ttl` seconds, else what fn() answers, kept whatever it is. What
@@ -392,7 +388,7 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None, given=None):
 GRACE = 10
 
 
-def spawn(cmd, errors, cwd=None, env=None):
+def spawn(cmd, errors, env=None):
     """A command started as run() starts one, for a caller that reads its output as it comes (a job, a log followed):
     from the project root, with no input, in a session of its own that the Lab UI ends as it exits (_end), its output
     as text. `errors`: where its errors go, subprocess.STDOUT with its output or subprocess.DEVNULL. `env`: variables
@@ -400,7 +396,7 @@ def spawn(cmd, errors, cwd=None, env=None):
     release()."""
     if _ending:
         return None
-    process = subprocess.Popen(cmd, cwd=cwd or ROOT, env={**environment(), "PWD": str(cwd or ROOT), **(env or {})},
+    process = subprocess.Popen(cmd, cwd=ROOT, env={**environment(), "PWD": str(ROOT), **(env or {})},
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, encoding="utf-8",
                                errors="replace", bufsize=1, start_new_session=True)
     _running.add(process)
@@ -450,8 +446,7 @@ def _read(asked, **how):
 
 
 def _config(file_args, *options, timeout=120, environ=None):
-    more = {} if environ is None else {"environ": environ}
-    rc, out, err = _read([*file_args, "config", "--format", "json", *options], timeout=timeout, **more)
+    rc, out, err = _read([*file_args, "config", "--format", "json", *options], timeout=timeout, environ=environ)
     if rc != 0:
         if environ is not None and missing(err):
             # A Docker without the plugin answers the Lab's own command line with a usage text whose last line says
@@ -1186,7 +1181,7 @@ def containers(variable=None):
     except ComposeError:
         return {}, None
     try:
-        return ps(variable) if variable else ps(), None
+        return ps(variable), None
     except ComposeError as error:
         CACHE.drop("docker:")   # what Docker says of itself, read again once it answers: it may start again otherwise
         return {}, str(error)

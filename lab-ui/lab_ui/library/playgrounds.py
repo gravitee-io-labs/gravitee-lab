@@ -124,7 +124,7 @@ def _line(name, state, detail, target=None, file=None, reason=None):
 def _now(project, variable=None):
     """What runs now, read from Docker: (model.up(), what runs behind what is saved, the containers, with the
     digest of `variable` in their environment when asked)."""
-    containers = compose.ps(variable) if variable else compose.ps()
+    containers = compose.ps(variable)
     return model.up(project, containers), model.behind(project, containers, projects.saved(project)), containers
 
 

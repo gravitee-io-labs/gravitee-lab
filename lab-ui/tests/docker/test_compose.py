@@ -1347,7 +1347,7 @@ class Spawn(Commands):
     Lab UI ends as it exits, and ends when asked, with what it started."""
 
     def spawned(self, script):
-        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT, cwd=self.root)
+        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT)
         self.addCleanup(lambda: (process.poll() is None and os.killpg(process.pid, signal.SIGKILL), process.wait(),
                                  process.stdout.close(), compose.release(process)))
         return process
@@ -1564,9 +1564,7 @@ class Limits(ProjectFolder):
             compose.config_json(["-f", "a.yml"], 3, asked)
             compose._config(["-f", "a.yml"], "--no-interpolate", environ=asked)
             compose.resolved(["-f", "a.yml"])
-        first, *others = run.call_args_list
-        self.assertNotIn("environ", first.kwargs, "the call of the Lab is the call it was")
-        self.assertEqual([call.kwargs.get("environ") for call in others], [asked, asked, asked, None])
+        self.assertEqual([call.kwargs["environ"] for call in run.call_args_list], [None, asked, asked, asked, None])
         self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [15, 15, 3, 120, 120])
 
     def test_a_read_that_is_not_answered_in_time_raises_compose_error(self):

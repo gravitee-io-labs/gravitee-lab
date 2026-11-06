@@ -471,7 +471,7 @@ class Job:
         start = len(self.lines)
         try:
             # In the project's folder, its errors with its output: what it printed last is why it failed
-            process = compose.spawn(_json(cmd) if pull else cmd, subprocess.STDOUT, cwd=paths.ROOT, env=env)
+            process = compose.spawn(_json(cmd) if pull else cmd, subprocess.STDOUT, env=env)
         except OSError:
             raise JobFailed(f"{cmd[0]} could not be run") from None
         if process is None:

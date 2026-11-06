@@ -256,7 +256,7 @@ class Cut(Case):
 
     def test_a_command_runs_in_the_project_folder_in_a_session_of_its_own(self):
         # Where the project is (a `git` or a `make` of an update acts there), out of reach of the Lab UI's own signals
-        self.folder(paths)
+        self.folder(compose)
         job = Job("Update", [[sys.executable, "-c", "import os; print(os.getcwd()); print(os.getsid(0) == os.getpid())"]],
                   key="lab", verb="update")
         job.run()
