@@ -497,23 +497,9 @@ def _screen(file) -> None:
     """Reads the file without following a link, bounded, and refuses with `catalog_invalid` a file that is not text or
     holds more than its block (`_only_the_block`): Compose is asked nothing about it, since an `include` that names a pipe
     or a file without end would hold or fill the process that reads it."""
-    try:
-        fd = os.open(os.fspath(file), os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
-                     | getattr(os, "O_CLOEXEC", 0))
-    except OSError:
-        raise CatalogError("catalog_invalid", "catalog.yml: it could not be read.", 400) from None
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            raise CatalogError("catalog_invalid", "catalog.yml: it could not be read.", 400)
-        with os.fdopen(fd, "rb", closefd=False) as source:
-            data = source.read(FILE_LIMIT + 1)
-    except OSError:
-        raise CatalogError("catalog_invalid", "catalog.yml: it could not be read.", 400) from None
-    finally:
-        os.close(fd)
-    if len(data) > FILE_LIMIT:
-        raise CatalogError("catalog_invalid", "catalog.yml: it is larger than 1 MB.", 400)
+    data, _ = registry._read(os.fspath(file), FILE_LIMIT, follow=False)
+    if data is None:
+        raise CatalogError("catalog_invalid", "catalog.yml: it could not be read.", 400)
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:

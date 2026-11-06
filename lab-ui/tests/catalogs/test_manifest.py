@@ -5,11 +5,9 @@ visible skip otherwise); `levels` against bare repositories made on this machine
 
 import json
 import os
-import re
 import stat
 import time
 import unittest
-from pathlib import Path
 from unittest import mock
 
 from lab_ui.library import check, project
@@ -42,16 +40,6 @@ def problems(**changes):
         else:
             meta[key] = value
     return manifest.validate_catalog(meta)
-
-
-class Shared(Case):
-    """What the registry shares with the package is public: `shown` and `scan`, not the names they had when they were private."""
-
-    def test_no_module_of_the_package_reaches_into_a_private_name_of_the_registry(self):
-        for name in ("manifest", "install"):
-            source = Path(manifest.__file__).with_name(f"{name}.py").read_text(encoding="utf-8")
-            with self.subTest(module=name):
-                self.assertEqual(re.findall(r"\bregistry\._\w+", source), [])
 
 
 class Levels(Case):

@@ -382,21 +382,12 @@ def _ancestors(rel):
 
 # ---------------------------------------------------------------- what is on disk
 
-def _read(path, limit=MAX_FILE) -> Tuple[bytes, os.stat_result]:
+def _read(path, limit=MAX_FILE) -> bytes:
     """The content of a regular file, never through a link; `Unsafe` for anything else or a file over `limit`."""
-    try:
-        fd = os.open(os.fspath(path), os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
-                     | getattr(os, "O_CLOEXEC", 0))
-    except OSError as error:
-        raise Unsafe(f"{path} cannot be read: {error.strerror}", _owner(path)) from None
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
-            raise Unsafe(f"{path} is not a regular file of a size a catalog has", _owner(path))
-        with os.fdopen(fd, "rb", closefd=False) as source:
-            return source.read(limit + 1), info
-    finally:
-        os.close(fd)
+    data, _ = registry._read(os.fspath(path), limit, follow=False)
+    if data is None:
+        raise Unsafe(f"{path} is not a regular file of a size a catalog has", _owner(path))
+    return data
 
 
 def _oid(data: bytes) -> str:
@@ -432,8 +423,9 @@ def _audit(root, kept: List[bare.Entry]) -> Dict[str, str]:
             entry = expected.get(path)
             if entry is None:
                 raise Unsafe(f"a file that was not judged: {path}", _owner(root))
-            data, info = _read(os.path.join(here, name))
-            if _oid(data) != entry.oid or len(data) != entry.size or stat.S_IMODE(info.st_mode) != _perm(entry):
+            data = _read(os.path.join(here, name))
+            if _oid(data) != entry.oid or len(data) != entry.size \
+                    or stat.S_IMODE(os.lstat(os.path.join(here, name)).st_mode) != _perm(entry):
                 raise Unsafe(f"{path} is not what was judged", _owner(root))
             found[path] = hashlib.sha256(data).hexdigest()
     gone = sorted(set(expected) - set(found))
@@ -641,7 +633,7 @@ def _manifest_in(root, ns) -> Optional[dict]:
     commit it is for, or None: a folder can be an install, a staging folder or a `.removed-<ns>-*` folder, and each says
     what it holds in its own file."""
     try:
-        data, _ = _read(os.path.join(root, paths.MANIFEST), MANIFEST_LIMIT)
+        data = _read(os.path.join(root, paths.MANIFEST), MANIFEST_LIMIT)
         found = json.loads(data.decode("utf-8-sig"))
     except (Unsafe, ValueError, RecursionError):
         return None
@@ -1395,7 +1387,7 @@ def _matches(path, entry) -> Optional[os.stat_result]:
     if info is None or not stat.S_ISREG(info.st_mode) or info.st_size != entry.size:
         return None
     try:
-        data, _ = _read(path)
+        data = _read(path)
     except Unsafe:
         return None
     return info if _oid(data) == entry.oid else None
@@ -1523,7 +1515,7 @@ def _differing(root, files) -> List[str]:
     bad = []
     for path in files:
         try:
-            if not _safe(path) or hashlib.sha256(_read(os.path.join(root, path))[0]).hexdigest() != _rec(files, path).get("sha256"):
+            if not _safe(path) or hashlib.sha256(_read(os.path.join(root, path))).hexdigest() != _rec(files, path).get("sha256"):
                 bad.append(path)
         except Unsafe:
             bad.append(path)
@@ -1624,7 +1616,7 @@ def _record_file(ns) -> Path:
 
 def _read_record(ns) -> Optional[dict]:
     try:
-        data, _ = _read(_record_file(ns))
+        data = _read(_record_file(ns))
         found = json.loads(data.decode("utf-8"))
     except (Unsafe, ValueError):
         return None
@@ -1642,7 +1634,7 @@ def _declared_id(folder) -> Optional[str]:
     if not _is_regular(path):
         return None
     try:
-        return registry.scan(_read(path, manifest.FILE_LIMIT)[0]).get("id")
+        return registry.scan(_read(path, manifest.FILE_LIMIT)).get("id")
     except Unsafe:
         return None
 
