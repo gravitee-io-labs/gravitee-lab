@@ -1027,7 +1027,6 @@ HELP = {
     "upgrade": ("bring the managed files of a catalog to the level of this Lab, or of every catalog of an owner",
                 "catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT|latest] [--adopt]\n"
                 "                   [--form inline|reusable] [--with e2e] [--maintainers @A] [--lab-repo OWNER/REPO]\n"
-                "                   [--format text|json]\n"
                 "catalog.py upgrade --fleet OWNER --lab-ref COMMIT [--format text|json|github]"),
     "release": ("prepare a release of a catalog, then tag it",
                 "catalog.py release VERSION [--tag] [--pr] [--dir DIR]"),

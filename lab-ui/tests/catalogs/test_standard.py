@@ -1254,34 +1254,6 @@ class Commands(Case):
             said.append(done.stdout.strip().split("repo-settings .")[1].strip())
         self.assertEqual(said, ["", "--apply", "--apply --yes"])     # only the last one can make a request: repo-settings asks for --yes
 
-    def test_json_is_the_one_document_and_the_warning_is_in_it(self):
-        lab = self.lab(push=False)
-        code, out, err = self.new("--maintainers", "@a", "--format", "json", lab=lab.root)
-        self.assertEqual((code, err), (0, ""))
-        document = json.loads(out)
-        written = sorted(str(path.relative_to(self.work / "hub")) for path in (self.work / "hub").rglob("*") if path.is_file())
-        self.assertEqual((document["files"], document["standard"], document["id"], document["local"]), (written, 9, "acme-hub", False))
-        self.assertEqual(document["directory"], str(self.work / "hub"))
-        self.assertEqual(document["warnings"], [f"The Lab checkout has no release, so CI refuses its commit "
-                                                f"{lab.git('rev-parse', 'HEAD').strip()[:7]} (SD11). Fetch its tags (git fetch --tags), "
-                                                "then run catalog.py upgrade --lab-ref latest --write."])
-        self.assertIn("make settings APPLY=1 YES=1  make them (needs admin rights)", document["next"])
-        code, out, err = self.new("--local", "--format", "json", lab=self.work, folder="mine")
-        self.assertEqual((code, err, json.loads(out)["standard"], json.loads(out)["local"]), (0, "", None, True))
-
-    def test_github_says_the_warning_as_an_annotation_on_standard_output(self):
-        lab = self.lab(push=False)
-        code, out, err = self.new("--maintainers", "@a", "--format", "github", lab=lab.root)
-        self.assertEqual((code, err), (0, ""))
-        self.assertIn("::warning::The Lab checkout has no release", out)
-        self.assertEqual(self.new("--maintainers", "@a", "--format", "text", lab=lab.root, folder="again")[2].count("has no release"), 1)
-
-    def test_a_format_that_does_not_exist_is_one_line_and_nothing_is_made(self):
-        code, out, err = self.new("--maintainers", "@a", "--format", "yaml", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)
-        self.assertEqual((code, out), (2, ""))
-        self.assertEqual(len(err.splitlines()), 1, err)
-        self.assertFalse((self.work / "hub").exists())
-
     def test_a_name_the_lab_keeps_stops_new_before_anything_is_made(self):
         self.patch(standard.defaults, "read", return_value=[{"id": "gravitee", "name": "Gravitee public"}])
         for name in ("Official", "this machine", "Gravitee public"):
@@ -1704,53 +1676,6 @@ class Upgrading(Case):
         code, out, err = self.upgrade_here(repo, "--maintainers", "@a")
         self.assertTrue(out.endswith("Nothing was written. To apply: catalog.py upgrade --maintainers @a --write\n"), out)
 
-    def test_json_is_the_one_document_whether_or_not_the_plan_is_written(self):
-        repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
-        code, out, err = self.upgrade(repo, "--format", "json")
-        document = json.loads(out)                          # all of standard output: no sentence after it
-        self.assertEqual((code, err, document["pending"], document["refused"]), (1, "", True, ""))
-        self.assertEqual([(each["path"], each["action"]) for each in document["files"] if each["action"] != "current"],
-                         [(".github/workflows/ci.yml", "update")])
-        self.assertNotIn("content", document["files"][0])
-        code, out, err = self.upgrade(repo, "--write", "--format", "json")
-        document = json.loads(out)
-        self.assertEqual((code, err, document["written"]), (0, "", [".github/workflows/ci.yml"]))
-        code, out, err = self.upgrade(repo, "--write", "--format", "json")
-        self.assertEqual((code, err, json.loads(out)["pending"], "written" in json.loads(out)), (0, "", False, False))
-
-    def test_json_stays_empty_on_standard_output_when_the_upgrade_cannot_be_done(self):
-        repo = self.repo()
-        path = repo.root / ".github/workflows/ci.yml"
-        path.write_text(path.read_text() + "# mine\n")
-        code, out, err = self.upgrade(repo, "--write", "--format", "json")
-        self.assertEqual((code, out), (2, ""))
-        self.assertIn("Uncommitted changes", err)
-
-    def test_github_gives_a_warning_for_each_file_that_will_change_and_nothing_else(self):
-        repo = self.repo(files=edited(edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"), ".github/dependabot.yml",
-                                      lambda text: text.split("\n", 1)[1]))
-        code, out, err = self.upgrade(repo, "--format", "github")
-        self.assertEqual((code, err), (1, ""))
-        self.assertEqual(out.splitlines(), ["::notice file=.github/dependabot.yml,title=upgrade::.github/dependabot.yml is owned by this catalog and is left "
-                                            "as it is (the catalog removed the marker)",
-                                            "::warning file=.github/workflows/ci.yml,title=upgrade::.github/workflows/ci.yml will be updated (differs)"])
-
-    def test_github_says_nothing_when_there_is_nothing_to_do_and_the_notes_when_a_level_is_new(self):
-        repo = self.repo()
-        self.assertEqual(self.upgrade(repo, "--format", "github"), (0, "", ""))
-        repo = self.repo(files=at(1))
-        with mock.patch.object(standard, "LEVEL", 2):
-            code, out, err = self.upgrade(repo, "--format", "github")
-        self.assertEqual((code, err), (1, ""))
-        self.assertIn("::notice title=upgrade::standard 2: Adds nightly.yml", out)
-        self.assertIn("::warning file=.github/workflows/nightly.yml,title=upgrade::.github/workflows/nightly.yml will be added (missing)", out)
-
-    def test_a_format_that_does_not_exist_is_one_line_and_exit_2(self):
-        repo = self.repo()
-        code, out, err = self.upgrade(repo, "--format", "yaml")
-        self.assertEqual((code, out), (2, ""))
-        self.assertEqual(len(err.splitlines()), 1, err)
-
     def test_a_failure_after_the_third_write_leaves_the_files_as_they_were(self):
         repo = self.repo(files=at(1))
         plan = self.plan(repo, level=2)
@@ -1943,15 +1868,6 @@ class Upgrading(Case):
     def test_a_refused_plan_is_not_applied(self):
         with self.assertRaises(standard.UpgradeError):
             standard.upgrade_apply(tempfile.gettempdir(), {"refused": "no", "files": []})
-
-    def test_json_is_a_plan_without_the_content(self):
-        repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
-        code, out, err = self.upgrade(repo, "--format", "json")
-        self.assertEqual(code, 1)
-        text = out.split("\n\nNothing was written")[0]
-        data = json.loads(text)
-        self.assertEqual([(each["path"], each["action"]) for each in data["files"] if each["action"] != "current"], [(".github/workflows/ci.yml", "update")])
-        self.assertTrue(all("content" not in each for each in data["files"]))
 
     def test_a_bad_lab_ref_is_refused(self):
         repo = self.repo()

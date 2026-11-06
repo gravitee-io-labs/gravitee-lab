@@ -16,7 +16,6 @@ and its other lines stay as they are. Nothing else is ever pushed, `main` and th
 git here is the Lab's (`gitx`): no hook runs, and the person's own name and email sign the commit and the tag. Standard library
 only."""
 
-import json
 import os
 import re
 import subprocess
@@ -26,7 +25,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from . import gitx
-from .report import FORMATS, printable
+from .report import printable
 
 CATALOG = "catalog.yml"
 VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
@@ -279,9 +278,8 @@ def _tag(root: Path, version: str) -> List[str]:
 
 
 def main(argv: Optional[List[str]] = None, gh: Optional[Callable] = None) -> int:
-    """`catalog.py release VERSION [--tag] [--pr] [--format text or github or json]`: exit 0 when it worked, 2 when it refuses or
-    cannot be done (the line says why and what to do). `json` is one document, {version, step, lines}; the other two print the
-    lines, for there is nothing in them to annotate."""
+    """`catalog.py release VERSION [--tag] [--pr]`: exit 0 when it worked, 2 when it refuses or cannot be done (the line says why
+    and what to do)."""
     import argparse
 
     class Parser(argparse.ArgumentParser):
@@ -292,7 +290,6 @@ def main(argv: Optional[List[str]] = None, gh: Optional[Callable] = None) -> int
     parser.add_argument("--tag", action="store_true")
     parser.add_argument("--pr", action="store_true")
     parser.add_argument("--dir", default=".")
-    parser.add_argument("--format", choices=FORMATS, default="text")
     try:
         args = parser.parse_args(list(argv if argv is not None else sys.argv[1:]))
         if args.tag and args.pr:
@@ -304,10 +301,6 @@ def main(argv: Optional[List[str]] = None, gh: Optional[Callable] = None) -> int
     except (gitx.CatalogError, OSError) as error:
         print(printable(getattr(error, "message", None) or str(error)), file=sys.stderr)
         return 2
-    if args.format == "json":
-        print(json.dumps({"lines": [printable(line) for line in lines], "step": "tag" if args.tag else "branch", "version": args.version},
-                         indent=2, sort_keys=True))
-        return 0
     print(printable("\n".join(lines), keep=("\n",)))
     return 0
 

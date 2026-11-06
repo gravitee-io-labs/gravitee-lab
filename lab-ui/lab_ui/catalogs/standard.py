@@ -40,7 +40,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 from .. import paths
 from . import defaults, gitx
-from .report import ERROR, FORMATS, INFO, WARNING, Problem, annotation, escape_data, printable
+from .report import ERROR, INFO, WARNING, Problem, printable
 from .rules import catalog_meta, say, table
 from .rules.codeowners import OwnerError, maintainers as parse_maintainers, parse as parse_owners
 from .tree import FolderTree, TreeError
@@ -1441,7 +1441,6 @@ def _new_arguments(argv: List[str]):
     parser.add_argument("--form", default="inline")
     parser.add_argument("--with", dest="with_", action="append", default=[])
     parser.add_argument("--local", action="store_true")
-    parser.add_argument("--format", choices=FORMATS, default="text")
     return parser.parse_args(argv)
 
 
@@ -1461,8 +1460,8 @@ def _next_steps(args, folder: str, base: str) -> List[str]:
 
 def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
     """`catalog.py new DIR --id ID --name NAME --maintainers @A[,@B or @ORG/TEAM] [--license SPDX] [--images PREFIX]
-    [--lab-repo OWNER/REPO] [--lab-ref COMMIT] [--form inline or reusable] [--with e2e] [--local] [--format text or github or
-    json]`: renders the template into an empty DIR. Exit 0, 2 for what is missing or wrong (nothing is rendered)."""
+    [--lab-repo OWNER/REPO] [--lab-ref COMMIT] [--form inline or reusable] [--with e2e] [--local]`: renders the
+    template into an empty DIR. Exit 0, 2 for what is missing or wrong (nothing is rendered)."""
     try:
         args = _new_arguments(list(argv))
         for flag, value in (("--id", args.id), ("--name", args.name)):
@@ -1500,22 +1499,10 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
         _complain(f"catalog.py new: {error.strerror or error}")
         return 2
     steps = _next_steps(args, shlex_quote(args.dir), os.path.basename(os.path.abspath(args.dir)))
-    if args.local:
-        head = [f"Created {given['name']} in {args.dir} (a folder catalog, {len(written)} files)"]
-    else:
-        head = [f"Created {given['name']} in {args.dir} (standard {LEVEL}, {len(written)} files)"]
-    if args.format == "json":
-        _say(json.dumps({"directory": args.dir, "files": sorted(written), "id": given["id"], "local": bool(args.local), "name": given["name"],
-                         "next": [step.strip() for step in steps], "standard": None if args.local else LEVEL,
-                         "warnings": [warning] if warning else []}, indent=2, sort_keys=True))
-        return 0
-    for line in head:
-        _say(line)
+    kind = "a folder catalog" if args.local else f"standard {LEVEL}"
+    _say(f"Created {given['name']} in {args.dir} ({kind}, {len(written)} files)")
     if warning:
-        if args.format == "github":
-            _say("::warning::" + escape_data(warning))
-        else:
-            _complain(warning)
+        _complain(warning)
     _say("")
     _say("Next")
     for line in steps:
@@ -1538,30 +1525,11 @@ def _upgrade_arguments(argv: List[str]):
     parser.add_argument("--with", dest="with_", action="append", default=[])
     parser.add_argument("--maintainers")
     parser.add_argument("--lab-repo", dest="lab_repo")
-    parser.add_argument("--format", choices=FORMATS, default="text")
     return parser.parse_args(argv)
 
 
-NOTICES = {ADD: "will be added", UPDATE: "will be updated", REMOVE: "will be removed", OWNED: "is owned by this catalog and is left as it is"}
-
-
-def describe(plan: dict, fmt: str = "text", result: Optional[dict] = None) -> str:
-    """The plan as text for a person, as `github` annotations (a warning for each file that will change, a notice for each
-    level that is new) or as JSON (no file content; `result`, when the plan was written, adds `written`)."""
-    if fmt == "json":
-        shown = {key: value for key, value in plan.items() if key != "files"}
-        shown["files"] = [{key: value for key, value in each.items() if key != "content"} for each in plan["files"]]
-        shown.update(result or {})
-        return json.dumps(shown, indent=2, sort_keys=True)
-    if plan["refused"]:
-        return plan["refused"]
-    if fmt == "github":
-        out = [annotation(Problem("upgrade", INFO if each["action"] == OWNED else WARNING, each["path"], 0,
-                                  f"{each['path']} {NOTICES[each['action']]}" + (f" ({each['why']})" if each["why"] else "")))
-               for each in plan["files"] if each["action"] in NOTICES]
-        if plan["pending"]:
-            out += ["::notice title=upgrade::" + escape_data(f"standard {note['level']}: {note['summary']}") for note in plan["notes"]]
-        return "\n".join(out)
+def describe(plan: dict) -> str:
+    """The plan as text for a person."""
     name = plan["name"] or "This catalog"
     lines: List[str] = []
     if plan["have"] is not None:
@@ -1618,8 +1586,7 @@ def legacy_lab(root) -> Optional[int]:
 
 def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
     """`catalog.py upgrade [DIR] [--write] [--lab-ref COMMIT or latest] [--adopt] [--form F]
-    [--with e2e] [--format text or github or json]`. Without `--write` it prints the plan and writes nothing (exit 1 when
-    anything is pending, 0 when nothing is). With `--format json` standard output is the one JSON document and nothing else."""
+    [--with e2e]`. Without `--write` it prints the plan and writes nothing (exit 1 when anything is pending, 0 when nothing is)."""
     try:
         args = _upgrade_arguments(list(argv))
         lab = lab or _lab_checkout()
@@ -1636,7 +1603,8 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         if args.adopt and not ref and tree.entry(STANDARD) is None:
             # a repository made by hand has no pin yet: it gets the latest release of the Lab this command runs from
             ref = latest_release(lab) or _lab_head(lab)
-        plan = upgrade_plan(tree, {"lab_ref": ref, "adopt": args.adopt, "form": args.form, "with": args.with_, "maintainers": args.maintainers,
+        plan = upgrade_plan(tree, {"lab_ref": ref, "adopt": args.adopt, "form": args.form, "with": args.with_,
+                                   "maintainers": args.maintainers,
                                    "lab_repository": args.lab_repo or (_lab_origin(lab) if args.adopt else ""),
                                    "lab": lab, "legacy_lab": legacy_lab(root)})
     except Usage as error:
@@ -1649,20 +1617,15 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         _complain(f"catalog.py upgrade: {error}")
         return 2
     if plan["refused"]:
-        _complain(describe(plan))
+        _complain(plan["refused"])
         return 2
-    if not args.write or not plan["pending"]:
-        text = describe(plan, args.format)
-        if text:
-            _say(text)
-        if not args.write and plan["pending"] and args.format == "text":
-            _say("")
-            _say(f"Nothing was written. To apply: {apply_command(args)}")
-        return 1 if plan["pending"] and not args.write else 0
-    if args.format != "json":
-        text = describe(plan, args.format)
-        if text:
-            _say(text)
+    _say(describe(plan))
+    if not plan["pending"]:
+        return 0
+    if not args.write:
+        _say("")
+        _say(f"Nothing was written. To apply: {apply_command(args)}")
+        return 1
     try:
         touched = [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE, REMOVE)]
         dirty = dirty_files(root, touched)
@@ -1676,9 +1639,6 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
     except OSError as error:
         _complain(f"catalog.py upgrade: {error.strerror or error}")
         return 2
-    if args.format == "json":
-        _say(describe(plan, "json", {"written": written}))
-        return 0
     _say("")
     _say(f"Wrote {len(written)} files.")
     return 0

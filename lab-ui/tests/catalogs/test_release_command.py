@@ -275,36 +275,6 @@ class Command(Case):
         self.assertEqual((code, err), (0, ""))
         self.assertTrue(out.startswith("Prepared release/1.0.0: catalog.yml says 1.0.0 (one commit).\n"))
 
-    def test_json_is_one_document_with_the_lines(self):
-        import json
-        code, out, err = self.run_main("1.0.0", "--format", "json")
-        self.assertEqual((code, err), (0, ""))
-        document = json.loads(out)
-        self.assertEqual((document["version"], document["step"]), ("1.0.0", "branch"))
-        self.assertEqual(document["lines"][0], "Prepared release/1.0.0: catalog.yml says 1.0.0 (one commit).")
-        self.repo.git("switch", "--quiet", "main")
-        self.repo.commit({"catalog.yml": catalog("1.0.0")})
-        self.repo.git("push", "--quiet", "origin", "main")
-        code, out, err = self.run_main("1.0.0", "--tag", "--format", "json")
-        self.assertEqual((code, err), (0, ""))
-        document = json.loads(out)
-        self.assertEqual((document["step"], document["lines"][0][:21]), ("tag", "Tagged v1.0.0 on orig"))
-
-    def test_github_has_nothing_to_annotate_and_prints_the_lines(self):
-        code, out, err = self.run_main("1.0.0", "--format", "github")
-        self.assertEqual((code, err), (0, ""))
-        self.assertTrue(out.startswith("Prepared release/1.0.0: catalog.yml says 1.0.0 (one commit).\n"))
-
-    def test_json_keeps_standard_output_empty_when_it_refuses(self):
-        code, out, err = self.run_main("1.2", "--format", "json")
-        self.assertEqual((code, out, err), (2, "", "VERSION is three numbers, for example 1.5.0.\n"))
-
-    def test_a_format_that_does_not_exist_is_exit_2(self):
-        code, out, err = self.run_main("1.0.0", "--format", "yaml")
-        self.assertEqual((code, out), (2, ""))
-        self.assertEqual(len(err.splitlines()), 1, err)
-        self.assertEqual(self.repo.branches(), ["main"])
-
     def test_a_refusal_is_one_line_on_standard_error_and_exit_2(self):
         code, out, err = self.run_main("1.2")
         self.assertEqual((code, out, err), (2, "", "VERSION is three numbers, for example 1.5.0.\n"))
