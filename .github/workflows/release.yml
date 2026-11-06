@@ -56,10 +56,6 @@ jobs:
           labels=""
           if [ -n "$last" ]; then
             commits=$(git rev-list "$last..HEAD")
-            if [ -z "$commits" ]; then
-              echo "Nothing was merged since $last"
-              exit 0
-            fi
             for commit in $commits; do
               labels="$labels $(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" --jq '.[].labels[].name')"
             done

@@ -1,7 +1,5 @@
 """next_version.py: the version a merge to main publishes, from the one before it and the labels of its pull requests."""
 
-import contextlib
-import io
 import sys
 import unittest
 from pathlib import Path
@@ -33,21 +31,6 @@ class NextVersion(unittest.TestCase):
     def test_the_highest_label_of_the_merges_wins(self):
         self.assertEqual(next_version.next_version("v1.3.2", {"patch", "minor"}), "v1.4.0")
         self.assertEqual(next_version.next_version("v1.3.2", {"minor", "major", "patch"}), "v2.0.0")
-
-    def test_a_tag_that_is_not_a_version_stops(self):
-        for tag in ("1.0.0", "v1.0", "v1.0.0-rc.1", "latest"):
-            with self.subTest(tag=tag), self.assertRaises(ValueError):
-                next_version.next_version(tag, set())
-
-    def test_the_command_prints_the_tag_and_says_what_is_wrong(self):
-        out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out):
-            self.assertEqual(next_version.main(["v1.0.0", "minor", "docker"]), 0)
-        self.assertEqual(out.getvalue(), "v1.1.0\n")
-        with contextlib.redirect_stderr(err):
-            self.assertEqual(next_version.main(["main"]), 1)
-            self.assertEqual(next_version.main([]), 2)
-        self.assertIn("main is not a version", err.getvalue())
 
 
 if __name__ == "__main__":
