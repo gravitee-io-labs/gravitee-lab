@@ -218,7 +218,7 @@ class Moving(Case):
         (imported / ".state/created.json").write_text("{}\n")
         project.forget()
         rename = os.rename
-        self.patch(moving._kept().os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(18, "Cross-device link"))
+        self.patch(moving.kept.os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(18, "Cross-device link"))
                    if ".state" in str(one) else rename(one, two))
         done = moving.move("playground", "@sandbox/sandbox", False)
         left = next((paths.ROOT / paths.LAB_DIR).glob(".leftover-*"))

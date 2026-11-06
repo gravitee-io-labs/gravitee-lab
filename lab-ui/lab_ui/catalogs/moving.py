@@ -51,7 +51,7 @@ from pathlib import Path
 
 from .. import paths
 from ..library import moves, personal as personals, project
-from . import registry, resolve, service
+from . import kept, registry, resolve, service
 from .contribute import _fields, labelled, mark as _mark, origins, rewritten, unmark
 from .registry import CatalogError
 
@@ -474,9 +474,9 @@ def _settle(swap, rels, recovering):
     owner = {source: rel for rel in rels if (old / rel).is_dir() and not (old / rel).is_symlink()
              for source, _ in _bring(old / rel, home / rel, rel)}
     pairs = [(source, f"{owner[source]}/{source.relative_to(old / owner[source]).as_posix()}") for source in owner]
-    where, failed = _kept().keep(_kept().LOCAL, None, pairs, {rel: _names_of([rel]) for rel in set(owner.values())})
+    where, failed = kept.keep(kept.LOCAL, None, pairs, {rel: _names_of([rel]) for rel in set(owner.values())})
     said = [REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed}))) if where else ""]
-    _kept().remove_but(swap, [*failed, swap / JOURNAL])   # the journal goes last: until then a stop is finished from it
+    kept.remove_but(swap, [*failed, swap / JOURNAL])   # the journal goes last: until then a stop is finished from it
     if not failed:
         with contextlib.suppress(OSError):
             (swap / JOURNAL).unlink()
@@ -555,10 +555,10 @@ def _bring(old, new, rel):
         files += sorted(path for path in (old / "secrets").rglob("*") if path.is_file() or path.is_symlink())
     for path in files:
         inside = path.relative_to(old)
-        if os.path.lexists(new / inside) or not _kept().carry(path, new / inside, new):
+        if os.path.lexists(new / inside) or not kept.carry(path, new / inside, new):
             pairs.append((path, f"{rel}/{inside.as_posix()}"))
     if os.path.lexists(old / ".state"):
-        if os.path.lexists(new / ".state") or not _kept().carry(old / ".state", new / ".state", new):
+        if os.path.lexists(new / ".state") or not kept.carry(old / ".state", new / ".state", new):
             pairs.append((old / ".state", f"{rel}/.state"))
     return pairs
 
@@ -575,11 +575,6 @@ def _names_of(rels, root=None):
         except (OSError, ValueError):
             names.append(slug)
     return ", ".join(names)
-
-
-def _kept():
-    from . import kept   # the settings a change keeps
-    return kept
 
 
 # ---------------------------------------------------------------------------------------------------------------------
