@@ -17,7 +17,7 @@ import json
 import re
 import stat
 import unicodedata
-from typing import Iterable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from .. import paths
 
@@ -169,24 +169,13 @@ def effective(entry) -> Tuple[Optional[str], Optional[str]]:
     return (url if isinstance(url, str) else None), (branch if isinstance(branch, str) else None)
 
 
-def _added() -> List[str]:
-    """The ids of the catalogs the person has: the entries the registry reads from .lab/catalogs.json, the same list the
-    Catalogs page is drawn from. An entry the registry drops, as damaged, is not one, so that the listed catalog it
-    stood for is offered again by a Not added row (the row is the reset). None at all when the registry cannot say:
-    a listed catalog is then offered again, which is safe, since Add refuses one already added."""
-    from . import registry   # here: the registry imports this module
-    try:
-        return [one["id"] for one in registry.entries() if isinstance(one, dict) and isinstance(one.get("id"), str)]
-    except Exception:  # noqa: BLE001 - the registry is another module's: whatever it fails with, it says nothing
-        return []
-
-
-def not_added(added: Optional[Iterable[str]] = None) -> List[dict]:
+def not_added() -> List[dict]:
     """The listed catalogs that .lab/catalogs.json does not hold (the person removed one, or a later engine lists a new
     one), as the rows of kind `suggested` that the Catalogs page draws with one Add: [{id, kind, listed, name,
-    description, url, branch?}], in the order of the file. `added`: the ids already known to the caller, which spares a
-    second read of that file."""
-    have = {one for one in (_added() if added is None else added) if isinstance(one, str)}
+    description, url, branch?}], in the order of the file. An entry the registry drops, as damaged, is not held, so that
+    the listed catalog it stood for is offered again (the row is the reset)."""
+    from . import registry   # here: the registry imports this module
+    have = {one["id"] for one in registry.entries()}
     rows = []
     for entry in read():
         if entry["id"] not in have:

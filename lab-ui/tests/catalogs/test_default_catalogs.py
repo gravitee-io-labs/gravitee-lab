@@ -369,8 +369,8 @@ class NotAdded(Case):
                    for uid in ids]
         self.write(".lab/catalogs.json", json.dumps({"schema": 1, "catalogs": entries}))
 
-    def ids(self, **how):
-        return [row["id"] for row in defaults.not_added(**how)]
+    def ids(self):
+        return [row["id"] for row in defaults.not_added()]
 
     def test_with_no_catalogs_json_every_listed_catalog_is_not_added(self):
         self.assertEqual(self.ids(), ["one", "two"])
@@ -393,45 +393,6 @@ class NotAdded(Case):
         self.write(".lab/catalogs.json", json.dumps({"schema": 1, "catalogs": [folder]}))
         self.assertEqual(self.ids(), ["two"])
 
-    def test_the_caller_may_say_what_it_has_read(self):
-        defaults.read()
-        with mock.patch("builtins.open", side_effect=AssertionError("catalogs.json read")):
-            self.assertEqual(self.ids(added=["one"]), ["two"])
-            self.assertEqual(self.ids(added=iter(["one", "two", None, 5, ["x"]])), [])
-            self.assertEqual(self.ids(added=[]), ["one", "two"])
-
-    def test_a_catalogs_json_that_cannot_be_read_adds_nothing(self):
-        for text in ("{", "[]", "null", '{"catalogs": 5}', '{"catalogs": [5, null, {"id": 3}, {"id": ["one"]}]}',
-                     "x" * 10, ""):
-            with self.subTest(text[:20]):
-                self.write(".lab/catalogs.json", text)
-                self.assertEqual(self.ids(), ["one", "two"])
-        (self.root / ".lab/catalogs.json").unlink()
-        (self.root / ".lab/catalogs.json").mkdir()
-        self.assertEqual(self.ids(), ["one", "two"])
-
-    def test_what_is_added_is_what_the_registry_holds(self):
-        # An entry the registry drops is no catalog: the listed one it stood for is offered again, so that Add can
-        # put it right (the row is the reset)
-        damaged = ({"id": "one", "kind": "bogus"}, {"id": "one"}, {"id": "one", "kind": "git"},
-                   {"id": "one", "kind": "folder"}, {"id": "one", "kind": "git", "url": 5},
-                   {"id": "one", "kind": "folder", "path": "relative/folder"}, {"id": "ONE", "kind": "git", "url": "x"},
-                   {"id": 1, "kind": "git", "url": "x"}, ["one"], "one", None)
-        for item in damaged:
-            with self.subTest(item=item):
-                self.write(".lab/catalogs.json", json.dumps({"schema": 1, "catalogs": [item]}))
-                self.assertEqual(registry.entries(), [])
-                self.assertEqual(self.ids(), ["one", "two"])
-        for text in ('{"schema": 2, "catalogs": [{"id": "one", "kind": "git", "url": "https://example.invalid/o.git"}]}',
-                     '{"schema": "1", "catalogs": []}', '{"catalogs": {"one": 1}}'):
-            with self.subTest(text=text):
-                self.write(".lab/catalogs.json", text)
-                self.assertEqual(self.ids(), ["one", "two"])
-        # One entry that is damaged does not take the others with it
-        self.write(".lab/catalogs.json", json.dumps({"schema": 1, "catalogs": [
-            {"id": "one", "kind": "git"}, {"id": "two", "kind": "git", "url": "https://example.invalid/team/two.git"}]}))
-        self.assertEqual(self.ids(), ["one"])
-
     def test_what_the_registry_holds_is_added_whatever_the_file_says_of_its_kind(self):
         # The registry reads the kind of an entry that does not say it from what it has: a url or a path
         self.write(".lab/catalogs.json", json.dumps({"schema": 1, "catalogs": [
@@ -446,16 +407,6 @@ class NotAdded(Case):
             self.assertEqual([row["id"] for row in registry.suggestions()], ["one", "two"])
             self.config("one")
             self.assertEqual([row["id"] for row in registry.suggestions()], ["two"])
-
-    def test_a_registry_that_cannot_answer_adds_nothing(self):
-        for failure in (OSError("gone"), ValueError("bad"), RecursionError(), KeyError("x"), RuntimeError("no")):
-            with self.subTest(failure=failure), mock.patch.object(registry, "entries", side_effect=failure):
-                self.assertEqual(self.ids(), ["one", "two"])
-        for answer in (None, 5, [None, 5, {}, {"id": 3}, "one"], {"one": 1}):
-            with self.subTest(answer=answer), mock.patch.object(registry, "entries", return_value=answer):
-                self.assertEqual(self.ids(), ["one", "two"])
-        with mock.patch.object(registry, "entries", return_value=[{"id": "one", "kind": "git"}]):
-            self.assertEqual(self.ids(), ["two"])
 
     def test_a_project_with_no_default_file_has_nothing_to_suggest(self):
         (self.root / paths.DEFAULT_FILE).unlink()

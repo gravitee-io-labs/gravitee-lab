@@ -137,7 +137,7 @@ class Linking(Tool):
         self.assertIsNone(self.config())
         self.run_tool("link", str(self.author()))
         self.assertEqual([one["id"] for one in self.config()["catalogs"]], [PARTNER])
-        self.assertEqual([row["id"] for row in defaults.not_added([one["id"] for one in registry.entries()])], ["fixture"])
+        self.assertEqual([row["id"] for row in defaults.not_added()], ["fixture"])
 
     def test_linking_again_changes_nothing(self):
         folder = self.author()

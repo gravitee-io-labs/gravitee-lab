@@ -330,30 +330,11 @@ def _defaults():
 
 
 def _tracked():
-    """({id: row} in the order of the tracked file, the set of the listed ids). Tolerant: a default module that is not
-    there or fails lists nothing, except the first entry's id that `paths` reads itself."""
-    rows = {}
-    try:
-        for row in _defaults().read():
-            if isinstance(row, dict) and isinstance(row.get("id"), str):
-                rows.setdefault(row["id"], row)
-    except Exception:  # noqa: BLE001 - the default file is another module's: whatever it fails with, nothing is listed
-        rows = {}
+    """({id: row} in the order of the tracked file, the set of the listed ids)."""
+    rows = {row["id"]: row for row in _defaults().read()}
     first = paths.default_ns()
     ids = set(rows) | ({first} if first else set())
     return rows, ids
-
-
-def _effective(entry):
-    """(url, branch) a git entry is read at: the tracked ones for a listed entry, its own for any other."""
-    if entry.get("kind") == "git":
-        try:
-            url, branch = _defaults().effective(entry)
-            if isinstance(url, str) and url:
-                return url, branch if isinstance(branch, str) and branch else None
-        except Exception:  # noqa: BLE001 - the default module is another module's: the stored address is the fallback
-            pass
-    return entry.get("url"), entry.get("branch")
 
 
 # ---------------------------------------------------------------- catalogs.json
@@ -801,7 +782,7 @@ def check_namespace(ns: str, taken: Iterable[str] = (), listed: Iterable[str] = 
         other = entry(ns)
         where = ""
         if other:
-            where = display_address(_effective(other)[0] if other["kind"] == "git" else other["path"])
+            where = display_address(_defaults().effective(other)[0] if other["kind"] == "git" else other["path"])
         raise CatalogError("name_taken", f"Another catalog already uses the name {ns}{f' ({where})' if where else ''}. "
                            "Remove it first, or ask the owner of this one to rename it.", 409, id=ns)
 
@@ -1183,7 +1164,7 @@ def web_url(entry: dict) -> Optional[str]:
     and any address that is not https."""
     if not isinstance(entry, dict) or entry.get("kind", "git") != "git":
         return None
-    url = _effective(entry)[0] if isinstance(entry.get("id"), str) else entry.get("url")
+    url = _defaults().effective(entry)[0]
     found = re.fullmatch(r"(?i)https://(?:[^/@\s]*@)?([A-Za-z0-9.-]+(?::[0-9]{1,5})?|\[[0-9A-Fa-f:]+\](?::[0-9]{1,5})?)"
                          r"/([A-Za-z0-9._~+/-]+)", url) if isinstance(url, str) else None
     if not found:
@@ -1232,17 +1213,8 @@ def suggestions() -> list:
     spelling). A row is {id (the listed id, else None), kind (always suggested), name, description, url, branch,
     host_access, listed}. `host_access` only preselects a choice in the Add dialog, it never allows anything. The
     file is read, never written; a file that is missing, damaged or hostile, or a row that is, gives nothing."""
-    added = {display_address(_effective(one)[0]) for one in entries() if one["kind"] == "git"}
-    rows = []
-    try:
-        for row in _defaults().not_added():
-            if isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("url"), str):
-                rows.append({"id": row["id"], "kind": "suggested", "name": shown(row.get("name") or row["id"], 40),
-                             "description": shown(row.get("description") or "", 90), "url": row["url"],
-                             "branch": row["branch"] if isinstance(row.get("branch"), str) and row["branch"] else None,
-                             "host_access": False, "listed": True})
-    except Exception:  # noqa: BLE001 - the default module is another module's: failing, it adds no row
-        rows = []
+    added = {display_address(_defaults().effective(one)[0]) for one in entries() if one["kind"] == "git"}
+    rows = [{**row, "branch": row.get("branch"), "host_access": False} for row in _defaults().not_added()]
     where = suggestions_file()
     data, why = _read(where, SUGGESTIONS_LIMIT) if where else (None, _MISSING)
     value = _json(data)[0] if why is None else None

@@ -317,8 +317,6 @@ class ConfigRead(Disk):
         self.raw("catalogs.default.json", b"{")
         self.config(git_entry("gravitee"), git_entry("acme-hub"))
         self.assertEqual([one["id"] for one in registry.entries()], ["acme-hub"])
-        with mock.patch.object(registry, "_defaults", side_effect=RuntimeError("broken")):
-            self.assertEqual([one["id"] for one in registry.entries()], ["acme-hub"])
 
 
 class ConfigWrite(Disk):
@@ -1504,11 +1502,6 @@ class Suggestions(Disk):
         self.suggest({"url": "https://example.invalid/fixture.git", "host_access": True})
         self.assertEqual([(row["id"], row["host_access"]) for row in registry.suggestions()], [("fixture", False)])
 
-    def test_the_default_module_failing_still_leaves_the_file(self):
-        self.suggest({"url": "https://git.example.invalid/team/one.git"})
-        with mock.patch.object(registry, "_defaults", side_effect=RuntimeError("broken")):
-            self.assertEqual([row["url"] for row in registry.suggestions()], ["https://git.example.invalid/team/one.git"])
-
     def test_the_file_is_only_read(self):
         self.suggest({"url": "https://git.example.invalid/team/one.git"})
         self.file.chmod(0o400)
@@ -1858,14 +1851,6 @@ class Rows(Disk):
     def test_a_name_that_is_not_known_is_the_namespace(self):
         self.config(git_entry("acme-hub"))
         self.assertEqual(registry.inputs()["acme-hub"]["name"], "acme-hub")
-
-    def test_the_default_module_failing_is_a_catalog_that_is_listed_by_its_namespace_only(self):
-        self.default("fixture")
-        self.config(git_entry("fixture"), git_entry("gravitee"))
-        with mock.patch.object(registry, "_defaults", side_effect=RuntimeError("broken")):
-            rows = registry.inputs()
-        self.assertEqual((rows["fixture"]["listed"], rows["fixture"]["name"]), (True, "fixture"))
-        self.assertNotIn("gravitee", rows)
 
 
 class States(Disk):
