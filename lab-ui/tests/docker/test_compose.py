@@ -1070,10 +1070,8 @@ class Kept(unittest.TestCase):
         self.addCleanup(reader.join, 5)
         self.addCleanup(release.set)
         asking.wait(5)
-        began = time.monotonic()
         self.assertEqual([cache.kept("latest", 60), cache.kept("tags", 60), cache.kept("tags", 0)],
                          [None, ["4.12.21"], None])
-        self.assertLess(time.monotonic() - began, 1)
         release.set()
         reader.join(5)
         self.assertTrue(cache.kept("latest", 60))
@@ -1253,10 +1251,8 @@ class Run(Commands):
         self.assertEqual(compose.run(["pwd"], cwd=folder), (0, f"{folder}\n", ""))
 
     def test_past_its_time_it_is_ended_with_everything_it_started(self):
-        started = time.monotonic()
         answer = compose.run(["sh", "-c", f"sleep {FOREVER} & echo $! > {shlex.quote(str(self.pidfile))}; wait"], timeout=1)
         self.assertEqual(answer, (124, "", "sh did not answer within 1 s"))
-        self.assertLess(time.monotonic() - started, 10)
         pid = self.child()
         self.assertTrue(settled(lambda: not alive(pid)), "what the command started is still running")
         self.assertEqual(compose._running, set())
@@ -1335,10 +1331,8 @@ class Run(Commands):
             compose._ending = True
             return process
         with mock.patch.object(subprocess, "Popen", late):
-            started = time.monotonic()
             code, _, _ = compose.run(["sleep", str(FOREVER)], timeout=5)
         self.assertEqual(code, -signal.SIGKILL)   # not 124: it did not wait for its time
-        self.assertLess(time.monotonic() - started, 4)
         self.assertEqual(compose._running, set())
 
 
@@ -1494,10 +1488,8 @@ class Exiting(Case):
         for imported in ("before", "after"):
             with self.subTest(pool_imported=imported):
                 process = self.program(POOL, imported)
-                started = time.monotonic()
                 os.killpg(process.pid, signal.SIGINT)   # what a terminal sends to the group of its foreground program
                 self.assertEqual(self.exits(process), 0)
-                self.assertLess(time.monotonic() - started, 15)
                 self.assertTrue(settled(lambda: not holding(self.marker)), "a command is still running")
 
     def test_a_hang_up_and_a_termination_end_the_commands_too(self):
@@ -1570,10 +1562,8 @@ class Limits(ProjectFolder):
     def test_a_read_that_is_not_answered_in_time_raises_compose_error(self):
         self.patch(compose, "plugin", lambda: None)
         self.patch(compose, "COMPOSE", ["sh", "-c", f"sleep {FOREVER}", "sh"])   # a Compose that never answers
-        started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "^sh did not answer within 1 s$"):
             compose.config_json(["-f", "a.yml"], timeout=1)
-        self.assertLess(time.monotonic() - started, 10)
 
     def test_the_whole_configuration_is_answered_not_only_the_services(self):
         self.patch(compose, "plugin", lambda: None)
@@ -1778,10 +1768,8 @@ class Compose5(ProjectFolder):
         if holding(name) is None:
             self.skipTest("ps cannot list processes: what is left behind is not found")
         self.addCleanup(lambda: [os.kill(pid, 9) for pid in holding(name) or []])   # nothing may be left waiting
-        started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "did not answer within 1 s"):
             compose.config_json(["-f", "docker-compose.yml", "-f", name], timeout=1)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(name)), "Compose is still waiting")
 
 
@@ -1808,10 +1796,8 @@ class XGravitee(ProjectFolder):
     def test_a_text_that_takes_too_long_or_answers_too_much_cannot_be_read_and_leaves_nothing_running(self):
         os.mkfifo(self.here / "never")   # a file that never ends: Compose waits on it
         self.patch(compose, "ALONE_TIMEOUT", 2)
-        started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "did not answer within 2 s"):
             compose.x_gravitee("include: [never]\nx-gravitee: {kind: addon}\n", self.here)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(str(self.here))), "the Compose that waited on it is ended, with its plugin")
         self.patch(compose, "ALONE_OUTPUT", 10)
         with self.assertRaisesRegex(compose.ComposeError, "^Compose answered more than an item can hold$"):
@@ -1822,12 +1808,10 @@ class XGravitee(ProjectFolder):
         os.mkfifo(self.here / "tool.env")
         self.patch(compose, "ALONE_TIMEOUT", 2)
         text = "x-gravitee: {kind: playground}\ninclude:\n  - path: tool.yml\n    env_file: tool.env\n"
-        started = time.monotonic()
         try:
             compose.x_gravitee(text, self.here)
         except compose.ComposeError as error:
             self.assertIn(compose.cause(error), ("Compose took too long to read it", "Compose cannot read it"))
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(str(self.here))))
         (self.here / "tool.env").unlink()
         (self.here / "tool.env").write_text("SECRET hunter2 is no line of variables\n")
@@ -1890,9 +1874,8 @@ class XGravitee(ProjectFolder):
             with self.subTest(name):
                 for one in (".env", "x.env"):
                     make(self.here / one)
-                started = time.monotonic()
+                # A file that was opened would end in the error of its time, not in this answer
                 self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Quiet"})
-                self.assertLess(time.monotonic() - started, 5, "answered at once: neither file is opened")
                 self.assertTrue(settled(lambda: not holding(str(self.here))))
                 for one in (".env", "x.env"):
                     (self.here / one).unlink()

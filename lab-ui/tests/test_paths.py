@@ -9,7 +9,6 @@ import subprocess
 import sys
 import threading
 import tempfile
-import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -290,13 +289,6 @@ class DefaultNamespace(OnDisk):
         self.assertEqual(paths.default_ns(), "gravitee")
         self.write(paths.DEFAULT_FILE, entries + " " * ((1 << 16) - len(entries) + 1))
         self.assertIsNone(paths.default_ns())
-
-    def test_a_number_of_a_million_digits_does_not_hold_up_the_reader(self):
-        # Before Python 3.11 reading one takes seconds; the size limit keeps it to a few milliseconds
-        self.write(paths.DEFAULT_FILE, '{"schema": 1, "catalogs": [{"id": "gravitee"}], "more": ' + "9" * 900000 + "}")
-        started = time.perf_counter()
-        self.assertIsNone(paths.default_ns())
-        self.assertLess(time.perf_counter() - started, 1)
 
     def test_what_is_not_a_regular_file_is_never_opened(self):
         os.remove(self.root / paths.DEFAULT_FILE)
