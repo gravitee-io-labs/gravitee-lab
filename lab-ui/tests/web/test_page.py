@@ -95,7 +95,7 @@ class Agreements(Case):
                 for number, line in enumerate(file.read_text().splitlines(), 1):
                     if shown.search(line) or entities.search(line):
                         found.append(f"{file.relative_to(root)}:{number}")
-        for file in sorted((WEB.parent / "lab_ui").glob("*.py")):
+        for file in sorted((WEB.parent / "lab_ui").rglob("*.py")):
             for node in ast.walk(ast.parse(file.read_text())):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str) and (shown.search(node.value) or entities.search(node.value)):
                     found.append(f"{file.relative_to(root)}:{node.lineno}")
