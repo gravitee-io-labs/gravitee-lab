@@ -43,7 +43,7 @@ from urllib.parse import quote
 from ..library import check, layers, moves, personal, project as projects, tested
 from ..docker import compose
 from .. import paths
-from . import defaults, gitx, install, manifest, meta as block, registry, resolve, store as bare, trust, understood
+from . import defaults, gitx, install, manifest, meta as block, registry, renames, resolve, store as bare, trust, understood
 from .registry import CatalogError
 
 LOCAL = paths.LOCAL
@@ -1496,10 +1496,7 @@ def _rename_settings(kind, uid):
     env = paths.unit_env(kind, uid)
     if isinstance(mapping, dict) and mapping and env and (paths.ROOT / env).is_file():
         file = paths.ROOT / env
-        text = file.read_text(encoding="utf-8")
-        for old, new in mapping.items():
-            text = re.sub(rf"(?m)^(\s*(?:export\s+)?){re.escape(old)}(?==)", lambda hit, new=new: hit.group(1) + new, text)
-        paths.write_atomic(file, text, mode=stat.S_IMODE(file.stat().st_mode))
+        paths.write_atomic(file, renames.rename_settings(file.read_text(encoding="utf-8"), mapping), mode=stat.S_IMODE(file.stat().st_mode))
     paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
 
 
