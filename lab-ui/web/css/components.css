@@ -175,7 +175,6 @@ input:is([type="checkbox"], [type="radio"]):disabled { cursor: default; }
 .pill.ok { --pill-bg: var(--ok-soft); --pill-fg: var(--ok); --pill-line: var(--ok-line); }
 .pill.warn { --pill-bg: var(--warn-soft); --pill-fg: var(--warn); --pill-line: var(--warn-line); }
 .pill.err { --pill-bg: var(--err-soft); --pill-fg: var(--err); --pill-line: var(--err-line); }
-.pill.info { --pill-bg: var(--info-soft); --pill-fg: var(--info); --pill-line: var(--info-line); }
 /* A trailing mark nearer its edge, so that the pill keeps its optical balance */
 .pill > svg:last-child:not(:first-child) { margin-right: -3px; opacity: .85; }
 /* A pill that opens an explanation is its button: a hover a shade deeper, the focus ring of every control */
@@ -331,7 +330,6 @@ body.nav-collapsed .nav-dot { position: absolute; top: 5px; left: calc(50% + 3px
 }
 .spinner { display: inline-block; width: 14px; height: 14px; flex: none; opacity: .8; }
 .loading { display: inline-flex; align-items: center; gap: 9px; color: var(--muted); font-size: var(--fs-2); }
-.empty .loading { font-size: var(--fs-2); }
 /* With reduced motion nothing moves but a spinner, which turns slowly: what pulses is steady (its color and ring say it is on its way),
    nothing pops in, glides or fades */
 @media (prefers-reduced-motion: reduce) {
@@ -450,8 +448,6 @@ body.nav-collapsed .nav-dot { position: absolute; top: 5px; left: calc(50% + 3px
   --btn-shadow: none;
 }
 .icon-btn.pbtn.failed .pbtn-side { color: var(--err); }
-/* Said in full, also on a button that its action left with nothing to do ("No changes"): it grays once said */
-.btn.pbtn.said:disabled { opacity: 1; }
 /* The fade: the working face takes the place of the face while the action works or says how it went */
 .pbtn:is(.busy, .said) .pbtn-face { opacity: 0; }
 .pbtn:is(.busy, .said) .pbtn-side { opacity: 1; }
@@ -482,7 +478,6 @@ body.nav-collapsed .nav-dot { position: absolute; top: 5px; left: calc(50% + 3px
   background: var(--n-bg); box-shadow: inset 0 0 0 1px var(--n-line); color: var(--text-2);
 }
 .notice.err { --n-bg: var(--err-soft); --n-fg: var(--err); --n-line: var(--err-line); }
-.notice.info { --n-bg: var(--info-soft); --n-fg: var(--info); --n-line: var(--info-line); }
 .notice.calm { --n-bg: var(--surface-2); --n-fg: var(--muted); --n-line: var(--border); }
 /* Its icon, its words and its button stand on the line of its title, however many lines the words take */
 .notice-icon { flex: none; width: 16px; height: 16px; margin-top: 8px; color: var(--n-fg); }
@@ -982,7 +977,6 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 .create-dialog:not(.platform-dialog) #create-fields { display: flex; flex-direction: column; overflow: hidden; }
 .create-dialog:not(.platform-dialog) #create-fields > .field.top:has(.picks) { flex: 1 1 auto; min-height: 0; align-items: stretch; }
 .create-dialog:not(.platform-dialog) #create-fields .picks { height: auto; min-height: 0; }
-.create-dialog:not(.platform-dialog) .dialog-actions { margin-top: 16px; }
 /* The task takes the room the prompt does not: the field of what the agent should do is the large one */
 .create-dialog:not(.platform-dialog) #create-agent { display: flex; flex-direction: column; overflow: hidden; }
 .create-dialog:not(.platform-dialog) #create-agent > .field { flex: 1 1 auto; min-height: 120px; }
