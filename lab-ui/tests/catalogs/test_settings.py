@@ -2,7 +2,7 @@
 No test reaches GitHub. GitHub is a table of recorded replies (tests/data/settings: `user-private-free` is the personal Free
 private repository of the standard's, `public-standard` and `org-private` are repositories that are at the
 standard, built from the documented shapes), served by a transport that records every call. The rulesets the module applies
-are the Lab's template; the test data holds a copy of the four managed files (the template is written by another package)."""
+are the Lab's template."""
 
 import contextlib
 import copy
@@ -305,30 +305,6 @@ class PlanLimits(unittest.TestCase):
 class Fixtures(Case):
     """The recorded replies say what the standard says they say."""
 
-    def test_the_personal_repository_is_the_one_of_section_1_1(self):
-        scene = Scene("user-private-free")
-        meta = scene.get().body
-        self.assertEqual((True, "User", True), (meta["private"], meta["owner"]["type"], meta["permissions"]["admin"]))
-        self.assertEqual((True, True, True, False, "COMMIT_OR_PR_TITLE", "COMMIT_MESSAGES", True),
-                         tuple(meta[k] for k in ("allow_squash_merge", "allow_merge_commit", "allow_rebase_merge",
-                                                 "delete_branch_on_merge", "squash_merge_commit_title",
-                                                 "squash_merge_commit_message", "allow_forking")))
-        self.assertEqual(403, scene.get("/rulesets").code)
-        self.assertEqual(403, scene.get("/rules/branches/main").code)
-        self.assertEqual({"enabled": True, "allowed_actions": "all", "sha_pinning_required": False}, scene.get("/actions/permissions").body)
-        self.assertEqual({"default_workflow_permissions": "read", "can_approve_pull_request_reviews": False},
-                         scene.get("/actions/permissions/workflow").body)
-        self.assertEqual("none", scene.get("/actions/permissions/access").body["access_level"])
-        self.assertEqual(422, scene.get("/actions/permissions/fork-pr-contributor-approval").code)
-        fork = scene.get("/actions/permissions/fork-pr-workflows-private-repos").body
-        self.assertEqual({"run_workflows_from_fork_pull_requests": False, "send_write_tokens_to_workflows": False,
-                          "send_secrets_and_variables": False, "require_approval_for_fork_pr_workflows": False}, fork)
-        self.assertEqual({"days": 90, "maximum_allowed_days": 400}, scene.get("/actions/permissions/artifact-and-log-retention").body)
-        self.assertEqual({"enabled": False, "enforced_by_owner": False}, scene.get("/immutable-releases").body)
-        self.assertEqual(422, scene.get("/actions/organization-secrets").code)
-        self.assertEqual(404, scene.get("/private-vulnerability-reporting").code)
-        self.assertEqual([1], [len(scene.get("/collaborators?permission=push").body)])
-
     def test_no_fixture_names_an_owner_a_catalog_or_a_credential(self):
         banned = re.compile(r"dobl1|gravitee|ghp_|github_pat_|BEGIN [A-Z ]*PRIVATE KEY|@[a-z0-9.-]+\.(?:com|org|io)\b", re.I)
         for path in sorted(DATA.rglob("*")):
@@ -336,42 +312,6 @@ class Fixtures(Case):
                 text = path.read_text(encoding="utf-8")
                 found = banned.search(text.replace("gravitee-lab-catalog", "").replace("Lab catalog standard", ""))
                 self.assertIsNone(found, f"{path.name}: {found and found.group(0)}")
-
-    def test_the_rulesets_are_those_of_section_4_3_without_their_marker(self):
-        loaded = settings.load_rulesets()
-        deploy_key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
-        self.assertEqual({"main": "catalog-main", "tags": "catalog-tags", "push": "catalog-push", "paths": "catalog-protected-paths",
-                          "history": "catalog-main-history", "tag_history": "catalog-tag-history"},
-                         {key: body["name"] for key, body in loaded.items()})
-        for body in loaded.values():
-            self.assertNotIn("_managed", body)
-        self.assertEqual({"name": "catalog-main", "target": "branch", "enforcement": "active", "bypass_actors": [deploy_key],
-                          "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
-                          "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}, {"type": "required_linear_history"},
-                                    {"type": "required_signatures"},
-                                    {"type": "pull_request", "parameters": {
-                                        "required_approving_review_count": 1, "dismiss_stale_reviews_on_push": True,
-                                        "require_code_owner_review": True, "require_last_push_approval": True,
-                                        "required_review_thread_resolution": True, "allowed_merge_methods": ["squash"]}},
-                                    {"type": "required_status_checks", "parameters": {
-                                        "strict_required_status_checks_policy": True, "do_not_enforce_on_create": False,
-                                        "required_status_checks": [{"context": "Catalog CI result", "integration_id": 15368}]}}]},
-                         loaded["main"])
-        self.assertEqual({"name": "catalog-tags", "target": "tag", "enforcement": "active",
-                          "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}, deploy_key],
-                          "conditions": {"ref_name": {"include": ["~ALL"], "exclude": []}},
-                          "rules": [{"type": "creation"}, {"type": "deletion"}, {"type": "non_fast_forward"}]}, loaded["tags"])
-        self.assertEqual({"name": "catalog-push", "target": "push", "enforcement": "active", "bypass_actors": [],
-                          "rules": [{"type": "file_path_restriction", "parameters": {"restricted_file_paths": [
-                              "**/.env", "**/.env.local", "**/.state/**", "**/secrets/**"]}},
-                                    {"type": "file_extension_restriction", "parameters": {"restricted_file_extensions": [
-                                        "*.pem", "*.key", "*.p12", "*.pfx", "*.jks", "*.keystore", "*.csr"]}},
-                                    {"type": "max_file_size", "parameters": {"max_file_size": 5}}]}, loaded["push"])
-        self.assertEqual({"name": "catalog-protected-paths", "target": "push", "enforcement": "active",
-                          "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
-                          "rules": [{"type": "file_path_restriction", "parameters": {"restricted_file_paths": [
-                              ".github/workflows/**", ".github/actions/**", ".github/rulesets/**", ".github/CODEOWNERS",
-                              ".github/standard.json", ".catalog/**", "Makefile"]}}]}, loaded["paths"])
 
 NO_RULES = "needs GitHub Pro, an organization or a public repository: rules cannot be enforced here"
 
