@@ -46,7 +46,7 @@ from .. import gitx, report, tree as trees
 from ..report import Problem
 from ..rules import catalog_meta
 from . import (MESSAGES, Parser, Unavailable, Usage, conclude, entry, json_line, load, parsed, parser, plan as planning, problem, refusals,
-               write_outputs, write_summary)
+               write_outputs)
 from .smoke import needs_settings
 
 LICENSE_VARIABLE = "GRAVITEE_LICENSE"
@@ -351,7 +351,6 @@ def plan_main(argv, out, err, **seams) -> int:
     found.add_argument("--change", default=None, help="the folder the pull request was checked out into: read as data, never run")
     found.add_argument("--sha", default=None, help="the commit of the pull request you read: 40 hexadecimal characters")
     found.add_argument("--github-output", action="store_true", help="write matrix and count to $GITHUB_OUTPUT")
-    found.add_argument("--ci", action="store_true")
     args = parsed(found, options)
     mode = "all" if args.all else "changed" if args.changed else "items"
     if (args.change is None) != (args.sha is None):
@@ -366,10 +365,7 @@ def plan_main(argv, out, err, **seams) -> int:
     planned = make_plan(os.path.abspath(args.path), os.path.abspath(args.change) if args.change else None, args.sha, ref, mode, words)
     out.write("\n".join(lines_of(planned)) + "\n")
     if planned.problems:
-        out.write(report.render(planned.problems, "github" if args.ci else "text"))
-    if args.ci:
-        write_summary("### End to end plan\n\n" + "\n".join(f"- {line}" for line in lines_of(planned)) + "\n"
-                      + ("\n" + report.summary(planned.problems, "catalog.py check") if planned.problems else ""))
+        out.write(report.render(planned.problems, "text"))
     if planned.problems:
         return 1
     if args.github_output:
