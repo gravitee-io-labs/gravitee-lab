@@ -1,9 +1,9 @@
 """The rules of the catalog repository standard, one module for each family: `structure` (ST), `secrets` (SE),
-`commits` (CR), `guides` (GD), `dockerfiles` (DF), `images` (IM), and, from other packages, `workflows` (WF) and `codeowners`
-(CO). A rule module is pure: `check(tree, ctx) -> [Problem]` reads a `Tree` (and the commits of a change through `ctx`), never
-writes, runs nothing of what it reads and takes no longer than a second for a line of a megabyte. Each module also exports
-`RULES`, its table of `Rule(code, severity, rule, message)`: the message is the text of with `{field}` places, the
-one text CI, `make check`, Share and `explain` all use.
+`commits` (CR), `guides` (GD), `dockerfiles` (DF), `images` (IM), `workflows` (WF) and `codeowners` (CO). A rule module is pure:
+`check(tree, ctx) -> [Problem]` reads a `Tree` (and the commits of a change through `ctx`), never writes, runs nothing of what it
+reads and takes no longer than a second for a line of a megabyte. Each module also exports `RULES`, its table of
+`Rule(code, severity, rule, message)`: the message is the text with `{field}` places, the one text CI, `make check`, Share and
+`explain` all use.
 
 This file holds what the families share:
 
