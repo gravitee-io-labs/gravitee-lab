@@ -31,12 +31,13 @@ import sys
 import tempfile
 import threading
 import unittest
-from collections import Counter
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 from unittest import mock
 
 from lab_ui import paths
+from lab_ui.catalogs import store
+from lab_ui.catalogs.install import _document
 from lab_ui.docker import compose
 
 from . import gitfixture
@@ -59,18 +60,6 @@ CATALOG_KEYS = {"name", "version", "lab"}   # catalog.yml, and the lock's cache 
 LOCK_KEYS = {"audience", "pin", "error"}
 CONTENT_KEYS = {"drop", "files"}   # paths left out of the copy; {path: text} added to it or replaced in it
 PLACE_KEYS = {"link", "store"}   # a folder catalog as a link; the Lab's bare store
-
-
-# What is never installed from git. This is an independent statement of what
-# `store.selected` does
-SEGMENT = re.compile(r"[A-Za-z0-9._+-]+")
-UNIT_NAME = re.compile(r"[a-z0-9-]+")
-AREAS = {"addons": "addon", "setups": "setup", "playgrounds": "playground"}
-KEY_FILES = (".key", ".pem", ".p12", ".jks", ".crt", ".csr", ".srl")
-AGENT_FILES = ("agents.md", "claude.md", "gemini.md")
-RESERVED = ("secrets", ".state", ".git", ".claude", ".agents", ".gemini")
-RESERVED_PREFIXES = (".cursor", ".windsurf")
-SMALL, LARGE = 1024 * 1024, 2 * 1024 * 1024
 
 
 class Remote:
@@ -408,92 +397,9 @@ def _patched(tree, patch):
     return tree
 
 
-def _unit(parts):
-    """(kind, name) of the unit a path belongs to, None for a path that is in none."""
-    kind = AREAS.get(parts[0])
-    if kind == "setup":
-        return (kind, parts[1][:-4]) if len(parts) == 2 and parts[1].endswith(".yml") else None
-    return (kind, parts[1]) if kind and len(parts) >= 3 else None
-
-
-def _head(unit):
-    """The file that makes a unit a unit."""
-    kind, name = unit
-    return f"setups/{name}.yml" if kind == "setup" else f"{FOLDER[kind]}/{name}/compose.yml"
-
-
-def _refused(rel, parts, size):
-    """Whether a file is never installed, whatever unit it is in (rule 5), apart from its mode: a fixture holds none
-    but 100644."""
-    if len(parts) > 8 or len(rel) > 200:
-        return True
-    for index, segment in enumerate(parts):
-        low = segment.lower()
-        if not SEGMENT.fullmatch(segment) or segment in (".", ".."):
-            return True
-        if low in RESERVED or low.startswith(RESERVED_PREFIXES):
-            return True
-        if low == ".env" or (low.startswith(".env.") and not (index == len(parts) - 1 and low == ".env.example")):
-            return True
-    base = parts[-1].lower()
-    if base.endswith(KEY_FILES) or base in AGENT_FILES or rel.lower().endswith(".github/copilot-instructions.md"):
-        return True
-    return size > (SMALL if base.endswith(TEXT) else LARGE)
-
-
-def _selected(tree):
-    """(kept {path: bytes}, ignored count) of what the Lab installs from git (, rules 5 and 6): catalog.yml and
-    the files of the units below addons/, setups/ and playgrounds/, but never a file of a machine, a key, the
-    instructions of an agent, an odd or too deep name, a big file, a folder that is no unit name, a unit without its
-    compose.yml, or a path that differs from another's only by case. The rest of the top level (README.md, .github/) is
-    not installed and not counted."""
-    candidates, ignored = [], 0
-    for rel, data in sorted(tree.items()):
-        parts = rel.split("/")
-        if rel != "catalog.yml" and parts[0] not in AREAS:
-            ignored += parts[0] in ("", ".", "..") or not SEGMENT.fullmatch(parts[0])
-            continue
-        unit = None if rel == "catalog.yml" else _unit(parts)
-        bad = _refused(rel, parts, len(data)) or (rel != "catalog.yml" and not (unit and UNIT_NAME.fullmatch(unit[1])))
-        if bad:
-            ignored += 1
-        else:
-            candidates.append((rel, unit))
-    spellings = Counter(rel.lower() for rel, _ in candidates)
-    distinct = [(rel, unit) for rel, unit in candidates if spellings[rel.lower()] == 1]
-    ignored += len(candidates) - len(distinct)
-    heads = {_head(unit) for rel, unit in distinct if unit and rel == _head(unit)}
-    kept = {}
-    for rel, unit in distinct:
-        if unit and _head(unit) not in heads:
-            ignored += 1
-        else:
-            kept[rel] = tree[rel]
-    return kept, ignored
-
-
 def _blob(data):
     """The id git gives a file of this content."""
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
-
-
-def _unit_name(rel):
-    unit = _unit(rel.split("/"))
-    return f"{unit[0]}:{unit[1]}" if unit else None
-
-
-def _manifest(ns, commit, kept, ignored):
-    """.installed.json. The digest of a unit is the sha256 of the sorted lines "<mode> <oid> <path>\\n" of
-    its files: it comes from object ids alone, so any commit gives it without reading a blob."""
-    files, lines = {}, {}
-    for rel, data in kept.items():
-        oid = _blob(data)
-        files[rel] = {"mode": "100644", "oid": oid, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
-        if _unit_name(rel):
-            lines.setdefault(_unit_name(rel), []).append(f"100644 {oid} {rel}\n")
-    digests = {unit: "sha256:" + hashlib.sha256("".join(sorted(found)).encode()).hexdigest()
-               for unit, found in sorted(lines.items())}
-    return {"schema": 1, "catalog": ns, "commit": commit, "files": files, "units": digests, "ignored": ignored}
 
 
 def _put_files(target, tree, readonly):
@@ -523,22 +429,13 @@ def remote(case, ns, **patch):
     return _remote(case, ns, _patched(_tree(case, ns), patch))
 
 
-STORE_SETTINGS = (("gc.auto", "0"), ("core.hooksPath", "/dev/null"), ("core.fsmonitor", "false"),
-                  ("transfer.fsckObjects", "true"))   # what store.init sets on every store
-
-
 def _make_store(root, ns, remote_):
-    """The Lab's own bare store of a catalog, .lab/cache/git/<ns>.git, made the way store.init and store.fetch make one:
-    no templates, so no hooks, STORE_SETTINGS, `refs/lab/tip` fetched from the remote.
-    It has no origin and no branch of its own: the Lab names the address on each fetch."""
-    git = gitfixture.git
+    """The Lab's own bare store of a catalog, .lab/cache/git/<ns>.git, with `refs/lab/tip` fetched from the remote. It has
+    no origin and no branch of its own: the Lab names the address on each fetch."""
     bare = root / paths.LAB_DIR / "cache" / "git" / f"{ns}.git"
-    bare.parent.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(bare, ignore_errors=True)
-    git("init", "--bare", "--quiet", "--template=", "--", str(bare))
-    for key, value in STORE_SETTINGS:
-        git("config", key, value, repo=bare)
-    git("fetch", "--quiet", "--no-tags", "--", str(remote_.bare), "+refs/heads/main:refs/lab/tip", repo=bare)
+    store.init(bare)
+    gitfixture.git("fetch", "--quiet", "--no-tags", "--", str(remote_.bare), "+refs/heads/main:refs/lab/tip", repo=bare)
 
 
 def install(case, ns, kind="folder", **patch):
@@ -552,7 +449,8 @@ def install(case, ns, kind="folder", **patch):
     `shadows` (the address of that repository, its branch).
 
     kind="git" (needs git: a visible skip without): the files are committed to a bare repository, which is the entry's
-    address (a file:// one: production accepts none), and installed the way the Lab installs them: what the filter keeps, read-only, with .installed.json and a lock whose pin is that commit. `store=True` also makes the Lab's
+    address (a file:// one: production accepts none), and installed the way the Lab installs them: what the store's
+    filter keeps, read-only, with .installed.json and a lock whose pin is that commit. `store=True` also makes the Lab's
     own bare store, .lab/cache/git/<ns>.git, with refs/lab/tip (_make_store).
 
     `patch`: the keys of the entry (url, host); name, version and lab, which are written in catalog.yml, so that the
@@ -589,9 +487,11 @@ def install(case, ns, kind="folder", **patch):
             entry["shadows"] = {"url": remote_.url, "branch": "main", "added": "2026-10-16T09:00:00Z"}
             held["shadowed"] = True
     else:
-        kept, ignored = _selected(tree)
-        _put_files(target, kept, True)
-        _write(target / ".installed.json", _json(_manifest(ns, commit, kept, ignored)))
+        kept, ignored = store.selected(store.Entry("100644", _blob(data), len(data), rel) for rel, data in sorted(tree.items()))
+        files = {entry_.path: tree[entry_.path] for entry_ in kept}
+        _put_files(target, files, True)
+        shas = {rel: hashlib.sha256(data).hexdigest() for rel, data in files.items()}
+        _write(target / ".installed.json", _json(_document(ns, commit, kept, ignored, shas)))
         entry.update({"url": remote_.url, "branch": "main", "auto": True})
     if patch.get("store"):
         _make_store(case.root, ns, remote_)
