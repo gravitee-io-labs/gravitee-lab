@@ -60,7 +60,7 @@ class Manifests(Seed):
                         ("GET", SERVER + "/api/v1"): (200, CORE),
                         ("GET", SERVER + "/apis/gravitee.io/v1alpha1"): (200, GRAVITEE),
                         ("PATCH", NAMESPACE): (200, {}), ("PATCH", SECRET): (200, {}), ("PATCH", CONTEXT): (200, {}),
-                        ("GET", CONTEXT): (200, ACCEPTED)}
+                        ("GET", NAMESPACE): (404, {}), ("GET", SECRET): (404, {}), ("GET", CONTEXT): [(404, {}), (200, ACCEPTED)]}
 
     def test_a_manifest_that_asks_the_loader_for_a_bomb_of_pairs_is_refused_before_anything_is_built(self):
         self.seed_files({"k8s/01-bomb.yaml": doubling(40)})
@@ -86,6 +86,15 @@ class Manifests(Seed):
         self.assertEqual([(x["kind"], x["name"]) for x in common.created()],
                          [("namespace", "acme"), ("resource", "Secret acme/lab-credentials"),
                           ("resource", "ManagementContext acme/lab")])
+
+    def test_a_namespace_still_being_deleted_is_waited_for_then_made_again_and_recorded(self):
+        self.seed_files(FILES)
+        deleting = (200, {"metadata": {"name": "acme", "deletionTimestamp": "2026-11-07T22:39:00Z"}})
+        self.answer({**self.cluster, ("GET", NAMESPACE): [deleting, deleting, (404, {})]})
+        k8s.seed()
+        self.assertEqual((len(self.platform.sent("GET", NAMESPACE)), len(self.platform.sent("PATCH", NAMESPACE))), (3, 1))
+        self.assertIn(("namespace", "acme"), [(x["kind"], x["name"]) for x in common.created()])
+        self.assertIn("[k8s] ✓ Namespace acme to be deleted ready", self.output())
 
     def test_a_resource_of_the_operator_is_waited_for_until_it_is_accepted(self):
         self.seed_files(FILES)
@@ -218,7 +227,7 @@ stringData: {label: desk}
 
     def test_a_secret_without_the_annotation_is_applied_as_written(self):
         self.seed_files({self.SECRET: self.FILE.replace("gravitee-lab/generate", "other-note")})
-        self.answer({**self.cluster, ("PATCH", self.PATH): (200, {})})
+        self.answer({**self.cluster, ("GET", self.PATH): (404, {}), ("PATCH", self.PATH): (200, {})})
         k8s.seed()
         self.assertEqual(self.applied()[0]["stringData"], {"label": "desk"})
-        self.assertEqual(len(self.platform.sent("GET", self.PATH)), 0)
+        self.assertEqual(len(self.platform.sent("GET", self.PATH)), 1)   # apply's read alone: no key is generated
