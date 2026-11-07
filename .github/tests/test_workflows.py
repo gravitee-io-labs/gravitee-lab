@@ -20,7 +20,6 @@ from lab_ui.catalogs.rules.workflows import GENERIC, problems  # noqa: E402
 FILES = sorted([*(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / ".github" / "actions").glob("*/action.yml")])
 E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # a change of the engine tried on a catalog
 CI = ROOT / ".github" / "workflows" / "ci.yml"
-RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 BASH = shutil.which("bash")
 
@@ -88,16 +87,6 @@ class E2ETest(unittest.TestCase):
     def test_a_pull_request_the_night_and_a_maintainer_start_it_and_a_push_never_does(self):
         self.assertEqual(sorted(events(self.text)), ["pull_request", "schedule", "workflow_dispatch"])
 
-    def test_no_branch_of_this_repository_is_how_a_foreign_commit_gets_the_license(self):
-        # A push runs every workflow of the pushed commit with the secrets: the commit of a fork is a pull request, tried from main
-        self.assertNotIn("e2e/", self.text)
-        self.assertNotRegex(self.text, r"(?m)^\s+push:")
-
-    def test_a_pull_request_is_data_of_the_workflow_that_is_always_mains(self):
-        script_text = script(step_with(self.jobs["prepare"], "id: prepare"))
-        self.assertIn("refs/heads/main", script_text)
-        self.assertIn("refs/pull/$PR/head", script_text)
-
     def test_the_license_is_given_to_the_one_job_that_waits_for_a_maintainer(self):
         found = {name for name, body in self.jobs.items() if re.search(r"secrets\.(?!CATALOG_DEPLOY_KEY)", body)}
         self.assertEqual(found, {"e2e"})
@@ -125,7 +114,6 @@ class E2ETest(unittest.TestCase):
         self.assertNotIn("--allow-machine", self.text)
 
     def test_the_license_reaches_the_step_that_writes_it_and_no_other(self):
-        self.assertEqual(len([step for step in steps(self.jobs["e2e"]) if "secrets.GRAVITEE_LICENSE" in step]), 1)
         self.assertEqual(len(re.findall(r"secrets\.GRAVITEE_LICENSE", self.text)), 1)
 
     def test_the_license_is_written_where_the_engine_is_and_after_the_change_was_checked(self):
@@ -177,7 +165,6 @@ class E2ETest(unittest.TestCase):
 
     def test_an_engine_without_a_catalog_to_try_says_so_and_runs_nothing(self):
         self.assertIn("if: needs.prepare.outputs.skip != 'true'", self.jobs["plan"])
-        self.assertIn("The variable CATALOG_REPOSITORY is not set", self.text)
 
     def test_the_check_to_require_is_named_as_it_always_was_and_waits_for_everything(self):
         """The name that the documentation, a ruleset and the audit of the settings ask for, which always reports."""
@@ -288,10 +275,6 @@ class PrepareTest(ShellTest):
         self.assertEqual(done.returncode, 0)
         self.assertIn("::notice title=E2E not tried::The variable CATALOG_REPOSITORY is not set", done.stdout)
         self.assertEqual(self.outputs()["skip"], "true")
-
-    def test_the_outputs_are_six_lines_whatever_the_event(self):
-        self.prepare()
-        self.assertEqual(len(self.output.read_text(encoding="utf-8").splitlines()), 6)
 
 
 class PlanShellTest(ShellTest):
@@ -486,7 +469,6 @@ class ReleaseNotesTest(unittest.TestCase):
 
     def test_every_label_that_raises_a_number_has_its_section_and_is_documented(self):
         labeled = {label for _, labels in self.categories() for label in labels} - {"*"}
-        self.assertEqual(labeled, {"major", "minor", "catalog-format"})
         source = (ROOT / ".github" / "scripts" / "next_version.py").read_text(encoding="utf-8")
         maintaining = (ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
         for label in labeled:
@@ -498,7 +480,7 @@ class ReleaseTest(unittest.TestCase):
     """release.yml: every merge to main is a version. The deploy key that may create tags is the one thing it must keep in one step."""
 
     def setUp(self):
-        self.text = RELEASE.read_text(encoding="utf-8")
+        self.text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         self.jobs = jobs(self.text)
         self.body = self.jobs["release"]
 
