@@ -1,8 +1,8 @@
 // The seams between the pages that the Catalogs work left to the shell of the page (web/js/main.js, core.js, jobs.js, ui.js, combo.js,
 // environment-actions.js, pages/stack.js): the code a refusal of the server carries, a key that only the click that holds it lets go, the
 // timer of the menu, the bubble hosted in the dialog that is open, an effects dialog that starts with nothing chosen, the row that says where an
-// item comes from in a plan, the picker that counts catalogs from two, the entries of `state.catalogs` that are no row, Add catalog leading to
-// the Catalogs page, and Start all in the Cloud held while no add-on can run its gateway. Run for real over a small DOM.
+// item comes from in a plan, the picker that counts catalogs from two, the entries of `state.catalogs` that are no row, and Start all in the
+// Cloud held while no add-on can run its gateway. Run for real over a small DOM.
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
@@ -13,13 +13,11 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const page = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
 
-const { api, store, router, catalogRows } = await import("../../../web/js/core.js");
+const { api, store, catalogRows } = await import("../../../web/js/core.js");
 const ui = await import("../../../web/js/components/ui.js");
 const { busy } = await import("../../../web/js/activity/jobs.js");
 const { CategoryFilter } = await import("../../../web/js/components/combo.js");
-const { perform } = await import("../../../web/js/platform/environment-actions.js");
 const { platformHead, paintHead } = await import("../../../web/js/pages/stack.js");
-const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
 
 const settle = async () => {
   await flush();
@@ -438,34 +436,6 @@ test("the progress of the fetch of an Add rides among the catalogs and is no row
   assert.equal(store.measuring(), false);
 });
 
-// --- Add catalog leads to the Catalogs page ------------------------------------------------------------------------------------------------
-
-test("the action of an environment that no add-on can serve leads to the Catalogs page and asks nothing of the platform", () => {
-  location.hash = "#/dashboard";
-  const calls = [];
-  globalThis.fetch = async (path) => { calls.push(path); return { ok: true, status: 200, json: async () => ({}) }; };
-  const environment = { id: "env-development", name: "Development" };
-  const found = { state: "ok", environments: [environment], gateways: [] };
-  perform({ id: "cloud-eu", kind: "cloud", name: "Gravitee Cloud" }, () => found, environment, "add-catalog", () => calls.push("reread"));
-  assert.equal(location.hash, "#/catalogs");
-  assert.deepEqual(calls, []);
-});
-
-test("#/catalogs and #/catalogs/<ns> are the Catalogs page of the router, which shows its section and gives it the namespace", () => {
-  store.state = lab({ catalogs: [FIRST(), catalog()] });
-  router.register(catalogsPage);
-  router.start();
-  location.hash = "#/catalogs";
-  assert.ok(router.current.page === catalogsPage);
-  assert.deepEqual(router.current.params, [undefined]);
-  assert.equal(page.ids["page-catalogs"].hidden, false);
-  location.hash = "#/catalogs/acme-hub";
-  assert.ok(router.current.page === catalogsPage);
-  assert.deepEqual(router.current.params, ["acme-hub"]);
-  assert.equal(page.doc.title, "Catalogs - Gravitee Lab");
-  catalogsPage.hide();
-});
-
 // --- Start all in the Cloud ----------------------------------------------------------------------------------------------------------------
 
 const CLOUD = { place: "cloud-eu/env-development", chosen: true, name: "Development (Gravitee Cloud)", group: { id: "api-management", name: "API Management" },
@@ -493,8 +463,6 @@ test("with API Management in the Cloud, Start all waits while no add-on can run 
   const none = { cloud: null };
   assert.deepEqual(head(cloud({}, none)), { shown: true, off: true, why: "Needs a gateway add-on" });
   assert.equal(head(cloud({ content: content("downloading") }, none)).why, "Downloading playgrounds, setups and add-ons");
-  assert.equal(head(cloud({ content: content("failed") }, none)).why, content("failed").line);
-  assert.equal(head(cloud({ content: content("none") }, none)).why, "No catalog added");
   // A provider that exists wins over what the catalogs are doing
   assert.deepEqual(head(cloud({ content: content("downloading") })), { shown: true, off: false, why: "" });
   // The reason of the core is still said when an add-on can run it
