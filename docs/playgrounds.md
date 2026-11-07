@@ -122,7 +122,7 @@ x-gravitee:
 
 ### Host access
 
-A playground runs containers with your Docker access. A service that takes more of your machine than its own container does must say why, so that a reviewer and a user read it before it runs. `make check` asks for it, for a shared file:
+A playground runs containers with your Docker access. A service that takes more of your machine than its own container does must say why, so that a reviewer and a user read it before it runs. `catalog.py check` and Share ask for it (T28), for a shared file:
 
 ```yaml
 x-gravitee:
@@ -130,7 +130,7 @@ x-gravitee:
     k3s: Runs containerd and the kubelet inside its container, which only a privileged container can do
 ```
 
-What counts: a privileged container, the network, the processes, the shared memory, the host name or the users of the host, added capabilities, devices, a security profile that is `unconfined`, the Docker socket, and a folder of your machine outside the project. A folder of the project, a named volume and a port do not. What a file includes is the included file's to say. A declaration for a service that takes nothing is an error too, so that the list stays true.
+What counts: a privileged container, the network, the processes, the shared memory, the host name or the users of the host, added capabilities, devices, a security profile that is `unconfined`, the Docker socket, and a folder of your machine outside the project. A folder of the project, a named volume and a port do not. What a file includes is the included file's to say.
 
 ### Tested versions
 

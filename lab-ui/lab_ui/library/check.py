@@ -69,7 +69,6 @@ CODE = re.compile(r"^(```|~~~).*?^\1|`[^`\n]*`", re.M | re.S)
 SEEDER_IMAGE = re.compile(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+")   # host/path, no tag
 LOCK_FILE = understood.LOCK_FILE   # what the engine promises units, with the level each item appeared at
 KEYWORD = re.compile(r"""(?<![\w.$-])["']?(include|extends|env_file|label_file)["']?[ \t]*:""")   # the words the text screen reads
-DEFAULTED = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:?-([^}$]+)\}")   # ${NAME:-default}, a default that is a plain text
 RUN_BLOCK = re.compile(r"^(?:```|~~~)[ \t]*run\b", re.M)   # a guide's block that the terminal pane runs
 # Where a depth mistake in an anchor shows: a unit's folder sits five folders under the project
 SEEDER_FROM_A_UNIT, PLUGINS_FROM_A_UNIT = "../../../../../seeder", "../../../../../plugins/{}"
@@ -230,57 +229,6 @@ def _included(unit):
             *(paths.unit_file("setup", sid) for sid in unit.get("setups", []))]
 
 
-def _path_like(source):
-    """Whether the source of a volume names a place on this machine, whichever type Compose gave it: read without
-    interpolation, `${HOME}/.kube:/k` is typed a named volume, the text of its source untouched."""
-    return isinstance(source, str) and (source.startswith(("/", ".", "~")) or "${" in source)
-
-
-def _source(source, folders):
-    """The place a bind's source names, as the text trust.elevations can compare: an absolute path, or (for a variable
-    that has no default, which is outside the project whatever it holds) the text as written. Compose puts the folder of the
-    file in front of a variable it did not interpolate (`<folder>/${NAME}`); `folders` are the real folders of the files
-    read, which tell that prefix from a path the author wrote. A variable with a default is that default (a plain text)."""
-    at = source.find("${")
-    if at < 0:
-        return source
-    before, expr = source[:at], source[at:]
-    prefix = None   # the folder Compose put in front, when that is what `before` is
-    if before.endswith("/") and os.path.isabs(before) and os.path.realpath(before.rstrip("/") or "/") in folders:
-        prefix = before.rstrip("/")
-    unknown = expr if prefix is not None else source
-    found = DEFAULTED.match(expr)
-    if found is None:
-        return unknown
-    wanted = found.group(1) + expr[found.end():]
-    if "$" in wanted:
-        return unknown
-    if os.path.isabs(wanted):
-        return wanted
-    if prefix is not None:
-        return posixpath.join(prefix, wanted)
-    return posixpath.join(before.rstrip("/") or "/", wanted) if before else wanted
-
-
-def _mount(volume, folder, folders):
-    """A volume as trust.elevations reads it: a mapping, a bind when its source names a place on this machine, whichever
-    way the file wrote it (the short `source:target` form, or a source Compose could not type), with a relative source
-    taken from the folder of the unit."""
-    if isinstance(volume, str):
-        source, _, rest = volume.partition(":")
-        volume = {"type": "bind" if _path_like(source) else "volume", "source": source, "target": rest.split(":")[0]}
-    if not isinstance(volume, dict):
-        return {}
-    volume = dict(volume)
-    source = volume.get("source")
-    if volume.get("type") in ("bind", "volume") and _path_like(source):
-        source = _source(source, folders)
-        if not os.path.isabs(source) and "${" not in source and not source.startswith("~"):
-            source = posixpath.join(folder, source)
-        volume.update(type="bind", source=source)
-    return volume
-
-
 def _roots(path, closure=(), products=()):
     """The roots the binds of the unit whose file is `path` are judged against (trust.build_roots), real: its folder, the
     folders of what it includes in the same catalog, the plugin folders and the seeder. What is read from a place beyond them
@@ -288,46 +236,6 @@ def _roots(path, closure=(), products=()):
     mine = _namespace(path)
     same = [ROOT / posixpath.dirname(file) for file in closure if _namespace(file) == mine]
     return trust.build_roots(ROOT, ROOT / posixpath.dirname(path), same, products, realpath=os.path.realpath)
-
-
-def _elevations(service, roots, folders=(), members=None):
-    """What a service takes of this machine beyond its own container, in words: trust.elevations, the one vocabulary
-    (what a person reads in the Lab and what an author reads here are one text), over the service as written. Binds are
-    compared by their real place and the project's folder by its real place, so that a link in the way cannot hide where a
-    bind leads and a project that is itself reached through a link says nothing; a source that holds a variable with no
-    default is outside the project, so that the declaration of what binds it is never unneeded."""
-    mounts = [_mount(volume, roots["unit"] or "", set(folders)) for volume in (service or {}).get("volumes") or []]
-    return trust.elevations({**(service or {}), "volumes": mounts}, roots=roots, realpath=os.path.realpath,
-                            home=os.path.expanduser("~"), members=members)
-
-
-def _host_access(meta, raw, path, included, own, products=()):
-    """A service of a shared file that takes more of this machine than its container says so, with the reason: x-gravitee.host_access
-    maps its name to why, so that whoever reviews the file, and whoever starts it, reads what it asks for before it runs. A service
-    that says it and does not need it is told too: the declaration stays true. What the files it includes ask is theirs."""
-    declared = meta.get("host_access") or {}
-    if not (isinstance(declared, dict) and all(isinstance(name, str) and isinstance(why, str) and why.strip()
-                                               for name, why in declared.items())):
-        yield "x-gravitee.host_access must map a service to the reason it takes more of this machine"
-        return
-    services = (raw.get(path) or {}).get("services") or {}
-    folders = {os.path.realpath(ROOT / posixpath.dirname(file)) for file in (path, *included)}
-    members = set(own) | {name for file in included if file in raw for name in (raw[file].get("services") or {})}
-    roots = _roots(path, included, products)
-    theirs = set()
-    for file in (file for file in included if file in raw):
-        reach = _roots(file, (), products)
-        theirs |= {(name, what) for name, service in (raw[file].get("services") or {}).items()
-                   for what in _elevations(service, reach, folders, members)}
-    for name in own:
-        needed = [what for what in _elevations(services.get(name), roots, folders, members) if (name, what) not in theirs]
-        if needed and name not in declared:
-            yield (f"{name}: {', '.join(needed)}: say why in x-gravitee.host_access ({name}: <reason>), "
-                   "so that it is read before it runs")
-        elif name in declared and not needed:
-            yield f"x-gravitee.host_access: {name} takes nothing of this machine beyond its container: remove it"
-    for name in sorted(set(declared) - set(own)):
-        yield f"x-gravitee.host_access: {name} is not a service of this file"
 
 
 def _described(variables):
@@ -557,8 +465,7 @@ def _playground(playground, project, inert=False):
 
 def _unit(kind, uid, project, raw, context=None):
     """What is wrong with one add-on, setup or playground, part of a catalog or about to be. `context` is the catalog's,
-    when one is checked: {catalog (its namespace), declared (the namespaces its catalog.yml declares),
-    products (the plugin folders)}."""
+    when one is checked: {catalog (its namespace), declared (the namespaces its catalog.yml declares)}."""
     context = context or {}
     path = paths.unit_file(kind, uid)
     yield from _includes(kind, path, context.get("catalog"), context.get("declared") or ())
@@ -576,8 +483,6 @@ def _unit(kind, uid, project, raw, context=None):
     yield from _images(raw[path], unit.get("services", []))
     if kind != "setup":
         yield from _readme(kind, uid)
-        yield from _host_access(meta, raw, path, _included(unit), unit.get("services", []),
-                                context.get("products") or ())
     if kind == "playground":
         yield from _listing(meta)
     yield from _restart(raw[path], unit.get("services", []))
@@ -1280,7 +1185,7 @@ def catalog_problems(ns, project=None, inputs=None):
     found += [(manifest.FILE, line) for line in said]
     units = catalog_units(ns, project)
     declared = sorted(((meta or {}).get("requires") or {}).get("catalogs") or {})
-    context = {"catalog": ns, "declared": declared, "products": products}
+    context = {"catalog": ns, "declared": declared}
     stubs = {*(inputs.get("screened") or {}), *(inputs.get("unreadable") or {})}
     for kind, uid, unit in units:
         file, where = unit["file"], shown(unit["file"])
@@ -1573,8 +1478,7 @@ def problems(sharing=None):
     if sharing:
         kind, uid = paths.unit_of(sharing) or (None, None)
         if kind:
-            context = {"products": _anchored(inputs.get("products") or ())}   # a bind of a plugin folder is an anchor, as in a catalog
-            found += [(sharing, message) for message in _unit(kind, uid, project, raw, context)]
+            found += [(sharing, message) for message in _unit(kind, uid, project, raw)]
             if kind == "playground":
                 found += [(sharing, message) for message in _alone(project["playgrounds"][uid])]
             extra = list(_ports(project, raw, sharing))

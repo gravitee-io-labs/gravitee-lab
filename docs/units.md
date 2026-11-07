@@ -109,7 +109,7 @@ services:
   needs more than a restart: a database keeps the password it was created with, and a keystore keeps its own.
 - **Host access**: a service that takes more of the machine than its container does (privileged, the host's network, the
   Docker socket, a folder outside the project) says why in `x-gravitee.host_access`, a service name to the reason, and
-  `make check` refuses one that does not ([the rule](playgrounds.md#host-access)).
+  `catalog.py check` refuses one that does not ([the rule](playgrounds.md#host-access)).
 - **Category**: one of `x-gravitee.categories`. "Gravitee Platform" is for a Gravitee product that runs next to the
   core (a federation agent, a gateway that runs a remote platform's), not for the core itself.
 - **Conflicts**: add-on id to reason, in a few words. One side declares it and it holds both ways; `make check` and the
