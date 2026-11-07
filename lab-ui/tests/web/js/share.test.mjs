@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
-import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, FOLDER, HOSTILE, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });

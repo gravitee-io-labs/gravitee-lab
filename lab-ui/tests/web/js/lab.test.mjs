@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
-import { flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { flush, installDom, reply, text, isOff } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 

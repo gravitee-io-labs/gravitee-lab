@@ -36,7 +36,7 @@ globalThis.innerHeight = 800;
 
 const { store, router, ago } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
-const { addCatalog, openAdd, openImport, openNew, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
+const { addCatalog, openAdd, openImport, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
 const { paintActions, paintProgress } = await import("../../../web/js/components/ui.js");
 
 const section = page.doc.createElement("section");

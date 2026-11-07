@@ -218,7 +218,6 @@ const toggle = (selector, on) => {
   box.checked = on;
   box.dispatchEvent(new Ev("change"));
 };
-const hrefs = (el) => el.querySelectorAll("a").map((a) => a.getAttribute("href"));
 const shown = () => section.querySelectorAll("[data-stack]").filter((button) => !button.hidden).map((button) => button.dataset.stack);
 
 // Resources unfolded or folded, as a person does it: a click on its line

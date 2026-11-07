@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
-import { BLOCKED, FIRST, HOSTILE, NEEDS, PERSONAL, catalog, content, gains, origin } from "./fixtures.mjs";
+import { BLOCKED, FIRST, HOSTILE, NEEDS, PERSONAL, catalog, content, origin } from "./fixtures.mjs";
 
 // The clock is the mock's too: what a button says of how its action went lasts a time that only the ticks of the tests make pass, never the
 // load of the machine (a snapshot drawn a second late would otherwise be another one)

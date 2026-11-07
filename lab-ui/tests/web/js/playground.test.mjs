@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { HOSTILE, catalog as catalogRow, content, FIRST, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });

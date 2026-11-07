@@ -19,7 +19,6 @@ class Text {
   remove() { if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; }
 }
 
-const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const dashed = (name) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
 /* ---- selectors: tag#id.class[attr][attr=value][attr^=value]:not(...):first-child:last-child:disabled:checked:hover:focus-within:focus-visible, with " " and ">" ------------------- */
