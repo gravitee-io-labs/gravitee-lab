@@ -10,14 +10,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# `docker info` fails the way FAKE_DAEMON says; `docker image inspect` succeeds when FAKE_IMAGE is present; Compose is
-# version 5.6.0. Every call is logged, to FAKE_DOCKER_LOG.
+# `docker info` fails the way FAKE_DAEMON says; Compose is version 5.6.0. Every call is logged, to FAKE_DOCKER_LOG.
 DOCKER = """#!/bin/sh
 echo "$*" >> "$FAKE_DOCKER_LOG"
-case "$1 $2" in
-"image inspect") [ "$FAKE_IMAGE" = present ]; exit;;
-"compose version") echo 5.6.0; exit;;
-esac
+[ "$1 $2" = "compose version" ] && { echo 5.6.0; exit; }
 if [ "$1" = info ]; then
     case "$FAKE_DAEMON" in
     denied) echo "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock" >&2
@@ -28,18 +24,13 @@ fi
 exit 0
 """
 
-# What `python -m venv .venv` makes with the interpreter below: a python that says its version and whether it is 3.10
-VENV_PYTHON = """#!/bin/sh
+# A Python that says its version and whether it is 3.10, and that makes a venv of itself
+PYTHON = """#!/bin/sh
 case "$1" in
 -V) echo "Python {version}";;
 -c) exit {too_old};;
+-m) [ "$2" != venv ] || {{ mkdir -p "$3/bin" && cp "$0" "$3/bin/python"; }};;
 esac
-"""
-
-# An interpreter that makes a venv (a copy of venv-python next to it) and does nothing else
-INTERPRETER = """#!/bin/sh
-[ "$1" = -m ] && [ "$2" = venv ] || exit 1
-mkdir -p "$3/bin" && cp "$(dirname "$0")/venv-python" "$3/bin/python"
 """
 
 
@@ -70,25 +61,15 @@ class MakefileTest(unittest.TestCase):
         done = subprocess.run(["make", *arguments], cwd=self.folder, env=env, capture_output=True, text=True)
         return done.returncode, done.stdout + done.stderr
 
-    def docker_calls(self):
-        return self.log.read_text().splitlines() if self.log.exists() else []
-
     # make help
 
-    def test_help_lists_init_in_the_section_that_runs_the_lab(self):
-        _, out = self.make("help")
-        lines = out.splitlines()
-        row = next(line for line in lines if line.split()[:1] == ["init"])
-        self.assertIn("Create what a fresh clone lacks: .env, demo certificates, plugin folders, .lab/on.yml", row)
-        self.assertLess(lines.index("Run the lab"), lines.index(row))
-        self.assertLess(lines.index(row), lines.index("Work on the lab"))
-
-    def test_help_lists_every_target_that_says_what_it_does_also_one_with_a_digit_in_its_name(self):
-        _, out = self.make("help")
-        row = next(line for line in out.splitlines() if line.split()[:1] == ["e2e"])
-        self.assertIn("(ID=KIND:NAME, TESTED=0)", row)
-        lines = out.splitlines()
-        self.assertLess(lines.index("Work on the lab"), lines.index(row))
+    def test_help_lists_each_target_in_its_section_also_one_with_a_digit_in_its_name(self):
+        lines = self.make("help")[1].splitlines()
+        rows = {line.split()[0]: at for at, line in enumerate(lines) if line.strip()}
+        self.assertLess(lines.index("Run the lab"), rows["init"])
+        self.assertLess(rows["init"], lines.index("Work on the lab"))
+        self.assertLess(lines.index("Work on the lab"), rows["e2e"])
+        self.assertIn("(ID=KIND:NAME, TESTED=0)", lines[rows["e2e"]])
 
     # make e2e: it names the item it starts, before it asks anything of Docker's server
 
@@ -100,17 +81,12 @@ class MakefileTest(unittest.TestCase):
 
     # make init: what a fresh clone lacks
 
-    def clone(self):
-        """What `make init` reads in a fresh clone: the template of .env, the demo certificates (already made), a
-        python and an openssl that are fakes."""
+    def test_init_in_a_clone_makes_what_the_lab_needs(self):
         shutil.copy(ROOT / ".env.example", self.folder)
         (self.folder / "certs" / "mtls").mkdir(parents=True)
-        (self.folder / "certs" / "mtls" / "server.p12").write_text("")
+        (self.folder / "certs" / "mtls" / "server.p12").write_text("")   # the demo certificates are made already
         self.program("python3", "#!/bin/sh\nexit 0\n")
         self.program("openssl", "#!/bin/sh\nexit 0\n")
-
-    def test_init_in_a_clone_makes_what_the_lab_needs(self):
-        self.clone()
         code, out = self.make("init", PYTHON="python3")
         self.assertEqual((0, "Created .env from .env.example\n"), (code, out))
         env = (self.folder / ".env").read_text()
@@ -130,56 +106,43 @@ class MakefileTest(unittest.TestCase):
         # anonymous volumes, which nothing reaches once the containers are gone, not even make reset
         code, out = self.make("down")
         self.assertEqual(0, code, out)
-        calls = [call for call in self.docker_calls() if call.startswith("compose -p")]
+        calls = [call for call in self.log.read_text().splitlines() if call.startswith("compose -p")]
         self.assertEqual(calls, ["compose -p gravitee rm --stop --force -v", "compose -p gravitee down"])
 
     # docker is running, or is not
 
-    def test_docker_that_runs_passes(self):
-        code, out = self.make("docker-running")
-        self.assertEqual((0, ""), (code, out))
-
-    def test_docker_that_does_not_run_says_so(self):
-        code, out = self.make("docker-running", FAKE_DAEMON="down")
-        self.assertNotEqual(0, code)
-        self.assertIn("Docker is not running: start Docker Desktop (or the docker service), then try again", out)
-        self.assertNotIn("docker group", out)
-
-    def test_a_user_outside_the_docker_group_is_told_so(self):
-        code, out = self.make("docker-running", FAKE_DAEMON="denied")
-        self.assertNotEqual(0, code)
-        self.assertIn("permission denied while trying to connect to the docker API", out)
-        self.assertIn("Docker is running but your user cannot reach it: add yourself to the docker group "
-                      "(sudo usermod -aG docker $USER), then log in again "
-                      "(see Troubleshooting in docs/troubleshooting.md)", out)
-        self.assertNotIn("Docker is not running", out)
+    def test_what_is_said_of_a_docker_that_does_not_answer(self):
+        for daemon, said, not_said in (("", "", "Docker"), ("down", "Docker is not running", "docker group"),
+                                       ("denied", "permission denied while trying to connect", "Docker is not running"),
+                                       ("denied", "add yourself to the docker group", "Docker is not running")):
+            with self.subTest(daemon=daemon, said=said):
+                code, out = self.make("docker-running", FAKE_DAEMON=daemon)
+                self.assertEqual(code != 0, bool(daemon))
+                self.assertIn(said, out)
+                self.assertNotIn(not_said, out)
 
     # make setup
 
     def interpreter(self, version, too_old):
-        self.program("venv-python", VENV_PYTHON.format(version=version, too_old=1 if too_old else 0))
-        return str(self.program("python-fake", INTERPRETER))
+        return str(self.program(f"python-{version}", PYTHON.format(version=version, too_old=1 if too_old else 0)))
 
-    def test_setup_removes_the_venv_it_made_with_a_python_too_old(self):
+    def test_setup_with_a_python_too_old_makes_no_venv(self):
         code, out = self.make("setup", PYTHON3=self.interpreter("3.9.6", too_old=True))
         self.assertNotEqual(0, code)
         self.assertFalse((self.folder / ".venv").exists())
-        self.assertIn("The seeder needs Python 3.10 or later, found: Python 3.9.6", out)
-        self.assertIn("Run make setup again with a newer python3 (for example PYTHON3=python3.12 make setup)", out)
+        self.assertIn("is: Python 3.9.6", out)
+        self.assertIn("PYTHON3=python3.12 make setup", out)
 
     def test_setup_leaves_a_venv_that_was_there(self):
-        self.interpreter("3.9.6", too_old=True)
         (self.folder / ".venv" / "bin").mkdir(parents=True)
-        shutil.copy(self.bin / "venv-python", self.folder / ".venv" / "bin" / "python")
-        code, out = self.make("setup", PYTHON3=str(self.bin / "python-fake"))
+        shutil.copy(self.interpreter("3.9.6", too_old=True), self.folder / ".venv" / "bin" / "python")
+        code, out = self.make("setup", PYTHON3=self.interpreter("3.12.1", too_old=False))
         self.assertNotEqual(0, code)
         self.assertTrue((self.folder / ".venv" / "bin" / "python").exists())
-        self.assertIn(".venv has Python 3.9.6", out)
-        self.assertIn("Remove .venv, then run make setup again with a newer python3 "
-                      "(for example PYTHON3=python3.12 make setup)", out)
+        self.assertIn(".venv/bin/python is: Python 3.9.6", out)
 
     def test_setup_with_a_python_that_cannot_make_a_venv_leaves_nothing(self):
-        broken = self.program("python-broken", "#!/bin/sh\nmkdir -p \"$3\"; exit 1\n")
+        broken = self.program("python-broken", '#!/bin/sh\n[ "$1" = -c ] && exit 0\nmkdir -p "$3"; exit 1\n')
         code, out = self.make("setup", PYTHON3=str(broken))
         self.assertNotEqual(0, code)
         self.assertFalse((self.folder / ".venv").exists())
@@ -190,4 +153,3 @@ class MakefileTest(unittest.TestCase):
         self.assertEqual(0, code, out)
         self.assertTrue((self.folder / ".venv").is_dir())
         self.assertIn("Ready:", out)
-

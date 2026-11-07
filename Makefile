@@ -140,16 +140,15 @@ urls: python-ok ## Print what is on and the URL of every console
 
 ##@ Work on the lab
 
-# The seeder's dependencies (requests, redis) need Python 3.10; the Lab UI itself runs on 3.9. A .venv made by this run
-# with a Python that is too old is removed, so that the next run starts clean; an existing one is left to its owner.
+# The seeder's dependencies (requests, redis) need Python 3.10; the Lab UI itself runs on 3.9. The Python of a .venv that is
+# there is asked first, else the one that would make it, so that no .venv is made with one too old.
 setup: ## Make .venv for the seeder's tests and make lint (needs Python 3.10 or later)
-	@made=; [ -d .venv ] || { $(PYTHON3) -m venv .venv && made=1; } || { rm -rf .venv; \
+	@python=$(PYTHON3); [ ! -d .venv ] || python=.venv/bin/python; \
+	$$python -c 'import sys; sys.exit(sys.version_info < (3, 10))' || { \
+		echo "The seeder needs Python 3.10 or later, $$python is: $$($$python -V 2>&1)"; \
+		echo "Remove .venv if it has that Python, then run make setup with a newer python3 (for example PYTHON3=python3.12 make setup)"; exit 1; }; \
+	[ -d .venv ] || $(PYTHON3) -m venv .venv || { rm -rf .venv; \
 		echo "Cannot make .venv: install Python 3.10 or later with venv (Debian, Ubuntu: apt install python3-venv)"; exit 1; }; \
-	.venv/bin/python -c 'import sys; sys.exit(sys.version_info < (3, 10))' || { \
-		found="$$(.venv/bin/python -V 2>&1)"; \
-		if [ -n "$$made" ]; then rm -rf .venv; echo "The seeder needs Python 3.10 or later, found: $$found"; again=Run; \
-		else echo "The seeder needs Python 3.10 or later, .venv has $$found"; again="Remove .venv, then run"; fi; \
-		echo "$$again make setup again with a newer python3 (for example PYTHON3=python3.12 make setup)"; exit 1; }; \
 	.venv/bin/python -m pip install --quiet --disable-pip-version-check -r seeder/requirements.txt 'ruff~=0.17.0' && \
 	echo "Ready: make test runs the seeder's tests too, and make lint works"
 

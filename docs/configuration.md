@@ -44,8 +44,7 @@ Notes:
   and the seeder's tests only when `requests`, `pyyaml` and `redis` import, which `make setup` installs.
 - When `.venv` exists, `make` uses its Python. Otherwise it uses the program `PYTHON3` names, or the first of `python3` and
   `python3.14` down to `python3.9` that is 3.9 or later.
-- `make setup` stops when its Python is older than 3.10. It removes the `.venv` it made and says to run it again with a
-  newer `python3`. A `.venv` that was there before is left alone: remove it yourself.
+- `make setup` stops when its Python, the one of a `.venv` that is there, is older than 3.10, and makes nothing.
 
 ## License
 
