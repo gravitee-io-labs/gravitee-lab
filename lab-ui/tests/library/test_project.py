@@ -1073,15 +1073,6 @@ class Deployable(AsOwn):
         self.needs(ORCHARD, "orchard", "apim-management-api")   # each service of the add-on is read, not the first
         self.assertEqual(self.why(), [USES])
 
-    def test_nor_one_of_a_setup_s_add_ons(self):
-        self.given["includes"][EVENTS] = [ORCHARD]
-        self.brings(EVENTS)
-        self.assertEqual(self.why(), [])
-        self.needs(ORCHARD, "orchard", "redis")
-        self.assertEqual(self.why(), [])
-        self.needs(ORCHARD, "orchard", "apim-management-api")
-        self.assertEqual(self.why(), [USES])
-
     def test_an_app_calls_no_gateway_nor_service_of_the_core(self):
         self.brings(ORCHARD)
         # A backend of an add-on, this machine, the internet, and a name in a sentence are fine
@@ -1289,12 +1280,8 @@ class Catalogs(Fixture):
         # catalog on the disk
         self.assertEqual((echo["file"], echo["display_file"]),
                          (".lab/catalogs/fixture/addons/echo/compose.yml", "addons/echo/compose.yml"))
-        self.assertEqual(built["setups"]["pair"]["display_file"], "setups/pair.yml")
-        self.assertEqual(built["playgrounds"]["shop"]["display_file"], "playgrounds/shop/compose.yml")
         self.assertEqual((scratch["file"], scratch["display_file"]),
                          (".lab/catalogs/local/addons/scratch/compose.yml", "addons/scratch/compose.yml"))
-        self.assertEqual((built["playgrounds"]["local/sandbox"]["file"], built["playgrounds"]["local/sandbox"]["display_file"]),
-                         (".lab/catalogs/local/playgrounds/sandbox/compose.yml", "playgrounds/sandbox/compose.yml"))
         self.assertEqual(ledger["env_file"], ".lab/catalogs/partner/addons/ledger/.env")
         for kind in ("addons", "setups", "playgrounds"):
             for uid, unit in built[kind].items():

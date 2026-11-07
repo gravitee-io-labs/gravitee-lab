@@ -754,17 +754,18 @@ class Playgrounds(Case):
         self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
         self.jobs.start.assert_not_called()
 
+    def on_file_written_meanwhile(self):
+        (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
+        (self.root / paths.ON_FILE).write_text("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n", encoding="utf-8")
+        return self.project
+
     def test_a_start_whose_job_ends_on_a_stale_plan_puts_back_the_versions_it_saved(self):
         # Another tab's job writes the on file once this start saved its versions, before its job begins: the job ends
         # on its first gate, having done nothing, and both files are what they were
         before = self.kiosk_switch()
         self.state = {**self.state, "stamp": layers.stamp()}
 
-        def meanwhile():
-            (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
-            (self.root / paths.ON_FILE).write_text("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n", encoding="utf-8")
-            return self.project
-        self.patch(playgrounds.projects, "load", side_effect=meanwhile)
+        self.patch(playgrounds.projects, "load", side_effect=self.on_file_written_meanwhile)
         playgrounds.start(self.project, "welcome", ["version:KIOSK"])
         job, commands = ran(self.started(self.jobs)[1])
         self.assertEqual((job.ok, job.error(), commands), (False, layers.CHANGED, []))
@@ -779,11 +780,7 @@ class Playgrounds(Case):
         self.state = {**on(self.project, playground="welcome"), "stamp": layers.stamp()}
         jobs = self.patch(layers, "JOBS")
 
-        def meanwhile():
-            (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
-            (self.root / paths.ON_FILE).write_text("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n", encoding="utf-8")
-            return self.project
-        self.patch(playgrounds.projects, "load", side_effect=meanwhile)
+        self.patch(playgrounds.projects, "load", side_effect=self.on_file_written_meanwhile)
         playgrounds.start(self.project, "welcome", ["version:KIOSK"])
         self.jobs.start.assert_not_called()
         job, commands = ran(self.started(jobs)[1])

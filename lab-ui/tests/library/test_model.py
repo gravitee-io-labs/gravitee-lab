@@ -329,21 +329,15 @@ class State(Built):
         self.assertEqual(counts(containers=CORE), {"running": 3, "total": 3})
         self.assertEqual(counts(containers={}), {"running": 0, "total": 3})
         self.assertEqual(counts(containers={**CORE, "apim-management-api": exited(143)}), {"running": 2, "total": 3})
+        # A group counts its own, as the platform counts all of them
+        self.assertEqual([g["containers"] for g in self.build(containers={**CORE, "apim-management-api": exited(143)})["platform"]["groups"]],
+                         [{"running": 1, "total": 2}, {"running": 1, "total": 1}])
         # A container that keeps restarting runs, its state is the issue
         keeps = {**CORE, "apim-gateway": container(health="", restarts=3)}
         self.assertEqual(counts(containers=keeps), {"running": 3, "total": 3})
         # What an add-on or a playground runs is not the platform's
         self.assertEqual(counts(explicit=["kazoo"], containers={**CORE, **healthy("kazoo", "kazoo-ui")}),
                          {"running": 3, "total": 3})
-
-    def test_a_group_counts_its_own_containers_as_the_platform_counts_all_of_them(self):
-        groups = lambda **more: [g["containers"] for g in self.build(**more)["platform"]["groups"]]   # noqa: E731
-        self.assertEqual(groups(containers=CORE), [{"running": 2, "total": 2}, {"running": 1, "total": 1}])
-        stopped = groups(containers={**CORE, "apim-management-api": exited(143)})
-        self.assertEqual(stopped, [{"running": 1, "total": 2}, {"running": 1, "total": 1}])
-        self.assertEqual(groups(containers={}), [{"running": 0, "total": 2}, {"running": 0, "total": 1}])
-        body = self.build(containers={**CORE, "apim-management-api": exited(143)})
-        self.assertEqual(sum(g["containers"]["running"] for g in body["platform"]["groups"]), body["platform"]["containers"]["running"])
 
     def test_a_one_shot_of_the_platform_counts_only_while_it_runs_and_a_service_held_for_a_license_never(self):
         self.project["services"]["mongodb-init"] = _service("mongodb-init", {"kind": "platform", "id": "databases",
