@@ -946,12 +946,6 @@ class Explain(Tool):
                 self.assertIn("is not a rule code. The families are ", err)
                 self.assertNotIn("\x1b", err)
 
-    def test_the_json_is_the_entry(self):
-        code, out, err = self.run_tool("explain", "T03", "--format", "json")
-        found = json.loads(out)
-        self.assertEqual((code, found["code"], found["severity"]), (0, "T03", "error"))
-        self.assertEqual(sorted(found), ["code", "message", "more", "rule", "severity", "why"])
-
 
 class Delegated(Tool):
     """new, upgrade, release, repo-settings and ci are run by the module of the standard that owns each, with everything after their

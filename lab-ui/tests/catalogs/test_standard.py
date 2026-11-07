@@ -201,12 +201,6 @@ class Golden(Case):
         path.write_text(path.read_text(encoding="utf-8").replace("actions/checkout@", "evil/checkout@", 1), encoding="utf-8")
         self.assertTrue(standard.golden_problems())
 
-    def test_a_change_of_a_seeded_file_fails_too(self):
-        template = support.copy_template(self)
-        path = template / "seeded" / "REVIEWING.md"
-        path.write_text(path.read_text(encoding="utf-8") + "\nOne more line.\n", encoding="utf-8")
-        self.assertTrue(standard.golden_problems())
-
     def test_a_change_of_the_level_without_a_refresh_fails_and_a_refresh_passes(self):
         template = support.copy_template(self)
         support.set_level(template, 2)
@@ -1269,11 +1263,8 @@ class Upgrading(Case):
         code, out, err = self.upgrade(repo)
         self.assertEqual((code, err), (1, ""))
         self.assertIn("Will change\n  update   .github/workflows/ci.yml\n", out)
-        self.assertTrue(out.endswith(f"Nothing was written. To apply: catalog.py upgrade {repo.root} --write\n"), out)   # not run in the folder
+        self.assertTrue(out.endswith("Nothing was written. To apply: run it again with --write (make upgrade WRITE=1).\n"), out)
         self.assertIn("# x", (repo.root / ".github/workflows/ci.yml").read_text())
-        code, out, err = self.upgrade_here(repo)
-        self.assertEqual((code, err), (1, ""))
-        self.assertTrue(out.endswith("Nothing was written. To apply: make upgrade WRITE=1\n"), out)   # the Makefile's, as the spec shows it
 
     def test_write_brings_the_files_to_the_level_and_a_second_run_has_nothing_to_do(self):
         repo = self.repo(files=at(8))
@@ -1370,31 +1361,6 @@ class Upgrading(Case):
         standard.upgrade_apply(repo.root, plan)
         self.assertFalse((repo.root / ".github/workflows/ci.yml").read_bytes().startswith(b"\xef\xbb\xbf"))
         self.assertEqual(standard.drift(FolderTree(repo.root)), [])
-
-    def test_the_line_that_applies_the_plan_carries_every_option_that_was_given(self):
-        def line(*argv):
-            return standard.apply_command(standard._upgrade_arguments(list(argv)))
-        self.assertEqual(line(), "make upgrade WRITE=1")
-        self.assertEqual(line("."), "make upgrade WRITE=1")
-        self.assertEqual(line("--lab-ref", "latest"), "make upgrade WRITE=1 LAB_REF=latest")
-        self.assertEqual(line("--lab-ref", NEWER_COMMIT), f"make upgrade WRITE=1 LAB_REF={NEWER_COMMIT}")
-        self.assertEqual(line("../hub"), "catalog.py upgrade ../hub --write")
-        self.assertEqual(line("a hub", "--lab-ref", "latest"), "catalog.py upgrade 'a hub' --lab-ref latest --write")
-        self.assertEqual(line("--adopt", "--maintainers", "@acme/maintainers", "--lab-repo", "acme/lab"),
-                         "catalog.py upgrade --maintainers @acme/maintainers --lab-repo acme/lab --adopt --write")
-        self.assertEqual(line("--with", "e2e", "--with", "x"), "catalog.py upgrade --with e2e --with x --write")
-        self.assertEqual(line("--lab-ref", "a b;rm -rf x"), "make upgrade WRITE=1 LAB_REF='a b;rm -rf x'")      # quoted for the shell
-        self.assertEqual(line("a;b", "--maintainers", "x y"), "catalog.py upgrade 'a;b' --maintainers 'x y' --write")
-
-    def test_the_hint_after_a_plan_does_what_the_options_asked(self):
-        repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
-        lab = support.lab_checkout(self)
-        tip = lab.git("rev-parse", "HEAD").strip()
-        code, out, err = self.upgrade_here(repo, "--lab-ref", tip, lab=lab.root)
-        self.assertEqual((code, err), (1, ""))
-        self.assertTrue(out.endswith(f"Nothing was written. To apply: make upgrade WRITE=1 LAB_REF={tip}\n"), out)
-        code, out, err = self.upgrade_here(repo, "--maintainers", "@a")
-        self.assertTrue(out.endswith("Nothing was written. To apply: catalog.py upgrade --maintainers @a --write\n"), out)
 
     def test_adopt_adds_what_is_missing_keeps_what_is_there_and_lists_what_the_catalog_owns(self):
         files = {"catalog.yml": render()["catalog.yml"], "README.md": b"# mine\n", ".github/workflows/ci.yml": b"name: mine\n", "addons/x/compose.yml":

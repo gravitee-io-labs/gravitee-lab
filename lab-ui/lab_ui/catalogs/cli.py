@@ -953,15 +953,10 @@ def explain_command(args):
     families that exist."""
     explain = _lab("explain")
     code = args.code.strip().upper()
-    table = explain.table()
-    if code not in table:
+    if code not in explain.table():
         complain(explain.explain(args.code).rstrip("\n"))
         return 2
-    entry = table[code]
-    if args.format == "json":
-        sys.stdout.write(json.dumps(entry._asdict(), indent=2, sort_keys=True, ensure_ascii=True) + "\n")
-    else:
-        sys.stdout.write(report.printable(explain.explain(code), "\n"))
+    sys.stdout.write(report.printable(explain.explain(code), "\n"))
     sys.stdout.flush()
     return 0
 
@@ -996,10 +991,6 @@ def parser():
         sub = commands.add_parser(name, help=text, description=text)
         sub.set_defaults(function=function)
         return sub
-
-    def formatted(sub):
-        sub.add_argument("--format", choices=report.FORMATS, help="text, github annotations or json (default text)")
-        return sub
     sub = one("link", link, "link a folder as a catalog")
     sub.add_argument("path")
     sub.add_argument("--allow-machine", action="store_true", help="allow its items to use this machine")
@@ -1028,7 +1019,8 @@ def parser():
     sub.add_argument("--allow-machine", action="store_true", help="preselect the allowance in the Add dialog")
     sub = one("reset", reset, "start over: the next start is a first run")
     sub.add_argument("--empty", action="store_true", help="have no catalog at all")
-    sub = formatted(one("check", run_check, "every rule that needs no Docker and no network; a folder is read where it is"))
+    sub = one("check", run_check, "every rule that needs no Docker and no network; a folder is read where it is")
+    sub.add_argument("--format", choices=report.FORMATS, help="text, github annotations or json (default text)")
     sub.add_argument("target", nargs="?", metavar="PATH_or_ID", help="a folder, or an added catalog (default: this folder; the id of a catalog wins over a folder of the same name, write ./ID)")
     sub.add_argument("--ci", action="store_true", help="annotations, the summary of the run, no skipped check")
     sub.add_argument("--base", metavar="COMMIT", help="the commit the change is measured from (default: git merge-base origin/main HEAD; "
@@ -1041,7 +1033,7 @@ def parser():
     sub = one("index", index, "the generated catalog.json, of a folder (default: this one) or of an added catalog")
     sub.add_argument("target", nargs="?", metavar="PATH_or_ID", help="a folder, or an added catalog (default: this folder; the id of a catalog wins over a folder of the same name, write ./ID)")
     sub.add_argument("--out", metavar="FILE", help="write it to this file and not to standard output")
-    sub = formatted(one("explain", explain_command, "the long form of a rule code"))
+    sub = one("explain", explain_command, "the long form of a rule code")
     sub.add_argument("code", metavar="CODE")
     for name, text in (("new", "a catalog from the template of the standard (catalog.py new DIR --id ID --name NAME --maintainers @A)"),
                        ("upgrade", "bring the managed files to the level of this Lab; --fleet OWNER --lab-ref COMMIT does it for every "

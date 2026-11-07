@@ -61,11 +61,6 @@ PLACEHOLDERS = ("CATALOG_ID", "CATALOG_ENV", "CATALOG_NAME", "DESCRIPTION", "LIC
                 "LAB_REPOSITORY", "LAB_REF")
 PLACEHOLDER = re.compile("__(" + "|".join(PLACEHOLDERS) + ")__")
 
-# The fixed parameters of the golden hashes of the seeded files: nothing here is a real name or address
-GOLDEN_PARAMS = {"id": "acme-hub", "name": "Acme Hub", "description": "Demos for workshops", "license": "Apache-2.0",
-                 "images": "ghcr.io/acme/lab-hub", "maintainers": "@acme/maintainers", "lab_repository": "acme/gravitee-lab",
-                 "lab_ref": "0123456789abcdef0123456789abcdef01234567", "with": ["e2e"]}
-
 # The rules of the standard itself. SD07 and SD11 are raised where the Lab is fetched (the `lab` action, `check --online`)
 RULES = table([
     ("SD01", ERROR, "A managed file is missing", "{path} is missing from the shared files. Fix: catalog.py upgrade --write."),
@@ -624,27 +619,14 @@ def _owned_checks(tree) -> List[Problem]:
 # Golden hashes of the template
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _sha(text) -> str:
-    return hashlib.sha256(text if isinstance(text, bytes) else text.encode("utf-8")).hexdigest()
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def golden_now() -> dict:
-    """The hashes of the template as it is: the sha256 of every managed file (normalized) and of every seeded file rendered with
-    the fixed parameters, as the full catalog and as the folder catalog."""
-    rendered = render_new(GOLDEN_PARAMS)
-    known = {each["path"]: each for each in manifest()["files"]}
-    local = render_new({"id": "acme-hub", "name": "Acme Hub", "local": True})
-    return {"level": LEVEL,
-            "managed": {path: _sha(normalize(data.decode("utf-8"))) for path, data in sorted(rendered.items())
-                        if known[path]["class"] == "managed"},
-            "seeded": {path: _sha(data) for path, data in sorted(rendered.items()) if known[path]["class"] != "managed"},
-            "local": {path: _sha(data) for path, data in sorted(local.items())}}
-
-
-def _differences(before, now) -> List[str]:
-    """The paths whose hash is not the recorded one, in either direction, sorted."""
-    before, now = before if isinstance(before, dict) else {}, now if isinstance(now, dict) else {}
-    return sorted(path for path in set(before) | set(now) if before.get(path) != now.get(path))
+    """The hashes of the template as it is: the sha256 of every managed file (normalized), the files a catalog keeps equal."""
+    return {"level": LEVEL, "managed": {each["path"]: _sha(normalize(_source("managed", each["path"])))
+                                        for each in manifest()["files"] if each["class"] == "managed"}}
 
 
 def golden_problems() -> List[str]:
@@ -660,8 +642,8 @@ def golden_problems() -> List[str]:
     found: List[str] = []
     if recorded.get("level") != now["level"]:
         found.append(f"  golden.json is for level {recorded.get('level')}, the template says {now['level']}")
-    found.extend(f"  {path}" for kind in ("managed", "seeded") for path in _differences(recorded.get(kind), now[kind])[:20])
-    found.extend(f"  folder catalog: {path}" for path in _differences(recorded.get("local"), now["local"])[:20])
+    before = recorded.get("managed") if isinstance(recorded.get("managed"), dict) else {}
+    found.extend(f"  {path}" for path in sorted(set(before) | set(now["managed"])) if before.get(path) != now["managed"].get(path))
     return [GOLDEN_MESSAGE, *found] if found else []
 
 
@@ -1189,21 +1171,6 @@ def describe(plan: dict) -> str:
     return "\n".join(lines)
 
 
-def apply_command(args) -> str:
-    """The command that makes what the plan says, as the person would type it: the Makefile's when it carries every option that
-    was given (it is run in the catalog and takes `LAB_REF`), else `catalog.py`'s own with all of them."""
-    plain = not (args.adopt or args.with_ or args.maintainers or args.lab_repo)
-    if plain and args.dir == ".":
-        return "make upgrade WRITE=1" + (f" LAB_REF={shlex.quote(args.lab_ref)}" if args.lab_ref else "")
-    words = ["catalog.py", "upgrade"] + ([] if args.dir == "." else [shlex.quote(args.dir)])
-    for flag, value in (("--lab-ref", args.lab_ref), ("--maintainers", args.maintainers), ("--lab-repo", args.lab_repo)):
-        words += [flag, shlex.quote(value)] if value else []
-    words += ["--adopt"] if args.adopt else []
-    for word in args.with_:
-        words += ["--with", shlex.quote(word)]
-    return " ".join(words + ["--write"])
-
-
 def legacy_lab(root) -> Optional[int]:
     """The `lab` that older Gravitee Labs need in the catalog.yml of the folder `root` (`check.folder_lab`), or None when
     this Lab cannot say it here: the upgrade then keeps the one the file has."""
@@ -1254,7 +1221,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         return 0
     if not args.write:
         _say("")
-        _say(f"Nothing was written. To apply: {apply_command(args)}")
+        _say("Nothing was written. To apply: run it again with --write (make upgrade WRITE=1).")
         return 1
     try:
         touched = [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE)]
