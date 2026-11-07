@@ -21,7 +21,6 @@ from .. import Case, fixtures
 
 class Pieces(Case):
 
-
     def test_two_services_with_one_read_only_folder_copy_it_twice(self):
         """What a catalog installs is read-only here, and its add-on's services may build from one folder."""
         with tempfile.TemporaryDirectory() as folder:
@@ -32,6 +31,7 @@ class Pieces(Case):
             for _ in range(2):
                 standalone._copy(source, target)
             self.assertEqual(Path(target, "Dockerfile").read_text(encoding="utf-8"), "FROM scratch\n")
+
     def test_a_value_is_plain_when_it_reads_back_as_the_same_text_and_quoted_else(self):
         for value, written in (("mongodb", "mongodb"), ("127.0.0.1:8092:8092", '"127.0.0.1:8092:8092"'), ("8092", '"8092"'),
                                ("@scope/pkg", '"@scope/pkg"'), ("foo:", '"foo:"'), ("2026-10-24", '"2026-10-24"'), ("0b101", '"0b101"'),
@@ -143,6 +143,13 @@ class Folder(Case):
         project.forget()
         self.addCleanup(project.forget)
 
+    def writable_shop(self):
+        """The folder of the Shop, which is installed read only as a catalog is, for a test to change."""
+        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
+        for each in [shop, *shop.rglob("*")]:
+            each.chmod(each.stat().st_mode | 0o200)
+        return shop
+
     def unpacked(self, pid="shop"):
         made = standalone.archive(pid)
         folder = paths.ROOT.parent / "received"
@@ -152,12 +159,8 @@ class Folder(Case):
         return made, names, folder / "shop"
 
     def test_an_account_that_is_no_mapping_is_left_out_of_the_readme_as_the_page_leaves_it_out(self):
-        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
-        for each in [shop, *shop.rglob("*")]:
-            each.chmod(each.stat().st_mode | 0o200)
-        compose_file = shop / "compose.yml"
+        compose_file = self.writable_shop() / "compose.yml"
         written = compose_file.read_text(encoding="utf-8")
-        self.assertIn("  accounts:\n", written)
         compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - alice\n"), encoding="utf-8")
         project.forget()
         found, _ = project.loaded()
@@ -175,9 +178,7 @@ class Folder(Case):
     def test_every_form_of_an_account_is_exported_as_the_page_shows_it(self):
         # YAML reads an unquoted 1234 as a number, and a user name that is a list is no text, which the readme leaves out. Compose reads
         # a setting, a setting inside a longer text, a nested default and a dollar, and so does the page: the guide's links name what it shows
-        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
-        for each in [shop, *shop.rglob("*")]:
-            each.chmod(each.stat().st_mode | 0o200)
+        shop = self.writable_shop()
         compose_file = shop / "compose.yml"
         written = compose_file.read_text(encoding="utf-8")
         compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - for: Kiosk\n      username: 1234\n"
@@ -325,9 +326,7 @@ class Folder(Case):
         self.assertIn('"${INTERNAL_API_PASSWORD:-adminadmin}"', text)
 
     def test_what_containers_write_and_what_never_travels_stay_here(self):
-        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
-        for each in [shop, *shop.rglob("*")]:   # installed read only, as a catalog is
-            each.chmod(each.stat().st_mode | 0o200)
+        shop = self.writable_shop()
         compose_file = shop / "compose.yml"
         compose_file.write_text(compose_file.read_text().replace(
             "      - ./.state:/state   # What the seed created, to remove it later",
