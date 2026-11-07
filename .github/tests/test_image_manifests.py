@@ -369,8 +369,8 @@ class PinnedTest(Served):
         self.assertIn("\r\nHost: registry.example.com\r\n", server.heads[0])
 
     def test_a_name_that_answers_a_public_address_and_then_the_machine_s_own_is_not_followed(self):
-        """The look (`public`) is answered with a public address and the connection's own question with the machine's: the old
-        connection resolved the name a second time and went there. This one resolves for itself, finds it out and refuses."""
+        """The look (`public`) is answered with a public address and the connection's own question with the machine's: the
+        connection resolves for itself, finds it out and refuses."""
         server = self.serve({"/v2/x/y/manifests/1": (200, None)})
         calls = self.rebinding("44.0.0.8", "127.0.0.1")
         self.assertIsNone(image_manifests.exists("registry.example.com/x/y:1", self.opener()), "the registry did not say")
