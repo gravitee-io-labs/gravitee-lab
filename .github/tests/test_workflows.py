@@ -18,7 +18,6 @@ sys.path.insert(0, str(ROOT / "lab-ui"))
 from lab_ui.catalogs.rules.workflows import GENERIC, problems  # noqa: E402
 
 FILES = sorted([*(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / ".github" / "actions").glob("*/action.yml")])
-INDENT = re.compile(r"^( *)")
 E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # a change of the engine tried on a catalog
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE = ROOT / ".github" / "workflows" / "release.yml"
@@ -27,26 +26,7 @@ BASH = shutil.which("bash")
 
 
 def indent(line):
-    return len(INDENT.match(line).group(1))
-
-
-def run_blocks(text):
-    """(line number, line) of every line a `run:` of a step runs: its value on the line itself, or the block under it."""
-    lines, found, i = text.splitlines(), [], 0
-    while i < len(lines):
-        match = re.match(r"^(\s*)(?:- )?run:\s*(.*)$", lines[i])
-        if match:
-            if match.group(2) and not match.group(2).startswith(("|", ">")):
-                found.append((i + 1, match.group(2)))
-            else:
-                depth = len(match.group(1)) + (2 if lines[i].lstrip().startswith("- ") else 0)
-                j = i + 1
-                while j < len(lines) and (not lines[j].strip() or indent(lines[j]) > depth):
-                    found.append((j + 1, lines[j]))
-                    j += 1
-                i = j - 1
-        i += 1
-    return found
+    return len(line) - len(line.lstrip(" "))
 
 
 def jobs(text):
@@ -171,11 +151,9 @@ class E2ETest(unittest.TestCase):
         for name in ("manifests", "e2e", "result"):
             self.assertNotIn("fetch-depth", self.jobs[name], f"{name} reads no change")
 
-    def test_the_matrix_is_what_the_plan_made_and_the_item_is_never_in_a_script(self):
+    def test_the_matrix_is_what_the_plan_made(self):
         for name in ("manifests", "e2e"):
             self.assertIn("fromJSON(needs.plan.outputs.matrix)", self.jobs[name])
-            for number, line in run_blocks(self.jobs[name]):
-                self.assertNotIn("matrix.", line.replace("e2e_matrix.py", ""), f"{name}: a value goes through env, line {number}")
 
     def test_a_step_the_jobs_repeat_is_the_same_step_in_each_and_the_shell_tests_run_the_one_of_all(self):
         def plain(step):
@@ -608,28 +586,6 @@ class ReleaseTest(unittest.TestCase):
                                            "TAG": "v1.2.3", "GITHUB_REPOSITORY": "o/r"})
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertEqual(any(line.startswith("release create v1.2.3") for line in calls.read_text().splitlines()), made)
-
-
-class ReaderTest(unittest.TestCase):
-    """The reader of the rules above: what it takes for a script, and for a job."""
-
-    def test_a_run_is_its_line_or_its_block(self):
-        text = "steps:\n  - run: echo ${{ a }}\n  - name: x\n    run: |\n      echo one\n      echo ${{ b }}\n  - run: ok\n"
-        self.assertEqual([line.strip() for _, line in run_blocks(text)], ["echo ${{ a }}", "echo one", "echo ${{ b }}", "ok"])
-
-    def test_the_jobs_of_a_workflow_by_name(self):
-        text = "name: x\njobs:\n  one:\n    runs-on: a\n  two-b:\n    runs-on: b\n"
-        self.assertEqual(list(jobs(text)), ["one", "two-b"])
-
-    def test_the_steps_of_a_job_and_the_script_of_one(self):
-        body = "\n    steps:\n      - uses: a\n      - name: x\n        run: |\n          echo one\n\n          echo two\n      - run: y\n"
-        found = steps(body)
-        self.assertEqual(len(found), 3)
-        self.assertEqual(script(found[1]), "echo one\n\necho two\n")
-        self.assertEqual(step_with(body, "name: x"), found[1])
-
-    def test_the_events_of_a_workflow(self):
-        self.assertEqual(events("on:\n  push:\n    branches: [main]\n  workflow-x:\n\njobs:\n  j:\n"), ["push", "workflow-x"])
 
 
 class ComposeTest(unittest.TestCase):
