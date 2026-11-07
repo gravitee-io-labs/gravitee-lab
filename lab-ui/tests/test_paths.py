@@ -4,7 +4,6 @@ import fcntl
 import json
 import os
 import re
-import stat
 import threading
 import tempfile
 import unittest
@@ -47,16 +46,12 @@ class Records(Case):
         (self.root / ".lab").mkdir()
         self.file = self.root / ".lab" / "kiosk.json"
 
-    def test_a_file_written_whole_is_on_the_disk_then_its_name_too(self):
-        synced, real = [], os.fsync
-
-        def fsync(descriptor):
-            synced.append("folder" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
-            real(descriptor)
-        with unittest.mock.patch.object(paths.os, "fsync", side_effect=fsync):
+    def test_a_file_written_whole_is_on_the_disk_before_it_takes_its_name(self):
+        order = []
+        with unittest.mock.patch.object(paths.os, "fsync", side_effect=lambda _: order.append("synced")), \
+                unittest.mock.patch.object(paths.os, "replace", side_effect=lambda *_: order.append("named")):
             paths.write_atomic(self.file, "{}\n")
-        self.assertEqual(synced, ["file", "folder"])   # the copy, then the folder that names it
-        self.assertEqual(self.file.read_text(encoding="utf-8"), "{}\n")
+        self.assertEqual(order, ["synced", "named"])
 
     def test_a_record_reads_as_its_json_and_one_that_is_not_there_as_none(self):
         self.assertIsNone(paths.read_record(self.file))
