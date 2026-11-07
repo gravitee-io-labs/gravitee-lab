@@ -4,7 +4,6 @@ the three steps of the proxy, a second run that writes nothing, what is put back
 import itertools
 import json
 import re
-import unittest
 
 from lab_seeder import aim_proxies
 from lab_seeder import common
@@ -669,7 +668,3 @@ class Removal(WithStudio):
     def test_a_proxy_that_is_gone_is_not_an_error(self):
         self.world.proxies.clear()
         aim_proxies.remove(common.created())
-
-
-if __name__ == "__main__":
-    unittest.main()

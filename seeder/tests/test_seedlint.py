@@ -137,13 +137,6 @@ class Problems(Made):
                  "seed/apim/a.yaml": "id: ${ENV_ID}\n"}
         self.assertEqual(self.found(self.playground(files)), [("variable", "seed/apim/a.yaml", 1)])
 
-    def test_an_address_that_is_written_out_is_found_with_its_line(self):
-        files = {"seed/aim/a.yaml": "name: x\nurl: http://bakery-mcp:8000/mcp\ndocs: https://docs.gravitee.io/apim\n"}
-        folder = self.playground(files)
-        self.assertEqual(seedlint.problems(folder), [Problem(
-            "address", str(folder / "seed/aim/a.yaml"), 2,
-            "http://bakery-mcp is written out. Fix: an address is a ${VARIABLE} set by the seed service.")])
-
     def test_a_file_that_does_not_parse_is_found_with_its_line(self):
         folder = self.playground({"seed/aim/a.yaml": "a: 1\nb: [1, 2\n", "seed/apim/b.json": '{"a": '})
         found = seedlint.problems(folder)
@@ -158,17 +151,16 @@ class Problems(Made):
         self.assertEqual(seedlint.problems(self.playground({"seed/aim/page.md": "# a: [1, 2\n", "seed/x.txt": "{"})), [])
 
     def test_every_kind_of_finding_is_told_for_each_file_in_path_and_line_order(self):
-        files = {"seed/b.yaml": "x: ${A}\ny: http://h\n", "seed/a.yaml": "x: ${B}\n", "seed/c.json": "{"}
+        files = {"seed/b.yaml": "x: ${A}\ny: ${C}\n", "seed/a.yaml": "x: ${B}\n", "seed/c.json": "{"}
         found = self.found(self.playground(files))
-        self.assertEqual(found, [("variable", "seed/a.yaml", 1), ("variable", "seed/b.yaml", 1), ("address", "seed/b.yaml", 2),
+        self.assertEqual(found, [("variable", "seed/a.yaml", 1), ("variable", "seed/b.yaml", 1), ("variable", "seed/b.yaml", 2),
                                  ("parse", "seed/c.json", 1)])
 
     def test_the_findings_of_one_kind_are_told_twenty_at_a_time_and_the_others_counted(self):
-        text = "".join(f"v{n}: ${{NO{n}}}\n" for n in range(30)) + "".join(f"u{n}: http://h{n}\n" for n in range(25))
+        text = "".join(f"v{n}: ${{NO{n}}}\n" for n in range(30))
         found = seedlint.problems(self.playground({"seed/a.yaml": text}))
         self.assertEqual([p.check for p in found].count("variable"), 21)
-        self.assertEqual([p.check for p in found].count("address"), 21)
-        self.assertEqual([p.message for p in found if p.line == 0], ["5 more addresses are written out.", "10 more variables have no value."])
+        self.assertEqual([p.message for p in found if p.line == 0], ["10 more variables have no value."])
 
     def test_a_folder_that_is_no_playground_has_nothing_to_lint(self):
         self.assertEqual(seedlint.problems(self.root / "none"), [])
@@ -197,14 +189,6 @@ class Problems(Made):
         files = {"seed/environments/newt/environment.yaml": "id: newt\nname: ${NOBODY}\n", "seed/environments/ok/x.yaml": "a: 1\n"}
         self.assertEqual(self.found(self.playground(files)),
                          [("variable", "seed/environments/newt/environment.yaml", 2), ("environment", "seed/environments/ok/environment.yaml", 0)])
-
-    def test_a_scheme_is_found_in_any_case_and_a_public_host_in_any_case_too(self):
-        for text in ("u: HTTP://evil:8080", "u: Http://evil", "u: hTTps://evil/x"):
-            self.assertEqual(len(seedlint._addresses(text)), 1, text)
-        self.assertEqual(seedlint._addresses("a: HTTPS://Docs.Gravitee.IO/x\nb: Http://${HOST}/y"), [])
-        self.assertEqual([address for address, _ in seedlint._addresses('u: "${H:-https://evil.com}"')], ["https://evil.com"], "a default is read too")
-        self.assertEqual([address for address, _ in seedlint._addresses("u: http://x.example http://docs.a.test\n")], ["http://x.example", "http://docs.a.test"])
-        self.assertEqual(self.found(self.playground({"seed/a.yaml": "a: 1\nu: HTTP://evil:8080\n"})), [("address", "seed/a.yaml", 2)])
 
     def test_merge_keys_in_reasonable_use_are_nothing_to_say(self):
         compose = ("x-env: &env {APIM_URL: http://apim, KEY: abc}\nservices:\n  seed:\n    labels: {io.gravitee.role: seed}\n"
@@ -286,20 +270,12 @@ class Studios(Made):
                 self.assertEqual(found[0][:2], ("studio", "desk.yaml"))
                 self.assertIn(message, found[0][2])
 
-    def test_the_lint_and_the_seed_take_the_same_keys(self):
-        self.assertEqual(seedlint.STUDIO_SUBSCRIPTION, aim_proxies.SUBSCRIPTION_KEYS)
-        self.assertEqual(seedlint.STUDIO_VERSIONS, aim_proxies.VERSION_KEYS)
-
     def test_a_file_of_another_folder_is_not_read_as_a_studio(self):
         folder = self.playground({**GOOD, "seed/aim/mcp-proxies/desk.yaml": STUDIO + "subscriptions: [{plan: 3}]\n"})
         self.assertEqual(seedlint.problems(folder), [])
 
 
-class Addresses(Made):
-
-    def test_each_address_is_told_at_its_first_use(self):
-        text = "a: http://evil.com\nb:\n  - http://evil.com\n  - http://other\n"
-        self.assertEqual([p.line for p in seedlint.problems(self.playground({"seed/a.yaml": text}))], [1, 4])
+class Documents(Made):
 
     def test_a_number_is_not_read_for_its_digits(self):
         """Only the strings of a document are read: a number of many digits costs the square of them on a Python without a limit."""
@@ -321,7 +297,7 @@ class Addresses(Made):
 class Command(Made):
 
     def bad(self, root=None):
-        return self.playground({"seed/a.yaml": "x: ${NOBODY}\ny: http://bakery-mcp\n"}, root=root)
+        return self.playground({"seed/a.yaml": "x: ${NOBODY}\ny: ${NOONE}\n"}, root=root)
 
     def test_a_good_folder_prints_what_it_read_and_ends_well(self):
         self.playground()
@@ -334,7 +310,7 @@ class Command(Made):
         self.assertEqual(code, 1)
         self.assertEqual(lines[0], f"{self.root}/acme/seed/a.yaml:1: NOBODY has no value: the seed service sets none. Fix: set it, "
                                    "with a value, in the seed service's environment, or give it a default (${NOBODY:-default}).")
-        self.assertTrue(lines[1].startswith(f"{self.root}/acme/seed/a.yaml:2: http://bakery-mcp is written out."), lines[1])
+        self.assertTrue(lines[1].startswith(f"{self.root}/acme/seed/a.yaml:2: NOONE has no value"), lines[1])
         self.assertEqual(lines[2], f"2 problems in 1 seed file of 1 playground ({self.root})")
 
     def test_github_gets_one_annotation_for_each_problem(self):
@@ -346,7 +322,7 @@ class Command(Made):
         self.assertEqual(lines[0], f"::error file={escaped},line=1,title=Seed variable::NOBODY has no value: the seed service sets "
                                    "none. Fix: set it, with a value, in the seed service's environment, or give it a default "
                                    "(${NOBODY:-default}).")
-        self.assertTrue(lines[1].startswith(f"::error file={escaped},line=2,title=Seed address::http://bakery-mcp is written out."))
+        self.assertTrue(lines[1].startswith(f"::error file={escaped},line=2,title=Seed variable::NOONE has no value"))
         self.assertEqual(len(lines), 3)
         self.assertFalse(lines[2].startswith("::"), "the summary is a line of the log, not a command")
 
@@ -386,7 +362,7 @@ class Command(Made):
                 code, out, _ = run(str(self.root), "--format", "github")
                 self.assertEqual(code, 1)
                 self.assertIn("/acme/seed/a.yaml,line=1,title=Seed variable::NOBODY has no value", out)
-                self.assertIn("/acme/seed/a.yaml,line=2,title=Seed address::", out)
+                self.assertIn("/acme/seed/a.yaml,line=2,title=Seed variable::NOONE has no value", out)
 
     def test_a_folder_that_is_a_playground_and_holds_playgrounds_lints_both(self):
         outer = self.playground({"seed/a.yaml": "x: ${OUTER}\n"}, name="outer")
@@ -394,7 +370,7 @@ class Command(Made):
         report = seedlint.lint(outer)
         self.assertEqual((report.playgrounds, report.files), (2, 2))
         self.assertEqual([(p.check, Path(p.path).relative_to(outer).as_posix(), p.line) for p in report.problems],
-                         [("variable", "acme/seed/a.yaml", 1), ("address", "acme/seed/a.yaml", 2), ("variable", "seed/a.yaml", 1)])
+                         [("variable", "acme/seed/a.yaml", 1), ("variable", "acme/seed/a.yaml", 2), ("variable", "seed/a.yaml", 1)])
 
     def test_the_links_beside_a_compose_file_that_is_no_playground_are_named_and_those_of_a_playground_are_not(self):
         outside = self.root / "outside"
@@ -456,19 +432,8 @@ class Command(Made):
                                                   f"All good: 2 seed files of 1 playground ({self.root}/two)",
                                                   f"No folder {self.root}/three: nothing to lint."])
 
-    def test_paths_under_the_folder_it_runs_in_are_printed_relative_to_it(self):
-        self.bad()
-        before = os.getcwd()
-        os.chdir(self.root)
-        self.addCleanup(os.chdir, before)
-        # os.getcwd() of a temporary folder can be a link (/var on a Mac), the path the command compares with is its own
-        here = Path.cwd()
-        code, out, _ = run(str(here / "acme"), "--format", "github")
-        self.assertEqual(code, 1)
-        self.assertTrue(out.startswith("::error file=acme/seed/a.yaml,line=1,"), out[:80])
-
     def test_only_the_first_problems_are_printed_and_the_others_counted(self):
-        text = "".join(f"v{n}: http://h{n}\n" for n in range(seedlint.MANY))
+        text = "".join(f"v{n}: ${{NO{n}}}\n" for n in range(seedlint.MANY))
         for n in range(30):
             self.playground({f"seed/f{n}.yaml": text}, name=f"p{n}")
         code, out, _ = run(str(self.root))
@@ -691,7 +656,7 @@ class Hostile(Made):
             return construct(loader, node)
 
         with mock.patch.object(yaml.SafeLoader, "construct_document", building):
-            self.assertEqual(seedlint.problems(folder), [Problem("read", str(folder / "seed/aim/skills/x/SKILL.md"), 0, seedlint.MERGES)])
+            self.assertEqual(seedlint.problems(folder), [Problem("read", str(folder / "seed/aim/skills/x/SKILL.md"), 0, common.MERGES)])
 
     def test_the_front_matter_is_found_as_the_seeder_of_the_skills_finds_it(self):
         source = (SEEDER / "lab_seeder" / "aim_catalog.py").read_text(encoding="utf-8")
@@ -804,7 +769,6 @@ def probe():
     for name, text in SHAPES.items():
         as_json = json.dumps({"k": text})
         rules[name] = {"_first_uses": seconds(lambda: seedlint._first_uses(seedlint._variables(text), {"KEY": "k"})),
-                       "_addresses": seconds(lambda: seedlint._addresses(text)),
                        "compose_value": seconds(lambda: seedlint.compose_value(text)),
                        "_slow": seconds(lambda: seedlint._slow("a.yaml", text)),
                        "_slow of JSON": seconds(lambda: seedlint._slow("a.json", as_json))}
@@ -882,16 +846,16 @@ class OneMegabyteLine(unittest.TestCase):
         found = probed()["found"]
         for case in MERGING:
             with self.subTest(case=case):
-                self.assertEqual(found[case], [["read", seedlint.MERGES]])
+                self.assertEqual(found[case], [["read", common.MERGES]])
 
     def test_the_compose_file_and_the_files_of_an_environment_are_not_loaded_either(self):
         found = probed()["found"]
         for case in COMPOSES:
             with self.subTest(case=case):
-                self.assertEqual(found[case], [["playground", seedlint.MERGES]])
+                self.assertEqual(found[case], [["playground", common.MERGES]])
         for case in IN_AN_ENVIRONMENT:
             with self.subTest(case=case):
-                self.assertEqual(found[case + " in an environment"][0], ["environment.yaml", seedlint.MERGES])
+                self.assertEqual(found[case + " in an environment"][0], ["environment.yaml", common.MERGES])
 
     def test_defaults_that_nothing_closes_are_named_and_not_read(self):
         found = probed()["found"]
@@ -1002,7 +966,3 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(STUDIO + "subscriptions:\n"), [])
-
-
-if __name__ == "__main__":
-    unittest.main()

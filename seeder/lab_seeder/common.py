@@ -281,8 +281,6 @@ def _copied(root):
 def merged_pairs(text):
     """The pairs the loader of YAML copies for the merge keys of a text (see `_copied`), 0 for a text that has none or is no
     YAML: loading it says why."""
-    if "<<" not in text and "!" not in text:   # a merge key is the plain scalar `<<`, or a scalar of the tag `!!merge`
-        return 0
     try:
         return _copied(yaml.compose(text, Loader=yaml.SafeLoader))
     except Exception:  # noqa: BLE001 - a text that does not compose is no work for the loader either
@@ -309,7 +307,7 @@ def parse_yaml(text, path="the text", fill=None):
         root = loader.get_single_node()
         if root is None:
             return None
-        if ("<<" in text or "!" in text) and _copied(root) > COPIED:
+        if ("<<" in text or "!" in text) and _copied(root) > COPIED:   # a merge key is the plain scalar `<<`, or of the tag `!!merge`
             raise MergeError(f"{path}: {MERGES}")
         if fill:
             fill(root, loader)
@@ -566,7 +564,7 @@ def contains(live, wanted):
 # seed still does), and a record that cannot be read or written stops the seed rather than lose what it holds.
 
 KEYS = ("product", "kind", "name", "id")   # what every record has: what it is, and how the seed finds it again
-_holding = [0]   # how deep the step that holds the record is in it
+_holding = [False]   # whether a step holds the record
 
 
 def _record(problem, fix=False):
@@ -586,12 +584,8 @@ def _record(problem, fix=False):
 def held():
     """The record for this step alone, in this process and across processes, for as long as the block lasts."""
     with _state:
-        if _holding[0]:
-            _holding[0] += 1
-            try:
-                yield
-            finally:
-                _holding[0] -= 1
+        if _holding[0]:   # this step holds it already
+            yield
             return
         try:
             STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -600,11 +594,11 @@ def held():
             raise SeedError(_record(f"cannot be written: {e.strerror or e}")) from None
         with lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            _holding[0] = 1
+            _holding[0] = True
             try:
                 yield
             finally:
-                _holding[0] = 0
+                _holding[0] = False
                 fcntl.flock(lock, fcntl.LOCK_UN)
 
 
@@ -613,16 +607,12 @@ def _read():
     that cannot be read, or is not a list of records, stops the seed: read as nothing, the next write would forget all it
     holds, and a removal would delete nothing and say it did."""
     with held():
-        for attempt in (1, 2):   # a mounted folder can fail a read for a moment
-            try:
-                text = STATE_FILE.read_text(encoding="utf-8")
-                break
-            except FileNotFoundError:
-                return []
-            except OSError as e:
-                if attempt == 2:
-                    raise SeedError(_record(f"cannot be read ({e.strerror or e})", fix=True)) from None
-                pause(0.5)
+        try:
+            text = STATE_FILE.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return []
+        except OSError as e:
+            raise SeedError(_record(f"cannot be read ({e.strerror or e})", fix=True)) from None
         try:
             records = json.loads(text)
         except ValueError:

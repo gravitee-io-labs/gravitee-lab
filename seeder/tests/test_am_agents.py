@@ -6,7 +6,6 @@ of scopes has fifty a page at most)."""
 
 import copy
 import re
-import unittest
 
 from lab_seeder import am
 from lab_seeder import common
@@ -503,17 +502,3 @@ class Users(Case):
         self.assertNotIn("additionalInformation", posted)
         self.assertEqual(posted["password"], "demo-password")
         self.assertEqual(len(self.platform.sent("PUT", re.compile(DOMAINS + "/[^/]+/users/.*"))), 1)
-
-    def test_the_flag_of_the_seed_is_not_sent_to_am_as_a_field_of_the_user(self):
-        user = ("  - {username: sam@orchid.test, email: sam@orchid.test, firstName: Sam, lastName: Lopez, password: p, optional: true}\n"
-                "  - {username: kim@orchid.test, email: kim@orchid.test, firstName: Kim, lastName: Ng, password: p, optional: true,\n"
-                "     additionalInformation: {team: trainee}}\n")
-        self.files(domain="name: orchid\nusers:\n" + user, agent=None)
-        self.seed()
-        for post in self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/users")):
-            self.assertNotIn("optional", post.json)
-        self.assertEqual(sorted(user["username"] for user in self.am.objects("users")), ["kim@orchid.test", "sam@orchid.test"])
-
-
-if __name__ == "__main__":
-    unittest.main()

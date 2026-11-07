@@ -3,7 +3,6 @@ its own domain, one it must leave. The token that gives Gamma its access goes fr
 
 import json
 import re
-import unittest
 from unittest import mock
 
 from lab_seeder import common
@@ -311,7 +310,3 @@ class Link(Seed):
         am_link.remove([{"product": "am", "kind": "domain", "name": "d", "id": "d"}])
         am_link.remove([])
         self.assertEqual((self.output(), self.platform.calls), ("", []))
-
-
-if __name__ == "__main__":
-    unittest.main()

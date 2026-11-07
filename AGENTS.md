@@ -83,7 +83,7 @@ the default catalog, `@<catalog>/<id>` for another.
   which sets nothing: the core's consoles say the password their image comes with. A console whose password is a
   setting says that setting.
 - **Seeds use endpoints, not container names.** Seed files hold `${VAR}` for every address and the seed service sets
-  them, because the seeder reads every endpoint from its settings. `seedlint`, in the CI of a catalog, fails on a literal address.
+  them, because the seeder reads every endpoint from its settings.
 - **Names.** An id is lowercase letters, digits and dashes. Service names are global to the project, because services
   of one name in two files merge: a playground's services carry its prefix (`shop-api`, not `api`), and an add-on's the
   name of what they run (`kafka-ui`, `smtp4dev`). Prefix an item's own settings with its id (`ACME_SHOP_*`,

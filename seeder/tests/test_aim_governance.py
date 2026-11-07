@@ -5,7 +5,6 @@ taking over what the seed did not make, and removed with only what it made."""
 
 import itertools
 import re
-import unittest
 from unittest import mock
 
 from lab_seeder import aim_governance
@@ -663,7 +662,3 @@ class Files(Governance):
         aim_governance.seed()
         aim_governance.remove(common.created())
         self.assertNotRegex(self.output().lower(), r"password|secret|token|bearer")
-
-
-if __name__ == "__main__":
-    unittest.main()

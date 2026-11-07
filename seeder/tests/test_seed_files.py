@@ -1,6 +1,6 @@
-"""The checks of seed files: no address is written out, the seed service is read whichever way it is written, and the folders
-of seed/environments agree with themselves: a member of a group is a user, an application's group is a group, a subscription
-names an application, an API and a plan of the folder.
+"""The checks of seed files: the seed service is read whichever way it is written, and the folders of seed/environments
+agree with themselves: a member of a group is a user, an application's group is a group, a subscription names an
+application, an API and a plan of the folder.
 
 The checks are those of seedlint.py, which a catalog's CI runs on the command line (test_seedlint.py tests the command and runs
 it on the engine's sample); this file tests them on files made for it."""
@@ -11,18 +11,11 @@ import unittest
 from pathlib import Path
 
 from lab_seeder import common
-from lab_seeder.seedlint import SMALL, _addresses, _environment_findings, seed_environment, seed_service
+from lab_seeder.seedlint import SMALL, _environment_findings, seed_environment, seed_service
 
 
 class Preflight(unittest.TestCase):
     """The checks themselves, on files made for it: they find what they are meant to find."""
-
-    def test_an_address_that_is_not_a_variable_is_found(self):
-        text = ("a: http://localhost:8083/x\nb: http://bakery-mcp:8000\nc: https://host.docker.internal:11434/v1\n"
-                "d: ${BAKERY_MCP_URL}/x\ne: http://${HOST}:80\nf: https://huggingface.co/m\ng: https://docs.gravitee.io/apim\n"
-                'h: "https://www.w3.org/2001/XMLSchema"')
-        self.assertEqual([address for address, _ in _addresses(text)],
-                         ["http://localhost", "http://bakery-mcp", "https://host.docker.internal"])
 
     def test_a_seed_service_is_the_one_with_the_seed_label_and_its_variables_are_read_whichever_way_they_are_written(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -98,14 +91,6 @@ class EnvironmentChecks(unittest.TestCase):
         plain = "hrid: newt\nname: Newt\nmembers:\n  - {source: memory, sourceId: astrid.holm}\n"   # ${ENV_NAME} is not set without a name
         self.assertEqual(self.check(**{"environment.yaml": "id: newt\n", "groups/newt.yaml": plain}), ["environment.yaml: name is missing"])
 
-    def test_the_platforms_own_environment_and_a_badly_written_id_are_refused(self):
-        with tempfile.TemporaryDirectory() as root:
-            for name in ("default", "Newt_Biotech"):
-                folder = Path(root) / name
-                folder.mkdir()
-                (folder / "environment.yaml").write_text(f"id: {name}\nname: x\n", encoding="utf-8")
-                self.assertEqual(len(_environment_findings(folder, {})), 1, name)
-
     def test_two_applications_of_one_name_are_found(self):
         self.assertEqual(self.check(**{"applications/again.yaml": "name: ERP\n"}),
                          ["applications/erp.yaml: two applications are named ERP: the seed would write each over the other on every run"])   # the second one in name order is the one named
@@ -171,7 +156,3 @@ class EnvironmentChecks(unittest.TestCase):
     def test_a_variable_the_engine_gives_and_one_the_service_sets_replace_in_every_file(self):
         with self.assertRaises(common.SeedError):
             self.check(**{"portal/content/welcome.md": None, "groups/newt.yaml": "hrid: newt\nname: ${UNSET}\n"})
-
-
-if __name__ == "__main__":
-    unittest.main()

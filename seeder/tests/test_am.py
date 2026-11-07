@@ -6,7 +6,6 @@ keeps what it is given; a second seed saves nothing."""
 import itertools
 import json
 import re
-import unittest
 from unittest import mock
 
 from lab_seeder import am
@@ -415,10 +414,14 @@ class Kinds(Case):
         with self.assertRaisesRegex(common.SeedError, "Group 'g': user 'nobody' is not in the domain"):
             self.seed()
 
-    def test_a_group_can_be_optional_like_the_rest(self):
-        self.seed_files({"am/domain.yaml": "name: bank\ngroups: [{name: g, optional: true, members: [nobody]}]\n"})
+    def test_an_engine_stops_the_seed_unless_it_is_optional(self):
+        engine = "name: bank\nauthorizationEngines: [{type: openfga, name: OpenFGA, store: Gone, connectionUri: x%s}]\n"
+        self.seed_files({"am/domain.yaml": engine % ""})
+        with self.assertRaisesRegex(common.SeedError, "OpenFGA store 'Gone' is not in seed/openfga"):
+            self.seed()
+        self.seed_files({"am/domain.yaml": engine % ", optional: true"})
         self.seed()
-        self.assertIn("! Skipped 'g'", self.output())
+        self.assertIn("! Skipped 'OpenFGA': OpenFGA store 'Gone' is not in seed/openfga", self.output())
 
 
 class Session(Case):
@@ -547,7 +550,3 @@ class Gateway(Case):
         [call] = self.asked("http://am-gateway:8092/kiosk-orders/oauth/token")
         self.assertEqual((call.auth, call.data), (None, {"grant_type": "client_credentials", "client_id": "till",
                                                          "client_secret": "till-secret"}))
-
-
-if __name__ == "__main__":
-    unittest.main()

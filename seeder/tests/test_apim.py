@@ -8,7 +8,6 @@ import json
 import re
 import shutil
 import threading
-import unittest
 from unittest import mock
 
 import requests
@@ -2294,7 +2293,7 @@ class UsersOfTheOrganization(Together, Estates):
 
     def test_no_environment_makes_a_user_while_another_makes_one(self):
         inside, overlapped, lock = [0], [], threading.Lock()
-        register, make = apim.ApiManagement.register, apim.ApiManagement.make_user
+        register, make = apim.ApiManagement.register, apim.ApiManagement.enroll
 
         def watched(function):
             def wrapper(*arguments):
@@ -2309,10 +2308,6 @@ class UsersOfTheOrganization(Together, Estates):
                         inside[0] -= 1
             return wrapper
         with mock.patch.object(apim.ApiManagement, "register", watched(register)), \
-                mock.patch.object(apim.ApiManagement, "make_user", watched(make)):
+                mock.patch.object(apim.ApiManagement, "enroll", watched(make)):
             self.run_seed()
         self.assertEqual(overlapped, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

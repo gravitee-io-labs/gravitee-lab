@@ -6,7 +6,6 @@
     theme.yaml        the theme (PortalThemeSpec); `assets:` names its images, as paths relative to the file
     portal.yaml       the portal (PortalSpec): its name, its theme (activeThemeHrid) and the folders of its top bar
     pages/*.yaml      a page each (DocumentationSpec); `file:` replaces `content` and names a text of content/
-    links/*.yaml      a link each (PortalLinkSpec)
     listings/*.yaml   the APIs shown, and where (PortalListingSpec); an apiHrid is the crossId of an export of apis/
     api-overview.md   optional: the text of the Overview page of every API a listing shows (Gravitee Markdown)
     api-docs/<feed>.yaml   optional: the AsyncAPI or OpenAPI document of the listed API whose crossId is <environment id>-<feed>
@@ -18,7 +17,7 @@ platform keeps it as a slug ("/event-feeds/manufacturing"), and the folder shows
 else the last words of the path). The Console's `pageBackground` and `cardBackground` colors are accepted in a theme: the
 Automation API reads them as `background.page` and `background.card`, and drops the first two without a word.
 
-The theme, the portal, the pages and the links go through the Automation API of the environment: it keeps each one by
+The theme, the portal and the pages go through the Automation API of the environment: it keeps each one by
 hrid, gives it an id that does not change and publishes it. The portal makes its theme the one the portal shows. A portal
 applied with other folders deletes the folders it no longer names, with what is in them.
 
@@ -70,10 +69,9 @@ from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, claimed, c
                      parallel, record, recorded, seed_file, setting, text, unmade, wait_until)
 
 SECTION = "apim-portal"
-ORDER = ["portal-api-page", "portal-listing", "portal-link", "portal-page", "portal", "portal-theme"]   # what depends on what: removed first
+ORDER = ["portal-api-page", "portal-listing", "portal-page", "portal", "portal-theme"]   # what depends on what: removed first
 KINDS = {"portal-theme": ("portal theme", "portal themes"), "portal": ("portal", "portals"),
-         "portal-page": ("portal page", "portal pages"), "portal-link": ("portal link", "portal links"),
-         "portal-listing": ("portal listing", "portal listings"), "portal-api-page": ("API page", "API pages")}
+         "portal-page": ("portal page", "portal pages"), "portal-listing": ("portal listing", "portal listings"), "portal-api-page": ("API page", "API pages")}
 OVERVIEW = "api-overview.md"   # the optional text of the Overview page of every API a listing shows
 OVERVIEW_TITLE = "Overview"   # what the platform calls the default page of an API item
 DOCS = "api-docs"   # the folder of AsyncAPI or OpenAPI documents, one file for each API: <feed>.yaml, the end of the API's crossId
@@ -190,7 +188,7 @@ def visibility_of(spec, path):
 
 
 def place(spec, path, known):
-    """The location of a page, a link or a listed API, as the platform keeps it, and one that is a path of the portal."""
+    """The location of a page or a listed API, as the platform keeps it, and one that is a path of the portal."""
     where = normal(spec.get("location"))
     if where is None or where not in known:
         raise SeedError(f"{shown(path)}: location {spec.get('location')!r} is no path of portal.yaml")
@@ -212,7 +210,7 @@ def image(asset, theme):
 
 
 def theme_body(scope, path):
-    spec = scope.spec(path, ("hrid", "name", "definition", "assets", *IMAGES))
+    spec = scope.spec(path, ("hrid", "name", "definition", "assets"))
     hrid_of(spec, path, {})
     required(spec, path, "name")
     definition = copy.deepcopy(spec.get("definition") or {})
@@ -222,7 +220,6 @@ def theme_body(scope, path):
             if old in color:
                 color.setdefault("background", {})[new] = color.pop(old)
     body = {"hrid": str(spec["hrid"]), "name": spec["name"], "definition": definition}
-    body.update({key: spec[key] for key in IMAGES if spec.get(key)})
     assets = spec.get("assets") or {}
     for key in assets:
         if key not in IMAGES:
@@ -261,37 +258,20 @@ def portal_body(scope, path, theme):
 
 
 def page_body(scope, path, known, seen):
-    spec = scope.spec(path, ("hrid", "name", "type", "file", "content", "location", "order", "area", "visibility"))
+    spec = scope.spec(path, ("hrid", "name", "type", "file", "location", "order", "area", "visibility"))
     hrid_of(spec, path, seen)
-    required(spec, path, "name")
-    if (spec.get("file") is None) == (spec.get("content") is None):
-        raise SeedError(f"{shown(path)}: it has file or content, one of the two")
+    required(spec, path, "name", "file")
     if spec.get("type", PAGE_TYPES[0]) not in PAGE_TYPES or spec.get("area", AREAS[0]) not in AREAS:
         raise SeedError(f"{shown(path)}: type is {', '.join(PAGE_TYPES)} and area {' or '.join(AREAS)}")
     visibility_of(spec, path)
-    if spec.get("file") is not None:
-        file = inside(path.parent / spec["file"])
-        if not file.is_file():
-            raise SeedError(f"{shown(path)}: {spec['file']} is not a file")
-        content = scope.text(file)
-    else:
-        content = str(spec["content"])
+    file = inside(path.parent / spec["file"])
+    if not file.is_file():
+        raise SeedError(f"{shown(path)}: {spec['file']} is not a file")
+    content = scope.text(file)
     body = {"hrid": str(spec["hrid"]), "name": spec["name"], "type": spec.get("type", PAGE_TYPES[0]), "content": content,
             "area": spec.get("area", AREAS[0])}
     body.update({key: spec[key] for key in ("order", "visibility") if spec.get(key) is not None})
     if spec.get("location") is not None and body["area"] == "TOP_NAVBAR":
-        body["location"] = place(spec, path, known)
-    return body
-
-
-def link_body(scope, path, known, seen):
-    spec = scope.spec(path, ("hrid", "name", "href", "location", "order", "visibility"))
-    hrid_of(spec, path, seen)
-    required(spec, path, "name", "href")
-    visibility_of(spec, path)
-    body = {key: spec[key] for key in ("hrid", "name", "href", "order", "visibility") if spec.get(key) is not None}
-    body["hrid"] = str(body["hrid"])
-    if spec.get("location") is not None:
         body["location"] = place(spec, path, known)
     return body
 
@@ -360,7 +340,7 @@ class Folder:
         self.env, self.name, self.parts = env, name, parts
         self.theme = self.portal = None
         self.titles = {}   # the title of each folder of the top bar, by its path
-        self.pages, self.links, self.listings = [], [], []
+        self.pages, self.listings = [], []
         self.overview = None   # the text of the Overview page of every listed API, when the folder has one
         self.details = None   # the text of the Details tab of the page of every listed API, when the folder has one
         self.docs = {}   # the AsyncAPI or OpenAPI text of the listed APIs that have one, by crossId
@@ -374,29 +354,27 @@ class Folder:
                 raise SeedError(f"{shown(path)}: " + ("a second portal: there is one portal for an environment"
                                                       if path.stem.startswith("portal") else
                                                       f"a portal folder has theme.yaml, portal.yaml, {OVERVIEW}, {DETAILS}, pages/, content/, "
-                                                      f"links/, listings/ and {DOCS}/"))
+                                                      f"listings/ and {DOCS}/"))
         theme, portal = seed_file(*self.parts, "portal", "theme.yaml"), seed_file(*self.parts, "portal", "portal.yaml")
         overview, details = seed_file(*self.parts, "portal", OVERVIEW), seed_file(*self.parts, "portal", DETAILS)
-        pages, links, listings = (files(*self.parts, "portal", name) for name in ("pages", "links", "listings"))
+        pages, listings = (files(*self.parts, "portal", name) for name in ("pages", "listings"))
         docs = files(*self.parts, "portal", DOCS, suffixes=(".yaml", ".yml"))
         for path in sorted((folder / DOCS).iterdir()) if (folder / DOCS).is_dir() else []:
             if path.is_file() and not path.name.startswith(".") and path not in docs:
                 raise SeedError(f"{shown(path)}: {DOCS}/ holds the AsyncAPI document of an API, <feed>.yaml")
-        if not (theme or portal or overview or details or pages or links or listings or docs):
+        if not (theme or portal or overview or details or pages or listings or docs):
             return self
         if not portal:
-            raise SeedError(f"{shown(folder)}: portal.yaml is missing: a theme, a page, a link and a listing belong to a portal")
+            raise SeedError(f"{shown(folder)}: portal.yaml is missing: a theme, a page and a listing belong to a portal")
         if theme:
             self.theme = theme_body(scope, theme)
         self.portal, known = portal_body(scope, portal, self.theme)
         self.titles = known
-        seen = {"page": {}, "link": {}, "listing": {}}
+        seen = {"page": {}, "listing": {}}
         for path in pages:
             self.pages.append(page_body(scope, path, known, seen["page"]))
         if sum(page["area"] == "HOMEPAGE" for page in self.pages) > 1:
             raise SeedError(f"{shown(folder / 'pages')}: a portal has one homepage")
-        for path in links:
-            self.links.append(link_body(scope, path, known, seen["link"]))
         crosses = cross_ids(scope, self.parts) if listings else set()
         for path in listings:
             self.listings.append(listing_body(scope, path, known, crosses, seen["listing"]))
@@ -545,8 +523,6 @@ class Portals:
         self.upsert(folder, "portal", folder.portal)
         for page in folder.pages:
             self.upsert(folder, "portal-page", page)
-        for link in folder.links:
-            self.upsert(folder, "portal-link", link)
         self.forget(folder)
         if folder.listings:
             tree, apis = None, self.apis(folder.env)
@@ -575,7 +551,7 @@ class Portals:
         """What the seed made in this environment from a file that is no more: deleted by its hrid and dropped from the record, so that
         a removed file leaves nothing behind and the Delete dialog counts only what exists."""
         wanted = {"portal-theme": {folder.theme["hrid"]} if folder.theme else set(),
-                  "portal-page": {page["hrid"] for page in folder.pages}, "portal-link": {link["hrid"] for link in folder.links}}
+                  "portal-page": {page["hrid"] for page in folder.pages}}
         stale = [x for x in created() if x["product"] == SECTION and x.get("env") == folder.env and x["kind"] in wanted
                  and x.get("hrid") not in wanted[x["kind"]]]
         for x in stale:
@@ -587,12 +563,11 @@ class Portals:
         """The object, created when the platform has none, updated when it holds the seed's and is not as the file says."""
         one, many = KINDS[kind]
         env, hrid, portal = folder.env, body["hrid"], folder.portal["hrid"]
-        collection = {"portal-theme": "/portal-themes", "portal": "/portals", "portal-page": f"/portals/{portal}/documentations",
-                      "portal-link": f"/portals/{portal}/links"}[kind]
+        collection = {"portal-theme": "/portal-themes", "portal": "/portals", "portal-page": f"/portals/{portal}/documentations"}[kind]
         what = f"{one.capitalize()} {hrid} in {env}"
         found = self.ask(what, self.automation, "GET", f"{self.auto(env)}{collection}/{hrid}", passed=(404,))
         verb = "created"
-        extra = {"portal": portal} if kind in ("portal-page", "portal-link") else {}
+        extra = {"portal": portal} if kind == "portal-page" else {}
         if found.status_code == 200:
             if not recorded(SECTION, kind, found.json().get("id")) and not adopted(SECTION, kind, f"{env}: {hrid}", found.json().get("id"),
                                                                                   env=env, hrid=hrid, **extra):
@@ -877,8 +852,7 @@ class Portals:
             for entry in x.get("legacy", []):
                 self.ask(what, self.console, "DELETE", f"{self.v2(env)}/apis/{entry['api']}/pages/{entry['page']}", passed=(404,))
         else:
-            path = {"portal-link": f"/portals/{x.get('portal')}/links", "portal-page": f"/portals/{x.get('portal')}/documentations",
-                    "portal": "/portals", "portal-theme": "/portal-themes"}[kind]
+            path = {"portal-page": f"/portals/{x.get('portal')}/documentations", "portal": "/portals", "portal-theme": "/portal-themes"}[kind]
             self.ask(what, self.automation, "DELETE", f"{self.auto(env)}{path}/{x['hrid']}", passed=(404,))
         return True
 

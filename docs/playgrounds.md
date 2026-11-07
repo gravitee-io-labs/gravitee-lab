@@ -430,8 +430,8 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
   `docker compose up`) runs it again, which is why running it twice must be safe.
 - **Endpoints, never container names.** A seed talks to endpoints. Its files hold no address and no container name: they
   use `${VAR}`, and the seed service sets each one, to a container name in the lab. The seeder reads every endpoint
-  from its settings, so the same files can seed another platform. The *Seed files* job of a catalog's CI (`seedlint.py`) fails on a literal address
-  in a seed file, and on a variable no seed service sets.
+  from its settings, so the same files can seed another platform. The *Seed files* job of a catalog's CI (`seedlint.py`) fails on a variable no
+  seed service sets.
 
 ### Files
 
@@ -445,7 +445,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/environments/<id>/environment.yaml` | The id, name and description of an environment of its own | Nothing: the seed [never creates it](#environments-of-its-own) |
 | `seed/environments/<id>/settings.yaml`, `apis/*.json`, `applications/*.yaml`, `subscriptions/*.yaml` | As `seed/apim/`, for that environment | APIM Management API |
 | `seed/environments/<id>/users.yaml`, `groups/*.yaml` | The users that groups name, and groups with their members | APIM Management API, Automation API |
-| `seed/environments/<id>/portal/`, `seed/apim/portal/` | The developer portal of the environment: theme, structure, pages, links, API listings, and the text of the page of each listed API. Images in `assets/` | Automation API, and the Console's navigation items for the listings and the pages of their APIs |
+| `seed/environments/<id>/portal/`, `seed/apim/portal/` | The developer portal of the environment: theme, structure, pages, API listings, and the text of the page of each listed API. Images in `assets/` | Automation API, and the Console's navigation items for the listings and the pages of their APIs |
 | `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
@@ -498,7 +498,7 @@ seed/environments/<id>/
   apis/*.json           API exports
   applications/*.yaml
   subscriptions/*.yaml
-  portal/               theme.yaml, portal.yaml, pages/*.yaml, content/*, links/*.yaml, listings/*.yaml, api-overview.md,
+  portal/               theme.yaml, portal.yaml, pages/*.yaml, content/*, listings/*.yaml, api-overview.md,
                         api-details.md, api-docs/<feed>.yaml
   assets/               the images that portal/theme.yaml names
 ```
@@ -537,7 +537,7 @@ seed/environments/<id>/
   organization, but the Console lists only the environments where a user has a role. The seed gives its login the administrator
   role in each environment that the Console does not list for it (every one made in the database), so that the data steward
   finds it in the environment picker, records it, and a removal takes it back. An environment that lists it is left alone.
-- **The portal** is one `portal.yaml` for an environment, which is one portal, with a homepage at most. Its pages, links and
+- **The portal** is one `portal.yaml` for an environment, which is one portal, with a homepage at most. Its pages and
   listings name only what the folder holds: a `location` is a path of `portal.yaml`, an `activeThemeHrid` a theme of the
   folder, an `apiHrid` the `crossId` of an API export of `apis/`. A path is written as people read it
   (`Event feeds/Manufacturing`). A key a file does not have stops the seed. The platform's own environment takes the same
@@ -547,9 +547,8 @@ seed/environments/<id>/
   |---|---|
   | `portal/theme.yaml` | The portal theme of the Automation API (`hrid`, `name`, `definition` with `color` and `font`), and `assets:` with the `logo`, `favicon` and `backgroundImage` as paths relative to the file (an image under 256 KB), which the seed sends as data URIs. The page and card colors are `color.background.page` and `color.background.card`; the Console's `pageBackground` and `cardBackground` are accepted and written that way |
   | `portal/portal.yaml` | `hrid`, `name`, `activeThemeHrid` and `structure.topNavbar` (`path`, `displayName`, `visibility`) |
-  | `portal/pages/*.yaml` | A page: `hrid`, `name`, `type`, `area`, `location`, `order`, `visibility`, and `file:` in place of `content`, the path of its text |
+  | `portal/pages/*.yaml` | A page: `hrid`, `name`, `type`, `area`, `location`, `order`, `visibility`, and `file:`, the path of its text |
   | `portal/content/*` | The text of pages: Gravitee Markdown, AsyncAPI, OpenAPI. Never read as a page. Rendered with the seed's variables, so a page's own `${...}` is written `$${...}` |
-  | `portal/links/*.yaml` | A link: `hrid`, `name`, `href`, `location`, `order`, `visibility` |
   | `portal/listings/*.yaml` | The APIs shown and where: `hrid` and `apis` of `apiHrid`, `location`, `order`, `visibility`. The `order` is a position among the items of the location, 0 first, which is its default; an API that moves to another `location` in the file moves in the portal |
   | `portal/api-overview.md` | Optional. The Gravitee Markdown of the Overview page of every API a listing shows, rendered with the seed's variables and with `${ENV_ID}` and `${ENV_NAME}`. The platform's own expressions are written `$${...}` (`$${api.name}`, `$${api.description}`), and the platform refuses a text whose expression it cannot evaluate, which stops the seed with its message. Without the file, the pages keep the platform's default text |
   | `portal/api-docs/<feed>.yaml` | Optional. The AsyncAPI document (YAML, version 2.0 to 2.6, 3.0 or 3.1), or the OpenAPI document (an `openapi` key), of the listed API whose `crossId` is `<environment id>-<feed>`: the file name is the end of the `crossId`. Rendered with the seed's variables and with `${ENV_ID}` and `${ENV_NAME}`, `$${` standing for a literal `${`. A file for an API no listing shows, two files for one API (`.yaml` and `.yml`), a version the portal does not show, and a document with no `info.title`, `info.version`, or `channels` (AsyncAPI) or `paths` (OpenAPI) stop the seed before its first change |
@@ -625,9 +624,9 @@ replaces or deletes only what that record says it created:
   playground and then Re-seed: the credential keeps its id, so the providers that name it get the new key. The record keeps a
   fingerprint of the secret, never the secret.
 - The approval settings of the environment are the one thing it replaces that it did not create: it records the values they had, and a removal puts them back unless someone changed them since.
-- The entities of an `entities:` list are recorded once for each type, with their ids.
-- An [environment of its own](#environments-of-its-own) is never created, changed or deleted. A group, a portal, its theme,
-  a page or a link with the hrid of one of its own, that it did not create, is an error, and so is a page of an API itself with
+- The entities of an `entities:` list are recorded once for their source, with their ids in the order they were saved.
+- An [environment of its own](#environments-of-its-own) is never created, changed or deleted. A group, a portal, its theme
+  or a page with the hrid of one of its own, that it did not create, is an error, and so is a page of an API itself with
   the type and name of one of its own (`AsyncAPI`, `Overview`), and an API that a listing would
   put in a folder where someone else already put it. A user that exists is
   used as it is: never changed, never deleted. The seed's login is recorded when it had to be made an administrator of an
@@ -955,7 +954,7 @@ the code it names once no build that the Lab runs needs it.
 |---|---|---|---|
 | A studio's protocol versions | A list on API Management 4.13.1, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends the key the file gives (`aim_proxies.protocol_versions`) |
 | A studio's keyless plan | The amp-demo build makes it from `KEYLESS`, the name of Agent Management, and its plans read it back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`) |
-| The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | `module`, when it is not the default | Asks again with the module when the answer holds that code (`aim_dashboards`) |
+| The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | Nothing | Asks again with the module when the answer holds that code (`aim_dashboards`) |
 | An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again, or makes the studio again (`apim.UNSUPPORTED`) |
 | Models of an AI workspace with an endpoint of their own | The only kind the amp-demo build takes | A component with `target` and a price on each model | Makes the component the file describes (`aim_workspaces`) |
 | The application of an agent of the catalog | Served by the amp-demo build, not by 4.13.1 | `identity` and `access` in `seed/aim/agents/` on amp-demo; on 4.13.1, an application of `seed/apim/applications` whose `client_id` is the agent's | Stops with a line that says what to write instead (`aim_agents`) |

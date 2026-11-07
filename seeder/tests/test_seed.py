@@ -1,14 +1,11 @@
 """The seed against management APIs that answer from a table: a removal that fails keeps its record, an authorization engine
-follows the seed's OpenFGA model, the modules run in their order and a module with nothing to seed leaves the platform alone.
-Also what keeps the fake platform the other tests build on from passing a call it should not."""
+follows the seed's OpenFGA model, the modules run in their order and a module with nothing to seed leaves the platform alone."""
 
 import json
 import os
-import re
 import subprocess
 import sys
 import threading
-import unittest
 from unittest import mock
 
 from lab_seeder import am
@@ -152,16 +149,11 @@ class Record(Seed):
                                                           r"delete it and what the seed made in that environment$"):
                 common.record("apim", "api", "APIs", "Hotels", "a1")
 
-    def test_a_read_that_fails_for_a_moment_is_asked_again(self):
+    def test_a_read_that_fails_stops_the_seed_and_says_why(self):
         common.save_created([self.ITEM])
-        read, failures = type(self.state).read_text, [OSError(5, "Input/output error")]
-
-        def flaky(path, *args, **kwargs):
-            if failures:
-                raise failures.pop()
-            return read(path, *args, **kwargs)
-        with mock.patch.object(type(self.state), "read_text", flaky):
-            self.assertEqual(common.created(), [self.ITEM])
+        with mock.patch.object(type(self.state), "read_text", side_effect=OSError(5, "Input/output error")), \
+                self.assertRaisesRegex(common.SeedError, r"cannot be read \(Input/output error\): fix it, or Reset$"):
+            common.created()
 
     def test_a_record_that_cannot_be_written_fails_the_seed(self):
         """Left unrecorded, what the seed made would be refused by the next seed as not its own, and never deleted."""
@@ -320,23 +312,3 @@ class Modules(Seed):
         self.seed_files({"authz/policies.yaml": "x: 1"})
         self.assertTrue(common.has_seed("aim/providers", "authz"))
         self.assertFalse(common.has_seed("aim/providers"))
-
-
-class Fakes(Seed):
-
-    def get(self, path, **kwargs):
-        return common.Api("http://apim").get(path, expect=range(100, 600), **kwargs)
-
-    def test_a_path_that_is_a_pattern_must_match_the_whole_path(self):
-        self.answer({("GET", re.compile(r"/apis/[^/]+")): 200})
-        self.assertEqual(self.get("/apis/abc").status_code, 200)
-        with self.assertRaisesRegex(AssertionError, "Unexpected GET /apis/abc/plans"):
-            self.get("/apis/abc/plans")
-
-    def test_a_call_no_route_answers_fails_the_test(self):
-        with self.assertRaisesRegex(AssertionError, r"Unexpected GET /nowhere \{'q': 1\}"):
-            self.get("/nowhere", params={"q": 1})
-
-
-if __name__ == "__main__":
-    unittest.main()

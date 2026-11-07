@@ -5,7 +5,6 @@ the seed made."""
 import itertools
 import json
 import re
-import unittest
 from unittest import mock
 from urllib.parse import unquote
 
@@ -479,7 +478,6 @@ class Refilling(Workspaces):
     def test_the_first_run_finds_nothing_spent_and_says_so(self):
         self.seed()
         self.assertIn("[refills] hackathon: team-hackathon has spent nothing in this period", self.output())
-        self.assertTrue(self.redis.closed)
 
     def test_a_run_gives_the_sandbox_its_budget_back_and_no_other_team_theirs(self):
         self.seed()
@@ -752,7 +750,3 @@ class OwnEndpoint(Workspaces):
         self.assertEqual(len(self.bulk()), 1)
         [component] = self.the_workspace()["models"]
         self.assertEqual(component["models"][0]["inputPrice"], 50.0)
-
-
-if __name__ == "__main__":
-    unittest.main()

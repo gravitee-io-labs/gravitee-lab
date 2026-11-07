@@ -3,7 +3,6 @@ control that switches nothing), the mode is `on` or `off` and nothing else, and 
 error."""
 
 import json
-import unittest
 from unittest import mock
 
 from lab_seeder import common
@@ -326,7 +325,3 @@ class Main(Seed):
         with mock.patch.object(seed, "AFTER_AM", ()), mock.patch.object(seed, "openfga"), mock.patch.object(seed, "am"):
             self.assertEqual(self.main(), 0)
         self.assertNotIn("Protections", self.output())
-
-
-if __name__ == "__main__":
-    unittest.main()

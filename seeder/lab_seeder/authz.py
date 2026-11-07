@@ -20,8 +20,8 @@ Each statement of a policy starts with an `@id`, which Decisions shows as the re
 
 What is there and the seed did not create is an error: it is never taken over. What the seed created is put back as the
 files say, a policy someone edited or undeployed as well as an entity whose attributes changed; what is right is not saved.
-The entities of a file are sent in one request for each 1,000 of them, and only those that are missing or differ. They
-are recorded once for each type, with their ids, so that a removal deletes what points at another type first.
+The entities of a file are sent in one request, and only those that are missing or differ. They are recorded once for their
+source, with their ids in the order they were saved, so that a removal deletes what points at another first.
 
 A policy a control of seed/controls.yaml names (controls.py) is DEPLOYED while the mode protects (SEED_PROTECTIONS=on) and a
 draft while it does not, whatever its file says and whoever deployed or took it out since: each run brings it back.
@@ -56,9 +56,7 @@ ENTITIES = "seed/authz/entities.yaml"
 SOURCE = "lab"          # where the platform says the entities of a file come from, when the file does not say
 PRINCIPALS = ("User", "Group", "AgentIdentity")   # the entities that act; every other type is a resource
 KINDS = ("PRINCIPAL", "RESOURCE")
-BULK = 1000             # entities in one request: the platform takes 10,000
 LOOKUP = 50             # ids in one question about entities that another source may hold
-SAVING = " (being saved)"   # the note of a bulk request is named after the source of its entities and this
 # What the platform accepts (AuthzEntityIdFormat)
 ENTITY_ID = re.compile(r"[A-Za-z0-9_:-]+(?:\.[A-Za-z0-9_:-]+)*")
 ENTITY_TYPE = re.compile(r"[A-Za-z0-9_-]+(?:::[A-Za-z0-9_-]+)*")
@@ -112,17 +110,8 @@ def reason(body):
     try:
         said = json.loads(body)
     except ValueError:
-        return excerpt(body)
-    if isinstance(said, dict):
-        for key in ("message", "error", "detail", "title"):
-            if isinstance(said.get(key), str) and said[key].strip():
-                return excerpt(said[key])
-        errors = said.get("errors")
-        first = errors[0] if isinstance(errors, list) and errors else None
-        first = first.get("message") if isinstance(first, dict) else first
-        if isinstance(first, str) and first.strip():
-            return excerpt(first)
-    return excerpt(body)
+        said = None
+    return excerpt(said["message"] if isinstance(said, dict) and said.get("message") else body)
 
 
 def explain(what, error):
@@ -196,9 +185,7 @@ def as_text(value):
 
 
 def pair(value, where):
-    """(type, id) of a `[Type, id]`, or of a `{type, id}`."""
-    if isinstance(value, dict):
-        value = [value.get("type"), value.get("id")]
+    """(type, id) of a `[Type, id]`."""
     if not (isinstance(value, (list, tuple)) and len(value) == 2 and all(as_text(v) for v in value)):
         raise SeedError(f"{where}: expected [Type, id]")
     return as_text(value[0]), as_text(value[1])
@@ -230,11 +217,9 @@ def pointed_at(value):
             yield from pointed_at(v)
 
 
-def data_entities(spec, recorded=None):
-    """The entities of `entities:` as the bulk API takes them, in dependency order: an entity comes after its parents and
-    after what its attributes point at. With the source they have, and the rank of each type: the more types a type
-    points at, the higher, and a higher type is deleted first. A type they point at that the file no longer lists has the
-    rank its records give it (`recorded`, {type: rank})."""
+def data_entities(spec):
+    """The source of the entities of `entities:`, and the entities as the bulk API takes them, in dependency order: an entity
+    comes after its parents and after what its attributes point at."""
     source = spec.get("source") or SOURCE
     if not isinstance(source, str) or len(source) > 64:
         raise SeedError(f"{ENTITIES}: source is a name of at most 64 characters")
@@ -265,9 +250,7 @@ def data_entities(spec, recorded=None):
                              "parents": [{"entityType": t, "entityId": i} for t, i in parents],
                              "source": source, "targets": []}
         points[entity_id] = [*parents, *pointed_at(attributes)]
-    listed = {body["entityType"] for body in bodies.values()}
-    unlisted = {entity_type: rank for entity_type, rank in (recorded or {}).items() if entity_type not in listed}
-    return source, in_dependency_order(bodies, points), type_ranks(bodies, points, unlisted)
+    return source, in_dependency_order(bodies, points)
 
 
 def in_dependency_order(bodies, points):
@@ -294,48 +277,14 @@ def in_dependency_order(bodies, points):
     return order
 
 
-def type_ranks(bodies, points, fixed=None):
-    """{type: rank}: 0 for a type that points at no other, else one more than the highest of the types it points at. A
-    type of `fixed` ({type: rank}) has the rank it gives there, whatever its entities here point at."""
-    fixed = fixed or {}
-    below = {}
-    for entity_id, body in bodies.items():
-        below.setdefault(body["entityType"], set()).update(t for t, _ in points[entity_id] if t != body["entityType"])
-
-    def rank(entity_type, path=()):
-        if entity_type in fixed:
-            return fixed[entity_type]
-        others = [other for other in below[entity_type] if (other in below or other in fixed) and other not in path]
-        return max((rank(other, (*path, entity_type)) for other in others), default=-1) + 1
-
-    return {entity_type: rank(entity_type) for entity_type in below}
-
-
 def made_entities():
     """The ids of the entities the seed saved: the ones its records of kind `entities` list."""
     return {entity_id for x in created() if x["product"] == SECTION and x["kind"] == "entities"
             for entity_id in x.get("ids", [])}
 
 
-def made_ranks():
-    """{type: rank} of the entities the seed saved, from its records of kind `entities`: the highest a record of the type
-    has, whatever its source."""
-    ranks = {}
-    for x in created():
-        if x["product"] == SECTION and x["kind"] == "entities":
-            entity_type = x["name"].rsplit("/", 1)[1]   # the name is source/type, and a type has no slash
-            ranks[entity_type] = max(ranks.get(entity_type, 0), x.get("rank", 0))
-    return ranks
-
-
 def parents_of(entity):
     return {(p["entityType"], p["entityId"]) for p in entity.get("parents") or []}
-
-
-def points_of(entity):
-    """The (type, id) of what an entity, as the API has it, points at: its parents, then what its attributes name."""
-    parents = [(p["entityType"], p["entityId"]) for p in entity.get("parents") or []]
-    return [*parents, *pointed_at(entity.get("attributes") or {})]
 
 
 def entity_is_as_wanted(current, wanted):
@@ -356,43 +305,27 @@ def elsewhere(api, ids):
 
 
 def put_entities(api, spec):
-    """Saves the entities of the file that are missing or differ, in requests of at most BULK. What an earlier run saved
-    and lost the answer of is the seed's first, whatever source the file named then and whether it still lists it."""
-    source, bodies, ranks = data_entities(spec, made_ranks())
-    mine, sending = made_entities(), source + SAVING
-    noted = {}   # id: the source of the note that names it, this file's or one it named before
-    for x in notes(SECTION, "entities"):
-        for entity_id in x.get("ids", []):
-            noted.setdefault(entity_id, x["name"].removesuffix(SAVING))
-    if not bodies and not noted:
-        return
-    wanted = [body["entityId"] for body in bodies]
-    gone = sorted(set(noted) - mine - set(wanted))   # saved by a lost answer, and the file no longer has them
+    """Saves the entities of the file that are missing or differ, in one request. What an earlier run saved and lost the answer
+    of is the seed's first."""
+    source, bodies = data_entities(spec)
+    mine = made_entities()
+    noted = {entity_id for x in notes(SECTION, "entities") for entity_id in x.get("ids", [])}
     present = {held["entityId"]: held for held in api.rows("/entities", LISTS, source=source)} if bodies else {}
-    present_elsewhere = elsewhere(api, [entity_id for entity_id in [*wanted, *gone] if entity_id not in present])
-    changed, new, lost = [], set(), []
+    present.update(elsewhere(api, [body["entityId"] for body in bodies if body["entityId"] not in present]))
+    changed, lost = [], []
     for body in bodies:
         entity_id = body["entityId"]
-        current = present.get(entity_id) or present_elsewhere.get(entity_id)
+        current = present.get(entity_id)
         if current and entity_id not in mine and entity_id not in noted:
             raise SeedError(f"{body['entityType']} '{entity_id}' exists in Authorization Management and the seed did "
                             "not create it: it is left alone")
-        if not current:
-            new.add(entity_id)
-        elif entity_id not in mine:   # noted: an earlier seed saved it and lost the answer
+        if current and entity_id not in mine:
             lost.append(body)
-        if not current or entity_id not in mine or not entity_is_as_wanted(current, body):   # one an earlier seed sent and lost
-            changed.append(body)                                                              # the answer of is saved again
-    taken = {source: lost} if lost else {}
-    # And those the file no longer has, under the source of their note: only that note names them. Each comes after what
-    # it points at, as the file's do, so that a removal deletes a child before its parent
-    listed = {**present, **present_elsewhere}
-    found = {entity_id: listed[entity_id] for entity_id in gone if entity_id in listed}
-    for entity in in_dependency_order(found, {entity_id: points_of(entity) for entity_id, entity in found.items()}):
-        taken.setdefault(noted[entity["entityId"]], []).append(entity)
-    for named, entities in taken.items():   # recorded before the old notes go: this run notes what it sends anew
-        remember(named, entities, bodies, ranks, listed)
-        log(SECTION, f"! {len(entities)} entities of '{named}': saved by an earlier seed that lost the platform's answer, "
+        if not current or not entity_is_as_wanted(current, body):
+            changed.append(body)
+    if lost:   # recorded before the old notes go
+        remember(source, lost)
+        log(SECTION, f"! {len(lost)} entities of '{source}': saved by an earlier seed that lost the platform's answer, "
                      "now known as the seed's")
     for x in notes(SECTION, "entities"):   # what it names is recorded now, or was never saved
         unmade(SECTION, "entities", x["name"])
@@ -400,75 +333,27 @@ def put_entities(api, spec):
         if bodies:
             log(SECTION, f"{len(bodies)} entities of '{source}' as the file says")
         return
-    # Noted before the first request (common.making): a bulk answer that is lost leaves entities that the next run saves again
-    with making(SECTION, "entities", "entities", sending, ids=[body["entityId"] for body in changed]):
-        for start in range(0, len(changed), BULK):
-            send_entities(api, source, sending, changed[start:start + BULK], bodies, ranks, listed)
-    unmade(SECTION, "entities", sending)
-    for entity_type in dict.fromkeys(body["entityType"] for body in changed):
-        of_type = [body["entityId"] for body in changed if body["entityType"] == entity_type]
-        made = sum(entity_id in new for entity_id in of_type)
-        counts = {"created": made, "put back": len(of_type) - made}
-        said = ", ".join(f"{count} {what}" for what, count in counts.items() if count)
-        log(SECTION, f"✓ {entity_type} entities of '{source}': {said}")
-
-
-def send_entities(api, source, sending, chunk, bodies, ranks, held):
-    """One bulk request. What the platform saved is recorded before the refusal of the rest is reported, so that a
-    removal deletes it and the next run finds it as the seed's. A refusal, of the request or of some of it, takes back the
-    note of what is being saved (`sending`): what the platform saved is recorded, what an earlier run saved and lost the
-    answer of was recorded before the first request (`put_entities`), and the rest was not saved."""
     try:
-        answer = api.post("/entities/_bulk", json={"entities": chunk})
+        with making(SECTION, "entities", "entities", source, missing=True, ids=[body["entityId"] for body in changed]):
+            said = api.post("/entities/_bulk", json={"entities": changed}).json()
+            # What the platform saved is recorded before the refusal of the rest is reported, so that a removal deletes it
+            # and the next run finds it as the seed's: its `errors` are {index, message}
+            refused = {e.get("index"): e.get("message") or str(e) for e in said.get("errors") or []}
+            remember(source, [body for index, body in enumerate(changed) if index not in refused])
     except HttpError as e:
-        if e.status < 500:   # refused: nothing of this request was saved
-            unmade(SECTION, "entities", sending)
         raise explain("The entities", e) from e
-    try:
-        said = answer.json()
-    except ValueError:
-        said = {}
-    refused = refusals(said)
-    remember(source, [body for index, body in enumerate(chunk) if index not in refused], bodies, ranks, held)
-    if refused or (isinstance(said, dict) and said.get("failed")):
-        count = len(refused) or said["failed"]
+    if refused or said.get("failed"):
         why = excerpt(next(iter(refused.values()), "no reason given"))
-        unmade(SECTION, "entities", sending)
-        raise SeedError(f"Authorization Management refused {count} of {len(chunk)} entities: {why}")
+        raise SeedError(f"Authorization Management refused {len(refused) or said['failed']} of {len(changed)} entities: {why}")
+    log(SECTION, f"✓ {len(changed)} entities of '{source}' saved")
 
 
-def refusals(said):
-    """{index in the request: why} of the entities a bulk answer says it refused: its `errors` are {index, message}."""
-    if not isinstance(said, dict):
-        return {}
-    return {e.get("index"): e.get("message") or str(e) for e in said.get("errors") or [] if isinstance(e, dict)}
-
-
-def remember(source, saved, bodies, ranks, held):
-    """Adds the entities just saved to the record of their type: one record for each type, with its ids in dependency
-    order (each after what it points at, as the file or `saved` says, else as the platform's row of it in `held` does;
-    an id with no row keeps its place in the record, the record being in that order when it was written), and the rank
-    that orders a removal: the file's, else the record's for a type the file no longer has, else one more than the
-    highest of the types its entities point at, each ranked as the file ranks it, else as its records do."""
-    known = {body["entityId"]: body for body in [*bodies, *saved]}
-    points = {entity_id: points_of(body) for entity_id, body in known.items()}
-    rows = {**held, **known}   # the platform's row of an id, unless the file or `saved` has it
-    for entity_type in dict.fromkeys(body["entityType"] for body in saved):
-        name = f"{source}/{entity_type}"
-        earlier = next((x for x in created() if (x["product"], x["kind"], x["name"]) == (SECTION, "entities", name)), {})
-        ids = [*earlier.get("ids", []), *(body["entityId"] for body in saved if body["entityType"] == entity_type)]
-        # An id only the record has: its row says what it points at, and with no row it stays where the record has it
-        of_type = {entity_id: rows.get(entity_id, {"entityId": entity_id, "entityType": entity_type})
-                   for entity_id in ids}
-        order = in_dependency_order(of_type, {entity_id: points_of(body) for entity_id, body in of_type.items()})
-        ids = [body["entityId"] for body in order]
-        rank = ranks.get(entity_type, earlier.get("rank"))
-        if rank is None:   # saved by a lost answer, and in neither the file nor a record: what it points at says
-            fixed = {**made_ranks(), **ranks}
-            fixed.pop(entity_type, None)   # a record of another source: these entities may point at more
-            rank = type_ranks(known, points, fixed)[entity_type]
-        record(SECTION, "entities", f"{entity_type} entities", name, name, ids=ids, count=len(ids), rank=rank,
-               source=source)
+def remember(source, saved):
+    """Adds the entities just saved to the record of their source, after those saved before them: an entity is saved after what
+    it points at (`data_entities`), and a removal deletes the last saved first."""
+    earlier = next((x for x in created() if (x["product"], x["kind"], x["name"]) == (SECTION, "entities", source)), {})
+    ids = list(dict.fromkeys([*earlier.get("ids", []), *(body["entityId"] for body in saved)]))
+    record(SECTION, "entities", "entities", source, source, ids=ids, count=len(ids))
 
 
 # --- Policies -------------------------------------------------------------------------------
@@ -539,7 +424,8 @@ def schema_document(api, slug):
         raise SeedError("seed/authz/schema.yaml: schema is the text of the schema")
     wanted = fill(spec["schema"], slug, "The schema")
     try:
-        current = held_schema(api.get("/schema", expect=(200, 404)))
+        held = api.get("/schema", expect=(200, 404))
+        current = held.json().get("schema") if held.status_code == 200 else None
         if current and same_text(current, wanted):
             log(SECTION, "Schema exists")
             return
@@ -559,17 +445,6 @@ def schema_document(api, slug):
         log(SECTION, f"✓ Schema {'put back' if current else 'created'}")
     except SeedError as e:
         log(SECTION, f"! Schema skipped: {e}")
-
-
-def held_schema(answer):
-    """The text of the schema the platform holds, empty when it holds none (a 404, or an answer that has no text)."""
-    if answer.status_code != 200:
-        return ""
-    try:
-        said = answer.json()
-    except ValueError:
-        return ""
-    return (said.get("schema") or "") if isinstance(said, dict) else ""
 
 
 def why_invalid(errors):
@@ -604,8 +479,6 @@ def remove(records):
     mine = owned(reversed(records), SECTION, ORDER)   # entities: the last made, a tool, before the first, its server
     if not mine:
         return
-    # Of the entities of the data, the types that point at others go first; sorted is stable, the rest keeps its order
-    mine = sorted(mine, key=lambda x: (ORDER.index(x["kind"]), -x.get("rank", 0) if x["kind"] == "entities" else 0))
     gamma = Gamma()
     api = gamma.authz
     gamma.connect(SECTION, lambda: api.get("/policies", params={"page": 1, "perPage": 1}), "Authorization Management")

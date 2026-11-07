@@ -6,7 +6,6 @@ The requests are those of the scripts that were run against the live platform.""
 import copy
 import itertools
 import re
-import unittest
 from types import SimpleNamespace
 
 import requests
@@ -610,8 +609,6 @@ class Replacement(Studios):
         self.seed()
         self.file(STUDIO.replace("alias: get_customer", "alias: customer"))
         self.answer_lost(("POST", AIM + "/mcp-studios"), self.world.create)
-        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], [PATH],
-                         "the note names the path the studio is found by (aim_catalog.release_studios)")
         self.seed()
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
 
@@ -799,7 +796,6 @@ class OldShape(Studios):
         self.seed()
         self.file(OLD_STUDIO.replace("tool: getCustomer", "tool: searchCustomers"))
         self.answer_lost(("POST", AIM + "/mcp-studios"), self.world.create)
-        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], ["/old"])
         self.seed()
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
 
@@ -1137,7 +1133,3 @@ class Subscriptions(Studios):
         [sub] = self.world.subscriptions.values()
         self.assertEqual(sub["status"], "ACCEPTED", "the key of the file works")
         self.assertIn("✓ Subscription accepted: Steward on 13 tools → Lumenbank operations (Copilots)", self.output())
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -17,7 +17,3 @@ class AddressTest(unittest.TestCase):
     def test_an_api_with_nothing_to_reach_it_by_has_no_address(self):
         self.assertIsNone(apim.ApiManagement.address({"listeners": []}))
         self.assertIsNone(apim.ApiManagement.address({"listeners": [{"type": "SUBSCRIPTION"}]}))
-
-
-if __name__ == "__main__":
-    unittest.main()

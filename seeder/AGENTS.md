@@ -59,14 +59,6 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
 - **The engine provides `ENV_ID` and `ENV_NAME`** while it renders the files of an environment (`PROVIDED` in `common.py`):
   a seed file may use them with no setting, and `seedlint` does not call them unset. A page's own `${...}` is written
   `$${...}`.
-- **The users hook** (`users` in `apim.py`) looks a user up and registers it when the platform can: a user that exists is
-  adopted, never recorded, never changed. A memory user has no row before its first sign-in, so its group gets it
-  (`enroll`: the member is added from the identity provider's search, as the Console does) and the user is recorded then.
-  A group is checked after it is written, because the Automation API drops a member it does not know without an error: one
-  still missing stops the seed with a line that names the user.
-- **`membership`** gives the seed's login the environment's administrator role in each environment that the Console does not list
-  for it (every one inserted in the database: the login acts in it all the same, but the data steward would not find it in the
-  environment picker), records it, and a removal takes it back. An environment that lists it is left alone.
 - **What the files show is refused before a module's first change**: an environment folder that is no id, is the platform's
   own or whose `environment.yaml` names another id, an API or application that names a group its folder lacks, two
   applications of one name, a key or a token that YAML reads as a number or a boolean, a listing that names an API or a
@@ -95,8 +87,8 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
 
 Every address, credential and id comes from the environment (`setting()` in `common.py`), and seed files hold `${VAR}` for
 what depends on the target (`render()`). No module and no seed file names a container or writes an address: the
-playground's seed service sets the variables. `seedlint`, which the *Seed files* job of a catalog's CI runs, fails on a literal address
-and on a variable no seed service sets.
+playground's seed service sets the variables. `seedlint`, which the *Seed files* job of a catalog's CI runs, fails on a variable no seed
+service sets.
 
 ## Behavior to keep
 

@@ -71,7 +71,6 @@ class Platform(World):
         self.schema_validation = (200,)  # the status of the validation route
         self.refused = {}                # entityId -> why the bulk save refuses it
         self.bulks = []                  # the ids of each bulk request
-        self.listed = []                 # the parameters of each listing
 
     def routes(self):
         routes = super().routes()
@@ -87,7 +86,6 @@ class Platform(World):
 
     # Entities
     def list_entities(self, call):
-        self.listed.append(dict(call.params))
         wanted = call.params.get("entityId")
         wanted = [wanted] if isinstance(wanted, str) else wanted
         rows = [entity for entity in self.entities.values()
@@ -98,8 +96,6 @@ class Platform(World):
 
     def bulk(self, call):
         entities = call.json["entities"]
-        if len(entities) > 10000:
-            return 400, {"message": "too many entities"}
         self.bulks.append([entity["entityId"] for entity in entities])
         errors, results = [], []
         for index, entity in enumerate(entities):
@@ -186,7 +182,7 @@ class References(unittest.TestCase):
                          {"customer": {"__entity": {"type": "Customer", "id": "C-1001"}}})
 
     def test_a_reference_in_a_list_or_a_record_is_one_too(self):
-        out = authz.reference({"all": [{"ref": ["Order", "O-1"]}, {"ref": {"type": "Order", "id": "O-2"}}],
+        out = authz.reference({"all": [{"ref": ["Order", "O-1"]}, {"ref": ["Order", "O-2"]}],
                                "nested": {"last": {"ref": ["Order", 3]}}}, "x")
         self.assertEqual(out["all"], [{"__entity": {"type": "Order", "id": "O-1"}}, {"__entity": {"type": "Order", "id": "O-2"}}])
         self.assertEqual(out["nested"]["last"], {"__entity": {"type": "Order", "id": "3"}}, "a number is an id too")
@@ -210,14 +206,13 @@ class Entities(unittest.TestCase):
         return authz.data_entities(yaml.safe_load(text))
 
     def test_a_parent_and_what_an_attribute_points_at_come_before_the_entity(self):
-        source, bodies, ranks = self.read(ENTITIES)
+        source, bodies = self.read(ENTITIES)
         self.assertEqual(source, "orchid")
         self.assertEqual([b["entityId"] for b in bodies], ["C-1001", "O-5001", "C-2001", "O-6001"],
                          "O-5001 is first in the file and points at C-1001: its customer comes first")
-        self.assertEqual(ranks, {"Order": 1, "Customer": 0}, "a type that points at another is deleted before it")
 
     def test_an_entity_is_a_resource_unless_it_is_a_user_a_group_or_an_agent(self):
-        _, bodies, _ = self.read("""
+        _, bodies = self.read("""
 entities:
   - {type: Group, id: care, attributes: {}}
   - {type: User, id: dana, attributes: {region: EU}, parents: [[Group, care]]}
@@ -230,24 +225,23 @@ entities:
         self.assertEqual(next(b for b in bodies if b["entityId"] == "dana")["parents"], [{"entityType": "Group", "entityId": "care"}])
 
     def test_the_body_is_what_the_bulk_api_takes(self):
-        _, bodies, _ = self.read(ENTITIES)
+        _, bodies = self.read(ENTITIES)
         order = next(b for b in bodies if b["entityId"] == "O-5001")
         self.assertEqual(order, {
             "entityId": "O-5001", "kind": "RESOURCE", "entityType": "Order", "source": "orchid", "targets": [], "parents": [],
             "attributes": {"_displayName": "O-5001", "customer": {"__entity": {"type": "Customer", "id": "C-1001"}}}})
 
     def test_a_file_that_names_no_source_has_one_of_the_lab(self):
-        source, _, _ = self.read("entities: [{type: Customer, id: C-1}]")
+        source, _ = self.read("entities: [{type: Customer, id: C-1}]")
         self.assertEqual(source, authz.SOURCE)
 
     def test_a_cycle_is_cut_and_every_entity_stays(self):
-        _, bodies, ranks = self.read("""
+        _, bodies = self.read("""
 entities:
   - {type: A, id: a1, attributes: {other: {ref: [B, b1]}}}
   - {type: B, id: b1, attributes: {other: {ref: [A, a1]}}}
 """)
         self.assertEqual(sorted(b["entityId"] for b in bodies), ["a1", "b1"])
-        self.assertEqual(sorted(ranks), ["A", "B"])
 
     def test_a_file_that_is_not_right_stops_in_one_line_that_says_which_entity(self):
         for text, why in [
@@ -284,16 +278,6 @@ class Bulk(Case):
         self.assertEqual(self.world.entities["C-1001"]["source"], "orchid")
         self.assertEqual(self.platform.sent("POST", AUTHZ + "/entities"), [], "not one request for each entity")
 
-    def test_a_request_holds_at_most_a_thousand_entities(self):
-        self.seed_files({"authz/entities.yaml": customers_and_orders(1250)})   # 2,500 entities
-        authz.seed()
-        self.assertEqual([len(ids) for ids in self.world.bulks], [1000, 1000, 500])
-        self.assertEqual(len(self.world.entities), 2500)
-        self.assertEqual(authz.BULK, 1000)
-        order = [entity for ids in self.world.bulks for entity in ids]
-        for number in (0, 624, 1249):
-            self.assertLess(order.index(f"C-{number}"), order.index(f"O-{number}"))
-
     def test_what_the_platform_holds_of_the_source_is_listed_before_anything_is_sent(self):
         authz.seed()
         listing = self.platform.sent("GET", LISTING)
@@ -313,14 +297,6 @@ class Bulk(Case):
         self.assertEqual(self.platform.sent("GET", LISTING), [])
         self.assertEqual(self.bulk_calls(), [])
 
-    def test_a_second_seed_of_thousands_lists_them_by_pages_and_saves_nothing(self):
-        self.seed_files({"authz/entities.yaml": customers_and_orders(1250)})
-        self.seeded()
-        self.world.listed.clear()
-        authz.seed()
-        self.assertEqual(self.platform.changes(), [])
-        self.assertEqual([call["page"] for call in self.world.listed], list(range(1, 26)), "2,500 entities, a hundred a page")
-
     def test_only_the_entity_that_changed_and_the_one_that_is_gone_are_sent(self):
         self.seeded()
         self.world.entities["C-1001"]["attributes"]["tier"] = "standard"
@@ -330,8 +306,7 @@ class Bulk(Case):
         self.assertEqual(len(self.bulk_calls()), 1)
         self.assertEqual(self.world.entities["C-1001"]["attributes"]["tier"], "gold")
         self.assertIn("O-6001", self.world.entities)
-        self.assertIn("Customer entities of 'orchid': 1 put back", self.output())
-        self.assertIn("Order entities of 'orchid': 1 created", self.output())
+        self.assertIn("✓ 2 entities of 'orchid' saved", self.output())
 
     def test_a_parent_someone_changed_and_a_source_someone_changed_are_put_back(self):
         self.seed_files({"authz/entities.yaml": """
@@ -354,23 +329,18 @@ entities:
         authz.seed()
         self.assertEqual(self.platform.changes(), [])
 
-    def test_the_records_are_one_for_each_type_with_the_ids_in_the_order_they_were_saved(self):
+    def test_the_record_is_one_for_the_source_with_the_ids_in_the_order_they_were_saved(self):
         authz.seed()
-        by_name = {x["name"]: x for x in self.records()}
-        self.assertEqual(sorted(by_name), ["orchid/Customer", "orchid/Order"])
-        customers, orders = by_name["orchid/Customer"], by_name["orchid/Order"]
-        self.assertEqual((customers["ids"], customers["count"], customers["rank"]), (["C-1001", "C-2001"], 2, 0))
-        self.assertEqual((orders["ids"], orders["count"], orders["rank"]), (["O-5001", "O-6001"], 2, 1))
-        self.assertEqual((customers["label"], orders["label"]), ("Customer entities", "Order entities"))
-        self.assertEqual({x["product"] for x in common.created()}, {"authz"})
-        self.assertEqual(len(common.created()), 2)
+        [record] = common.created()
+        self.assertEqual((record["product"], record["name"], record["label"], record["ids"], record["count"]),
+                         ("authz", "orchid", "entities", ["C-1001", "O-5001", "C-2001", "O-6001"], 4))
 
-    def test_a_new_entity_of_a_known_type_joins_the_record_of_its_type(self):
+    def test_a_new_entity_joins_the_record(self):
         authz.seed()
         self.seed_files({"authz/entities.yaml": ENTITIES + "  - {type: Customer, id: C-1002, attributes: {region: EU}}\n"})
         authz.seed()
-        customers = next(x for x in self.records() if x["name"] == "orchid/Customer")
-        self.assertEqual((customers["ids"], customers["count"]), (["C-1001", "C-2001", "C-1002"], 3))
+        [record] = self.records()
+        self.assertEqual((record["ids"], record["count"]), (["C-1001", "O-5001", "C-2001", "O-6001", "C-1002"], 5))
         self.assertEqual(self.world.bulks[-1], ["C-1002"])
 
     def test_an_entity_the_file_no_longer_has_stays_in_the_record_so_that_a_removal_deletes_it(self):
@@ -382,8 +352,8 @@ entities:
   - {type: Customer, id: C-3001, attributes: {region: US}}
 """})
         authz.seed()
-        customers = next(x for x in self.records() if x["name"] == "orchid/Customer")
-        self.assertEqual(customers["ids"], ["C-1001", "C-2001", "C-3001"], "the stale id where the record has it")
+        [record] = self.records()
+        self.assertEqual(record["ids"], ["C-1001", "O-5001", "C-2001", "O-6001", "C-3001"], "the stale ids where the record has them")
 
     def test_no_secret_or_attribute_is_recorded(self):
         authz.seed()
@@ -437,16 +407,6 @@ class Strangers(Case):
         self.assertEqual(list(self.world.entities), ["mine"])
 
 
-TREE = """\
-source: orchid
-entities:
-  - {type: Customer, id: C-1}
-  - {type: Folder, id: leaf, parents: [[Folder, middle]]}
-  - {type: Folder, id: middle, parents: [[Folder, root]]}
-  - {type: Folder, id: root}
-"""
-
-
 class Refusals(Case):
     """The platform refuses an entity: what it took is the seed's, and the reason is one line."""
 
@@ -461,8 +421,8 @@ class Refusals(Case):
             authz.seed()
         self.assertEqual(self.world.by_type("Customer"), ["C-1001", "C-2001"])
         self.assertEqual(self.world.by_type("Order"), ["O-5001"])
-        orders = next(x for x in self.records() if x["name"] == "orchid/Order")
-        self.assertEqual(orders["ids"], ["O-5001"], "recorded: what the platform took, and nothing it refused")
+        [record] = self.records()
+        self.assertEqual(record["ids"], ["C-1001", "O-5001", "C-2001"], "recorded: what the platform took, and nothing it refused")
 
     def test_the_next_seed_saves_the_one_that_was_refused_and_no_other(self):
         self.world.refused["O-6001"] = "no"
@@ -471,7 +431,7 @@ class Refusals(Case):
         self.world.refused.clear()
         authz.seed()
         self.assertEqual(self.world.bulks[-1], ["O-6001"])
-        self.assertEqual(next(x for x in self.records() if x["name"] == "orchid/Order")["ids"], ["O-5001", "O-6001"])
+        self.assertEqual(self.records()[0]["ids"], ["C-1001", "O-5001", "C-2001", "O-6001"])
 
     def test_a_request_the_platform_answers_with_an_error_says_what_it_said_in_one_line(self):
         self.platform.add({("POST", BULK): (400, {"message": "entity C-1001: the type 'Customer' is not\nallowed"})})
@@ -500,7 +460,7 @@ class Refusals(Case):
             authz.seed()
         self.assertEqual(common.notes(authz.SECTION, "entities"), [], "the answer said what was saved, and that is recorded")
 
-    def lost(self):
+    def lose_the_answer(self):
         """A run whose bulk request the platform saves whole, and whose answer never comes back."""
         def made(call):
             self.world.bulk(call)
@@ -509,170 +469,32 @@ class Refusals(Case):
         with self.assertRaises(common.SeedError):
             authz.seed()
         self.platform.add({("POST", BULK): self.world.bulk})
-
-    def lose_the_answer(self):
-        self.lost()
         self.assertEqual((len(self.world.entities), authz.made_entities()), (4, set()))
+
+    def test_what_a_lost_answer_saved_is_the_seeds_at_the_next_run_and_is_not_saved_again(self):
+        self.lose_the_answer()
+        authz.seed()
+        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+        self.assertEqual(len(self.bulk_calls()), 1)
+        self.assertIn("! 4 entities of 'orchid': saved by an earlier seed that lost the platform's answer", self.output())
+        authz.remove(common.created())
+        self.assertEqual(self.world.entities, {})
 
     def test_a_refused_request_after_a_lost_answer_keeps_what_the_lost_one_saved_as_the_seeds(self):
         self.lose_the_answer()
+        self.seed_files({"authz/entities.yaml": ENTITIES.replace("tier: gold", "tier: silver")})
         self.platform.add({("POST", BULK): (400, {"message": "entity C-1001: the type 'Customer' is not allowed"})})
         with self.assertRaises(common.SeedError):
             authz.seed()
         self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
-        self.platform.add({("POST", BULK): self.world.bulk})
-        authz.seed()
-        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
-
-    def test_a_refusal_of_one_the_lost_answer_saved_keeps_it_as_the_seeds_too(self):
-        self.lose_the_answer()
-        self.world.refused["O-6001"] = "attribute 'customer' is not an entity"
-        with self.assertRaises(common.SeedError):
-            authz.seed()
-        self.world.refused.clear()
-        authz.seed()
-        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
         self.assertEqual(common.notes(authz.SECTION, "entities"), [])
 
-    def test_one_the_lost_answer_saved_and_the_file_no_longer_has_stays_the_seeds_and_a_removal_deletes_it(self):
-        self.lose_the_answer()
-        self.seed_files({"authz/entities.yaml": ENTITIES.replace("  - {type: Order, id: O-6001", "  # {type: Order, id: O-6001")})
-        authz.seed()
-        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
-        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
-        authz.remove(common.created())
-        self.assertEqual(self.world.entities, {})
-
-    def test_one_the_lost_answer_saved_can_come_back_in_the_file(self):
-        self.lose_the_answer()
-        self.seed_files({"authz/entities.yaml": ENTITIES.replace("  - {type: Order, id: O-6001", "  # {type: Order, id: O-6001")})
-        authz.seed()
-        self.seed_files({"authz/entities.yaml": ENTITIES})
-        authz.seed()
-        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
-
-    def test_a_type_the_file_no_longer_has_keeps_the_rank_of_its_record_with_what_the_lost_answer_saved(self):
-        authz.seed()
-        self.seed_files({"authz/entities.yaml": ENTITIES + "  - {type: Order, id: O-7001, attributes: {customer: {ref: [Customer, C-1001]}}}\n"})
-        self.lost()
-        # The customers are the seed's and as the file says: nothing is sent, and the old note goes all the same
-        self.seed_files({"authz/entities.yaml": "".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line)})
-        authz.seed()
-        [orders] = [x for x in common.created() if x["name"] == "orchid/Order"]
-        self.assertEqual((set(orders["ids"]), orders["rank"]), ({"O-5001", "O-6001", "O-7001"}, 1))
-        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
-
-    def deleted(self):
-        return [path.rsplit("/", 1)[1] for method, path in self.platform.changes() if method == "DELETE"]
-
-    def test_a_type_only_the_lost_answer_saved_is_still_deleted_before_the_one_it_points_at(self):
-        self.lose_the_answer()
-        # The orders are in no record and no longer in the file: what they point at ranks them
-        self.seed_files({"authz/entities.yaml": "".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line)})
-        authz.seed()
-        [orders] = [x for x in common.created() if x["name"] == "orchid/Order"]
-        self.assertEqual((orders["ids"], orders["rank"]), (["O-5001", "O-6001"], 1))
-        self.platform.calls.clear()
-        authz.remove(common.created())
-        self.assertEqual(self.deleted(), ["O-6001", "O-5001", "C-2001", "C-1001"])
-        self.assertEqual(self.world.entities, {})
-
-    def lose_an_invoice_then_seed(self, text):
-        """A first seed of the customers and orders, a run that adds an invoice of an order and loses the answer, then a
-        seed of `text`."""
-        authz.seed()
-        self.seed_files({"authz/entities.yaml": ENTITIES + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-5001]}}}\n"})
-        self.lost()
-        self.assertEqual(("I-1" in self.world.entities, "I-1" in authz.made_entities()), (True, False))
-        self.seed_files({"authz/entities.yaml": text})
-        authz.seed()
-
-    def test_a_type_only_the_lost_answer_saved_ranks_above_one_only_a_record_has(self):
-        # The orders the invoice points at are in a record only, and the invoice in no record and no longer in the file
-        self.lose_an_invoice_then_seed("source: orchid\nentities: []\n")
-        [invoices] = [x for x in common.created() if x["name"] == "orchid/Invoice"]
-        self.assertEqual((invoices["ids"], invoices["rank"]), (["I-1"], 2), "one above the record of the orders")
-        self.platform.calls.clear()
-        authz.remove(common.created())
-        self.assertEqual(self.deleted(), ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
-        self.assertEqual(self.world.entities, {})
-
-    def test_the_same_when_the_file_keeps_the_customers(self):
-        self.lose_an_invoice_then_seed("".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line))
-        [invoices] = [x for x in common.created() if x["name"] == "orchid/Invoice"]
-        self.assertEqual(invoices["rank"], 2)
-        self.platform.calls.clear()
-        authz.remove(common.created())
-        self.assertEqual(self.deleted(), ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
-
-    def test_the_same_when_the_file_keeps_the_orders_and_no_longer_the_customers_they_point_at(self):
-        chain = """\
-source: orchid
-entities:
-  - {type: Region, id: EU}
-  - {type: Customer, id: C-1, attributes: {region: {ref: [Region, EU]}}}
-  - {type: Order, id: O-1, attributes: {customer: {ref: [Customer, C-1]}}}
-"""
-        self.seed_files({"authz/entities.yaml": chain})
-        authz.seed()
-        self.seed_files({"authz/entities.yaml": chain + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-1]}}}\n"})
-        self.lost()
-        self.seed_files({"authz/entities.yaml": "".join(line for line in chain.splitlines(keepends=True)
-                                                        if "type: Region" not in line and "type: Customer" not in line)})
-        authz.seed()
-        [invoices] = [x for x in common.created() if x["name"] == "orchid/Invoice"]
-        self.assertEqual(invoices["rank"], 3, "one above the orders, which the file ranks above the record of the customers")
-        self.platform.calls.clear()
-        authz.remove(common.created())
-        self.assertEqual(self.deleted(), ["I-1", "O-1", "C-1", "EU"])
-
-    def children_go_first(self, text):
-        """A lost answer of TREE, then a seed of `text`: each folder is recorded after its parent, and deleted before it."""
-        self.seed_files({"authz/entities.yaml": TREE})
-        self.lose_the_answer()
-        self.seed_files({"authz/entities.yaml": text})
-        authz.seed()
-        [folders] = [x for x in common.created() if x["name"] == "orchid/Folder"]
-        self.assertEqual(folders["ids"], ["root", "middle", "leaf"])
-        self.platform.calls.clear()
-        authz.remove(common.created())
-        self.assertEqual([entity_id for entity_id in self.deleted() if entity_id != "C-1"], ["leaf", "middle", "root"])
-
-    def test_a_child_only_the_lost_answer_saved_is_still_deleted_before_its_parent(self):
-        self.children_go_first("source: orchid\nentities:\n  - {type: Customer, id: C-1}\n")
-
-    def test_a_child_only_the_lost_answer_saved_is_still_deleted_before_its_parent_the_file_keeps(self):
-        self.children_go_first(TREE.replace("  - {type: Folder, id: leaf, parents: [[Folder, middle]]}\n", ""))
-
-    def test_what_the_lost_answer_saved_stays_the_seeds_when_the_file_lists_no_entity_any_more(self):
+    def test_the_note_of_what_the_file_no_longer_lists_goes(self):
         self.lose_the_answer()
         self.seed_files({"authz/entities.yaml": "source: orchid\nentities: []\n"})
         authz.seed()
-        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
         self.assertEqual(common.notes(authz.SECTION, "entities"), [])
-        self.assertIn("! 4 entities of 'orchid': saved by an earlier seed that lost the platform's answer", self.output())
-        self.platform.calls.clear()
-        authz.remove(common.created())
-        self.assertEqual(self.deleted(), ["O-6001", "O-5001", "C-2001", "C-1001"])
-
-    def test_the_same_when_the_entities_file_is_gone_and_the_folder_seeds_the_rest(self):
-        self.lose_the_answer()
-        (common.SEED_DIR / "authz" / "entities.yaml").unlink()
-        self.seed_files({"authz/schema.yaml": f"schema: '{SCHEMA_TEXT.splitlines()[1]}'\n"})
-        authz.seed()
-        self.assertEqual(authz.made_entities(), {"C-1001", "O-5001", "C-2001", "O-6001"})
-        authz.remove(common.created())
-        self.assertEqual(self.world.entities, {})
-
-    def test_a_source_the_file_renamed_after_a_lost_answer_takes_what_it_saved_as_the_seeds(self):
-        self.lose_the_answer()
-        self.seed_files({"authz/entities.yaml": ENTITIES.replace("source: orchid", "source: orchid2")})
-        authz.seed()
-        self.assertEqual(sorted(x["name"] for x in self.records()), ["orchid2/Customer", "orchid2/Order"])
-        self.assertEqual({entity["source"] for entity in self.world.entities.values()}, {"orchid2"})
-        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
-        authz.remove(common.created())
-        self.assertEqual(self.world.entities, {})
 
     def test_a_failed_count_without_the_errors_is_still_a_refusal_and_the_request_is_taken_as_saved(self):
         self.platform.add({("POST", BULK): (200, {"status": "PARTIAL", "created": 3, "failed": 1, "results": [], "errors": []})})
@@ -709,19 +531,10 @@ class Removal(Case):
         authz.seed()
         self.platform.calls.clear()
         self.assertEqual(self.main("--remove"), 0, self.output())
-        self.assertEqual(self.deleted(), [["policies", self.deleted()[0][1]], ["entities", "O-6001"], ["entities", "O-5001"],
-                                          ["entities", "C-2001"], ["entities", "C-1001"]])
+        self.assertEqual(self.deleted(), [["policies", self.deleted()[0][1]], ["entities", "O-6001"], ["entities", "C-2001"],
+                                          ["entities", "O-5001"], ["entities", "C-1001"]])
         self.assertEqual(self.world.entities, {})
-        self.assertIn("✓ Deleted 2 Order entities of 'orchid'", self.output())
-        self.assertIn("✓ Deleted 2 Customer entities of 'orchid'", self.output())
-
-    def test_a_type_that_was_recorded_first_is_still_deleted_after_the_one_that_points_at_it(self):
-        authz.seed()
-        records = common.created()
-        records.sort(key=lambda x: x["name"] != "orchid/Order")   # the record of the orders after that of the customers
-        authz.remove(records)
-        ids = [entity for kind, entity in self.deleted() if kind == "entities"]
-        self.assertEqual(ids, ["O-6001", "O-5001", "C-2001", "C-1001"])
+        self.assertIn("✓ Deleted 4 entities of 'orchid'", self.output())
 
     def test_a_child_is_deleted_before_its_parent_of_the_same_type(self):
         self.assertEqual(self.removed_after("""
@@ -746,35 +559,7 @@ entities:
   - {type: Folder, id: middle, parents: [[Folder, root]]}
   - {type: Folder, id: root, attributes: {label: Root}}
 """), ["leaf", "middle", "root"])
-        self.assertEqual(self.world.bulks[-1], ["root"], "root is saved again, and the record of the folders written anew")
-
-    def test_a_child_the_file_no_longer_has_is_still_deleted_before_its_parent_it_no_longer_has_either(self):
-        # At the last seed both go from the file, and the entity it keeps now points at the child: the platform's row says its parent
-        self.assertEqual(self.removed_after("source: orchid\nentities:\n  - {type: Doc, id: index}\n", """
-source: orchid
-entities:
-  - {type: Doc, id: index}
-  - {type: Doc, id: chapter}
-  - {type: Doc, id: section, parents: [[Doc, chapter]]}
-""", """
-source: orchid
-entities:
-  - {type: Doc, id: index, attributes: {first: {ref: [Doc, section]}}}
-"""), ["index", "section", "chapter"])
-        self.assertEqual(self.world.bulks[-1], ["index"])
-
-    def test_the_same_when_its_parent_is_one_the_file_keeps_and_now_points_at_another_it_no_longer_has(self):
-        self.assertEqual(self.removed_after("""
-source: orchid
-entities:
-  - {type: Doc, id: book}
-  - {type: Doc, id: chapter, parents: [[Doc, book]]}
-  - {type: Doc, id: appendix}
-""", """
-source: orchid
-entities:
-  - {type: Doc, id: book, attributes: {last: {ref: [Doc, appendix]}}}
-"""), ["chapter", "book", "appendix"])
+        self.assertEqual(self.world.bulks[-1], ["root"], "root is saved again, and stays where the record has it")
 
     def test_a_type_the_file_keeps_is_still_deleted_before_one_it_points_at_that_the_file_no_longer_lists(self):
         self.assertEqual(self.removed_after("""
@@ -789,13 +574,13 @@ entities:
   - {type: Region, id: EU}
   - {type: Order, id: O-1, attributes: {customer: {ref: [Customer, C-1]}, total: 3}}
 """), ["O-1", "C-1", "EU"])
-        self.assertEqual(self.world.bulks[-1], ["O-1"], "the order is saved again, and ranked above the record of the customers")
+        self.assertEqual(self.world.bulks[-1], ["O-1"], "the order is saved again, and stays where the record has it")
 
     def test_the_same_for_a_new_type_and_for_a_parent_of_another_type(self):
         # At the second seed the orders are in their record only, and the invoice is new
         self.assertEqual(self.removed_after(ENTITIES, "".join(line for line in ENTITIES.splitlines(keepends=True) if "type: Order" not in line)
                                             + "  - {type: Invoice, id: I-1, attributes: {order: {ref: [Order, O-5001]}}}\n"),
-                         ["I-1", "O-6001", "O-5001", "C-2001", "C-1001"])
+                         ["I-1", "O-6001", "C-2001", "O-5001", "C-1001"])
         self.assertEqual(self.removed_after("""
 source: orchid
 entities:
@@ -839,7 +624,7 @@ class Server(Case):
         authz.seed()
         self.assertIn("customer-desk.get_customer", self.world.entities)
         self.assertIn("C-1001", self.world.entities)
-        self.assertEqual(sorted(x["kind"] for x in common.created() if x["kind"] != "policy"), ["entities", "entities", "entity", "entity"])
+        self.assertEqual(sorted(x["kind"] for x in common.created() if x["kind"] != "policy"), ["entities", "entity", "entity"])
         self.assertIn('Action::"customer-desk.get_customer"', next(iter(self.world.policies.values()))["policyText"])
 
     def test_a_policy_that_names_the_server_of_a_file_without_one_stops_the_seed_in_one_line(self):
@@ -920,11 +705,7 @@ class Policies(Case):
         self.assertIn("get_customer", next(iter(self.world.policies.values()))["policyText"])
 
     def test_the_other_ways_a_platform_words_a_refusal(self):
-        for body, said in [({"error": "Bad request", "path": "/policies"}, "Bad request"),
-                           ({"errors": [{"message": "no ';'"}]}, "no ';'"),
-                           ({"errors": ["no ';'"]}, "no ';'"),
-                           ({"title": "Invalid policy", "status": 400}, "Invalid policy"),
-                           ("plain text\nover two lines", "plain text over two lines"),
+        for body, said in [("plain text\nover two lines", "plain text over two lines"),
                            ({"unknown": 1}, '{"unknown": 1}')]:
             with self.subTest(body=body):
                 self.platform.add({("POST", AUTHZ + "/policies"): (400, body)})
@@ -1010,11 +791,11 @@ class SchemaDocument(Case):
         self.assertIn("! Schema skipped: The schema refused by Authorization Management (HTTP 400): line 1: cannot parse", self.output())
 
     def test_a_platform_that_answers_200_with_no_text_holds_no_schema(self):
-        self.platform.add({("GET", SCHEMA): [(200, {"schema": "", "updatedAt": None}), (200, {}), (200, None)]})
-        for _ in range(3):
+        self.platform.add({("GET", SCHEMA): [(200, {"schema": "", "updatedAt": None}), (200, {})]})
+        for _ in range(2):
             authz.seed()
             self.world.schema_text = None
-        self.assertEqual(len(self.platform.sent("PUT", SCHEMA)), 3)
+        self.assertEqual(len(self.platform.sent("PUT", SCHEMA)), 2)
 
     def test_a_schema_of_somebody_else_is_left_alone_with_a_warning(self):
         self.world.schema_text = "entity Mine;"
@@ -1060,7 +841,3 @@ class SchemaDocument(Case):
         self.assertEqual(self.platform.sent("POST", AUTHZ + "/schemas")[0].json["name"], "Old")
         self.assertEqual(self.world.schema_text.strip(), SCHEMA_TEXT.strip())
         self.assertEqual(sorted(x["kind"] for x in common.created()), ["schema", "schema-document"])
-
-
-if __name__ == "__main__":
-    unittest.main()

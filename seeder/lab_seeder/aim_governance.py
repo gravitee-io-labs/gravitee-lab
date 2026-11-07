@@ -166,7 +166,6 @@ class Governance:
     def __init__(self):
         self.g = Gamma()
         self.aim = self.g.aim
-        self.agents = None   # the agents of the catalog, listed once
 
     def connect(self):
         self.g.connect(SECTION, lambda: self.aim.get("/approval-settings"), "Approvals and compliance")
@@ -230,9 +229,7 @@ class Governance:
             log(SECTION, f"✓ Framework on: {framework}")
 
     def agent(self, slug):
-        if self.agents is None:
-            self.agents = self.aim.rows("/catalog/agents", CATALOG)
-        found = next((a for a in self.agents if a["entityId"] == f"agent.{slug}"), None)
+        found = next((a for a in self.aim.rows("/catalog/agents", CATALOG) if a["entityId"] == f"agent.{slug}"), None)
         if found is None:
             raise SeedError(f"The agent 'agent.{slug}' is not in the catalog: seed/aim/agents registers it before")
         return found
