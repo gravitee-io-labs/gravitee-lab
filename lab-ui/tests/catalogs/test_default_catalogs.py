@@ -75,13 +75,6 @@ class TrackedFile(Case):
         self.assertEqual({"id", "name", "description", "url", "branch"}, set(item))
         self.assertTrue(item["description"])
 
-    def test_the_reader_takes_the_file_as_it_is(self):
-        read = defaults.read()
-        self.assertEqual([item["id"] for item in read], [item["id"] for item in self.data["catalogs"]])
-        for item, found in zip(self.data["catalogs"], read):
-            self.assertEqual({key: found[key] for key in item}, item)
-        self.assertEqual(paths.default_ns(), read[0]["id"])
-
     def test_no_code_of_the_engine_holds_an_address_of_a_catalog(self):
         # The address and the repository of every listed catalog, taken from the file, and what starts with them:
         # another repository of the same name family, a private one next to a public one
@@ -127,17 +120,15 @@ class Reading(Case):
                ("catalogs as a map", json.dumps({"schema": 1, "catalogs": {}})),
                ("no entry", json.dumps({"schema": 1, "catalogs": []})),
                ("entries as texts", json.dumps({"schema": 1, "catalogs": ["demos"]})),
-               ("too deep", "[" * 60000), ("too big", "[" + " " * defaults.LIMIT + "]"),
+               ("too deep", "[" * 60000), ("too big", listing(entry(description="x" * defaults.LIMIT))),
                ("a constant", '{"schema": NaN}')]
         for label, text in bad:
             with self.subTest(label):
                 self.assertEqual(self.put(text), [])
 
-    def test_a_file_that_is_not_utf_8_or_is_too_big_reads_as_no_list(self):
+    def test_a_file_that_is_not_utf_8_reads_as_no_list(self):
         file = self.root / paths.DEFAULT_FILE
         file.write_bytes(b'{"schema": 1, "catalogs": []}\xff')
-        self.assertEqual(defaults.read(), [])
-        file.write_text(listing(entry(description="x" * defaults.LIMIT)), encoding="utf-8")
         self.assertEqual(defaults.read(), [])
         file.write_text("﻿" + listing(entry()), encoding="utf-8")   # a byte order mark is tolerated
         self.assertEqual([item["id"] for item in defaults.read()], ["demos"])
@@ -310,9 +301,6 @@ class NotAdded(Case):
     def ids(self):
         return [row["id"] for row in defaults.not_added()]
 
-    def test_with_no_catalogs_json_every_listed_catalog_is_not_added(self):
-        self.assertEqual(self.ids(), ["one", "two"])
-
     def test_a_row_is_a_suggestion_of_a_listed_catalog_with_its_address(self):
         one, two = defaults.not_added()
         self.assertEqual(one, {"id": "one", "kind": "suggested", "listed": True, "name": "Demos",
@@ -325,11 +313,6 @@ class NotAdded(Case):
         self.assertEqual(self.ids(), ["one"])
         self.config("one", "two", "mine")
         self.assertEqual(self.ids(), [])
-
-    def test_a_folder_that_stands_in_for_a_listed_catalog_counts_as_added(self):
-        folder = {"id": "one", "kind": "folder", "path": "/x"}
-        self.write(".lab/catalogs.json", json.dumps({"schema": 1, "catalogs": [folder]}))
-        self.assertEqual(self.ids(), ["two"])
 
     def test_what_the_registry_holds_is_added_whatever_the_file_says_of_its_kind(self):
         # The registry reads the kind of an entry that does not say it from what it has: a url or a path

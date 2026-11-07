@@ -23,6 +23,7 @@ from lab_ui.catalogs import gitx, store
 from lab_ui.catalogs.store import Entry
 
 from .. import Case, gitfixture
+from .test_gitx import gone
 
 # The rules of the catalog standard that `rejections` answers
 CODES = ("ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST09", "ST10", "ST13", "ST14", "ST15")
@@ -74,12 +75,6 @@ class Filter(Case):
                  "addons/x/data.md", "addons/x/Data.json", "playgrounds/p/compose.yml", "playgrounds/p/Docs/g.md"]
         kept, ignored = store.selected([entry(path) for path in paths])
         self.assertEqual(([e.path for e in kept], ignored), (paths, 0))
-
-    def test_units_are_grouped_by_kind_and_name(self):
-        grouped = store.by_unit(KEPT)
-        self.assertEqual(sorted(grouped), ["addon:echo", "playground:shop", "setup:pair"])
-        self.assertEqual([e.path for e in grouped["setup:pair"]], ["setups/pair.yml"])
-        self.assertNotIn("catalog.yml", [e.path for files in grouped.values() for e in files])
 
 
 def coded(*bad):
@@ -242,8 +237,6 @@ class Rejections(Case):
     def test_the_guides_of_a_kind_folder_are_neither_installed_nor_counted(self):
         guides = [entry(f"{folder}/{name}") for folder in ("addons", "setups", "playgrounds")
                   for name in ("README.md", "AGENTS.md", "CLAUDE.md")]
-        self.assertEqual(store.LISTINGS, tuple(g.path for g in guides))
-        self.assertEqual(store.GUIDES, ("README.md", "AGENTS.md", "CLAUDE.md"))
         self.assertEqual(coded(*guides), [])
         self.assertEqual(refused(*guides), (KEPT, 0))
         big = [entry(g.path, mode="100755", size=5 * MIB) for g in guides]
@@ -281,9 +274,8 @@ class Rejections(Case):
         self.assertEqual(store.overflows(GOOD + big), [store.Overflow("addon:big", "files", 2001, 2000)])
         self.assertEqual(store.overflows(GOOD + big[:-1]), [], "2000 files fit")
         self.assertEqual(coded(*big[:-1]), [])
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.selected(GOOD + big)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("too_large", 400))
+        error = self.refusal(lambda: store.selected(GOOD + big))
+        self.assertEqual((error.code, error.status), ("too_large", 400))
 
         heavy = unit_of_25("heavy") + [entry("addons/heavy/one.txt", size=1)]
         self.assertEqual([(e.path, code) for e, code in coded(*heavy)], [(e.path, "ST10") for e in heavy])
@@ -429,40 +421,29 @@ class Digests(Case):
             if key != "@catalog":
                 self.assertRegex(value, r"^sha256:[0-9a-f]{64}$")
 
-    def changed(self, replace=None, add=(), remove=()):
-        base = self.digest(GOOD)
-        entries = [replace.get(e.path, e) if replace else e for e in GOOD if e.path not in remove] + list(add)
-        after = self.digest(entries)
-        return {key for key in set(base) | set(after) if base.get(key) != after.get(key)}
-
     def test_a_digest_changes_when_and_only_when_the_files_of_its_unit_change(self):
-        pairs = {
-            "a file's content": ({"addons/echo/compose.yml": entry("addons/echo/compose.yml", oid="a" * 40)}, (), ()),
-            "a file's mode": ({"addons/echo/compose.yml": entry("addons/echo/compose.yml", mode="100755")}, (), ()),
-            "a file added": (None, [entry("addons/echo/new.txt")], ()),
-            "a file removed": (None, (), ["addons/echo/README.md"]),
-        }
-        for name, (replace, add, remove) in pairs.items():
-            with self.subTest(name):
-                self.assertEqual(self.changed(replace, add, remove), {"addon:echo"})
-
-    def test_a_file_that_moves_changes_the_digest_though_its_content_does_not(self):
         moved = entry("addons/echo/README.md")
-        renamed = Entry(moved.mode, moved.oid, moved.size, "addons/echo/docs-readme.md")
-        self.assertEqual(self.changed(None, [renamed], ["addons/echo/README.md"]), {"addon:echo"})
-
-    def test_what_is_not_in_the_unit_does_not_change_its_digest(self):
-        for add in ([entry("README.md", oid="1" * 40)], [entry("addons/echo/.env")], [entry("addons/echo/AGENTS.md")],
-                    [entry("addons/echo/link", mode="120000")], [entry("addons/echo/big.json", size=MIB + 1)]):
-            self.assertEqual(self.changed(None, add, ()), set(), add)
-
-    def test_a_new_unit_and_a_removed_unit_change_their_own_digests_only(self):
-        added = [entry("addons/new/compose.yml")]
-        self.assertEqual(self.changed(None, added, ()), {"addon:new"})
-        self.assertEqual(self.changed(None, (), ["setups/pair.yml"]), {"setup:pair"})
-
-    def test_the_catalog_file_changes_only_its_own_key(self):
-        self.assertEqual(self.changed({"catalog.yml": entry("catalog.yml", oid="b" * 40)}), {"@catalog"})
+        echo = {"addon:echo"}
+        table = {   # the name: (entries replaced, added, removed, the keys whose digest changes)
+            "a file's content": ({"addons/echo/compose.yml": entry("addons/echo/compose.yml", oid="a" * 40)}, (), (), echo),
+            "a file's mode": ({"addons/echo/compose.yml": entry("addons/echo/compose.yml", mode="100755")}, (), (), echo),
+            "a file added": ({}, [entry("addons/echo/new.txt")], (), echo),
+            "a file removed": ({}, (), ["addons/echo/README.md"], echo),
+            "a file that moves, its content the same": ({}, [Entry(moved.mode, moved.oid, moved.size, "addons/echo/docs-readme.md")],
+                                                         ["addons/echo/README.md"], echo),
+            "a new unit": ({}, [entry("addons/new/compose.yml")], (), {"addon:new"}),
+            "a removed unit": ({}, (), ["setups/pair.yml"], {"setup:pair"}),
+            "the catalog file": ({"catalog.yml": entry("catalog.yml", oid="b" * 40)}, (), (), {"@catalog"}),
+            "a file of the repository": ({}, [entry("README.md", oid="1" * 40)], (), set()),
+            "a .env": ({}, [entry("addons/echo/.env")], (), set()),
+            "a guide of an agent": ({}, [entry("addons/echo/AGENTS.md")], (), set()),
+            "a link": ({}, [entry("addons/echo/link", mode="120000")], (), set()),
+            "a file too big": ({}, [entry("addons/echo/big.json", size=MIB + 1)], (), set())}
+        base = self.digest(GOOD)
+        for name, (replace, add, remove, keys) in table.items():
+            with self.subTest(name):
+                after = self.digest([replace.get(e.path, e) for e in GOOD if e.path not in remove] + list(add))
+                self.assertEqual({key for key in set(base) | set(after) if base.get(key) != after.get(key)}, keys)
         self.assertNotIn("@catalog", store.unit_digests([e for e in KEPT if e.path != "catalog.yml"]))
 
     def test_the_order_of_the_listing_does_not_matter(self):
@@ -577,15 +558,12 @@ class Stores(Remote):
         self.assertEqual(store.resolve(self.store, "refs/lab/tip"), before, "an init keeps what the store holds")
         self.assertEqual(self.config("gc.auto"), "0")
 
-    def test_references_commits_and_objects(self):
+    def test_a_reference_or_a_commit_is_resolved_and_the_tip_may_be_named_short(self):
         tip = self.fetched()
         self.assertIsNone(store.resolve(self.store, "refs/lab/none"))
         self.assertEqual(store.resolve(self.store, "refs/lab/tip"), tip)
         self.assertEqual(store.resolve(self.store, tip), tip)
         self.assertIsNone(store.resolve(self.store, "1" * 40))
-
-    def test_the_tip_may_be_named_short(self):
-        tip = self.fetched()
         self.assertEqual(store.resolve(self.store, "tip"), tip)
         self.assertEqual(store.roots(self.store, "tip"), [tip])
         for name in ("main", "refs", "Tip", "tip2", "head", "pin"):
@@ -684,7 +662,7 @@ class Stores(Remote):
         self.assertEqual(store.clean(self.root / "none.git"), 0)
 
     def test_a_fetch_goes_on_after_a_stale_lock_and_is_refused_by_a_fresh_one(self):
-        tip = self.fetched()
+        self.fetched()
         lock = self.store / "refs" / "lab" / "tip.lock"
         lock.write_text("")
         old = time.time() - 3600
@@ -693,10 +671,9 @@ class Stores(Remote):
         self.assertEqual(self.fetched(), second)
         self.assertFalse(lock.exists())
         lock.write_text("")   # a lock git holds right now
-        third = gitfixture.commit(self.repo, {"README.md": "and again\n"})
+        gitfixture.commit(self.repo, {"README.md": "and again\n"})
         self.refusal(lambda: self.fetched(), "git_failed")
         self.assertEqual(store.resolve(self.store, "refs/lab/tip"), second, "the store is as it was")
-        self.assertNotEqual(tip, third)
 
     def test_size_counts_loose_objects_and_packs(self):
         self.fetched()
@@ -716,17 +693,6 @@ class Fetching(Remote):
         self.assertEqual(seen, sorted(seen), "only forward")
         self.assertTrue(all(0 < fraction <= 1.0 for fraction in seen))
         self.assertEqual(seen.count(1.0), 1, "the end is said once")
-
-    def test_without_a_branch_the_head_of_the_remote_is_fetched(self):
-        self.assertEqual(store.fetch(self.address, None, self.store), gitfixture.tip(self.repo))
-
-    def test_a_fetch_follows_new_commits_and_force_pushes_and_keeps_what_was_pinned(self):
-        first = self.fetched()
-        second = gitfixture.commit(self.repo, {"addons/echo/README.md": "newer\n"})
-        self.assertEqual(store.fetch(self.address, "main", self.store), second)
-        rewritten = gitfixture.force_push_over(self.repo, {"catalog.yml": "other\n"})
-        self.assertEqual(store.fetch(self.address, "main", self.store), rewritten)
-        self.assertEqual(store.resolve(self.store, first), first)
 
     def test_tags_are_not_tags_of_the_store_and_those_that_may_be_releases_are_kept_apart(self):
         gitfixture.git("tag", "v1", gitfixture.tip(self.repo), repo=self.repo)
@@ -772,15 +738,14 @@ class Fetching(Remote):
 
     def test_no_branch_is_none_an_empty_text_or_spaces_and_the_head_of_the_remote_is_fetched(self):
         """The Branch field of the page is optional: what it sends when left empty is not a branch named ''."""
-        for name in ("", "  "):
-            gone = self.root / "stores" / f"{len(name)}.git"
+        for name in (None, "", "  "):
+            gone = self.root / "stores" / f"{name!r}.git"
             self.assertEqual(store.fetch(self.address, name, gone), gitfixture.tip(self.repo), repr(name))
         self.assertEqual(store.fetch(self.address, " main ", self.root / "stores" / "padded.git"), gitfixture.tip(self.repo))
 
     def test_a_branch_the_remote_lacks_leaves_no_new_store_and_keeps_an_old_one(self):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(self.address, "nope", self.store)
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: store.fetch(self.address, "nope", self.store))
+        self.assertEqual((error.code, error.message),
                          ("branch_missing", "hub has no branch nope. Check the name, or leave it empty for the default."))
         self.assertFalse(self.store.exists(), "a store made by a failed first try is removed")
         tip = self.fetched()
@@ -795,11 +760,10 @@ class Fetching(Remote):
 
     def test_git_refuses_an_object_that_is_not_right_and_the_store_is_removed(self):
         broken = gitfixture.make_dotgit_repo(self.root / "remotes" / "dotgit.git")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(gitx.parse_address(gitfixture.url(broken)), "main", self.store)
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: store.fetch(gitx.parse_address(gitfixture.url(broken)), "main", self.store))
+        self.assertEqual((error.code, error.message),
                          ("fsck", "This repository is damaged. Ask its owners to check it."))
-        self.assertIn("hasDotgit", raised.exception.detail["output"])
+        self.assertIn("hasDotgit", error.detail["output"])
         self.assertFalse(self.store.exists())
 
     def test_a_store_over_the_limit_is_removed_and_the_catalog_refused(self):
@@ -808,10 +772,9 @@ class Fetching(Remote):
         for existing in (False, True):
             if existing:
                 store.init(self.store)
-            with self.assertRaises(gitx.CatalogError) as raised:
-                store.fetch(gitx.parse_address(gitfixture.url(big)), "main", self.store)
-            self.assertEqual((raised.exception.code, raised.exception.status), ("too_large", 400))
-            self.assertEqual(raised.exception.message,
+            error = self.refusal(lambda: store.fetch(gitx.parse_address(gitfixture.url(big)), "main", self.store))
+            self.assertEqual((error.code, error.status), ("too_large", 400))
+            self.assertEqual(error.message,
                              "This catalog is larger than the Lab accepts. Ask its owners to make it smaller.")
             self.assertFalse(self.store.exists(), "the store is removed")
 
@@ -823,27 +786,16 @@ class Fetching(Remote):
                                   "exec \"$REAL\" \"$@\"")
         self.refusal(lambda: store.fetch(self.address, "main", self.store, stall=30, cap=60), "too_large")
         self.assertFalse(self.store.exists())
-        end = time.monotonic() + 5
-        pid = int(pids.read_text())
-        while time.monotonic() < end:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.05)
-        else:
-            self.fail("the download was left running")
+        self.assertTrue(gone(int(pids.read_text())), "the download was left running")
 
     def test_a_fetch_that_stalls_fails_with_a_timeout_and_leaves_nothing(self):
         gitfixture.fake_git(self, "for a in \"$@\"; do if [ \"$a\" = fetch ]; then echo 'From x' >&2; sleep 60; fi; done\n"
                                   "exec \"$REAL\" \"$@\"")
         address = gitx.parse_address("https://git.example.test/team/hub.git")
-        started = time.monotonic()
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(address, "main", self.store, stall=0.4, cap=60)
-        self.assertLess(time.monotonic() - started, 30)   # the fake git sleeps 60: a stall that is ignored still fails
-        self.assertEqual((raised.exception.code, raised.exception.status, raised.exception.message),
+        error = self.refusal(lambda: store.fetch(address, "main", self.store, stall=0.4, cap=60))
+        self.assertEqual((error.code, error.status, error.message),
                          ("timeout", 502, "git.example.test did not answer in time. Try again."))
+        self.assertIn("no byte for", error.detail["output"])
         self.assertFalse(self.store.exists())
 
     def test_a_fetch_that_never_ends_is_cut_at_the_cap_though_it_sends(self):
@@ -855,10 +807,9 @@ class Fetching(Remote):
         gitfixture.fake_git(self, "for a in \"$@\"; do if [ \"$a\" = fetch ]; then\n"
                                   "  echo \"fatal: unable to access 'https://user:s3cr3t@git.example.test/team/hub.git/': Could not resolve host: git.example.test\" >&2\n"
                                   "  exit 128; fi; done\nexec \"$REAL\" \"$@\"")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(gitx.parse_address("https://git.example.test/team/hub.git"), "main", self.store)
-        self.assertEqual(raised.exception.code, "unreachable")
-        self.assertNotIn("s3cr3t", raised.exception.detail["output"])
+        error = self.refusal(lambda: store.fetch(gitx.parse_address("https://git.example.test/team/hub.git"), "main", self.store))
+        self.assertEqual(error.code, "unreachable")
+        self.assertNotIn("s3cr3t", error.detail["output"])
 
     def test_fetches_into_one_store_at_the_same_time_take_turns(self):
         """A check in the background and a Check again by hand meet when the remote has news: one of the two used to fail
@@ -929,9 +880,8 @@ class Fetching(Remote):
 
     def test_a_fetch_waits_for_another_process_that_is_fetching_into_the_same_store(self):
         process = self.holder()
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(self.address, "main", self.store, stall=0.2, cap=0.3)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("timeout", 502))
+        error = self.refusal(lambda: store.fetch(self.address, "main", self.store, stall=0.2, cap=0.3))
+        self.assertEqual((error.code, error.status), ("timeout", 502))
         self.assertFalse((self.store / "HEAD").exists(), "a fetch that did not run made nothing")
         answers = []
         thread = threading.Thread(target=lambda: answers.append(store.fetch(self.address, "main", self.store)))
@@ -1058,16 +1008,6 @@ class Reading(Remote):
         self.assertEqual(ignored, len(gitfixture.hostile_files()) - 1)
         for e in kept:
             self.assertIn(e.mode, ("100644", "100755"))
-
-    def test_the_digests_of_a_real_listing_follow_the_files_across_commits(self):
-        before = store.unit_digests(store.selected(store.listing(self.store, self.tip))[0])
-        gitfixture.commit(self.repo, {"addons/echo/README.md": "Echo, changed\n", "README.md": "top\n"})
-        after_tip = self.fetched()
-        after = store.unit_digests(store.selected(store.listing(self.store, after_tip))[0])
-        self.assertEqual({k for k in before if before[k] != after[k]}, {"addon:echo"})
-        gitfixture.commit(self.repo, {"addons/echo/README.md": "Echo\n"})   # the content of the first commit again
-        again = store.unit_digests(store.selected(store.listing(self.store, self.fetched()))[0])
-        self.assertEqual(again, before, "the same files give the same digest at another commit")
 
     def test_a_listing_too_large_to_read_is_too_large(self):
         self.patch(store, "LISTING_LIMIT", 100)

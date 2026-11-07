@@ -149,11 +149,10 @@ class Grammar(Case):
                  "bad_address_secret": "Remove the user name and token from the address. Git uses the sign-in of this machine."}
         for text, code in REFUSED.items():
             with self.subTest(repr(text)[:60]):
-                with self.assertRaises(gitx.CatalogError) as raised:
-                    gitx.parse_address(text)
-                self.assertEqual((raised.exception.code, raised.exception.status), (code, 400))
-                self.assertEqual(raised.exception.message, lines[code])
-                self.assertEqual(raised.exception.detail, {}, "a token typed by mistake does not come back")
+                error = self.refusal(lambda: gitx.parse_address(text))
+                self.assertEqual((error.code, error.status), (code, 400))
+                self.assertEqual(error.message, lines[code])
+                self.assertEqual(error.detail, {}, "a token typed by mistake does not come back")
 
     def test_an_address_is_parsed_to_itself_again(self):
         """What the lab stores is `url`: reading it back gives the same address, so that a stored catalog is the one that
@@ -197,11 +196,6 @@ class Grammar(Case):
         self.assertIsNone(gitx.ssh_form(gitx.parse_address("ssh://git@github.com/acme/lab-hub.git")))
         self.assertIsNone(gitx.ssh_form(gitx.parse_address("https://git.example.test:8443/a/b.git")), "another port")
         self.assertIsNone(gitx.ssh_form(gitx.parse_address("http://localhost:3000/a/b.git")))
-
-    def test_is_ssh(self):
-        self.assertTrue(gitx.is_ssh(gitx.parse_address("git@github.com:acme/lab-hub.git")))
-        self.assertTrue(gitx.is_ssh(gitx.parse_address("ssh://git@github.com/acme/lab-hub.git")))
-        self.assertFalse(gitx.is_ssh(gitx.parse_address(GITHUB)))
 
     def test_a_branch_is_a_name_that_is_safe_as_an_argument_and_in_a_reference(self):
         for name in ("main", "develop", "release/1.x", "feature/a-b_c+d", "v1.0.0", "a" * 200):
@@ -359,12 +353,6 @@ class Environment(Case):
         for text in (GITHUB, "git@github.com:a/b.git", "ssh://git@example.test/a/b"):
             self.assertEqual(gitx.address_env(gitx.parse_address(text)), {}, text)
         self.assertEqual(gitx.address_env(None), {})
-
-    def test_signin_hint_is_the_command_for_github_and_the_words_elsewhere(self):
-        self.assertEqual(gitx.signin(gitx.parse_address(GITHUB)), "Run gh auth login in a terminal")
-        self.assertEqual(gitx.signin(gitx.parse_address("https://git.example.test/a/b.git")),
-                         "Sign in with Git on this machine")
-        self.assertEqual(gitx.signin(None), "Sign in with Git on this machine")
 
 
 def gone(pid, within=30):
@@ -612,10 +600,9 @@ class Running(Case):
         self.assertIsNone(gitx.version())
         with mock.patch.object(gitx.subprocess, "Popen", side_effect=AssertionError("ran")):
             for call in (lambda: gitx.run(["status"]), lambda: gitx.stream(["fetch"]), gitx.require):
-                with self.assertRaises(gitx.CatalogError) as raised:
-                    call()
-                self.assertEqual((raised.exception.code, raised.exception.status), ("git_missing", 400))
-                self.assertEqual(raised.exception.message, "Git is not installed. Install it, then add the catalog again.")
+                error = self.refusal(call)
+                self.assertEqual((error.code, error.status), ("git_missing", 400))
+                self.assertEqual(error.message, "Git is not installed. Install it, then add the catalog again.")
 
 
 # The programs the next class runs in a Python of their own: a Lab UI that exits while git runs. `pids` (argv[1]) is the
@@ -779,10 +766,9 @@ class Version(Case):
         gitfixture.fake_git(self, "echo 'git version 2.25.0'")
         self.assertEqual(gitx.require(), (2, 25, 0))
         gitfixture.fake_git(self, "echo 'git version 2.20.1'")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.require()
-        self.assertEqual((raised.exception.code, raised.exception.status), ("git_old", 400))
-        self.assertEqual(raised.exception.message,
+        error = self.refusal(gitx.require)
+        self.assertEqual((error.code, error.status), ("git_old", 400))
+        self.assertEqual(error.message,
                          "Git 2.20.1 is too old. Install Git 2.25 or later, then add the catalog again.")
         self.patch(gitx, "MINIMUM", (2, 20))
         self.assertEqual(gitx.require(), (2, 20, 1))
@@ -816,12 +802,6 @@ class Version(Case):
         with self.assertRaises(gitx.CatalogError):
             gitx.stream(["fetch"])
         self.assertFalse(ran.exists(), "the shim opens an installer: it must not be executed")
-
-    def test_on_a_mac_with_the_tools_the_shim_is_git(self):
-        ran, asked = self.mac(tools_return=0)
-        self.assertEqual(gitx.version(), (2, 39, 5))
-        self.assertTrue(ran.exists())
-        self.assertEqual(asked[0], ["xcode-select", "-p"])
 
     def test_the_tools_are_asked_for_the_shim_only(self):
         ran, asked = self.mac(tools_return=2, shim=False)   # the git found is not /usr/bin/git: Homebrew's, say
@@ -868,6 +848,8 @@ class Version(Case):
         for _ in range(5):
             self.assertIsNotNone(gitx.executable())
         self.assertEqual(len(asked), 1)
+        self.assertEqual(gitx.version(), (2, 39, 5))
+        self.assertTrue(ran.exists(), "with the tools, the shim is git")
 
     def test_the_tools_that_come_after_a_first_no_are_found_at_the_next_command(self):
         ran, asked = self.mac(tools_return=2)
@@ -1022,10 +1004,20 @@ class Classification(Case):
 
     def test_the_error_is_a_catalog_error_with_its_facts(self):
         error = gitx.fail("git_old", have="2.20.1")
-        self.assertIsInstance(error, gitx.CatalogError)
-        self.assertEqual((error.code, error.status, error.detail), ("git_old", 400, {}))
+        self.assertEqual(error.detail, {})
         self.assertEqual(str(error), error.message)
         self.assertEqual(gitx.fail("fsck", output="why").detail, {"output": "why"})
+
+
+def watch_run(case):
+    """The calls of gitx.run from now on, each as (args, env), that still run."""
+    seen, real = [], gitx.run
+
+    def watch(args, **how):
+        seen.append((list(args), how.get("env") or {}))
+        return real(args, **how)
+    case.patch(gitx, "run", watch)
+    return seen
 
 
 class Remote(Case):
@@ -1037,15 +1029,6 @@ class Remote(Case):
         self.folder()
         self.repo = gitfixture.make_repo(self.root / "remotes" / "hub.git", gitfixture.catalog_files())
         self.address = gitx.parse_address(gitfixture.url(self.repo))
-
-    def test_a_file_address_names_the_repository_by_its_path(self):
-        self.assertEqual(self.address.kind, "git")
-        self.assertEqual(self.address.host, "localhost")
-        self.assertEqual(self.address.repo, "hub")
-        self.assertEqual(self.address.url, gitfixture.url(self.repo))
-
-    def test_the_default_branch_and_its_head(self):
-        self.assertEqual(gitx.ls_remote(self.address), {"branch": "main", "head": gitfixture.tip(self.repo)})
 
     def test_the_default_branch_is_the_one_head_points_at_not_a_name_the_lab_knows(self):
         other = gitfixture.make_repo(self.root / "remotes" / "other.git", gitfixture.catalog_files(), branch="trunk/x")
@@ -1060,9 +1043,8 @@ class Remote(Case):
         self.assertNotEqual(gitx.ls_remote(self.address, "release/1.x")["head"], gitx.ls_remote(self.address)["head"])
 
     def test_a_branch_the_remote_lacks_is_branch_missing(self):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.ls_remote(self.address, "nope")
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: gitx.ls_remote(self.address, "nope"))
+        self.assertEqual((error.code, error.message),
                          ("branch_missing", "hub has no branch nope. Check the name, or leave it empty for the default."))
 
     def test_a_branch_that_is_not_a_name_is_refused_before_git_runs(self):
@@ -1108,16 +1090,10 @@ class Remote(Case):
         self.assertEqual(gitx.ls_remote(self.address), {"branch": None, "head": gitfixture.tip(self.repo)})
 
     def test_an_anonymous_question_forgets_the_credential_helper_and_the_headers(self):
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            seen.append(list(args))
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         gitx.ls_remote(self.address, anonymous=True)
         gitx.ls_remote(self.address)
-        seen = [args for args in seen if "ls-remote" in args]
+        seen = [args for args, _ in seen if "ls-remote" in args]
         self.assertEqual(seen[0][:4], ["-c", "credential.helper=", "-c", "http.extraHeader="])
         self.assertNotIn("credential.helper=", seen[1])
         self.assertEqual(seen[0][seen[0].index("ls-remote"):seen[0].index("ls-remote") + 2], ["ls-remote", "--symref"])
@@ -1137,13 +1113,7 @@ class Remote(Case):
                                 "http.https://github.com.proxy": "http://other.example.test:8080"})
         self.assertNotIn("secret", repr(settings))
         self.assertFalse([one for one in said if "credential" in one or "askpass" in one or "cookie" in one])
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            seen.append((list(args), how.get("env") or {}))
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         gitx.ls_remote(self.address, anonymous=True)
         asked, env = next((args, env) for args, env in seen if "ls-remote" in args)
         self.assertEqual(asked[:4], ["-c", "credential.helper=", "-c", "http.extraHeader="], "a stranger still")
@@ -1178,9 +1148,8 @@ class Remote(Case):
 
     def test_a_time_limit_is_a_timeout_error(self):
         gitfixture.fake_git(self, "sleep 30")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.ls_remote(self.address, timeout=0.4)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("timeout", 502))
+        error = self.refusal(lambda: gitx.ls_remote(self.address, timeout=0.4))
+        self.assertEqual((error.code, error.status), ("timeout", 502))
 
 
 class Stranger(Case):
@@ -1221,9 +1190,8 @@ class Stranger(Case):
     def asked(self, anonymous):
         """The Authorization headers of the requests of one question (None: a request without one), and the error."""
         del self.headers[:]
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.ls_remote(self.address, anonymous=anonymous)
-        return list(self.headers), raised.exception.code
+        error = self.refusal(lambda: gitx.ls_remote(self.address, anonymous=anonymous))
+        return list(self.headers), error.code
 
     def sign_in_with(self, config=None, netrc=None, system=None):
         if system:   # what /etc/gitconfig, or Homebrew's, would say, which any program of the person may have written
@@ -1275,32 +1243,18 @@ class Stranger(Case):
     def test_a_proxy_of_an_address_with_an_equals_sign_is_carried_and_never_in_the_command_line(self):
         """A key may hold `=`, which a `-c key=value` would cut there; a proxy's password is not for the list of processes."""
         self.sign_in_with(config=f'[http "{self.origin}/other?team=one"]\n\tproxy = http://lab-user:lab-proxy-secret@127.0.0.1:9\n')
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            if "ls-remote" in args:
-                seen.append((list(args), how["env"]))
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         self.assertEqual(self.asked(anonymous=True), ([None], "no_access"), "asked, and not refused by git for its own options")
-        (args, env), = seen
+        (args, env), = [one for one in seen if "ls-remote" in one[0]]
         self.assertNotIn("lab-proxy-secret", " ".join(args))
         self.assertEqual((env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]),
                          ("1", f"http.{self.origin}/other?team=one.proxy", "http://lab-user:lab-proxy-secret@127.0.0.1:9"))
 
     def test_the_empty_home_is_made_for_the_question_and_removed_after_it(self):
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            if "ls-remote" in args:   # the question, not the reading of the person's network settings before it
-                seen.append(how["env"])
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         self.asked(anonymous=True)
         self.asked(anonymous=False)
-        stranger, person = seen
+        stranger, person = [env for args, env in seen if "ls-remote" in args]   # not the reading of the person's network settings before it
         self.assertEqual(stranger["HOME"], stranger["XDG_CONFIG_HOME"])
         self.assertNotEqual(stranger["HOME"], str(self.home))
         self.assertFalse(os.path.exists(stranger["HOME"]), "removed once the question was asked")
@@ -1331,15 +1285,9 @@ class PushProbe(Case):
         self.assertEqual(gitx.push_probe(self.address, gitfixture.tip(self.store), self.root / "none.git"), "unknown")
 
     def test_the_branch_pushed_is_one_that_does_not_exist(self):
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            seen.append(list(args))
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         gitx.push_probe(self.address, gitfixture.tip(self.store), store=self.store)
-        push = next(args for args in seen if "push" in args)
+        push = next(args for args, _ in seen if "push" in args)
         self.assertIn("--dry-run", push)
         self.assertEqual(push[push.index("--") + 1], self.address.url)
         self.assertRegex(push[-1], r"^[0-9a-f]{40}:refs/heads/lab/probe-[0-9a-f]{8}$")

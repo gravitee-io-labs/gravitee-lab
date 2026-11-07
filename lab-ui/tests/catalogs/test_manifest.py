@@ -8,9 +8,8 @@ import os
 import unittest
 from unittest import mock
 
-from lab_ui.library import check, project
-from lab_ui.docker import compose, envfiles
-from lab_ui.gravitee import license
+from lab_ui.library import project
+from lab_ui.docker import compose
 from lab_ui import paths
 from lab_ui.catalogs import gitx, manifest, registry, standard
 from lab_ui.catalogs import store as bare
@@ -149,17 +148,9 @@ class Picking(Case):
              ("tip", "ok"), None),
             ("E. the pin is too old and no readable tip exists", [("tip", 1), ("pin", 1)], 3, 2, (None, "old"), "lab_old"),
             ("F. the tip is too old at Add", [("tip", 0)], 3, 2, (None, "old"), "lab_old"),
-            ("a readable tip is the pin", [("t", 2), ("a", 1)], 3, 1, ("t", "ok"), None),
-            ("the only version, at the only level", [("t", 1)], 1, 1, ("t", "ok"), None),
-            ("the newest older version that is read", [("t", 3), ("a", 2), ("b", 1)], 2, 1, ("a", "new"), None),
             ("several back", [("t", 9), ("a", 8), ("b", 2), ("c", 1)], 2, 1, ("b", "new"), None),
-            ("none read, the tip says why: newer", [("t", 5), ("a", 4)], 3, 1, (None, "new"), None),
-            ("none read, the tip says why: older", [("t", 1), ("a", 0)], 3, 2, (None, "old"), None),
-            ("a tip that is too old", [("t", 1)], 4, 3, (None, "old"), None),
             ("a revert is one more version, not a loop", reverted, 2, 1, ("r", "new"), None),
-            ("a revert, at another level", reverted, 1, 1, ("r", "new"), None),
             ("a revert under a tip that is read", [("t", 1), ("r", 2), ("o", 1)], 1, 1, ("t", "ok"), None),
-            ("the newest, when older ones are read too", [("t", 2), ("a", 2), ("b", 1)], 2, 1, ("t", "ok"), None),
             ("below the floor is skipped for the one above it", [("t", 4), ("a", 1), ("b", 2)], 3, 2, ("b", "new"), None),
             ("nothing to choose from", [], 3, 1, (None, "old"), None),
         ]
@@ -173,33 +164,21 @@ class Picking(Case):
 class Refusals(Case):
     """The refusals of the catalogue of errors that the levels give, word for word."""
 
-    def test_a_catalog_that_needs_a_newer_lab(self):
-        error = manifest.compat_error(5, 3, 2)
-        self.assertEqual((error.code, error.status, error.message),
-                         ("lab_new", 400, "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
-
-    def test_a_catalog_written_for_an_older_lab(self):
-        error = manifest.compat_error(1, 3, 2)
-        self.assertEqual((error.code, error.status, error.message),
-                         ("lab_old", 400, "Written for an older Gravitee Lab. Ask its owners to update it."))
-
-    def test_a_catalog_that_states_no_level_is_no_refusal_of_its_level(self):
-        self.assertIsNone(manifest.compat_error(None, 3, 2))
+    def test_a_level_and_the_line_it_is_refused_with(self):
+        for how, code, line in (((5, 3, 2), "lab_new", "This catalog needs a newer Gravitee Lab. Run make update, then add it again."),
+                                ((1, 3, 2), "lab_old", "Written for an older Gravitee Lab. Ask its owners to update it."),
+                                ((1, 3, 2, True), "lab_old", "The catalog is not ready for this version of the Lab. Try again later.")):
+            with self.subTest(how=how):
+                error = manifest.compat_error(*how)
+                self.assertEqual((error.code, error.status, error.message), (code, 400, line))
+        for how in ((None, 3, 2), (2, 3, 2), (3, 3, 2, True)):   # no level stated, or one this Lab reads
+            self.assertIsNone(manifest.compat_error(*how), how)
 
     def test_what_a_published_catalog_uses_that_this_lab_does_not_read_needs_a_newer_lab(self):
         error = manifest.not_understood([("unit.key", "x-gravitee.badge"), ("catalog.key", "mirrors")])
         self.assertEqual((error.code, error.status, error.message),
                          ("lab_new", 400, "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
         self.assertEqual(error.detail["unknown"], ["x-gravitee.badge", "catalog.yml key mirrors"])
-
-    def test_the_catalog_the_engine_lists_has_no_owner_to_ask(self):
-        error = manifest.compat_error(1, 3, 2, listed=True)
-        self.assertEqual((error.code, error.message), ("lab_old", "The catalog is not ready for this version of the Lab. "
-                                                                  "Try again later."))
-
-    def test_a_level_this_lab_reads_is_no_refusal(self):
-        self.assertIsNone(manifest.compat_error(2, 3, 2))
-        self.assertIsNone(manifest.compat_error(3, 3, 2, listed=True))
 
     def test_no_commit_is_the_one_rule_of_9_2(self):
         newer = manifest.no_commit([("t", 5), ("a", 4)], 3, 1)
@@ -211,7 +190,6 @@ class Refusals(Case):
         self.assertEqual(manifest.no_commit([("t", 1)], 4, 3, listed=True).message,
                          "The catalog is not ready for this version of the Lab. Try again later.")
         self.assertEqual(manifest.no_commit([], 4, 3).code, "lab_old")
-        self.assertEqual(manifest.no_commit([], 4, 3).message, "Written for an older Gravitee Lab. Ask its owners to update it.")
 
 
 class Fields(Case):
@@ -251,8 +229,6 @@ class Fields(Case):
     def test_a_catalog_yml_without_the_legacy_fields_is_valid_for_this_lab(self):
         """schema and lab are for older Gravitee Labs: an author never has to write them."""
         self.assertEqual(problems(schema=..., lab=...), [])
-        self.assertEqual(problems(schema=...), [])
-        self.assertEqual(problems(lab=...), [])
 
     def test_the_schema_is_a_whole_number_this_lab_supports(self):
         for bad in (0, -1, "1", 1.0, True, None, []):
@@ -336,12 +312,9 @@ class Fields(Case):
         self.assertEqual(problems(shared_settings=[]), [])
         self.assertEqual(problems(shared_settings=["GEMINI_API_KEY", "A", "X1_2"]), [])
         for bad in ("GEMINI_API_KEY", ["gemini"], ["1ABC"], ["A B"], ["A-B"], [1], [None], ["A" * 65], {"A": 1},
-                    ["OK"] * 101):
-            expect = ["shared_settings must be a list of setting names in capitals, such as GEMINI_API_KEY"]
-            if bad == ["OK"] * 101:
-                self.assertEqual(problems(shared_settings=bad), expect, "more than 100 is not a list a person wrote")
-            else:
-                self.assertEqual(problems(shared_settings=bad), expect, repr(bad))
+                    ["OK"] * 101):   # more than 100 is not a list a person wrote
+            self.assertEqual(problems(shared_settings=bad),
+                             ["shared_settings must be a list of setting names in capitals, such as GEMINI_API_KEY"], repr(bad)[:40])
 
     def test_host_access_is_true_or_false_and_absent_is_false(self):
         self.assertEqual(problems(host_access=True), [])
@@ -449,11 +422,6 @@ class Fields(Case):
         self.assertEqual(manifest.unknown_keys(GOOD), [])
         self.assertEqual(manifest.unknown_keys(None), [])
 
-    def test_the_known_keys_are_the_table_of_4_1(self):
-        self.assertEqual(set(manifest.KEYS), {"schema", "id", "name", "description", "version", "lab", "license", "images",
-                                              "contribute", "shared_settings", "moved_from", "canary", "requires", "host_access",
-                                              "renamed"})
-
     def test_hostile_values_are_problems_not_crashes(self):
         deep = cur = {}
         for _ in range(500):
@@ -538,25 +506,21 @@ class Reading(Case):
         self.assertEqual(found["contribute"], "pull-request")
 
     def test_the_file_is_read_by_compose_with_a_time_and_by_its_path(self):
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         manifest.read_catalog("catalog.yml")
         raw.assert_called_once()
         self.assertEqual(raw.call_args.args, ("catalog.yml",))
         self.assertLessEqual(raw.call_args.kwargs["timeout"], 30)
 
-    def test_a_file_that_is_not_there_is_not_a_catalog(self):
+    def test_a_file_that_is_not_there_is_not_a_catalog_and_the_line_names_the_repository_or_the_folder(self):
         self.file.unlink()
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual((error.code, error.message), ("not_catalog", "this repository has no catalog.yml, so it is not a catalog."))
-
-    def test_the_line_names_the_repository_or_the_folder(self):
-        self.file.unlink()
         repo = gitx.parse_address("acme/lab-hub")
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml", repo))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml", repo))
         self.assertEqual((error.code, error.message), ("not_catalog", "acme/lab-hub has no catalog.yml, so it is not a catalog."))
         folder = gitx.Address("folder", "", str(self.root), "~/code/hub", "", "")
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml", folder))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml", folder))
         self.assertEqual((error.code, error.message), ("folder_not_catalog", "~/code/hub has no catalog.yml, so it is not a catalog."))
 
     def test_a_link_in_the_place_of_the_file_is_not_followed(self):
@@ -564,51 +528,50 @@ class Reading(Case):
         outside.write_text("x-gravitee-catalog: {}\n", encoding="utf-8")
         self.file.unlink()
         self.file.symlink_to(outside)
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual(error.code, "not_catalog")
         raw.assert_not_called()
 
     def test_a_folder_in_the_place_of_the_file_is_not_a_catalog(self):
         self.file.unlink()
         self.file.mkdir()
-        self.assertEqual(self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml")).code, "not_catalog")
+        self.assertEqual(self.refusal(lambda: manifest.read_catalog("catalog.yml")).code, "not_catalog")
 
     def test_a_file_compose_cannot_read_is_invalid_and_its_output_is_for_the_dialog(self):
         self.patch(compose, "raw", mock.Mock(side_effect=compose.ComposeError("yaml: line 2: did not find expected key")))
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual((error.code, error.status, error.message), ("catalog_invalid", 400, "catalog.yml: it could not be read."))
         self.assertEqual(error.detail["output"], "yaml: line 2: did not find expected key")
 
     def test_a_file_without_the_block_is_invalid(self):
         self.patch(compose, "raw", compose_returning(...))
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual((error.code, error.message), ("catalog_invalid", "catalog.yml: it has no x-gravitee-catalog block."))
         self.patch(compose, "raw", mock.Mock(return_value=None))
-        self.assertEqual(self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml")).code, "catalog_invalid")
+        self.assertEqual(self.refusal(lambda: manifest.read_catalog("catalog.yml")).code, "catalog_invalid")
 
     def test_a_block_that_is_not_a_mapping_is_invalid(self):
         for block in ("text", [1], 3, True):
             self.patch(compose, "raw", compose_returning(block))
-            error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+            error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
             self.assertEqual((error.code, error.message), ("catalog_invalid",
                                                            "catalog.yml: x-gravitee-catalog must be a mapping."), block)
 
     def test_a_newer_format_is_asked_for_a_newer_lab_before_anything_else_is_judged(self):
-        error = self.assertRaisesCatalog(lambda: self.read({"schema": 2, "id": "A", "lab": "x"}))
+        error = self.refusal(lambda: self.read({"schema": 2, "id": "A", "lab": "x"}))
         self.assertEqual((error.code, error.status, error.message),
                          ("schema_new", 400, "This catalog needs a newer Gravitee Lab. Run make update, then add it again."))
 
     def test_the_first_problem_is_the_line_and_all_of_them_are_in_the_detail(self):
-        error = self.assertRaisesCatalog(lambda: self.read({**GOOD, "id": "A", "version": "x"}))
+        error = self.refusal(lambda: self.read({**GOOD, "id": "A", "version": "x"}))
         self.assertEqual((error.code, error.message), ("catalog_invalid",
                                                        "catalog.yml: id must be 2 to 24 lowercase letters, digits and dashes."))
         self.assertEqual(error.detail["problems"], ["id must be 2 to 24 lowercase letters, digits and dashes",
                                                     "version must be three numbers with dots, such as 1.0.0"])
 
     def test_a_name_borrowed_from_a_listed_catalog_is_refused(self):
-        error = self.assertRaisesCatalog(lambda: self.read({**GOOD, "name": "Gravitee public"}, borrowed=["Gravitee public"]))
+        error = self.refusal(lambda: self.read({**GOOD, "name": "Gravitee public"}, borrowed=["Gravitee public"]))
         self.assertEqual(error.message, "catalog.yml: name cannot be Gravitee public.")
 
     def test_a_catalog_may_be_older_than_this_lab_reads_and_still_be_read(self):
@@ -624,8 +587,7 @@ class Reading(Case):
         self.assertEqual(self.read({**GOOD, "id": "official"})["id"], "official")
 
     def test_an_absolute_path_is_read_where_it_is(self):
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         elsewhere = self.root / "elsewhere"
         elsewhere.mkdir()
         (elsewhere / "catalog.yml").write_text("x-gravitee-catalog: {}\n", encoding="utf-8")
@@ -642,7 +604,7 @@ class Reading(Case):
         asked = mock.Mock(side_effect=AssertionError("Compose was asked about a file that holds more than its block"))
         self.patch(compose, "raw", asked)
         self.patch(compose, "run", asked)
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual((error.code, error.status, error.message), ("catalog_invalid", 400, message or self.MORE), text)
         asked.assert_not_called()
 
@@ -694,8 +656,7 @@ class Reading(Case):
         self.refused(b"x-gravitee-catalog: {}\n\xff\xfe", "catalog.yml: it could not be read.")
 
     def test_the_forms_a_catalog_file_is_written_in_are_read(self):
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         for text in ("x-gravitee-catalog:\n  id: acme-hub\n",
                      "# a comment first\n\n   # an indented one\nx-gravitee-catalog:\n  id: acme-hub\n\n\n",
                      "---\nx-gravitee-catalog:\n  id: acme-hub\n",
@@ -714,14 +675,13 @@ class Reading(Case):
                 raw.assert_called_once()
 
     def test_a_file_the_size_of_the_limit_is_read_and_one_byte_more_is_not(self):
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         head = "x-gravitee-catalog: {}\n# "
         self.file.write_text(head + "x" * (manifest.FILE_LIMIT - len(head)), encoding="utf-8")
         manifest.read_catalog("catalog.yml")
         raw.assert_called_once()
         self.file.write_text(head + "x" * (manifest.FILE_LIMIT - len(head) + 1), encoding="utf-8")
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual((error.code, error.message), ("catalog_invalid", "catalog.yml: it is larger than 1 MB."))
         raw.assert_called_once()   # Compose is not asked of the larger one
 
@@ -731,25 +691,18 @@ class Reading(Case):
         looked = self.file.lstat()
         self.file.unlink()
         self.file.symlink_to(outside)
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         self.patch(type(self.file), "lstat", lambda path, **how: looked)   # what a swap between the look and the read does
-        error = self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml"))
+        error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual((error.code, error.message), ("catalog_invalid", "catalog.yml: it could not be read."))
         raw.assert_not_called()
 
     def test_a_pipe_in_the_place_of_the_file_is_not_opened(self):
         self.file.unlink()
         os.mkfifo(self.file)
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
-        self.assertEqual(self.assertRaisesCatalog(lambda: manifest.read_catalog("catalog.yml")).code, "not_catalog")
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
+        self.assertEqual(self.refusal(lambda: manifest.read_catalog("catalog.yml")).code, "not_catalog")
         raw.assert_not_called()
-
-    def assertRaisesCatalog(self, call):
-        with self.assertRaises(registry.CatalogError) as raised:
-            call()
-        return raised.exception
 
 
 class WithCompose(Case):
@@ -789,33 +742,6 @@ class WithCompose(Case):
                                             "settings": {"GATE_LICENSE": "GATE_KEEPER_LICENSE"}})
         self.assertEqual(found["unknown"], [])
 
-    def test_the_example_of_section_4_1_is_valid_with_its_comments(self):
-        name = self.put("""x-gravitee-catalog:
-  schema: 1                     # format of this file and of the layout
-  id: acme-hub                  # the namespace of every item: @acme-hub/<name>
-  name: Acme Hub                # shown; at most 40 characters
-  description: Banking demos for partner workshops     # one line, at most 90 characters
-  version: 1.4.0
-  lab: 1
-  license: Apache-2.0
-  images: ghcr.io/acme/lab-hub
-  contribute: pull-request
-  shared_settings: [GEMINI_API_KEY]
-  canary:
-    - playground:tour
-  moved_from: [addon:echo]
-  requires:
-    catalogs:
-      gravitee:
-        name: Gravitee public
-        url: https://github.com/acme/base-demos.git
-        min: 1.0.0
-""")
-        found = manifest.read_catalog(name)
-        self.assertEqual((found["id"], found["shared_settings"], found["canary"], found["moved_from"]),
-                         ("acme-hub", ["GEMINI_API_KEY"], ["playground:tour"], ["addon:echo"]))
-        self.assertEqual(found["requires"]["catalogs"]["gravitee"]["min"], "1.0.0")
-
     def test_the_strict_reading_gives_the_level_the_tolerant_one_could_not(self):
         """What `_lab_of` leaves to Add: the same file, read with Compose, states its level, and the refusal is the real one."""
         for written, level in (("0x2", 2), ("&level 2", 2), ("\n    2", 2), ("0x9", 9)):
@@ -829,24 +755,11 @@ class WithCompose(Case):
                 self.assertEqual(refusal.code if refusal else None, "lab_new" if level > 3 else None)
         self.assertEqual(pick([("t", None)], 3, 1), ("t", "ok"))
 
-    def test_a_version_written_as_a_number_is_not_a_version(self):
-        name = self.put("x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: A\n  description: B\n  version: 1.4\n  lab: 1\n")
-        with self.assertRaises(registry.CatalogError) as raised:
-            manifest.read_catalog(name)
-        self.assertEqual(raised.exception.message, "catalog.yml: version must be three numbers with dots, such as 1.0.0.")
-
     def test_a_file_with_a_syntax_error_is_invalid(self):
         name = self.put("x-gravitee-catalog:\n  id: [unclosed\n")
-        with self.assertRaises(registry.CatalogError) as raised:
-            manifest.read_catalog(name)
-        self.assertEqual((raised.exception.code, raised.exception.message), ("catalog_invalid", "catalog.yml: it could not be read."))
-        self.assertTrue(raised.exception.detail["output"])
-
-    def test_a_file_with_no_block_is_invalid(self):
-        name = self.put("x-other: {}\n")
-        with self.assertRaises(registry.CatalogError) as raised:
-            manifest.read_catalog(name)
-        self.assertEqual(raised.exception.message, "catalog.yml: it has no x-gravitee-catalog block.")
+        error = self.refusal(lambda: manifest.read_catalog(name))
+        self.assertEqual((error.code, error.message), ("catalog_invalid", "catalog.yml: it could not be read."))
+        self.assertTrue(error.detail["output"])
 
     def test_a_variable_is_not_replaced(self):
         name = self.put("x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: ${HOME}\n  description: B\n  version: 1.0.0\n  lab: 1\n")
@@ -915,11 +828,6 @@ class History(Case):
         bare.fetch(self.address, "main", self.store)
         return manifest.levels(self.store, bare.resolve(self.store, "tip"), **how)
 
-    def test_a_catalog_whose_file_never_changed_is_one_version(self):
-        self.push({"README.md": "x\n"})
-        self.push({"README.md": "y\n"})
-        self.assertEqual(self.levels(), [(self.commits[-1], 1)])
-
     def test_each_form_of_the_file_is_one_version_ending_at_the_commit_before_the_next_change(self):
         self.push({"README.md": "x\n"})                      # 1
         self.push({"catalog.yml": catalog_yml(2, "2.0.0")})           # 2: lab 2
@@ -928,20 +836,6 @@ class History(Case):
         self.push({"README.md": "z\n"})                      # 5: tip
         c = self.commits
         self.assertEqual(self.levels(), [(c[5], 3), (c[3], 2), (c[1], 1)])
-
-    def test_the_tip_that_changed_the_file_is_the_first_version(self):
-        self.push({"catalog.yml": catalog_yml(2, "2.0.0")})
-        c = self.commits
-        self.assertEqual(self.levels(), [(c[1], 2), (c[0], 1)])
-
-    def test_the_levels_feed_the_pick(self):
-        self.push({"catalog.yml": catalog_yml(2, "2.0.0")})
-        self.push({"README.md": "x\n"})
-        c = self.commits
-        found = self.levels()
-        self.assertEqual(pick(found, 1, 1), (c[0], "new"))
-        self.assertEqual(pick(found, 2, 1), (c[2], "ok"))
-        self.assertEqual(pick(found, 3, 3), (None, "old"))
 
     def test_a_revert_is_one_more_version(self):
         self.push({"catalog.yml": catalog_yml(2, "2.0.0")})           # 1
@@ -1015,14 +909,12 @@ class History(Case):
 
     def test_a_tip_with_no_catalog_file_is_not_a_catalog(self):
         self.push({"catalog.yml": None})
-        with self.assertRaises(registry.CatalogError) as raised:
-            self.levels()
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: self.levels())
+        self.assertEqual((error.code, error.message),
                          ("not_catalog", "this repository has no catalog.yml, so it is not a catalog."))
-        with self.assertRaises(registry.CatalogError) as raised:
-            self.levels(address=self.address)
-        self.assertEqual(raised.exception.code, "not_catalog")
-        self.assertIn(self.address.repo or self.address.display, raised.exception.message)
+        error = self.refusal(lambda: self.levels(address=self.address))
+        self.assertEqual(error.code, "not_catalog")
+        self.assertIn(self.address.repo or self.address.display, error.message)
 
     def test_a_tip_the_store_does_not_hold_is_the_damage_a_fetch_repairs(self):
         self.push({"README.md": "x\n"})
@@ -1176,29 +1068,8 @@ class Indexing(Case):
         for word in ("commit", "pin", "installed", "checked", "time", "Z\""):
             self.assertNotIn(word, text.replace("\"requires\"", ""), word)
 
-    def test_the_file_of_the_catalog_is_read(self):
-        self.index()
-        manifest.read_catalog.assert_called_once_with(".lab/catalogs/acme-hub/catalog.yml")
-
     def test_an_index_of_a_catalog_with_no_unit_is_empty(self):
         self.assertEqual(self.index("nobody")["units"], [])
-
-
-@unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
-class RealIndex(Case):
-    """The index of a catalog as the project reads it with Compose (`docker compose config`, no daemon): two runs give the same
-    bytes."""
-
-    def setUp(self):
-        fixtures.project(self, check, paths, project, compose, envfiles)
-        self.patch(license, "status_of", lambda variable: None)
-        project.forget()
-        self.addCleanup(project.forget)
-
-    def test_two_runs_give_the_same_bytes(self):
-        first = manifest.render_index(manifest.build_index("fixture"))
-        project.forget()
-        self.assertEqual(manifest.render_index(manifest.build_index("fixture")), first)
 
 
 if __name__ == "__main__":

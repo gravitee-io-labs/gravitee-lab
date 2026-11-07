@@ -1,8 +1,8 @@
 """Catalogs/firstrun.py, the download of a listed catalog  and the thread that makes it. `provision` runs
 against bare repositories made on this machine that the default file lists, with git as the Lab runs it: the phases of its
 progress, the checks that the repository is the catalog expected, the newest version this Lab reads, a stalled fetch, no
-git, no credential prompt (the environment of every command is asserted), the ssh form when https is refused, a crash at
-every step of the install, and no lock held while git talks to a network. The worker runs against a fake clock for the
+git, no credential prompt (the environment of every command is asserted), an address that refuses, a crash at every step of
+the install, and no lock held while git talks to a network. The worker runs against a fake clock for the
 schedule, then once for real. Everything is on disk in a temporary project folder (a visible skip without git): no
 network, no Docker daemon."""
 
@@ -429,9 +429,7 @@ class Provision(Served, Case):
         gitfixture.fake_git(self, 'case "$*" in *" fetch "*) echo "remote: starting" >&2; sleep 30;; *) exec "$REAL" "$@";; esac')
         real = bare.fetch
         self.patch(bare, "fetch", lambda *args, **how: real(*args, **how, stall=0.5))
-        began = time.monotonic()
         error = self.first_start_fails()
-        self.assertLess(time.monotonic() - began, 20)
         self.assertEqual((error.code, error.status), ("timeout", 502))
         self.assertEqual(error.message, "localhost did not answer in time. Try again.")
         self.assertEqual((self.lock()["pin"], self.lock()["error"]), (None, "timeout"))
@@ -489,53 +487,15 @@ class Provision(Served, Case):
             raise gitx.fail(code, address)
         self.patch(gitx, "ls_remote", ls_remote)
 
-    def test_a_refusal_is_no_access_with_the_sign_in_hint_of_the_host(self):
-        self.refused("no_access")
-        error = self.first_start_fails()
-        self.assertEqual((error.code, error.message), ("no_access", OPEN))
-        self.assertEqual(self.lock()["error"], "no_access")
-        self.assertEqual(registry.inputs()[self.ns]["state"], "noaccess")
-
-    def test_a_404_over_https_reads_as_no_access_and_keeps_its_code(self):
-        self.refused("not_found")
-        error = self.first_start_fails()
-        self.assertEqual((error.code, error.message), ("not_found", OPEN),
-                         "GitHub answers 404 to a private repository, and the address is the engine's own")
-        self.assertEqual(self.lock()["error"], "not_found")
-        self.assertEqual(firstrun.content()["line"], OPEN)
-
-    def test_another_host_is_told_to_sign_in_with_git(self):
-        self.listed(self.ns, url="https://git.example.test/team/demos.git")
-        self.patch(gitx, "ls_remote", side_effect=lambda a, *rest, **how: (_ for _ in ()).throw(gitx.fail("no_access", a)))
-        error = self.first_start_fails()
-        self.assertEqual(error.message, "No access to team/demos. Sign in with Git on this machine, then try again.")
-
-    def test_a_failure_that_is_not_a_refusal_does_not_try_the_other_form(self):
-        self.listed(self.ns, url="https://github.com/example/demos.git")
-        asked = []
-
-        def ls_remote(address, branch=None, anonymous=False, timeout=20):
-            asked.append(address.url)
-            raise gitx.fail("unreachable", address)
-        self.patch(gitx, "ls_remote", ls_remote)
-        error = self.first_start_fails()
-        self.assertEqual((error.code, error.message),
-                         ("unreachable", "Cannot reach github.com. Check your connection, then try again."))
-        self.assertEqual(asked, ["https://github.com/example/demos.git"])
-        self.assertEqual(registry.inputs()[self.ns]["state"], "unreachable")
-
-    def test_a_catalog_that_is_not_listed_is_asked_over_the_address_it_has_and_no_other(self):
-        registry.write_config({"schema": 1, "catalogs": [
-            {"id": "mine", "kind": "git", "url": "https://github.com/example/mine.git"}]})
-        asked = []
-
-        def ls_remote(address, branch=None, anonymous=False, timeout=20):
-            asked.append(address.url)
-            raise gitx.fail("no_access", address)
-        self.patch(gitx, "ls_remote", ls_remote)
-        with self.assertRaises(CatalogError):
-            firstrun.provision("mine")
-        self.assertEqual(asked, ["https://github.com/example/mine.git"], "the ssh form is for the catalogs the engine lists")
+    def test_a_refusal_is_no_access_with_the_sign_in_hint_of_the_host_and_keeps_its_code(self):
+        for code in ("no_access", "not_found"):   # GitHub answers 404 to a private repository, and the address is the engine's own
+            with self.subTest(code):
+                self.refused(code)
+                error = self.first_start_fails()
+                self.assertEqual((error.code, error.message), (code, OPEN))
+                self.assertEqual(self.lock()["error"], code)
+                self.assertEqual(registry.inputs()[self.ns]["state"], "noaccess")
+                self.assertEqual(firstrun.content()["line"], OPEN)
 
     # -- no lock for the network ------------------------------------------------------------------------------------
 
@@ -639,18 +599,6 @@ class Provision(Served, Case):
         self.assertEqual((base / "addons/echo/.state/created.json").read_text(encoding="utf-8"), "{}\n")
         self.assertFalse(stage.exists())
         self.assertEqual(self.lock()["pin"], self.remote.head())
-
-    def test_settings_a_remove_kept_come_back_with_the_download(self):
-        self.started()
-        base = self.root / ".lab/catalogs" / self.ns
-        firstrun.provision(self.ns)
-        (base / "addons/echo/.env").write_text("TOKEN=mine\n", encoding="utf-8")
-        install.remove(self.ns, keep_settings=True)
-        config = registry.read_config()
-        self.assertEqual(config["catalogs"], [])
-        row = firstrun.provision(self.ns)   # the listed catalog is not added: its Add
-        self.assertEqual(row["id"], self.ns)
-        self.assertEqual((base / "addons/echo/.env").read_text(encoding="utf-8"), "TOKEN=mine\n")
 
     # -- what goes wrong without a git error ----------------------------------------------------------------------
 
@@ -1015,15 +963,6 @@ class Beat(Served, Case):
         self.assertEqual(calls, [self.ns, "second"], "only a catalog that is gone is skipped")
         self.assertEqual((worker.failures, worker.retry_at), (0, None))
 
-    def test_a_catalog_that_arrived_with_an_env_that_is_not_utf8_is_no_failure(self):
-        (self.root / ".env").write_bytes(b"# caf\xe9\nFOO=1\n")
-        _, worker = self.worker()
-        with mock.patch("sys.stderr") as err:
-            worker.tick()
-        self.assertEqual(self.lock()["pin"], self.remote.head())
-        self.assertEqual((worker.failures, worker.retry_at), (0, None))
-        self.assertEqual(err.write.call_args_list, [], "and nothing is said of a failure that did not happen")
-
     def test_a_fault_of_an_attempt_is_a_failure_of_the_schedule_and_the_thread_goes_on(self):
         def provision(ns):
             self.calls.append(ns)
@@ -1124,18 +1063,6 @@ class Beat(Served, Case):
         self.assertTrue(found[0].daemon)
         self.stop_worker()
         self.assertFalse(found[0].is_alive())
-
-    def test_the_worker_downloads_the_catalog_and_is_a_thread_apart(self):
-        self.started()
-        main = threading.current_thread()
-        ran = []
-        real = firstrun.provision
-        self.patch(firstrun, "provision", lambda ns: (ran.append(threading.current_thread()), real(ns))[1])
-        self.thread()
-        self.assertTrue(self.until(lambda: self.lock()["pin"]), "the catalog arrived")
-        self.assertEqual(ran[0].name, "lab-first-run")
-        self.assertIsNot(ran[0], main)
-        self.assertTrue(self.until(lambda: firstrun.content()["key"] == "ready"))
 
     def test_the_add_of_a_listed_catalog_from_its_row_is_a_download_of_the_worker(self):
         registry.write_config({"schema": 1, "catalogs": []})

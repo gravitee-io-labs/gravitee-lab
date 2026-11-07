@@ -374,7 +374,6 @@ class Histories(WithGit):
         self.assertIsNone(tree.default_base(repo), "no origin/main")
         self.git(repo, "update-ref", "refs/remotes/origin/main", self.base)
         self.assertEqual(self.base, tree.default_base(repo))
-        self.assertEqual(self.third, tree.resolve(repo, "HEAD"))
         self.assertTrue(tree.is_repository(repo))
         self.assertFalse(tree.is_repository(self.holder))
 

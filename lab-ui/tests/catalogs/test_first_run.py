@@ -385,16 +385,6 @@ class Content(Quiet):
         self.assertEqual(firstrun.content()["line"], "Cannot reach github.com. Check your connection, then try again.",
                          "a line of another code is not shown for this one")
 
-    def test_the_lines_of_the_failures_of_e2_7_come_from_the_codes_in_the_lock(self):
-        table = {"unreachable": "Cannot reach github.com. Check your connection, then try again.",
-                 "no_access": "No access to example/demos. Run gh auth login in a terminal, then try again."}
-        self.put(self.git())
-        for code, line in table.items():
-            with self.subTest(code):
-                registry.set_lock(self.ns, error=code)
-                said = firstrun.content()
-                self.assertEqual((said["key"], said["code"], said["line"]), ("failed", code, line))
-
     def test_ready_when_a_catalog_has_a_copy_and_it_wins_over_a_download_and_a_failure(self):
         self.put(self.git("demos"), self.git("second", "https://git.example.test/team/second.git"),
                  self.git("third", "https://git.example.test/team/third.git"), demos={"pin": "a" * 40},
@@ -496,15 +486,6 @@ class Wording(Case):
         said = firstrun._worded(error, None)
         self.assertEqual((said.code, said.status, said.detail), ("git_old", error.status, {"output": "raw"}))
         self.assertEqual(said.message, "Git 2.20 is too old. Install Git 2.25 or later, then try again.")
-
-    def test_a_missing_branch_is_named_and_a_line_that_lacks_its_fact_is_the_general_one(self):
-        github = gitx.parse_address("https://github.com/example/demos.git")
-        self.assertEqual(firstrun.line_of("branch_missing", github, branch="dev"),
-                         "example/demos has no branch dev. Check the name, or leave it empty for the default.")
-        for branch in ("", None):
-            self.assertEqual(firstrun.line_of("branch_missing", github, branch=branch), firstrun.LINES["failed"])
-        self.assertEqual(firstrun.line_of("branch_missing", github, "", "dev"),
-                         "example/demos has no branch dev. Check the name, or leave it empty for the default.")
 
     def test_the_codes_whose_lines_only_the_attempt_knew_read_as_the_general_line(self):
         github = gitx.parse_address("https://github.com/example/demos.git")

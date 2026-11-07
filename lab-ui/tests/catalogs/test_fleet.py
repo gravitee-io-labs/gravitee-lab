@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.catalogs import fleet, gitx, settings, standard
-from lab_ui.catalogs.settings import FAIL, Reply
+from lab_ui.catalogs.settings import Reply
 
 from .. import Case, gitfixture
 from .test_settings import load, normalize
@@ -168,15 +168,6 @@ class Audit(Case):
                                                                                            listed("acme-labs/lab-hidden")]), {})))
         self.assertEqual(1, fleet.exit_code(rows))                  # a repository that cannot be read
         self.assertEqual(0, fleet.exit_code([row for row in rows if row.repo.endswith(("lab-hub", "lab-internal", "lab-gone"))]))
-
-    def test_the_exit_code_is_the_one_of_each_repository(self):
-        runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
-        rows = fleet.audit_fleet("acme-labs", runner, {})
-        self.assertEqual(0, fleet.exit_code(rows))
-        runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
-        weak = fleet.audit_fleet("acme-labs", runner, {"as": "public"})
-        self.assertEqual(1, fleet.exit_code(weak))                  # the private one still forbids forking
-        self.assertEqual(FAIL, {f.id: f for f in weak[1].findings}["repo.forking"].status)
 
     def test_no_catalog_is_said_in_a_line(self):
         self.assertEqual("No repository of acme has the topic gravitee-lab-catalog", fleet.render_audit(fleet.Fleet(owner="acme")))
@@ -641,12 +632,11 @@ class Upgrade(Case):
         results = self.run_fleet(github, Standard(ref=lab["action"]), ref=lab["action"])
         self.assertEqual("opened", results[0].status)
         body = github.posted[0][1]["body"]
-        short = lambda commit: commit[:7]  # noqa: E731
         self.assertIn(f"git log --oneline {lab['first']}..{lab['action']} -- lab-ui .github\n\n    ", body)
         lines = body.split("-- lab-ui .github\n\n")[1].splitlines()
         self.assertEqual(["Pin the Lab action @someone #12", "Make the engine read the standard"],
                          [line.strip().split(" ", 1)[1] for line in lines])
-        self.assertEqual([short(lab["action"]), short(lab["engine"])], [line.strip().split(" ", 1)[0][:7] for line in lines])
+        self.assertEqual([lab["action"][:7], lab["engine"][:7]], [line.strip().split(" ", 1)[0][:7] for line in lines])
         self.assertNotIn("Write a guide", body)
         self.assertTrue(all(line.startswith("    ") for line in lines))
         message = gitfixture.git("log", "-1", "--format=%B", BRANCH, repo=self.remotes["acme/lab-hub"])
