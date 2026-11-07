@@ -33,9 +33,9 @@ export const runs = (addon) => ["running", "partly", "starting", "stopping"].inc
 export const stopOf = (addon) => (addon?.action?.do === "stop" ? addon.action : addon?.secondary?.do === "stop" ? addon.secondary : null);
 
 // The hybrid gateways of an environment, in the order the Lab prefers them: the one that runs here, the ones whose token the Lab
-// keeps, those Cloud says are connected, then the rest. Only the first three are of use here: another one is none of the Lab's.
+// keeps, then the rest
 function gatewaysIn(check, env) {
-  const rank = (gateway) => (gateway.here ? 0 : gateway.kept ? 1 : gateway.connection === "CONNECTED" ? 2 : 3);
+  const rank = (gateway) => (gateway.here ? 0 : gateway.kept ? 1 : 2);
   return (check?.gateways || []).filter((gateway) => hybrid(gateway) && gateway.environmentId === env.id)
     .sort((a, b) => rank(a) - rank(b));
 }

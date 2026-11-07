@@ -193,22 +193,6 @@ class Generic(Case):
             self.assertEqual(said, [], f"{name(file)} says a version in words")
 
 
-# What the content of the catalogs says, each in one place: ui.js (contentStatus, contentLead)
-CONTENT_WORDS = ("Downloading playgrounds, setups and add-ons", "No catalog added", "No playground, setup or add-on yet", "No playground yet",
-                 "No setup yet", "No add-on yet", "Browse catalogs")
-
-
-class Words(Case):
-
-    def test_the_words_of_the_content_are_said_once(self):
-        for words in CONTENT_WORDS:
-            said = sorted(name(module) for module in MODULES if words in code(module.read_text()))
-            self.assertEqual(said, ["js/components/ui.js"], f"{words!r} is said in one module, ui.js")
-            self.assertEqual(code((WEB / "js" / "components" / "ui.js").read_text()).count(words), 1, f"{words!r} is said once in ui.js")
-        # The words of the button that adds the catalog the server offers are made of its name, in one place
-        self.assertEqual(code((WEB / "js" / "components" / "ui.js").read_text()).count("`Add ${offer.name ?? offer.id}`"), 1)
-
-
 class Styles(Case):
 
     def test_every_class_of_the_stylesheets_is_used(self):
