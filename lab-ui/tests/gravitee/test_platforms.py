@@ -3,7 +3,6 @@ each environment, the token of each gateway the Lab created), and the actions on
 a free port, in a temporary project folder. No network. A token is never in an answer, an error or the record, and a
 test never prints one: it asks whether it is there, not what it is."""
 
-import errno
 import json
 import os
 import stat
@@ -273,41 +272,6 @@ class Register(Platforms):
         address = self.served(lambda *asked: (200, '{"id": "a", "hrid": "h", "name": "Odd"}', None))
         platforms.add(address, f"  {token}\n", "a")
         self.assertEqual(envfiles.read(".env")["PLATFORM_ODD_TOKEN"], token)
-
-    def test_a_record_that_cannot_be_written_takes_its_token_with_it(self):
-        self.write(".env", "GRAVITEE_LICENSE=keep-me\n# a comment\nOTHER=1\n")
-        before = self.text(".env")
-        write = self.patch(platforms, "_write")
-        for error in (OSError(errno.ENOSPC, "No space left on device"), TypeError("not serializable: secret-looking"),
-                      KeyError("whatever")):
-            write.side_effect = error
-            with self.subTest(error=type(error).__name__), self.assertRaises(RuntimeError) as caught:
-                self.add()
-            message = str(caught.exception)
-            self.assertTrue(message.startswith("The platform could not be saved (")
-                            and message.endswith("nothing was kept"))
-            self.assertNotIn("secret-looking", message, "what an error says is not repeated")
-            self.assertHidden(message)
-            self.assertEqual(self.text(".env"), before, "the token line is gone, the rest as it was")
-        self.assertEqual(platforms.listing(), {"platforms": []})
-
-    def test_a_token_that_cannot_be_removed_either_is_named(self):
-        """The line stays: the person is told which one to delete, and the token is not in the words."""
-        real = envfiles.write
-        calls = []
-
-        def write(path, changes):
-            calls.append(changes)
-            if len(calls) > 1:   # the first writes the token, the second removes it
-                raise OSError(errno.EROFS, "Read-only file system")
-            real(path, changes)
-        self.patch(envfiles, "write", write)
-        self.patch(platforms, "_write", side_effect=OSError(errno.ENOSPC, "No space left on device"))
-        with self.assertRaises(RuntimeError) as caught:
-            self.add()
-        self.assertEqual(str(caught.exception), f"The platform could not be saved (No space left on device): "
-                                                f"remove {KEY} from the .env")
-        self.assertHidden(str(caught.exception))
 
     def test_a_record_file_that_does_not_read(self):
         for text in ("{", "{}", '"x"', "[1, null, {}]", '[{"id": "a", "name": "n", "kind": "cloud", "url": "u"}]',
@@ -1022,70 +986,6 @@ class Gateways(Platforms):
         (issued,) = self.fake.state.tokens.values()
         self.assertEqual(envfiles.read(".lab/catalogs/fixture/addons/zz/.env"), {"ZZ_TOKEN": issued})
         self.assertFalse((self.root / ADDON_ENV).exists())
-
-    def test_a_token_that_cannot_be_kept_removes_the_gateway_again(self):
-        self.patch(envfiles, "write", side_effect=OSError(errno.ENOSPC, "No space left on device"))
-        saved = "could not be saved .No space left on device.: the gateway was removed"
-        with self.assertRaisesRegex(RuntimeError, saved) as caught:
-            self.create()
-        self.assertEqual(self.fake.state.gateways, {})
-        self.assertHidden(str(caught.exception))
-        self.assertFalse((self.root / ADDON_ENV).exists())
-
-    def test_a_token_that_cannot_be_kept_for_the_add_on_is_not_kept_for_the_gateway_either(self):
-        real = envfiles.write
-
-        def write(path, changes):
-            if path == ADDON_ENV:
-                raise OSError(errno.ENOSPC, "No space left on device")
-            real(path, changes)
-        self.patch(envfiles, "write", write)
-        saved = "could not be saved .No space left on device.: the gateway was removed"
-        with self.assertRaisesRegex(RuntimeError, saved):
-            self.create()
-        self.assertEqual(self.fake.state.gateways, {})
-        self.assertEqual(envfiles.read(".env"), {"GRAVITEE_LICENSE": "keep-me", KEY: fake_cloud.TOKEN})
-
-    def test_whatever_makes_the_write_fail_removes_the_gateway_again(self):
-        write = self.patch(envfiles, "write")
-        for error in (ValueError("words with the token in them"), TypeError("x"), KeyError("k"),
-                      UnicodeEncodeError("utf-8", "é", 0, 1, "surrogates not allowed"), OSError("no reason given")):
-            write.side_effect = error
-            with self.subTest(error=type(error).__name__), self.assertRaises(RuntimeError) as caught:
-                self.create()
-            message = str(caught.exception)
-            kind = "OSError" if type(error) is OSError else type(error).__name__
-            self.assertEqual(message, f"The gateway's token could not be saved ({kind}): the gateway was removed "
-                                      "from the platform")
-            self.assertEqual(self.fake.state.gateways, {})
-            self.assertHidden(message)
-
-    def test_a_gateway_that_cannot_be_removed_either_is_named(self):
-        self.patch(envfiles, "write", side_effect=OSError(errno.ENOSPC, "No space left on device"))
-        for error in (cloud.CloudError("Gravitee Cloud refuses this token", "invalid"), ValueError("Not an id")):
-            self.patch(cloud.Cloud, "delete_gateway", side_effect=error)
-            with self.subTest(error=type(error).__name__), self.assertRaises(RuntimeError) as caught:
-                self.create()
-            self.assertEqual(str(caught.exception), "The gateway's token could not be saved (No space left on "
-                                                    "device): delete the gateway in the platform")
-        self.assertEqual(len(self.fake.state.gateways), 2, "they are still there, and the person is told")
-        self.assertHidden(str(caught.exception))
-
-    def test_a_gateway_the_cloud_gives_an_id_that_is_no_segment_is_removed_again(self):
-        asked = []
-
-        def answer(method, path, headers, body):
-            asked.append((method, path))
-            if method == "POST":
-                return 200, json.dumps({"gateway": {"id": "../x", "name": "lab"}, "token": "gw-secret-token-1"}), None
-            return 200, json.dumps({"id": "acc", "name": "Odd"}) if method == "GET" else "", None
-        platforms.add(self.served(answer), "t", "acc")
-        with self.assertRaisesRegex(RuntimeError, r"^The gateway's token could not be saved \(ValueError\): "
-                                                  "the gateway was removed from the platform$"):
-            self.create(platform="odd")
-        self.assertEqual(asked[-1][0], "DELETE")
-        self.assertEqual(sorted(envfiles.read(".env")), ["GRAVITEE_LICENSE", KEY, "PLATFORM_ODD_TOKEN"])
-        self.assertEqual(envfiles.read(ADDON_ENV), {})
 
     def test_no_token_in_anything_it_answers_says_or_keeps(self):
         seen = [self.create(), platforms.check("gravitee-cloud", PROJECT), platforms.listing()]

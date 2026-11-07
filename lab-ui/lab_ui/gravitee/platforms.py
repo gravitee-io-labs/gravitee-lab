@@ -167,17 +167,8 @@ def add(url, token, account):
         if any(record["name"].casefold() == name.casefold() for record in records):
             raise ValueError(f"An account named {name} is already connected")
         record = {"id": _unique(name, records), "name": name, "kind": "cloud", "url": client.url, "account": mine}
-        key = _key(record["id"])
-        envfiles.write(paths.ENV_FILE, {key: envfiles.quote(token.strip())})
-        try:
-            _write([*records, record])
-        except Exception as error:  # noqa: BLE001 - whatever it fails with, no record means no token either
-            try:
-                envfiles.write(paths.ENV_FILE, {key: None})
-                left = "nothing was kept"
-            except Exception:  # noqa: BLE001 - said in the answer
-                left = f"remove {key} from the .env"
-            raise RuntimeError(f"The platform could not be saved ({_why(error)}): {left}") from None
+        envfiles.write(paths.ENV_FILE, {_key(record["id"]): envfiles.quote(token.strip())})
+        _write([*records, record])
     return {**record, "tokenSet": True}
 
 
@@ -614,8 +605,7 @@ def create_gateway(project, uid, environment, name):
     """Creates a hybrid gateway of API Management in an environment of a platform and keeps its token, which the Cloud
     shows once: {gateway}. The token is kept as the setting of the gateway, and also as the add-on's when
     the add-on holds none, so that the first gateway is the one that runs here; a gateway made while another runs does
-    not take its place (swap_gateway does). The domains and the setting come from the add-on that runs the gateway. A
-    gateway whose token could not be kept is removed again."""
+    not take its place (swap_gateway does). The domains and the setting come from the add-on that runs the gateway."""
     record = find(uid)
     addon = gateway_addon(project, record["kind"])
     if not addon:
@@ -627,26 +617,12 @@ def create_gateway(project, uid, environment, name):
     name, setting = name.strip(), addon["gateway"]["token"]
     client, account = _client(record), record["account"]["id"]
     gateway, token = client.create_gateway(account, environment.strip(), name, addon["gateway"]["domains"])
-    key, here = None, False
-    try:
-        key = _key(uid, "GATEWAY", gateway.get("id"))
-        with _lock:
-            here = not envfiles.read(addon["env_file"]).get(setting)
-            envfiles.write(paths.ENV_FILE, {key: envfiles.quote(token)})
-            if here:
-                envfiles.write(addon["env_file"], {setting: envfiles.quote(token)})
-    except Exception as error:  # noqa: BLE001 - the token is shown once: whatever fails, the gateway cannot stay
-        try:
-            client.delete_gateway(account, gateway["id"])
-            left = "the gateway was removed from the platform"
-        except ValueError:   # a CloudError too
-            left = "delete the gateway in the platform"
-        try:
-            if key:
-                envfiles.write(paths.ENV_FILE, {key: None})
-        except Exception:  # noqa: BLE001 - a setting nobody reads is all that is left
-            pass
-        raise RuntimeError(f"The gateway's token could not be saved ({_why(error)}): {left}") from None
+    key = _key(uid, "GATEWAY", gateway["id"])
+    with _lock:
+        here = not envfiles.read(addon["env_file"]).get(setting)
+        envfiles.write(paths.ENV_FILE, {key: envfiles.quote(token)})
+        if here:
+            envfiles.write(addon["env_file"], {setting: envfiles.quote(token)})
     return {"gateway": {**_gateway(gateway), "here": here, "kept": True}}
 
 
