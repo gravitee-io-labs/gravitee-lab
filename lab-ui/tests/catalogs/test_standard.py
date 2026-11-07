@@ -1761,11 +1761,11 @@ class DayOne(Case):
     def test_the_audit_sees_the_edit_of_a_managed_file(self):
         path = self.repo.root / ".github/workflows/ci.yml"
         path.write_text(path.read_text().replace("timeout-minutes: 15", "timeout-minutes: 99", 1))
-        result = audit.run(self.repo.root, audit.Options(families=("SD",)))
-        self.assertEqual([(each.code, each.path) for each in result.problems], [("SD02", ".github/workflows/ci.yml")])
+        result = audit.run(self.repo.root)
+        self.assertEqual([(each.code, each.path) for each in result.problems if each.code.startswith("SD")], [("SD02", ".github/workflows/ci.yml")])
         self.repo.git("add", "-A")
         self.repo.git("commit", "--quiet", "-m", "Edit it")
-        self.assertEqual([each.code for each in audit.run(self.repo.root, audit.Options(families=("SD",))).problems], ["SD02"])
+        self.assertEqual([each.code for each in audit.run(self.repo.root).problems if each.code.startswith("SD")], ["SD02"])
 
     def test_make_resolves_every_target(self):
         make = support.need("make")

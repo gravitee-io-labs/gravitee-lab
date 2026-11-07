@@ -54,9 +54,7 @@ class Options(NamedTuple):
     tree           a Tree to read instead of the folder (`GitTree`, for `check --pr`)
     base_tree      the tree of the base commit, when `tree` is not a folder of a repository
     commits        a `tree.History` to read instead of the repository's own
-    families       the families to run (None: all); Share asks for ST, SE, DF, GD and IM
     units          the units that the caller loaded with Compose (IM reads their services instead of the files)
-    seeder_images  the repositories of the Lab's seeder; None reads `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the top of a catalog
     repository     OWNER/REPO of this repository (IM04); default $GITHUB_REPOSITORY, else the `origin` remote
     """
@@ -70,9 +68,7 @@ class Options(NamedTuple):
     tree: Optional[object] = None
     base_tree: Optional[object] = None
     commits: Optional[object] = None
-    families: Optional[Tuple[str, ...]] = None
     units: Optional[list] = None
-    seeder_images: Optional[Tuple[str, ...]] = None
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
     repository: str = ""
 
@@ -157,11 +153,10 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
 
 
 def _context(tree, root, options: Options, history) -> Context:
-    seeders = options.seeder_images if options.seeder_images is not None else lab_seeder_images()
     repository = options.repository or os.environ.get("GITHUB_REPOSITORY", "")
     if not repository and (options.ci or options.online) and root is not None and trees.is_repository(root):
         repository = origin_repository(root)
-    return context(tree, history=history, units=options.units, seeder_images=tuple(seeders), seeder_paths=options.seeder_paths,
+    return context(tree, history=history, units=options.units, seeder_images=lab_seeder_images(), seeder_paths=options.seeder_paths,
                    online=options.online, ci=options.ci, repository=repository)
 
 
@@ -218,7 +213,7 @@ def status(result: Result, options: Optional[Options] = None) -> int:
 
 def _header(base: str, commits: int, options: Options, history, ctx: Optional[Context] = None, lost: str = "") -> str:
     """The first line says what was read; a second says that the families that need GitHub were not asked for (a catalog with no
-    `.github/standard.json`, 3.1) unless the caller chose the families."""
+    `.github/standard.json`)."""
     count = f"{commits} commit{'' if commits == 1 else 's'}"
     if history is None:
         first = (f"Reading the files only: {printable(lost)[:60]} is not a commit of this repository" if lost
@@ -228,7 +223,7 @@ def _header(base: str, commits: int, options: Options, history, ctx: Optional[Co
     else:
         since = base[:7] if options.base or options.commits is not None else "origin/main"
         first = f"Reading the files and the {count} since {since}"
-    if ctx is not None and not ctx.git and options.families is None:
+    if ctx is not None and not ctx.git:
         left = [code for code in FAMILIES if code not in ("SD", "WF", "CO")]
         first += f"\nNo .github/standard.json: judged on the families that need no GitHub ({', '.join(left)})"
     return first
@@ -245,9 +240,8 @@ def run(root, options: Optional[Options] = None) -> Result:
     except trees.TreeError as error:
         return Result([], [str(error)], base, 0, "")
     ctx = _context(tree, root, options, history)
-    wanted = options.families or FAMILIES
-    found = _run_families(tree, ctx, wanted)
-    if (options.ci or options.online) and not ctx.repository and ctx.meta("images") and "IM" in wanted:
+    found = _run_families(tree, ctx, FAMILIES)
+    if (options.ci or options.online) and not ctx.repository and ctx.meta("images"):
         skipped.append("IM04: the address of this repository is not known")
     commits = 0
     if history is not None:
@@ -259,7 +253,7 @@ def run(root, options: Optional[Options] = None) -> Result:
     if options.history and folder and history is None:
         skipped.append("the history: this folder has no git history")
     found = promote(found, ctx.standard, options.error)
-    found = _against_base(found, tree, root, options, base, ctx, skipped)
+    found = _against_base(found, root, options, base, ctx, skipped)
     if options.soft:
         found = [each._replace(severity=WARNING) if each.severity == ERROR else each for each in found]
     found.sort(key=lambda each: (FAMILIES.index(family(each.code)) if family(each.code) in FAMILIES else len(FAMILIES), each.path,
@@ -267,7 +261,7 @@ def run(root, options: Optional[Options] = None) -> Result:
     return Result(found, list(dict.fromkeys(skipped)), base, commits, _header(base, commits, options, history, ctx, lost))
 
 
-def _against_base(found: List[Problem], tree, root, options: Options, base: str, ctx: Context, skipped: List[str]) -> List[Problem]:
+def _against_base(found: List[Problem], root, options: Options, base: str, ctx: Context, skipped: List[str]) -> List[Problem]:
     """`subtract` with the findings of the base commit, run only when there is a change to measure and an error to soften. The base
     is read from the git directory git names (a clone's `.git` folder, a linked work tree's), never guessed from the folder; when it
     cannot be read, that is said and the errors stay errors."""
