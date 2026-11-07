@@ -11,7 +11,6 @@ import io
 import json
 import os
 import re
-import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -182,12 +181,6 @@ class Commands(Disk):
     def test_a_service_with_no_build_is_not_built(self):
         specs, problems, rows = self.specs({"mock": {"image": "busybox:1.36"}})
         self.assertEqual((specs, problems, rows), ([], [], []))
-
-    def test_one_app_alone(self):
-        services = {"bakery-web": self.service(context=self.app(name="web")), "bakery-api": self.service("bakery-api", self.app(name="api"))}
-        specs, _, rows = self.specs(services, only="api")
-        self.assertEqual([each.service for each in specs], ["bakery-api"])
-        self.assertEqual([(each.service, each.status) for each in rows], [("bakery-web", "skipped")])
 
     def test_an_image_is_built_once(self):
         a, b = self.app(name="a"), self.app(name="b")
@@ -410,9 +403,7 @@ class Running(Disk):
             self.assertEqual(option(self.builds()[0], "--platform"), platform)
 
     def test_the_summary_has_a_table_of_every_image_with_its_size_and_time(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        summary = os.path.join(folder, "summary.md")
+        summary = os.path.join(self.make("summary"), "summary.md")
         services = {"bakery-web": self.service(context=self.app()), "bakery-seed": {
             "image": f"{SEEDER_IMAGE}:latest", "build": {"context": os.path.join(self.lab, "seeder")}}}
         with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):
@@ -463,9 +454,7 @@ class Running(Disk):
         self.assertEqual(len(re.findall(r"^::[0-9a-f]{32}::$", self.out.getvalue(), re.M)), 1)
 
     def test_lines_of_megabytes_in_a_failure_leave_a_summary_and_an_output_of_a_few_kilobytes(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        summary = os.path.join(folder, "summary.md")
+        summary = os.path.join(self.make("summary"), "summary.md")
         huge = ('#5 ERROR: process "/bin/sh -c x" did not complete successfully: exit code: 1\n'
                 + ("q" * 2_000_000 + "\n") * 3)
         self.fake.when("buildx", "build", code=1, stderr=huge)
@@ -477,9 +466,7 @@ class Running(Disk):
         self.assertIn(" [...]", Path(summary).read_text(encoding="utf-8"))
 
     def test_a_failure_of_the_summary_keeps_the_log_in_a_fence_longer_than_its_backticks(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        summary = os.path.join(folder, "summary.md")
+        summary = os.path.join(self.make("summary"), "summary.md")
         self.fake.when("buildx", "build", code=1, stderr="#5 [1/2] RUN x\n#5 0.1 ````` and ``` and more\n#5 ERROR: process \"x\" "
                        "did not complete successfully: exit code: 3\n")
         with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):
@@ -604,6 +591,7 @@ class Running(Disk):
         self.stage(services, "--app", "api")
         self.assertEqual(len(self.builds()), 1)
         self.assertEqual(options(self.builds()[0], "--tag"), ["example.test/lab/bakery-api:1.0"])
+        self.assertIn("1 built, 0 failed, 1 left out", self.out.getvalue())
 
 
 class Real(Case):

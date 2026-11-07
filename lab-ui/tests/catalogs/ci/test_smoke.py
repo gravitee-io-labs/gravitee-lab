@@ -221,9 +221,6 @@ class Stage(Case):
             return smoke.main([str(self.catalog), "--units", json.dumps(wanted), *extra], self.out, self.err,
                               session=self.session, sleep=self.slept.append)
 
-    def up_calls(self):
-        return [call for call in self.fake.commands(*UP)]
-
     def test_a_unit_whose_service_comes_up_healthy_passes_and_the_project_is_taken_down(self):
         self.fake.when(*PS, stdout=ps_lines(("bakery-mcp", "running", "healthy")))
         bank = unit(services={"bakery-mcp": service(healthcheck={"test": ["CMD", "true"]}),
@@ -231,7 +228,7 @@ class Stage(Case):
                               "bakery-agent": service(depends_on={"apim-gateway": {"condition": "service_healthy"}})})
         code = self.run_stage(bank)
         self.assertEqual(code, 0, self.err.getvalue() + self.out.getvalue())
-        self.assertEqual(self.up_calls(), [[
+        self.assertEqual(self.fake.commands(*UP), [[
             *compose.COMPOSE[1:], "-p", "catalog-smoke-playground-bank", "-f", "docker-compose.yml", "-f", "on-bank.yml", "up", "-d",
             "--wait", "--wait-timeout", "240", "--no-build", "--pull", "missing", "--no-deps", "bakery-mcp"]])
         self.assertEqual(self.fake.commands(*DOWN), [[
@@ -247,7 +244,7 @@ class Stage(Case):
         self.fake.when(*PS, stdout=ps_lines("db", "web"))
         web = unit(services={"web": service(depends_on={"db": {"condition": "service_healthy"}}), "db": service()})
         self.assertEqual(self.run_stage(web), 0)
-        ups = self.up_calls()
+        ups = self.fake.commands(*UP)
         self.assertEqual([call[-1] for call in ups], ["db", "web"])
         self.assertTrue(all("--no-deps" in call for call in ups))
 
@@ -302,7 +299,7 @@ class Stage(Case):
         self.fake.when(*PS, stdout=ps_lines(("db", "running", "unhealthy")))
         web = unit(services={"web": service(depends_on={"db": {"condition": "service_healthy"}}), "db": service()})
         self.assertEqual(self.run_stage(web), 1)
-        self.assertEqual([call[-1] for call in self.up_calls()], ["db"])
+        self.assertEqual([call[-1] for call in self.fake.commands(*UP)], ["db"])
         self.assertEqual(len(self.fake.commands(*DOWN)), 1)
 
     def test_a_crash_of_the_stage_itself_still_takes_the_project_down(self):
@@ -336,7 +333,7 @@ class Stage(Case):
         self.fake.when("version", code=1, stderr="Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?")
         self.assertEqual(self.run_stage(unit(services={"bakery-mcp": service()})), 2)
         self.assertIn("Docker is not running", self.err.getvalue())
-        self.assertEqual(self.up_calls(), [])
+        self.assertEqual(self.fake.commands(*UP), [])
 
     def test_a_unit_that_needs_settings_is_not_tried_and_is_never_a_pass(self):
         needs = ci.Refused("addon", "aspen", "addons/aspen/compose.yml", (
@@ -355,7 +352,7 @@ class Stage(Case):
         self.assertIn("Smoke: 0 started, 0 failed, 1 not tried", text)
         self.assertRegex(text, r"- addon:hub  it needs settings or a license")
         self.assertNotIn("✓", text)
-        self.assertEqual(self.up_calls(), [])
+        self.assertEqual(self.fake.commands(*UP), [])
 
     def test_a_unit_with_nothing_that_starts_without_the_platform_is_left_to_the_end_to_end_run(self):
         agent = unit(services={"bakery-agent": service(depends_on={"apim-gateway": {"condition": "service_healthy"}}),

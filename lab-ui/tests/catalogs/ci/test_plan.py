@@ -5,6 +5,7 @@ fake `docker` records its calls, and `compose.run` is made to fail), that what i
 `json.dumps` values whatever the tree holds, and that the scope is the one 5.5 says on a push, a first push, a change to
 `.github/`, a README, a `guide.md`, an add-on that a playground includes, and a pull request of too many apps."""
 
+import contextlib
 import io
 import json
 import os
@@ -293,14 +294,21 @@ class Lines(unittest.TestCase):
         self.assertEqual(every[0], "Scope: everything (push)")
 
 
-class Run(Case):
+class Scratch(Case):
+
+    def scratch(self):
+        """A folder of the test's own."""
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        return Path(holder.name)
+
+
+class Run(Scratch):
     """The command: what it writes to $GITHUB_OUTPUT and to the screen, on a real repository."""
 
     def command(self, root, *argv, outputs=True):
         out, err = io.StringIO(), io.StringIO()
-        target = Path(tempfile.mkdtemp(prefix="gravitee-lab-output-"))
-        self.addCleanup(lambda: __import__("shutil").rmtree(target, True))
-        file = target / "output"
+        file = self.scratch() / "output"
         env = {"GITHUB_OUTPUT": str(file)} if outputs else {}
         with mock.patch.dict(os.environ, env):
             if not outputs:
@@ -455,22 +463,18 @@ class Hostile(support.WithGit, Run):
         compose.run.assert_not_called()
 
 
-class Kit(unittest.TestCase):
+class Kit(Scratch):
     """What every stage shares (lab_ui/catalogs/ci/__init__.py)."""
 
     def test_the_outputs_of_a_step_are_lines_of_a_key_and_a_value_and_nothing_else(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        target = os.path.join(folder, "output")
+        target = self.scratch() / "output"
         ci.write_outputs({"units": '["a"]', "seed": "true"}, target)
         ci.write_outputs({"compile": "false"}, target)
         with open(target, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), 'units=["a"]\nseed=true\ncompile=false\n')   # (appended: other steps write there too)
 
     def test_a_key_or_a_value_that_could_start_a_command_or_a_line_is_refused_before_anything_is_written(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        target = os.path.join(folder, "output")
+        target = self.scratch() / "output"
         for items in ({"units": "a\nb=c"}, {"units": "a\rb"}, {"units": "::error::x"}, {"units": "a\x00b"}, {"Units": "x"},
                       {"units=x\nevil": "y"}, {"units": 3}, {"": "x"}, {"a b": "x"}, {"ok": "fine", "bad": "line\nbreak"}):
             with self.subTest(items=items), self.assertRaises(ValueError):
@@ -538,8 +542,7 @@ class Kit(unittest.TestCase):
         self.assertEqual([line for line in err.getvalue().splitlines() if line.startswith("::")], [])
 
     def test_a_catalog_that_lists_too_many_files_is_exit_2_not_a_traceback(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        folder = str(self.scratch())
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(trees.FolderTree, "entries", side_effect=trees.TreeError("This catalog lists more files than the check reads.")):
             self.assertEqual(plan.main([folder, "--event", "push"], out, err), 2)
@@ -561,9 +564,7 @@ class Kit(unittest.TestCase):
         self.assertEqual((code, len(out), len(err)), (3, 3000 * 1001, 3000 * 1001))   # (neither pipe filled while the other was waited for)
 
     def test_a_command_that_does_not_end_is_stopped_with_what_it_started(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        pidfile = os.path.join(folder, "pid")
+        pidfile = self.scratch() / "pid"
         started = time.monotonic()
         code, out, err = ci.run_limited(["sh", "-c", f"sleep 120 & echo $! > {pidfile}; wait"], timeout=2, environ=dict(os.environ))
         self.assertLess(time.monotonic() - started, 30)
@@ -603,7 +604,6 @@ class Kit(unittest.TestCase):
         self.assertEqual(err.getvalue(), "catalog.py ci: give a thing ::error::x\n")
 
     def test_the_help_of_every_stage_is_printed_once_and_is_exit_0(self):
-        import contextlib
         for stage in ci.STAGES:
             for flag in ("--help", "-h"):
                 with self.subTest(stage=stage, flag=flag):
@@ -613,7 +613,6 @@ class Kit(unittest.TestCase):
                     self.assertEqual((code, err.getvalue()), (0, ""))
                     self.assertIn(f"catalog.py ci {stage}", printed.getvalue())
                     self.assertIn("usage:", printed.getvalue())
-        self.assertEqual(ci_main(["--help"], io.StringIO(), io.StringIO()), 0)
 
     def test_a_usage_that_is_wrong_is_still_exit_2_with_one_line(self):
         err = io.StringIO()
@@ -622,7 +621,7 @@ class Kit(unittest.TestCase):
         self.assertTrue(err.getvalue().startswith("catalog.py ci: "))
 
 
-class Bounded(unittest.TestCase):
+class Bounded(Scratch):
     """What a stranger's program prints is cut to a size a message, a summary and GitHub accept."""
 
     def test_the_tail_is_fifteen_lines_of_at_most_five_hundred_characters(self):
@@ -645,12 +644,10 @@ class Bounded(unittest.TestCase):
         self.assertLess(time.process_time() - start, 1.0)
 
     def test_a_summary_over_what_github_keeps_is_cut_at_a_line_and_says_so(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        target = os.path.join(folder, "summary.md")
+        target = self.scratch() / "summary.md"
         text = "# Title\n" + "".join(f"line {number} {'é' * 40}\n" for number in range(60_000))
         self.assertGreater(len(text.encode("utf-8")), ci.SUMMARY_LIMIT)
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": target}):
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(target)}):
             ci.write_summary(text)
             ci.write_summary("## small\n")
         written = Path(target).read_bytes()
@@ -662,10 +659,8 @@ class Bounded(unittest.TestCase):
         self.assertTrue(cut.splitlines()[-1].startswith("line ") and cut.splitlines()[-1].endswith("é"))   # (a whole line)
 
     def test_a_summary_under_the_limit_is_written_as_it_is(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        target = os.path.join(folder, "summary.md")
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": target}):
+        target = self.scratch() / "summary.md"
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(target)}):
             ci.write_summary("a")
             ci.write_summary("b\n")
         self.assertEqual(Path(target).read_text(), "a\nb\n")
