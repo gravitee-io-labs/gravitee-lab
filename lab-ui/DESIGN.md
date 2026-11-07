@@ -280,14 +280,7 @@ version said in words ("API Management 4.12") in the strings of a module.
 Every change is measured in the DOM before it is judged by eye: `getBoundingClientRect` for heights and the left edges of first
 columns, computed styles for sizes, weights and colors, the middle of every cell against the middle of its row, `scrollWidth`
 against the window for a sideways scroll, and the contrast of each text against its background. At 1966, 1440, 900 and 375 px,
-light and dark. Then the screenshots at full size and at 2x for the details. The figures this system promises, as measured
-on the pages: a pill 24 px with 10 px sides; the Apply badge 120 by 24; a tooltip 28 px high, one line, 6 by 10,
-12 px; a popover 260 to 460 px, as wide as its content, 12 by 16, 13 px, rows 8 px apart; a notice 44 px; a button, a search, a toggle chip and a
-segmented control 32 px, a segment 26; a menu's entry and a picker's option 36, a dropdown longer than its room
-ending 16 px from the window's edge (on the pages at 1440 by 900, 1440 by 600 and 375 by 700; `place` in `tests/web/js/popup.test.mjs`); a card's head 56, a table's head 32 (`.table
-th` too), a catalog row 56 (the lists' and the Dashboard's), a product row 56, the Dashboard's row of Gravitee Cloud 56, an environment
-56, a group 48, a quiet environment with its Set up 48, a hybrid gateway 48, a band 40 (the core's line too), a container 40; a row's icon
-and a star 26; the metric strip folded 36 (with its card's edge), unfolded 64 under its line.
+light and dark. Then the screenshots at full size and at 2x for the details.
 
 ## One way for each thing
 
@@ -318,11 +311,6 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
     add-ons that are on or run (or hold a service chosen); the services of an add-on that runs a gateway of a group (`gateway.group`,
     [One gateway runs here](#one-gateway-runs-here)) are in that group's one section, after its own, under a title of their own (a heading inside the group: the add-on's name and, when a gateway runs here for an
     environment, the account and the environment it serves, "Hybrid gateway (Acme Cloud, Development)"), the gateway first.
-- **A control**: one size, wherever it sits. A button, a search, a select and a segmented control are 32 px high; a
-  choice inside one (a segment, a toggle chip, an option of a search) is 26 px; all have the same text size. There is
-  no small variant. The one other size is the icon buttons of a row and of a panel's actions (`.row-icons`,
-  `.panel-actions`), 26 px. A choice of one among several is a segmented control; an option on or off by itself, which
-  combines with others, is a loose toggle chip (32 px, 26 px inside a search).
 - **A row**: 56 px, its name over one line that never wraps (ellipsis, the full text in its tooltip). Columns: the noun
   of the thing ("Add-on", "Plugin", "Component"), secondary information, State, then the control or the actions at the
   right end. The three lists have their State column too: the state component, its dot and its word.
@@ -380,13 +368,9 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
     Account ID, Cloud Token, environment. The token of a hybrid gateway is never named.
   - No label ends with "…", whether it asks first or not; a working face does, while nothing is measured. The title
     of a dialog is the label that was clicked, without a question mark; its button is the verb.
-- **An explanation** is a tooltip (one line) or a popover (several lines, or a card of causes), one implementation in `ui.js`
-  ([Tooltip, Popover](#components)): `tipHtml` makes its button, which keeps the look of what it sits in and carries the whole
-  explanation as its name for a screen reader; `data-tip` explains a control that acts on a click.
-- **What cannot be used says why**, on hover, on keyboard focus and on a tap: the control is `aria-disabled` with its reason as
-  its tooltip ("<name> is not running"; `setOff`), so that the keyboard reaches it and a screen reader hears why. What
-  waits for Docker, for the running job or for the Lab UI is marked `data-busy`: `paintBusy` makes it wait with the
-  reason the state gives (`wait`, then `unread` but for `data-busy="name"`), or "Lab UI offline".
+- **What cannot be used says why** ([Buttons and controls](#components)). What waits for Docker, for the running job or for the Lab
+  UI is marked `data-busy`: `paintBusy` makes it wait with the reason the state gives (`wait`, then `unread` but for
+  `data-busy="name"`), or "Lab UI offline".
 - **Empty and loading**: `.empty`, in the place of the rows, with the texts of `emptyHtml` and its action as a plain button.
 
 ### Actions
@@ -929,50 +913,9 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   - Without Docker's figures (loading, Docker not reachable) there is no unused figure. Docker not reachable is said once, by
     the banner (and the sidebar's chip): Storage, CPU and Memory are dashes with no chart, and the page degrades as the Containers page does:
     no dot is colored, no count is said, the actions wait with the reason as their tooltip, nothing is to open.
-  - **The tooltips and popovers of the whole Lab UI** (`tipHtml` of `ui.js`): the unused figure, the label of the load and the words of
-    the Cloud use them. The Dashboard has no tooltip of its own, and no `title`
-    of the browser's: the name of an icon button and the reason a button waits are tooltips of the Lab UI too.
-- **The charts** are two SVGs that stay in the DOM and are moved from the clock, never rebuilt by a sample (`paintCharts`,
-  `paintChart`). No library.
-  - One `requestAnimationFrame` loop runs while the page is shown, Resources unfolded, the tab visible and a stream open, and
-    stops otherwise: folded, no chart is drawn and no frame asked for, its figures still written as samples come. Each
-    frame draws the line as the clock says it is, `LAG` (3.5 s) behind it, so that the right edge is between two samples it
-    knows (interpolated there; the last value is held while a sample is late, no longer than `GAP`, 5 s) and the whole line
-    slides left continuously. A sample is dated by the moment it came, not by the `at` of the server, which counts whole
-    seconds. A line breaks where samples are more than `GAP` apart (nothing was listening). The width is always `SPAN` (60) seconds, from the first load: the scale never changes, the line grows in from the right
-    and what is older leaves at the left.
-  - The line is a quadratic curve through the midpoints of its points, which never goes beyond them, with no area under it (a
-    clip of its own for each chart: `dash-clip-<id>`) and a dot at the right edge, a zero-length
-    path with a round cap and a stroke that does not scale, so that it stays round at any width. Colors are the neutral
-    tokens (`--text-2`, `--text`).
-  - The top edge is the highest point against 10 percent at least for the CPU and what Docker has for the memory. It follows
-    a rise at once and eases down (`EASE`, 0.8 s) when a high point leaves the window, so that the line does not jump.
-  - The figure beside a chart is written when a sample comes (`paintValues`: a text node, not a redraw). With
-    `prefers-reduced-motion` no loop runs and the chart is drawn when a sample comes, to the sample.
-- **Live numbers** come from `docker stats --no-stream --format '{{json .}}'`, about two seconds, behind `GET /api/dashboard/stats`,
-  an event stream of one event every few seconds (`cpu_percent`, `memory_used`, `containers`, `at`). Only the lab's containers
-  are counted: `dashboard.lab_names` lists the names of the containers of the Compose project (`docker ps` by its label, kept 10
-  seconds) and `dashboard.load` leaves out the others, what else Docker runs not being the lab's load. When the names cannot be told,
-  every container counts.
-  - It is read while a client follows the stream, and the clients share a reading (`LOAD_TTL`). The page closes the stream when it is hidden or
-    left, and opens it again when it shows (`visibilitychange`). A stream that the browser gave up on (an error answer closes an
-    `EventSource` for good: `readyState` closed) is opened again after 3 seconds, then 6, 12 and so on up to a minute while it keeps failing, and no frame is
-    asked for while it is dead.
-  - `cpu_percent` is the sum of the containers' CPU divided by the cores Docker has, from 0 to 100.
-- **What Docker holds** is `data` of `GET /api/dashboard`, parsed from `docker system df --format '{{json .}}'`
-  (`dashboard.parse_df`): for `images`, `containers`, `volumes` and `cache` a `size` and the `reclaimable` size (what
-  no container uses, never above `size`), and a `total` with the sum of the four sizes and of the four unused sizes. Docker writes sizes in powers of 1000 (`58.9GB`), and the page does the same. The page says "unused" for what
-  the answer calls `reclaimable`.
-- **When it reads.** `GET /api/dashboard` (`docker`, `data`, `products`, `pending`) when the page
-  opens, when what the versions depend on moves (Docker answering, the state of each group, the tag each container runs:
-  `signature` in `dashboard.js`, checked at each draw, one read at a time) and by *Count storage again*. `docker system df` (about 2
-  seconds) is cached for 60 seconds; `docker info` and `docker compose version` are the Lab's one reading of each, which the state and
-  the machine's check share (`compose.docker_info`, kept until Docker does not answer and at most 10 minutes, and
-  `compose.compose_version`, a minute), so quick trips between pages read nothing again. *Count storage again* reads them again
-  (`GET /api/dashboard?refresh=1`) and renews the cache. Nothing polls them. The one thing the page asks for again is the latest versions, every 3 seconds while the server
-  says it is still reading them (`pending`), and a read that failed, after 10 seconds (`RETRY`), so that the page does not stay
-  half empty. The page is drawn before its first read: the state alone, a spinner where the version is (the version saved is not
-  said: it may not be the one that runs), nothing for the update.
+- **The load** is one `docker stats --no-stream` about every 3 seconds, read while a client follows `GET /api/dashboard/stats` and
+  shared between clients (`dashboard.load`), and the charts are two SVGs moved by the clock (`paintCharts`). The constants of
+  `dashboard.js` and the docstrings of `dashboard.py` hold the rest.
 - A click on a name acts on nothing: the actions are the buttons, each one click, with the confirmations the pages that own
   them ask.
 - Each block is written again only when its own text changed (`setHTML`), a row of a card on its own (`keyed`), and a cell of
@@ -1197,38 +1140,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   address for a gateway, and the card's head opens the account's. Under 940 px of card a row is three lines (its name and its actions,
   its environment and its state, its version and its domains, each after its label of 96 px); under 600 px one cell over the other,
   a state too long for the line wrapping rather than cut.
-- **What an environment says** is `environmentStatus(platform, check, env, {late})` (`js/platform/environments.js`), rules only. It returns `{id, name, used, gateway, deploy, deployed, summary, action}`.
-  - *used*: it holds a hybrid gateway (any: one the Lab cannot use is there to be removed), a gateway the Lab lost in Cloud, a
-    Cloud Token (in any state), or a playground deployed there.
-  - *gateway*, the one of the environment in the order the Lab prefers: the one that runs here, one it keeps, one that is
-    connected (`others` are the rest, `count` all of them), as `{key, dot, word, tip, details, version, address, name, id, here,
-    kept, others, count}`: a dot and a word, and a popover titled with its name whose rows are its version and,
-    while it runs here, `address`, the first domain that is not the name of its container, in monospace: *Running here*, *Connecting* (it runs here and Cloud has not seen it, amber and pulsing), *Not connected*
-    (`late`: it has been so for 2 minutes, an amber dot, its tooltip says to read its logs), *Starting*, *Stopping*, *Stopped here*
-    (a ring while the add-on is on, gray while it is off), *Connected elsewhere* (a ring: another machine runs it, its name under
-    the word), *Not created* (muted), *Removed in Cloud* (red: `check.orphan`, the gateway whose token the add-on holds and Cloud no
-    longer lists; *Still runs here* or *Its token is still set* under it), and Cloud's own *Pending*, *Deleting* and *Failed* while
-    it is not deployed. For the gateway that runs here the add-on's own warn or error note replaces them: *Needs a license* (its
-    own state, `key: license`, amber: the add-on cannot start, so no gateway of the platform can), *Needs settings* (`key:
-    settings`, amber: a value of the add-on is not set, which its popover names), *License expired*, *Failed*, *Hybrid gateway
-    exited (1)*, *Apply needed*; a dot never green while it does not run; its container's state while it does not run comes next. While Docker does not
-    answer, what runs here is not known: only what Cloud says is (*Connected*, *Not connected*, no colored dot).
-  - *deploy*, as `{key, dot, word, note, tip, expires, soon}`: *Can deploy* (a valid Cloud Token, and a gateway the Lab keeps the
-    token of, which a deploy goes through), *Needs a gateway* (a valid token and none: the ring, and *Cloud Token set* under it),
-    *Needs a Cloud Token*, *Cloud Token expired*, *Cloud Token refused*; `note` is *Cloud Token set* or, when the token expires
-    within 14 days, *Expires in 5 days* (*today*, *tomorrow*). The cell (`deployCell`) says one of them, the first that holds:
-    what the playgrounds deployed there, from the records the Lab keeps for each place ("Acme Hostels API deployed", "2 playgrounds
-    deployed"), that the token is about to expire (amber, an amber dot), *Cloud Token set* while the gateway's column says there is
-    none, else the word. Its popover has the rest: the word, the expiry date and each deployed item with what it created; a token
-    not set has the explanation of a Cloud Token instead.
-  - *action*, the first that applies: *Add license* (*Replace license* when it expired or lacks a feature: the add-on cannot
-    start), *Settings* (a value of the add-on is not set: its settings form, `openSettings`), *Create gateway* (no gateway of the Lab's here; *Replace gateway* for one that another machine runs or that Cloud
-    lost), *Start gateway* (the add-on does not run, or another gateway runs: its tooltip says *Stops the gateway of Test*), *Add Cloud
-    Token*, *Stop gateway*; but *Replace Cloud Token* comes before the gateway when the token expired or is refused, the one thing the
-    row says in red; *Set up* for an environment not in use. Whether the add-on runs is read from
-    its state, not from the verb of its action, so that a gateway started outside the Lab UI is stopped by its `secondary` Stop.
-    Nothing to run gateways (no add-on that declares one) means no gateway action. The gateway comes before the token because a
-    deploy needs both and the gateway is the one that can take a minute.
+- **What an environment says** is `environmentStatus(platform, check, env, {late})` (`js/platform/environments.js`), rules only: the
+  comment above it says what it returns, and [cloud.md](../docs/cloud.md#create-a-hybrid-gateway) what each word means.
 - **One action, then More**, in two slots of one width in every row: the action (160 px, *Set up* of an environment not in use
   too) and *More* (80 px; its place is kept on a row that has none), so that every action starts and ends at one place.
   *Start gateway* and *Stop gateway* are the add-on's
@@ -1461,11 +1374,6 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - **Where API Management runs is the one choice drawn without a platform.** *Where does API Management run?* in the welcome dialog
   and the choice on API Management's row and on the Gravitee Cloud page are the way to the Cloud, so they show before any account; *Gravitee Cloud* chosen
   without one opens Connect Gravitee Cloud. The lists, the banner and Containers are as they were (`lists.main.txt`).
-- **Without a platform, nothing changes.** A person with only the local core sees one menu entry (*Gravitee Cloud*, which
-  offers *Connect account*) and one add-on row (the Hybrid gateway, *Needs settings*) more. No picker, no mark, no tooltip,
-  no *Deployed to*, no banner change. All of it is drawn from data that exists only once a platform is registered, and
-  `tests/web/js/lists.test.mjs` compares the three lists, the banner and Containers with `lists.main.txt`, the DOM they drew
-  before platforms ([AGENTS.md](AGENTS.md#layout) says how it is written).
 
 ### The editor and the on file
 
