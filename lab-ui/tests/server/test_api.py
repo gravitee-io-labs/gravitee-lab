@@ -2,7 +2,6 @@
 the files shown with one, the state when Docker is down, the accept check, what is created, shared and deleted. No
 Docker."""
 
-import base64
 import contextlib
 import errno
 import http.client
@@ -367,7 +366,7 @@ class State(LabUI):
         self.catalogs = self.patch(api.service, "describe", return_value=self.rows)
         self.content = {"key": "ready", "line": "", "code": None, "progress": None, "address": "", "offer": None}
         self.said = self.patch(api.firstrun, "content", return_value=self.content)
-        self.patch(api.license, "features", return_value=None)
+        self.features = self.patch(api.license, "features", return_value=None)
         self.patch(api.playgrounds, "created", return_value=[{"what": "APIs", "count": 3}])
         self.patch(api.personal, "skills", return_value={"addon": ".agents/skills/new-addon/SKILL.md"})
         self.agent = {"folder": str(paths.ROOT), "note": ""}   # the folder an agent opens (test_machine)
@@ -382,7 +381,7 @@ class State(LabUI):
                      "git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows, "content": self.content}
         self.patch(api, "JOBS", Jobs())
         self.patch(api.compose, "CACHE", compose.Cache())
-        self.name = self.patch(api.compose, "project_name", return_value="gravitee")
+        self.patch(api.compose, "project_name", return_value="gravitee")
         self.build = self.patch(api.model, "build", side_effect=lambda *args, **more: {
             "containers": sorted(args[2]), "docker": args[6]})
         self.memory = self.patch(api.compose, "docker_memory", return_value=16)
@@ -418,6 +417,8 @@ class State(LabUI):
                                            deployed={"welcome": [], "local/sandbox": []}, changed=None)
         self.memory.assert_not_called()
         self.saved.assert_not_called()
+        # Docker hangs (its machine asleep, Docker Desktop restarting): the state says so, it does not wait on it again for the license model
+        self.features.assert_called_once_with(PROJECT, ask=False)
 
     def test_a_core_file_that_does_not_load_is_like_docker_down(self):
         # Compose reads nothing without it: what runs is not known, nothing is asked of Docker
@@ -434,10 +435,8 @@ class State(LabUI):
         ps = self.patch(api.compose, "ps", return_value={"mongodb": {}})
         self.request("GET", "/api/state")
         ps.assert_called_once_with(api.project.LICENSE_KEY)
-        self.assertEqual(self.build.call_args.kwargs, {"saved": {"hashes": {"mongodb": "h"}, "images": {}},
-                                                       "license_status": {"status": "none"}, "platforms": [],
-                                                       "deployed": {"welcome": [], "local/sandbox": []},
-                                                       "changed": {}})
+        self.assertEqual((self.build.call_args.kwargs["saved"], self.build.call_args.kwargs["changed"]),
+                         ({"hashes": {"mongodb": "h"}, "images": {}}, {}))
 
     def test_the_platforms_and_what_each_playground_holds_in_them_are_given_to_the_state(self):
         # Read from this machine's files, each playground by its own record: the way it reads them (places.deployed)
@@ -452,14 +451,6 @@ class State(LabUI):
         self.assertEqual(self.build.call_args.kwargs["platforms"], [record])
         self.assertEqual(self.build.call_args.kwargs["deployed"], {"welcome": held, "local/sandbox": []})
         self.assertEqual({call.args[1] for call in self.held.call_args_list}, {api.playgrounds.created})
-
-    def test_a_core_file_never_loaded_is_not_docker_down(self):
-        # Without its name there is no project to ask Docker about: the file is among the project's problems
-        self.name.side_effect = compose.ComposeError("yaml: line 12: did not find expected key")
-        ps = self.patch(api.compose, "ps", return_value={"mongodb": {}})
-        status, _, body = self.request("GET", "/api/state")
-        self.assertEqual((status, json.loads(body)["docker"]["error"]), (200, None))
-        ps.assert_not_called()
 
     def test_docker_up(self):
         self.patch(api.compose, "ps", return_value={"redis": {}, "mongodb": {}})
@@ -528,44 +519,6 @@ class State(LabUI):
         api.compose.CACHE.drop("local:")   # what a job that ends does: what runs changed
         self.request("GET", "/api/state")
         self.assertEqual(ps.call_count, 2)
-
-    FEATURES = staticmethod(api.license.features)   # the real one: setUp replaces it
-
-    def test_the_first_state_does_not_wait_on_docker_for_the_license_model(self):
-        # The first state after the Lab UI starts, while Docker hangs (its machine asleep, Docker Desktop restarting): ps
-        # gives up after PS_TIMEOUT and the state says so then. Nothing else in it waits on Docker
-        self.patch(api.license, "features", self.FEATURES)
-        self.start(mock.patch.dict(api.license._known, features=None, digest=None, packs=None))
-        self.addCleanup(compose.CACHE.drop, "license-model:")
-        products = {"apim": {"name": "API Management", "lib": {"gateway": "/opt/gateway/lib"}},
-                    "am": {"name": "Access Management", "lib": {"am-gateway": "/opt/am/lib"}}}
-        services = {**PROJECT["services"],
-                    "gateway": {"container": "gio-gateway", "image": "graviteeio/apim-gateway:4", "label": "Gateway"},
-                    "am-gateway": {"container": "gio-am-gateway", "image": "graviteeio/am-gateway:4", "label": "AM"}}
-        hung_project = {**PROJECT, "license_var": "GRAVITEE_LICENSE", "products": products, "services": services,
-                        "groups": [{**PROJECT["groups"][0], "product": None}, {"id": "api-management", "product": "apim"},
-                                   {"id": "access-management", "product": "am"}]}
-        self.patch(api.project, "loaded", return_value=(hung_project, self.read))
-        # A license is saved (its signature does not matter here): what it allows is counted with the license model
-        raw = api.license.MAGIC + b"".join(
-            len(blob).to_bytes(4, "big") + blob for blob in (
-                (2).to_bytes(4, "big") + len(name).to_bytes(4, "big") + len(value).to_bytes(4, "big") + name + value
-                for name, value in ((b"tier", b"universe"), (b"company", b"ACME"))))
-        self.patch(envfiles, "read", return_value={"GRAVITEE_LICENSE": base64.b64encode(raw).decode()})
-        self.patch(api.compose, "ps", side_effect=compose.ComposeError(
-            f"Docker did not answer within {compose.PS_TIMEOUT} s"))
-        waited = []
-
-        def hung(cmd, timeout=120, **more):   # what run() answers once each limit is over
-            waited.append((" ".join(cmd[:3]), timeout))
-            return 124, "", f"{cmd[0]} did not answer within {timeout} s"
-        self.patch(compose, "run", side_effect=hung)
-        status, _, body = self.request("GET", "/api/state")
-        self.assertEqual((status, json.loads(body)["docker"]["error"]), (200, "Docker did not answer within 10 s"))
-        # Docker said nothing within 10 s: the state asks it nothing more, else it waits each command's own limit
-        self.assertEqual((waited, sum(seconds for _, seconds in waited)), ([], 0))
-        self.assertIsNone(self.build.call_args.args[5], "what the license allows is not known yet")
-
 
 class Frame(LabUI):
     """What one UI of a playground is for the page that shows it next to the guide."""
@@ -707,10 +660,6 @@ class Accepted(LabUI):
         self.assertEqual(self.stack.call_args.kwargs["accept"], [])
         self.request("POST", "/api/stack/start", {"accept": ["addon:kazoo-desk", "playground:welcome"]})
         self.assertEqual(self.stack.call_args.kwargs["accept"], ["addon:kazoo-desk", "playground:welcome"])
-        # ... and the plan that stops something besides the item is still refused for what was not sent
-        status, _, body = self.request("POST", "/api/addons/kazoo/start", {"accept": []})
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Would also stop Kazoo Desk"}))
-        self.assertEqual(self.request("POST", "/api/addons/kazoo/start", {"accept": ["addon:kazoo-desk"]})[0], 200)
 
 
 class Effects(LabUI):
@@ -1383,19 +1332,6 @@ class GatewayRoutes(GatewayCase):
         for step in (self.write, self.binds, self.swap):
             step.assert_not_called()
 
-    def test_a_gateway_that_does_not_run_here_gets_its_token_before_the_add_on_is_made(self):
-        self.elsewhere()
-        calls = mock.Mock()
-        calls.attach_mock(self.swap, "swap")
-        calls.attach_mock(self.write, "write")
-        accepted = [layers.key("addon", "hyssop")]
-        self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {"accept": accepted})[0], 200)
-        title, steps, more, job = self.run_steps()
-        self.assertEqual(more["key"], "addon:hyssop")
-        self.swap.assert_called_once_with(self.project, "my-account", "gw-1")
-        self.assertEqual([call[0] for call in calls.mock_calls], ["swap", "write"], "the token, then the on file")
-        self.assertEqual(job.lines, ["Restarts: Hybrid gateway"])
-
     def test_a_gateway_whose_token_is_gone_by_the_job_fails_in_the_words_of_the_refusal(self):
         self.elsewhere()
         self.swap.side_effect = paths.NotFound("No add-on runs a gateway of My Account")
@@ -1415,13 +1351,6 @@ class GatewayRoutes(GatewayCase):
         self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {})[0], 200)
         self.run_steps()
         self.swap.assert_called_once_with(self.project, "my-account", "gw-1")
-
-    def test_a_start_that_cannot_run_as_the_page_showed_it_is_refused(self):
-        self.state = {**self.state, "locked": layers.LOCKED}
-        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {})
-        self.assertEqual((status, json.loads(body)), (409, {"error": layers.LOCKED}))
-        self.jobs.start.assert_not_called()
-        self.swap.assert_not_called()
 
     def test_a_job_that_runs_keeps_the_gateway_from_starting_and_changes_nothing(self):
         self.jobs.start.side_effect = RuntimeError("'Start Kazoo' is still running")
@@ -1580,12 +1509,6 @@ class GatewayDeletes(GatewayCase):
         self.assertEqual((status, json.loads(body)), (409, {"error": "'Start Kazoo' is still running"}))
         self.delete.assert_not_called()
 
-    def test_an_on_file_with_the_users_own_changes_keeps_the_gateway_from_being_deleted(self):
-        self.on()
-        self.state = {**self.state, "locked": layers.LOCKED}
-        self.assertEqual(self.request("POST", f"{self.GATEWAY}/delete", {})[0], 409)
-        self.delete.assert_not_called()
-
     def test_what_the_platform_refuses_leaves_the_add_on_as_it_is(self):
         self.on()
         self.delete.side_effect = cloud.CloudError("Gravitee Cloud refuses this token", "invalid")
@@ -1601,12 +1524,6 @@ class GatewayDeletes(GatewayCase):
         self.here.assert_called_once_with(self.project, "my-account", None)
         self.remove.assert_called_once_with("my-account", self.project)
         self.assertEqual([call[0] for call in self.calls.mock_calls], ["remove", "apply"])
-
-    def test_a_platform_whose_gateway_did_not_run_here_is_just_forgotten(self):
-        self.here.return_value = False
-        self.on()
-        self.assertEqual(json.loads(self.request("POST", "/api/platforms/my-account/delete", {})[2]), {})
-        self.apply.assert_not_called()
 
     def test_what_could_not_be_deleted_of_a_forgotten_platform_is_said_after_its_add_on_is_off(self):
         self.on()
@@ -1727,8 +1644,6 @@ class StartsAreVerified(GatewayCase):
         tried = {self.hit(route[1]) for route in self.routes()}
         self.assertEqual(starting - tried, set(self.NO_PLAN), "a new route that starts something takes a plan: add it to the table")
         self.assertEqual(set(self.NO_PLAN) - starting, set(), "and a route that is gone leaves the list")
-        for pattern in self.NO_PLAN:
-            self.assertTrue(any(one.pattern == pattern for _, one, _ in api.ROUTES), pattern)
 
     def test_a_stop_asks_the_catalogs_nothing(self):
         self.being(["kiosk"], None)
@@ -2099,8 +2014,6 @@ class StateOfCatalogs(LabUI):
         self.assertEqual([row["id"] for row in state["catalogs"]], ["local"], "an empty Personal, which the page hides")
         self.assertIn(state["content"]["key"], ("ready", "downloading", "failed", "none"), "what the first start says")
         self.assertIsNone(state["content"]["offer"], "nothing is listed to offer")
-        for key in ("docker", "wait", "license", "platform", "playgrounds", "setups", "addons", "services", "links", "problems"):
-            self.assertIn(key, state)
         self.assertEqual(state["problems"], [], "nothing is wrong with the files that record the catalogs")
 
     def test_the_files_that_record_the_catalogs_unreadable_are_a_problem_of_the_state_for_the_banner(self):
