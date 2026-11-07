@@ -546,8 +546,8 @@ class _Audit:
 
     def ruleset_fix(self, key: str):
         """The request that makes the template's ruleset `key` the one in force: the replacement of the ruleset of its name
-        when there is one, else its creation (`apply` asks again before it sends). The rulesets of main and of the tags come with
-        their history (COMPANIONS): a deploy key passes the first, never the second."""
+        when there is one, else its creation. The rulesets of main and of the tags come with their history (COMPANIONS): a deploy
+        key passes the first, never the second."""
         found = [self._ruleset_request(self.templates[key])]
         if key in COMPANIONS:
             found += self._companion(key)
@@ -1350,10 +1350,9 @@ def _merge(wanted: List[Tuple[str, dict]]) -> List[Tuple[tuple, dict, List[str]]
 
 
 def apply(repo: str, runner: Callable, findings: list, yes: bool) -> List[Applied]:
-    """The requests that bring `repo` to the standard, from the fixes of `findings` that failed. Without `yes` they are only listed: no request but a read is made. A request of one fix is not made when an
-    earlier request of that fix was refused or skipped, so an allow-list never comes in without its patterns. Rulesets are
-    looked for by name just before they are sent: replaced if there, else created. A request is `done` when GitHub answered
-    2xx; no answer is `refused` like a refusal is."""
+    """The requests that bring `repo` to the standard, from the fixes of `findings` that failed. Without `yes` they are only listed:
+    no request is made. A request of one fix is not made when an earlier request of that fix was refused or skipped, so an allow-list
+    never comes in without its patterns. A request is `done` when GitHub answered 2xx; no answer is `refused` like a refusal is."""
     wanted = [(finding.id, req) for finding in findings if finding.status == FAIL
               for req in (finding.fix if isinstance(finding.fix, list) else [])]
     steps = _merge(wanted)
@@ -1369,10 +1368,6 @@ def apply(repo: str, runner: Callable, findings: list, yes: bool) -> List[Applie
             reason = "this is not a request repo-settings makes"
         elif any(earlier in stopped for id in ids for earlier in chain[id][:chain[id].index(key)]):
             reason = "an earlier request of the same fix was not made"
-        elif "ruleset" in req:
-            method, path, reason = _find_ruleset(repo, runner, body)
-            if reason is None and not allowed(repo, method, path, body):
-                reason = "this is not a request repo-settings makes"
         if reason is not None:
             out.append(Applied(method, path, body, "skipped", reason))
             stopped.add(key)
@@ -1388,19 +1383,6 @@ def apply(repo: str, runner: Callable, findings: list, yes: bool) -> List[Applie
                 out.append(Applied(method, path, body, "skipped" if plan_limit(reply) else "refused", refusal(reply)))
                 stopped.add(key)
     return out
-
-
-def _find_ruleset(repo: str, runner: Callable, body: dict) -> Tuple[str, str, Optional[str]]:
-    """(method, path, why not) for a ruleset: its replacement when the repository has a ruleset of that name and target, else
-    its creation."""
-    reply, items = Reads(runner).pages(f"repos/{repo}/rulesets")
-    if reply.code != 200:
-        return "POST", f"repos/{repo}/rulesets", "the rulesets of the repository cannot be listed: " + refusal(reply)
-    for item in map(as_dict, items):
-        if item.get("name") == body.get("name") and item.get("target") == body.get("target") and \
-                (item.get("source_type") or "Repository") == "Repository" and is_int(item.get("id")):
-            return "PUT", f"repos/{repo}/rulesets/{item['id']}", None
-    return "POST", f"repos/{repo}/rulesets", None
 
 
 # ---------------------------------------------------------------- output

@@ -1709,19 +1709,6 @@ class Apply(Case):
         self.assertEqual(5, len(scene.hub.rulesets()))
         self.assertEqual([], [f.id for f in scene.audit() if f.status == FAIL])
 
-    def test_the_ruleset_is_found_again_just_before_it_is_sent(self):
-        scene = self.broken()
-        findings = scene.audit()
-        self.assertEqual({"POST"}, {req[0] for f in findings for req in requests_of(f) if req[1].endswith("/rulesets")})
-        # Another maintainer made it between the audit and the apply: the apply replaces it and does not add a second
-        scene.hub.store[7] = {"name": "catalog-tags", "target": "tag", "enforcement": "active", "rules": [{"type": "creation"}],
-                              "id": 7, "source_type": "Repository", "source": scene.repo, "bypass_actors": []}
-        scene.hub.sync()
-        done = settings.apply(scene.repo, scene.hub, findings, True)
-        tags = [i for i in done if i.path.endswith(("/rulesets", "/rulesets/7")) and i.body["name"] == "catalog-tags"]
-        self.assertEqual([("PUT", "repos/acme-labs/lab-internal/rulesets/7")], [(i.method, i.path) for i in tags])
-        self.assertEqual(1, len([r for r in scene.hub.rulesets() if r[0] == "catalog-tags"]))
-
     def test_two_rulesets_of_one_name_or_the_organizations_do_not_make_a_third(self):
         scene = Scene("org-private")
         listing = copy.deepcopy(scene.get("/rulesets").body)
@@ -1738,7 +1725,6 @@ class Apply(Case):
         scene.set("/rules/branches/main", [r for r in scene.get("/rules/branches/main").body if r["type"] != "deletion"])
         findings = scene.audit()
         self.assertEqual("POST", requests_of({f.id: f for f in findings}["rules.deletion"])[0][0])
-        # And when the apply looks again, just before it sends: still not the organization's ruleset
         planned = settings.apply(scene.repo, scene.hub, findings, False)
         self.assertEqual([("POST", "repos/acme-labs/lab-internal/rulesets")] * 2, [(i.method, i.path) for i in planned])   # and its history
         duplicated = Scene("org-private")
@@ -1889,16 +1875,6 @@ class Apply(Case):
         self.assertIn(PLAN_WORDS, rulesets[0].detail)
         self.assertTrue([i for i in done if i.outcome == "done"])
         self.assertEqual([], [i for i in done if i.outcome == "refused"])
-
-    def test_the_rulesets_that_cannot_be_listed_are_not_sent(self):
-        scene = self.broken()
-        findings = scene.audit()
-        scene.table[f"GET {scene.path('/rulesets')}"] = Reply(500, {"message": "Server Error"})
-        done = settings.apply(scene.repo, scene.hub, findings, True)
-        rulesets = [i for i in done if i.path.endswith("/rulesets")]
-        self.assertEqual({"skipped"}, {i.outcome for i in rulesets})
-        self.assertIn("cannot be listed", rulesets[0].detail)
-        self.assertEqual([], [w for w in scene.hub.writes() if w[1].endswith("/rulesets")])
 
     def test_only_a_fix_that_is_a_request_is_applied(self):
         scene = Scene("user-private-free")
