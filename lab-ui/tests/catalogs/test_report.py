@@ -590,12 +590,6 @@ class Audit(WithGit):
         self.assertRegex(found[0], r"[a-z0-9.-]+(/[a-z0-9._-]+)+")
         self.assertEqual((), audit.lab_seeder_images(self.holder))
 
-    def test_the_check_of_a_family_is_the_check_of_its_module(self):
-        self.assertIs(structure.check, audit._load("ST"))
-        with mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("y", name="a_package_it_needs")):
-            with self.assertRaises(ModuleNotFoundError):
-                audit._load("SD")
-
     def test_an_unreadable_tree_is_said_as_a_skip(self):
         class Broken(tree.Tree):
             def entries(self):

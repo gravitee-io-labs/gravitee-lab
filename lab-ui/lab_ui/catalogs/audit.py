@@ -21,7 +21,6 @@ What `run` decides, and the rule modules do not:
 A folder catalog, which has no `.github/`, is judged on the families that need no GitHub, and `Result.header` says so in a second
 line."""
 
-import importlib
 import os
 import re
 from collections import Counter
@@ -29,14 +28,14 @@ from pathlib import Path
 from typing import Iterable, List, NamedTuple, Optional, Tuple
 
 from .. import paths
-from . import gitx, tree as trees
+from . import gitx, standard, tree as trees
 from .report import ERROR, WARNING, Problem, printable
-from .rules import FAMILIES, HYGIENE, Context, context, outline
+from .rules import FAMILIES, HYGIENE, Context, codeowners, commits, context, dockerfiles, guides, images, outline, secrets, structure, workflows
 from .rules.images import repository
 
-# The modules of each family: (module, the function that judges a tree). SD is the standard's own (`standard.drift`)
-MODULES = {"ST": "structure", "SE": "secrets", "CR": "commits", "WF": "workflows", "DF": "dockerfiles", "GD": "guides",
-           "CO": "codeowners", "IM": "images"}
+# The check of each family. SD is the standard's own (`standard.drift`)
+CHECKS = {"ST": structure.check, "SE": secrets.check, "CR": commits.check, "WF": workflows.check, "DF": dockerfiles.check,
+          "GD": guides.check, "CO": codeowners.check, "IM": images.check, "SD": lambda tree, ctx: standard.drift(tree)}
 PREFIX = "Already there before this change: "
 
 
@@ -118,14 +117,6 @@ def origin_repository(root) -> str:
     return f"{found.group(1)}/{found.group(2)}" if found else ""
 
 
-def _load(family_code: str):
-    """The check function of a family: its module is imported when the family is run."""
-    module = importlib.import_module(f"{__package__}.{'standard' if family_code == 'SD' else 'rules.' + MODULES[family_code]}")
-    if family_code == "SD":
-        return lambda tree, ctx: module.drift(tree)
-    return module.check
-
-
 def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     """(tree, history, base, lost) for a run: the tree to read, the commits of the change, the base they were read from (the id
     of a commit, or "") and the base that was asked for and is no commit of the repository ("" if there is none). That one is a
@@ -167,7 +158,7 @@ def _run_families(tree, ctx: Context, wanted: Iterable[str]) -> List[Problem]:
             continue
         if code in ("SD", "WF", "CO") and not ctx.git:
             continue   # a folder catalog has no .github/: only the families that need no GitHub apply
-        found += _load(code)(tree, ctx)
+        found += CHECKS[code](tree, ctx)
     return found
 
 
