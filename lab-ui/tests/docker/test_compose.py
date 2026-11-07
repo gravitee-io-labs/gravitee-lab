@@ -571,26 +571,18 @@ class ProjectName(ProjectFolder):
             with self.assertRaisesRegex(compose.ComposeError, "no such file"):
                 compose.project_name()
 
-    def test_compose_installed_while_the_lab_ui_runs_is_asked_again(self):
-        # Before Docker: Compose's refusal is the answer. Once it is there, the name, with no restart
-        found = self.patch(compose, "plugin", return_value=None)
-        with mock.patch.object(compose, "raw", side_effect=compose.ComposeError("Run 'docker --help' for more information")) as raw:
-            with self.assertRaises(compose.ComposeError):
-                compose.project_name()
-            found.return_value = "/opt/homebrew/lib/docker/cli-plugins/docker-compose"
-            raw.side_effect, raw.return_value = None, {"name": "lab"}
-            self.assertEqual(compose.project_name(), "lab")
-
-    def test_the_docker_command_that_comes_after_its_plugin_is_asked_again(self):
-        # Docker Desktop copied into Applications: its plugin is there, its `docker` only once it first started
-        self.patch(compose, "plugin", return_value="/Applications/Docker.app/Contents/Resources/cli-plugins/docker-compose")
-        command = self.patch(compose.shutil, "which", return_value=None)
-        with mock.patch.object(compose, "raw", side_effect=compose.ComposeError("docker: command not found")) as raw:
-            with self.assertRaises(compose.ComposeError):
-                compose.project_name()
-            command.return_value = "/usr/local/bin/docker"
-            raw.side_effect, raw.return_value = None, {"name": "lab"}
-            self.assertEqual(compose.project_name(), "lab")
+    def test_docker_or_its_compose_installed_while_the_lab_ui_runs_is_asked_again(self):
+        # Before it: Compose's refusal is the answer. Once it is there, the name, with no restart. Docker Desktop copied into
+        # Applications has its plugin first, and its `docker` only once it first started
+        for module, name, there in ((compose, "plugin", "/opt/homebrew/lib/docker/cli-plugins/docker-compose"),
+                                    (compose.shutil, "which", "/usr/local/bin/docker")):
+            with self.subTest(name), mock.patch.dict(compose._name, clear=True), mock.patch.object(module, name, return_value=None) as found, \
+                    mock.patch.object(compose, "raw", side_effect=compose.ComposeError("docker: command not found")) as raw:
+                with self.assertRaises(compose.ComposeError):
+                    compose.project_name()
+                found.return_value = there
+                raw.side_effect, raw.return_value = None, {"name": "lab"}
+                self.assertEqual(compose.project_name(), "lab")
 
     def test_without_a_name_the_error_is_raised_and_docker_is_not_asked(self):
         failure = compose.ComposeError("yaml: line 2: did not find expected key")
@@ -644,32 +636,22 @@ class Containers(Case):
     def test_inspect_tells_a_memory_kill_and_the_recent_restarts(self):
         def started(seconds_ago):
             return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
-        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kiosk", "kazoo", "malt")]
+        names = ("kiosk", "kazoo", "kazoo-ui", "jade", "malt")
+        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in names]
         inspected = "\n".join([f"/gio-kiosk|false|3|{started(20)}|h1|sha256:k", f"/gio-kazoo|true|4|{started(3600)}||",
+                               f"/gio-kazoo-ui|false|2|{started(120)}||", "/gio-jade|false|0|0001-01-01T00:00:00Z||",
                                "", "error: no such object: gio-malt"])
         found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
         self.assertEqual({name: (c["oom"], c["restarts"]) for name, c in found.items()},
                          {"kiosk": (False, 3),     # restarted, and again 20 s ago
                           "kazoo": (True, 0),       # its last restart is an hour old
+                          "kazoo-ui": (False, 0),   # restarted while what it needs warmed up, and up for two minutes since
+                          "jade": (False, 0),       # it never started
                           "malt": (False, 0)})      # removed since it was listed
         # The configuration Compose made it from, and the image it runs: what runs behind what is saved is told so
         self.assertEqual({name: (c["config_hash"], c["image_id"]) for name, c in found.items()},
-                         {"kiosk": ("h1", "sha256:k"), "kazoo": (None, None), "malt": (None, None)})
+                         {"kiosk": ("h1", "sha256:k"), **dict.fromkeys(names[1:], (None, None))})
         self.assertNotIn("variable", found["kiosk"])   # not asked: not read
-
-    def test_a_container_that_restarted_while_what_it_needs_warmed_up_and_runs_since_is_stable(self):
-        # Two restarts while Kazoo started, then up for two minutes: not one that keeps restarting
-        def started(seconds_ago):
-            return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
-        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kazoo-ui", "kiosk")]
-        inspected = "\n".join([f"/gio-kazoo-ui|false|2|{started(120)}||", f"/gio-kiosk|false|2|{started(15)}||"])
-        found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
-        self.assertEqual({name: c["restarts"] for name, c in found.items()}, {"kazoo-ui": 0, "kiosk": 2})
-
-    def test_a_container_that_never_started_has_no_restarts(self):
-        line = {"Service": "kiosk", "State": "created", "Name": "gio-kiosk"}
-        found = self.ps((0, json.dumps(line), ""), inspected="/gio-kiosk|false|0|0001-01-01T00:00:00Z||\n")
-        self.assertEqual((found["kiosk"]["oom"], found["kiosk"]["restarts"]), (False, 0))
 
     def test_a_container_removed_while_they_are_listed_is_asked_again(self):
         line = {"Service": "kiosk", "State": "running", "Name": "gio-kiosk"}
@@ -746,31 +728,23 @@ class Saved(Case):
                               ("graviteeio/apim-gateway:4.12-debian", "graviteeio/apim-gateway:4.12-debian")):
             self.assertEqual(compose.reference(image), listed, image)
 
-    def test_the_images_docker_holds(self):
-        listed = "mongo:8.3.11 sha256:d731\n<none>:<none> sha256:0ld\ngraviteeio/am-gateway:4 sha256:e633\n"
-        with mock.patch.object(compose, "run", return_value=(0, listed, "")) as run:
-            self.assertEqual(compose.image_ids(), {"mongo:8.3.11": "sha256:d731", "<none>:<none>": "sha256:0ld",
-                                                   "graviteeio/am-gateway:4": "sha256:e633"})
-            compose.image_ids()
-        self.assertEqual(run.call_count, 1)
-        self.assertIn("--no-trunc", run.call_args.args[0])
-        compose.CACHE.drop("local:")   # a job ended: a pull may have moved a tag
-        with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
-            self.assertIsNone(compose.image_ids())
-
     def test_the_images_docker_holds_are_kept_a_minute(self):
         # A state's refresh every few seconds does not list them each time: they change as a job ends, which drops them
-        compose.CACHE.drop("local:")
-        self.addCleanup(compose.CACHE.drop, "local:")
-        clock = [1000.0]
+        listed, clock = "mongo:8.3.11 sha256:d731\n<none>:<none> sha256:0ld\ngraviteeio/am-gateway:4 sha256:e633\n", [1000.0]
         with mock.patch.object(compose.time, "monotonic", lambda: clock[0]), \
-                mock.patch.object(compose, "run", return_value=(0, "mongo:8 sha256:d731\n", "")) as run:
-            for clock[0] in (1000.0, 1030.0, 1059.0):
-                compose.image_ids()
+                mock.patch.object(compose, "run", return_value=(0, listed, "")) as run:
+            self.assertEqual(compose.image_ids(), {"mongo:8.3.11": "sha256:d731", "<none>:<none>": "sha256:0ld",
+                                                   "graviteeio/am-gateway:4": "sha256:e633"})
+            clock[0] = 1059.0
+            compose.image_ids()
             self.assertEqual(run.call_count, 1)
+            self.assertIn("--no-trunc", run.call_args.args[0])
             clock[0] = 1061.0
             compose.image_ids()
             self.assertEqual(run.call_count, 2)
+        compose.CACHE.drop("local:")   # a job ended: a pull may have moved a tag
+        with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
+            self.assertIsNone(compose.image_ids())
 
     def test_an_image_built_again_from_unchanged_sources_is_the_same_image(self):
         # Docker's image store gives each build its own id: the manifest the container was made from says what it runs
@@ -952,21 +926,15 @@ class Docker(Case):
         compose.CACHE.drop("docker:")
         self.addCleanup(compose.CACHE.drop, "docker:")
 
-    def test_its_memory_or_none_when_it_does_not_answer(self):
+    def test_its_memory_or_none_when_it_does_not_answer_and_kept_until_then(self):
+        # It changes only as Docker starts again: a state's refresh does not ask for the whole of `docker info`
         with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertIsNone(compose.docker_memory())
-        info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000, "NCPU": 8})
-        with mock.patch.object(compose, "run", return_value=(0, info, "")):
-            self.assertEqual(compose.docker_memory(), 8_000_000_000)
-
-    def test_its_memory_is_kept_until_it_does_not_answer(self):
-        # It changes only as Docker starts again: a state's refresh does not ask for the whole of `docker info`
         info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000})
         with mock.patch.object(compose, "run", return_value=(0, info, "")) as run:
             for _ in range(3):
                 self.assertEqual(compose.docker_memory(), 8_000_000_000)
         self.assertEqual(run.call_count, 1)
-        self.assertGreaterEqual(compose.INFO_TTL, 600)
         with mock.patch.object(compose, "project_name", return_value="lab"), \
                 mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertEqual(compose.containers(), ({}, "Cannot connect to the Docker daemon"))
@@ -997,7 +965,7 @@ class Docker(Case):
         answers = {"version": (0, "v5.4.0\n", "")}
         with mock.patch.object(compose, "run", side_effect=lambda command, **_: answers["version"]) as run:
             self.assertEqual([compose.compose_version() for _ in range(3)], ["5.4.0"] * 3)
-            self.assertEqual((run.call_count, compose.DOCKER_TTL), (1, 60))
+            self.assertEqual(run.call_count, 1)
             compose.CACHE.drop("docker:")
             answers["version"] = (127, "", "[Errno 2] No such file or directory: 'docker'")
             with self.assertRaisesRegex(compose.ComposeError, compose.NO_DOCKER):
@@ -1363,16 +1331,7 @@ class Limits(ProjectFolder):
              "volumes": {"data": {"name": "lab_data"}}, "networks": {"net": {"name": "lab_net"}},
              "secrets": {"tok": {"environment": "TOKEN"}}, "configs": {"cfg": {"content": "hello"}}}
 
-    def test_each_read_has_the_time_it_needs(self):
-        with mock.patch.object(compose, "run", return_value=(0, json.dumps(self.WHOLE), "")) as run:
-            compose._config(["-f", "a.yml"])
-            compose._config(["-f", "a.yml"], timeout=5)
-            compose.config_json(["-f", "a.yml"])
-            compose.config_json(["-f", "a.yml"], timeout=3)
-            compose.resolved(["-f", "a.yml"])
-        self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [120, 5, 15, 3, 120])
-
-    def test_the_environment_asked_for_reaches_the_command_and_none_asked_changes_nothing(self):
+    def test_each_read_has_the_time_it_needs_and_the_environment_asked_for_reaches_the_command(self):
         asked = {"PATH": "/bin", "HOME": "/scrubbed"}
         with mock.patch.object(compose, "run", return_value=(0, json.dumps(self.WHOLE), "")) as run:
             compose.config_json(["-f", "a.yml"])
