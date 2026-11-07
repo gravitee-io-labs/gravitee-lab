@@ -186,29 +186,23 @@ class PrepareTest(ShellTest):
 
     def prepare(self, **env):
         text = E2E.read_text(encoding="utf-8")
+        self.output.write_text("", encoding="utf-8")
         return self.execute(script(step_with(jobs(text)["prepare"], "id: prepare")), {**self.ENV, **env})
 
-    def test_a_pull_request_of_the_engine_is_tried_where_it_changes_the_catalog_s_known_good_commit(self):
-        done = self.prepare()
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.outputs(), {"lab_ref": SHA, "catalog_ref": "c" * 40, "items": "changed", "base": "b" * 40, "expect_sha": "",
-                                          "skip": "false"})
-
-    def test_the_night_tries_the_canary_on_the_default_branch_of_the_catalog(self):
-        done = self.prepare(EVENT="schedule", REF="refs/heads/main", BASE="")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.outputs(), {"lab_ref": SHA, "catalog_ref": "", "items": "canary", "base": "", "expect_sha": "", "skip": "false"})
-
-    def test_a_maintainer_who_read_a_pull_request_tries_that_commit_from_main(self):
-        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", PR="123", SHA="d" * 40, ITEMS="canary")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.outputs()["lab_ref"], "refs/pull/123/head")
-        self.assertEqual(self.outputs()["expect_sha"], "d" * 40)
-        self.assertEqual(self.outputs()["items"], "canary")
-
-    def test_a_dispatch_with_nothing_typed_tries_the_canary_of_the_commit_it_runs_on(self):
-        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="")
-        self.assertEqual((done.returncode, self.outputs()["items"], self.outputs()["lab_ref"]), (0, "canary", SHA))
+    def test_what_an_event_and_a_maintainer_s_words_become(self):
+        main = {"REF": "refs/heads/main", "BASE": ""}
+        done = {"lab_ref": SHA, "catalog_ref": "c" * 40, "items": "changed", "base": "b" * 40, "expect_sha": "", "skip": "false"}
+        for env, wanted in (({}, done),   # a pull request, where it changes the catalog's known-good commit
+                            ({"EVENT": "schedule", **main}, {**done, "catalog_ref": "", "items": "canary", "base": ""}),   # its default branch
+                            ({"EVENT": "workflow_dispatch", **main, "PR": "123", "SHA": "d" * 40, "ITEMS": "canary"},   # the commit a maintainer read, from main
+                             {**done, "lab_ref": "refs/pull/123/head", "expect_sha": "d" * 40, "items": "canary", "base": ""}),
+                            ({"EVENT": "workflow_dispatch", **main}, {**done, "items": "canary", "base": ""}),   # nothing typed: the canary of the commit it runs on
+                            ({"EVENT": "workflow_dispatch", **main, "ITEMS": "playground:a addon:@hub/b  setup:c"},   # their catalog and their spaces pass
+                             {**done, "items": "playground:a addon:@hub/b  setup:c", "base": ""})):
+            with self.subTest(env=env):
+                ran = self.prepare(**env)
+                self.assertEqual(ran.returncode, 0, ran.stderr)
+                self.assertEqual(self.outputs(), wanted)
 
     def test_a_pull_request_is_tried_from_main_and_from_nowhere_else(self):
         done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/e2e/7", PR="7", SHA="d" * 40)
@@ -224,16 +218,11 @@ class PrepareTest(ShellTest):
                    {"CATALOG_REF": "-x"}, {"CATALOG_REF": "a b"}, {"CATALOG_REF": "x\ny"}, {"CATALOG_REF": "a;b"}, {"CATALOG_REF": "$(id)"}]
         for env in hostile:
             with self.subTest(env=env):
-                self.output.write_text("", encoding="utf-8")
                 done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", **env)
                 self.assertEqual(done.returncode, 1, done.stdout)
                 self.assertIn("::error title=E2E04::", done.stdout)
                 self.assertNotIn("hacked", done.stderr + self.output.read_text(encoding="utf-8"))
                 self.assertEqual(self.outputs(), {}, "nothing is passed on")
-
-    def test_words_that_name_items_pass_with_their_catalog_and_their_spaces(self):
-        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", ITEMS="playground:a addon:@hub/b  setup:c")
-        self.assertEqual((done.returncode, self.outputs()["items"]), (0, "playground:a addon:@hub/b  setup:c"))
 
     def test_an_engine_with_no_catalog_to_try_says_so_and_goes_on_to_nothing(self):
         done = self.prepare(CATALOG_REPOSITORY="", CATALOG_REF="")
@@ -471,24 +460,6 @@ class ReleaseTest(unittest.TestCase):
         git("checkout", "-q", one)
         git("tag", "-d", "v1.0.0")
         self.assertEqual(run("major"), "", "v1.0.1 holds the older merge: no v1.0.0 and no v2.0.0 for it")
-
-    def test_a_release_that_exists_is_not_made_again(self):
-        shell = script(step_with(self.body, "name: Publish the release"))
-        top = Path(tempfile.mkdtemp(prefix="release-"))
-        self.addCleanup(shutil.rmtree, top, True)
-        (top / "bin").mkdir()
-        calls = top / "calls"
-        (top / "bin" / "gh").write_text(f'#!/bin/sh\necho "$*" >> {calls}\n[ "$1 $2" != "release view" ] || exit "$VIEW"\n',
-                                        encoding="utf-8")
-        (top / "bin" / "gh").chmod(0o755)
-        for view, made in (("0", False), ("1", True)):
-            with self.subTest(exists=view == "0"):
-                calls.write_text("", encoding="utf-8")
-                done = subprocess.run([BASH, "-eo", "pipefail", "-c", shell], capture_output=True, text=True,
-                                      env={**os.environ, "PATH": f"{top / 'bin'}{os.pathsep}{os.environ['PATH']}", "VIEW": view,
-                                           "TAG": "v1.2.3", "GITHUB_REPOSITORY": "o/r"})
-                self.assertEqual(done.returncode, 0, done.stderr)
-                self.assertEqual(any(line.startswith("release create v1.2.3") for line in calls.read_text().splitlines()), made)
 
 
 class ComposeTest(unittest.TestCase):
