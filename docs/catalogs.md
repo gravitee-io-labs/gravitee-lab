@@ -241,7 +241,7 @@ file so: the preview says so under **Kept settings** (from an earlier import, us
 take, because its item has its own, stay where they are, and the import says where. A setting the Lab could not move is said
 with where it still is, and nothing else is deleted with it. What Docker made and the Lab cannot delete is said, and an import of
 that name waits until you remove it. A move or an import to Personal that stopped midway, because the Lab stopped, is put right
-at the next one, and said. The Catalogs page lists the settings the Lab keeps by the names of their items, on the row they came
+when the Lab UI starts again. The Catalogs page lists the settings the Lab keeps by the names of their items, on the row they came
 from: **Personal** for those a new version replaced, **Imported** for those of a removed import. **Remove**, in the menu of each,
 says what it deletes and deletes them, and nothing else does.
 

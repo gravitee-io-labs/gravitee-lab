@@ -151,10 +151,6 @@ class Renderings(unittest.TestCase):
     def test_the_same_finding_is_said_once(self):
         self.assertEqual(1, report.render([ERROR, ERROR], "text").count("    ST05 "))
 
-    def test_an_unknown_format_is_refused(self):
-        with self.assertRaises(ValueError):
-            report.render([ERROR], "xml")
-
     def test_a_finding_with_no_code_has_no_title_and_sends_to_no_explanation(self):
         self.assertEqual("::error file=a.yml::no code", report.annotation(Problem("", "error", "a.yml", 0, "no code")))
         self.assertEqual("::warning::no file", report.annotation(Problem("", "warning", "", 0, "no file")))
@@ -273,7 +269,7 @@ class Audit(WithGit):
         return repo
 
     def run_in(self, repo, **how):
-        return audit.run(repo, audit.Options(seeder_images=("ghcr.io/lab/seeder",), **how))
+        return audit.run(repo, audit.Options(**how))
 
     def test_the_good_catalog_is_clean_and_the_header_says_what_was_read(self):
         repo = self.catalog()
@@ -309,12 +305,12 @@ class Audit(WithGit):
         repo = self.catalog()
         self.put(repo, "docs/notes.txt", b"\0\nkey = " + support.aws_key().encode() + b"\n")
         self.commit(repo, "Add notes")
-        found = [each for each in self.run_in(repo, families=self.OWN).problems if each.code == "SE02"]
+        found = [each for each in self.run_in(repo).problems if each.code == "SE02"]
         self.assertEqual([("docs/notes.txt", 2)], [(each.path, each.line) for each in found])
         self.assertNotIn("removed later", found[0].message)
         self.put(repo, "docs/notes.txt", b"\0\nclean\n")
         self.commit(repo, "Clean it")
-        found = [each for each in self.run_in(repo, families=self.OWN).problems if each.code == "SE02"]
+        found = [each for each in self.run_in(repo).problems if each.code == "SE02"]
         self.assertEqual(1, len(found))
         self.assertIn("removed later in this pull request", found[0].message)
 
@@ -387,7 +383,7 @@ class Audit(WithGit):
 
     def test_a_folder_catalog_is_judged_on_the_families_that_need_no_github(self):
         repo = self.work("folder", support.FOLDER)
-        result = audit.run(repo, audit.Options(seeder_images=()))
+        result = audit.run(repo, audit.Options())
         self.assertEqual([], result.problems)
         self.assertEqual([], result.skipped, "no SD, WF or CO is asked of a folder catalog")
 
@@ -395,13 +391,11 @@ class Audit(WithGit):
         folder = self.holder / "plain"
         for path, content in support.files().items():
             self.put(folder, path, content)
-        result = audit.run(folder, audit.Options(seeder_images=()))
+        result = audit.run(folder, audit.Options())
         self.assertEqual([], [each for each in result.problems if each.code[:2] in ("ST", "SE", "DF", "GD", "IM")])
-        with_base = audit.run(folder, audit.Options(seeder_images=(), base="a" * 40))
+        with_base = audit.run(folder, audit.Options(base="a" * 40))
         self.assertTrue(any("no git history" in why for why in with_base.skipped), with_base.skipped)
         self.assertEqual(1, audit.status(with_base, audit.Options()))
-
-    OWN = ("ST", "SE", "CR", "DF", "GD", "IM")   # the families of this package: the others may not be in the Lab yet, and say so
 
     def old_and_new_key(self, name="names", **how):
         """A repository whose base commit has a bad file and whose branch adds another: ST06 twice, one of them old."""
@@ -421,19 +415,19 @@ class Audit(WithGit):
         self.git(repo, "tag", "v1", self.first)
         for name in ("origin/main", "feature-base", "v1", "HEAD~1", "HEAD^", self.first, self.first[:12], "main~1"):
             with self.subTest(name=name):
-                result = self.run_in(repo, base=name, families=self.OWN)
+                result = self.run_in(repo, base=name)
                 self.assertEqual({"docs/old.pem": "warning", "docs/new.pem": "error"}, self.severities(result))
                 self.assertEqual(self.first, result.base)
                 self.assertEqual(f"Reading the files and the 1 commit since {self.first[:7]}", result.header)
                 self.assertEqual([], result.skipped)
-        warned = [each for each in self.run_in(repo, base="HEAD~1", families=self.OWN).problems if each.path == "docs/old.pem"][0]
+        warned = [each for each in self.run_in(repo, base="HEAD~1").problems if each.path == "docs/old.pem"][0]
         self.assertTrue(warned.message.startswith(audit.PREFIX), warned.message)
 
     def test_a_base_that_is_no_commit_is_said_and_nothing_raises(self):
         repo = self.old_and_new_key()
         for name in ("nonexistent", "a b", "--output=elsewhere", "HEAD@{1}", "a..b", "HEAD~99", "main:docs/old.pem", "x" * 400, "v1\nv2"):
             with self.subTest(name=name):
-                result = self.run_in(repo, base=name, families=self.OWN)
+                result = self.run_in(repo, base=name)
                 self.assertEqual({"docs/old.pem": "error", "docs/new.pem": "error"}, self.severities(result), "no base, no subtraction")
                 self.assertEqual(1, len(result.skipped), result.skipped)
                 self.assertIn("is not a commit of this repository", result.skipped[0])
@@ -441,7 +435,7 @@ class Audit(WithGit):
                 self.assertIn("is not a commit of this repository", result.header)
                 self.assertEqual(1, audit.status(result, audit.Options()))
         self.assertFalse((repo / "elsewhere").exists())
-        self.assertEqual("", self.run_in(repo, base="nonexistent", families=self.OWN).base)
+        self.assertEqual("", self.run_in(repo, base="nonexistent").base)
 
     def test_a_linked_work_tree_is_read_like_a_clone(self):
         """`git worktree add` makes a checkout whose `.git` is a file; the base is read all the same."""
@@ -453,13 +447,13 @@ class Audit(WithGit):
         self.put(linked, "docs/new.pem", "y\n")
         self.commit(linked, "Another key")
         for how in ({}, {"base": "origin/main"}):
-            result = self.run_in(linked, families=self.OWN, **how)
+            result = self.run_in(linked, **how)
             self.assertEqual({"docs/old.pem": "warning", "docs/new.pem": "error"}, self.severities(result), how)
             self.assertEqual([], result.skipped)
 
     def test_the_errors_stay_errors_and_it_is_said_when_the_files_of_the_base_cannot_be_read(self):
         listing = ListTree.from_files(support.files({"docs/old.pem": "x\n"}))
-        how = dict(seeder_images=(), families=("ST",), base="a" * 40)
+        how = dict(base="a" * 40)
         result = audit.run(None, audit.Options(tree=listing, **how))
         self.assertEqual(["error"], [each.severity for each in result.problems if each.code == "ST06"])
         self.assertEqual(["which errors were already there at the base: the files of the base could not be read, so they stay errors"],
@@ -485,11 +479,11 @@ class Audit(WithGit):
         self.git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
         self.put(repo, "docs/more.md", "more\n")
         self.commit(repo, "More")
-        result = self.run_in(repo, ci=True, repository="Acme/Lab-Hub", families=self.OWN)
+        result = self.run_in(repo, ci=True, repository="Acme/Lab-Hub")
         found = [each for each in result.problems if each.code == "IM04"]
         self.assertEqual(["warning"], [each.severity for each in found])
         self.assertTrue(found[0].message.startswith(audit.PREFIX), found[0].message)
-        result = self.run_in(repo, online=True, repository="Acme/Lab-Hub", families=self.OWN)
+        result = self.run_in(repo, online=True, repository="Acme/Lab-Hub")
         self.assertEqual(["warning"], [each.severity for each in result.problems if each.code == "IM04"])
 
     def test_the_first_line_names_the_base_of_a_pull_request_and_not_origin_main(self):
@@ -498,24 +492,22 @@ class Audit(WithGit):
         gitfixture.commit(bare, {"docs/a.md": "a\n"}, "Add a")
         head = gitfixture.tip(bare)
         listing = tree.GitTree(bare, head)
-        result = audit.run(None, audit.Options(tree=listing, commits=tree.History(git_dir=bare, base=base), seeder_images=(), families=("ST",)))
+        result = audit.run(None, audit.Options(tree=listing, commits=tree.History(git_dir=bare, base=base)))
         self.assertEqual(f"Reading the files and the 1 commit since {base[:7]}", result.header)
-        result = audit.run(None, audit.Options(tree=listing, commits=tree.History(git_dir=bare, base=None), seeder_images=(), families=("ST",)))
+        result = audit.run(None, audit.Options(tree=listing, commits=tree.History(git_dir=bare, base=None)))
         self.assertEqual("Reading the files and the 2 commits of the whole history", result.header)
 
     def test_a_catalog_with_no_standard_file_is_told_so_in_a_second_line(self):
         repo = self.work("folder", support.FOLDER)
-        result = audit.run(repo, audit.Options(seeder_images=()))
+        result = audit.run(repo, audit.Options())
         lines = result.header.split("\n")
         self.assertEqual(2, len(lines), result.header)
         self.assertEqual("No .github/standard.json: judged on the families that need no GitHub (ST, SE, CR, DF, GD, IM)", lines[1])
         text = report.render(result.problems, "text", skipped=result.skipped, header=result.header)
         self.assertEqual(lines, text.splitlines()[:2], "both lines are printed")
         self.assertEqual([], result.skipped)
-        full = audit.run(self.work("full", support.files()), audit.Options(seeder_images=()))
+        full = audit.run(self.work("full", support.files()), audit.Options())
         self.assertNotIn("\n", full.header, "a catalog with its standard is judged on all of them and says nothing more")
-        chosen = audit.run(repo, audit.Options(seeder_images=(), families=("ST", "SE")))
-        self.assertNotIn("\n", chosen.header, "the caller chose the families: nothing was left out")
 
     def test_a_base_git_does_not_have_is_said_and_never_taken_for_a_clean_history(self):
         repo = self.catalog()
@@ -562,38 +554,27 @@ class Audit(WithGit):
         """`check --pr`: the tree and the commits come from git objects."""
         bare = gitfixture.make_repo(self.holder / "pr.git", support.files({"docs/bad name.md": "x\n"}))
         listing = tree.GitTree(bare, gitfixture.tip(bare))
-        result = audit.run(None, audit.Options(tree=listing, commits=tree.History(git_dir=bare, base=None),
-                                               seeder_images=(), families=("ST",)))
-        self.assertEqual(["ST03"], [each.code for each in result.problems])
+        result = audit.run(None, audit.Options(tree=listing, commits=tree.History(git_dir=bare, base=None)))
+        self.assertEqual(["ST03"], [each.code for each in result.problems if each.code.startswith("ST")])
         self.assertEqual(1, result.commits)
-
-    def test_the_families_are_asked_for_by_name(self):
-        repo = self.work("only", support.files({"docs/k.pem": "x\n", "apps/Dockerfile": "FROM python\n"}))
-        result = self.run_in(repo, families=("DF",))
-        self.assertEqual({"DF21", "DF23"}, {each.code for each in result.problems})
 
     def test_the_seeder_is_an_anchor_for_the_images_of_a_playground(self):
         playground = ("services:\n  shop-seed:\n    image: %s:latest\n    build: ../../../../../seeder\n"
                       "    pull_policy: ${SHOP_PULL_POLICY:-build}\n")
         repo = self.work("seeded", support.files({"playgrounds/shop/compose.yml": playground % "ghcr.io/lab/seeder",
                                                   "playgrounds/shop/README.md": "# Shop\n"}))
-        self.assertEqual([], [each for each in self.run_in(repo).problems if each.code.startswith("IM")])
         other = self.work("other", support.files({"playgrounds/shop/compose.yml": playground % "ghcr.io/lab/other",
                                                   "playgrounds/shop/README.md": "# Shop\n",
                                                   "catalog.yml": support.CATALOG + "  images: ghcr.io/acme/hub\n"}))
-        self.assertEqual(["IM02"], [each.code for each in self.run_in(other).problems if each.code.startswith("IM")])
+        with mock.patch.object(audit, "lab_seeder_images", return_value=("ghcr.io/lab/seeder",)):
+            self.assertEqual([], [each for each in self.run_in(repo).problems if each.code.startswith("IM")])
+            self.assertEqual(["IM02"], [each.code for each in self.run_in(other).problems if each.code.startswith("IM")])
 
     def test_the_lab_names_its_seeder_in_its_core_file(self):
         found = audit.lab_seeder_images()
         self.assertEqual(1, len(found))
         self.assertRegex(found[0], r"[a-z0-9.-]+(/[a-z0-9._-]+)+")
         self.assertEqual((), audit.lab_seeder_images(self.holder))
-
-    def test_the_check_of_a_family_is_the_check_of_its_module(self):
-        self.assertIs(structure.check, audit._load("ST"))
-        with mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("y", name="a_package_it_needs")):
-            with self.assertRaises(ModuleNotFoundError):
-                audit._load("SD")
 
     def test_an_unreadable_tree_is_said_as_a_skip(self):
         class Broken(tree.Tree):

@@ -56,6 +56,7 @@ from ..docker import images
 from ..library import moves, project
 from . import contribute, defaults, kept, manifest, meta as block, moving, registry, resolve, service, standard
 from . import store as bare
+from .moving import STUCK, _rel, _slug
 from .registry import CatalogError
 
 IMPORTS_DIR = paths.IMPORTS_DIR   # where an imported playground's catalog is kept: the Lab's own folder
@@ -77,10 +78,6 @@ def _fail(code, message, status=400):
 # ---------------------------------------------------------------------------------------------------------------------
 # What an export carries
 # ---------------------------------------------------------------------------------------------------------------------
-
-def _slug(uid):
-    return uid.rsplit("/", 1)[-1]
-
 
 def _as_id(text):
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")[:24].strip("-")
@@ -247,9 +244,9 @@ def _catalog_yml(text, gathered):
         if url is None:   # a catalog with no Git address cannot be named as needed: another Lab will say what it lacks
             continue
         version = row.get("version") if re.fullmatch(r"\d+\.\d+\.\d+", str(row.get("version") or "")) else "0.1.0"
-        needed += [f"      {ns}:", f'        name: "{row.get("name") or ns}"', f"        url: {url}", f"        min: {version}"]
+        needed.append((ns, row.get("name") or ns, url, version))
     if needed:
-        text = text.rstrip("\n") + "\n  requires:\n    catalogs:\n" + "\n".join(needed) + "\n"
+        text = _requires(text, needed)
     if gathered["shared"]:
         text = text.rstrip("\n") + "\n  shared_settings:\n" + "".join(f"    - {name}\n" for name in gathered["shared"])
     # The lines of older Labs, true for the files in the archive: an export that carries a private label is one they refuse cleanly,
@@ -319,10 +316,6 @@ def _zip(root: Path, top: str) -> bytes:
     return out.getvalue()
 
 
-def _row(kind, uid, units):
-    return {"kind": kind, "id": uid, "name": units[kind][uid]["name"]}
-
-
 def _judge(root: Path):
     """What another Lab will make of the archive: the preview of the Add of its folder, made here and let go at once."""
     preview = service.check_address(str(root))
@@ -334,7 +327,6 @@ def _plan(gathered, preview):
     rows = project.loaded()[1].get("catalogs") or {}
     units = gathered["units"]
     # The items it carries are on this machine too, where they were exported from: a name they share with themselves is no clash
-    # on another Lab
     # on another Lab, nor is what follows from it: an item blocked only for that is no reason to block what includes it
     carried = set(gathered["carried"])
     others = {unit["name"] for kind, found in units.items() for uid, unit in found.items() if (kind, uid) not in carried}
@@ -348,7 +340,7 @@ def _plan(gathered, preview):
             break
         dropped |= freed
     return {"name": gathered["name"], "file": f"{gathered['ns']}.zip",
-            "carries": [_row(kind, uid, units) for kind, uid in gathered["carried"]],
+            "carries": [{"kind": kind, "id": uid, "name": units[kind][uid]["name"]} for kind, uid in gathered["carried"]],
             "needs": [{"id": ns, "name": (rows.get(ns) or {}).get("name") or ns} for ns in gathered["needs"]],
             "problems": gathered["problems"],
             "private": gathered["private"],
@@ -554,10 +546,6 @@ def _said_origins(folder: Path):
     return [one for one in items if isinstance(one, dict)] if isinstance(items, list) else []
 
 
-def _rel(kind, item):
-    return f"setups/{item}.yml" if kind == "setup" else f"{kind}s/{item}"
-
-
 def _requires(text, needed):
     """catalog.yml with the catalogs `needed` ([(ns, name, url, min)]) in its requires.catalogs, as an export writes them."""
     rows = "".join(f'      {ns}:\n        name: "{name}"\n        url: {url}\n        min: {least}\n' for ns, name, url, least in needed)
@@ -684,7 +672,7 @@ def to_personal(ticket, allow=False):
     """The import the preview `ticket` showed, kept in Personal instead of as a catalog: refused when the preview found an item that
     cannot run (Personal would run it unjudged), when an item uses this machine and the person did not allow it (`allow`), when the
     files are no longer those the preview judged, or when an item it replaces is on. The items are written whole beside Personal
-    with no lock, then swapped in under the lock of the catalogs (moving.replace). Answers {items: [{kind, id}], playground, kept,
+    with no lock, then swapped in under the lock of the catalogs. Answers {items: [{kind, id}], playground, kept,
     warning}."""
     data = service._held(ticket, "add")
     folder = Path(getattr(data.get("address"), "path", "") or "")
@@ -710,15 +698,13 @@ def to_personal(ticket, allow=False):
     swap = moving.stage(write)
     try:
         with service._changing():
-            recovered = moving.recover()
-            with moving.telling(recovered):
-                if data.get("digest") != _digest(snapshot):
-                    raise _fail("import_changed", "The files of this import changed after its preview. Fix: choose its file again.", 409)
-                found = project.load()
-                held = next(filter(None, (moving.replaced_on(found, kind, slug) for kind, slug, rel, _, _ in going
-                                          if _personal_now(kind, rel) is not None)), "")
-                if held:
-                    raise _fail("held", held, 409)
+            if data.get("digest") != _digest(snapshot):
+                raise _fail("import_changed", "The files of this import changed after its preview. Fix: choose its file again.", 409)
+            found = project.load()
+            held = next(filter(None, (moving.replaced_on(found, kind, slug) for kind, slug, rel, _, _ in going
+                                      if _personal_now(kind, rel) is not None)), "")
+            if held:
+                raise _fail("held", held, 409)
             rels = [rel for _, _, rel, _, _ in going]
             said = moving.swap_in(swap, rels, moving.placed_without_claims(rels))
             service.forget(ticket)
@@ -727,10 +713,9 @@ def to_personal(ticket, allow=False):
             project.forget()
     finally:
         moving.discard(swap)   # what was not swapped in: nothing when the change was made
-    warning = " ".join(one for one in (recovered, said) if one)
     playground = next((f"{paths.LOCAL}/{slug}" for kind, slug, _, _, _ in items if kind == "playground"), None)
     return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground,
-            **({"kept": stayed} if stayed else {}), **({"warning": warning} if warning else {})}
+            **({"kept": stayed} if stayed else {}), **({"warning": said} if said else {})}
 
 
 def _kept_to_personal(top, content, items):
@@ -783,23 +768,19 @@ def receive(data):
             reused = _reuse(incoming, top)
             final = base / top
             with service._changing():
-                recovered = moving.recover()
-                with moving.telling(recovered):
-                    _refused_id(archive, top)
-                    if top in _reading:
-                        raise registry.busy()
-                    _sweep(top)
-                    if os.path.lexists(final):
-                        raise _leftover(archive, top)   # what a removal could not delete, the sweep could not either
-                    os.replace(incoming, final)
-                    _reading.add(top)
+                _refused_id(archive, top)
+                if top in _reading:
+                    raise registry.busy()
+                _sweep(top)
+                if os.path.lexists(final):
+                    raise _leftover(archive, top)   # what a removal could not delete, the sweep could not either
+                os.replace(incoming, final)
+                _reading.add(top)
         except BaseException:
             shutil.rmtree(incoming, ignore_errors=True)
             raise
     try:
-        with moving.telling(recovered):
-            preview = _judged_import(final, top, content, reused)
-        return {**preview, **({"warning": recovered} if recovered else {})}
+        return _judged_import(final, top, content, reused)
     except BaseException:
         shutil.rmtree(final, ignore_errors=True)
         raise
@@ -890,9 +871,6 @@ def _leftover(archive, top):
                                     f"folder {IMPORTS_DIR}/{top} with administrator rights, then import it again.", 409)
 
 
-PARTIAL = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
-
-
 def forget_folder(entry, keep_settings=True):
     """The files of an imported playground's catalog go when the catalog is removed: they are the Lab's, in .lab/imports. With
     `keep_settings` the person's settings, secrets and state of its items go first to a folder of their own (`KEPT_DIR`), bound
@@ -913,7 +891,7 @@ def forget_folder(entry, keep_settings=True):
     if failed:
         return NOT_KEPT.format(paths=", ".join(f"{area}/{item}/{name}" for area, item, name in
                                                ((*rel.split("/", 1), name) for rel, name in failed)), where=f"{IMPORTS_DIR}/{ns}")
-    return PARTIAL.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None
+    return STUCK.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None
 
 
 NOT_KEPT = ("The settings of {paths} could not be kept and are still in {where}: copy them out, then remove that folder with "

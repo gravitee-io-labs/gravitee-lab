@@ -983,7 +983,7 @@ export function contentLead(state) {
 }
 
 // The dot of the Catalogs entry of the menu: on while a catalog row has a button to press (`attention`: an update, a repair, a Lab to update,
-// a download that failed or is long), saying which, the first that applies, to a screen reader and in its tooltip. Otherwise the entry is
+// a download that failed), saying which, the first that applies, to a screen reader and in its tooltip. Otherwise the entry is
 // as the page wrote it. Called once the state is drawn (main.js).
 const ATTENTION = [["update", "update available"], ["repair", "needs repair"], ["lab", "update the Lab"], ["download", "not downloaded"]];
 export function paintMenuDot(state = store.state) {

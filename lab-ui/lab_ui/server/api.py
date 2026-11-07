@@ -475,11 +475,10 @@ def cancel(req, jid):
 
 
 def add_catalog(req):
-    """Add: the ticket of the check, or a listed catalog by its id, which is added with no check and no dialog. The
-    allowance of the dialog's choice may come with the ticket (`host`); the page sends it as a request of its own."""
+    """Add: the ticket of the check, or a listed catalog by its id, which is added with no check and no dialog."""
     if req.body.get("listed") is not None:
         return service.add_listed(req.body["listed"])
-    return service.add(req.body.get("ticket"), host=req.body.get("host") is True)
+    return service.add(req.body.get("ticket"))
 
 
 def update_catalog(req, ns, change):
@@ -1016,14 +1015,13 @@ def is_lab_ui(port):
 
 
 def start_up():
-    """What the Lab does once its port is bound in this order: what a stop left of a change of Personal is put right, the
-    sweeper finishes what a stop left in the installs of the Lab and then in the folders of the catalogs that are linked (the
-    half copies a Share left), the intent of the first run is written and what has no copy is marked as downloading, and the
-    background threads of the Lab start. Each step is local and fast but the last ones, which return at once; a failure of
-    one is said in a line and never keeps the Lab from serving, because its row says what is wrong."""
+    """What the Lab does once its port is bound in this order: the sweeper finishes what a stop left in the installs of the Lab, what a
+    stop left of a change of Personal is put right, the intent of the first run is written and what has no copy is marked as downloading,
+    and the background threads of the Lab start. Each step is local and fast but the last ones, which return at once; a failure of one
+    is said in a line and never keeps the Lab from serving, because its row says what is wrong."""
     for what, step in (("finishing what a stop left", service.recover),
                        ("finishing a change of Personal that a stop left", moving.recover_at_start),
-                       ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
+                       ("preparing the first run", firstrun.reconcile),
                        ("starting the download of catalogs", firstrun.start_worker),
                        ("starting the check for new versions", updates.start_checking)):
         try:

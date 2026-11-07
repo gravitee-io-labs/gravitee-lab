@@ -589,7 +589,7 @@ class Staging(Base):
     def test_an_object_the_store_lacks_is_the_damage_a_repair_fetches_for(self):
         address, store_path, tip, kept, ignored = self.into_a_new_store(self.remote("partner").url, "0a1b")
         other = [bare.Entry(e.mode, "1" * 40, e.size, e.path) if e.path == "catalog.yml" else e for e in kept]
-        self.refusal("fsck", install.stage, address, "partner", store_path, tip, other, ignored)
+        self.refusal(lambda: install.stage(address, "partner", store_path, tip, other, ignored), "fsck")
         self.assertFalse(registry.stage_dir("partner").exists())
 
     def test_a_git_stage_needs_its_store_and_commit(self):
@@ -625,7 +625,7 @@ class Staging(Base):
             install.stage(address, "partner", None, "", [])
         self.assertEqual(raised.exception.code, "folder_not_catalog")
         shutil.rmtree(folder)
-        self.refusal("folder_missing", install.stage, address, "partner", None, "", [])
+        self.refusal(lambda: install.stage(address, "partner", None, "", []), "folder_missing")
 
     def test_a_system_that_cannot_link_says_so(self):
         folder = self.folder_catalog("partner")
@@ -778,10 +778,6 @@ class Adding(Base):
         install.commit_add(staged, address, "", "public", roots, meta_of("partner"))
         self.assertNotIn("branch", registry.entry("partner"))
 
-    def test_the_choice_to_use_the_machine_is_stored_for_a_catalog_that_is_not_listed(self):
-        staged, address, roots = self.prepare("partner")
-        install.commit_add(staged, address, "main", "private", roots, meta_of("partner"), host=True)
-        self.assertTrue(registry.entry("partner")["host"])
 
     def test_the_array_order_is_the_order_the_catalogs_were_added(self):
         self.add("partner")
@@ -800,12 +796,12 @@ class Adding(Base):
     def test_the_same_address_under_another_name_cannot_be_added_twice(self):
         self.add("partner")
         staged, address, roots = self.prepare("partner", store_ns="partner-two")
-        self.refusal("already_added", install.commit_add, staged, address, "main", "public", roots, meta_of("partner", id="partner-two"))
+        self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner", id="partner-two")), "already_added")
         self.assertFalse(registry.install_dir("partner-two").exists())
 
     def test_a_reserved_name_is_refused_unless_the_address_is_the_listed_one(self):
         staged, address, roots = self.prepare("partner", store_ns="official")
-        self.refusal("name_reserved", install.commit_add, staged, address, "main", "public", roots, meta_of("partner", id="official"))
+        self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner", id="official")), "name_reserved")
         self.assertFalse(registry.install_dir("official").exists())
         self.assertEqual(registry.entries(), [])
 
@@ -833,7 +829,7 @@ class Adding(Base):
         file.chmod(0o644)
         file.write_text("#" * file.stat().st_size, encoding="utf-8")   # of the same size: only its id says it changed
         file.chmod(READ_ONLY)
-        self.refusal("damaged", install.commit_add, staged, address, "main", "public", roots, meta_of("partner"))
+        self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner")), "damaged")
         self.assertFalse(registry.install_dir("partner").exists())
         self.assertIsNone(registry.entry("partner"))
         self.assertNotIn("partner", registry.read_lock()["catalogs"])
@@ -841,7 +837,7 @@ class Adding(Base):
     def test_a_stage_with_a_file_added_to_it_is_not_installed(self):
         staged, address, roots = self.prepare("partner")
         (staged.path / "addons/ledger/extra.yml").write_text("x", encoding="utf-8")
-        self.refusal("damaged", install.commit_add, staged, address, "main", "public", roots, meta_of("partner"))
+        self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner")), "damaged")
         self.assertFalse(registry.install_dir("partner").exists())
 
     def test_nothing_is_written_outside_the_lab_folder_by_an_add(self):
@@ -983,7 +979,7 @@ class AddingOverSettings(Base):
         (base).mkdir(parents=True, exist_ok=True)
         (base / "partner").write_text("a file", encoding="utf-8")
         staged, address, roots = self.prepare("partner")
-        self.refusal("name_taken", install.commit_add, staged, address, "main", "public", roots, meta_of("partner"))
+        self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner")), "name_taken")
         self.assertEqual((base / "partner").read_text(encoding="utf-8"), "a file")
 
 
@@ -1138,7 +1134,7 @@ class Downloading(Base):
         self.patch(install.defaults, "read", lambda: [{**row, "url": "https://example.invalid/other.git"}])
         install.remove("gravitee", keep_settings=False)
         staged, address, roots = self.prepare("partner", store_ns="gravitee")
-        self.refusal("name_reserved", install.commit_add, staged, address, "main", "public", roots, meta_of("partner", id="gravitee"))
+        self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner", id="gravitee")), "name_reserved")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1212,7 +1208,7 @@ class Updating(Base):
     def test_a_go_back_to_a_version_this_lab_no_longer_reads_is_refused_as_well(self):
         target = self.advance({"catalog.yml": self.version("2.1.0").replace("lab: 1", "lab: 2"), **AUDIT})
         self.apply(target, context={"contract": {"contract": 2, "contract_min": 1}})
-        self.refusal("lab_old", install.plan_update, "partner", self.first, {"contract": {"contract": 2, "contract_min": 2}})
+        self.refusal(lambda: install.plan_update("partner", self.first, {"contract": {"contract": 2, "contract_min": 2}}), "lab_old")
         self.assertEqual(install.plan_update("partner", self.first, {"contract": {"contract": 2, "contract_min": 1}})["op"], "undo")
 
     def test_a_commit_that_changes_nothing_installable_is_up_to_date(self):
@@ -1353,7 +1349,7 @@ class Updating(Base):
         asked = []
         plan = install.plan_update("partner", target, {"on": lambda: asked.append(1) or ["addon:ledger"]})
         self.assertEqual(plan["held"], ["addon:ledger"])
-        self.refusal("held", install.apply_update, "partner", plan)
+        self.refusal(lambda: install.apply_update("partner", plan), "held")
         self.assertGreaterEqual(len(asked), 2, "asked again when the update is applied")
 
     def test_a_unit_that_does_not_change_is_not_held_by_being_on(self):
@@ -1418,7 +1414,7 @@ class Updating(Base):
         self.assertFalse(install.plan_update("partner", later)["rewritten"], "the pin is on the new history now")
 
     def test_a_commit_the_store_does_not_hold_is_the_damage_a_fetch_repairs(self):
-        self.refusal("fsck", install.plan_update, "partner", "a" * 40)
+        self.refusal(lambda: install.plan_update("partner", "a" * 40), "fsck")
         self.assertFalse(registry.stage_dir("partner").exists())
 
     def test_going_back_is_an_update_to_the_previous_commit_and_toggles(self):
@@ -1479,7 +1475,7 @@ class Updating(Base):
         install.apply_update("partner", install.plan_update("partner", target), confirm_history=True)
         plan = install.plan_update("partner", self.first)
         self.assertTrue(plan["rewritten"])
-        self.refusal("history_changed", install.apply_update, "partner", plan)
+        self.refusal(lambda: install.apply_update("partner", plan), "history_changed")
         self.assertNotEqual(registry.lock_of("partner")["roots"], old_roots, "nothing was applied")
         install.apply_update("partner", plan, confirm_history=True)
         self.assertEqual(registry.lock_of("partner")["roots"], old_roots)
@@ -1523,7 +1519,7 @@ class Updating(Base):
         (self.root / "theirs.txt").write_text("theirs\n", encoding="utf-8")
         (base / LEDGER / "NOTES.md").symlink_to(self.root / "theirs.txt")
         target = self.advance({"addons/ledger/NOTES.md": "from the catalog\n"})
-        self.refusal("damaged", self.apply, target)
+        self.refusal(lambda: self.apply(target), "damaged")
         self.assertTrue((base / LEDGER / "NOTES.md").is_symlink())
         self.assertEqual((self.root / "theirs.txt").read_text(encoding="utf-8"), "theirs\n")
         self.assertIsNone(registry.lock_of("partner")["pending"])
@@ -1560,7 +1556,7 @@ class Updating(Base):
         target = self.advance({"addons/ledger/data": "now a file\n", "addons/ledger/README.md": "Changed\n"})
         plan = install.plan_update("partner", target)
         before = self.tree("partner")
-        self.refusal("damaged", install.apply_update, "partner", plan)
+        self.refusal(lambda: install.apply_update("partner", plan), "damaged")
         self.assertEqual(self.tree("partner"), before, "not one file was replaced")
         self.assertIsNone(registry.lock_of("partner")["pending"])
         self.assertEqual(registry.lock_of("partner")["pin"], self.first)
@@ -1581,7 +1577,7 @@ class Updating(Base):
 
     def test_a_damaged_install_is_repaired_before_it_is_updated(self):
         (Path(paths.ROOT) / ".lab/catalogs/partner/.installed.json").unlink()
-        self.refusal("damaged", install.plan_update, "partner", self.advance({"addons/ledger/README.md": "Changed\n"}))
+        self.refusal(lambda: install.plan_update("partner", self.advance({"addons/ledger/README.md": "Changed\n"})), "damaged")
 
     def test_the_catalog_file_of_the_new_version_is_judged(self):
         target = self.advance({"catalog.yml": self.version("2.1.0").replace("id: partner", "id: someone-else")})
@@ -1592,7 +1588,7 @@ class Updating(Base):
                          "Lab expects. Run make update, then try again.")
         refused = mock.Mock(side_effect=registry.CatalogError("catalog_invalid", "catalog.yml: version is required.", 400))
         self.patch(manifest, "read_catalog", refused)
-        self.refusal("catalog_invalid", install.plan_update, "partner", self.advance({"addons/ledger/README.md": "Again\n"}))
+        self.refusal(lambda: install.plan_update("partner", self.advance({"addons/ledger/README.md": "Again\n"})), "catalog_invalid")
 
 class Repairing(Base):
 
@@ -1662,7 +1658,7 @@ class Repairing(Base):
     def test_an_object_the_store_lacks_is_fsck_and_the_install_is_as_it_was(self):
         shutil.rmtree(registry.store_dir("partner"))
         (self.base / LEDGER / "README.md").unlink()
-        self.refusal("fsck", install.repair, "partner")
+        self.refusal(lambda: install.repair("partner"), "fsck")
         self.assertFalse((self.base / LEDGER / "README.md").exists())
         self.assertIsNone(registry.lock_of("partner")["pending"])
 
@@ -1680,7 +1676,7 @@ class Repairing(Base):
 
     def test_a_working_copy_stands_in_so_there_is_nothing_to_repair(self):
         install.shadow("partner", str(self.folder_catalog("partner")))
-        self.refusal("linked", install.repair, "partner")
+        self.refusal(lambda: install.repair("partner"), "linked")
 
 
 class Wording(Case):
@@ -1861,7 +1857,7 @@ class Removing(Base):
 
     def test_a_catalog_that_a_working_copy_stands_in_for_cannot_be_removed(self):
         install.shadow("partner", str(self.folder_catalog("partner")))
-        self.refusal("linked", install.remove, "partner")
+        self.refusal(lambda: install.remove("partner"), "linked")
         self.assertIsNotNone(registry.entry("partner"))
 
     def test_a_catalog_with_a_unit_that_is_on_is_not_removed(self):
@@ -1876,7 +1872,7 @@ class Removing(Base):
     def test_a_catalog_with_a_unit_that_an_item_of_another_catalog_includes_is_not_removed_while_that_item_is_on(self):
         self.add("fixture")
         self.write(".lab/on.yml", "include:\n  - .lab/catalogs/fixture/setups/pair.yml\n")
-        self.refusal("held", install.remove, "partner")
+        self.refusal(lambda: install.remove("partner"), "held")
         self.write(".lab/on.yml", "")
         install.remove("partner")
         self.assertIsNone(registry.entry("partner"))
@@ -1889,7 +1885,7 @@ class Removing(Base):
 
     def test_nothing_is_removed_for_a_name_the_unreadable_list_does_not_hold(self):
         (Path(paths.ROOT) / ".lab/catalogs.json").write_text("{not json", encoding="utf-8")
-        self.refusal("damaged", install.remove, "partner", keep_settings=False)
+        self.refusal(lambda: install.remove("partner", keep_settings=False), "damaged")
         self.assertTrue((self.base / LEDGER / "compose.yml").is_file())
 
 
@@ -2073,7 +2069,7 @@ class Sweeping(Base):
         self.addCleanup(os.close, descriptor)
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         self.patch(registry, "FLOCK_WAIT", 0.2)
-        self.refusal("busy", install.recover)
+        self.refusal(lambda: install.recover(), "busy")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2181,11 +2177,11 @@ class Shadowing(Base):
         self.assertEqual(raised.exception.code, "catalog_invalid")
         self.assertEqual(self.tree("partner"), self.before)
         (wrong / "catalog.yml").unlink()
-        self.refusal("folder_not_catalog", install.shadow, "partner", str(wrong))
+        self.refusal(lambda: install.shadow("partner", str(wrong)), "folder_not_catalog")
 
     def test_a_catalog_that_is_already_linked_or_not_installed_is_not_linked(self):
         install.shadow("partner", str(self.folder))
-        self.refusal("linked", install.shadow, "partner", str(self.folder))
+        self.refusal(lambda: install.shadow("partner", str(self.folder)), "linked")
         with self.assertRaises(ValueError):
             install.shadow("lab-new", str(self.folder))
 
@@ -2210,7 +2206,7 @@ class Shadowing(Base):
     def test_an_unlink_with_the_cache_cleared_fails_before_it_starts_and_works_after_a_fetch(self):
         install.shadow("partner", str(self.folder))
         shutil.rmtree(registry.store_dir("partner"))   # the cache is disposable
-        self.refusal("fsck", install.unshadow, "partner")
+        self.refusal(lambda: install.unshadow("partner"), "fsck")
         self.assertTrue(self.base.is_symlink(), "the link stays")
         self.assertEqual(registry.entry("partner")["kind"], "folder")
         self.assertEqual(install._read_record("partner")["phase"], "linked", "nothing was started that a start would retry")
@@ -2343,7 +2339,7 @@ class Stops(Base):
                 self.intact("partner")
             else:
                 self.intact("partner")
-                self.refusal("already_added", self.add, "partner")
+                self.refusal(lambda: self.add("partner"), "already_added")
         labels = self.runs(lambda: None, lambda _: self.add("partner"), check)
         for wanted in ("stage:begin", "add:begin", "add:manifest", "add:store", "add:pending", "add:install", "add:placed",
                        "add:lock", "add:config", "add:done"):
@@ -3009,7 +3005,7 @@ class Hostile(Base):
         address = gitx.parse_address(self.remotes["partner"].url)
         target = self.remotes["partner"].commit({"addons/ledger/README.md": "Changed\n"})
         bare.fetch(address, "main", registry.store_dir("partner"))
-        self.refusal("damaged", install.apply_update, "partner", install.plan_update("partner", target))
+        self.refusal(lambda: install.apply_update("partner", install.plan_update("partner", target)), "damaged")
         self.assertEqual(sorted(p.relative_to(self.outside).as_posix() for p in self.outside.rglob("*")), before)
         self.assertEqual((self.outside / "addons/ledger/README.md").read_bytes(),
                          (fixtures.CATALOGS / "partner/addons/ledger/README.md").read_bytes())
@@ -3017,7 +3013,7 @@ class Hostile(Base):
     def test_an_install_that_is_a_link_is_not_written_through(self):
         shutil.move(str(self.base), str(self.outside / "moved"))
         self.base.symlink_to(self.outside / "moved", target_is_directory=True)
-        self.refusal("damaged", install.repair, "partner")
+        self.refusal(lambda: install.repair("partner"), "damaged")
 
 
 class Promise(Base):
@@ -3134,7 +3130,7 @@ class FolderAdds(Base):
         staged = install.stage(address, "partner", None, "", [])
         target = registry.install_dir("partner")
         target.write_text("a file", encoding="utf-8")
-        self.refusal("name_taken", install.commit_add, staged, address, None, "private", [], meta_of("partner"))
+        self.refusal(lambda: install.commit_add(staged, address, None, "private", [], meta_of("partner")), "name_taken")
         self.assertEqual(target.read_text(encoding="utf-8"), "a file")
 
     def test_a_stage_link_that_points_elsewhere_is_not_the_one_that_was_judged(self):
@@ -3143,7 +3139,7 @@ class FolderAdds(Base):
         staged = install.stage(address, "partner", None, "", [])
         os.unlink(staged.path)
         os.symlink(self.root, staged.path)
-        self.refusal("ticket_expired", install.commit_add, staged, address, None, "private", [], meta_of("partner"))
+        self.refusal(lambda: install.commit_add(staged, address, None, "private", [], meta_of("partner")), "ticket_expired")
         self.assertIsNone(registry.entry("partner"))
 
     def test_a_folder_added_while_a_listed_download_waits_takes_its_entry(self):

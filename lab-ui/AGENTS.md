@@ -35,7 +35,7 @@ is the small DOM they run the page's modules in). `tests/run.py` runs them in pa
 The rest of `tests/` is what they share: `fixtures.py` (catalogs on disk), `fakedocker.py`, `gitfixture.py`, `data/`, `smoke.py`, and `fake_cloud.py`, a Gravitee
 Cloud with its Cloud Gate to try the platforms without an account (`python3 lab-ui/tests/fake_cloud.py --port 9990`). Their cases share
 `Case` (`tests/__init__.py`): `self.patch` replaces something until the test ends, `self.folder(*modules, files=...)` and `self.write` give a
-test its own project folder, and `self.started(jobs)` reads the job a mocked `JOBS` started.
+test its own project folder, `self.refusal(call)` reads the `CatalogError` a call raises, and `self.started(jobs)` reads the job a mocked `JOBS` started.
 
 `tests/web/js/lists.main.txt` is the DOM that the three lists, the banner and Containers draw with no platform registered, and
 `lists.test.mjs` compares it with what the pages draw now. After a deliberate change of what a lab without a platform

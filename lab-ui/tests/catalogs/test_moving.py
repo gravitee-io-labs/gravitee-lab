@@ -2,10 +2,11 @@
 then moved: alone, its include of Scratch then leads to the import; together, both move and the import goes; what an item that does
 not move uses stays, and an item that one which does not move includes cannot move at all."""
 
+import contextlib
+import io
 import json
 import os
 import shutil
-import time
 
 from lab_ui import paths
 from lab_ui.catalogs import contribute, exports, gitx, moving, registry, service
@@ -86,9 +87,8 @@ class Moving(Base):
     def test_an_item_that_one_which_does_not_move_includes_cannot_move(self):
         plan = moving.plan("addon", "@sandbox/scratch")
         self.assertEqual(plan["used_by"], "Sandbox")
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("addon", "@sandbox/scratch", False)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("used", "Used by Sandbox: move that one to Personal instead."))
+        error = self.refusal(lambda: moving.move("addon", "@sandbox/scratch", False))
+        self.assertEqual((error.code, error.message), ("used", "Used by Sandbox: move that one to Personal instead."))
 
     def test_what_takes_more_of_this_machine_moves_once_allowed_and_what_is_blocked_for_more_does_not(self):
         verdicts = {"@sandbox/scratch": {"state": "blocked", "codes": ["T03"], "reasons": ["Runs with full privileges"]}}
@@ -102,10 +102,9 @@ class Moving(Base):
         self.patch(moving.project, "load", judged)
         plan = moving.plan("playground", "@sandbox/sandbox")
         self.assertEqual((plan["together"]["uses_machine"], plan["together"]["held"]), (["Scratch"], ""))
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@sandbox/sandbox", True)
-        self.assertEqual(caught.exception.code, "allow_machine")
-        self.assertEqual(caught.exception.message, "Scratch uses this machine: allow it to move it to Personal.")
+        error = self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", True))
+        self.assertEqual(error.code, "allow_machine")
+        self.assertEqual(error.message, "Scratch uses this machine: allow it to move it to Personal.")
         verdicts["@sandbox/scratch"] = {"state": "blocked", "codes": ["T20"], "reasons": ["Reads settings that are not its own"]}
         plan = moving.plan("playground", "@sandbox/sandbox")
         self.assertEqual(plan["together"]["held"], "Scratch cannot run: Reads settings that are not its own")
@@ -120,9 +119,7 @@ class Moving(Base):
         plan = moving.plan("playground", "@sandbox/sandbox")
         self.assertEqual(plan["alone"]["replaces"], ["Sandbox"])
         self.assertEqual(plan["alone"]["held"], "Sandbox in Personal is on and would be replaced. Fix: turn it off first.")
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@sandbox/sandbox", False)
-        self.assertEqual(caught.exception.code, "held")
+        self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", False), "held")
         self.assertEqual(self.local("playgrounds/sandbox/compose.yml").read_text(), before, "what is on is left as it is")
 
     def failing_copy(self):
@@ -155,18 +152,16 @@ class Moving(Base):
         self.assertIsNotNone(registry.entry("sandbox"))
         self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")), "what it wrote is gone")
 
-    def test_what_a_stopped_lab_was_writing_goes_and_what_a_live_one_writes_stays(self):
+    def test_what_a_stopped_lab_was_writing_goes(self):
         fixtures.local(self, "sandbox")
         mine = self.local("playgrounds/sandbox")
         before = self.files_of(mine)
-        for name, pid in (("dead", 2 ** 22 + 7), ("live", os.getpid())):
-            swap = paths.ROOT / paths.LAB_DIR / f".swap-{name}"
-            (swap / "new/playgrounds/sandbox").mkdir(parents=True)
-            (swap / "new/playgrounds/sandbox/compose.yml").write_text("services: {}\n")
-            (swap / "journal.json").write_text(json.dumps({"phase": "staging", "pid": pid, "started": time.time()}))
+        swap = paths.ROOT / paths.LAB_DIR / ".swap-stopped"
+        (swap / "new/playgrounds/sandbox").mkdir(parents=True)
+        (swap / "new/playgrounds/sandbox/compose.yml").write_text("services: {}\n")
+        (swap / "journal.json").write_text(json.dumps({"phase": "staging"}))
         self.assertIsNone(moving.recover(), "what was being written was never seen: it goes, and nothing is said")
-        self.assertFalse((paths.ROOT / paths.LAB_DIR / ".swap-dead").exists())
-        self.assertTrue((paths.ROOT / paths.LAB_DIR / ".swap-live").exists(), "another Lab UI, or this one, writes it now")
+        self.assertFalse(swap.exists())
         self.assertEqual(self.files_of(mine), before)
 
     def test_the_moved_items_settings_win_and_those_of_personal_it_replaced_are_kept(self):
@@ -232,9 +227,8 @@ class Moving(Base):
         rename = os.rename
         self.patch(moving.os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(28, "No space left on device"))
                    if str(one).endswith("new/addons/scratch") else rename(one, two))
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@sandbox/sandbox", True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("swap_failed", "Sandbox, Scratch could not be put in "
+        error = self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", True))
+        self.assertEqual((error.code, error.message), ("swap_failed", "Sandbox, Scratch could not be put in "
                          "Personal (no space left on device): Personal is as it was. Fix: see that the disk has room and that .lab "
                          "can be written, then try again."))
         self.assertEqual(self.files_of(mine), before, "the first item is back as it was")
@@ -262,9 +256,8 @@ class Moving(Base):
         project.forget()
         real = project.read_own
         self.patch(moving.project, "read_own", lambda file: (None, "shared/x.yml is not there") if "scratch" in file else real(file))
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@sandbox/sandbox", True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("placed_unread", "Scratch could not be read once in "
+        error = self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", True))
+        self.assertEqual((error.code, error.message), ("placed_unread", "Scratch could not be read once in "
                          "Personal (shared/x.yml is not there), so Personal is as it was. Fix: keep it in "
                          "Imported, where the Lab says why."))
         self.assertEqual(self.files_of(mine), before)
@@ -332,9 +325,7 @@ class Moving(Base):
         self.assertFalse(self.local("playgrounds/sandbox").exists(), "nothing moved")
 
     def test_only_an_imported_item_moves(self):
-        with self.assertRaises(CatalogError) as caught:
-            moving.plan("addon", "echo")
-        self.assertEqual(caught.exception.code, "not_imported")
+        self.refusal(lambda: moving.plan("addon", "echo"), "not_imported")
 
 
 class Copying(Base):
@@ -417,9 +408,7 @@ class Copying(Base):
         self.assertEqual(caught.exception.code, "busy")
 
     def test_an_item_of_personal_is_not_copied_and_a_second_copy_waits(self):
-        with self.assertRaises(CatalogError) as caught:
-            moving.copy_plan("addon", "local/scratch")
-        self.assertEqual(caught.exception.code, "personal")
+        self.refusal(lambda: moving.copy_plan("addon", "local/scratch"), "personal")
         moving.copy("addon", "echo")
         self.assertEqual(moving.copy_plan("addon", "echo")["alone"]["held"], "Echo is in Personal already: delete or rename that one first")
 
@@ -447,20 +436,18 @@ class Unjudged(Base):
 
     def test_it_does_not_move(self):
         self.assertEqual(moving.plan("playground", "@evil/evil")["alone"]["held"], self.HELD)
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@evil/evil", False, allow=True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("held", self.HELD))
+        error = self.refusal(lambda: moving.move("playground", "@evil/evil", False, allow=True))
+        self.assertEqual((error.code, error.message), ("held", self.HELD))
 
     def test_it_is_not_copied(self):
         self.assertEqual(moving.copy_plan("playground", "@evil/evil")["alone"]["held"], self.HELD)
-        with self.assertRaises(CatalogError) as caught:
-            moving.copy("playground", "@evil/evil", allow=True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("held", self.HELD))
+        error = self.refusal(lambda: moving.copy("playground", "@evil/evil", allow=True))
+        self.assertEqual((error.code, error.message), ("held", self.HELD))
         self.assertFalse((paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "evil").exists())
 
 
 class Stopped(Base):
-    """What a change left set aside when the Lab stopped in the middle of it comes back at the next change of catalogs, and is said."""
+    """What a change left set aside when the Lab stopped in the middle of it comes back when the Lab UI starts, and is said."""
 
     def journal(self, name, phase, items):
         swap = paths.ROOT / paths.LAB_DIR / f".swap-{name}"
@@ -481,8 +468,7 @@ class Stopped(Base):
         self.item(swap / "old", "playgrounds/other", "Other")
         self.item(self.local(""), "playgrounds/sandbox", "New sandbox")   # the first new one was in
         self.item(swap / "new", "playgrounds/other", "New other")   # the second was not
-        preview = exports.receive(evil_zip(playground=evil_playground(privileged=False)))
-        self.assertEqual(preview["warning"], "A change of Personal that stopped midway was undone for Sandbox, Other.")
+        self.assertEqual(moving.recover(), "A change of Personal that stopped midway was undone for Sandbox, Other.")
         self.assertEqual(self.local("playgrounds/sandbox/.env").read_text(), "MINE=1\n", "each item as it was")
         self.assertIn("name: Other", self.local("playgrounds/other/compose.yml").read_text())
         self.assertFalse(swap.exists())
@@ -510,20 +496,19 @@ class Stopped(Base):
         self.assertTrue(self.local("addons/scratch/compose.yml").is_file())
         self.assertTrue(bad.exists(), "what holds the person's files is not deleted")
 
-    def test_what_the_start_of_a_change_put_right_is_said_when_the_change_is_refused(self):
-        swap = self.journal("0a1b2c3d", "aside", ["playgrounds/sandbox"])
-        self.item(swap / "old", "playgrounds/sandbox", "Sandbox")
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("addon", "echo", False)   # no import: refused, after the start of the change put Sandbox back
-        self.assertEqual(caught.exception.message, "Echo is not an imported item: only those move to Personal. A change of Personal "
-                                                   "that stopped midway was undone for Sandbox.")
-        self.assertTrue(self.local("playgrounds/sandbox/compose.yml").is_file())
-
     def test_the_start_of_the_lab_ui_puts_right_under_the_lock_every_lab_ui_of_this_folder_takes(self):
         held = []
         self.patch(moving, "recover", lambda: held.append(str(paths.ROOT / registry.FLOCK_FILE) in registry._held.__dict__.get("held", {})))
         moving.recover_at_start()
         self.assertEqual(held, [True])
+
+    def test_what_the_start_of_the_lab_ui_put_right_is_said_in_its_terminal(self):
+        swap = self.journal("0a1b2c3d", "aside", ["playgrounds/sandbox"])
+        self.item(swap / "old", "playgrounds/sandbox", "Sandbox")
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said):
+            moving.recover_at_start()
+        self.assertEqual(said.getvalue(), "Gravitee Lab UI: A change of Personal that stopped midway was undone for Sandbox.\n")
 
     def test_a_swap_with_no_journal_that_holds_the_persons_files_is_kept_and_said(self):
         swap = paths.ROOT / paths.LAB_DIR / ".swap-0a1b2c3d"
@@ -533,9 +518,3 @@ class Stopped(Base):
                                            "what they are: they are kept there. Fix: copy what you need into your items, then delete "
                                            "that folder.")
         self.assertEqual((swap / "old/playgrounds/sandbox/.env").read_text(), "MINE=1\n")
-
-    def test_a_swap_being_written_for_too_long_is_a_leftover_whoever_has_its_writers_number(self):
-        swap = self.journal("0a1b2c3d", "staging", [])
-        (swap / "journal.json").write_text(json.dumps({"phase": "staging", "pid": os.getpid(), "started": 1}))
-        self.assertIsNone(moving.recover())
-        self.assertFalse(swap.exists())

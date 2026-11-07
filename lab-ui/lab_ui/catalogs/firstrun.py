@@ -304,7 +304,7 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             meta = _read(staged, address, contract, ns, listed)
             _set(ns, "stage", 1.0)
             _set(ns, "commit", 0.0)
-            install.commit_add(staged, address, remote["branch"], audience, roots, meta=meta, host=False)
+            install.commit_add(staged, address, remote["branch"], audience, roots, meta=meta)
         except Exception:
             shutil.rmtree(registry.stage_dir(ns), ignore_errors=True)
             raise

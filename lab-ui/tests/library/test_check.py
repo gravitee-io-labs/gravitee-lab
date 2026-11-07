@@ -2001,8 +2001,8 @@ class Declarations(Case):
         seed = shop["config"]["services"]["fixture-shop-seed"]["build"]
         self.assertEqual(seed if isinstance(seed, str) else seed["context"], "../../../../../seeder")
         # What the audit does with them: the image outside the prefix is IM02, the Lab's seeder is the one anchor
-        result = audit.run(self.holder.root / paths.CATALOGS_DIR / "fixture", audit.Options(families=("IM",), units=list(units.values())))
-        said = [(one.code, one.path, one.message) for one in result.problems]
+        result = audit.run(self.holder.root / paths.CATALOGS_DIR / "fixture", audit.Options(units=list(units.values())))
+        said = [(one.code, one.path, one.message) for one in result.problems if one.code.startswith("IM")]
         self.assertTrue(any(code == "IM02" and "fixture-shop-web" in message and "ghcr.io/acme/hub" in message
                             for code, _, message in said), said)
         self.assertFalse([one for one in said if "seed" in one[2]], "the seeder is the Lab's, never published")

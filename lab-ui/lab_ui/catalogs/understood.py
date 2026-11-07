@@ -18,7 +18,6 @@ files read, and the settings of the core are open: neither says anything of the 
 import os
 import posixpath
 import re
-import threading
 from pathlib import Path
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
@@ -53,8 +52,7 @@ class Lock(NamedTuple):
     rows: Dict[Item, int]
 
 
-_cache = {"key": None, "lock": None}
-_cache_lock = threading.Lock()
+_cache = (None, None)   # (the stamp of the file, its lock): replaced whole, so that a reader never sees half of it
 
 
 def parse(text: str) -> Optional[Lock]:
@@ -77,16 +75,15 @@ def lock(root: Optional[Path] = None) -> Optional[Lock]:
         info = file.stat()
     except OSError:
         return None
+    global _cache
     key = (str(file), info.st_mtime_ns, info.st_size)
-    with _cache_lock:
-        if _cache["key"] == key:
-            return _cache["lock"]
+    if _cache[0] == key:
+        return _cache[1]
     try:
         found = parse(file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         found = None
-    with _cache_lock:
-        _cache.update(key=key, lock=found)
+    _cache = (key, found)
     return found
 
 

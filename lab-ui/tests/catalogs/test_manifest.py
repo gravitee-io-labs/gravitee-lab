@@ -1026,7 +1026,7 @@ class History(Case):
 
     def test_a_tip_the_store_does_not_hold_is_the_damage_a_fetch_repairs(self):
         self.push({"README.md": "x\n"})
-        self.refusal("fsck", manifest.levels, self.store, "a" * 40)
+        self.refusal(lambda: manifest.levels(self.store, "a" * 40), "fsck")
 
     def test_a_history_is_cut_at_the_limit(self):
         for number in range(6):
@@ -1037,7 +1037,7 @@ class History(Case):
 
     def test_a_catalog_file_that_is_a_link_is_no_catalog_file(self):
         self.push({"catalog.yml": gitfixture.Symlink("addons/a/compose.yml")})
-        self.refusal("not_catalog", self.levels)
+        self.refusal(lambda: self.levels(), "not_catalog")
 
     def tag(self, name, commit):
         gitfixture.git("tag", "-f", name, commit, repo=self.repo)
@@ -1082,7 +1082,7 @@ class History(Case):
     def test_a_released_catalog_whose_tip_has_no_catalog_file_is_not_a_catalog(self):
         self.tag("v1.0.0", self.commits[0])
         self.push({"catalog.yml": None})
-        self.refusal("not_catalog", self.offer)
+        self.refusal(lambda: self.offer(), "not_catalog")
 
     def test_release_of_says_whether_a_commit_is_the_release_of_its_version(self):
         self.push({"addons/a/README.md": "x\n"})

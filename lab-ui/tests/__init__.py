@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from lab_ui.catalogs.registry import CatalogError
+
 # The tests are the same on a laptop and on a runner: what GitHub Actions puts in the environment (the actor, the repository, the
 # marker that makes a tool print workflow commands) is not theirs, and a test that wants one sets it.
 for _name in [name for name in os.environ if name.startswith(("GITHUB_", "RUNNER_")) or name in ("CI", "ACTIONS_ID_TOKEN_REQUEST_URL")]:
@@ -36,12 +38,12 @@ class Case(unittest.TestCase):
             self.write(path, text)
         return self.root
 
-    def refusal(self, code, call, *args, **how):
-        """The refusal of this code that `call(*args, **how)` ends in."""
-        from lab_ui.catalogs.registry import CatalogError   # here and not above: a test package with no catalogs imports this
+    def refusal(self, call, code=None):
+        """The CatalogError that `call()` raises, of this code when one is given."""
         with self.assertRaises(CatalogError) as raised:
-            call(*args, **how)
-        self.assertEqual(raised.exception.code, code)
+            call()
+        if code:
+            self.assertEqual(raised.exception.code, code)
         return raised.exception
 
     def write(self, path, text=""):

@@ -2166,12 +2166,11 @@ class StateOfCatalogs(LabUI):
 
 
 class Startup(Case):
-    """Bind the port first; only once it is bound, finish what a stop left (in the installs of the Lab and in the folders of
-    the catalogs that are linked), write the intent of the first run and start the one background thread. A second `make ui`
+    """Bind the port first; only once it is bound, finish what a stop left, write the intent of the first run and start the one background thread. A second `make ui`
     touches nothing;
     `--check`, `--list` and `--e2e` run none of it."""
 
-    STEPS = (("service", "recover"), ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"))
+    STEPS = (("service", "recover"), ("moving", "recover_at_start"), ("firstrun", "reconcile"), ("firstrun", "start_worker"))
 
     def setUp(self):
         self.folder(paths)
@@ -2202,11 +2201,10 @@ class Startup(Case):
             api.serve(9000, browser)
         return printed.getvalue()
 
-    def test_the_port_is_bound_first_then_the_four_steps_in_order_and_then_the_page_is_served(self):
+    def test_the_port_is_bound_first_then_the_steps_in_order_and_then_the_page_is_served(self):
         said = self.serve()
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"),
-                                       ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
-                                       ("serve",)])
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"), ("moving", "recover_at_start"),
+                                       ("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
                                "and the containers keep running.\n\n")
 
@@ -2254,17 +2252,13 @@ class Startup(Case):
             self.serve()
 
     def test_a_step_that_fails_is_a_line_on_standard_error_and_the_rest_of_the_start_goes_on(self):
-        for module, name, error, line in (
-                (api.service, "recover", CatalogError("damaged", "A catalog changed on disk.", 409),
-                 "finishing what a stop left failed (CatalogError: A catalog changed on disk.)"),
-                (api.contribute, "sweep", OSError("read-only file system"),
-                 "sweeping what a share left failed (OSError: read-only file system)")):
-            self.events.clear()
-            said = io.StringIO()
-            with mock.patch.object(module, name, side_effect=error), contextlib.redirect_stderr(said):
-                self.serve()
-            self.assertEqual(said.getvalue().splitlines(), [f"Gravitee Lab UI: {line}"])
-            self.assertEqual(self.events[-3:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
+        self.patch(api.service, "recover", side_effect=CatalogError("damaged", "A catalog changed on disk.", 409))
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said):
+            self.serve()
+        self.assertEqual(said.getvalue().splitlines(), [
+            "Gravitee Lab UI: finishing what a stop left failed (CatalogError: A catalog changed on disk.)"])
+        self.assertEqual(self.events[-3:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
 
     def test_the_command_line_runs_requirement_and_prepare_for_every_command_and_the_steps_for_serve_only(self):
         order = []

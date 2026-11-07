@@ -812,7 +812,7 @@ class Version(Case):
         self.assertIsNone(gitx.version())
         self.assertIsNone(gitx.executable())
         self.assertEqual(asked[0], ["xcode-select", "-p"])
-        self.refusal("git_missing", gitx.run, ["ls-remote", "--", "https://github.com/a/b.git"])
+        self.refusal(lambda: gitx.run(["ls-remote", "--", "https://github.com/a/b.git"]), "git_missing")
         with self.assertRaises(gitx.CatalogError):
             gitx.stream(["fetch"])
         self.assertFalse(ran.exists(), "the shim opens an installer: it must not be executed")
@@ -1088,14 +1088,14 @@ class Remote(Case):
 
     def test_an_empty_repository_is_not_a_catalog(self):
         gitfixture.git("init", "--bare", "--quiet", "--template=", "--", str(self.root / "remotes" / "empty.git"))
-        self.refusal("not_catalog", gitx.ls_remote, gitx.parse_address(gitfixture.url(self.root / "remotes" / "empty.git")))
+        self.refusal(lambda: gitx.ls_remote(gitx.parse_address(gitfixture.url(self.root / "remotes" / "empty.git"))), "not_catalog")
 
     def test_a_repository_that_is_not_there_is_not_found(self):
-        self.refusal("not_found", gitx.ls_remote, gitx.parse_address("file://" + str(self.root / "remotes" / "none.git")))
+        self.refusal(lambda: gitx.ls_remote(gitx.parse_address("file://" + str(self.root / "remotes" / "none.git"))), "not_found")
 
     def test_a_protocol_git_may_not_use_is_refused_by_git_itself_as_well(self):
         self.patch(gitx, "PROTOCOLS", "https:ssh")
-        self.refusal("bad_address", gitx.ls_remote, self.address)
+        self.refusal(lambda: gitx.ls_remote(self.address), "bad_address")
 
     def test_a_server_that_answers_no_branch_for_head_leaves_it_to_head(self):
         real = gitx.run
@@ -1155,10 +1155,10 @@ class Remote(Case):
     def test_an_ssh_address_cannot_be_asked_anonymously_and_runs_nothing(self):
         with mock.patch.object(gitx, "run", side_effect=AssertionError("ran")):
             for text in ("git@github.com:acme/lab-hub.git", "ssh://git@github.com/acme/lab-hub.git"):
-                self.refusal("no_access", gitx.ls_remote, gitx.parse_address(text), anonymous=True)
+                self.refusal(lambda: gitx.ls_remote(gitx.parse_address(text), anonymous=True), "no_access")
 
     def test_a_folder_is_not_a_remote(self):
-        self.refusal("bad_address", gitx.ls_remote, gitx.Address("folder", "", "/h/x", "~/x", "", ""))
+        self.refusal(lambda: gitx.ls_remote(gitx.Address("folder", "", "/h/x", "~/x", "", "")), "bad_address")
 
     def test_an_address_built_by_hand_is_not_given_to_a_command(self):
         with mock.patch.object(gitx.subprocess, "Popen", side_effect=AssertionError("ran")):

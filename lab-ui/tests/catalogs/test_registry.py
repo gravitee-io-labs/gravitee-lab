@@ -2114,7 +2114,7 @@ class Privacy(Disk):
                 self.config(git_entry("acme-hub", url=url))
                 self.assertEqual(registry.entries()[0]["url"], clean)
                 self.assertNotIn("tok", json.dumps([registry.read_config(), registry.inputs(), registry.config_problem()]))
-                self.refusal("bad_address_secret", registry.write_config, {"schema": 1, "catalogs": [git_entry("acme-hub", url=url)]})
+                self.refusal(lambda: registry.write_config({"schema": 1, "catalogs": [git_entry("acme-hub", url=url)]}), "bad_address_secret")
                 self.assertEqual(json.loads((self.root / ".lab/catalogs.json").read_text(encoding="utf-8"))["catalogs"][0]["url"],
                                  url)   # the file is the person's, and was not rewritten
         with self.assertRaises(ValueError):   # a user name with a space is no address once the password is out

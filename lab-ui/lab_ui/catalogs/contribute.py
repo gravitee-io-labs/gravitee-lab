@@ -19,7 +19,7 @@ inside an install.
 A catalog that is a repository gets a branch: the files go in a commit built with plumbing in the catalog's bare store (no
 working tree, no hook) on top of the tip just fetched, as the person (their `user.name` and `user.email`, no trailer, no
 tool), and pushed to `lab/<name>-<yyyymmdd>`, never forced, never to the default branch. A refused push leaves the item where
-it was. A folder catalog gets a plain copy of the same files (`sweep` removes the half copy a stop leaves). `moved` and
+it was. A folder catalog gets a plain copy of the same files (the next share of the item clears the half copy a stop leaves). `moved` and
 `use_catalog_version` are the other half: once the catalog has the item and the person has updated, the item of this machine
 and the catalog's are the same item, and this replaces the first by the second, taking its settings along; what else
 its folder holds is set aside in `.lab/migration/kept/`, and nothing is deleted while anything could not be moved.
@@ -53,7 +53,6 @@ LOAD_WAIT = 20   # seconds Compose has to load a copy alone with the core
 # minutes), the fetch of the tip, the question of the names of the branches, the push
 FETCH_CAP, LIST_WAIT, PUSH_WAIT = 40, 15, 40
 NAME_LIMIT = 60   # characters of an item's name that go into a subject or a line
-SWEEP_AGE = 24 * 3600.0   # seconds after which a half copy in a person's folder is a leftover
 # Registries everyone pulls from: the host of one of them says nothing of a private catalog, and its images are in public items
 PUBLIC_REGISTRIES = frozenset({"docker.io", "index.docker.io", "registry-1.docker.io", "ghcr.io", "quay.io", "gcr.io",
                                "registry.k8s.io", "k8s.gcr.io", "mcr.microsoft.com", "public.ecr.aws", "registry.gitlab.com"})
@@ -124,25 +123,12 @@ def _catalog(ns, rows):
     return entry, row
 
 
-_CATALOG_YML = {}   # ns -> (the stamp of its catalog.yml, what the Lab reads in it)
-
-
 def _yml(ns) -> dict:
-    """The validated catalog.yml of an added catalog ({} when it cannot be read: its own review is the real gate), read again
-    when the file changes."""
-    relative = f"{paths.CATALOGS_DIR}/{ns}/{registry.CATALOG_FILE}"
+    """The validated catalog.yml of an added catalog ({} when it cannot be read: its own review is the real gate)."""
     try:
-        info = os.stat(paths.ROOT / relative)
-    except OSError:
+        return manifest.read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{registry.CATALOG_FILE}")
+    except CatalogError:
         return {}
-    held = _CATALOG_YML.get(ns)
-    if not held or held[0] != (info.st_mtime_ns, info.st_size):
-        try:
-            found = manifest.read_catalog(relative)
-        except CatalogError:
-            found = {}
-        held = _CATALOG_YML[ns] = ((info.st_mtime_ns, info.st_size), found)
-    return held[1]
 
 
 def _takes(ns, row) -> bool:
@@ -526,7 +512,7 @@ def _named_private(copy, ns, kind, slug, rows):
     return None
 
 
-def _rules(copy, kind, slug, ns, row):
+def _rules(copy, ns, row):
     """The errors of the rules of the catalog standard (ST, SE, DF, GD, IM) over the files that would be copied, as the
     catalog's CI reads them (`ListTree`): [Problem]. A part of a catalog: the files a whole one has are not asked for."""
     from . import audit, rules, tree   # here and not above: the rules are read only for a share
@@ -601,7 +587,8 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None
     units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
     closure = list(dict.fromkeys(node for target in direct if paths.unit_of(target)
                                  for node in resolve.closure(units, *paths.unit_of(target))))
-    same = [paths.ROOT / paths.unit_folder(*node) for node in closure if node[0] != "setup" and paths.origin(node[1]) == ns]
+    same = [paths.ROOT / paths.unit_folder(*node) for node in closure
+            if node[0] != "setup" and paths.origin(node[1]) in (ns, paths.default_ns())]
     contract, listed, meta = inputs.get("contract") or {}, bool(row.get("listed")), raw.get("x-gravitee") or {}
     asked = (meta.get("requires") or {}).get("lab")
     context = {"ns": ns, "host_ok": bool(trust.host_ok(listed, {"host": row.get("host") == "allowed"})), "listed": listed,
@@ -622,7 +609,7 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None
     seeds = [data.decode("utf-8", "replace") for path, (_, data) in sorted(copy.files.items())
              if path.startswith(f"{kind}s/{slug}/seed/") and not any(part.startswith(".") for part in path.split("/"))]
     view = {"kind": kind, "id": uid, "name": meta.get("name") or slug, "meta": meta,
-            "includes": [(aliases or {}).get(one, one) for one in direct], "seed": None,
+            "includes": [(aliases or {}).get(one, one) for one in direct],
             "references": trust.reads([(paths.ROOT / stage).read_text(encoding="utf-8")], raw, []),
             "seed_references": trust.seed_reads(seeds)}
     verdict = trust.judge(view, config, core_config, own, trust.overlays(raw, names, others), roots,
@@ -740,7 +727,7 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
     merged = dict(copy.files)   # the rules of the standard read the files together, as the catalog will hold them: a link of one to another resolves
     for _, _, _, other in along:
         merged.update(other.files)
-    found = _rules(copy._replace(files=merged), kind, slug, ns, row)
+    found = _rules(copy._replace(files=merged), ns, row)
     for each in found:
         if each.code in SECRETS:
             raise _refusal("share_secret", file=_shown(each.path, kind, slug))
@@ -1005,35 +992,6 @@ def _clear(path):
         shutil.rmtree(path, ignore_errors=True)
 
 
-def sweep() -> List[str]:
-    """Swept at start, for the folder catalogs: the half copies `_copy_into` leaves in a person's folder when the
-    Lab is stopped between writing and renaming (`<folder>/<kind>s/.share-<name>`, hidden, never an item) that are older than a
-    day are removed, without following a link. `install.sweep` looks inside the installs of the Lab, which a folder is not.
-    Answers the places removed, `<catalog id>/<kind>s/<name>`."""
-    done = []
-    for ns, row in registry.inputs().items():
-        if ns == LOCAL or row["kind"] != "folder" or row["state"] != "linked":
-            continue
-        root = os.path.realpath(registry.install_dir(ns))
-        for kind in paths.KINDS:
-            base = os.path.join(root, f"{kind}s")
-            if os.path.islink(base):
-                continue
-            try:
-                names = sorted(os.listdir(base))
-            except OSError:
-                continue
-            for name in names:
-                try:
-                    old = time.time() - os.lstat(os.path.join(base, name)).st_mtime > SWEEP_AGE
-                except OSError:
-                    continue
-                if old and name.startswith(".share-"):
-                    _clear(os.path.join(base, name))
-                    done.append(f"{ns}/{kind}s/{name}")
-    return done
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # share
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1226,7 +1184,7 @@ def _unmarked(copy, kind, slug, found=(), name=None):
     return copy._replace(files=files, text=text)
 
 
-def _origins_or_said(copy, kind, slug, uid, name):
+def _origins_or_said(copy, uid, name):
     """origins() for a share: a file Compose cannot read is a problem of the copy, said with the others, which stops the share as
     they do; None then, what it holds taken for private content meanwhile."""
     try:
@@ -1264,11 +1222,7 @@ FIXES = {"public": "make sure its repository is private, then share again.",
          "unknown": "check the network, then share again."}   # what the person does, by what the stranger's question got
 
 
-def _maybe_public(row, audience):
-    return _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
-
-
-def _holds_private(units, items):
+def _holds_private(items):
     """Whether any of the items of Personal (or of a catalog) `items` ([(kind, id)]) holds private content, as origins() says of its
     file where it is; one Compose cannot read is taken to."""
     for kind, uid in items:
@@ -1513,16 +1467,16 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     # is taken off a label (a Public fork has the history of the private catalog it was forked from)
     # A Public catalog is not asked: what it would refuse it refuses below, naming the item and its origin
     audience, probed = None, None
-    if address is not None and row["audience"] != "public" and _holds_private(units, [(kind, uid), *[(k, one) for k, one, _, _ in members]]):
+    if address is not None and row["audience"] != "public" and _holds_private([(kind, uid), *[(k, one) for k, one, _, _ in members]]):
         audience, probed = _audience_now(address), (dict(entry), _history(to))
         if audience != "private":
-            raise _maybe_public(row, audience)
+            raise _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
     with registry.flock():
         copy = collect(kind, slug, to, moved=moved)
         along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
         # What is private content says so in the catalog it goes to, which takes away only its own origin (without); a Public one
         # takes none, so it takes no private content
-        found = {(k, s): _origins_or_said(other, k, s, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        found = {(k, s): _origins_or_said(other, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
         found = {key: [("", UNKNOWN)] if said is None and row["audience"] != "public" else said or [] for key, said in found.items()}
         # What was asked out of the lock holds for what is shared now, to the catalog it was asked of; else nothing goes
         if address is not None and any(found.values()) and row["audience"] != "public":
