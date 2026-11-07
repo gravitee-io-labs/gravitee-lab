@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from lab_seeder import common
-from lab_seeder.seedlint import SMALL, environment_problems, literal_addresses, seed_environment, seed_service
+from lab_seeder.seedlint import SMALL, _addresses, _environment_findings, seed_environment, seed_service
 
 
 class Preflight(unittest.TestCase):
@@ -21,8 +21,8 @@ class Preflight(unittest.TestCase):
         text = ("a: http://localhost:8083/x\nb: http://bakery-mcp:8000\nc: https://host.docker.internal:11434/v1\n"
                 "d: ${BAKERY_MCP_URL}/x\ne: http://${HOST}:80\nf: https://huggingface.co/m\ng: https://docs.gravitee.io/apim\n"
                 'h: "https://www.w3.org/2001/XMLSchema"')
-        self.assertEqual(literal_addresses(text),
-                         {"http://localhost", "http://bakery-mcp", "https://host.docker.internal"})
+        self.assertEqual([address for address, _ in _addresses(text)],
+                         ["http://localhost", "http://bakery-mcp", "https://host.docker.internal"])
 
     def test_a_seed_service_is_the_one_with_the_seed_label_and_its_variables_are_read_whichever_way_they_are_written(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -74,7 +74,7 @@ class EnvironmentChecks(unittest.TestCase):
                     path = folder / name
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(json.dumps(text) if isinstance(text, dict) else text, encoding="utf-8")
-            return environment_problems(folder, self.VARIABLES)
+            return [f"{path}: {text}" for path, text in _environment_findings(folder, self.VARIABLES)]
 
     def api(self, **api):
         return {**self.API, "api": {**self.API["api"], **api}}
@@ -85,9 +85,9 @@ class EnvironmentChecks(unittest.TestCase):
                 folder = Path(root) / name
                 folder.mkdir()
                 (folder / "environment.yaml").write_text(f"id: {name}\nname: x\n", encoding="utf-8")
-                self.assertEqual(environment_problems(folder, self.VARIABLES), [
-                    "environment.yaml: an environment is named with lowercase letters, digits and dashes, and is not `local` or the "
-                    "platform's own"])
+                self.assertEqual(_environment_findings(folder, self.VARIABLES), [
+                    ("environment.yaml", "an environment is named with lowercase letters, digits and dashes, and is not `local` or the "
+                                         "platform's own")])
 
     def test_a_good_folder_has_no_problem(self):
         self.assertEqual(self.check(), [])
@@ -104,7 +104,7 @@ class EnvironmentChecks(unittest.TestCase):
                 folder = Path(root) / name
                 folder.mkdir()
                 (folder / "environment.yaml").write_text(f"id: {name}\nname: x\n", encoding="utf-8")
-                self.assertEqual(len(environment_problems(folder, {})), 1, name)
+                self.assertEqual(len(_environment_findings(folder, {})), 1, name)
 
     def test_two_applications_of_one_name_are_found(self):
         self.assertEqual(self.check(**{"applications/again.yaml": "name: SAP\n"}),

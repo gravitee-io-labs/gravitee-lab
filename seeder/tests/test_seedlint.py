@@ -200,10 +200,10 @@ class Problems(Made):
 
     def test_a_scheme_is_found_in_any_case_and_a_public_host_in_any_case_too(self):
         for text in ("u: HTTP://evil:8080", "u: Http://evil", "u: hTTps://evil/x"):
-            self.assertEqual(len(seedlint.literal_addresses(text)), 1, text)
-        self.assertEqual(seedlint.literal_addresses("a: HTTPS://Docs.Gravitee.IO/x\nb: Http://${HOST}/y"), set())
-        self.assertEqual(seedlint.literal_addresses('u: "${H:-https://evil.com}"'), {"https://evil.com"}, "a default is read too")
-        self.assertEqual(seedlint.literal_addresses("u: http://x.example http://docs.a.test\n"), {"http://x.example", "http://docs.a.test"})
+            self.assertEqual(len(seedlint._addresses(text)), 1, text)
+        self.assertEqual(seedlint._addresses("a: HTTPS://Docs.Gravitee.IO/x\nb: Http://${HOST}/y"), [])
+        self.assertEqual([address for address, _ in seedlint._addresses('u: "${H:-https://evil.com}"')], ["https://evil.com"], "a default is read too")
+        self.assertEqual([address for address, _ in seedlint._addresses("u: http://x.example http://docs.a.test\n")], ["http://x.example", "http://docs.a.test"])
         self.assertEqual(self.found(self.playground({"seed/a.yaml": "a: 1\nu: HTTP://evil:8080\n"})), [("address", "seed/a.yaml", 2)])
 
     def test_merge_keys_in_reasonable_use_are_nothing_to_say(self):
@@ -627,7 +627,7 @@ class Hostile(Made):
         wanted = ["portal/pages/abs.yaml: file " + str(outside) + " is outside the folder",
                   "portal/pages/up.yaml: file ../../../../../../outside.svg is outside the folder",
                   "portal/theme.yaml: assets.logo ../../../../../../outside.svg is outside the folder"]
-        self.assertEqual(seedlint.environment_problems(env, {}), wanted)
+        self.assertEqual([f"{path}: {text}" for path, text in seedlint._environment_findings(env, {})], wanted)
         self.assertEqual([(p.check, p.message) for p in seedlint.problems(folder)],
                          [("environment", text.partition(": ")[2]) for text in wanted])
 
@@ -640,10 +640,10 @@ class Hostile(Made):
         env = folder / "seed" / "environments" / "novo"
         (env / "assets").mkdir()
         self.link(env / "assets" / "logo.svg", outside)
-        self.assertEqual(seedlint.environment_problems(env, {}), ["portal/theme.yaml: assets.logo ../assets/logo.svg does not exist"])
+        self.assertEqual(seedlint._environment_findings(env, {}), [("portal/theme.yaml", "assets.logo ../assets/logo.svg does not exist")])
         os.unlink(env / "portal" / "theme.yaml")
         self.link(env / "portal" / "theme.yaml", outside)
-        self.assertEqual(seedlint.environment_problems(env, {}), ["portal/theme.yaml: is a link. Fix: a seed holds files, not links: copy the file"])
+        self.assertEqual(seedlint._environment_findings(env, {}), [("portal/theme.yaml", "is a link. Fix: a seed holds files, not links: copy the file")])
 
     def test_a_document_that_repeats_itself_through_aliases_is_not_written_out_in_a_message(self):
         text = ALIASES + "users:\n  - {big: *a12}\n  - {sourceId: *a12, source: memory}\n"
@@ -803,8 +803,8 @@ def probe():
 
     for name, text in SHAPES.items():
         as_json = json.dumps({"k": text})
-        rules[name] = {"unset_variables": seconds(lambda: seedlint.unset_variables(text, {"KEY": "k"})),
-                       "literal_addresses": seconds(lambda: seedlint.literal_addresses(text)),
+        rules[name] = {"_first_uses": seconds(lambda: seedlint._first_uses(seedlint._variables(text), {"KEY": "k"})),
+                       "_addresses": seconds(lambda: seedlint._addresses(text)),
                        "compose_value": seconds(lambda: seedlint.compose_value(text)),
                        "_slow": seconds(lambda: seedlint._slow("a.yaml", text)),
                        "_slow of JSON": seconds(lambda: seedlint._slow("a.json", as_json))}
@@ -830,7 +830,7 @@ def probe():
         for number, name in enumerate(IN_AN_ENVIRONMENT):   # the files of an environment: the same loader, asked directly
             playground = make_playground(Path(folder), {"seed/environments/novo/environment.yaml": NOT_READ[name][1]}, f"e{number}")
             started = time.process_time()
-            found[name + " in an environment"] = seedlint.environment_problems(playground / "seed/environments/novo", {})
+            found[name + " in an environment"] = seedlint._environment_findings(playground / "seed/environments/novo", {})
             whole[f"{name} in an environment (not read)"] = time.process_time() - started
     return {"rules": rules, "whole": whole, "found": found}
 
@@ -891,7 +891,7 @@ class OneMegabyteLine(unittest.TestCase):
                 self.assertEqual(found[case], [["playground", seedlint.MERGES]])
         for case in IN_AN_ENVIRONMENT:
             with self.subTest(case=case):
-                self.assertEqual(found[case + " in an environment"][0], "environment.yaml: " + seedlint.MERGES)
+                self.assertEqual(found[case + " in an environment"][0], ["environment.yaml", seedlint.MERGES])
 
     def test_defaults_that_nothing_closes_are_named_and_not_read(self):
         found = probed()["found"]
@@ -940,7 +940,7 @@ class Patterns(unittest.TestCase):
 
         for text in self.texts(5_000):
             for environment in ({}, {"A": "x", "x": ""}):
-                self.assertEqual(seedlint.unset_variables(text, environment, ("ENV_ID",)),
+                self.assertEqual({name for name, _ in seedlint._first_uses(seedlint._variables(text), environment, ("ENV_ID",))},
                                  before(text, environment, ("ENV_ID",)), repr(text))
 
     def test_a_value_is_what_compose_gives_it(self):
