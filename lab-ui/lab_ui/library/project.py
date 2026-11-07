@@ -1571,8 +1571,7 @@ def _rank(unit, catalogs):
 
 
 def _judge_units(inputs, raw, core, addons, setups, playgrounds):
-    """Judges the units of the catalogs and settles what the project says of each among the others (and the
-    first half of 10): its verdict (`verdict`, and `blocked` when it cannot start), its level (`compat`), what of the contract
+    """Judges the units of the catalogs and settles what the project says of each among the others: its verdict (`verdict`, and `blocked` when it cannot start), its level (`compat`), what of the contract
     it uses that this Lab does not read when its catalog is published (`unknown`: the unit needs a newer Gravitee Lab, and is
     "new"; in a catalog of the person's own, a folder or a working copy, the check names each instead), the catalogs it
     lacks (`needs_catalogs`), what of this machine it uses (`uses_machine`), the unit of this machine it is also (`twin`),
@@ -1955,7 +1954,7 @@ def judge_inputs(inputs):
 def _alias(ns):
     """A function that gives the name a catalog will have to every path and text it is read under while it is staged:
     `.lab/catalogs/.stage-<ns>` becomes `.lab/catalogs/<ns>`, in a key, a text, a list or a mapping, whether the path is the
-    project's or an absolute one that Compose printed. The stage and the install are at the same depth (rule 1 of),
+    project's or an absolute one that Compose printed. The stage and the install are at the same depth,
     so nothing else of a path differs, and the policy judges the unit where it will be."""
     stage = re.compile(rf"\.lab/catalogs/\.stage-{re.escape(ns)}(?![\w.-])")
     final = f".lab/catalogs/{ns}"

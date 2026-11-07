@@ -740,7 +740,7 @@ def _not_read(folder, shown):
 
 
 def _screen_notes(text, file):
-    """What an author is told when the text screen refuses a unit file (, T19). The screen reads words, not YAML: the
+    """What an author is told when the text screen refuses a unit file (T19). The screen reads words, not YAML: the
     words `include`, `extends`, `env_file` and `label_file` followed by a colon are the keys they spell wherever they are
     written (in a quote or a command too), and an `env_file` or a `label_file` is refused whatever file it names."""
     reasons = trust.prescreen(text, file) if text is not None else []
@@ -1212,7 +1212,7 @@ PRODUCT = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 def compose_missing():
     """Why Docker Compose cannot read the units of a catalog here, as the words that follow `Not checked:`, or None when it
-    can (). Compose is looked for in the real environment, in the places the Docker CLI looks (compose.plugin), so that a
+    can. Compose is looked for in the real environment, in the places the Docker CLI looks (compose.plugin), so that a
     Mac with Docker Desktop finds it; it is then asked for its version in the scrubbed environment, which links to the plugin
     that was found, as it will be run. A Docker that has no Compose, no Docker at all and a Compose older than 5 say the same
     thing: the answer is not about the catalog. A daemon that does not run is not asked for."""
