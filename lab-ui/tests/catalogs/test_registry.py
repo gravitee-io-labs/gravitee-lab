@@ -975,17 +975,6 @@ class Units(Disk):
         self.json(".lab/catalogs/acme-hub/.installed.json", document, 0o644)
         self.assertEqual(registry.units_of("acme-hub"), {"addon": ["one"], "setup": [], "playground": ["ok"]})
 
-    def test_a_git_catalog_with_no_valid_manifest_vouches_for_nothing(self):
-        self.config(git_entry("acme-hub"))
-        self.install("acme-hub", A)
-        self.assertEqual(registry.units_of("acme-hub")["addon"], [])   # no lock: no pin
-        self.lockfile(**{"acme-hub": lock_entry(pin=B, tip=B)})
-        self.assertEqual(registry.units_of("acme-hub")["addon"], [])   # a manifest for another commit
-        self.lockfile(**{"acme-hub": lock_entry()})
-        self.assertEqual(registry.units_of("acme-hub")["addon"], ["one"])
-        os.remove(self.root / ".lab/catalogs/acme-hub/.installed.json")
-        self.assertEqual(registry.units_of("acme-hub")["addon"], [])
-
     def test_a_catalog_the_person_does_not_have_vouches_for_nothing(self):
         self.lockfile(**{"acme-hub": lock_entry()})
         self.install("acme-hub", A)

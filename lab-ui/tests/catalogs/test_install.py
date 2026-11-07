@@ -1660,15 +1660,19 @@ class Sweeping(Base):
     def catalogs(self, *parts):
         return Path(paths.ROOT) / ".lab/catalogs" / Path(*parts)
 
-    def test_a_stage_older_than_a_day_goes_and_a_younger_one_stays(self):
-        old, young = self.catalogs(".stage-old-one"), self.catalogs(".stage-young-one")
-        for folder in (old, young):
-            folder.mkdir(parents=True)
-            (folder / "f.txt").write_text("x", encoding="utf-8")
-        self.old(old)
-        install.sweep()
-        self.assertFalse(old.exists())
-        self.assertTrue(young.is_dir())
+    def test_a_leftover_older_than_a_day_goes_and_a_younger_one_stays(self):
+        cache = Path(paths.ROOT) / ".lab/cache/git"
+        for old, young in ((self.catalogs(".stage-old-one"), self.catalogs(".stage-young-one")),
+                           (self.catalogs("fixture.partial"), self.catalogs("other.partial")),
+                           (cache / ".new-0a1b.git", cache / ".new-2c3d.git")):
+            with self.subTest(old.name):
+                for one in (old, young):
+                    one.parent.mkdir(parents=True, exist_ok=True)
+                    one.write_text("half", encoding="utf-8")
+                self.old(old)
+                install.sweep()
+                self.assertFalse(old.exists())
+                self.assertTrue(young.exists())
 
     def test_a_stage_that_is_a_link_is_removed_as_a_link(self):
         outside = self.root / "outside"
@@ -1682,28 +1686,12 @@ class Sweeping(Base):
         self.assertFalse(os.path.lexists(link))
         self.assertEqual([p.name for p in outside.iterdir()], ["keep.txt"])
 
-    def test_a_store_being_added_that_is_older_than_a_day_goes(self):
-        cache = Path(paths.ROOT) / ".lab/cache/git"
-        for name in (".new-0a1b.git", ".new-2c3d.git", "partner.git"):
-            (cache / name).mkdir(parents=True)
-            (cache / name / "HEAD").write_text("x", encoding="utf-8")
-        self.old(cache / ".new-0a1b.git")
-        self.old(cache / "partner.git")
+    def test_a_store_of_a_catalog_is_not_a_store_being_added(self):
+        store = Path(paths.ROOT) / ".lab/cache/git/partner.git"
+        store.mkdir(parents=True)
+        self.old(store)
         install.sweep()
-        self.assertFalse((cache / ".new-0a1b.git").exists())
-        self.assertTrue((cache / ".new-2c3d.git").exists())
-        self.assertTrue((cache / "partner.git").exists(), "a store of a catalog is not a store being added")
-
-    def test_a_partial_file_goes(self):
-        partial = self.catalogs("fixture.partial")
-        partial.parent.mkdir(parents=True, exist_ok=True)
-        partial.write_text("half", encoding="utf-8")
-        self.old(partial)
-        young = self.catalogs("other.partial")
-        young.write_text("half", encoding="utf-8")
-        install.sweep()
-        self.assertFalse(partial.exists())
-        self.assertTrue(young.exists())
+        self.assertTrue(store.exists())
 
     def test_a_share_folder_in_an_install_goes_and_one_in_an_authors_folder_does_not(self):
         self.add("partner")
