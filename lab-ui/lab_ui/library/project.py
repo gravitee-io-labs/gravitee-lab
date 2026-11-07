@@ -28,7 +28,6 @@ from ..docker import compose, envfiles
 from ..gravitee import license, platforms
 from .. import paths
 from ..catalogs import manifest, registry, renames, resolve, trust, understood
-from ..catalogs.registry import CatalogError
 from ..products import AM, APIM, APIM_FEATURES, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
@@ -613,7 +612,7 @@ def _shared_settings(ns):
     def read():
         try:
             return manifest.read_catalog(file, published=True)["shared_settings"]
-        except CatalogError as error:
+        except registry.CatalogError as error:
             return None if UNANSWERED.fullmatch(str((error.detail or {}).get("output") or "").strip()) else []
         except (ValueError, RecursionError):   # nested deeper than Python reads
             return []
