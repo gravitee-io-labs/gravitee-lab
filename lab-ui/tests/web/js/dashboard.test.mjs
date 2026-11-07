@@ -1660,39 +1660,24 @@ test("the load is listened to again once Docker answers again, with the page lef
   dashboardPage.hide();
 });
 
-test("a stream that the browser gave up on is opened again after a while, and no frame is asked for on a dead one", async () => {
+test("a stream that the browser gave up on is let go, with no frame asked for on it, and the next read opens it again; a cut is the browser's to try again", async () => {
   await charts();
   const first = stream();
-  // The server answered with an error: the browser closes the stream for good, and no animation runs on it
-  first.readyState = 2;
-  frame(1001);
-  assert.equal(queued.size, 0, "no frame for a load that is not coming");
+  first.readyState = 2;   // the server answered with an error: the browser closes it for good
   first.onerror();
   assert.ok(first.closed);
+  frame(1001);
+  assert.equal(queued.size, 0, "no frame for a load that is not coming");
   const before = streams.length;
-  mock.timers.tick(2900);
-  await flush();
-  assert.equal(streams.length, before, "not yet");
-  mock.timers.tick(200);
-  await flush();
-  assert.equal(streams.length, before + 1, "opened again");
+  await move(lab({ core: "stopped" }));
+  assert.equal(streams.length, before + 1, "the lab moved: the numbers are read, and the stream with them");
   assert.ok(!stream().closed);
   assert.equal(queued.size, 1, "and the animation runs again");
-  // A cut that the browser tries again by itself (it is connecting) is left to it
   const second = stream();
-  second.readyState = 0;
+  second.readyState = 0;   // connecting again by itself
   second.onerror();
   assert.ok(!second.closed);
-  mock.timers.tick(10000);
-  await flush();
-  assert.equal(streams.length, before + 1);
-  // Leaving the page stops the wait for a new one
-  second.readyState = 2;
-  second.onerror();
   dashboardPage.hide();
-  mock.timers.tick(10000);
-  await flush();
-  assert.equal(streams.length, before + 1, "nothing is opened for a page nobody is on");
 });
 
 test("a stream that went quiet stops saying the load it last said: the figures are dashes until it speaks again", async () => {
@@ -1707,37 +1692,6 @@ test("a stream that went quiet stops saying the load it last said: the figures a
   assert.deepEqual([value("cpu"), value("memory")], ["—", "—"], "what it said 11 seconds ago is no longer the load");
   send(1013, 6, 2 ** 30);
   assert.equal(value("cpu"), "6.0%");
-  dashboardPage.hide();
-});
-
-test("a stream that the browser gave up on is opened again after longer each time, and from the start once it speaks", async () => {
-  await charts();
-  const asked = () => streams.length;
-  const fail = () => { stream().readyState = 2; stream().onerror(); };
-  const before = asked();
-  fail();
-  mock.timers.tick(3100);
-  await flush();
-  assert.equal(asked(), before + 1, "after 3 seconds");
-  fail();
-  mock.timers.tick(3100);
-  await flush();
-  assert.equal(asked(), before + 1, "6 seconds the second time");
-  mock.timers.tick(3000);
-  await flush();
-  assert.equal(asked(), before + 2);
-  fail();
-  mock.timers.tick(11900);
-  await flush();
-  assert.equal(asked(), before + 2, "12 seconds the third time");
-  mock.timers.tick(200);
-  await flush();
-  assert.equal(asked(), before + 3);
-  send(1001);
-  fail();
-  mock.timers.tick(3100);
-  await flush();
-  assert.equal(asked(), before + 4, "it spoke: 3 seconds again");
   dashboardPage.hide();
 });
 
