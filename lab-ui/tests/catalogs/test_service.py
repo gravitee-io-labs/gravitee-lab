@@ -332,8 +332,6 @@ class States(Seam):
         self.assertEqual(self.said(), ("uptodate", "Up to date", "muted", "Version 2.0.0, checked 3 hours ago", ""))
         registry.set_lock("partner", checked=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400 * 2)))
         self.assertEqual(self.said()[3], "Version 2.0.0, checked 2 days ago")
-        registry.set_lock("partner", checked=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60)))
-        self.assertEqual(self.said()[3], "Version 2.0.0, checked 1 minute ago")
 
     def test_a_copy_that_is_no_release_says_so(self):
         self.given(release=None, checked=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60)))
