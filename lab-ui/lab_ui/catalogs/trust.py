@@ -14,7 +14,7 @@ container does): an H finding is allowed only when the catalog is listed or allo
 What judge reads:
 - `unit`: {kind, id, name, meta (its x-gravitee block), references (the names its compose files read with ${NAME}, and the
   environment names they pass through: reads()), seed_references (the names its seed/** files read), includes (the
-  project-relative targets its own file includes, None for one that leaves the project), seed (its seed service)}.
+  project-relative targets its own file includes, None for one that leaves the project)}.
 - `unit_config`, `core_config`: the unit with the core, and the core alone, as `docker compose config --format json` gives
   them. `own`: the services the unit defines that neither the core nor an included unit defines. `overlaid`: {service: {key:
   what its own file adds}} on a service of the core or of an included unit (overlays()).
@@ -249,7 +249,6 @@ def _resolver(realpath=None):
     without one: Compose gives every bind and build context as an absolute path, so a relative one is a spelling that
     matches no root. An exotic spelling can only miss an allow-list (a false Blocked), never pass."""
     real = realpath if callable(realpath) else None
-    cache = {}
 
     def resolve(path, base=None):
         if not isinstance(path, str) or not path or "\0" in path:
@@ -258,12 +257,10 @@ def _resolver(realpath=None):
             if not base:
                 return ""
             path = posixpath.join(base, path)
-        if path not in cache:
-            try:
-                cache[path] = posixpath.normpath(real(path) if real else path)
-            except (OSError, ValueError):
-                cache[path] = posixpath.normpath(path)
-        return cache[path]
+        try:
+            return posixpath.normpath(real(path) if real else path)
+        except (OSError, ValueError):
+            return posixpath.normpath(path)
     return resolve
 
 
