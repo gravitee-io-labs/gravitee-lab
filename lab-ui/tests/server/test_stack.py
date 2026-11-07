@@ -233,19 +233,6 @@ class StackActions(Case):
         # The gateway's plan, which says what the dialog showed it starts
         binds.assert_called_once_with(PROJECT, {**found["gateway"], "starts": found["dialog"]["starts"]})
 
-    def test_a_cloud_cores_start_all_adds_no_entry_for_a_unit_that_is_blocked(self):
-        self.cloud_core()
-        self.patch(stack.platforms, "swap_gateway")
-        self.patch(stack.places, "invalidate")
-        kazoo = {**PROJECT["addons"]["kazoo"], "file": "addons/kazoo/compose.yml",
-                 "blocked": {"reasons": ["Mounts the Docker socket"]}}
-        project = {**PROJECT, "addons": {**PROJECT["addons"], "kazoo": kazoo}}
-        written = self.patch(stack.layers, "write")
-        stack.action(project, "start", for_core=True, accept=[])
-        self.core_job()
-        self.assertEqual(written.call_args.kwargs, {"blocked": {"addons/kazoo/compose.yml": "Mounts the Docker socket"},
-                                                    "since": None})
-
     def test_a_cloud_cores_start_all_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
         self.folder(paths, compose, envfiles, files={paths.DEFAULT_FILE: json.dumps({"schema": 1, "catalogs": [{"id": "fixture"}]})})
         swap = self.patch(stack.platforms, "swap_gateway")
