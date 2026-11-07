@@ -59,16 +59,8 @@ what the checks cannot: that the thing works. Its jobs and what they prove are i
 4. **Branch protection** on `main`: require two checks, `CI result` and `E2E result`. `CI result` passes when every job of the CI
    workflow ended in success. `E2E result` fails when anything ended wrong, passes when there was nothing to try (documentation, say),
    and waits while a maintainer has not approved.
-5. **A `CODEOWNERS` file** that sends `.github/`, `docker-compose.yml`, `seeder/`, `lab-ui/` and `Makefile` to the maintainers, so that a
-   change to what runs with the license is read by one of them. The names are yours to give:
-
-   ```
-   /.github/             @OWNER/maintainers
-   /docker-compose.yml   @OWNER/maintainers
-   /Makefile             @OWNER/maintainers
-   /seeder/              @OWNER/maintainers
-   /lab-ui/              @OWNER/maintainers
-   ```
+5. **`.github/CODEOWNERS`** sends at least `.github/`, `docker-compose.yml`, `seeder/`, `lab-ui/` and `Makefile` to the maintainers, so
+   that a change to what runs with the license is read by one of them.
 6. **The catalog to try**: the repository variable `CATALOG_REPOSITORY` (`owner/name`), without which nothing is tried, and `CATALOG_REF`
    for a known-good commit. While that catalog is private, the repository secret `CATALOG_DEPLOY_KEY`, a read-only deploy key of it.
 

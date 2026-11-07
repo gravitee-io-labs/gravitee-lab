@@ -443,18 +443,3 @@ Without internet, once the images are pulled and the apps are built, the platfor
 - a new image build cannot download its packages.
 
 [What needs the internet](configuration.md#what-needs-the-internet) lists every case.
-
-## Report a bug
-
-Check this page first, then open an issue at https://github.com/gravitee-io-labs/gravitee-lab/issues. The bug form asks for:
-
-- what you did, what you expected, and what happened;
-- your operating system: macOS, Linux or Windows (WSL 2);
-- the output of `docker --version` and `docker compose version`;
-- the lab revision, from `git rev-parse --short HEAD`;
-- the output of `make ps`;
-- the lines that matter from `make logs SVC=<service>`, or from the Logs page.
-
-Remove secrets before you paste anything: your license, tokens and passwords. For a security problem, follow
-[SECURITY.md](../SECURITY.md) instead of opening an issue. Questions about Gravitee products belong at
-https://documentation.gravitee.io and https://community.gravitee.io.

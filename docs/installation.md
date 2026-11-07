@@ -157,17 +157,8 @@ To go further, turn on add-ons, setups and a playground from their pages. An add
 
 ### Without the Lab UI
 
-The Lab UI runs `docker compose` for you. To do it yourself, use the Makefile (`make help` lists every target). From any
-folder, `gravitee-lab` runs the same targets: `gravitee-lab stop`, `gravitee-lab logs SVC=apim-gateway`, `gravitee-lab help`.
-
-| Command | What it does |
-|---|---|
-| `make init` | Create what a fresh clone lacks: `.env`, the demo certificates, the plugin folders and `.lab/on.yml` |
-| `make all` | Create and start the core and what is on |
-| `make ps` | Show container status and health |
-| `make logs SVC=<name>` | Follow the logs, of one service or of all |
-| `make stop` | Stop all containers and keep the data |
-| `make urls` | Print what is on and the URL of every console |
+The Lab UI runs `docker compose` for you. To do it yourself, use the Makefile: [its targets](configuration.md#make-targets). From
+any folder, `gravitee-lab` runs the same targets: `gravitee-lab stop`, `gravitee-lab logs SVC=apim-gateway`, `gravitee-lab help`.
 
 Run `make init` once before a `docker compose` command that you type yourself: `make ui` and `make all` run it for you. `.lab/on.yml` lists what is on: see [the on file](lab-ui.md#the-on-file).
 
@@ -196,6 +187,6 @@ Run `make init` once before a `docker compose` command that you type yourself: `
 ## Help
 
 - Start with [Troubleshooting](troubleshooting.md).
-- For a bug or a question about the lab, open an issue in the Issues tab of this repository. Include your operating system, `docker --version`, `docker compose version`, `git rev-parse --short HEAD`, the output of `make ps` and the log lines that matter. Remove your license, tokens and passwords first.
+- For a bug or a question about the lab, open an issue in the Issues tab of this repository: its form says what to include. Remove your license, tokens and passwords first.
 - For a vulnerability, follow [SECURITY.md](../SECURITY.md).
 - For questions about Gravitee products, see the [documentation](https://documentation.gravitee.io) and the [community](https://community.gravitee.io).

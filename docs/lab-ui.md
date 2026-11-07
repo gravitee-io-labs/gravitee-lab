@@ -381,9 +381,6 @@ folder in your agent, say what you want, or paste the prompt from the dialog. To
 
 What the agent writes shows in the Lab UI by itself, because the Lab UI reads the folders.
 
-The guides are the `AGENTS.md` files, which OpenAI Codex, GitHub Copilot and Cursor read as they are. Claude Code reads
-`CLAUDE.md` and `.claude/skills/`, and Gemini CLI reads `.gemini/settings.json`, which both lead to the same files.
-
 ## Files and settings
 
 The file button of a row opens its compose file in an editor. The editor checks the file with `docker compose config`
@@ -410,7 +407,7 @@ Without an account, the Hybrid gateway add-on reads *Needs settings* like any ad
 
 ### Without a license
 
-The License dialog of a Lab with no license says *Community edition* and offers two ways forward as two cards of one height: *Use Gravitee Cloud*, whose *Connect my account* opens the form that connects an account (it asks whether there is one already and offers a trial of 14 days if there is not), and *Run it on this machine*, whose *Request a license* leads to the self-hosted trial of gravitee.io. `GRAVITEE_EMPLOYEE` in `.env` hides the cards.
+The License dialog of a Lab with no license says *Community edition* and offers two ways forward as two cards of one height: *Use Gravitee Cloud*, whose *Connect my account* opens the form that connects an account (it asks whether there is one already and offers a trial of 14 days if there is not), and *Run it on this machine*, whose *Request a license* leads to the self-hosted trial of gravitee.io. [`GRAVITEE_EMPLOYEE`](configuration.md#for-gravitee-employees) hides the cards.
 
 ## The playground page
 
@@ -602,9 +599,7 @@ remove](installation.md#stop-update-remove).
 The page uses CSS features that need Chrome or Edge 117, Firefox 121 or Safari 16.4, or later. An app of an item can
 need a later one, which its README says.
 
-It loads its libraries from the internet when it needs them, from `cdnjs.cloudflare.com` and `cdn.jsdelivr.net`: for a guide, its
-diagrams, the file editor and a playground's terminal. Without internet, a guide shows as plain text, diagrams included, the
-editor as a plain text area, and the terminal's panel says it needs the internet. Everything else works. See
+It loads the libraries of a guide, the file editor and a playground's terminal from the internet when it needs them:
 [What needs the internet](configuration.md#what-needs-the-internet).
 
 Keyboard:
