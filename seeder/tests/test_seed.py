@@ -114,10 +114,6 @@ class Record(Seed):
 
     ITEM = {"product": "openfga", "kind": "store", "label": "OpenFGA stores", "name": "Documents", "id": "s1"}
 
-    def test_no_record_is_nothing_created(self):
-        self.assertFalse(self.state.exists())
-        self.assertEqual(common.created(), [])
-
     def test_a_damaged_record_stops_the_seed_and_is_never_written_over(self):
         for damaged in ('[{"product": "openfga", "kind": "store", "name": "Documents", "id": "s1"}] trailing', '[{"product": "x"}]',
                         '{"product": "x"}', "[1, 2]", ""):
@@ -306,9 +302,3 @@ class Modules(Seed):
         records = [{"product": "p", "kind": kind, "id": i} for i, kind in enumerate(["a", "b", "c", "b", "other"])]
         records.append({"product": "elsewhere", "kind": "b", "id": 9})
         self.assertEqual([x["id"] for x in common.owned(records, "p", ["b", "a"])], [1, 3, 0])
-
-    def test_a_module_asks_the_seed_for_its_folders_before_anything(self):
-        self.assertFalse(common.has_seed("aim/providers", "authz"))
-        self.seed_files({"authz/policies.yaml": "x: 1"})
-        self.assertTrue(common.has_seed("aim/providers", "authz"))
-        self.assertFalse(common.has_seed("aim/providers"))

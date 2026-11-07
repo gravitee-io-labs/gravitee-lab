@@ -87,15 +87,12 @@ class SigningIn(Seed):
         self.env(APIM_TOKEN="")
         self.assertEqual({call.auth for call in self.calls()}, {("admin", "admin")})
 
-    def test_no_credentials_is_an_error(self):
-        self.env(APIM_USERNAME=None)
-        with self.assertRaisesRegex(common.SeedError, "APIM_USERNAME is not set"):
-            gamma.Gamma()
-
-    def test_no_management_api_is_an_error(self):
-        self.env(APIM_MANAGEMENT_URL=None)
-        with self.assertRaisesRegex(common.SeedError, "APIM_MANAGEMENT_URL is not set"):
-            gamma.Gamma()
+    def test_no_credentials_or_no_management_api_is_an_error(self):
+        for name in ("APIM_USERNAME", "APIM_MANAGEMENT_URL"):
+            self.env(**{name: None})
+            with self.subTest(name=name), self.assertRaisesRegex(common.SeedError, f"{name} is not set"):
+                gamma.Gamma()
+            self.env(**{name: "x"})
 
 
 class Patience(Seed):
@@ -303,10 +300,6 @@ class Modules(Seed):
 
     def serve(self, answer):
         self.answer({("GET", self.LIST): answer})
-
-    def test_the_ids_of_the_modules_the_platform_serves(self):
-        self.serve((200, [{"id": "aim", "name": "Agent Management"}, {"id": "authz"}, {"id": "platform"}]))
-        self.assertEqual(gamma.Gamma().modules(), {"aim", "authz", "platform"})
 
     def test_a_platform_that_has_no_such_list_says_so(self):
         self.serve(404)

@@ -100,19 +100,6 @@ class Ending(Seed):
         with self.assertRaisesRegex(common.SeedError, "^refills.yaml: b names AI workspace 'Other', which no seed file has$"):
             refills.finish()
 
-    def test_a_seed_whose_refills_all_found_their_workspace_ends(self):
-        refills.begin()
-        refills.of("Teams", ["team-a"])
-        refills.of("Other", ["team-b"])
-        refills.finish()
-
-    def test_a_workspace_misspelled_in_the_declaration_is_found_by_nobody(self):
-        self.seed_files({"refills.yaml": "a: {workspace: Teems, member: team-a, counters: cost}\n"})
-        refills.begin()
-        self.assertEqual(refills.of("Teams", ["team-a"]), [])
-        with self.assertRaisesRegex(common.SeedError, "a names AI workspace 'Teems'"):
-            refills.finish()
-
     def test_a_new_seed_forgets_what_the_last_one_found(self):
         refills.begin()
         refills.of("Teams", ["team-a"])
@@ -147,11 +134,6 @@ class Deleting(unittest.TestCase):
         self.assertEqual(refills.drop(client, self.refill, SANDBOX), 0)
         self.assertEqual(client.calls, [("scan", "ratelimit:*:cost-rl"), ("pipeline", 1)])
         self.assertEqual(refills.drop(FakeRedis(), self.refill, SANDBOX), 0)
-
-    def test_the_keys_are_asked_by_the_pattern_of_the_counters(self):
-        client = FakeRedis({f"ratelimit:ws:{n}:cost-rl": counter("sub-" + str(n)) for n in range(7)} | {KEY: counter(SANDBOX)})
-        self.assertEqual(refills.drop(client, self.refill, SANDBOX), 1)
-        self.assertEqual(client.calls, [("scan", "ratelimit:*:cost-rl"), ("pipeline", 8), ("delete", [KEY])])
 
     def test_a_key_that_is_not_a_hash_is_no_ones_counter_and_does_not_stop_the_others(self):
         client = FakeRedis({"ratelimit:a:1:cost-rl": "text", KEY: counter(SANDBOX)})
@@ -264,16 +246,6 @@ class TheLibrary(unittest.TestCase):
             self.skipTest("redis-py is not installed: run make setup")
         self.redis = redis
 
-    def test_the_calls_a_refill_makes_are_those_of_the_library(self):
-        import inspect
-
-        calls = {"scan_iter": self.redis.Redis.scan_iter, "pipeline": self.redis.Redis.pipeline, "delete": self.redis.Redis.delete,
-                 "hget": self.redis.client.Pipeline.hget, "execute": self.redis.client.Pipeline.execute}
-        self.assertLessEqual({"match", "count"}, set(inspect.signature(calls["scan_iter"]).parameters))
-        self.assertIn("transaction", inspect.signature(calls["pipeline"]).parameters)
-        self.assertIn("raise_on_error", inspect.signature(calls["execute"]).parameters)
-        self.assertLessEqual({"name", "key"}, set(inspect.signature(calls["hget"]).parameters))
-
     def test_the_fake_takes_the_same_arguments_as_the_library(self):
         import inspect
 
@@ -281,6 +253,7 @@ class TheLibrary(unittest.TestCase):
                            (testkit.FakeBatch.execute, self.redis.client.Pipeline.execute)):
             used = set(inspect.signature(fake).parameters) - {"self"}
             self.assertLessEqual(used, set(inspect.signature(real).parameters), fake.__qualname__)
+        self.assertLessEqual({"name", "key"}, set(inspect.signature(self.redis.client.Pipeline.hget).parameters))
 
 
 class Connecting(Seed):

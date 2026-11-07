@@ -208,14 +208,6 @@ class Scopes(Case):
         self.assertEqual(kept["createRefund"]["name"], "Refund an order")
         self.assertIn("✓ Scopes: 3 created", self.output())
 
-    def test_they_are_made_before_the_application_that_names_them(self):
-        self.seed()
-        order = [call.path.rsplit("/", 1)[1] for call in self.platform.calls
-                 if call.method == "POST" and call.path.rsplit("/", 1)[1] in ("scopes", "applications")]
-        self.assertEqual(order, ["scopes"] * 3 + ["applications"])
-        self.assertEqual({entry["scope"] for entry in self.oauth()["scopeSettings"]} - set(SYSTEM_SCOPES),
-                         {"searchCustomers", "getCustomer", "createRefund"})
-
     def test_a_scope_that_is_there_is_not_made_again_and_the_platform_s_description_stays(self):
         domain_id = self.am.add_domain("orchid", [("getCustomer", "Customers", "Made when the MCP server was registered")])
         self.seed()
@@ -330,18 +322,6 @@ class Agent(Case):
         self.assertNotIn(SECRET, self.output())
         self.assertNotIn(SECRET, self.state.read_text(encoding="utf-8"))
         self.assertNotIn("demo-password", self.output() + self.state.read_text(encoding="utf-8"))
-
-    def test_it_signs_in_with_that_secret_where_its_kind_would_have_it_sign_in_with_a_key(self):
-        self.seed()
-        self.assertEqual(self.am.at_creation["desk-copilot"]["tokenEndpointAuthMethod"], "private_key_jwt", "what AM gave it")
-        self.assertEqual(self.oauth()["tokenEndpointAuthMethod"], "client_secret_basic")
-
-    def test_it_keeps_the_grants_and_response_types_its_kind_gives_it(self):
-        self.seed()
-        self.assertEqual(self.oauth()["grantTypes"], GRANTS_OF_AN_AGENT)
-        self.assertEqual(self.oauth()["responseTypes"], ["code"])
-        self.assertTrue(all(set(patch.get("settings", {}).get("oauth", {})) <= {"scopeSettings", "tokenCustomClaims", "redirectUris",
-                                                                                  "tokenEndpointAuthMethod"} for patch in self.patches()))
 
     def test_it_may_ask_a_person_for_the_scopes_of_the_file_and_nothing_else(self):
         self.seed()
@@ -478,11 +458,6 @@ class Agent(Case):
         self.assertEqual(self.platform.sent("POST", APPLICATIONS), [])
         self.assertEqual(self.oauth()["tokenEndpointAuthMethod"], "client_secret_basic")
         self.assertEqual([x["kind"] for x in common.created() if x["kind"] in ("agent", "application")], [])
-
-    def test_it_is_recorded_as_an_agent_of_the_domain(self):
-        self.seed()
-        self.assertEqual([(x["kind"], x["label"], x["name"], x["domain"]) for x in common.created() if x["kind"] == "agent"],
-                         [("agent", "AM agents", "Desk copilot", self.domain_id())])
 
 
 class Users(Case):

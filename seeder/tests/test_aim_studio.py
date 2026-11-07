@@ -930,7 +930,7 @@ class EditedTools(Studios):
 
 
 PLAIN = """\
-name: Lumenbank operations
+name: Kazoo operations
 description: Every operation of the APIs, one tool each
 contextPath: /mcp/customer-desk
 supportedProtocolVersions: ["2025-11-25", "2026-07-28"]
@@ -968,9 +968,9 @@ class Subscriptions(Studios):
         self.assertEqual(self.changes()[0], ("POST", "/mcp-studios"))
         [record] = [x for x in common.created() if x["kind"] == "subscription"]
         self.assertEqual((record["product"], record["label"], record["name"], record["id"], record["api"]),
-                         ("aim-proxies", "subscriptions to MCP studios", "Steward on 13 tools → Lumenbank operations (Copilots)",
+                         ("aim-proxies", "subscriptions to MCP studios", "Steward on 13 tools → Kazoo operations (Copilots)",
                           "sub-1", "studio-1"))
-        self.assertIn("✓ Subscribed: Steward on 13 tools → Lumenbank operations (Copilots)", self.output())
+        self.assertIn("✓ Subscribed: Steward on 13 tools → Kazoo operations (Copilots)", self.output())
         self.assertNotIn("operations-key-0013", self.output())
 
     def test_a_second_run_writes_nothing(self):
@@ -1004,7 +1004,7 @@ class Subscriptions(Studios):
     def test_a_subscription_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
         self.answer_lost(("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")), self.world.subscribe)
         self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
-                         ["Steward on 13 tools → Lumenbank operations (Copilots)"])
+                         ["Steward on 13 tools → Kazoo operations (Copilots)"])
         self.seed()
         self.assertEqual(common.notes("aim-proxies", "subscription"), [])
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "subscription"], [s["id"] for s in self.subs()])
@@ -1023,7 +1023,7 @@ class Subscriptions(Studios):
         self.seed()
         self.assertEqual(len(self.subs("ACCEPTED")), 1)
         self.file(PLAIN.replace("{application: Steward on 13 tools,", "{application: Steward on 13 tools, plan: Agents,"))
-        with self.assertRaisesRegex(common.SeedError, "^MCP studio Lumenbank operations: no published plan is named 'Agents'$"):
+        with self.assertRaisesRegex(common.SeedError, "^MCP studio Kazoo operations: no published plan is named 'Agents'$"):
             self.seed()
 
     def test_a_studio_built_in_steps_subscribes_to_the_plan_of_the_agents(self):
@@ -1055,7 +1055,7 @@ class Subscriptions(Studios):
                 ("subscriptions: [{application: A, apiKey: ''}]", "the apiKey of A is empty"),
                 ("subscriptions: [{application: A, plan: 3}]", "the plan of A is the name of a plan"),
                 ("authorization: {agentIdentityResolution: true}",
-                 "^MCP studio Lumenbank operations: authorization is read for a studio built in steps")):
+                 "^MCP studio Kazoo operations: authorization is read for a studio built in steps")):
             with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, message):
                 self.file(PLAIN[:PLAIN.index("subscriptions:")] + text + "\n")
                 self.seed()
@@ -1066,7 +1066,7 @@ class Subscriptions(Studios):
         self.platform.calls.clear()
         aim_proxies.remove(common.created())
         self.assertEqual(self.changes(), [("POST", "/apis/studio-1/subscriptions/sub-1/_close"), ("DELETE", "/mcp-proxies/studio-1")])
-        self.assertIn("✓ Closed subscription 'Steward on 13 tools → Lumenbank operations (Copilots)'", self.output())
+        self.assertIn("✓ Closed subscription 'Steward on 13 tools → Kazoo operations (Copilots)'", self.output())
         self.assertEqual(common.created(), [], "a subscription closed is forgotten as soon as it is")
 
     def test_a_subscription_whose_studio_is_gone_is_no_error_to_remove(self):
@@ -1098,4 +1098,4 @@ class Subscriptions(Studios):
         self.seed()
         [sub] = self.world.subscriptions.values()
         self.assertEqual(sub["status"], "ACCEPTED", "the key of the file works")
-        self.assertIn("✓ Subscription accepted: Steward on 13 tools → Lumenbank operations (Copilots)", self.output())
+        self.assertIn("✓ Subscription accepted: Steward on 13 tools → Kazoo operations (Copilots)", self.output())

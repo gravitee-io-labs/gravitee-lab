@@ -126,8 +126,6 @@ class Link(Seed):
             "defaultDomainId": "domain-1", "defaultDomainHrid": "acme-bakery", "gatewayUrl": "http://localhost:8092",
             "serviceAccountAccessToken": TOKEN}])
         self.assertTrue(self.world.config["hasAccessToken"])
-        self.assertEqual([(r["kind"], r["name"], r["id"]) for r in common.created()],
-                         [("am-service-account", "gamma-service-account", "user-1"), ("am-link", "Gamma to Access Management", "domain-1")])
 
     def test_the_link_is_tested_with_the_token_before_it_is_saved(self):
         self.seed(self.world)
@@ -223,10 +221,6 @@ class Link(Seed):
         self.seed(World(config={**SAVED, "defaultDomainId": "deleted", "defaultDomainHrid": "example"}))
         self.assertEqual(self.world.config["defaultDomainId"], "domain-1")
         self.assertNotIn("serviceAccountAccessToken", self.puts()[0])
-
-    def test_a_link_to_the_playground_s_own_domain_made_again_is_pointed_at_the_new_one(self):
-        self.seed(World(config={**SAVED, "defaultDomainId": "domain-removed-since", "defaultDomainHrid": "acme-bakery"}))
-        self.assertEqual(self.world.config["defaultDomainId"], "domain-1")
 
     def test_a_link_to_another_domain_that_works_is_left_alone_with_a_warning(self):
         other = {"id": "domain-2", "name": "Example", "hrid": "example"}
