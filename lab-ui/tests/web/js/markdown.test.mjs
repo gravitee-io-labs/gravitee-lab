@@ -38,29 +38,29 @@ test("the sanitizer lets a link keep `action:` and an id, and no other address o
     keep({ tagName: tag }, data);
     return data.forceKeepAttr === true;
   };
-  for (const id of ["ask-ace-accounts", "leak-an-iban", "a", "0", "move-600-through-ace"]) assert.equal(kept("A", "href", `action:${id}`), true, id);
-  for (const value of ["action:", "action:Ask-Ace", "action:ask ace", "action:ask_ace", "action:-a", "action:a:b", "Action:ask", "javascript:alert(1)",
+  for (const id of ["ask-pip-accounts", "leak-a-token", "a", "0", "move-600-through-pip"]) assert.equal(kept("A", "href", `action:${id}`), true, id);
+  for (const value of ["action:", "action:Ask-Pip", "action:ask pip", "action:ask_pip", "action:-a", "action:a:b", "Action:ask", "javascript:alert(1)",
     "https://example.com", "http://localhost:8110", "#/playgrounds/acme-bakery/2", "data:text/html,x", "", "action:ask\n"]) {
     assert.equal(kept("A", "href", value), false, value);
   }
-  assert.equal(kept("IMG", "src", "action:ask-ace"), false, "only a link");
-  assert.equal(kept("A", "title", "action:ask-ace"), false, "only its address");
-  assert.equal(kept("FORM", "action", "action:ask-ace"), false);
+  assert.equal(kept("IMG", "src", "action:ask-pip"), false, "only a link");
+  assert.equal(kept("A", "title", "action:ask-pip"), false, "only its address");
+  assert.equal(kept("FORM", "action", "action:ask-pip"), false);
 });
 
 test("an action link becomes a button with its play icon and the text of the link, disabled until a page enables it", async () => {
-  const out = await render('<p>Click <a href="action:leak-an-iban">Leak <strong>an</strong> IBAN</a>.</p>');
+  const out = await render('<p>Click <a href="action:leak-a-token">Leak <strong>a</strong> token</a>.</p>');
   const [button] = out.querySelectorAll("button");
   assert.ok(button, "a button");
   assert.equal(out.querySelectorAll("a").length, 0, "no link is left");
-  assert.equal(button.dataset.action, "leak-an-iban");
+  assert.equal(button.dataset.action, "leak-a-token");
   assert.equal(button.type, "button", "it submits nothing");
   assert.equal(button.className, "btn guide-action");
   assert.equal(button.disabled, true);
   assert.ok(button.title, "and it says why: here nothing runs");
   assert.equal(button.querySelector("svg use").getAttribute("href"), "#i-play");
-  assert.equal(button.querySelector("span").innerHTML, "Leak <strong>an</strong> IBAN", "the text of the link as it was written, its emphasis too");
-  assert.equal(out.textContent, "Click Leak an IBAN.");
+  assert.equal(button.querySelector("span").innerHTML, "Leak <strong>a</strong> token", "the text of the link as it was written, its emphasis too");
+  assert.equal(out.textContent, "Click Leak a token.");
 });
 
 test("an action that opens something to look at has an eye, one that does something a play", async () => {
@@ -73,9 +73,9 @@ test("an action that opens something to look at has an eye, one that does someth
 });
 
 test("every action link of a page is a button, and the other links are left alone", async () => {
-  const out = await render(`<ul><li><a href="action:ask-ace-accounts">Ask Ace</a> and <a href="action:ask-ace-direct">without the gateway</a></li>
+  const out = await render(`<ul><li><a href="action:ask-pip-accounts">Ask Pip</a> and <a href="action:ask-pip-direct">without the gateway</a></li>
     <li><a href="http://localhost:8086" target="_blank" rel="noopener">Gamma</a></li><li><a href="#/playgrounds/acme-bakery/2">Next</a></li></ul>`);
-  assert.deepEqual(out.querySelectorAll("button").map((button) => button.dataset.action), ["ask-ace-accounts", "ask-ace-direct"]);
+  assert.deepEqual(out.querySelectorAll("button").map((button) => button.dataset.action), ["ask-pip-accounts", "ask-pip-direct"]);
   assert.deepEqual(out.querySelectorAll("a").map((link) => link.getAttribute("href")), ["http://localhost:8086", "#/playgrounds/acme-bakery/2"]);
   assert.equal(out.querySelector('a[href^="http"]').getAttribute("target"), "_blank");
 });
@@ -89,18 +89,18 @@ test("a link whose `action:` the sanitizer dropped is left as the text it was: n
 
 test("the markdown goes through the sanitizer before anything is made of it", async () => {
   sanitized = [];
-  await render('<p><a href="action:leak-an-iban">x</a></p>');
-  assert.deepEqual(sanitized, ['<p><a href="action:leak-an-iban">x</a></p>']);
+  await render('<p><a href="action:leak-a-token">x</a></p>');
+  assert.deepEqual(sanitized, ['<p><a href="action:leak-a-token">x</a></p>']);
 });
 
 test("an address with a space around it in the markup is the same action to the button as to the sanitizer, which read it trimmed", async () => {
-  const out = await render('<p><a href=" action:leak-an-iban\n">Leak</a></p>');
-  assert.deepEqual(out.querySelectorAll("button").map((button) => button.dataset.action), ["leak-an-iban"]);
+  const out = await render('<p><a href=" action:leak-a-token\n">Leak</a></p>');
+  assert.deepEqual(out.querySelectorAll("button").map((button) => button.dataset.action), ["leak-a-token"]);
 });
 
 test("a link that is none, or has nothing to click, stays a text: never a button for an id that is none", async () => {
   // a link the hook kept (so it reads as an action) whose id is none once read as the button reads it, and one with no text
-  const out = await render('<p>a <a href="action:Not An Id">not</a> b <a href="action:leak-an-iban"></a> c <a href="action:leak-an-iban"> </a> d</p>');
+  const out = await render('<p>a <a href="action:Not An Id">not</a> b <a href="action:leak-a-token"></a> c <a href="action:leak-a-token"> </a> d</p>');
   assert.equal(out.querySelectorAll("button").length, 0);
   assert.equal(out.querySelectorAll("a").length, 0);
   assert.equal(out.textContent, "a not b  c   d");
@@ -112,8 +112,8 @@ test("the sanitizer is told what a guide cannot carry: a form, a style, and a da
   assert.deepEqual(configs.at(-1).FORBID_TAGS, ["form"]);
   for (const attr of ["style", "formaction"]) assert.ok(configs.at(-1).FORBID_ATTR.includes(attr), attr);
   assert.equal(configs.at(-1).ALLOW_DATA_ATTR, false);
-  const out = await render('<p><a href="action:leak-an-iban">x</a></p>');
-  assert.equal(out.querySelector("button").dataset.action, "leak-an-iban", "the button is given its data-action after the sanitizer");
+  const out = await render('<p><a href="action:leak-a-token">x</a></p>');
+  assert.equal(out.querySelector("button").dataset.action, "leak-a-token", "the button is given its data-action after the sanitizer");
 });
 
 test("each library comes from the address of its version, with the hash of its file, which the browser checks", async () => {
@@ -131,7 +131,7 @@ test("each library comes from the address of its version, with the hash of its f
 
 // --- The account links ---------------------------------------------------------------------
 
-const ACCOUNTS = [{ for: "Portal", username: "maya.chen", password: "HelloWorld@123" }, { for: "Dashboard", username: "dash", key: "k-123" }];
+const ACCOUNTS = [{ for: "Portal", username: "nora.pine", password: "PlainDemo@123" }, { for: "Dashboard", username: "dash", key: "k-123" }];
 const renderWith = async (html, accounts) => {
   source = html;
   const out = page.doc.createElement("div");
@@ -147,18 +147,18 @@ test("the sanitizer lets a link keep `account:` and a user name, and no other ad
     keep({ tagName: "A" }, data);
     return data.forceKeepAttr === true;
   };
-  for (const name of ["maya.chen", "admin", "a@b.test", "Priya_R"]) assert.equal(kept(`account:${name}`), true, name);
-  for (const value of ["account:", "account:maya chen", "account:.dot", "Account:x", "account:a\n"]) assert.equal(kept(value), false, value);
+  for (const name of ["nora.pine", "admin", "a@b.test", "Priya_R"]) assert.equal(kept(`account:${name}`), true, name);
+  for (const value of ["account:", "account:nora pine", "account:.dot", "Account:x", "account:a\n"]) assert.equal(kept(value), false, value);
 });
 
 test("an account link becomes the sign-in it names: its text, the user and the password, each with a copy button", async () => {
-  const out = await renderWith('<p>Sign in as <a href="account:maya.chen">Maya <em>Chen</em></a>.</p>', ACCOUNTS);
+  const out = await renderWith('<p>Sign in as <a href="account:nora.pine">Nora <em>Pine</em></a>.</p>', ACCOUNTS);
   const card = out.querySelector(".guide-account");
   assert.ok(card, "a card");
   assert.equal(out.querySelectorAll("a").length, 0, "no link is left");
-  assert.equal(card.querySelector(".guide-account-name").innerHTML, "Maya <em>Chen</em>");
-  assert.deepEqual(card.querySelectorAll("code").map((code) => code.textContent), ["maya.chen", "HelloWorld@123"]);
-  assert.deepEqual(card.querySelectorAll("button").map((button) => button.dataset.copy), ["maya.chen", "HelloWorld@123"]);
+  assert.equal(card.querySelector(".guide-account-name").innerHTML, "Nora <em>Pine</em>");
+  assert.deepEqual(card.querySelectorAll("code").map((code) => code.textContent), ["nora.pine", "PlainDemo@123"]);
+  assert.deepEqual(card.querySelectorAll("button").map((button) => button.dataset.copy), ["nora.pine", "PlainDemo@123"]);
   const key = (await renderWith('<p><a href="account:dash">Dashboard</a></p>', ACCOUNTS)).querySelector(".guide-account");
   assert.deepEqual(key.querySelectorAll("button").map((button) => button.dataset.copy), ["dash", "k-123"], "a key in place of a password");
 });
@@ -169,7 +169,7 @@ test("an account link to no known account shows its text and the user name, with
   assert.equal(card.querySelector(".guide-account-name").textContent, "Bob");
   assert.equal(card.querySelector("code").textContent, "bob");
   assert.equal(card.querySelectorAll("button").length, 0);
-  const none = await render('<p><a href="account:maya.chen">Maya</a></p>');   // the editor's preview: no accounts
+  const none = await render('<p><a href="account:nora.pine">Nora</a></p>');   // the editor's preview: no accounts
   assert.equal(none.querySelectorAll(".guide-account button").length, 0);
 });
 

@@ -30,7 +30,7 @@ class Builds(unittest.TestCase):
 
     def test_a_tag_that_moves_names_no_version(self):
         for tag in ("latest", "latest-debian", "4", "4.12", "4.12-debian", "4.13.0-alpha", "4.13.0-alpha-debian",
-                    "nightly", "4.9.0-kafka-desk", "sha256-abc", "", "master-latest"):
+                    "nightly", "4.9.0-kazoo-desk", "sha256-abc", "", "master-latest"):
             self.assertIsNone(versions.parse(tag), tag)
 
     def test_versions_are_ordered_as_semver_orders_them(self):

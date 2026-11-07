@@ -64,7 +64,7 @@ function set(key, value) {
 }
 
 // The section a component is listed in: the Gravitee ones of a group of the platform (the add-on's gateway too, it is a
-// gateway of its group), what the platform's own add-ons run, and the rest, which is not Gravitee's (the databases, Kafka, a playground's)
+// gateway of its group), what the platform's own add-ons run, and the rest, which is not Gravitee's (the databases, Kazoo, a playground's)
 const sectionOf = (c) => (c.kind === "gravitee" && c.group ? "platform" : ofPlatform(store.item("addon", c.owner.id)) && c.owner.kind === "addon" ? "addons" : "third");
 
 const dirty = () => Object.keys(draft).length > 0;

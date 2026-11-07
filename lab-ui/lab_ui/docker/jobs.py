@@ -171,7 +171,7 @@ class Job:
     """One action: steps run in order, each a command or a function of the job. Its stages are what its progress
     counts: the phases declared as taking time, else the commands among its steps. `waits` says what each stage waits
     for (awaited()), in their order; one it leaves out waits for nothing it can name. `key` is what it acts on
-    ("addon:kafka", "platform", "plugins:apim") and `verb` what it does ("start", "pull"): the button that started it
+    ("addon:kazoo", "platform", "plugins:apim") and `verb` what it does ("start", "pull"): the button that started it
     shows it by them."""
 
     def __init__(self, title, steps, key=None, verb=None, changes=None, phases=None, waits=None):

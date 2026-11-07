@@ -79,8 +79,8 @@ class Line(unittest.TestCase):
         self.assertEqual(reasons.line({"a": config("S")}, {"a": "A"}, "Alert Engine", whole=True),
                          "Alert Engine: its settings changed since it started: S.")
         # Several of them are the owner, and an owner is one: its words are the singular
-        self.assertEqual(reasons.line({"a": config("S"), "b": config("S")}, labels, "Kafka", whole=True),
-                         "Kafka: its settings changed since it started: S.")
+        self.assertEqual(reasons.line({"a": config("S"), "b": config("S")}, labels, "Kazoo", whole=True),
+                         "Kazoo: its settings changed since it started: S.")
         self.assertEqual(reasons.line({"a": config("S"), "b": config("S")}, labels, whole=True),
                          "Their settings changed since they started: S.")
 

@@ -290,8 +290,8 @@ def _progress(c, key, names, state):
 
 
 def _culprit(c, names):
-    """The service that makes a state, as a note: the one with an issue ("Kafka UI exited (1)"), else the first that
-    does not run ("Developer Portal stopped", "Kafka UI not created")."""
+    """The service that makes a state, as a note: the one with an issue ("Kazoo UI exited (1)"), else the first that
+    does not run ("Developer Portal stopped", "Kazoo UI not created")."""
     services = [c["services"][name] for name in _counted(c, names)]
     culprit = next((s for s in services if s["state"]["key"] == "issue"), None) \
         or next((s for s in services if s["state"]["key"] not in FINE), None)

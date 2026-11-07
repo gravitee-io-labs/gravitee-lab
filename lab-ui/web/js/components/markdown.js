@@ -1,5 +1,5 @@
 // Markdown as the page shows it: rendered and sanitized, its links opening next to the lab, its action links
-// (`[Ask Ace](action:ask-ace)`) drawn as buttons, its account links (`[Maya](account:maya.chen)`) drawn as the sign-in with copy
+// (`[Ask Pip](action:ask-pip)`) drawn as buttons, its account links (`[Nora](account:nora.pine)`) drawn as the sign-in with copy
 // buttons, and its blocks to run (```bash run) given a Run button. A playground's guide on its page and in the editor's preview.
 
 import { credHtml, esc, icon, loadScript, withoutDefine } from "../core.js";

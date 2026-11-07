@@ -38,7 +38,6 @@ MEMBER_TOKEN = "fake-member-token"
 SECOND_TOKEN = "fake-second-token"
 PATH = "/management"
 GATE = "/apim/rest"
-NAME = re.compile(r"^[a-zA-Z0-9\s\-_.]+$")
 YEAR = 365 * 24 * 3600
 SIGNATURE = "fake-signature"   # every token of the fake is signed with it, which is how it knows its own
 VERSION = "4.12.20"   # the version of API Management its gateways answer, by default
@@ -63,7 +62,6 @@ SECOND_ENVIRONMENTS = environments("fake-second-organization", "Client Lab",
 FEATURES = {"fake-organization": ["apim-bridge-gateway"], "fake-second-organization": ["apim-bridge-gateway", "mcp"]}
 NEEDS = {"MCP_PROXY": "mcp"}   # the feature that deploying an API of a type needs
 ID = "([^/]+)"
-OWN = re.compile(r"/accounts/([^/]+)(?:/.*)?")   # the paths an Account Token may call: those of an account
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -207,14 +205,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail(401, "Unauthorized")
         self.account, self.environments, writes = login
         # An Account Token is no user: it opens its own account by its id, not the list of accounts, /me or the hrid
-        own = OWN.fullmatch(path)
+        own = re.fullmatch(r"/accounts/([^/]+)(?:/.*)?", path)
         if not own or own.group(1) != self.account["id"]:
             return self.fail(401, "Unauthorized")
         if method != "GET" and not writes:
             return self.fail(403, "Forbidden")
         for verb, pattern, handler in [
             ("GET", f"/accounts/{ID}", lambda account: self.send(200, self.account)),
-            ("GET", f"/accounts/{ID}/environments", self.list_environments),
+            ("GET", f"/accounts/{ID}/environments", lambda account: self.send(200, self.environments)),
             ("GET", f"/accounts/{ID}/subscription", lambda account: self.send(200, self.server.state.subscription)),
             ("GET", f"/accounts/{ID}/organizations", self.list_organizations),
             ("GET", f"/accounts/{ID}/gateways", lambda account: self.gateways(url.query)),
@@ -236,9 +234,6 @@ class Handler(BaseHTTPRequestHandler):
                                           for scope in self.server.state.scopes for target in ("CONSOLE", "CONSOLE_API")]}
                         for organization, name in seen.items()])
 
-    def list_environments(self, account):
-        self.send(200, self.environments)
-
     def gateways(self, query):
         state = self.server.state
         with state.lock:
@@ -254,7 +249,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail(400, "Bad request: the body is not an object")
         name = body.get("name")
         environment = next((env for env in self.environments if env["id"] == body.get("environmentId")), None)
-        if not isinstance(name, str) or not 2 <= len(name) <= 128 or not NAME.match(name):
+        if not isinstance(name, str) or not 2 <= len(name) <= 128 or not re.match(r"^[a-zA-Z0-9\s\-_.]+$", name):
             return self.fail(400, "Bad request: name must have 2 to 128 characters matching ^[a-zA-Z0-9\\s\\-_.]+$")
         if not environment:
             return self.fail(400, "Bad request: environmentId is not an environment of this account")

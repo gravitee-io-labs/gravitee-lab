@@ -17,7 +17,7 @@ def unit(name, tier="other", services=(), containers=(), volumes=(), **more):
 class Targets(Case):
 
     def test_a_unit_file_is_read_by_where_it_sits(self):
-        for path, found in ((".lab/catalogs/gravitee/addons/kafka/compose.yml", ("gravitee", "addon", "kafka")),
+        for path, found in ((".lab/catalogs/gravitee/addons/kazoo/compose.yml", ("gravitee", "addon", "kazoo")),
                             (".lab/catalogs/acme-hub/playgrounds/bank/compose.yml", ("acme-hub", "playground", "bank")),
                             (".lab/catalogs/local/setups/mine.yml", ("local", "setup", "mine")),
                             (".lab/catalogs/ab/addons/x/compose.yml", ("ab", "addon", "x"))):
@@ -25,7 +25,7 @@ class Targets(Case):
                 self.assertEqual(resolve.target_of(path), found)
 
     def test_anything_else_is_no_unit(self):
-        for path in (None, "", 7, "addons/kafka/compose.yml", ".lab/catalogs/.stage-acme/addons/x/compose.yml",
+        for path in (None, "", 7, "addons/kazoo/compose.yml", ".lab/catalogs/.stage-acme/addons/x/compose.yml",
                      ".lab/catalogs/acme/addons/x/certs/compose.yml", ".lab/catalogs/acme/addons/x/compose.yml/y",
                      ".lab/catalogs/acme/addons/x.yml", ".lab/catalogs/acme/setups/x/compose.yml", ".lab/catalogs/acme/setups/x.yml/y",
                      ".lab/catalogs/a/addons/x/compose.yml", ".lab/catalogs/Acme/addons/x/compose.yml",
@@ -39,14 +39,14 @@ class Targets(Case):
 class Closure(Case):
 
     def test_a_unit_then_its_setups_then_its_add_ons_sorted(self):
-        units = {"playground": {"bank": {"setups": ["pair"], "includes": ["kafka", "jade"]}},
-                 "setup": {"pair": {"includes": ["mail", "kafka"]}},
-                 "addon": {"kafka": {"needs": ["base"]}, "jade": {}, "mail": {}, "base": {}}}
+        units = {"playground": {"bank": {"setups": ["pair"], "includes": ["kazoo", "jade"]}},
+                 "setup": {"pair": {"includes": ["malt", "kazoo"]}},
+                 "addon": {"kazoo": {"needs": ["base"]}, "jade": {}, "malt": {}, "base": {}}}
         self.assertEqual(resolve.closure(units, "playground", "bank"),
-                         [("playground", "bank"), ("setup", "pair"), ("addon", "base"), ("addon", "jade"), ("addon", "kafka"),
-                          ("addon", "mail")])
-        self.assertEqual(resolve.closure(units, "setup", "pair"), [("setup", "pair"), ("addon", "base"), ("addon", "kafka"), ("addon", "mail")])
-        self.assertEqual(resolve.closure(units, "addon", "mail"), [("addon", "mail")])
+                         [("playground", "bank"), ("setup", "pair"), ("addon", "base"), ("addon", "jade"), ("addon", "kazoo"),
+                          ("addon", "malt")])
+        self.assertEqual(resolve.closure(units, "setup", "pair"), [("setup", "pair"), ("addon", "base"), ("addon", "kazoo"), ("addon", "malt")])
+        self.assertEqual(resolve.closure(units, "addon", "malt"), [("addon", "malt")])
 
     def test_a_cycle_ends_the_walk(self):
         units = {"addon": {"a": {"needs": ["b"]}, "b": {"needs": ["c"]}, "c": {"needs": ["a", "b"]}}}
@@ -64,10 +64,10 @@ class Closure(Case):
 class Precedence(Case):
 
     def test_the_default_catalog_then_personal_then_the_others_as_added(self):
-        units = {"gravitee": [("addon", "kafka"), ("addon", "jade")], "local": [("addon", "mine")],
+        units = {"gravitee": [("addon", "kazoo"), ("addon", "jade")], "local": [("addon", "mine")],
                  "acme-hub": [("addon", "z"), ("addon", "a")], "partner": [("addon", "p")]}
         self.assertEqual(resolve.precedence_order(units, ["gravitee", "local", "partner", "acme-hub"]),
-                         [("addon", "jade"), ("addon", "kafka"), ("addon", "mine"), ("addon", "p"), ("addon", "a"), ("addon", "z")])
+                         [("addon", "jade"), ("addon", "kazoo"), ("addon", "mine"), ("addon", "p"), ("addon", "a"), ("addon", "z")])
 
     def test_a_catalog_the_list_does_not_name_claims_last(self):
         units = {"gravitee": [("addon", "a")], "zeta": [("addon", "z")], "alpha": [("addon", "y")]}
@@ -284,13 +284,13 @@ class Needs(Case):
                                     missing=[".lab/catalogs/stranger/addons/x/compose.yml"]), [])
 
     def test_a_personal_unit_declares_nothing_and_is_described_by_the_catalog_alone(self):
-        found = resolve.catalog_needs({"ns": "local", "includes": [".lab/catalogs/gravitee/addons/kafka/compose.yml"]},
+        found = resolve.catalog_needs({"ns": "local", "includes": [".lab/catalogs/gravitee/addons/kazoo/compose.yml"]},
                                       {"gravitee": {"name": "Gravitee public", "version": "1.2.0", "state": "uptodate"}},
-                                      [".lab/catalogs/gravitee/addons/kafka/compose.yml"])
+                                      [".lab/catalogs/gravitee/addons/kazoo/compose.yml"])
         self.assertEqual(found, [{"id": "gravitee", "name": "Gravitee public", "url": None, "min": None, "have": "1.2.0",
-                                  "reason": "gone", "unit": "kafka"}])
-        missing = resolve.catalog_needs({"ns": "local", "includes": [".lab/catalogs/gravitee/addons/kafka/compose.yml"]}, {},
-                                        [".lab/catalogs/gravitee/addons/kafka/compose.yml"])
+                                  "reason": "gone", "unit": "kazoo"}])
+        missing = resolve.catalog_needs({"ns": "local", "includes": [".lab/catalogs/gravitee/addons/kazoo/compose.yml"]}, {},
+                                        [".lab/catalogs/gravitee/addons/kazoo/compose.yml"])
         self.assertEqual([(item["id"], item["reason"]) for item in missing], [("gravitee", "missing")])
 
     def test_each_catalog_once_in_the_order_of_its_namespace(self):
@@ -315,9 +315,9 @@ class Gateway(Case):
         return dict({"gateway": {"platform": platform, "service": "gw", "token": "T"}}, **more)
 
     def test_the_first_in_the_precedence_that_can_run_wins(self):
-        units = {"alpha": self.addon(), "hybrid": self.addon(), "zeta": self.addon()}
+        units = {"alpha": self.addon(), "hyssop": self.addon(), "zeta": self.addon()}
         self.assertEqual(resolve.gateway_addon(units, "cloud", list(units)), "alpha")
-        self.assertEqual(resolve.gateway_addon(units, "cloud", order=["zeta", "alpha", "hybrid"]), "zeta")
+        self.assertEqual(resolve.gateway_addon(units, "cloud", order=["zeta", "alpha", "hyssop"]), "zeta")
 
     def test_a_unit_that_cannot_run_is_not_a_candidate(self):
         for more in ({"blocked": {"reasons": ["x"]}}, {"verdict": {"state": "blocked"}}, {"compat": "new"}, {"compat": "old"},

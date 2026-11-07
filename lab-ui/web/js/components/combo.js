@@ -311,7 +311,7 @@ export function selectField(select) {
 // number of items. list(): what the list holds; onChange(): the choice changed. The fact is the item's category, said by name(category),
 // unless `options` says another: get(item) -> the value an item is filed under (none, no entry), label: {none, all, many, few} the words of
 // the button with no choice, of the entry that stands for every value, and of several chosen ("2 categories", from their number), and how
-// many values the button names before it counts them (`few`, 2: "Kafka, Jade", then "3 categories"; 1: one name, then "2 catalogs"), and
+// many values the button names before it counts them (`few`, 2: "Kazoo, Jade", then "3 categories"; 1: one name, then "2 catalogs"), and
 // order(entries) -> the entries [value, count] in the order they are listed, for a list that is not the fullest first (the catalogs an
 // item comes from: the first, the others as they were added, this machine's last).
 const CATEGORIES = { none: "All categories", all: "All", many: (n) => `${n} categories`, few: 2 };

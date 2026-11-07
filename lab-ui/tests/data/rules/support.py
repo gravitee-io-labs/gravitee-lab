@@ -13,7 +13,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set
 
 from lab_ui.catalogs import gitx
 from lab_ui.catalogs.report import Problem
-from lab_ui.catalogs.rules import Context, context
+from lab_ui.catalogs.rules import context
 from lab_ui.catalogs.tree import ListTree
 from tests import Case
 from tests import gitfixture
@@ -76,10 +76,6 @@ def tree(*changes, drop: Iterable[str] = (), base: Optional[dict] = None) -> Lis
 
 def codes(problems: Iterable[Problem]) -> Set[str]:
     return {each.code for each in problems}
-
-
-def ctx_for(listing: ListTree, **given) -> Context:
-    return context(listing, **given)
 
 
 def run(module, *changes, drop: Iterable[str] = (), base: Optional[dict] = None, **given) -> List[Problem]:

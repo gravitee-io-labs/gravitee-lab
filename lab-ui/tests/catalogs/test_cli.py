@@ -1123,7 +1123,7 @@ class Service(Tool):
                "catalog": {"id": "hub", "name": "Acme Hub", "version": "1.4.0"}, "counts": {"playground": 2, "addon": 1},
                "rows": {"builds": {"local": 2, "remote": ["github.com/acme/app"]}, "ports": [8140, 8141],
                         "core": ["API Management gateway"], "reads": ["license"],
-                        "uses_machine": [{"name": "Kubernetes", "what": ["runs privileged"]}],
+                        "uses_machine": [{"name": "Kookaburra", "what": ["runs privileged"]}],
                         "needs": [{"name": "Partner Bank", "min": "2.0.0"}]},
                "blocked": [{"name": "X", "reasons": ["Mounts the Docker socket", "Runs with full privileges"]}]}
 
@@ -1136,7 +1136,7 @@ class Service(Tool):
             self.assertEqual(out.splitlines(), [
                 "Acme Hub 1.4.0 (github.com/acme/hub, private)", "  2 playgrounds, 1 add-ons",
                 "  Builds: 2 here, github.com/acme/app", "  Ports: 8140, 8141", "  Core: API Management gateway",
-                "  Reads: license", "  Uses this machine: Kubernetes (runs privileged)", "  Needs: Partner Bank 2.0.0",
+                "  Reads: license", "  Uses this machine: Kookaburra (runs privileged)", "  Needs: Partner Bank 2.0.0",
                 "  Cannot run: X (Mounts the Docker socket; Runs with full privileges)",
                 "Run it again with --yes to add it."])
             calls.clear()

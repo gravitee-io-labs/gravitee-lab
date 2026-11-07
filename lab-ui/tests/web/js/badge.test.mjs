@@ -243,7 +243,7 @@ test("the platform's card: how many containers in all, a row for each product wi
   assert.deepEqual(root.querySelectorAll(".pop-who").map(text), ["API Management", "Elasticsearch", "MongoDB"], "who, when not all of the product");
   assert.deepEqual(root.querySelectorAll(".pop-run").map(text), ["4.13.0-alpha.4", "9.5.3", "8.3.11"], "every version that runs in one column");
   assert.equal(root.querySelector(".tip-btn").getAttribute("aria-label"), "Apply needed: a. b");
-  assert.equal(behindWhy({ behind: [{ name: "Kafka", count: 1, causes: [{ kind: "config", services: [] }] }] }).title, "1 container differs from what is saved");
+  assert.equal(behindWhy({ behind: [{ name: "Kazoo", count: 1, causes: [{ kind: "config", services: [] }] }] }).title, "1 container differs from what is saved");
   assert.equal(draw(applyBadge("x", [TAG, SETTINGS])).querySelectorAll(".pop-line").length, 2, "a row's card has a line for each of its causes");
 });
 
@@ -253,11 +253,11 @@ test("a note of a catalog row is a badge: in its tone, a quiet button with an ar
   assert.deepEqual([button.getAttribute("class"), button.getAttribute("data-license"), button.getAttribute("data-tip"), text(button)],
     ["pill note warn", "form", "No license saved", "Needs a license"]);
   assert.ok(button.querySelector("svg use").getAttribute("href").endsWith("#i-arrow-right"));
-  const via = draw(noteBadge({ note: "via Kafka Desk", note_tone: "", note_target: { kind: "addon", id: "kafka-desk" } }));
+  const via = draw(noteBadge({ note: "via Kazoo Desk", note_tone: "", note_target: { kind: "addon", id: "kazoo-desk" } }));
   assert.equal(via.querySelector("a").getAttribute("class"), "pill note");
   assert.equal(via.querySelector("a").getAttribute("data-tip"), null, "nothing more to say: no tooltip");
-  const outside = draw(noteBadge({ note: "Started by hand", note_title: "Kafka runs" }));
-  assert.equal(outside.querySelector(".tip-btn").getAttribute("aria-label"), "Started by hand: Kafka runs", "more to say: it opens");
+  const outside = draw(noteBadge({ note: "Started by hand", note_title: "Kazoo runs" }));
+  assert.equal(outside.querySelector(".tip-btn").getAttribute("aria-label"), "Started by hand: Kazoo runs", "more to say: it opens");
   const said = "Not from the Lab UI, so the platform does not start it.";
   assert.deepEqual(bubble(draw(noteBadge({ note: "Started by hand", note_title: said }))), ["Started by hand", said],
     "a sentence: a popover titled by its badge");
@@ -276,11 +276,11 @@ test("a note that says what an item needs is a card of its causes: the versions 
   assert.equal(newerCard.foot, "Choose them on the Images page.");
   assert.deepEqual(newerCard.rows[0].lines, [[{ who: "Access Management" }, { code: "4.13" }, "or later"], [{ who: "API Management" }, { code: "4.13.0-alpha.3" }, "or later"]]);
   assert.equal(link.getAttribute("data-tip"), "Needs 4.13", "what a screen reader hears of it is the server's sentence");
-  const unset = draw(noteBadge({ kind: "addon", id: "hybrid", note: "Needs settings", note_tone: "warn", note_title: "", note_causes: [{ kind: "unset", settings: ["HYBRID_CLOUD_TOKEN"] }] }));
+  const unset = draw(noteBadge({ kind: "addon", id: "hyssop", note: "Needs settings", note_tone: "warn", note_title: "", note_causes: [{ kind: "unset", settings: ["HYSSOP_CLOUD_TOKEN"] }] }));
   const button = unset.querySelector("button");
-  assert.equal(button.getAttribute("data-settings"), "addon:hybrid", "it opens its own settings");
-  assert.deepEqual(JSON.parse(button.getAttribute("data-tip-card")).rows[0].lines, [[{ code: "HYBRID_CLOUD_TOKEN" }]]);
-  assert.equal(button.getAttribute("data-tip"), "Needs settings. HYBRID_CLOUD_TOKEN. Set it in its settings");
+  assert.equal(button.getAttribute("data-settings"), "addon:hyssop", "it opens its own settings");
+  assert.deepEqual(JSON.parse(button.getAttribute("data-tip-card")).rows[0].lines, [[{ code: "HYSSOP_CLOUD_TOKEN" }]]);
+  assert.equal(button.getAttribute("data-tip"), "Needs settings. HYSSOP_CLOUD_TOKEN. Set it in its settings");
   // The foot agrees with what it is about: one setting is "it", several "them"; one version "it", several "them"
   const two = draw(noteBadge({ kind: "addon", id: "aws", note: "Needs settings", note_tone: "warn", note_causes: [{ kind: "unset", settings: ["A", "B"] }] }));
   assert.equal(JSON.parse(two.querySelector("button").getAttribute("data-tip-card")).foot, "Set them in its settings.");
@@ -307,7 +307,7 @@ test("an item of another catalog links to that catalog's row with its version af
   assert.equal(root.querySelectorAll(".pill, .tip").length, 0, "a name beside an item is not a badge");
   assert.equal(linkOf({ version: "" }).querySelectorAll(".muted").length, 0);
   // Nothing to tell apart, nothing drawn: no origin, a missing one, a nameless one, no item
-  for (const found of [item("addon", "kafka", "Kafka"), item("addon", "local/x", "X", gains({ personal: true })), { origin: null }, { origin: {} }, { origin: { id: "acme-hub" } },
+  for (const found of [item("addon", "kazoo", "Kazoo"), item("addon", "local/x", "X", gains({ personal: true })), { origin: null }, { origin: {} }, { origin: { id: "acme-hub" } },
     {}, null, undefined]) {
     assert.equal(originLink(found), "", JSON.stringify(found));
   }

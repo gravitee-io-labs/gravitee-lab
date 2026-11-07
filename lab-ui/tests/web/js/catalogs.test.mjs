@@ -384,7 +384,7 @@ test("with no catalog the page says so in the block of the content status, offer
 // --- A row that opens -----------------------------------------------------------------------------------------------------------
 
 const DAYS = (n) => new Date(Date.now() - n * 86400000).toISOString();
-const USES = [{ id: "@acme-hub/k3s", name: "Kubernetes", what: ["runs privileged"], why: "Runs containerd and the kubelet" }];
+const USES = [{ id: "@acme-hub/kea", name: "Kookaburra", what: ["runs privileged"], why: "Runs nested containers" }];
 const FULL = (more = {}) => GIT("update", { id: "acme-hub", ignored: 3, updated: DAYS(4), checked: new Date(Date.now() - 3 * 3600000).toISOString(),
   uses_machine: USES, blocked: [{ kind: "addon", id: "@acme-hub/x", name: "X", reasons: ["Mounts the Docker socket", "Publishes a port to the network"] }], ...more });
 
@@ -424,7 +424,7 @@ test("About says where the catalog is read from, its version and commit, when it
   const marks = about.querySelectorAll(".panel-fact .tip");
   assert.deepEqual(marks.map((tip) => bubble(tip)), [
     ["Measured when it was added. Private means Git asked for a sign-in."],
-    ["Kubernetes", "Runs privileged", "Runs containerd and the kubelet"],
+    ["Kookaburra", "Runs privileged", "Runs nested containers"],
     ["Settings, keys, links and agent instructions are never installed from a catalog."]]);
   assert.ok(holds);
 });
@@ -596,12 +596,12 @@ test("an entry that cannot be used says why: what holds the update, the removal 
   show([GIT("uptodate", { has_previous: true, held: { update: "", remove: "", undo: "No previous version" } })]);
   assert.deepEqual(menuOf("Acme Hub").slice(-2), [["Go back to previous version", ""], ["Remove", ""]]);
   // The allowance is held while an item that uses this machine is on
-  const k3s = (more) => item("addon", "@acme-hub/k3s", "Kubernetes", more);
-  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [k3s({ on: true, up: true })] });
-  assert.deepEqual(menuOf("Acme Hub").find(([label]) => /allowing/.test(label)), ["Stop allowing use of this machine", "Stop Kubernetes first"]);
-  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [k3s({ on: true, up: false })] });
-  assert.equal(menuOf("Acme Hub").find(([label]) => /allowing/.test(label))[1], "Turn off Kubernetes first");
-  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [k3s({})] });
+  const kea = (more) => item("addon", "@acme-hub/kea", "Kookaburra", more);
+  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [kea({ on: true, up: true })] });
+  assert.deepEqual(menuOf("Acme Hub").find(([label]) => /allowing/.test(label)), ["Stop allowing use of this machine", "Stop Kookaburra first"]);
+  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [kea({ on: true, up: false })] });
+  assert.equal(menuOf("Acme Hub").find(([label]) => /allowing/.test(label))[1], "Turn off Kookaburra first");
+  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [kea({})] });
   assert.equal(menuOf("Acme Hub").find(([label]) => /allowing/.test(label))[1], "");
   // The Lab UI does not answer: nothing is asked of it
   store.offline = true;
@@ -692,7 +692,7 @@ const PREVIEW = (more = {}) => ({ ticket: "9f3a4c1d2e5b6a70", expires: 600,
   catalog: { id: "acme-hub", name: "Acme Hub", description: "Banking demos for partner workshops", version: "1.4.0", lab: 1, kind: "git" },
   address: "github.com/acme/lab-hub", url: "https://github.com/acme/lab-hub.git", audience: "private", counts: { playground: 14, setup: 2, addon: 9 },
   rows: { builds: { local: 3, remote: ["github.com/acme/app"] }, ports: [8140, 8141], core: ["API Management gateway"], reads: ["license"],
-    uses_machine: [{ id: "kubernetes", name: "Kubernetes", what: ["runs privileged"], why: "Runs containerd and the kubelet" }],
+    uses_machine: [{ id: "kookaburra", name: "Kookaburra", what: ["runs privileged"], why: "Runs nested containers" }],
     needs: [{ id: "partner-bank", name: "Partner Bank", url: "https://example.org/partner/lab-bank.git", min: "2.0.0" }] },
   blocked: [{ kind: "addon", id: "@acme-hub/x", name: "X", reasons: ["Mounts the Docker socket"] }], ignored: 3, ...more });
 const BARE = (more = {}) => PREVIEW({ counts: { playground: 1, setup: 1, addon: 1 }, rows: {}, blocked: [], audience: "public", ...more });
@@ -1005,9 +1005,9 @@ test("the marks of the second screen say what Runs means, what Uses this machine
   await previewed(PREVIEW());
   const tip = (label) => adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === label).querySelector(".tip");
   assert.deepEqual(bubble(tip("Runs")), ["Its containers, builds and seeds run with this machine's Docker access."]);
-  assert.deepEqual(bubble(tip("Uses this machine")), ["Kubernetes", "Runs privileged", "Runs containerd and the kubelet"]);
-  // Under Keep them blocked the items that use this machine cannot run either: the Blocked one, and Kubernetes
-  assert.deepEqual(bubble(tip("Cannot run")), ["X Mounts the Docker socket", "Kubernetes Runs privileged"]);
+  assert.deepEqual(bubble(tip("Uses this machine")), ["Kookaburra", "Runs privileged", "Runs nested containers"]);
+  // Under Keep them blocked the items that use this machine cannot run either: the Blocked one, and Kookaburra
+  assert.deepEqual(bubble(tip("Cannot run")), ["X Mounts the Docker socket", "Kookaburra Runs privileged"]);
   shut();
 });
 
@@ -1089,16 +1089,16 @@ test("a word that is the name of something in the language is a word like anothe
 });
 
 test("an item that is Blocked and also uses this machine counts once under Cannot run, whichever way the two lists spell its id", async () => {
-  const k3s = { kind: "addon", id: "@acme-hub/k3s", name: "Kubernetes", reasons: ["Mounts the Docker socket"] };
-  await previewed(PREVIEW({ blocked: [k3s] }));
-  assert.equal(rowsOf().pop()[1], "1 item", "Kubernetes once, though it is `kubernetes` in one list and `@acme-hub/k3s` in the other");
+  const kea = { kind: "addon", id: "@acme-hub/kea", name: "Kookaburra", reasons: ["Mounts the Docker socket"] };
+  await previewed(PREVIEW({ blocked: [kea] }));
+  assert.equal(rowsOf().pop()[1], "1 item", "Kookaburra once, though it is `kookaburra` in one list and `@acme-hub/kea` in the other");
   const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
   keep.checked = false;
   allow.checked = true;
   allow.dispatchEvent(new Ev("change", { bubbles: true }));
   assert.ok(!rowsOf().some(([label]) => label === "Cannot run"), "allowed, it is no longer one that cannot run");
   shut();
-  await updating(PLAN({ uses_machine: [{ id: "kubernetes", name: "Kubernetes", what: ["runs privileged"] }], blocked: [k3s] }));
+  await updating(PLAN({ uses_machine: [{ id: "kookaburra", name: "Kookaburra", what: ["runs privileged"] }], blocked: [kea] }));
   assert.equal(rowsOf().pop()[0], "Cannot run");
   assert.equal(adding().querySelectorAll("#catalog-rows .choice-row").pop().querySelectorAll(".step-items li").length, 1);
   shut();
@@ -1441,7 +1441,7 @@ test("the version reads from the one installed to the new one when the catalog r
 });
 
 test("an item that is updated says what changed in it, the first three parts of its folder and how many more", async () => {
-  await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kafka", name: "Kafka", what: ["README.md"] },
+  await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kazoo", name: "Kazoo", what: ["README.md"] },
     { kind: "playground", id: "@acme-hub/bank", name: "Acme Bakery", what: ["README.md", "compose.yml", "guide/", "seed/", "tests/"] }] }));
   const updates = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Updates");
   assert.deepEqual(updates.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name .muted")), text(li.querySelector(".step-kind"))]),
@@ -1644,12 +1644,12 @@ test("an update with nothing to apply says so; a check that is refused is an err
 test("every growth of power is a line of Changes in the Lab's words", async () => {
   const change = (fact, value, name = "Acme Bakery") => ({ id: "x", name, fact, value });
   await updating(PLAN({ changes: [change("port", "8141"), change("build", "github.com/acme/mock", "Mock bank"), change("core", "API Management gateway"),
-    change("reads", "license"), change("reads", "gateway token"), change("plugins", "apim"), change("seed", "custom"), change("host", "runs privileged", "Kubernetes"),
+    change("reads", "license"), change("reads", "gateway token"), change("plugins", "apim"), change("seed", "custom"), change("host", "runs privileged", "Kookaburra"),
     change("host", "mounts the Docker socket", "Console")] }));
   const changes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Changes");
   assert.deepEqual(changes.querySelectorAll(".choice-lines li").map(text), ["Acme Bakery now publishes port 8141", "Mock bank now builds from github.com/acme/mock", "Acme Bakery now changes the API Management gateway",
     "Acme Bakery now reads your Gravitee license", "Acme Bakery now reads your Gravitee Cloud gateway token", "Acme Bakery now installs plugins for apim",
-    "Acme Bakery now runs a custom seed", "Kubernetes now runs privileged", "Console now mounts the Docker socket"]);
+    "Acme Bakery now runs a custom seed", "Kookaburra now runs privileged", "Console now mounts the Docker socket"]);
   shut();
 });
 
@@ -1858,7 +1858,7 @@ test("Allow use of this machine names the items and what they take; Stop allowin
   await settle();
   let said = effects();
   // The one consent that gives the Docker socket and privileged containers: in the danger tone, which Enter never presses
-  assert.deepEqual([said.title, said.action, said.danger, said.steps], ["Allow use of this machine", "Allow", true, [["Uses this machine", ["Kubernetes: runs privileged"], ""]]]);
+  assert.deepEqual([said.title, said.action, said.danger, said.steps], ["Allow use of this machine", "Allow", true, [["Uses this machine", ["Kookaburra: runs privileged"], ""]]]);
   server.calls.length = 0;
   await answer(true);
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/allow"), { enabled: true }]]);
@@ -1867,7 +1867,7 @@ test("Allow use of this machine names the items and what they take; Stop allowin
   choose("Acme Hub", "Stop allowing use of this machine");
   await settle();
   said = effects();
-  assert.deepEqual([said.title, said.action, said.danger, said.steps], ["Stop allowing use of this machine", "Stop allowing", false, [["Blocks", ["Kubernetes"], "They stay listed and cannot start"]]]);
+  assert.deepEqual([said.title, said.action, said.danger, said.steps], ["Stop allowing use of this machine", "Stop allowing", false, [["Blocks", ["Kookaburra"], "They stay listed and cannot start"]]]);
   server.calls.length = 0;
   await answer(true);
   assert.deepEqual(server.calls.map((c) => c.body), [{ enabled: false }]);

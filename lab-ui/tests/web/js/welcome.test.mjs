@@ -41,7 +41,7 @@ const GROUPS = [["API Management", ["gamma-ui", "apim-management-ui"]], ["Access
 const LINKS = [
   { label: "AM Console", url: "http://localhost:8081", service: "am-management-ui", legacy: false, up: true, username: "admin", password: "adminadmin" },
   { label: "Gamma Console", url: "http://localhost:8086", service: "gamma-ui", legacy: false, up: true, username: "admin", password: "admin" },
-  { label: "Kafka UI", url: "http://localhost:8180", service: "kafka-ui", legacy: false, up: true },
+  { label: "Kazoo UI", url: "http://localhost:8180", service: "kazoo-ui", legacy: false, up: true },
   { label: "APIM Console", url: "http://localhost:8084", service: "apim-management-ui", legacy: true, up: true, username: "admin", password: "admin" },
 ];
 const START = { start: {} };   // the platform's Start, with no plan to confirm
@@ -227,7 +227,7 @@ test("the rail ends with the license of the Lab, a link to its source and one to
 });
 
 test("with API Management in the Cloud, the start says Start all, and the Core layer keeps every product and says only where API Management runs", async () => {
-  store.state = { platform: { groups: GROUPS, state: { key: "running" } }, products: [], addons: [{ id: "hybrid", name: "Hybrid gateway", file: "addons/hybrid/compose.yml", gateway: { platform: "cloud" } }],
+  store.state = { platform: { groups: GROUPS, state: { key: "running" } }, products: [], addons: [{ id: "hyssop", name: "Hybrid gateway", file: "addons/hyssop/compose.yml", gateway: { platform: "cloud" } }],
     playgrounds: [], core: { place: "my-account/dev", chosen: true, name: "Development (My Account)", group: GROUP,
       start: { needed: true, enabled: true }, stop: { needed: false } } };
   store.notify();
@@ -248,7 +248,7 @@ test("with API Management in the Cloud, the start says Start all, and the Core l
 // --- What the catalogs change ---------------------------------------------------------------------------------------------------------
 
 // The lab with the platform running and nothing on, and what the server says of the catalogs
-const GATEWAY = { id: "hybrid", kind: "addon", name: "Hybrid gateway", gateway: { platform: "cloud" } };
+const GATEWAY = { id: "hyssop", kind: "addon", name: "Hybrid gateway", gateway: { platform: "cloud" } };
 function say(more = {}) {
   store.state = { ...labState({ platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" }, gateways: { cloud: null } } }),
     products: [], core: { place: "machine", chosen: false, group: GROUP }, ...more };
@@ -372,7 +372,7 @@ test("the Cloud card cannot be chosen while nothing can run its gateway, and say
   assert.equal(cloud().getAttribute("data-why"), "Cannot reach github.com. Check your connection, then try again.");
   say({ content: content("none") });
   assert.equal(cloud().getAttribute("data-why"), "No catalog added");
-  say({ content: content("ready"), addons: [GATEWAY], platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" }, gateways: { cloud: "hybrid" } } });
+  say({ content: content("ready"), addons: [GATEWAY], platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" }, gateways: { cloud: "hyssop" } } });
   assert.deepEqual([cloud().hasAttribute("aria-disabled"), cloud().hasAttribute("data-why"), radio().hasAttribute("aria-disabled")], [false, false, false]);
   // A radio reached by the keyboard all the same does not change where it runs
   say({ content: content("ready") });
@@ -393,7 +393,7 @@ test("Start all in the Cloud waits for a gateway add-on too, and the platform's 
   say({ content: content("ready"), platform: stopped, core: cloudCore });
   assert.equal(text(start()), "Start all");
   assert.deepEqual([isOff(start()), offWhy(start())], [true, "Needs a gateway add-on"]);
-  say({ content: content("ready"), platform: { ...stopped, gateways: { cloud: "hybrid" } }, addons: [GATEWAY], core: cloudCore });
+  say({ content: content("ready"), platform: { ...stopped, gateways: { cloud: "hyssop" } }, addons: [GATEWAY], core: cloudCore });
   assert.ok(!isOff(start()));
 });
 

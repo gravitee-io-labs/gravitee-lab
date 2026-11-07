@@ -21,7 +21,7 @@ unless `--ignore-gitleaks-allow`; an `[allowlist]` of `regexes` or `paths` that 
 `--exit-code 0` a finding is exit 1. It finds a GitHub token (`ghp_` and 36 characters) and an AWS key (`AKIA` and 16) in the
 files of the folder mounted at /repo, and writes the report where `--report-path` leads under a mount. It reads the files, never
 the history and never the `--log-opts`: what git prints of a range (a file it takes for binary has no added line) is proved with
-a real git, in `test_ci_gitleaks.History`.
+a real git, in `test_gitleaks.History`.
 
 Python 3.9 and later, standard library only. The script it writes is run with the interpreter of the test."""
 
@@ -93,16 +93,12 @@ if first == "compose" and real:   # Compose is the one thing it does not play: t
     os.execv(real, [real] + argv)
 if first == "version":
     say({"stdout": "27.0.0\n"})
-if first == "info":
-    say({})
 if first == "buildx" and second == "build":
     tag = argv[argv.index("--tag") + 1] if "--tag" in argv else "image"
     say({"stdout": "#1 [internal] load build definition from Dockerfile\n#1 DONE 0.0s\n#2 [1/2] FROM python:3.14-slim\n"
                    "#2 DONE 0.5s\n#3 [2/2] COPY . /app\n#3 DONE 0.1s\n#4 exporting to image\n#4 naming to " + tag + " done\n"})
 if first == "image" and second == "inspect":
     say({"stdout": "41234567\n"})
-if first in ("pull", "rmi", "image"):
-    say({})
 if first == "run" and any("gitleaks" in a for a in argv):
     pass
 elif first == "run":
@@ -200,7 +196,7 @@ class FakeDocker:
     """A folder with a `docker` in it. `FakeDocker(case)` puts it first on the PATH until the test ends (`case` is a
     unittest.TestCase: its cleanups remove the folder and put the PATH back)."""
 
-    def __init__(self, case, on_path: bool = True):
+    def __init__(self, case):
         self.folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-fakedocker-")).resolve()
         case.addCleanup(shutil.rmtree, self.folder, True)
         self.bin = self.folder / "bin"
@@ -212,10 +208,9 @@ class FakeDocker:
         self._rules: List[dict] = []
         self._save()
         (self.folder / "real.json").write_text(json.dumps(shutil.which("docker")), encoding="utf-8")
-        if on_path:
-            patcher = mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}"})
-            patcher.start()
-            case.addCleanup(patcher.stop)
+        patcher = mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}"})
+        patcher.start()
+        case.addCleanup(patcher.stop)
 
     def _save(self) -> None:
         (self.folder / "rules.json").write_text(json.dumps(self._rules), encoding="utf-8")

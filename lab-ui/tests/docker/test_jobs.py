@@ -19,7 +19,7 @@ from lab_ui.docker.jobs import KEPT, Job, JobFailed, Jobs, awaited
 
 from .. import Case
 
-KAFKA, EVENTS, PLATFORM = "addon:kafka", "setup:events", "platform"
+KAZOO, EVENTS, PLATFORM = "addon:kazoo", "setup:events", "platform"
 
 
 def ended(title, ok, key=None, **changes):
@@ -120,7 +120,7 @@ def services(*specs):
 
 
 SERVICES = services(("mongodb", False), ("redis", False), ("reader-ui", False), ("alert-engine", False),
-                    ("apim-gateway", False), ("openfga-migrate", True))
+                    ("apim-gateway", False), ("orchard-migrate", True))
 LAB = {"services": SERVICES}
 # What Docker checks the health of: neither Reader UI nor the migration
 CHECKED = {"mongodb", "redis", "alert-engine", "apim-gateway"}
@@ -139,7 +139,7 @@ class Running(Case):
         return job
 
     def start(self, title, steps, **how):
-        return self.jobs.start(title, steps, key="addon:kafka", verb="start", **how)
+        return self.jobs.start(title, steps, key="addon:kazoo", verb="start", **how)
 
     def test_what_a_command_prints_is_read_as_utf8_whatever_the_terminal_says(self):
         asked = []
@@ -147,7 +147,7 @@ class Running(Case):
         def command(cmd, **options):
             asked.append(options)
             return mock.Mock(stdout=iter(["✓ Démo\n"]), wait=lambda: 0, returncode=0)
-        job = Job("Start Kafka", [["docker", "compose", "up"]], key="addon:kafka", verb="start")
+        job = Job("Start Kazoo", [["docker", "compose", "up"]], key="addon:kazoo", verb="start")
         with mock.patch.object(jobs.subprocess, "Popen", command):
             job.run()
         self.assertEqual((job.ok, job.lines[-1]), (True, "✓ Démo"))
@@ -155,8 +155,8 @@ class Running(Case):
 
     def test_one_at_a_time(self):
         release = threading.Event()
-        first = self.start("Start Kafka", [lambda job: release.wait(5)])
-        with self.assertRaisesRegex(RuntimeError, "'Start Kafka' is still running"):
+        first = self.start("Start Kazoo", [lambda job: release.wait(5)])
+        with self.assertRaisesRegex(RuntimeError, "'Start Kazoo' is still running"):
             self.start("Start Jade", [])
         self.assertEqual((self.jobs.current, len(self.jobs.jobs)), (first, 1))
         release.set()
@@ -357,12 +357,12 @@ class Cut(Case):
 
         def step(job):
             try:
-                job.exec(["sh", "-c", 'echo " Container gio-hybrid Waiting "; exec sleep 600'])
+                job.exec(["sh", "-c", 'echo " Container gio-hyssop Waiting "; exec sleep 600'])
             except JobFailed as failed:
                 caught.append(str(failed))
             job.exec(["sh", "-c", 'echo " Container gio-api Waiting "; exec sleep 600'])
         job, thread = self.run_job(step)
-        for name in ("gio-hybrid", "gio-api"):
+        for name in ("gio-hyssop", "gio-api"):
             if not waited(lambda: job.detail() == f"Container {name} Waiting"):
                 self.fail(f"{name} is not waited for: {self.said(job)}")
             began = time.monotonic()
@@ -371,7 +371,7 @@ class Cut(Case):
         thread.join(ENDED)
         if thread.is_alive():
             self.fail(f"the second command still waits for gio-api: {self.said(job)}")
-        self.assertEqual((caught, job.ok, job.error()), (["gio-hybrid keeps restarting"], False, "gio-api keeps restarting"))
+        self.assertEqual((caught, job.ok, job.error()), (["gio-hyssop keeps restarting"], False, "gio-api keeps restarting"))
 
     def test_plugins_up_is_not_left_to_wait_for_ever_once_its_first_wait_was_ended(self):
         # The real step: one of the two is made, then waited for alone, a wait that says nothing; the other starts after
@@ -385,13 +385,13 @@ class Cut(Case):
             return {"container": container, "image": f"graviteeio/{container}:4", "label": container, "oneshot": False,
                     "depends_on": [], "owner": {"kind": "platform", "id": "api-management", "name": "API"}}
         product = {"name": "API Management", "folder": "plugins/apim", "lib": {},
-                   "services": {"api": "/opt/api/plugins", "hybrid": "/opt/h/plugins"}}
-        project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hybrid": service("gio-hybrid")}}
-        job, thread = self.run_job(lambda job: plugins.up(job, project, ["hybrid", "api"]))
+                   "services": {"api": "/opt/api/plugins", "hyssop": "/opt/h/plugins"}}
+        project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hyssop": service("gio-hyssop")}}
+        job, thread = self.run_job(lambda job: plugins.up(job, project, ["hyssop", "api"]))
         thread.join(ENDED)
         self.assertFalse(thread.is_alive(), "plugins.up still waits on the `up` of the rest")
         self.assertEqual([line.split(" compose ")[-1] for line in job.lines if line.startswith("$")],
-                         ["up -d --no-deps api", "up -d --no-deps hybrid"])   # the wait in between is quiet, and was ended
+                         ["up -d --no-deps api", "up -d --no-deps hyssop"])   # the wait in between is quiet, and was ended
         self.assertIs(job.ok, False)
         self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
 
@@ -412,11 +412,11 @@ RESTARTS = [" Container gio-alert-engine Restarting ", " Container gio-alert-eng
 BUILDS = [" Image gravitee-lab/hello-agent Building ", "#1 [internal] load local bake definitions",
           "#42 [hello-agent 4/4] RUN pip install .", "#42 CACHED", " Image gravitee-lab/hello-agent Built ",
           " Network gio_default Creating ", " Container gio-mongodb Running ", " Container gio-apim-gateway Recreate ",
-          " Container gio-openfga-migrate Creating ", " Container gio-openfga-migrate Created ",
+          " Container gio-orchard-migrate Creating ", " Container gio-orchard-migrate Created ",
           " Container gio-apim-gateway Recreated ", " Container gio-mongodb Waiting ",
           " Container gio-apim-gateway Starting ", " Container gio-apim-gateway Started ",
-          " Container gio-openfga-migrate Starting ", " Container gio-openfga-migrate Started ",
-          " Container gio-openfga-migrate Exited ", " Container gio-apim-gateway Healthy "]
+          " Container gio-orchard-migrate Starting ", " Container gio-orchard-migrate Started ",
+          " Container gio-orchard-migrate Exited ", " Container gio-apim-gateway Healthy "]
 SEEDS = ["[seed] Seeding the playground", "[apim] ✓ API updated: ACME Hello API", "[seed] ✓ Playground ready"]
 # Pull images: an image that is built is skipped, one that two services run is pulled once, a layer's lines are not
 # streamed
@@ -504,11 +504,11 @@ class Progress(Case):
         self.assertEqual(progress(replay(job, STOPS, refresh=docker.refresh)), [0.5, 0.75, 1, 1, 1, 1])
 
     def test_a_one_shot_is_ready_once_it_ended_well(self):
-        job = self.job([UP], awaited(SERVICES, start=["openfga-migrate"]))
-        lines = [" Container gio-openfga-migrate Created ", " Container gio-openfga-migrate Started "]
+        job = self.job([UP], awaited(SERVICES, start=["orchard-migrate"]))
+        lines = [" Container gio-orchard-migrate Created ", " Container gio-orchard-migrate Started "]
         docker = Docker(LAB)
         self.assertEqual(progress(replay(job, lines, refresh=docker.refresh)), [0.2, 0.5])
-        docker.containers["openfga-migrate"] = container("exited", code=0)
+        docker.containers["orchard-migrate"] = container("exited", code=0)
         docker.observe(job)
         self.assertEqual(job.progress, 1)
 
@@ -522,7 +522,7 @@ class Progress(Case):
 
     def test_an_image_that_up_pulls_or_builds_is_waited_for_too(self):
         # Compose names it before any container: what is created from it waits for it. Build output says nothing
-        job = self.job([UP], awaited(SERVICES, start=["apim-gateway", "openfga-migrate"]))
+        job = self.job([UP], awaited(SERVICES, start=["apim-gateway", "orchard-migrate"]))
         self.assertEqual(progress(replay(job, BUILDS)),
                          [0, 0, 0, 0, 0.333, 0.333, 0.333, 0.333, 0.333, 0.4, 0.467, 0.467, 0.467, 0.567, 0.567, 0.667,
                           0.833, 1])
@@ -558,7 +558,7 @@ class Progress(Case):
                 job.exec(cmd)
             return run
         steps = [lambda job: job.step("Add-ons"), phase("Apps and services", UP), phase("Seed", ["docker", "logs"])]
-        job = self.job(steps, awaited(SERVICES, start=["apim-gateway", "openfga-migrate"]), None,
+        job = self.job(steps, awaited(SERVICES, start=["apim-gateway", "orchard-migrate"]), None,
                        phases=["Apps and services", "Seed"])
         read = replay(job, BUILDS, SEEDS)
         self.assertEqual(progress(read)[:15], [0, 0, 0, 0, 0.167, 0.167, 0.167, 0.167, 0.167, 0.2, 0.233, 0.233,
@@ -817,7 +817,7 @@ class Replay(Case):
 
 class Failures(Case):
 
-    def failure(self, *jobs, kind="addon", uid="kafka"):
+    def failure(self, *jobs, kind="addon", uid="kazoo"):
         found = Jobs()
         found.jobs = list(jobs)
         return found.failed_job(kind, uid)
@@ -829,17 +829,17 @@ class Failures(Case):
         return {"id": job.id, "verb": verb, "error": error, "login": login}
 
     def test_the_last_job_on_an_item_that_failed(self):
-        failed = ended("Start Kafka", False, KAFKA, start=[["addon", "kafka"]])
+        failed = ended("Start Kazoo", False, KAZOO, start=[["addon", "kazoo"]])
         self.assertEqual(self.failure(failed), self.said(failed))
         self.assertIsNone(self.failure(failed, uid="jade"))
         self.assertIsNone(self.failure())
 
     def test_it_says_what_the_job_did_and_why_it_failed(self):
         # Its reason is its last line, a canceled one says so: the row's note and its tooltip say them
-        stop = Job("Stop Kafka", [], key=KAFKA, verb="stop")
+        stop = Job("Stop Kazoo", [], key=KAZOO, verb="stop")
         stop.done, stop.ok, stop.lines = True, False, ["$ docker compose rm", "Error response from daemon: busy"]
         self.assertEqual(self.failure(stop), self.said(stop, "stop", "Error response from daemon: busy"))
-        canceled = Job("Start Kafka", [["docker", "compose", "up"]], key=KAFKA, verb="start")
+        canceled = Job("Start Kazoo", [["docker", "compose", "up"]], key=KAZOO, verb="start")
         canceled.cancel()
         canceled.run()
         canceled.done = True
@@ -852,7 +852,7 @@ class Failures(Case):
                      'manifests/20-alpine": dial tcp: lookup registry-1.docker.io: no such host',
                      "target bakery-web: failed to solve: failed to resolve source metadata for ghcr.io/acme/base:1: "
                      "ghcr.io/acme/base:1: not found"):
-            start = Job("Start Bank", [], key=KAFKA, verb="start")
+            start = Job("Start Bank", [], key=KAZOO, verb="start")
             start.done, start.ok = True, False
             start.lines = [" bakery-web Building ", "#4 ERROR: failed to do request", line, "Failed with exit code 1"]
             image = "node:20-alpine" if "node" in line else "ghcr.io/acme/base:1"
@@ -865,57 +865,57 @@ class Failures(Case):
         refused = 'Error response from daemon: Head "https://graviteeio.azurecr.io/v2/apim-gateway/manifests/x": ' \
                   "unauthorized: authentication required, visit https://aka.ms/acr/authorization"
         for line in (refused, "pull access denied for graviteeio.azurecr.io/apim-gateway, repository does not exist"):
-            start = Job("Start Welcome", [], key=KAFKA, verb="start")
+            start = Job("Start Welcome", [], key=KAZOO, verb="start")
             start.done, start.ok, start.lines = True, False, [" apim-gateway Pulling ", line]
             self.assertEqual(self.failure(start),
                              self.said(start, error="Not logged in to Azure", login="graviteeio.azurecr.io"))
             self.assertEqual(start.summary()["error"], "Not logged in to Azure")
         # GitHub's registry too, as the pull before an up says it
-        start = Job("Start Welcome", [], key=KAFKA, verb="start")
+        start = Job("Start Welcome", [], key=KAZOO, verb="start")
         start.done, start.ok = True, False
         start.lines = ["Image ghcr.io/acme/hub/shop-api:latest Error unauthorized", "Could not pull ghcr.io/acme/hub/shop-api:latest"]
         self.assertEqual(self.failure(start), self.said(start, error="Not logged in to ghcr.io", login="ghcr.io"))
         # Docker Hub's refusal, or another reason, is said as it is
-        hub = Job("Start Kafka", [], key=KAFKA, verb="start")
-        hub.done, hub.ok, hub.lines = True, False, ["pull access denied for nope/kafka, repository does not exist"]
+        hub = Job("Start Kazoo", [], key=KAZOO, verb="start")
+        hub.done, hub.ok, hub.lines = True, False, ["pull access denied for nope/kazoo, repository does not exist"]
         self.assertEqual(self.failure(hub)["login"], None)
 
     def test_a_failed_stop_of_what_stopped_it_too(self):
-        # The playground's stop failed once the on file was written: Kafka, which it brought and was stopping, still
-        # runs, and was not started outside the Lab UI. The failure is Kafka's too, a stop.
+        # The playground's stop failed once the on file was written: Kazoo, which it brought and was stopping, still
+        # runs, and was not started outside the Lab UI. The failure is Kazoo's too, a stop.
         def stopped(title, key, ok=False):
-            stops = [["platform", "platform"] if key == PLATFORM else ["playground", "welcome"], ["addon", "kafka"]]
+            stops = [["platform", "platform"] if key == PLATFORM else ["playground", "welcome"], ["addon", "kazoo"]]
             job = Job(title, [], key=key, verb="stop", changes={"stop": stops})
             job.done, job.ok, job.lines = True, ok, ["Error response from daemon: busy"]
             return job
         welcome = stopped("Stop Welcome", "playground:welcome")
         self.assertEqual(self.failure(welcome), self.said(welcome, "stop", "Error response from daemon: busy"))
         self.assertEqual(self.failure(welcome, kind="playground", uid="welcome")["id"], welcome.id)
-        # It lasts until a job that starts or stops Kafka ends well
-        self.assertIsNone(self.failure(welcome, ended("Start Kafka", True, KAFKA, start=[["addon", "kafka"]])))
+        # It lasts until a job that starts or stops Kazoo ends well
+        self.assertIsNone(self.failure(welcome, ended("Start Kazoo", True, KAZOO, start=[["addon", "kazoo"]])))
         # Not the Stack's stop, which turns nothing off; not a failed start of something else; not one that went well
         self.assertIsNone(self.failure(stopped("Stop the stack", PLATFORM)))
-        self.assertIsNone(self.failure(ended("Start Events", False, EVENTS, start=[["addon", "kafka"]])))
+        self.assertIsNone(self.failure(ended("Start Events", False, EVENTS, start=[["addon", "kazoo"]])))
         self.assertIsNone(self.failure(stopped("Stop Welcome", "playground:welcome", ok=True)))
 
     def test_it_lasts_until_the_next_job_on_the_item(self):
-        failed = ended("Start Kafka", False, KAFKA)
-        self.assertIsNone(self.failure(failed, ended("Start Kafka", True, KAFKA)))
-        again = ended("Start Kafka", False, KAFKA)
+        failed = ended("Start Kazoo", False, KAZOO)
+        self.assertIsNone(self.failure(failed, ended("Start Kazoo", True, KAZOO)))
+        again = ended("Start Kazoo", False, KAZOO)
         self.assertEqual(self.failure(failed, again), self.said(again))
-        self.assertIsNone(self.failure(failed, Job("Start Kafka", [], key=KAFKA)))   # it runs: not failed yet
+        self.assertIsNone(self.failure(failed, Job("Start Kazoo", [], key=KAZOO)))   # it runs: not failed yet
 
     def test_a_job_on_something_else_that_starts_or_stops_the_item_ends_it(self):
-        failed = ended("Start Kafka", False, KAFKA)
-        for later in (ended("Start Events", True, EVENTS, start=[["addon", "kafka"], ["addon", "kafka-desk"]]),
-                      ended("Stop the stack", True, PLATFORM, stop=[["platform", "platform"], ["addon", "kafka"]])):
+        failed = ended("Start Kazoo", False, KAZOO)
+        for later in (ended("Start Events", True, EVENTS, start=[["addon", "kazoo"], ["addon", "kazoo-desk"]]),
+                      ended("Stop the stack", True, PLATFORM, stop=[["platform", "platform"], ["addon", "kazoo"]])):
             self.assertIsNone(self.failure(failed, later), later.title)
 
     def test_a_job_that_leaves_the_item_alone_or_fails_keeps_it(self):
-        failed = ended("Start Kafka", False, KAFKA)
+        failed = ended("Start Kazoo", False, KAZOO)
         for later in (ended("Start Jade", True, "addon:jade", start=[["addon", "jade"]]),
-                      ended("Start Events", False, EVENTS, start=[["addon", "kafka"]]),
-                      Job("Start Events", [], key=EVENTS, changes={"start": [["addon", "kafka"]]})):
+                      ended("Start Events", False, EVENTS, start=[["addon", "kazoo"]]),
+                      Job("Start Events", [], key=EVENTS, changes={"start": [["addon", "kazoo"]]})):
             self.assertEqual(self.failure(failed, later), self.said(failed), later.title)
 
 

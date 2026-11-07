@@ -43,7 +43,7 @@
 .icon-btn.copy svg { width: 13px; height: 13px; }
 .icon-btn.copy.done { color: var(--ok); }
 
-/* A quiet action inside a sentence or an empty list ("Clear filters"), and a note that leads somewhere ("via Kafka
+/* A quiet action inside a sentence or an empty list ("Clear filters"), and a note that leads somewhere ("via Kazoo
    Console") */
 .text-link { padding: 0; border: 0; background: none; color: var(--muted); font-size: var(--fs-2); text-decoration: underline; cursor: pointer; }
 .text-link:hover { color: var(--accent-ink); }

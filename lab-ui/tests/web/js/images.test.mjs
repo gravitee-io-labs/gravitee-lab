@@ -111,26 +111,26 @@ test("what runs behind what is saved has the badge in the State cell, with the s
 });
 
 test("the platform's components come first under its band, its own add-ons' under a band of their own, then what is not Gravitee's, and each band folds", async () => {
-  const gravitee = { kind: "addon", id: "federation", name: "API Federation" }, other = { kind: "addon", id: "observability", name: "Jade" };
-  const agent = { ...component("AGENT_VERSION", "Apigee X agent", ["graviteeio/agent:1"]), group: null, owner: gravitee };
+  const gravitee = { kind: "addon", id: "federation", name: "API Federation" }, other = { kind: "addon", id: "overlook", name: "Jade" };
+  const agent = { ...component("AGENT_VERSION", "Aspen X agent", ["graviteeio/agent:1"]), group: null, owner: gravitee };
   const tools = { ...component("TOOLS_VERSION", "Operator installer", ["tools:1"], { kind: "third-party" }), group: null, owner: gravitee };   // an image of another maker, run by the platform's add-on
   const jade = { ...component("JADE_VERSION", "Jade", ["jade:1"], { kind: "third-party" }), group: null, owner: other };
-  const kafka = { ...component("KAFKA_VERSION", "Kafka UI", ["kafka:1"]), group: null, owner: other };   // Gravitee's image in another maker's add-on stays with that add-on's
-  const hybrid = { ...component("HYBRID_VERSION", "Hybrid gateway", ["graviteeio/apim-gateway:1"]), owner: gravitee };   // an add-on's gateway: a gateway of its group
-  COMPONENTS.push(agent, tools, jade, kafka, hybrid);
+  const kazoo = { ...component("KAZOO_VERSION", "Kazoo UI", ["kazoo:1"]), group: null, owner: other };   // Gravitee's image in another maker's add-on stays with that add-on's
+  const hyssop = { ...component("HYSSOP_VERSION", "Hybrid gateway", ["graviteeio/apim-gateway:1"]), owner: gravitee };   // an add-on's gateway: a gateway of its group
+  COMPONENTS.push(agent, tools, jade, kazoo, hyssop);
   const was = store.state;
-  store.state = { ...was, addons: [{ id: "federation", category: "Gravitee Platform" }, { id: "observability", category: "Observability" }] };
+  store.state = { ...was, addons: [{ id: "federation", category: "Gravitee Platform" }, { id: "overlook", category: "Observability" }] };
   imagesPage.show([]);
   imagesPage.render(store.state);
   await flush();
   const lines = () => section.querySelectorAll("#images-rows tr").map((tr) => tr.getAttribute("data-component") || text(tr).trim());
-  const platform = ["APIM_VERSION", "APIM_GATEWAY_VERSION", "AM_VERSION", "HYBRID_VERSION"];
+  const platform = ["APIM_VERSION", "APIM_GATEWAY_VERSION", "AM_VERSION", "HYSSOP_VERSION"];
   assert.deepEqual(lines(), ["Gravitee Platform", ...platform, "Add-ons", "AGENT_VERSION", "TOOLS_VERSION",
-    "Third-party", "REDIS_VERSION", "ELASTICSEARCH_VERSION", "KIOSK_VERSION", "JADE_VERSION", "KAFKA_VERSION"]);
+    "Third-party", "REDIS_VERSION", "ELASTICSEARCH_VERSION", "KIOSK_VERSION", "JADE_VERSION", "KAZOO_VERSION"]);
   // Folding the add-ons hides theirs; folding the platform hides the add-ons' band too
   section.querySelector('[data-fold="addons"]').click();
   // Folded, a band sums up what is on under it
-  assert.deepEqual(lines().slice(5, 7), ["Add-onsApigee X agent 1Operator installer 1", "Third-party"]);
+  assert.deepEqual(lines().slice(5, 7), ["Add-onsAspen X agent 1Operator installer 1", "Third-party"]);
   section.querySelector('[data-fold="platform"]').click();
   assert.deepEqual(lines().slice(0, 2).map((line) => line.replace(/^(Gravitee Platform).+/, "$1")), ["Gravitee Platform", "Third-party"]);
   for (const id of ["platform", "addons"]) section.querySelector(`[data-fold="${id}"]`)?.click();

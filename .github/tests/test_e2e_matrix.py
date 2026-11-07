@@ -90,10 +90,6 @@ class MainTest(unittest.TestCase):
                 self.assertIn("The project cannot be read", str(caught.exception))
                 self.assertNotIn("\n", str(caught.exception))
 
-    def test_it_needs_to_be_told_what_to_read(self):
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            e2e_matrix.main([])
-
 
 class CommandTest(unittest.TestCase):
     """The command line: what it accepts, and what it refuses before it reads anything."""

@@ -18,7 +18,6 @@ from lab_ui.catalogs import gitx, standard
 from tests import Case
 from tests import gitfixture
 
-HERE = Path(__file__).resolve().parent
 LAB_COMMIT = "0123456789abcdef0123456789abcdef01234567"
 NEWER_COMMIT = "89abcdef0123456789abcdef0123456789abcdef"
 PARAMS = {"id": "acme-hub", "name": "Acme Hub", "maintainers": "@acme/maintainers", "lab_repository": "acme/gravitee-lab",

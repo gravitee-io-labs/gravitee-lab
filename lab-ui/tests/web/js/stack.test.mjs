@@ -141,9 +141,9 @@ test("an entry of the on file that Compose cannot read holds what reads the file
 function withItems() {
   const state = lab({ licensed: true });
   state.services.agent = service("agent", RUNNING);
-  state.services.kafka = service("kafka", RUNNING);
+  state.services.kazoo = service("kazoo", RUNNING);
   state.services.app = service("app", RUNNING);
-  state.addons = [{ ...group("kafka", "Kafka", ["kafka"], RUNNING), kind: "addon", category: "Event", on: true, up: true },
+  state.addons = [{ ...group("kazoo", "Kazoo", ["kazoo"], RUNNING), kind: "addon", category: "Event", on: true, up: true },
     { ...group("federation", "API Federation", ["agent"], RUNNING), kind: "addon", category: "Gravitee platform", on: true, up: true }];
   state.playgrounds = [{ ...group("shop", "Shop", ["app"], RUNNING), kind: "playground", on: true, up: true, apps: ["app"], deployed: [], deploys_to: [] }];
   return state;
@@ -152,7 +152,7 @@ const keys = () => section.querySelectorAll(".groups > li").map((li) => li.getAt
 
 test("the platform's groups come under its band, its own add-ons inside it under a band of their own, then the other add-ons and the playground", () => {
   draw(withItems());
-  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "addon:federation", "section:Other add-ons", "addon:kafka",
+  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "addon:federation", "section:Other add-ons", "addon:kazoo",
     "section:Playground", "playground:shop"]);
 });
 
@@ -164,9 +164,9 @@ test("a band folds what is under it: the platform's its groups and the add-ons, 
     draw(state);   // the page draws again when the state is told of the change
   };
   click("section:Add-ons");
-  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "section:Other add-ons", "addon:kafka", "section:Playground", "playground:shop"]);
+  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "section:Other add-ons", "addon:kazoo", "section:Playground", "playground:shop"]);
   click("core");
-  assert.deepEqual(keys(), ["core", "section:Other add-ons", "addon:kafka", "section:Playground", "playground:shop"], "what is not the platform's stays");
+  assert.deepEqual(keys(), ["core", "section:Other add-ons", "addon:kazoo", "section:Playground", "playground:shop"], "what is not the platform's stays");
   click("core");
   click("section:Add-ons");
   assert.equal(keys().length, 9, "open again");

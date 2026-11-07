@@ -358,7 +358,7 @@ export const store = {
 };
 
 // Whether an add-on is the platform's own: Gravitee's, in the category that the core's `x-gravitee` names after itself, as against the
-// ones of other makers (Kafka, Jade). Containers and Images list it with the platform and the others apart.
+// ones of other makers (Kazoo, Jade). Containers and Images list it with the platform and the others apart.
 export const ofPlatform = (addon) => !!addon && addon.category === store.state?.platform?.name;
 
 // The rows of the catalogs among the entries of `state.catalogs`: a repository, a folder, this machine's and a suggestion. Any other entry is

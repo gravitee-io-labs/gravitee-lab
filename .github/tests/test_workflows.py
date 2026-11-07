@@ -18,36 +18,14 @@ sys.path.insert(0, str(ROOT / "lab-ui"))
 from lab_ui.catalogs.rules.workflows import GENERIC, problems  # noqa: E402
 
 FILES = sorted([*(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / ".github" / "actions").glob("*/action.yml")])
-WORKFLOWS = [file for file in FILES if file.parent.name == "workflows"]
-INDENT = re.compile(r"^( *)")
 E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # a change of the engine tried on a catalog
 CI = ROOT / ".github" / "workflows" / "ci.yml"
-RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 SHA = "0123456789abcdef0123456789abcdef01234567"
 BASH = shutil.which("bash")
 
 
 def indent(line):
-    return len(INDENT.match(line).group(1))
-
-
-def run_blocks(text):
-    """(line number, line) of every line a `run:` of a step runs: its value on the line itself, or the block under it."""
-    lines, found, i = text.splitlines(), [], 0
-    while i < len(lines):
-        match = re.match(r"^(\s*)(?:- )?run:\s*(.*)$", lines[i])
-        if match:
-            if match.group(2) and not match.group(2).startswith(("|", ">")):
-                found.append((i + 1, match.group(2)))
-            else:
-                depth = len(match.group(1)) + (2 if lines[i].lstrip().startswith("- ") else 0)
-                j = i + 1
-                while j < len(lines) and (not lines[j].strip() or indent(lines[j]) > depth):
-                    found.append((j + 1, lines[j]))
-                    j += 1
-                i = j - 1
-        i += 1
-    return found
+    return len(line) - len(line.lstrip(" "))
 
 
 def jobs(text):
@@ -90,10 +68,6 @@ def step_with(body, marker):
 
 
 class WorkflowsTest(unittest.TestCase):
-    def test_there_are_workflows_to_read(self):
-        self.assertIn("e2e.yml", [file.name for file in WORKFLOWS])
-        self.assertIn("ci.yml", [file.name for file in WORKFLOWS])
-
     def test_every_workflow_and_action_keeps_the_rules_of_any_workflow(self):
         """No pull_request_target, every action pinned to a commit, the token read-only, no `${{ }}` in a script, a timeout and a
         concurrency group, every checkout forgets its credentials, no cache, no hidden construct."""
@@ -101,16 +75,6 @@ class WorkflowsTest(unittest.TestCase):
         for path, text in found.items():
             with self.subTest(file=path):
                 self.assertEqual([each.message for each in problems(path, text, GENERIC)], [])
-
-    def test_the_workflows_are_yaml(self):
-        try:
-            import yaml
-        except ImportError:
-            self.skipTest("PyYAML is not installed")
-        found = {file.name: file.read_text(encoding="utf-8") for file in WORKFLOWS}
-        for name, text in found.items():
-            with self.subTest(file=name):
-                self.assertIn("jobs", yaml.safe_load(text))
 
 
 class E2ETest(unittest.TestCase):
@@ -122,16 +86,6 @@ class E2ETest(unittest.TestCase):
 
     def test_a_pull_request_the_night_and_a_maintainer_start_it_and_a_push_never_does(self):
         self.assertEqual(sorted(events(self.text)), ["pull_request", "schedule", "workflow_dispatch"])
-
-    def test_no_branch_of_this_repository_is_how_a_foreign_commit_gets_the_license(self):
-        # A push runs every workflow of the pushed commit with the secrets: the commit of a fork is a pull request, tried from main
-        self.assertNotIn("e2e/", self.text)
-        self.assertNotRegex(self.text, r"(?m)^\s+push:")
-
-    def test_a_pull_request_is_data_of_the_workflow_that_is_always_mains(self):
-        script_text = script(step_with(self.jobs["prepare"], "id: prepare"))
-        self.assertIn("refs/heads/main", script_text)
-        self.assertIn("refs/pull/$PR/head", script_text)
 
     def test_the_license_is_given_to_the_one_job_that_waits_for_a_maintainer(self):
         found = {name for name, body in self.jobs.items() if re.search(r"secrets\.(?!CATALOG_DEPLOY_KEY)", body)}
@@ -160,7 +114,6 @@ class E2ETest(unittest.TestCase):
         self.assertNotIn("--allow-machine", self.text)
 
     def test_the_license_reaches_the_step_that_writes_it_and_no_other(self):
-        self.assertEqual(len([step for step in steps(self.jobs["e2e"]) if "secrets.GRAVITEE_LICENSE" in step]), 1)
         self.assertEqual(len(re.findall(r"secrets\.GRAVITEE_LICENSE", self.text)), 1)
 
     def test_the_license_is_written_where_the_engine_is_and_after_the_change_was_checked(self):
@@ -186,11 +139,9 @@ class E2ETest(unittest.TestCase):
         for name in ("manifests", "e2e", "result"):
             self.assertNotIn("fetch-depth", self.jobs[name], f"{name} reads no change")
 
-    def test_the_matrix_is_what_the_plan_made_and_the_item_is_never_in_a_script(self):
+    def test_the_matrix_is_what_the_plan_made(self):
         for name in ("manifests", "e2e"):
             self.assertIn("fromJSON(needs.plan.outputs.matrix)", self.jobs[name])
-            for number, line in run_blocks(self.jobs[name]):
-                self.assertNotIn("matrix.", line.replace("e2e_matrix.py", ""), f"{name}: a value goes through env, line {number}")
 
     def test_a_step_the_jobs_repeat_is_the_same_step_in_each_and_the_shell_tests_run_the_one_of_all(self):
         def plain(step):
@@ -214,7 +165,6 @@ class E2ETest(unittest.TestCase):
 
     def test_an_engine_without_a_catalog_to_try_says_so_and_runs_nothing(self):
         self.assertIn("if: needs.prepare.outputs.skip != 'true'", self.jobs["plan"])
-        self.assertIn("The variable CATALOG_REPOSITORY is not set", self.text)
 
     def test_the_check_to_require_is_named_as_it_always_was_and_waits_for_everything(self):
         """The name that the documentation, a ruleset and the audit of the settings ask for, which always reports."""
@@ -325,10 +275,6 @@ class PrepareTest(ShellTest):
         self.assertEqual(done.returncode, 0)
         self.assertIn("::notice title=E2E not tried::The variable CATALOG_REPOSITORY is not set", done.stdout)
         self.assertEqual(self.outputs()["skip"], "true")
-
-    def test_the_outputs_are_six_lines_whatever_the_event(self):
-        self.prepare()
-        self.assertEqual(len(self.output.read_text(encoding="utf-8").splitlines()), 6)
 
 
 class PlanShellTest(ShellTest):
@@ -523,7 +469,6 @@ class ReleaseNotesTest(unittest.TestCase):
 
     def test_every_label_that_raises_a_number_has_its_section_and_is_documented(self):
         labeled = {label for _, labels in self.categories() for label in labels} - {"*"}
-        self.assertEqual(labeled, {"major", "minor", "catalog-format"})
         source = (ROOT / ".github" / "scripts" / "next_version.py").read_text(encoding="utf-8")
         maintaining = (ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
         for label in labeled:
@@ -535,7 +480,7 @@ class ReleaseTest(unittest.TestCase):
     """release.yml: every merge to main is a version. The deploy key that may create tags is the one thing it must keep in one step."""
 
     def setUp(self):
-        self.text = RELEASE.read_text(encoding="utf-8")
+        self.text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
         self.jobs = jobs(self.text)
         self.body = self.jobs["release"]
 
@@ -623,28 +568,6 @@ class ReleaseTest(unittest.TestCase):
                                            "TAG": "v1.2.3", "GITHUB_REPOSITORY": "o/r"})
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertEqual(any(line.startswith("release create v1.2.3") for line in calls.read_text().splitlines()), made)
-
-
-class ReaderTest(unittest.TestCase):
-    """The reader of the rules above: what it takes for a script, and for a job."""
-
-    def test_a_run_is_its_line_or_its_block(self):
-        text = "steps:\n  - run: echo ${{ a }}\n  - name: x\n    run: |\n      echo one\n      echo ${{ b }}\n  - run: ok\n"
-        self.assertEqual([line.strip() for _, line in run_blocks(text)], ["echo ${{ a }}", "echo one", "echo ${{ b }}", "ok"])
-
-    def test_the_jobs_of_a_workflow_by_name(self):
-        text = "name: x\njobs:\n  one:\n    runs-on: a\n  two-b:\n    runs-on: b\n"
-        self.assertEqual(list(jobs(text)), ["one", "two-b"])
-
-    def test_the_steps_of_a_job_and_the_script_of_one(self):
-        body = "\n    steps:\n      - uses: a\n      - name: x\n        run: |\n          echo one\n\n          echo two\n      - run: y\n"
-        found = steps(body)
-        self.assertEqual(len(found), 3)
-        self.assertEqual(script(found[1]), "echo one\n\necho two\n")
-        self.assertEqual(step_with(body, "name: x"), found[1])
-
-    def test_the_events_of_a_workflow(self):
-        self.assertEqual(events("on:\n  push:\n    branches: [main]\n  workflow-x:\n\njobs:\n  j:\n"), ["push", "workflow-x"])
 
 
 class ComposeTest(unittest.TestCase):

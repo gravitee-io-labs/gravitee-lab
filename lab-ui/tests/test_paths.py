@@ -26,12 +26,12 @@ class SeedApis(Case):
     def test_the_apis_of_a_seed_are_found_in_the_platforms_folder_and_in_each_environment(self):
         root = self.folder(files=dict.fromkeys((
             "seed/apim/apis/b.json", "seed/apim/apis/a.json", "seed/apim/apis/notes.txt", "seed/apim/settings.yaml",
-            "seed/environments/novo-nordisk/apis/batch-status.json", "seed/environments/beam/apis/sample-requests.json",
-            "seed/environments/beam/applications/app.yaml", "seed/environments/beam/portal/apis/deeper.json",
-            "seed/environments/beam/apis/nested/deeper.json", "seed/am/apis/z.json"), ""))
+            "seed/environments/north-meadow/apis/batch-status.json", "seed/environments/beet/apis/sample-requests.json",
+            "seed/environments/beet/applications/app.yaml", "seed/environments/beet/portal/apis/deeper.json",
+            "seed/environments/beet/apis/nested/deeper.json", "seed/am/apis/z.json"), ""))
         self.assertEqual(self.found(root), [
             "seed/am/apis/z.json", "seed/apim/apis/a.json", "seed/apim/apis/b.json",
-            "seed/environments/beam/apis/sample-requests.json", "seed/environments/novo-nordisk/apis/batch-status.json"])
+            "seed/environments/beet/apis/sample-requests.json", "seed/environments/north-meadow/apis/batch-status.json"])
 
     def test_a_folder_without_a_seed_has_no_api(self):
         root = self.folder(files={"compose.yml": "", "seed/controls.yaml": ""})
@@ -134,18 +134,18 @@ class OnDisk(Case):
 class Grammar(OnDisk):
 
     ADVERSARIAL = (
-        "@acme-hub/../kafka", "@acme-hub/", "@/x", "@a/x", "@acme-hub/x/y", "@local/x", "@official/x", "@acme_hub/x",
-        "@ACME/x", "local/../kafka", "local/", "kafka\0", "ka\0fka", "@acme-hub/x\0", "local/x\0", "kafka\n", "\nkafka",
-        "@acme-hub/x\n", "local/x\n", "kafka:x", "@acme-hub/x:y", "local/x:y", "playground:kafka",
+        "@acme-hub/../kazoo", "@acme-hub/", "@/x", "@a/x", "@acme-hub/x/y", "@local/x", "@official/x", "@acme_hub/x",
+        "@ACME/x", "local/../kazoo", "local/", "kazoo\0", "ka\0zoo", "@acme-hub/x\0", "local/x\0", "kazoo\n", "\nkazoo",
+        "@acme-hub/x\n", "local/x\n", "kazoo:x", "@acme-hub/x:y", "local/x:y", "playground:kazoo",
         # Further shapes of the same mistakes
-        "", " kafka", "kafka ", "Kafka", "LOCAL/x", "local/X", "local//x", "local/x/y", "/kafka", "kafka/", "//", "@",
+        "", " kazoo", "kazoo ", "Kazoo", "LOCAL/x", "local/X", "local//x", "local/x/y", "/kazoo", "kazoo/", "//", "@",
         "@acme-hub", "@@acme-hub/x", "@acme-hub//x", "@acme-hub/X", "@-ab/x", "@ab-/x", "@1ab/x", f"@{'a' * 25}/x",
-        "@acmé/x", "kafkä", "ｋafka", "../kafka", "kafka/..", "@acme-hub/..", "@acme-hub/.", ".kafka",
-        "kafka.yml", "kafka\\x", "a b", "a\tb", "~", "${HOME}", "%2e%2e", None, 5, b"kafka", ["kafka"],
+        "@acmé/x", "kazoö", "ｋazoo", "../kazoo", "kazoo/..", "@acme-hub/..", "@acme-hub/.", ".kazoo",
+        "kazoo.yml", "kazoo\\x", "a b", "a\tb", "~", "${HOME}", "%2e%2e", None, 5, b"kazoo", ["kazoo"],
         "*", "@acme-hub/*", "local/*", "[!.]*", "local/[!.]*")
 
     def test_an_id_is_bare_personal_or_of_a_catalog(self):
-        for uid in ("kafka", "a", "-", "0", "mock-bank", "local", "local/whoami", "local/local", "local/a-b",
+        for uid in ("kazoo", "a", "-", "0", "mock-bank", "local", "local/whoami", "local/local", "local/a-b",
                     "@acme-hub/mock-bank", "@acme-hub/local", "@ab/x", f"@{'a' * 24}/x", "@a1/x", "@a-b/x",
                     "@acme-hub/-"):
             with self.subTest(uid=uid):
@@ -160,10 +160,10 @@ class Grammar(OnDisk):
                     self.assertFalse(paths.is_id(paths.canonical(uid)))
 
     def test_the_default_catalog_is_not_spelled_with_its_namespace(self):
-        self.assertFalse(paths.is_id("@gravitee/kafka"))
+        self.assertFalse(paths.is_id("@gravitee/kazoo"))
         self.default("demos")
-        self.assertFalse(paths.is_id("@demos/kafka"))
-        self.assertTrue(paths.is_id("@gravitee-hub/kafka"))
+        self.assertFalse(paths.is_id("@demos/kazoo"))
+        self.assertTrue(paths.is_id("@gravitee-hub/kazoo"))
 
     def test_a_reserved_namespace_is_no_id_whoever_asks(self):
         os.remove(self.root / paths.DEFAULT_FILE)
@@ -180,13 +180,13 @@ class Grammar(OnDisk):
     def test_the_pattern_of_a_route_has_one_group(self):
         self.assertEqual(re.compile(paths.ID).groups, 1)
         route = re.compile(rf"/api/(addon|setup|playground)s/{paths.ID}/(start|stop)")
-        for path, groups in (("/api/addons/kafka/start", ("addon", "kafka", "start")),
+        for path, groups in (("/api/addons/kazoo/start", ("addon", "kazoo", "start")),
                              ("/api/playgrounds/local/demo/stop", ("playground", "local/demo", "stop")),
                              ("/api/playgrounds/@acme-hub/bank/start", ("playground", "@acme-hub/bank", "start")),
                              ("/api/setups/@a-b/c-d/stop", ("setup", "@a-b/c-d", "stop"))):
             with self.subTest(path=path):
                 self.assertEqual(route.fullmatch(path).groups(), groups)
-        for path in ("/api/addons/@acme-hub/../kafka/start", "/api/addons/@x/y/start",
+        for path in ("/api/addons/@acme-hub/../kazoo/start", "/api/addons/@x/y/start",
                      "/api/addons/@acme-hub/b/c/start", "/api/addons/local/start", "/api/addons/local//x/start",
                      "/api/addons/@acme-hub/x\n/start"):
             with self.subTest(path=path):
@@ -311,13 +311,13 @@ class InCatalogs(OnDisk):
 
     TABLE = (
         # kind, id, file, folder
-        ("addon", "kafka", ".lab/catalogs/gravitee/addons/kafka/compose.yml", ".lab/catalogs/gravitee/addons/kafka"),
+        ("addon", "kazoo", ".lab/catalogs/gravitee/addons/kazoo/compose.yml", ".lab/catalogs/gravitee/addons/kazoo"),
         ("addon", "local/whoami", ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/addons/whoami"),
         ("addon", "local/local", ".lab/catalogs/local/addons/local/compose.yml", ".lab/catalogs/local/addons/local"),
         ("addon", "@acme-hub/mock-bank", ".lab/catalogs/acme-hub/addons/mock-bank/compose.yml",
          ".lab/catalogs/acme-hub/addons/mock-bank"),
-        ("setup", "kubernetes-flow", ".lab/catalogs/gravitee/setups/kubernetes-flow.yml", None),
-        ("setup", "local/ai-agents", ".lab/catalogs/local/setups/ai-agents.yml", None),
+        ("setup", "kookaburra-flow", ".lab/catalogs/gravitee/setups/kookaburra-flow.yml", None),
+        ("setup", "local/tern-flock", ".lab/catalogs/local/setups/tern-flock.yml", None),
         ("setup", "@acme-hub/bank-stack", ".lab/catalogs/acme-hub/setups/bank-stack.yml", None),
         ("playground", "acme-bakery", ".lab/catalogs/gravitee/playgrounds/acme-bakery/compose.yml",
          ".lab/catalogs/gravitee/playgrounds/acme-bakery"),
@@ -335,9 +335,9 @@ class InCatalogs(OnDisk):
 
     def test_the_default_namespace_is_read_when_asked(self):
         self.default("demos")
-        self.assertEqual(paths.unit_file("addon", "kafka"), ".lab/catalogs/demos/addons/kafka/compose.yml")
-        self.assertEqual(paths.unit_of(".lab/catalogs/demos/addons/kafka/compose.yml"), ("addon", "kafka"))
-        self.assertIsNone(paths.unit_of(".lab/catalogs/gravitee/addons/kafka/compose.yml"))   # reserved: no id
+        self.assertEqual(paths.unit_file("addon", "kazoo"), ".lab/catalogs/demos/addons/kazoo/compose.yml")
+        self.assertEqual(paths.unit_of(".lab/catalogs/demos/addons/kazoo/compose.yml"), ("addon", "kazoo"))
+        self.assertIsNone(paths.unit_of(".lab/catalogs/gravitee/addons/kazoo/compose.yml"))   # reserved: no id
 
     def test_the_name_of_this_machines_folder_is_a_name_in_a_catalog(self):
         # The folder of this machine is a catalog, and a unit called local is one like any
@@ -352,9 +352,9 @@ class InCatalogs(OnDisk):
         for path in (
                 "addons/@x/y/compose.yml", "addons/@xx/y/compose.yml", "addons/x/compose.yml",
                 "addons/local/x/compose.yml",
-                "setups/x.yml", "playgrounds/x/compose.yml", "addons/kafka/compose.yml",
-                ".lab/catalogs/gravitee/addons/kafka/.env", ".lab/catalogs/gravitee/addons/My_Addon/compose.yml",
-                ".lab/catalogs/local/addons/whoami/more/compose.yml", ".lab/catalogs/local/addons/../kafka/compose.yml",
+                "setups/x.yml", "playgrounds/x/compose.yml", "addons/kazoo/compose.yml",
+                ".lab/catalogs/gravitee/addons/kazoo/.env", ".lab/catalogs/gravitee/addons/My_Addon/compose.yml",
+                ".lab/catalogs/local/addons/whoami/more/compose.yml", ".lab/catalogs/local/addons/../kazoo/compose.yml",
                 ".lab/catalogs/local/setups/mine/more.yml", ".lab/catalogs/gravitee/playgrounds/_scratch/compose.yml",
                 "docker-compose.yml",
                 ".lab/catalogs/ns/addons/x/certs/compose.yml", ".lab/catalogs/acme-hub/addons/x/certs/compose.yml",
@@ -390,7 +390,7 @@ class InCatalogs(OnDisk):
                          ("playground", "@acme-hub/-"))
 
     def test_an_id_that_is_not_one_has_no_file(self):
-        for uid in Grammar.ADVERSARIAL + ("@gravitee/kafka", "@gravitee/x", "@local/x", "@official/x"):
+        for uid in Grammar.ADVERSARIAL + ("@gravitee/kazoo", "@gravitee/x", "@local/x", "@official/x"):
             for kind in paths.KINDS:
                 with self.subTest(kind=kind, uid=uid):
                     with self.assertRaises(paths.NotFound):
@@ -399,11 +399,11 @@ class InCatalogs(OnDisk):
     def test_a_bare_name_has_no_place_without_a_default_catalog(self):
         os.remove(self.root / paths.DEFAULT_FILE)
         with self.assertRaises(paths.NotFound):   # a place is never made of None
-            paths.unit_file("addon", "kafka")
+            paths.unit_file("addon", "kazoo")
 
     def test_a_kind_that_does_not_exist_is_a_key_error(self):
         with self.assertRaises(KeyError):
-            paths.unit_file("playlist", "kafka")
+            paths.unit_file("playlist", "kazoo")
         with self.assertRaises(KeyError):
             paths.ids("playlist")
 
@@ -411,7 +411,7 @@ class InCatalogs(OnDisk):
         ids = ("local/whoami", "whoami", "local", "localhost", "@acme-hub/x")
         self.assertEqual([paths.personal(uid) for uid in ids], [True, False, False, False, False])
         self.assertEqual(paths.unit_env("addon", "local/whoami"), ".lab/catalogs/local/addons/whoami/.env")
-        self.assertEqual(paths.unit_env("addon", "kafka"), ".lab/catalogs/gravitee/addons/kafka/.env")
+        self.assertEqual(paths.unit_env("addon", "kazoo"), ".lab/catalogs/gravitee/addons/kazoo/.env")
         self.assertEqual(paths.unit_env("playground", "@acme-hub/bank"), ".lab/catalogs/acme-hub/playgrounds/bank/.env")
         self.assertEqual(paths.unit_env("playground", "local/sandbox"), ".lab/catalogs/local/playgrounds/sandbox/.env")
         self.assertIsNone(paths.unit_env("setup", "local/mine"))
@@ -419,7 +419,7 @@ class InCatalogs(OnDisk):
                          ".lab/catalogs/local/playgrounds/sandbox/guide.md")
         self.assertEqual(paths.unit_guide("playground", "acme-bakery"),
                          ".lab/catalogs/gravitee/playgrounds/acme-bakery/guide.md")
-        self.assertIsNone(paths.unit_guide("addon", "kafka"))
+        self.assertIsNone(paths.unit_guide("addon", "kazoo"))
         self.assertIsNone(paths.unit_folder("setup", "events"))
 
 
@@ -427,7 +427,7 @@ class Names(OnDisk):
 
     def test_where_an_item_sits(self):
         for uid, ns, name, default, _ in (
-                ("kafka", "gravitee", "kafka", True, True), ("local/whoami", "local", "whoami", False, False),
+                ("kazoo", "gravitee", "kazoo", True, True), ("local/whoami", "local", "whoami", False, False),
                 ("@acme-hub/bank", "acme-hub", "bank", False, True), ("a-b", "gravitee", "a-b", True, True),
                 ("local/local", "local", "local", False, False), ("local", "gravitee", "local", True, True)):
             with self.subTest(uid=uid):
@@ -436,18 +436,18 @@ class Names(OnDisk):
                 self.assertEqual(paths.is_default(uid), default)
 
     def test_the_long_form_of_the_default_catalog_reads_as_the_bare_id(self):
-        self.assertEqual(paths.canonical("@gravitee/kafka"), "kafka")
-        self.assertEqual(paths.split_ref("@gravitee/kafka"), ("gravitee", "kafka"))
-        self.assertEqual(paths.origin("@gravitee/kafka"), "gravitee")
-        for uid in ("kafka", "local/kafka", "@acme-hub/kafka", "@gravitee/", "@gravitee/a/b", "@gravitee/../x",
-                    "@gravitee-x/y", "@graviteex/y", "@gravite/y", "gravitee/kafka", "@gravitee/Kafka",
-                    "@gravitee/kafka\n", "", "*"):
+        self.assertEqual(paths.canonical("@gravitee/kazoo"), "kazoo")
+        self.assertEqual(paths.split_ref("@gravitee/kazoo"), ("gravitee", "kazoo"))
+        self.assertEqual(paths.origin("@gravitee/kazoo"), "gravitee")
+        for uid in ("kazoo", "local/kazoo", "@acme-hub/kazoo", "@gravitee/", "@gravitee/a/b", "@gravitee/../x",
+                    "@gravitee-x/y", "@graviteex/y", "@gravite/y", "gravitee/kazoo", "@gravitee/Kazoo",
+                    "@gravitee/kazoo\n", "", "*"):
             with self.subTest(uid=uid):
                 self.assertEqual(paths.canonical(uid), uid)
         self.assertEqual(paths.canonical(None), None)
         self.default("demos")
-        self.assertEqual(paths.canonical("@demos/kafka"), "kafka")
-        self.assertEqual(paths.canonical("@gravitee/kafka"), "@gravitee/kafka")
+        self.assertEqual(paths.canonical("@demos/kazoo"), "kazoo")
+        self.assertEqual(paths.canonical("@gravitee/kazoo"), "@gravitee/kazoo")
 
     def test_what_is_not_an_id_has_no_origin(self):
         for uid in Grammar.ADVERSARIAL + ("@local/x", "@official/x"):
@@ -459,21 +459,21 @@ class Names(OnDisk):
 
     def test_a_bare_id_has_no_namespace_without_a_default_catalog(self):
         os.remove(self.root / paths.DEFAULT_FILE)
-        self.assertEqual(paths.split_ref("kafka"), (None, "kafka"))
+        self.assertEqual(paths.split_ref("kazoo"), (None, "kazoo"))
         self.assertEqual(paths.split_ref("local/x"), ("local", "x"))
-        self.assertEqual(paths.canonical("@gravitee/kafka"), "@gravitee/kafka")
+        self.assertEqual(paths.canonical("@gravitee/kazoo"), "@gravitee/kazoo")
 
     def test_the_default_file_is_looked_at_once_per_question(self):
         # Two looks could see two files: the answer of one call is about one project
         seen = self.patch(paths, "default_ns", wraps=paths.default_ns)
         for label, call in (
-                ("a bare id's file", lambda: paths.unit_file("addon", "kafka")),
+                ("a bare id's file", lambda: paths.unit_file("addon", "kazoo")),
                 ("a personal id's file", lambda: paths.unit_file("addon", "local/x")),
                 ("a catalog id's file", lambda: paths.unit_file("addon", "@acme-hub/x")),
-                ("a unit's folder", lambda: paths.unit_folder("playground", "kafka")),
+                ("a unit's folder", lambda: paths.unit_folder("playground", "kazoo")),
                 ("a unit's env", lambda: paths.unit_env("addon", "@acme-hub/x")),
                 ("the unit of a path", lambda: paths.unit_of(".lab/catalogs/gravitee/addons/x/compose.yml")),
-                ("a place", lambda: paths.split_ref("kafka")), ("a long form", lambda: paths.split_ref("@gravitee/x")),
+                ("a place", lambda: paths.split_ref("kazoo")), ("a long form", lambda: paths.split_ref("@gravitee/x")),
                 ("an origin", lambda: paths.origin("@acme-hub/x")), ("a canonical form", lambda: paths.canonical("x")),
                 ("whether a long form is an id", lambda: paths.is_id("@acme-hub/x"))):
             with self.subTest(label):
@@ -484,7 +484,7 @@ class Names(OnDisk):
     def test_a_default_file_that_goes_while_a_path_is_made_never_makes_a_path_of_none(self):
         answers = iter(["gravitee", None, None, None])
         self.patch(paths, "default_ns", lambda: next(answers))
-        self.assertEqual(paths.unit_file("addon", "kafka"), ".lab/catalogs/gravitee/addons/kafka/compose.yml")
+        self.assertEqual(paths.unit_file("addon", "kazoo"), ".lab/catalogs/gravitee/addons/kazoo/compose.yml")
 
     def test_only_what_is_shaped_like_a_bare_id_is_default(self):
         for uid in ("local/x", "@acme-hub/x", "", "a b", "x/y", "x\n", None, 5):
@@ -538,7 +538,7 @@ class Found(OnDisk):
     def setUp(self):
         super().setUp()
         self.put(
-            "gravitee/addons/kafka/compose.yml", "gravitee/addons/jade/compose.yml", "gravitee/setups/events.yml",
+            "gravitee/addons/kazoo/compose.yml", "gravitee/addons/jade/compose.yml", "gravitee/setups/events.yml",
             "gravitee/playgrounds/welcome/compose.yml", "gravitee/playgrounds/acme-bakery/compose.yml",
             "local/addons/whoami/compose.yml", "local/setups/mine.yml", "local/playgrounds/sandbox/compose.yml",
             "acme-hub/addons/mock-bank/compose.yml", "acme-hub/setups/bank-stack.yml",
@@ -547,13 +547,13 @@ class Found(OnDisk):
     def test_the_ids_of_each_kind_by_catalog(self):
         # The set of units, group by group: who wins a name is the precedence of the registry, in the order added
         self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, {
-            "addon": ["jade", "kafka", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@zeta/last"],
+            "addon": ["jade", "kazoo", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@zeta/last"],
             "setup": ["events", "local/mine", "@acme-hub/bank-stack"],
             "playground": ["acme-bakery", "welcome", "local/sandbox", "@acme-hub/bank"]})
 
     def test_the_files_follow_the_ids(self):
         self.assertEqual(paths.files(), [
-            ".lab/catalogs/gravitee/addons/jade/compose.yml", ".lab/catalogs/gravitee/addons/kafka/compose.yml",
+            ".lab/catalogs/gravitee/addons/jade/compose.yml", ".lab/catalogs/gravitee/addons/kazoo/compose.yml",
             ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/a-b/addons/first/compose.yml",
             ".lab/catalogs/acme-hub/addons/mock-bank/compose.yml", ".lab/catalogs/zeta/addons/last/compose.yml",
             ".lab/catalogs/gravitee/setups/events.yml", ".lab/catalogs/local/setups/mine.yml",
@@ -593,7 +593,7 @@ class Found(OnDisk):
         self.write("setups/root.yml")
         self.write("playgrounds/root/compose.yml")
         self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, {
-            "addon": ["jade", "kafka", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@zeta/last"],
+            "addon": ["jade", "kazoo", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@zeta/last"],
             "setup": ["events", "local/mine", "@acme-hub/bank-stack"],
             "playground": ["acme-bakery", "welcome", "local/sandbox", "@acme-hub/bank"]})
 
@@ -607,7 +607,7 @@ class Found(OnDisk):
         os.symlink(author.name, self.root / ".lab/catalogs/author-cat")
         os.symlink(self.root / "missing", self.root / ".lab/catalogs/broken-link")   # no folder behind it
         self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, {
-            "addon": ["jade", "kafka", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@author-cat/linked",
+            "addon": ["jade", "kazoo", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@author-cat/linked",
                       "@zeta/last"],
             "setup": ["events", "local/mine", "@acme-hub/bank-stack", "@author-cat/linked-set"],
             "playground": ["acme-bakery", "welcome", "local/sandbox", "@acme-hub/bank", "@author-cat/linked-play"]})
@@ -623,7 +623,7 @@ class Found(OnDisk):
                 raise PermissionError(13, "Permission denied", str(path))
             return real(path)
         self.patch(paths.os, "listdir", listdir)
-        self.assertEqual(paths.ids("addon"), ["jade", "kafka", "local/whoami"])
+        self.assertEqual(paths.ids("addon"), ["jade", "kazoo", "local/whoami"])
         self.assertEqual(paths.ids("setup"), ["events", "local/mine"])
 
     def test_no_catalog_folder_lists_nothing(self):
@@ -647,11 +647,11 @@ class Vouched(OnDisk):
         self.put(
             "acme-hub/.installed.json", "acme-hub/addons/listed/compose.yml", "acme-hub/addons/rogue/compose.yml",
             "acme-hub/setups/unlisted.yml", "acme-hub/playgrounds/bank/compose.yml",
-            "gravitee/.installed.json", "gravitee/addons/kafka/compose.yml", "gravitee/addons/stray/compose.yml",
+            "gravitee/.installed.json", "gravitee/addons/kazoo/compose.yml", "gravitee/addons/stray/compose.yml",
             "local/.installed.json", "local/addons/mine/compose.yml", "local/setups/mine.yml",
             "plain/addons/loose/compose.yml")
         self.vouches = {"acme-hub": {"addon": ["listed"], "playground": ["bank", "ghost"]},
-                        "gravitee": {"addon": ["kafka"]}}
+                        "gravitee": {"addon": ["kazoo"]}}
         self.asked = self.patch(registry, "units_of", side_effect=lambda ns: self.vouches.get(ns, {}))
 
     def everything(self):
@@ -659,10 +659,10 @@ class Vouched(OnDisk):
 
     def test_a_unit_outside_the_manifest_is_no_unit(self):
         self.assertEqual(self.everything(), {
-            "addon": ["kafka", "local/mine", "@acme-hub/listed", "@plain/loose"],
+            "addon": ["kazoo", "local/mine", "@acme-hub/listed", "@plain/loose"],
             "setup": ["local/mine"], "playground": ["@acme-hub/bank"]})
         self.assertEqual(paths.files(), [
-            ".lab/catalogs/gravitee/addons/kafka/compose.yml", ".lab/catalogs/local/addons/mine/compose.yml",
+            ".lab/catalogs/gravitee/addons/kazoo/compose.yml", ".lab/catalogs/local/addons/mine/compose.yml",
             ".lab/catalogs/acme-hub/addons/listed/compose.yml", ".lab/catalogs/plain/addons/loose/compose.yml",
             ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/acme-hub/playgrounds/bank/compose.yml"])
 
@@ -696,7 +696,7 @@ class Vouched(OnDisk):
 
     def test_a_registry_that_cannot_say_vouches_for_nothing(self):
         for label, answer in (("raises", RuntimeError("no lock")), ("not found", FileNotFoundError("lock")),
-                              ("none", None), ("text", "addon"), ("a list", ["kafka"]),
+                              ("none", None), ("text", "addon"), ("a list", ["kazoo"]),
                               ("kinds not lists", {"addon": 5}), ("kinds none", {"addon": None})):
             with self.subTest(label):
                 self.asked.side_effect = None
@@ -720,9 +720,9 @@ class RegistryNotWritten(OnDisk):
     """The registry as shipped before it is written: it vouches for no install."""
 
     def test_a_git_install_lists_nothing_and_the_rest_is_listed(self):
-        self.put("acme-hub/.installed.json", "acme-hub/addons/x/compose.yml", "gravitee/addons/kafka/compose.yml",
+        self.put("acme-hub/.installed.json", "acme-hub/addons/x/compose.yml", "gravitee/addons/kazoo/compose.yml",
                  "local/addons/mine/compose.yml", "plain/addons/loose/compose.yml")
-        self.assertEqual(paths.ids("addon"), ["kafka", "local/mine", "@plain/loose"])
+        self.assertEqual(paths.ids("addon"), ["kazoo", "local/mine", "@plain/loose"])
 
 
 class Contained(Case):

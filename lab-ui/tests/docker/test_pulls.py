@@ -121,9 +121,9 @@ class Command(unittest.TestCase):
     def test_what_an_up_brings_with_it_is_pulled_too(self):
         # Without --no-deps the up starts what its services need: their images are pulled as well. A file called up
         # is not the command
-        up = [*compose.COMPOSE, "-f", "up", "up", "-d", "kafka"]
+        up = [*compose.COMPOSE, "-f", "up", "up", "-d", "kazoo"]
         self.assertEqual(jobs._pull_before(up), [*compose.COMPOSE, "-f", "up", "pull", "--policy", "missing",
-                                                 "--ignore-buildable", "--ignore-pull-failures", "--include-deps", "kafka"])
+                                                 "--ignore-buildable", "--ignore-pull-failures", "--include-deps", "kazoo"])
         self.assertEqual(jobs._pull_before([*compose.COMPOSE, "up", "-d"]),
                          [*compose.COMPOSE, "pull", "--policy", "missing", "--ignore-buildable",
                           "--ignore-pull-failures"])

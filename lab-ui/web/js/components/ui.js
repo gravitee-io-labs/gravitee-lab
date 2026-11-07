@@ -806,7 +806,7 @@ router.onLeave(() => {
 });
 
 // What the server says of a row (an item, a group, a container), in its tone, its tooltip the reason when it has one
-// ("Failed": the job's last line). One that names an item links to it ("via Kafka Desk"); one that settings answer
+// ("Failed": the job's last line). One that names an item links to it ("via Kazoo Desk"); one that settings answer
 // opens them: the license's notes are the ones with a file, they open the form that takes a new license. What runs behind
 // what is saved (`note_apply`) is the badge, its tooltip the reason.
 export function noteHtml(x) {
@@ -872,7 +872,7 @@ export function originLink(item) {
 export const serviceVersion = (service) => (service.built ? "local build" : bareTag(service.running_tag || service.tag || ""));
 
 // How another container of the lab reaches a service: its name and the port inside it, not the one published ("In the
-// lab: smtp4dev:80"), which the endpoint of an API made in a platform's console needs. Said only while a platform is
+// lab: malt-box:80"), which the endpoint of an API made in a platform's console needs. Said only while a platform is
 // registered, for a service that publishes a port (`targets`: the port inside it, by the one published).
 function inLab(service) {
   if (!store.platforms.length) return "";
@@ -1171,7 +1171,7 @@ function acting(key, verbs) {
     title: running?.title || state.label };
 }
 
-// The word of the button that started a job: its title without the name of what it acts on ("Turn off Kafka" → "Turn
+// The word of the button that started a job: its title without the name of what it acts on ("Turn off Kazoo" → "Turn
 // off"), else the verb's own word
 function wordOf(key, verb, title = "") {
   const name = store.unit(key)?.name;

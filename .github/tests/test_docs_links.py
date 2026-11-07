@@ -5,7 +5,6 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PATTERNS = ("*.md", "docs/*.md", "lab-ui/*.md", "seeder/*.md", ".agents/skills/*/SKILL.md")
 
 
 def slug(heading: str) -> str:
@@ -22,7 +21,7 @@ def headings(path: Path) -> set:
 class Links(unittest.TestCase):
     def test_every_relative_link_and_anchor_resolves(self):
         broken = []
-        for pattern in PATTERNS:
+        for pattern in ("*.md", "docs/*.md", "lab-ui/*.md", "seeder/*.md", ".agents/skills/*/SKILL.md"):
             for file in sorted(ROOT.glob(pattern)):
                 text = re.sub(r"```.*?```", "", file.read_text(encoding="utf-8"), flags=re.S)
                 for found in re.finditer(r"\]\(([^)\s]+)\)", text):

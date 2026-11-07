@@ -273,7 +273,7 @@ const answer = async (confirmed) => {   // "alt": the second button
 };
 const WHERE = [{ kind: "environment", id: DEV.id, name: DEV.name }];
 const dialogOf = (more) => ({ starts: [], stops: [], turns_off: [], keeps: [], restarts: [], deploys_to: WHERE, serves: [], stops_serving: [], ...more });
-const HYBRID = { kind: "addon", id: "hybrid", name: "Hybrid gateway" };
+const HYSSOP = { kind: "addon", id: "hyssop", name: "Hybrid gateway" };
 // The forms the Before you start lines open: a browser tells their button whether the required fields are filled, which the stub does not
 const field = (id) => page.doc.querySelector(`#${id}`);
 const form = (id) => {
@@ -540,7 +540,7 @@ test("a place that lacks something is chosen all the same, and its Start, Deploy
 // --- Start, Deploy and Re-seed -----------------------------------------------------------------------------------------------------
 
 test("Start on a remote place always asks first: what it starts, then where it deploys, the place named; it sends the place back", async () => {
-  await visit({ ...off }, { kept: DEV.id, dialog: () => dialogOf({ starts: [HYBRID] }) });
+  await visit({ ...off }, { kept: DEV.id, dialog: () => dialogOf({ starts: [HYSSOP] }) });
   section.querySelector(".pg-start-btn").click();
   await flush();
   assert.deepEqual(effects(), { title: "Start Acme Hostels", action: "Start",
@@ -562,7 +562,7 @@ test("a remote Start that starts nothing still opens the dialog, with the place 
 });
 
 test("a remote Start that swaps the gateway says what it serves and stops serving, after the steps", async () => {
-  const swap = dialogOf({ restarts: [HYBRID], serves: WHERE, stops_serving: [{ kind: "environment", id: TEST.id, name: TEST.name }] });
+  const swap = dialogOf({ restarts: [HYSSOP], serves: WHERE, stops_serving: [{ kind: "environment", id: TEST.id, name: TEST.name }] });
   await visit({ ...off }, { kept: DEV.id, dialog: () => swap });
   section.querySelector(".pg-start-btn").click();
   await flush();
@@ -651,14 +651,14 @@ test("a Deploy at work says so on its button, with the verb of its job", async (
 const LINES = [{ name: "My Account", state: "ok", detail: "Connected", target: { kind: "platform", id: "my-account" } },
   { name: "Hybrid gateway", state: "warn", detail: "None in Development", fix: "gateway" },
   { name: "Cloud Token", state: "warn", detail: "Not set", fix: "token" },
-  { name: "Mail server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "smtp" }, file: "addons/smtp/.env" }];
+  { name: "Malt server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "smtp" }, file: "addons/smtp/.env" }];
 const lines = () => section.querySelectorAll(".pg-prep-item").map((li) => [text(li.querySelector(".pg-prep-name")),
   li.classList.contains("warn") ? "needs you" : li.classList.contains("auto") ? "start" : "in place", li.querySelectorAll(".pg-prep-action .icon-btn").map((b) => b.getAttribute("data-tip"))]);
 
 test("Before you start is read for the place, and a line that a form answers offers it: a plus for the gateway, a key for the Cloud Token", async () => {
   await visit({ ...off }, { kept: DEV.id, places: [BARE, TEST, OTHER, SLOW], checks: (query) => (query ? LINES : []) });
   assert.deepEqual(lines(), [["Hybrid gateway", "needs you", ["Create hybrid gateway"]], ["Cloud Token", "needs you", ["Add Cloud Token"]],
-    ["Mail server", "needs you", ["Settings"]], ["My Account", "in place", []]]);
+    ["Malt server", "needs you", ["Settings"]], ["My Account", "in place", []]]);
   assert.equal(section.querySelector('.pg-prep-name a[href="#/cloud/my-account"]').textContent, "My Account", "the platform leads to its row");
   assert.deepEqual(buttons().at(-1), ["Start", "Set up a gateway in Development (My Account) first"]);
   await leave();
@@ -890,10 +890,10 @@ test("a start on images it was not tested with is the start that switches them, 
   await answer(true);
   assert.deepEqual(await asked, { accept: ["version:APIM"], remove: false, switch: true });
   // Without switching: the start's own dialog, and nothing of the versions sent back
-  const kept = confirmStart(other, "Start", dialogOf({ stops: [{ kind: "addon", id: "kafka", name: "Kafka" }] }), { offer });
+  const kept = confirmStart(other, "Start", dialogOf({ stops: [{ kind: "addon", id: "kazoo", name: "Kazoo" }] }), { offer });
   await flush();
   await answer("alt");
-  assert.deepEqual(await kept, { accept: ["addon:kafka"], remove: false });
+  assert.deepEqual(await kept, { accept: ["addon:kazoo"], remove: false });
   // A switch that goes back says it in the danger tone, and its button is the dangerous one
   const back = { ...offer, versions: [], goes_back: [{ ...row, name: "API Management master-latest → 4.13.0-alpha.3" }] };
   const warned = confirmStart(other, "Start", dialogOf({}), { offer: back });
@@ -945,15 +945,15 @@ test("Details > Open holds a group named after each platform that has a record, 
 });
 
 test("a service's ports say how another container of the lab reaches it, only while a platform is registered", () => {
-  const service = { image: "rnwood/smtp4dev:3", tag: "3", running_tag: "3", built: false, ports: ["8025", "2525"], targets: { 8025: "80", 2525: "25" } };
+  const service = { image: "acmecontainer/malt-box:3", tag: "3", running_tag: "3", built: false, ports: ["8025", "2525"], targets: { 8025: "80", 2525: "25" } };
   const ports = (found, platforms) => {
-    store.state = { ...plain, platforms, services: { ...plain.services, smtp4dev: found } };
+    store.state = { ...plain, platforms, services: { ...plain.services, "malt-box": found } };
     const el = page.doc.createElement("div");
     el.innerHTML = serviceCells(found);
     return el.querySelector(".s-ports").getAttribute("data-tip");
   };
   assert.equal(ports(service, []), null, "none without a platform");
-  assert.equal(ports(service, [ACCOUNT]), "In the lab: smtp4dev:80, smtp4dev:25");
+  assert.equal(ports(service, [ACCOUNT]), "In the lab: malt-box:80, malt-box:25");
   assert.equal(ports({ ...service, ports: [] }, [ACCOUNT]), null, "a service that publishes no port has no address to give");
   assert.equal(ports({ ...service, targets: undefined }, [ACCOUNT]), null);
   store.state = plain;
@@ -1382,16 +1382,16 @@ test("a Lab that reads a level other than the playground's says so, and what to 
 
 test("what it uses of this machine is one line among what Start does, in its author's words, once each and cut", async () => {
   const use = (service, why) => ({ service, what: ["runs privileged"], why });
-  await visit({ ...off, uses_machine: [use("k3s", "Runs containerd and the kubelet"), use("k3s-agent", "Runs containerd and the kubelet"), use("socket", "Reads the Docker socket")] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", "Runs nested containers"), use("kea-agent", "Runs nested containers"), use("socket", "Reads the Docker socket")] }, { platforms: [], places: [] });
   const line = prepared().find((one) => one.name === "Uses this machine");
-  assert.deepEqual([line.kind, line.action], ["auto", "Runs containerd and the kubelet, Reads the Docker socket"]);
+  assert.deepEqual([line.kind, line.action], ["auto", "Runs nested containers, Reads the Docker socket"]);
   await leave();
   const long = "x".repeat(300);
-  await visit({ ...off, uses_machine: [use("k3s", long)] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", long)] }, { platforms: [], places: [] });
   const cut = prepared().find((one) => one.name === "Uses this machine").action;
   assert.ok(cut.length <= 120 && cut.endsWith("\u2026"), "the author's text is cut");
   await leave();
-  await visit({ ...off, uses_machine: [use("k3s", HOSTILE)] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", HOSTILE)] }, { platforms: [], places: [] });
   assert.equal(section.querySelectorAll("img").length, 0, "text, never markup");
   await leave();
   await visit({ ...off }, { platforms: [], places: [] });

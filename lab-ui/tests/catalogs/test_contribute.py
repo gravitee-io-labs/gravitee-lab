@@ -1363,23 +1363,23 @@ class Copied(Seam):
         self.demo()
         notes = self.root / ".lab/catalogs/local/addons/notes/compose.yml"
         notes.write_text(notes.read_text().replace("services: {}\n", "services:\n  notes-app:\n    image: busybox:1.36\n"
-                         "    environment: {LEVEL: \"${GRAVITEE_INTERNAL_NOTES_LEVEL:-info}\", URL: \"${OLLAMA_URL:-x}\"}\n"))
+                         "    environment: {LEVEL: \"${TEAM_NOTES_LEVEL:-info}\", URL: \"${OLLAMA_URL:-x}\"}\n"))
         project.forget()
         answer = self.share("local/demo", "lab-new", "playground", True)
-        self.assertEqual(answer["renames"], [{"from": "GRAVITEE_INTERNAL_NOTES_LEVEL", "to": "LAB_NEW_NOTES_LEVEL"}],
+        self.assertEqual(answer["renames"], [{"from": "TEAM_NOTES_LEVEL", "to": "LAB_NEW_NOTES_LEVEL"}],
                          "a setting that names no item is left as it is")
         self.share("local/demo", "lab-new", "playground")
         copied = (self.target / "addons/notes/compose.yml").read_text()
         self.assertIn("${LAB_NEW_NOTES_LEVEL:-info}", copied)
         self.assertIn("${OLLAMA_URL:-x}", copied)
         env = self.target / "addons/notes/.env"
-        env.write_text("GRAVITEE_INTERNAL_NOTES_LEVEL=debug\nOTHER=1\n")
+        env.write_text("TEAM_NOTES_LEVEL=debug\nOTHER=1\n")
         contribute._rename_settings("addon", "@lab-new/notes")
         self.assertEqual(env.read_text(), "LAB_NEW_NOTES_LEVEL=debug\nOTHER=1\n", "the person's value, under the new name")
         self.assertNotIn("addon:@lab-new/notes", json.loads((self.root / contribute.RENAMES).read_text()))
 
     def test_a_rename_changes_what_reads_the_setting_not_the_names_a_container_and_its_seed_are_given(self):
-        compose_text = ("x-gravitee: {kind: playground, name: Kc}\nservices:\n  kc-app:\n    image: quay.io/keycloak/keycloak:26.0\n"
+        compose_text = ("x-gravitee: {kind: playground, name: Kc}\nservices:\n  kc-app:\n    image: busybox:1.36\n"
                         "    environment:\n      KC_ADMIN: ${KC_ADMIN:-admin}\n      KC_LEVEL: \"$KC_LEVEL\"\n      LITERAL: $${KC_LEVEL}\n"
                         "  kc-seed:\n    image: busybox:1.36\n    environment:\n      KC_URL: ${KC_URL:-http://kc-app:8080}\n")
         files = {"playgrounds/kc/compose.yml": compose_text, "playgrounds/kc/seed/apim/apis.yaml": "url: ${KC_URL}\nother: ${KC_OTHER}\n",
@@ -1431,7 +1431,7 @@ class Ended(Seam):
         for path, text in {".env": "TOKEN=1\n", ".state/created.json": "{}", "secrets/key": "k", "README.md": "# mine\n",
                            "seed/x.json": "{}", "apps/web/.env": "X=1\n", "notes.txt": "mine"}.items():
             self.write(f"{self.LOCAL}/{path}", text)
-        self.write(".lab/starred.json", json.dumps({"addon": ["local/echo", "kafka"]}))
+        self.write(".lab/starred.json", json.dumps({"addon": ["local/echo", "kazoo"]}))
         self.containers = self.patch(compose, "containers", return_value=({}, None))
 
     def use(self, uid="local/echo", kind="addon"):
@@ -1485,7 +1485,7 @@ class Ended(Seam):
     def kept_stays(self, entry, because):
         """What a run that left `entry` where it was leaves: the item, its star, its records and what the catalog's item has."""
         self.assertTrue((self.root / self.LOCAL / "compose.yml").is_file(), because)
-        self.assertEqual(self.stars(), {"addon": ["local/echo", "kafka"]}, because)
+        self.assertEqual(self.stars(), {"addon": ["local/echo", "kazoo"]}, because)
         self.assertTrue((self.root / self.LOCAL / entry).exists(), because)
 
     def test_an_entry_that_cannot_be_moved_stops_the_move_and_nothing_is_deleted(self):
@@ -1507,7 +1507,7 @@ class Ended(Seam):
         self.assertEqual((self.root / self.THERE / ".state/created.json").read_text(), "{}")
         self.assertEqual((self.root / self.THERE / ".env").read_text(), "TOKEN=1\n")
         self.assertFalse((self.root / self.LOCAL).exists())
-        self.assertEqual(self.stars(), {"addon": ["echo", "kafka"]})
+        self.assertEqual(self.stars(), {"addon": ["echo", "kazoo"]})
 
     def test_every_entry_that_stays_is_named_and_a_move_alone_says_the_same(self):
         real = os.rename
@@ -1521,7 +1521,7 @@ class Ended(Seam):
         self.assertEqual(str(raised.exception), ".lab/catalogs/local/addons/echo/.state, .lab/catalogs/local/addons/echo/secrets "
                                                 "could not be moved to .lab/catalogs/fixture/addons/echo. Move them by hand, "
                                                 "then try again.")
-        self.assertEqual(self.stars(), {"addon": ["local/echo", "kafka"]}, "the star follows when the move is whole")
+        self.assertEqual(self.stars(), {"addon": ["local/echo", "kazoo"]}, "the star follows when the move is whole")
 
     def test_a_place_in_kept_that_is_taken_too_stops_the_move_and_the_settings_are_not_lost(self):
         self.write(f"{self.THERE}/.env", "TOKEN=theirs\n")
@@ -1609,7 +1609,7 @@ class Ended(Seam):
         self.assertIn("apps could not be moved to .lab/catalogs/fixture/addons/echo", str(raised.exception))
         self.kept_stays("apps/web/.env", "the settings are where they were")
         self.assertEqual((self.root / self.THERE / "apps/web/server.key").read_text(), "key", "what could move has moved")
-        self.assertEqual(self.stars(), {"addon": ["local/echo", "kafka"]})
+        self.assertEqual(self.stars(), {"addon": ["local/echo", "kazoo"]})
         os.unlink(self.root / ".lab/migration/kept/local/addons/echo/apps/web/.env")   # room made
         self.assertEqual(self.use(), {"id": "echo"})
         self.assertEqual((self.root / ".lab/migration/kept/local/addons/echo/apps/web/.env").read_text(), "X=1\n")
@@ -1694,7 +1694,7 @@ class Ended(Seam):
             self.assertEqual(str(raised.exception), f"Echo in Fixture catalog cannot run on this machine: {said}. "
                                                     "Your copy stays until it can.")
         self.assertEqual(self.tree(), before)
-        self.assertEqual(self.stars(), {"addon": ["local/echo", "kafka"]})
+        self.assertEqual(self.stars(), {"addon": ["local/echo", "kazoo"]})
         self.units["addons"]["echo"] = {**twin, "blocked": None, "needs_catalogs": [], "compat": "ok"}
         self.assertEqual(self.use(), {"id": "echo"})
 
@@ -1731,7 +1731,7 @@ class Ended(Seam):
         self.assertEqual(lines_of(raised.exception), ("held", 409, "Stop Echo first."))
         os.unlink(self.root / paths.ON_FILE)
         self.assertEqual(self.tree(), before)
-        self.assertEqual(self.stars(), {"addon": ["local/echo", "kafka"]})
+        self.assertEqual(self.stars(), {"addon": ["local/echo", "kazoo"]})
 
     def test_docker_is_asked_only_for_what_is_on(self):
         self.use()
@@ -1772,7 +1772,7 @@ class Ended(Seam):
         self.patch(moves, "STEP", None)
         self.assertEqual(self.use(), {"id": "echo"})
         self.assertFalse((self.root / self.LOCAL).exists())
-        self.assertEqual(self.stars(), {"addon": ["echo", "kafka"]})
+        self.assertEqual(self.stars(), {"addon": ["echo", "kazoo"]})
         self.assertEqual((self.root / self.THERE / ".env").read_text(), "TOKEN=1\n")
 
     def test_moved_alone_is_idempotent_and_leaves_the_personal_item_in_place(self):
@@ -1782,7 +1782,7 @@ class Ended(Seam):
         self.assertEqual(self.tree(), after)
         self.assertTrue((self.root / self.LOCAL / "compose.yml").is_file())
         self.assertFalse((self.root / self.LOCAL / ".env").exists())
-        self.assertEqual(self.stars(), {"addon": ["echo", "kafka"]})
+        self.assertEqual(self.stars(), {"addon": ["echo", "kazoo"]})
 
     def test_a_setup_has_no_settings_only_a_star_and_the_places_that_include_it(self):
         self.item("setup", "mine", "Mine", "include:\n  - ../../fixture/addons/echo/compose.yml\n",
