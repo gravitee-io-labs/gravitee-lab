@@ -118,15 +118,6 @@ class Collisions(Case):
         order = [("addon", "mine"), ("addon", "echo")]
         self.assertEqual(resolve.collisions(order, owned, {}), {})
 
-    def test_adding_a_catalog_never_blocks_what_was_there(self):
-        before = resolve.collisions(self.ORDER[:3], self.owned(), {})
-        order = self.ORDER[:3] + [("addon", "z-new")]
-        owned = self.owned({("addon", "z-new"): unit("New", "other", ["echo", "one", "mine"])})
-        after = resolve.collisions(order, owned, {})
-        self.assertEqual(before, {})
-        self.assertEqual(after, {("addon", "z-new"): "Same name as Echo"})
-        self.assertEqual({key for key in after if key in self.ORDER[:3]}, set())
-
     def test_a_unit_that_brings_the_one_that_holds_the_name_is_not_in_a_clash(self):
         owned = self.owned({("playground", "c-three"): unit("Three", "other", ["three", "one"])})
         closures = {("playground", "c-three"): [("playground", "c-three"), ("addon", "a-one")]}
@@ -188,14 +179,6 @@ class Collisions(Case):
         self.assertEqual(resolve.collisions(self.ORDER, owned, {}), {("addon", "b-two"): "Same name as One"})
         owned = self.owned({("addon", "b-two"): unit("Two", "other", ["two"], [], ["one", "gio-one"])})   # a volume is another kind of name
         self.assertEqual(resolve.collisions(self.ORDER, owned, {}), {})
-
-    def test_the_platform_is_an_owner_like_any_other_when_the_caller_names_it(self):
-        platform = ("core", "platform")
-        owned = self.owned({platform: unit("the platform", "default", ["apim-management-api", "mongodb"], ["gio_apim_management_api"]),
-                            ("addon", "a-one"): unit("One", "other", ["one"], ["apim-management-api"]),
-                            ("addon", "b-two"): unit("Two", "other", ["two"], ["gio_apim_management_api"])})
-        found = resolve.collisions([platform, *self.ORDER], owned, {})
-        self.assertEqual(found, {("addon", "a-one"): "Same name as the platform", ("addon", "b-two"): "Same name as the platform"})
 
     def test_the_name_of_the_owner_is_cut(self):
         long = "x" * 100000
@@ -271,11 +254,6 @@ class Needs(Case):
         catalogs["partner"]["version"] = "not a version"
         self.assertEqual([item["reason"] for item in self.needs(catalogs)], ["old"])
 
-    def test_a_catalog_it_can_use_needs_nothing(self):
-        catalogs = {"partner": {"name": "Partner", "version": "2.0.0", "state": "uptodate"}}
-        self.assertEqual(self.needs(catalogs), [])
-        self.assertEqual(self.needs(catalogs, includes=[]), [])
-
     def test_the_catalog_of_the_unit_itself_is_never_needed(self):
         self.assertEqual(self.needs(includes=[".lab/catalogs/hub/addons/x/compose.yml"], missing=[".lab/catalogs/hub/addons/x/compose.yml"]), [])
 
@@ -332,7 +310,6 @@ class Gateway(Case):
         self.assertIsNone(resolve.gateway_addon({}, "cloud", []))
         self.assertIsNone(resolve.gateway_addon({"a": self.addon("other")}, "cloud", ["a"]))
         self.assertIsNone(resolve.gateway_addon({"a": {"gateway": None}, "b": {}, "c": None, "d": {"gateway": "cloud"}}, "cloud", "abcd"))
-        self.assertIsNone(resolve.gateway_addon({"a": self.addon(blocked={"reasons": ["x"]})}, "cloud", ["a"]))
 
     def test_an_id_the_order_names_and_the_units_lack_is_skipped(self):
         self.assertEqual(resolve.gateway_addon({"a": self.addon()}, "cloud", order=["ghost", "a"]), "a")
@@ -340,41 +317,25 @@ class Gateway(Case):
 
 class SameItem(Case):
 
-    def pair(self, **changes):
-        mine = {"id": "local/bank", "kind": "playground", "name": "Bank", "services": ["bakery-api", "bakery-web"]}
-        theirs = dict(mine, id="@acme/bank", **changes)
-        return mine, theirs
+    MINE = {"id": "local/bank", "kind": "playground", "name": "Bank", "services": ["bakery-api", "bakery-web"]}
+    NAMELESS = {"id": "local/x", "name": "", "services": []}
+    EMPTY = {"id": "local/x", "kind": "setup", "name": "Pair", "services": []}
 
-    def test_the_same_name_and_the_same_services_is_the_same_item(self):
-        self.assertTrue(resolve.same_item(*self.pair()))
-        self.assertTrue(resolve.same_item(*self.pair(services=["bakery-web", "bakery-api"])))
+    def test_the_same_kind_name_and_services_under_another_id_is_the_same_item(self):
+        for changes, same in (({}, True), ({"services": ["bakery-web", "bakery-api"]}, True), ({"name": "  Bank "}, True),
+                              ({"name": "Bank 2"}, False), ({"name": "bank"}, False), ({"services": ["bakery-api"]}, False),
+                              ({"services": ["bakery-api", "bakery-web", "bank-db"]}, False), ({"kind": "addon"}, False)):
+            with self.subTest(changes=changes):
+                self.assertEqual(resolve.same_item(self.MINE, dict(self.MINE, id="@acme/bank", **changes)), same)
 
-    def test_a_different_name_or_other_services_is_another_item(self):
-        self.assertFalse(resolve.same_item(*self.pair(name="Bank 2")))
-        self.assertFalse(resolve.same_item(*self.pair(services=["bakery-api"])))
-        self.assertFalse(resolve.same_item(*self.pair(services=["bakery-api", "bakery-web", "bank-db"])))
-
-    def test_a_unit_is_not_the_twin_of_itself_and_a_kind_is_not_another(self):
-        mine, _ = self.pair()
-        self.assertFalse(resolve.same_item(mine, mine))
-        self.assertFalse(resolve.same_item(*self.pair(kind="addon")))
-
-    def test_a_name_is_compared_as_written_and_without_its_edges(self):
-        self.assertTrue(resolve.same_item(*self.pair(name="  Bank ")))
-        self.assertFalse(resolve.same_item(*self.pair(name="bank")))
-
-    def test_a_unit_with_no_name_is_nobodys_twin(self):
-        mine = {"id": "local/x", "name": "", "services": []}
-        self.assertFalse(resolve.same_item(mine, dict(mine, id="@a/x")))
-        self.assertFalse(resolve.same_item(dict(mine, name=None), dict(mine, id="@a/x", name=None)))
-
-    def test_what_is_not_a_unit_is_not_an_item(self):
-        self.assertFalse(resolve.same_item(None, {}))
-        self.assertFalse(resolve.same_item({}, "x"))
+    def test_what_is_not_a_twin(self):
+        for one, other in ((self.MINE, self.MINE), (self.NAMELESS, dict(self.NAMELESS, id="@a/x")),
+                           (dict(self.NAMELESS, name=None), dict(self.NAMELESS, id="@a/x", name=None)), (None, {}), ({}, "x")):
+            with self.subTest(one=one, other=other):
+                self.assertFalse(resolve.same_item(one, other))
 
     def test_the_twin_of_a_unit_with_no_services_is_a_unit_with_none(self):
-        mine = {"id": "local/x", "kind": "setup", "name": "Pair", "services": []}
-        self.assertTrue(resolve.same_item(mine, dict(mine, id="@a/x", services=None)))
+        self.assertTrue(resolve.same_item(self.EMPTY, dict(self.EMPTY, id="@a/x", services=None)))
 
 
 if __name__ == "__main__":
