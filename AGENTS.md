@@ -107,8 +107,8 @@ the default catalog, `@<catalog>/<id>` for another.
 without `.env`: [Logins](docs/configuration.md#logins) lists the secrets. Add-ons, setups and playgrounds are included
 on top of it and change its services only by the keys they need.
 
-- `x-gravitee` holds `name`, `groups` (the sections of the Containers page, in order) and `categories` (the values an item's
-  `category` may take).
+- `x-gravitee` holds `name`, `groups` (the sections of the Containers page, in order), `categories` (the values an item's
+  `category` may take), and `contract`, `contract_min` and `seeder` ([the contract](docs/contract.md)).
 - A service has the labels `io.gravitee.name`, `io.gravitee.description` and `io.gravitee.group` (one of `groups`);
   `make check` asks for the last two. A UI to open adds `io.gravitee.console.<id>.name` and `.url`.
 - An image is `${NAME_VERSION:-tag}`, and a Gravitee image `${NAME_REGISTRY:-graviteeio}/repository:${NAME_VERSION:-tag}`.
