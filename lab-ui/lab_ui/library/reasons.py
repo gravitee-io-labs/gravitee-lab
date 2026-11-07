@@ -30,10 +30,10 @@ def _tag(image):
     return last.split(":")[-1] if ":" in last and "@sha256:" not in image and not image.startswith("sha256:") else ""
 
 
-def spelled(items, limit=SHOWN):
+def spelled(items):
     """Items as a line says them: the first few, then how many are left."""
     items = list(items)
-    return ", ".join(items[:limit]) + (f" and {len(items) - limit} more" if len(items) > limit else "")
+    return ", ".join(items[:SHOWN]) + (f" and {len(items) - SHOWN} more" if len(items) > SHOWN else "")
 
 
 def _versions(saved, running):

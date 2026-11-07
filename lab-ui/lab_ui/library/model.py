@@ -1029,7 +1029,7 @@ def git_state(version):
 
 
 def build(project, state, containers, job, failures, license_features, docker, created, saved=None,
-          license_status=None, platforms=(), deployed=None, changed=None, git=None, catalogs=None, content=None):
+          license_status=None, platforms=(), deployed=None, changed=None):
     """The body of /api/state. `state` is layers.current(), `containers` compose.ps() ({} when Docker does not
     answer), `job` the summary of the last job or None, `failures(kind, id)` the failed or canceled last job on an
     item ({id, verb, error, login}, jobs.Jobs.failed_job) or None, `license_features` the features the license allows
@@ -1045,14 +1045,10 @@ def build(project, state, containers, job, failures, license_features, docker, c
     the on file that Compose cannot read (layers.current), which holds what reads the files besides. `blind`: what runs
     is not known, Docker not answering or docker-compose.yml not loading: no state is said, but, while only Docker
     does not answer, what is on, which the files say. The consoles come in their order, which puts the legacy ones
-    last. The state of the catalogs is read by the caller, who has the disk: `git` (git_state), `catalogs` (the rows of the
-    Catalogs page) and `content` (what the first start says of the content) are put in the body as they are given, and left
-    out when they are not."""
+    last. The state of the catalogs is read by the caller, who has the disk, and put in the body by it."""
     platforms = list(platforms)
     loaded = project["core_loaded"]
     readonly = {ns for ns, found in (project.get("catalogs") or {}).items() if found.get("kind") == "git"}
-    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content))
-                 if value is not None}
     containers = containers if loaded else {}   # without the core, Compose reads nothing: what runs is not known
     running_job = job if job and not job["done"] else None
     # The last job, while what it starts or stops is on its way: as it runs, then, once it ended well, until every
@@ -1108,4 +1104,4 @@ def build(project, state, containers, job, failures, license_features, docker, c
                                                        "password")}
                       for link in c["links"]],
             "problems": [_problem(problem, readonly) for problem in project["problems"] + state["problems"]],
-            "running": {"explicit": state["explicit"]}, **forwarded}
+            "running": {"explicit": state["explicit"]}}

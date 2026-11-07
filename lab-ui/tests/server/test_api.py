@@ -350,10 +350,8 @@ class State(LabUI):
         self.lab = {"version": "1.0.0", "update": False}
         self.patch(api.updates, "describe", return_value=self.lab)
         self.more = {"root": str(paths.ROOT), "agent": self.agent, "skills": {"addon": ".agents/skills/new-addon/SKILL.md"},
-                     "core": {"place": "machine", "chosen": False}, "lab": self.lab, "kept_settings": []}
-        # ... and what the state says of the catalogs: git, the rows and the content
-        self.catalogued = {"git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows,
-                           "content": self.content}
+                     "core": {"place": "machine", "chosen": False}, "lab": self.lab, "kept_settings": [],
+                     "git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows, "content": self.content}
         self.patch(api, "JOBS", Jobs())
         self.patch(api.compose, "CACHE", compose.Cache())
         self.name = self.patch(api.compose, "project_name", return_value="gravitee")
@@ -389,7 +387,7 @@ class State(LabUI):
         self.build.assert_called_once_with(PROJECT, self.layers, {}, None, api.JOBS.failed_job, None, down,
                                            {"welcome": created, "local/sandbox": created}, saved=None,
                                            license_status={"status": "none"}, platforms=[],
-                                           deployed={"welcome": [], "local/sandbox": []}, changed=None, **self.catalogued)
+                                           deployed={"welcome": [], "local/sandbox": []}, changed=None)
         self.memory.assert_not_called()
         self.saved.assert_not_called()
 
@@ -411,7 +409,7 @@ class State(LabUI):
         self.assertEqual(self.build.call_args.kwargs, {"saved": {"hashes": {"mongodb": "h"}, "images": {}},
                                                        "license_status": {"status": "none"}, "platforms": [],
                                                        "deployed": {"welcome": [], "local/sandbox": []},
-                                                       "changed": {}, **self.catalogued})
+                                                       "changed": {}})
 
     def test_the_platforms_and_what_each_playground_holds_in_them_are_given_to_the_state(self):
         # Read from this machine's files, each playground by its own record: the way it reads them (places.deployed)
