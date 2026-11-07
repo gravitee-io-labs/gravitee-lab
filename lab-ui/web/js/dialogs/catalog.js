@@ -464,7 +464,6 @@ async function importFile(file) {
   try {
     const preview = { ...await api("/api/catalogs/import", { data: base64(new Uint8Array(await file.arrayBuffer())) }), file: file.name };
     if (mine !== seq) return;
-    if (preview.warning) toast(preview.warning, true);   // what a change that stopped midway had left, now back
     dest = (preview.blocked || []).length ? "imported" : "personal";
     rowsEl.removeAttribute("aria-busy");
     shown = { kind: "add", preview, host: false };

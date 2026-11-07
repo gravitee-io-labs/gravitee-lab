@@ -684,7 +684,7 @@ def to_personal(ticket, allow=False):
     """The import the preview `ticket` showed, kept in Personal instead of as a catalog: refused when the preview found an item that
     cannot run (Personal would run it unjudged), when an item uses this machine and the person did not allow it (`allow`), when the
     files are no longer those the preview judged, or when an item it replaces is on. The items are written whole beside Personal
-    with no lock, then swapped in under the lock of the catalogs (moving.replace). Answers {items: [{kind, id}], playground, kept,
+    with no lock, then swapped in under the lock of the catalogs. Answers {items: [{kind, id}], playground, kept,
     warning}."""
     data = service._held(ticket, "add")
     folder = Path(getattr(data.get("address"), "path", "") or "")
@@ -710,15 +710,13 @@ def to_personal(ticket, allow=False):
     swap = moving.stage(write)
     try:
         with service._changing():
-            recovered = moving.recover()
-            with moving.telling(recovered):
-                if data.get("digest") != _digest(snapshot):
-                    raise _fail("import_changed", "The files of this import changed after its preview. Fix: choose its file again.", 409)
-                found = project.load()
-                held = next(filter(None, (moving.replaced_on(found, kind, slug) for kind, slug, rel, _, _ in going
-                                          if _personal_now(kind, rel) is not None)), "")
-                if held:
-                    raise _fail("held", held, 409)
+            if data.get("digest") != _digest(snapshot):
+                raise _fail("import_changed", "The files of this import changed after its preview. Fix: choose its file again.", 409)
+            found = project.load()
+            held = next(filter(None, (moving.replaced_on(found, kind, slug) for kind, slug, rel, _, _ in going
+                                      if _personal_now(kind, rel) is not None)), "")
+            if held:
+                raise _fail("held", held, 409)
             rels = [rel for _, _, rel, _, _ in going]
             said = moving.swap_in(swap, rels, moving.placed_without_claims(rels))
             service.forget(ticket)
@@ -727,10 +725,9 @@ def to_personal(ticket, allow=False):
             project.forget()
     finally:
         moving.discard(swap)   # what was not swapped in: nothing when the change was made
-    warning = " ".join(one for one in (recovered, said) if one)
     playground = next((f"{paths.LOCAL}/{slug}" for kind, slug, _, _, _ in items if kind == "playground"), None)
     return {"items": [{"kind": kind, "id": f"{paths.LOCAL}/{slug}"} for kind, slug, _, _, _ in items], "playground": playground,
-            **({"kept": stayed} if stayed else {}), **({"warning": warning} if warning else {})}
+            **({"kept": stayed} if stayed else {}), **({"warning": said} if said else {})}
 
 
 def _kept_to_personal(top, content, items):
@@ -783,23 +780,19 @@ def receive(data):
             reused = _reuse(incoming, top)
             final = base / top
             with service._changing():
-                recovered = moving.recover()
-                with moving.telling(recovered):
-                    _refused_id(archive, top)
-                    if top in _reading:
-                        raise registry.busy()
-                    _sweep(top)
-                    if os.path.lexists(final):
-                        raise _leftover(archive, top)   # what a removal could not delete, the sweep could not either
-                    os.replace(incoming, final)
-                    _reading.add(top)
+                _refused_id(archive, top)
+                if top in _reading:
+                    raise registry.busy()
+                _sweep(top)
+                if os.path.lexists(final):
+                    raise _leftover(archive, top)   # what a removal could not delete, the sweep could not either
+                os.replace(incoming, final)
+                _reading.add(top)
         except BaseException:
             shutil.rmtree(incoming, ignore_errors=True)
             raise
     try:
-        with moving.telling(recovered):
-            preview = _judged_import(final, top, content, reused)
-        return {**preview, **({"warning": recovered} if recovered else {})}
+        return _judged_import(final, top, content, reused)
     except BaseException:
         shutil.rmtree(final, ignore_errors=True)
         raise

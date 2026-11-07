@@ -873,11 +873,9 @@ test("Settings kept from a removed import of that name are said, used or not, an
   const preview = (used) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
     imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [], rows: {}, personal: { replaces: [], same: [] },
     kept: { used, where: ".lab/kept-settings/contoso-1a2b3c4d" } });
-  server.answers["/api/catalogs/import"] = { ...preview(false), warning: "A change that stopped midway had set kiosk aside: they are in Personal again." };
+  server.answers["/api/catalogs/import"] = preview(false);
   await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Not used by this file"]);
-  assert.deepEqual(toasts(), ["A change that stopped midway had set kiosk aside: they are in Personal again."], "what came back is said");
-  clearToasts();
   click(adding().querySelector('[data-dest="imported"]'));
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Not used by this file"]);
   adding().closest("dialog").close();
