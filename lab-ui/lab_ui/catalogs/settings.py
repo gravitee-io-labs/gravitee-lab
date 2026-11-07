@@ -716,7 +716,7 @@ class _Audit:
         if self.personal:
             # The pattern list may apply to public repositories only: a list half in place is worse than none
             return self.add("actions.listed", WARN, now=now,
-                            fix=f"Once the rehearsal shows that the plan enforces it: PUT repos/{repo}/actions/permissions "
+                            fix=f"Once the plan enforces it: PUT repos/{repo}/actions/permissions "
                                 "with "
                                 f"allowed_actions=selected, then PUT repos/{repo}/actions/permissions/selected-actions with "
                                 f"{', '.join(patterns)}")
@@ -1260,7 +1260,7 @@ class _Audit:
                                 f"{clean(first.get('message') or first.get('kind') or 'invalid', 120)}")
         if self.personal:
             return self.add("files.codeowners", NA, now="a private repository of a personal account may not ask for a review "
-                                                        "from the file until the rehearsal shows that it does")
+                                                        "from the file")
         self.add("files.codeowners", OK)
 
     def people(self):

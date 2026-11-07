@@ -359,7 +359,7 @@ class Audit(Case):
     def test_repo_immutable_releases(self):
         self.assertEqual(OK, Scene("public-standard").finding("repo.immutable_releases").status)
         mine = Scene("user-private-free").finding("repo.immutable_releases")
-        self.assertEqual((WARN, "enabled=false"), (mine.status, mine.now))      # until V19 shows what it does on the plan
+        self.assertEqual((WARN, "enabled=false"), (mine.status, mine.now))
         self.assertEqual([("PUT", "repos/acme/lab-hub/immutable-releases", None)], requests_of(mine))
         org = Scene("org-private")
         org.set("/immutable-releases", {"enabled": False, "enforced_by_owner": False})
@@ -393,7 +393,7 @@ class Audit(Case):
                           ("PUT", "repos/acme-labs/lab-internal/actions/permissions/selected-actions",
                            {"github_owned_allowed": True, "verified_allowed": False, "patterns_allowed": ["docker/*"]})],
                          requests_of(found))
-        # On a personal private repository the list may not be enforced (V3): a warning, and words, not requests
+        # On a personal private repository the list may not be enforced: a warning, and words, not requests
         mine = Scene("user-private-free").finding("actions.listed")
         self.assertEqual((WARN, 'enabled=true, allowed_actions="all"'), (mine.status, mine.now))
         self.assertIsInstance(mine.fix, str)
@@ -1187,7 +1187,7 @@ class Audit(Case):
         found = scene.finding("files.codeowners")
         self.assertEqual(FAIL, found.status)
         self.assertEqual("1 error(s), the first at line 3: Unknown owner on line 3: @nobody", found.now)
-        # A personal private repository may not ask for a review from the file (V21): a valid file is not counted there
+        # A personal private repository may not ask for a review from the file: a valid file is not counted there
         mine = Scene("user-private-free")
         mine.set("/codeowners/errors", {"errors": []})
         self.assertEqual(NA, mine.finding("files.codeowners").status)
@@ -1539,7 +1539,7 @@ class Apply(Case):
         findings = scene.audit()
         planned = {f"{item.method} {item.path}" for item in settings.apply(scene.repo, scene.hub, findings, False)}
         self.assertFalse({"PUT repos/acme/lab-hub/immutable-releases", "PUT repos/acme/lab-hub/actions/permissions/artifact-and-log-retention"} & planned)
-        self.assertNotIn("selected-actions", " ".join(planned))       # the list of actions waits for V3
+        self.assertNotIn("selected-actions", " ".join(planned))
 
     def test_with_yes_the_requests_are_made_in_order(self):
         scene = Scene("user-private-free")
