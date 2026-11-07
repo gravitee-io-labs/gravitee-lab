@@ -29,8 +29,7 @@ from tests.fakedocker import FakeDocker, option, options
 
 SEEDER_IMAGE = "example.test/lab/seeder"
 FIX = ("Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, secrets "
-       "and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny; "
-       "`additional_contexts` only for the Lab's seeder).")
+       "and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny).")
 SHELL_ADDED = {"PWD", "OLDPWD", "SHLVL", "_", "__CF_USER_TEXT_ENCODING", "LC_CTYPE"}
 ALLOWED = {"PATH", "LANG", "LC_ALL", "TMPDIR", "DOCKER_HOST", "HOME", "DOCKER_CONFIG", "COMPOSE_EXPERIMENTAL_GIT_REMOTE",
            "COMPOSE_EXPERIMENTAL_OCI_REMOTE"}

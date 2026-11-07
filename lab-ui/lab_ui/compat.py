@@ -310,6 +310,3 @@ def write(text, sets):
         place = place if place is not None else len(body.rstrip("\n")) + 1
         body = body[:place] + _block(sets) + body[place:]
     return text[:start.end()] + body + text[end:]
-
-
-__all__ = ["MAX_JOBS", "MINORS", "candidates", "merged", "newest", "plan", "registries", "variables", "write"]

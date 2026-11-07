@@ -1,7 +1,7 @@
 """What the rules read: a catalog as a list of entries (a git mode, a path, a size) and the content of its regular files,
 and the commits a change adds. The rules never open a file or run git themselves; they ask a `Tree`, so the same rule judges
 the folder an author works in (`FolderTree`), a commit of a bare repository that no one has checked out (`GitTree`, for
-`check --pr`) and the listing of a store or the files Share staged (`ListTree`).
+`check --pr`) and the files Share staged (`ListTree`).
 
 The tree is hostile. It is the input of the rules, written by someone who wants a rule to run their code, to read a file of the
 reader's machine, or to stop. So nothing here executes anything of it:
@@ -104,9 +104,9 @@ def read_inside(root: str, path: str, limit: int = LIMIT) -> Optional[bytes]:
     before with O_NOFOLLOW and the file is opened the same way (and without blocking, so a pipe cannot hold the reader), so a
     link anywhere in the path, a file that was swapped for one after the listing and a path with `..` all give None: the read
     never leaves the tree."""
-    if not _clean_path(path) or limit < 0 or not hasattr(os, "O_NOFOLLOW"):
+    if not _clean_path(path) or limit < 0:
         return None
-    extra = getattr(os, "O_CLOEXEC", 0)
+    extra = os.O_CLOEXEC
     parts = path.split("/")
     try:
         handle = os.open(root, os.O_RDONLY | os.O_DIRECTORY | extra)
@@ -147,20 +147,14 @@ class FolderTree(Tree):
     lists and the disk no longer has is left out. Otherwise the folder is walked with `lstat`: a link is a link, a folder that
     holds `.git` is a submodule, and a top-level `.git` is no entry. The root is resolved once; a read never leaves it."""
 
-    def __init__(self, root, untracked: bool = True):
+    def __init__(self, root):
         self.root = os.path.realpath(str(root))
-        self.untracked = untracked
         self._entries: Optional[List[Entry]] = None
-        self.source = ""   # "git" or "walk": how the entries were listed
 
     def entries(self) -> List[Entry]:
         if self._entries is None:
             found = self._listed()
-            if found is None:
-                found, self.source = self._walk(), "walk"
-            else:
-                self.source = "git"
-            self._entries = sorted(found, key=lambda each: each.path)
+            self._entries = sorted(self._walk() if found is None else found, key=lambda each: each.path)
         return list(self._entries)
 
     def read(self, path: str, limit: int = LIMIT) -> Optional[bytes]:
@@ -185,7 +179,7 @@ class FolderTree(Tree):
             return None
         try:
             tracked = self._git("ls-files", "-s", "-z")
-            extra = self._git("ls-files", "-z", "--others", "--exclude-standard") if tracked and self.untracked else None
+            extra = self._git("ls-files", "-z", "--others", "--exclude-standard") if tracked else None
         except gitx.CatalogError:
             return None
         except gitx.OutputLimit:
@@ -295,7 +289,7 @@ class GitTree(Tree):
         for name in [path] + names[start + 1:start + 1 + READ_AHEAD * 4]:
             if name in self._cache:
                 continue
-            size = self._sizes()[name]
+            size = self.entry(name).size
             if name != path and (size > AHEAD_BYTES // 8 or total + size > AHEAD_BYTES):
                 continue
             wanted.append(name)
@@ -317,35 +311,14 @@ class GitTree(Tree):
             self._cached += len(data)
         return path in self._cache
 
-    def _sizes(self) -> Dict[str, int]:
-        sizes = self.__dict__.get("_size_of")
-        if sizes is None:
-            sizes = self.__dict__["_size_of"] = {each.path: each.size for each in self.entries()}
-        return sizes
-
 
 class ListTree(Tree):
-    """A listing and a function that reads its files: the Lab's store listing for Add, the files Share staged. `entries` are
-    anything with a `mode`, a `path` and a `size` (a `store.Entry`, an `Entry`) or a `(mode, path, size)` tuple. `reader(path,
-    limit)` gives the content of a file, or None; a function of the path alone works too. Nothing is read until a rule asks."""
+    """A listing and a function that reads its files: the files Share staged. `entries` are `Entry`s or `(mode, path, size)`
+    tuples, and `reader(path, limit)` gives the bytes of a file, or None. Nothing is read until a rule asks."""
 
     def __init__(self, entries: Iterable, reader: Callable):
-        self._entries = [self._entry(each) for each in entries]
+        self._entries = [Entry(*each) for each in entries]
         self._reader = reader
-        try:
-            import inspect
-            parameters = [p for p in inspect.signature(reader).parameters.values()
-                          if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL)]
-            self._wide = any(p.kind == p.VAR_POSITIONAL for p in parameters) or len(parameters) >= 2
-        except (TypeError, ValueError):
-            self._wide = True
-
-    @staticmethod
-    def _entry(each) -> Entry:
-        if hasattr(each, "mode") and hasattr(each, "path"):
-            return Entry(str(each.mode), str(each.path), int(getattr(each, "size", 0) or 0))
-        mode, path, size = each
-        return Entry(str(mode), str(path), int(size or 0))
 
     @classmethod
     def from_files(cls, files: Mapping) -> "ListTree":
@@ -367,12 +340,8 @@ class ListTree(Tree):
         entry = self.entry(path)
         if entry is None or entry.mode not in REGULAR or limit < 0:
             return None
-        data = self._reader(path, limit) if self._wide else self._reader(path)
-        if isinstance(data, str):
-            data = data.encode("utf-8")
-        if not isinstance(data, (bytes, bytearray, memoryview)):
-            return None   # a reader that answers anything else (a default, a number) read nothing
-        return bytes(data)[:limit]
+        data = self._reader(path, limit)
+        return None if data is None else data[:limit]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -457,15 +426,14 @@ class History:
     (no hook, no file system monitor). Merges show no diff of their own: the commits they bring do. What cannot be read
     (a base git does not know, a history over LOG_LIMIT) is `note`, never an empty answer taken for a clean one."""
 
-    def __init__(self, repo=None, base: Optional[str] = None, head: str = "HEAD", git_dir=None, limit: int = LOG_LIMIT,
-                 timeout: float = LOG_SECONDS):
+    def __init__(self, repo=None, base: Optional[str] = None, head: str = "HEAD", git_dir=None, limit: int = LOG_LIMIT):
         if repo is None and git_dir is None:
             raise ValueError("a history needs a repository or a git directory")
         self.repo = os.path.realpath(str(repo)) if repo is not None else None
         self.git_dir = os.path.abspath(str(git_dir)) if git_dir is not None else None
         self.base = _revision(base) if base else None
         self.head = _revision(head)
-        self.limit, self.timeout = limit, timeout
+        self.limit = limit
         self.note = ""
         self._commits: Optional[List[Commit]] = None
         self._diff: Optional[str] = None
@@ -478,7 +446,7 @@ class History:
         args = (["--git-dir", self.git_dir] if self.git_dir else []) + [
             "-c", "core.quotePath=false", "log", *options, "--end-of-options", self.range]
         try:
-            result = gitx.run(args, cwd=None if self.git_dir else self.repo, env=QUIET, timeout=self.timeout, limit=self.limit)
+            result = gitx.run(args, cwd=None if self.git_dir else self.repo, env=QUIET, timeout=LOG_SECONDS, limit=self.limit)
         except gitx.OutputLimit:
             self.note = "the history is too large to read in full"
             return None
@@ -578,17 +546,6 @@ def default_base(repo) -> Optional[str]:
     return sha if result.code == 0 and re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
 
-def head_of(repo) -> Optional[str]:
-    """The commit HEAD names in a work tree, or None."""
-    try:
-        result = gitx.run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], cwd=os.path.realpath(str(repo)), env=QUIET,
-                          timeout=60)
-    except gitx.CatalogError:
-        return None
-    sha = result.out.decode("utf-8", "replace").strip()
-    return sha if result.code == 0 and re.fullmatch(r"[0-9a-f]{40}", sha) else None
-
-
 _BASE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+~^-]{0,200}")
 
 
@@ -623,7 +580,3 @@ def git_dir_of(repo) -> Optional[str]:
 def is_repository(path) -> bool:
     """Whether a folder is the top of a git work tree."""
     return os.path.lexists(os.path.join(str(path), ".git"))
-
-
-__all__ = ["Added", "Commit", "Entry", "FolderTree", "GitTree", "History", "ListTree", "REGULAR", "Tree", "TreeError",
-           "default_base", "diff_path", "git_dir_of", "head_of", "is_repository", "read_inside", "resolve", "unquote"]

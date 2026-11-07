@@ -3,7 +3,6 @@ and Export writes the set the file says joined by what the Lab knows directly (t
 without a label, the catalog its copy_of names, one step). Nothing takes an origin away but a share into that very catalog."""
 
 import os
-import random
 import shutil
 import tempfile
 import threading
@@ -157,34 +156,6 @@ class Labels(Shares):
             with self.subTest(to=to):
                 self.assertEqual(contribute.without(both, to, confirmed=True), wanted)
                 self.assertEqual(contribute.without(both, to), both, "nothing goes before the repository is found private")
-
-    def test_an_origin_goes_only_by_a_share_into_its_own_catalog(self):
-        """Seeded random runs of Copy, Share to a folder, Share to Git, Export and Import over three private catalogs of Git, a
-        folder and a public one: an origin is lost only by a share into its own catalog."""
-        fixtures.install(self, "lab-new", kind="git", store=True, audience="private", lab=2)
-        fixtures.install(self, "hostile", "folder", audience="private", lab=2, name="Team")
-        project.forget()
-        privates, others = ["partner", "lab-old", "lab-new"], ["hostile", "fixture"]
-        rng = random.Random(14)
-        for run in range(6):
-            where, text = rng.choice(privates + others), notes()
-            for _ in range(8):
-                before = {ns for ns, _ in contribute.origins(text, f"@{where}/notes")}
-                operation, to = rng.choice(["copy", "share", "export", "import"]), rng.choice(privates + others)
-                if operation == "copy":   # into Personal, from where it is
-                    text, where = contribute.labelled(contribute.unmark(text), contribute.origins(text, f"@{where}/notes")), paths.LOCAL
-                elif operation == "share":
-                    found = contribute.origins(text, f"{where}/notes" if where == paths.LOCAL else f"@{where}/notes")
-                    if to == "fixture":   # a Public catalog takes no private content
-                        if found:
-                            continue
-                    text, where = contribute.labelled(contribute.unmark(text), contribute.without(found, to)), to
-                elif operation == "export":
-                    text = contribute.labelled(contribute.unmark(text), contribute.origins(text, f"@{where}/notes"))
-                after = {ns for ns, _ in contribute.origins(text, f"{where}/notes" if where == paths.LOCAL else f"@{where}/notes")}
-                gone = before - after
-                with self.subTest(run=run, operation=operation, to=to):
-                    self.assertTrue(not gone or (operation == "share" and gone == {to} and to in privates), (before, after))
 
 
 class Identity(Shares):

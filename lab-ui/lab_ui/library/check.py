@@ -1100,7 +1100,7 @@ def _lab_lines(meta, units, raw, inputs):
 # A catalog
 # ---------------------------------------------------------------------------------------------------------------------
 
-UNREADABLE = ("damaged", "downloading")   # a git install in these states has no units in the project (registry.sources)
+UNREADABLE = ("damaged", "downloading")   # a git install in these states has no units in the project (registry.units_of)
 
 
 def _present(row):
@@ -1591,8 +1591,7 @@ def _blocked(reason, codes, ns, file):
     if not found or len({fixes.get(code, "") for code, _ in found}) > 1:
         return "", reason
     code, fields = found[0]
-    locked = _lock()
-    fields = {"NS": ns.upper().replace("-", "_"), "file": file, **({"min": locked[1], "max": locked[0]} if locked else {}), **fields}
+    fields = {"NS": ns.upper().replace("-", "_"), "file": file, **fields}
     fix = re.sub(r"\{(\w+)\}", lambda blank: str(fields.get(blank.group(1), blank.group(0))), fixes.get(code, ""))
     return code, f"{reason}. Fix: {fix}" if fix and "{" not in fix else reason
 

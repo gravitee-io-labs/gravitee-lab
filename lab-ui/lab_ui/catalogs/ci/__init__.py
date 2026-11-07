@@ -55,7 +55,7 @@ from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Sequenc
 from ...library import check
 from ...docker import compose
 from ... import paths
-from .. import explain, report, store, tree as trees, trust
+from .. import report, store, tree as trees, trust
 from ..report import ERROR, WARNING, Problem
 from ..rules import say
 
@@ -636,7 +636,7 @@ def gated_refusal(kind: str, name: str, file: str, services: Sequence[str]) -> R
     named. The policy reads the unit without a profile on, so it does not say this itself (the fix says what to do)."""
     named = ", ".join(report.printable(each) for each in services[:5]) + (", ..." if len(services) > 5 else "")
     reason = trust.RULES["T01"]["lines"][0].replace("{key}", "profiles") + f" ({named})"
-    fix = (getattr(trust, "FIXES", None) or explain.T_FIXES).get("T01", "").replace("{key}", "profiles")
+    fix = trust.FIXES["T01"].replace("{key}", "profiles")
     return Refused(kind, name, file, (reason,), "T01", fix)
 
 

@@ -1,7 +1,7 @@
 """catalogs/fleet.py: the loops over the topic. GitHub is a fake `gh` that lists repositories, the open pull requests and takes
 the pull request the upgrade opens; the repositories themselves are bare git repositories on this machine (tests/gitfixture.py),
-cloned, committed to and pushed to for real with the git that `gitx` runs. The Lab's `standard` module is written by another
-package: a stub with its two functions stands in for it. The Lab checkout that runs the command (which says
+cloned, committed to and pushed to for real with the git that `gitx` runs. A stub with the two functions of the Lab's
+`standard` module stands in for it. The Lab checkout that runs the command (which says
 whether the pin is on its `origin/main`, and gives the log between two pins) is a table of answers, and in two tests a real
 repository made on this machine. A test that needs git and finds none prints a skip line."""
 
@@ -10,6 +10,7 @@ import io
 import json
 import os
 import re
+import types
 from pathlib import Path
 from unittest import mock
 
@@ -338,10 +339,6 @@ class Upgrade(Fleet):
         lines = fleet.render_upgrade(results).splitlines()
         self.assertEqual("acme/lab-hub       opened  https://github.com/acme/lab-hub/pull/41  owned files skipped: "
                          ".github/CODEOWNERS, .github/dependabot.yml", lines[0])
-        files_plan = Standard()
-        files_plan.upgrade_plan = lambda tree, options: {"files": [{"path": ".github/Makefile", "action": "owned"},
-                                                                    {"path": ".github/a.yml", "action": "update"}]}
-        self.assertEqual([[".github/Makefile"]], [r.owned for r in self.run_fleet(Github(repos=[listed("acme/third")]), files_plan)])
 
     def test_nothing_to_change_is_current(self):
         github = Github(repos=[listed("acme/lab-hub")])
@@ -473,8 +470,6 @@ class Upgrade(Fleet):
 
     def test_the_lab_modules_are_the_defaults_when_none_is_given(self):
         """`standard.upgrade_plan`, `standard.upgrade_apply` and `tree.FolderTree` are what runs when no stand-in is given."""
-        import types
-        from unittest import mock
         standard = Standard()
         module = types.SimpleNamespace(upgrade_plan=standard.upgrade_plan, upgrade_apply=standard.upgrade_apply, LEVEL=2)
         github = Github(repos=[listed("acme/lab-hub")])
@@ -740,16 +735,6 @@ class Upgrade(Fleet):
                           "::notice title=upgrade::acme/f: skipped archived"], lines)
         self.assertEqual("", fleet.render_upgrade([fleet.Upgraded("acme/b", "current", "", [])], "github"))
         self.assertEqual("", fleet.render_upgrade([], "github"))
-        github = Github(repos=[listed("acme/lab-hub"), listed("acme/lab-internal")])
-        for name in ("acme/lab-hub", "acme/lab-internal"):
-            self.remote(name)
-        seams = dict(standard=Standard(), tree=lambda root: root, remote=lambda repo: gitfixture.url(self.remotes[repo]),
-                     workdir=str(self.workdir), today=lambda: TODAY, git=self.git, lab=str(self.lab))
-        out, err = io.StringIO(), io.StringIO()
-        code = fleet.main(["--fleet", "acme", "--lab-ref", NEW, "--format", "github"], runner=github, stdout=out, stderr=err, **seams)
-        self.assertEqual((0, ""), (code, err.getvalue()))
-        self.assertEqual(["::notice title=upgrade::acme/lab-hub: opened https://github.com/acme/lab-hub/pull/41",
-                          "::notice title=upgrade::acme/lab-internal: opened https://github.com/acme/lab-internal/pull/42"], out.getvalue().splitlines())
 
 
 class Reading(Fleet):

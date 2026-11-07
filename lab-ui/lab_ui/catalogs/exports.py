@@ -48,12 +48,13 @@ import stat
 import tempfile
 import time
 import zipfile
+import zlib
 from pathlib import Path
 
 from .. import paths
 from ..docker import images
 from ..library import moves, project
-from . import contribute, defaults, kept, manifest, meta as block, moving, registry, resolve, service, standard, trust
+from . import contribute, defaults, kept, manifest, meta as block, moving, registry, resolve, service, standard
 from . import store as bare
 from .registry import CatalogError
 
@@ -79,11 +80,6 @@ def _fail(code, message, status=400):
 
 def _slug(uid):
     return uid.rsplit("/", 1)[-1]
-
-
-def _folder(kind, ns, slug):
-    """Where an item of catalog `ns` is, relative to the project: its folder, or the file of a setup."""
-    return f"{paths.CATALOGS_DIR}/{ns}/setups/{slug}.yml" if kind == "setup" else f"{paths.CATALOGS_DIR}/{ns}/{kind}s/{slug}"
 
 
 def _as_id(text):
@@ -128,8 +124,7 @@ def _gather(pid):
             raise _fail("export_clash", f"It includes two items named {_slug(uid)}, {other} and {uid}. Fix: rename one of them.",
                         409)
     ns = _free_id(unit["name"], pid)
-    moved = [(str(Path(paths.unit_file(kind, uid)).parent) if kind != "setup" else paths.unit_file(kind, uid),
-              _folder(kind, ns, _slug(uid))) for kind, uid in carried]
+    moved = [(contribute._here(kind, uid), contribute._target(kind, _slug(uid), ns)) for kind, uid in carried]
     files, problems = {}, []
     for kind, uid in carried:
         copy = contribute.collect(kind, _slug(uid), ns, paths.origin(uid), moved)
@@ -183,9 +178,11 @@ def copies_of(nodes):
     found = {}
     for kind, uid in nodes:
         file = paths.ROOT / paths.unit_file(kind, uid)
-        data = contribute._read(file, bare.TEXT_FILE + 1)
+        data = registry._read(file, bare.TEXT_FILE, follow=False)[0]
         own = contribute._origin_of(paths.origin(uid))   # said with the catalog the item is in, when it is a private one of Git
-        said = [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent) if one != own] if data else []
+        # A file that cannot be read says no origin: what it holds is taken for private content
+        said = [("", contribute.UNKNOWN)] if data is None else \
+            [one for one in contribute.origins(data.decode("utf-8", "replace"), uid, file.parent) if one != own]
         if said:
             found[(kind, uid)] = said
     return found
@@ -240,8 +237,8 @@ def _shared(carried, units, ns):
 
 def _catalog_yml(text, gathered):
     """The template's catalog.yml with the playground's description, the version of an export, and the catalogs it needs."""
-    description = (gathered["unit"].get("description") or f"{gathered['name']}, exported from Gravitee Lab").replace('"', "'")
-    text = re.sub(r'(?m)^(  description: ).*$', lambda m: f'{m.group(1)}"{description}"', text)
+    description = json.dumps(gathered["unit"].get("description") or f"{gathered['name']}, exported from Gravitee Lab", ensure_ascii=False)
+    text = re.sub(r'(?m)^(  description: ).*$', lambda m: m.group(1) + description, text)
     text = re.sub(r"(?m)^(  version: ).*$", lambda m: m.group(1) + VERSION, text)
     rows = project.loaded()[1].get("catalogs") or {}
     needed = []
@@ -376,7 +373,10 @@ def _made(pid):
     scratch = Path(tempfile.mkdtemp(prefix=".export-", dir=paths.ROOT / paths.LAB_DIR))
     try:
         root = scratch / gathered["ns"]
-        _write(root, gathered)
+        try:
+            _write(root, gathered)
+        except standard.TemplateError as error:   # a name the template refuses: said as it is
+            raise _fail("export_name", str(error)) from None
         try:
             preview = _judge(root)
         except CatalogError as error:   # the archive's own catalog is refused as a whole: said as the import would say it
@@ -432,7 +432,8 @@ def _members(archive):
         kind = (info.external_attr >> 16) & 0o170000
         parts = name.split("/")
         if "\\" in name or name.startswith("/") or any(part in ("", ".", "..") for part in parts) or len(parts) < 2 \
-                or (kind and kind != stat.S_IFREG):
+                or (kind and kind != stat.S_IFREG) or info.flag_bits & 0x61 \
+                or info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):   # encrypted, patched, or packed as no export is
             raise _fail("import_invalid", NOT_A_PLAYGROUND)
         if top is None:
             top = parts[0]
@@ -454,17 +455,7 @@ def _members(archive):
 
 def _name_of(archive, top):
     """The name catalog.yml gives, for the words of a refusal; the id when it says none."""
-    try:
-        text = archive.read(f"{top}/catalog.yml")[:65536].decode("utf-8", "replace")
-    except KeyError:
-        return top
-    return _catalog_title(text, top)
-
-
-def _catalog_title(text, fallback):
-    """The name a catalog.yml gives its catalog, which is the playground's an export made; `fallback` when it says none."""
-    said = re.search(r'(?m)^  name:\s*"?([^"\n]+?)"?\s*$', text)
-    return said.group(1) if said else fallback
+    return registry.scan(archive.read(f"{top}/catalog.yml")[:65536]).get("name") or top
 
 
 MACHINE_FILES, KEPT_DIR = kept.MACHINE_FILES, kept.KEPT_DIR
@@ -536,13 +527,9 @@ def _snapshot(folder: Path, people=True):
 
 def _digest(folder, people=True):
     """What the files of an import's folder (or a `_snapshot` of it) are, as one digest: its paths, whether each runs, and their
-    bytes. What a preview judged is what goes to Personal. Without `people`, the person's settings, secrets and state of its
-    items are left out."""
+    bytes. What a preview judged is what goes to Personal."""
     found = hashlib.sha256()
     for rel, (mode, data) in sorted((folder if isinstance(folder, dict) else _snapshot(folder, people)).items()):
-        parts = rel.split("/")
-        if not people and len(parts) > 2 and parts[0] in ("addons", "playgrounds") and parts[2] in MACHINE_FILES:
-            continue
         found.update(f"{rel}\0{mode & 0o111}\0".encode("utf-8"))
         found.update(hashlib.sha256(data).digest())
     return found.hexdigest()
@@ -574,8 +561,6 @@ def _rel(kind, item):
 def _requires(text, needed):
     """catalog.yml with the catalogs `needed` ([(ns, name, url, min)]) in its requires.catalogs, as an export writes them."""
     rows = "".join(f'      {ns}:\n        name: "{name}"\n        url: {url}\n        min: {least}\n' for ns, name, url, least in needed)
-    if not rows:
-        return text
     head = "\n  requires:\n    catalogs:\n"
     if head in text:
         return text.replace(head, head + rows, 1)
@@ -679,18 +664,19 @@ def _personal_now(kind, rel):
         return None
 
 
-def _same_in_personal(kind, slug, rel, name, files):
-    now = _personal_now(kind, rel)
-    return now is not None and now.encode("utf-8") == files[_compose_rel(kind, rel)][1]
+def _same_in_personal(files):
+    """Whether Personal holds every file of this item as the archive has it: a file that changes only a guide or a seed is another
+    version."""
+    home = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL
+    return all(registry._read(home / path, len(data), follow=False)[0] == data for path, (_, data) in files.items())
 
 
 def _personal_plan(items):
     """What going to Personal does to the items of Personal (`_for_personal`): {replaces: [names], same: [names]}."""
     replaces, same = [], []
     for kind, _, rel, name, files in items:
-        now = _personal_now(kind, rel)
-        if now is not None:
-            (same if now.encode("utf-8") == files[_compose_rel(kind, rel)][1] else replaces).append(name)
+        if _personal_now(kind, rel) is not None:
+            (same if _same_in_personal(files) else replaces).append(name)
     return {"replaces": replaces, "same": same}
 
 
@@ -705,25 +691,15 @@ def to_personal(ticket, allow=False):
     base = (paths.ROOT / IMPORTS_DIR).resolve()
     if not folder.is_dir() or folder.resolve().parent != base or not data.get("imported"):
         raise _fail("not_an_import", "This is not a playground being imported. Choose its file again.", 409)
-    unread = data.get("unread") or []
-    if unread:
-        raise _fail("unread_personal", f"{', '.join(unread)} cannot be read: Compose does not load its compose file. Fix: import it "
-                                       "to Imported, where the Lab says why.", 409)
     blocked = data.get("blocked") or []
     if blocked:
         raise _fail("blocked_personal", f"{', '.join(blocked)} cannot run: import to Imported, where it stays blocked.", 409)
-    claimed = data.get("claimed") or []
-    if claimed:
-        one = len(claimed) == 1
-        raise _fail("twin_claimed", f"{', '.join(claimed)} {'says it is a copy' if one else 'say they are copies'} of an item of this "
-                                    f"Lab, which only this Lab writes: {'it' if one else 'they'} cannot run. Fix: ask for "
-                                    f"{'its file' if one else 'their file'} again, without copy_of.", 409)
     uses = data.get("uses") or []
     if uses and allow is not True:
         raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to import it to Personal.")
     top, snapshot = folder.name, _snapshot(folder)   # what is staged is what is digested: the preview's, or a refusal
     items = _for_personal(folder, top, snapshot)
-    going = [one for one in items if not _same_in_personal(*one)]   # the same item is used as Personal has it
+    going = [one for one in items if not _same_in_personal(one[4])]   # the same item is used as Personal has it
 
     def write(root):
         for _, _, _, _, files in going:
@@ -797,7 +773,6 @@ def receive(data):
     archive = _opened(data)
     with archive:
         top, members = _members(archive)
-        _refused_id(archive, top)
         base = paths.ROOT / IMPORTS_DIR
         base.mkdir(parents=True, exist_ok=True)
         incoming = base / f".incoming-{secrets.token_hex(4)}"
@@ -860,22 +835,22 @@ def _refused_id(archive, top):
 
 def _extract(archive, members, folder):
     written = 0
-    for rel, mode, info in members:
-        target = folder / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with archive.open(info) as source, open(target, "xb") as out:
-            while True:   # what the archive says of a size is not trusted: what is read is counted
-                chunk = source.read(1 << 16)
-                if not chunk:
-                    break
-                written += len(chunk)
-                if written > MAX_BYTES:
-                    raise _fail("import_too_large", "This playground holds more than a catalog may: 10,000 files, 100 MB.", 413)
-                out.write(chunk)
-        os.chmod(target, mode)
-
-
-TWIN_CLAIMED = trust.line("T29")   # an item that says whose copy it is: only this Lab writes copy_of, in Personal
+    try:
+        for rel, mode, info in members:
+            target = folder / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(info) as source, open(target, "xb") as out:
+                while True:   # what the archive says of a size is not trusted: what is read is counted
+                    chunk = source.read(1 << 16)
+                    if not chunk:
+                        break
+                    written += len(chunk)
+                    if written > MAX_BYTES:
+                        raise _fail("import_too_large", "This playground holds more than a catalog may: 10,000 files, 100 MB.", 413)
+                    out.write(chunk)
+            os.chmod(target, mode)
+    except (zipfile.BadZipFile, zlib.error, EOFError, FileExistsError, NotADirectoryError):   # damaged, or a file and a folder of one name
+        raise _fail("import_invalid", NOT_A_PLAYGROUND) from None
 
 
 def _judged_import(final, top, content, reused):
@@ -888,19 +863,10 @@ def _judged_import(final, top, content, reused):
     items = _for_personal(final, top)
     # What the judgement did not produce, since Compose could not read it, is judged by nothing: it cannot go to Personal
     judged = set(service._held(preview["ticket"], "add").get("judged") or ())
-    unread = [name for _, slug, _, name, _ in items if f"@{top}/{slug}" not in judged]
     preview["blocked"] = [*(preview.get("blocked") or ()), *({"kind": kind, "id": f"@{top}/{slug}", "name": name,
                                                               "reasons": ["Its compose file cannot be read"]}
                                                              for kind, slug, _, name, _ in items if f"@{top}/{slug}" not in judged)]
-    # An item that says whose copy it is is blocked by the policy (T29), as the Lab reads it once added; Import to Personal says it
-    # in words of its own when that is all that blocks it. Items are told apart by id: two may have the same name
-    reasons, names = {}, {}
-    for one in preview["blocked"]:
-        reasons.setdefault(one.get("id"), []).extend(one.get("reasons") or ())
-        names.setdefault(one.get("id"), one.get("name"))
-    claimed_ids = [uid for uid, lines in reasons.items() if lines and all(line == TWIN_CLAIMED for line in lines)]
-    blocked = [names[uid] for uid in reasons if uid not in claimed_ids]
-    claimed = [names[uid] for uid in claimed_ids]
+    blocked = list(dict.fromkeys(one.get("name") for one in preview["blocked"]))
     # What Personal would run unjudged that takes more of this machine: the person allows it, as for a Move
     named = {f"@{top}/{slug}": name for _, slug, _, name, _ in items}
     uses = list(dict.fromkeys(named.get(one.get("id"), one.get("name")) for one in (preview.get("rows") or {}).get("uses_machine") or ()))
@@ -908,8 +874,7 @@ def _judged_import(final, top, content, reused):
         service.forget(preview.get("ticket"))
         raise _fail("import_changed", "The files of this import changed while it was read. Fix: choose its file again.", 409)
     shown = _kept_view(top, content)
-    service.note(preview.get("ticket"), imported=True, blocked=blocked, claimed=claimed, unread=unread, uses=uses, digest=placed,
-                 content=content)
+    service.note(preview.get("ticket"), imported=True, blocked=blocked, uses=uses, digest=placed, content=content)
     return {**preview, "imported": True, "reused": reused, "personal": _personal_plan(items), **({"kept": shown} if shown else {})}
 
 
@@ -964,7 +929,7 @@ def _keep_settings(folder: Path, ns, content):
         with contextlib.suppress(OSError):
             names[rel] = _named((folder / rel / "compose.yml").read_text(encoding="utf-8", errors="replace"), rel.rsplit("/", 1)[-1])
     try:
-        title = _catalog_title((folder / "catalog.yml").read_text(encoding="utf-8", errors="replace")[:65536], ns)
+        title = registry.scan((folder / "catalog.yml").read_bytes()[:65536]).get("name") or ns
     except OSError:
         title = ns
     _, failed = kept.keep(ns, content, [(folder / rel / name, f"{rel}/{name}") for rel, name in settings], names, title)

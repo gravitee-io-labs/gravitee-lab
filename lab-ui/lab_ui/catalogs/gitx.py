@@ -141,7 +141,7 @@ _USER = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,31}")   # never a dash first: 
 _SEGMENT = re.compile(r"[A-Za-z0-9._~+-]+")
 _SCHEME = re.compile(r"([A-Za-z][A-Za-z0-9+.-]*)://(.*)", re.S)
 _SCP = re.compile(r"([^@:/\s]+)@([^:/@\s]+):(.+)", re.S)
-_SHORTHAND = re.compile(r"([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100})")
+SHORTHAND = re.compile(r"([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100})")
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+/-]{0,199}")
 LOOPBACK = ("localhost",)
 
@@ -320,7 +320,7 @@ def parse_address(text: str) -> Address:
     scp = _SCP.fullmatch(raw)
     if scp:
         return _scp_address(scp)
-    short = _SHORTHAND.fullmatch(raw)
+    short = SHORTHAND.fullmatch(raw)
     if short and short.group(2) not in (".", "..", ".git"):
         owner, repo = short.groups()
         repo = _named(repo)
@@ -329,13 +329,11 @@ def parse_address(text: str) -> Address:
 
 
 def ssh_form(address: Address) -> Optional[Address]:
-    """The ssh spelling of an https address (`git@HOST:owner/repo.git`), the second try of the first start and the
-    background check; None for an address that is not https or that names a port (the ssh port is another)."""
+    """The ssh spelling of an https address (`git@HOST:owner/repo.git`), the second try of the short form owner/repo;
+    None for an address that is not https or that names a port (the ssh port is another)."""
     if address.kind != "git" or not address.url.startswith("https://") or ":" in address.display.split("/", 1)[0]:
         return None
-    path = _repo_path(address.display.split("/", 1)[1]) if "/" in address.display else None
-    if path is None:
-        return None
+    path = address.display.split("/", 1)[1]
     return Address("git", f"git@{address.host}:{path}.git", "", address.display, address.host, address.repo)
 
 
@@ -457,9 +455,6 @@ def _neutral():
 def _prepare(exe, args, cwd, env):
     """(argv, cwd, env) of a command: the executable, the options of HARDEN, the arguments checked to be text without
     NUL, and the environment with the ceiling that keeps git from looking for a repository above the neutral folder."""
-    args = list(args)
-    if args and args[0] == "git":
-        args = args[1:]
     for arg in args:
         if not isinstance(arg, str) or "\0" in arg:
             raise TypeError(f"git was given an argument that is not text: {arg!r}")
@@ -533,10 +528,9 @@ def _close(*pipes):
                 pass
 
 
-def _execute(argv, cwd, env, data, timeout, stall, cap, limit, on_stderr):
+def _execute(argv, cwd, env, data, timeout, stall, limit, on_stderr):
     """Runs `argv` and answers a Result. The command gets `data` on its input (or none), runs in a session of its own
-    and is killed with its group when: `timeout` seconds passed, `cap` seconds passed, `stall` seconds passed with no
-    byte on either output, its output went over `limit` (OutputLimit), or the caller was interrupted or `on_stderr`
+    and is killed with its group when: `timeout` seconds passed, `stall` seconds passed with no byte on either output, its output went over `limit` (OutputLimit), or the caller was interrupted or `on_stderr`
     raised. `on_stderr(text)` is given what arrives on stderr as it arrives. A command that ended while something it
     started still holds its output is not waited for: after EXIT_GRACE seconds with no byte its own exit code is the
     answer, and what it left behind is killed. While the Lab UI exits it is not run (code 130)."""
@@ -565,8 +559,6 @@ def _execute(argv, cwd, env, data, timeout, stall, cap, limit, on_stderr):
             """The seconds before the first deadline, and what that deadline is."""
             now = time.monotonic()
             due = [(started + timeout - now, f"no answer within {timeout:g} s")] if timeout else []
-            if cap:
-                due.append((started + cap - now, f"still running after {cap:g} s"))
             if stall:
                 due.append((last + stall - now, f"no byte for {stall:g} s"))
             return min(due) if due else (None, None)
@@ -641,14 +633,14 @@ def _execute(argv, cwd, env, data, timeout, stall, cap, limit, on_stderr):
     return Result(process.returncode, bytes(out), err)
 
 
-def _go(args, cwd, env, data, timeout, stall, cap, limit, on_stderr):
+def _go(args, cwd, env, data, timeout, stall, limit, on_stderr):
     exe = executable()
     if exe is None:
         raise fail("git_missing")
     argv, cwd, env = _prepare(exe, args, cwd, env)
     if isinstance(data, str):
         data = data.encode("utf-8")
-    return _execute(argv, cwd, env, data, timeout, stall, cap, OUTPUT_LIMIT if limit is None else limit, on_stderr)
+    return _execute(argv, cwd, env, data, timeout, stall, OUTPUT_LIMIT if limit is None else limit, on_stderr)
 
 
 def run(args: List[str], cwd=None, timeout: float = 60, input=None, env: Optional[Dict[str, str]] = None,
@@ -658,14 +650,14 @@ def run(args: List[str], cwd=None, timeout: float = 60, input=None, env: Optiona
     on a store names it with `--git-dir`. Killed with its group after `timeout` seconds (exit code 124 and
     TIMEOUT_MARK in the errors). Raises CatalogError git_missing when there is no usable git, OutputLimit when the
     output is over `limit` bytes (default OUTPUT_LIMIT)."""
-    return _go(args, cwd, env, input, timeout, None, None, limit, None)
+    return _go(args, cwd, env, input, timeout, None, limit, None)
 
 
 def stream(args: List[str], cwd=None, env: Optional[Dict[str, str]] = None, stall: float = 30, cap: float = 600,
            on_stderr: Optional[Callable[[str], None]] = None, limit: Optional[int] = None) -> Result:
     """Like `run` for a command that talks to a network and reports progress: it is killed after `stall` seconds without
     a byte on either output, or `cap` seconds in all, and `on_stderr(text)` is given the errors as they arrive."""
-    return _go(args, cwd, env, None, None, stall, cap, limit, on_stderr)
+    return _go(args, cwd, env, None, cap, stall, limit, on_stderr)
 
 
 def require_ok(result: Result, address: Optional[Address] = None) -> Result:
@@ -678,13 +670,9 @@ def require_ok(result: Result, address: Optional[Address] = None) -> Result:
 def version() -> Optional[Tuple[int, int, int]]:
     """The version of git as a tuple of three numbers, or None when there is no git (or only the macOS shim without
     the Command Line Tools: it is never run)."""
-    exe = executable()
-    if exe is None:
-        return None
-    argv, cwd, env = _prepare(exe, ["--version"], None, None)
     try:
-        result = _execute(argv, cwd, env, None, 10, None, None, 4096, None)
-    except (OSError, OutputLimit):
+        result = run(["--version"], timeout=10, limit=4096)
+    except (CatalogError, OSError, OutputLimit):
         return None
     found = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", result.out.decode("utf-8", "replace")) if result.code == 0 else None
     return tuple(int(part or 0) for part in found.groups()) if found else None
@@ -850,34 +838,17 @@ def _default_branch(address, head, timeout, options, env):
     return sorted(names)[0]
 
 
-def push_probe(address: Address, commit: str, store=None, timeout: float = 20) -> str:
+def push_probe(address: Address, commit: str, store, timeout: float = 20) -> str:
     """Whether the person can push to the remote: "yes", "no" (the remote refused the sign-in or the permission) or
-    "unknown" (the network, a certificate, a timeout: the question was not answered). A dry run of a push of `commit`
-    to a branch that does not exist (nothing is sent). `store` is the bare repository that holds `commit`; without it,
-    or when it lacks the commit, an empty commit made in a throwaway repository is pushed instead."""
-    if address.kind != "git":
-        return "unknown"
+    "unknown" (the network, a certificate, a timeout: the question was not answered; or the bare repository `store` lacks the
+    commit, a cache that was cleared, and it cannot be asked). A dry run of a push of `commit` to a branch that does not exist
+    (nothing is sent)."""
     checked(address)
+    if not _SHA.fullmatch(commit or "") or run(["--git-dir", str(store), "cat-file", "-e", f"{commit}^{{commit}}"]).code != 0:
+        return "unknown"
     target = f"refs/heads/lab/probe-{secrets.token_hex(4)}"
-    with tempfile.TemporaryDirectory(prefix="gravitee-lab-probe-") as scratch:
-        git_dir, commit = _probe_commit(store, commit, scratch)
-        result = run(["--git-dir", git_dir, "push", "--dry-run", "--", address.url, f"{commit}:{target}"],
-                     timeout=timeout, env=address_env(address))
+    result = run(["--git-dir", str(store), "push", "--dry-run", "--", address.url, f"{commit}:{target}"],
+                 timeout=timeout, env=address_env(address))
     if result.code == 0:
         return "yes"
     return "no" if classify(result.err, address).code in ("no_access", "ssh_denied", "not_found") else "unknown"
-
-
-def _probe_commit(store, commit, scratch):
-    """(repository, commit) a probe pushes: the given one when the store holds it, else an empty commit of a repository
-    made in `scratch`."""
-    if store is not None and _SHA.fullmatch(commit or "") and \
-            run(["--git-dir", str(store), "cat-file", "-e", f"{commit}^{{commit}}"]).code == 0:
-        return str(store), commit
-    git_dir = os.path.join(scratch, "probe.git")
-    require_ok(run(["init", "--bare", "--quiet", "--template=", "--", git_dir]))
-    tree = require_ok(run(["--git-dir", git_dir, "hash-object", "-t", "tree", "-w", "--stdin"], input=b"")).out
-    identity = {"GIT_AUTHOR_NAME": "lab", "GIT_AUTHOR_EMAIL": "lab@example.invalid",
-                "GIT_COMMITTER_NAME": "lab", "GIT_COMMITTER_EMAIL": "lab@example.invalid"}
-    made = require_ok(run(["--git-dir", git_dir, "commit-tree", tree.decode().strip(), "-m", "probe"], env=identity))
-    return git_dir, made.out.decode().strip()

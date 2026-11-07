@@ -52,7 +52,6 @@ class Options(NamedTuple):
     strict         the exit code is 1 for a warning too
     online         the checks that compare with GitHub are asked for
     history        read every commit of the history, not only those since the base
-    verbose        the information too (a rendering option; `run` always returns it)
     ci             the run is CI's: IM04 is asked for, and a skipped check is exit 2
     tree           a Tree to read instead of the folder (`GitTree`, for `check --pr`)
     base_tree      the tree of the base commit, when `tree` is not a folder of a repository
@@ -63,7 +62,6 @@ class Options(NamedTuple):
     seeder_images  the repositories of the Lab's seeder; None reads `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the top of a catalog
     is_seeder      `f(unit_folder, context) -> bool`, for a caller that knows the real folders
-    lab            the Lab checkout (its core file names the seeder); default the one this code is in
     repository     OWNER/REPO of this repository (IM04); default $GITHUB_REPOSITORY, else the `origin` remote
     """
     base: Optional[str] = None
@@ -72,7 +70,6 @@ class Options(NamedTuple):
     strict: bool = False
     online: bool = False
     history: bool = False
-    verbose: bool = False
     ci: bool = False
     tree: Optional[object] = None
     base_tree: Optional[object] = None
@@ -83,7 +80,6 @@ class Options(NamedTuple):
     seeder_images: Optional[Tuple[str, ...]] = None
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
     is_seeder: Optional[Callable] = None
-    lab: Optional[Path] = None
     repository: str = ""
 
 
@@ -147,7 +143,7 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     tree = options.tree if options.tree is not None else trees.FolderTree(root)
     history = options.commits
     base, lost = options.base or "", ""
-    if history is None and folder and trees.is_repository(root) and trees.head_of(root):
+    if history is None and folder and trees.is_repository(root) and trees.resolve(root, "HEAD"):
         if options.history:
             history, base = trees.History(root, None), ""
         else:
@@ -167,7 +163,7 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
 
 
 def _context(tree, root, options: Options, history, base: str, notes: List[str]) -> Context:
-    seeders = options.seeder_images if options.seeder_images is not None else lab_seeder_images(options.lab)
+    seeders = options.seeder_images if options.seeder_images is not None else lab_seeder_images()
     repository = options.repository or os.environ.get("GITHUB_REPOSITORY", "")
     if not repository and (options.ci or options.online) and root is not None and trees.is_repository(root):
         repository = origin_repository(root)
@@ -176,7 +172,7 @@ def _context(tree, root, options: Options, history, base: str, notes: List[str])
                    repository=repository, base=base, notes=notes)
 
 
-def _run_families(tree, ctx: Context, wanted: Iterable[str], skipped: List[str]) -> List[Problem]:
+def _run_families(tree, ctx: Context, wanted: Iterable[str]) -> List[Problem]:
     found: List[Problem] = []
     for code in ORDER:
         if code not in wanted:
@@ -257,7 +253,7 @@ def run(root, options: Optional[Options] = None) -> Result:
         return Result([], [str(error)], base, 0, "")
     ctx = _context(tree, root, options, history, base, skipped)
     wanted = options.families or ORDER
-    found = _run_families(tree, ctx, wanted, skipped)
+    found = _run_families(tree, ctx, wanted)
     if (options.ci or options.online) and not ctx.repository and ctx.meta("images") and "IM" in wanted:
         skipped.append("IM04: the address of this repository is not known")
     commits = 0
@@ -287,7 +283,7 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
     before = options.base_tree
     if before is None and options.tree is None and root is not None and trees.is_repository(root):
         sha = base if re.fullmatch(r"[0-9a-f]{40}", base) else trees.resolve(root, base)
-        if sha and trees.head_of(root) == sha:
+        if sha and trees.resolve(root, "HEAD") == sha:
             return found
         git_dir = trees.git_dir_of(root) if sha else None
         if git_dir:
@@ -301,8 +297,5 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
         return found
     quiet = context(before, units=None, seeder_images=ctx.seeder_images, seeder_paths=ctx.seeder_paths,
                     is_seeder=ctx.is_seeder, private=(), repository=ctx.repository, ci=ctx.ci, online=ctx.online)
-    earlier = _run_families(before, quiet, [code for code in ORDER if code in HYGIENE], [])
+    earlier = _run_families(before, quiet, [code for code in ORDER if code in HYGIENE])
     return subtract(found, promote(earlier, ctx.standard, options.error))
-
-
-__all__ = ["Options", "Result", "family", "lab_seeder_images", "origin_repository", "promote", "run", "status", "subtract"]

@@ -884,7 +884,7 @@ def run_check(args):
         has_seeder = pulled.has_seeder if pulled else os.path.lexists(Path(target.path) / "seeder")
         base, history = _base_asked(args)
         how = dict(base=base, soft=args.soft, error=error, strict=args.strict, online=args.online, history=history,
-                   verbose=args.verbose, ci=args.ci, units=items.units, lab=Path(paths.ROOT),
+                   ci=args.ci, units=items.units,
                    seeder_paths=("../../../seeder",) if has_seeder else ("../../../seeder", "seeder"))
         how.update(pulled.options if pulled else {})
         options = audit.Options(**how)
@@ -965,8 +965,8 @@ def index(args):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def explain_command(args):
-    """The long form of a rule code: the rule, why it exists, the fix in full and what the Lab does with the same file at Add.
-    A text that is no code is a usage error, with the families that exist."""
+    """The long form of a rule code: the rule, its fix and why it exists. A text that is no code is a usage error, with the
+    families that exist."""
     explain = _lab("explain")
     code = args.code.strip().upper()
     table = explain.table()

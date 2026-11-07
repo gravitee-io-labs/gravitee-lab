@@ -28,7 +28,7 @@ from typing import Callable, List, NamedTuple, Optional
 from . import gitx, settings, standard as standards
 from .standard import pin_problem, release_state
 from .tree import FolderTree
-from .settings import FAIL, WARN, Refused, Unusable, Usage, as_dict, as_list, clean, is_int, plan_limit, refusal
+from .settings import FAIL, WARN, Refused, Unusable, Usage, as_dict, clean, is_int, plan_limit, refusal
 
 COMMIT = re.compile(r"[0-9a-f]{40}")
 KIND_FOLDERS = ("addons/", "setups/", "playgrounds/")   # the content of a catalog: an upgrade never touches it
@@ -215,16 +215,6 @@ def _open_pull(runner: Callable, repo: str) -> Optional[int]:
     return None
 
 
-def _owned(plan) -> List[str]:
-    """The paths the plan leaves to the catalog (their marker was removed): the `owned` entries of the plan of 7.4."""
-    plan = as_dict(plan)
-    entries = plan.get("owned")
-    if not isinstance(entries, list):
-        entries = [e for e in as_list(plan.get("files")) if isinstance(e, dict) and e.get("action") == "owned"]
-    found = [entry if isinstance(entry, str) else as_dict(entry).get("path") for entry in entries]
-    return sorted({clean(path, 200) for path in found if isinstance(path, str)})
-
-
 def _read_standard(folder: Path) -> dict:
     """`.github/standard.json` of the clone as a dict, {} when it is not there or cannot be read. A link is not followed
     out of the clone."""
@@ -282,9 +272,8 @@ def _words(work: _Work, folder: Path, before: dict) -> tuple:
     moved pin brings the link that compares the two commits of the Lab and the Lab's own log between them, which is what a
     reviewer of a pin reads: that code will judge every pull request of the catalog."""
     after = _read_standard(folder)
-    level = after.get("standard") if is_int(after.get("standard")) else getattr(work.standard, "LEVEL", None)
-    lines = [f"Brings the managed files to catalog standard {level}." if level
-             else "Brings the managed files to the Lab's level."]
+    level = after.get("standard") if is_int(after.get("standard")) else work.standard.LEVEL
+    lines = [f"Brings the managed files to catalog standard {level}."]
     old, new, log = as_dict(before.get("lab")), as_dict(after.get("lab")), ""
     lab = new.get("repository")
     if isinstance(lab, str) and settings.REPO_NAME.fullmatch(lab) and COMMIT.fullmatch(str(old.get("ref"))) and \
@@ -316,7 +305,7 @@ def _upgrade(work: _Work, repo: str, branch: str, folder: Path) -> Upgraded:
     before = _read_standard(folder)
     plan = work.standard.upgrade_plan(work.tree(folder), {"lab_ref": work.lab_ref})
     work.standard.upgrade_apply(folder, plan)
-    owned = _owned(plan)
+    owned = sorted({clean(path, 200) for path in plan["owned"]})   # the paths the plan leaves to the catalog
     changed = _changed(work, folder)
     if not changed:
         return Upgraded(repo, "current", "", owned)
@@ -324,8 +313,8 @@ def _upgrade(work: _Work, repo: str, branch: str, folder: Path) -> Upgraded:
     if stop:
         raise _Failed(stop)
     level, lines, log = _words(work, folder, before)
-    subject = f"Update to catalog standard {level}" if level else "Update to the Lab's catalog standard"
-    name = _free_branch(work, url, f"{BRANCH_PREFIX}{level or 'lab'}-{work.today()}")
+    subject = f"Update to catalog standard {level}"
+    name = _free_branch(work, url, f"{BRANCH_PREFIX}{level}-{work.today()}")
     work.run(["checkout", "--quiet", "-b", name], cwd=str(folder))
     work.run(["add", "-A", "--", "."], cwd=str(folder))
     # The commit is the maintainer's own, unsigned (a branch is not required to be signed), with no trailer
@@ -387,7 +376,7 @@ def _on_lab_main(work: _Work) -> None:
     if release_state(work.lab, work.lab_ref, git=git) != "yes":
         raise Unusable(f"The Lab commit {work.lab_ref[:7]} is not a release of the Lab. Fix: pin the latest release "
                        "(catalog.py upgrade --lab-ref latest).")
-    problem = pin_problem(work.lab, work.lab_ref, getattr(work.standard, "LEVEL", 0), git=git)
+    problem = pin_problem(work.lab, work.lab_ref, work.standard.LEVEL, git=git)
     if problem:   # the release must ship the standard the fleet writes, or the catalogs' CI calls what it does not have
         raise Unusable(problem)
 

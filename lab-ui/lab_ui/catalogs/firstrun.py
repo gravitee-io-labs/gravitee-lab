@@ -3,7 +3,7 @@
 `reconcile` writes the intent, `.lab/catalogs.json`, from the tracked default file when the file does not exist, and marks
 every git catalog that has no copy as downloading, in memory, before any network is touched: the first `/api/state`
 already says so. `provision` is the Add pipeline of 9.1 with no ticket and no preview, for a catalog the engine lists: the
-tracked address (and, when that is refused, its ssh form), the audience, a fetch that reports how far it is, the checks
+tracked address, the audience, a fetch that reports how far it is, the checks
 that the repository is the catalog expected, the newest version this Lab reads, the stage and `install.commit_add`.
 `start_worker` runs the thread: it downloads what has no copy, retries a failure at 15 s, 1 min, 5 min and then every 30
 min (a click on Try again starts the schedule again), and makes the background check of 9.2 (`service.check_all`) on its
@@ -45,7 +45,6 @@ _progress = threading.Lock()   # the only shared state the worker writes
 
 OPT_OUT = "LAB_NO_FIRST_RUN"   # set to 1: no intent written, no thread (for tests and tools)
 
-PROBE = 20.0   # seconds ls-remote may take
 STALL, CAP = 30.0, 600.0   # a fetch ends after this many seconds without a byte, and after this many in all
 SCHEDULE = (15.0, 60.0, 300.0)   # seconds before the first, second and third automatic retry of a failure
 LATER = 1800.0   # then every 30 minutes
@@ -55,9 +54,6 @@ NAP = 60.0   # the longest the worker sleeps: it then looks again at what has no
 # Where each phase of a download starts and ends in the number the bar draws: the probe, the fetch (git's own
 # percentage fills it), the stage (the judge of 9.1 is the project's, when it reads what was installed) and the commit
 PHASES = {"probe": (0.02, 0.05), "fetch": (0.05, 0.85), "stage": (0.85, 0.97), "commit": (0.97, 1.0)}
-# The refusals of one form of an address that the other form may not have: a private repository over https is a 404 or a
-# demand for a name, and over ssh a missing key or an unknown host
-REFUSED = ("no_access", "not_found", "ssh_denied", "host_key")
 
 # The lines of the first start that are not the ones of the catalogue of errors: nobody asked for this catalog, so "then add it again" would be
 # wrong. Every other line is the catalogue of errors', from `gitx.fail`, `install` and `manifest`: each string exists once
@@ -212,7 +208,7 @@ def _failure(ns: str, held: dict) -> Optional[str]:
     return one.get("error") or (said[0] if said and one.get("pending") else None)
 
 
-def content(project: dict, inputs: dict) -> dict:
+def content(inputs: dict) -> dict:
     """What the state says of the content, from the disk and from memory, never from the network:
     {key, line, code, progress, address, offer}. `key` is `ready` when a catalog has a copy or a folder catalog is there;
     else `downloading` while a git catalog has an attempt a person can see, or has not failed yet (one that is under way,
@@ -271,44 +267,8 @@ def _fraction(seen: dict, running: List[dict]) -> Optional[float]:
 # ---------------------------------------------------------------- one download
 
 def _contract() -> dict:
-    """The level this Lab reads: its lock's (understood.levels), else the core file's as the project read it; 1 and 1 when
-    neither says it."""
-    from ..library import project   # here and not above: the project reads this package
-    found = project.loaded()[1].get("contract")
-    return understood.levels() or (found if isinstance(found, dict) else {"contract": 1, "contract_min": 1})
-
-
-def _anonymous(address: gitx.Address) -> str:
-    """"public" when a stranger's ls-remote answers, else "private": an ssh address and any doubt are private."""
-    try:
-        gitx.ls_remote(address, None, anonymous=True, timeout=PROBE)
-    except (CatalogError, OSError):
-        return "private"
-    return "public"
-
-
-def _forms(entry: dict, address: gitx.Address, held: dict) -> List[gitx.Address]:
-    """The addresses to ask, in the order: the tracked one, then for a listed catalog its ssh form, or the other
-    way round when the ssh form answered last time (`via`)."""
-    again = gitx.ssh_form(address) if defaults.listed(entry) else None
-    if again is None:
-        return [address]
-    return [again, address] if held.get("via") == "ssh" else [address, again]
-
-
-def _reach(forms: List[gitx.Address], branch: Optional[str]):
-    """(the address that answered, what ls-remote said, 20 s each). A form that was refused (REFUSED) is followed by the
-    next; any other failure ends the asking. When none answers the failure is that of the tracked https form, which is
-    the person's: a missing ssh key is not what to tell someone who never chose ssh."""
-    failures = []
-    for form in forms:
-        try:
-            return form, gitx.ls_remote(form, branch, timeout=PROBE)
-        except CatalogError as error:
-            failures.append((form, error))
-            if error.code not in REFUSED:
-                break
-    raise next((error for form, error in failures if not gitx.is_ssh(form)), failures[0][1])
+    """The level this Lab reads: its lock's (understood.levels); 1 and 1 without a lock."""
+    return understood.levels() or {"contract": 1, "contract_min": 1}
 
 
 def _forget_stage(ns: str) -> None:
@@ -325,14 +285,6 @@ def _stand_in(ns: str, entry: Optional[dict], row: Optional[dict]) -> dict:
     return {"id": ns, "kind": "git", "url": row["url"], **({"branch": row["branch"]} if row.get("branch") else {})}
 
 
-def _remember(ns: str, address: gitx.Address, answered: gitx.Address) -> None:
-    """Which form of a listed address answered (`via`), in the lock, so that the next run starts with it. Only
-    for a catalog that has an entry (a lock entry with no catalog is garbage), and only when there were two forms."""
-    via = "ssh" if gitx.is_ssh(answered) else "https"
-    if gitx.ssh_form(address) is not None and registry.entry(ns) is not None and registry.lock_of(ns).get("via") != via:
-        registry.set_lock(ns, via=via)
-
-
 def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
     """The download and install of a catalog with no copy. `entry` is its entry in catalogs.json (None for a listed catalog
     the person does not have, whose entry `install.commit_add` writes) and `row` the file's row for it (None when the
@@ -345,24 +297,19 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
     branch = defaults.effective(stand_in)[1]
     _set(ns, "probe", 0.0)
     gitx.require()   # no git, or one too old, is known before anything is asked of the network
-    forms = _forms(stand_in, address, registry.lock_of(ns))
-    answered, remote = _reach(forms, branch)
-    if listed:
-        _remember(ns, address, answered)
+    remote = gitx.ls_remote(address, branch)
     _set(ns, "probe", 0.5)
-    audience = _anonymous(answered)
+    from . import service   # here and not above: the worker calls this module
+    audience = service._audience(address)
     _set(ns, "probe", 1.0)
     own = entry is not None
     store_path = registry.store_dir(ns) if own else registry.new_store_dir(secrets.token_hex(8))
     try:
-        tip = bare.fetch(answered, remote["branch"], store_path, stall=STALL, cap=CAP,
+        tip = bare.fetch(address, remote["branch"], store_path, stall=STALL, cap=CAP,
                          progress=lambda fraction: _set(ns, "fetch", fraction))
         roots = bare.roots(store_path, tip)
-        if row is not None and row.get("roots") and sorted(row["roots"]) != sorted(roots):
-            shutil.rmtree(store_path, ignore_errors=True)   # another repository: nothing of it is worth keeping
-            raise install.not_expected(address.repo or address.display)
         contract = _contract()
-        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], answered,
+        offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
                                  readable=install.readable(store_path))
         commit, tip_state = offered.commit, offered.tip
         if commit is None:
@@ -370,12 +317,12 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
                                      listed, offered.searched)
         kept, ignored = bare.selected(bare.listing(store_path, commit))
         _set(ns, "stage", 0.0)
-        staged = install.stage(answered, ns, store_path, commit, kept, ignored)
+        staged = install.stage(address, ns, store_path, commit, kept, ignored)
         try:
-            meta = _read(staged, answered, contract, ns, listed)
+            meta = _read(staged, address, contract, ns, listed)
             _set(ns, "stage", 1.0)
             _set(ns, "commit", 0.0)
-            install.commit_add(staged, address, remote["branch"], audience, roots, meta=meta, host=False, auto=True)
+            install.commit_add(staged, address, remote["branch"], audience, roots, meta=meta, host=False)
         except Exception:
             _forget_stage(ns)
             raise
@@ -384,8 +331,6 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             shutil.rmtree(store_path, ignore_errors=True)   # a store no catalog owns is garbage
         raise
     try:   # the catalog is installed: a note that cannot be written is the first check's to make, not a failure
-        if listed:
-            _remember(ns, address, answered)
         if commit != tip or tip_state != "ok":   # the tip needs a newer Lab: the row says so at once (9.2 case B)
             registry.set_lock(ns, seen={"target": commit, "update": False, "tip": tip_state, "version": meta["version"]})
     except (CatalogError, OSError, ValueError):
@@ -594,14 +539,6 @@ class Worker:
             self.nudge.wait(max(wait, 0.01))
             self.nudge.clear()
 
-    def end(self, timeout: float = 5.0) -> None:
-        """Stops the loop and waits for the thread (for a test, and for whoever needs the Lab to stop at once). An attempt
-        that runs ends when its git does."""
-        self.stop.set()
-        self.nudge.set()
-        if self.thread is not None and self.thread is not threading.current_thread():
-            self.thread.join(timeout)
-
 
 _worker = None
 _started = threading.Lock()
@@ -621,14 +558,6 @@ def start_worker() -> None:
         worker.thread = threading.Thread(target=worker.run, name="lab-first-run", daemon=True)
         _worker = worker
         worker.thread.start()
-
-
-def stop_worker(timeout: float = 5.0) -> None:
-    """Ends the thread `start_worker` started, if it runs."""
-    with _started:
-        worker = _worker
-    if worker is not None:
-        worker.end(timeout)
 
 
 def wake() -> None:

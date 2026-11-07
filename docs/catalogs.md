@@ -54,7 +54,7 @@ shows. A catalog that needs another one says which; add that one first.
 *Update available* when a newer version exists ([Versions](#versions)), with a dot on the Catalogs entry of the menu. A version
 that uses what your Lab does not read yet is never installed: the row says it needs a newer Gravitee Lab, and you keep the newest version
 your Lab reads. **Update**
-is the only way a copy is replaced, except for a catalog the Lab can no longer read, which is brought forward by itself. A catalog
+is the only way a copy is replaced. A catalog
 with something to decide opens a dialog that says what changes first: the version, from the one you have to the new one
 (*Unreleased* when the catalog makes no releases, *Unchanged* when a release was moved), every item it updates, adds, removes or
 breaks with its kind, what changed in the folder of each item it updates (`README.md`, `compose.yml`, `seed/`), what is new in

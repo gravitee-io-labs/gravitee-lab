@@ -1353,7 +1353,7 @@ test("what a playground lacks of the catalogs is the first of Before you start: 
 test("a catalog the Lab lists is added at once, with no dialog; the line of one that failed says why", async () => {
   const listed = catalogRow({ id: "partner-bank", name: "Partner Bank", kind: "suggested", listed: true, commit: "" });
   const failed = catalogRow({ id: "partner-bank", name: "Partner Bank", commit: "", listed: false, state: { key: "unreachable", label: "Unreachable", tone: "warn",
-    reason: "Cannot reach github.com.", next: "Check your connection, then try again.", whatsnew: [] } });
+    reason: "Cannot reach github.com.", next: "Check your connection, then try again." } });
   await visit({ ...off, ...HUB, needs_catalogs: [need()] }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   store.state = { ...store.state, catalogs: [FIRST(), listed] };
   playgroundPage.render(store.state);

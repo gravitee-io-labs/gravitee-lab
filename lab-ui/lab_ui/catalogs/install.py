@@ -27,7 +27,7 @@ record for a start that has git.
 
 Labels, in order. stage: begin, written. add: begin, manifest, store, pending, install, file (for each file of a merge),
 rename, placed, lock, config, done. update, undo and repair: pending, apply, removed (each), file (each), manifest,
-rename, lock, refs, done. The renames a catalog declares (`renames.follow`) say rename:entry, :on, :include, :copy,
+rename, lock, done. The renames a catalog declares (`renames.follow`) say rename:entry, :on, :include, :copy,
 :settings before each change, between rename and the step after it. remove: config, store, files, marker,
 vacate, lock, stars, done. shadow: record, move (each), install, link, config, lock, done. unshadow: record, link,
 install, then apply, file, removed and manifest of the repair it makes, move (each), config, lock, done. recover: begin,
@@ -78,9 +78,7 @@ _NS = re.compile(paths.NS)
 _REMOVED = re.compile(r"\.removed-({ns})-([0-9]{{8}}T[0-9]{{6}}Z)".format(ns=paths.NS))
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SECRET_DIRS = (".state", "secrets")
-_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
-_UNITS = re.compile(r"(addons|playgrounds)/([a-z0-9-]+)/|setups/([a-z0-9-]+)\.yml")
-_KIND = {"addons": "addon", "playgrounds": "playground"}
+_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 # What a start survives in one catalog and goes on: a refusal, the disk, a name that is none, a move the Lab will not
 # make
@@ -129,10 +127,7 @@ class Unsafe(CatalogError):
 
 def _called(ns):
     """The name a person knows catalog `ns` by: what the lock cached of its catalog.yml, else its namespace."""
-    try:
-        return registry.lock_of(ns).get("name") or ns
-    except ValueError:
-        return ns
+    return registry.lock_of(ns).get("name") or ns
 
 
 def _utc():
@@ -150,14 +145,11 @@ def _guard():
         yield
 
 
-@contextlib.contextmanager
 def _exclusive():
     """The project lock, for the steps that change what a reader reads. Taken after the catalogs lock, never before.
     Nothing inside may ask the project for anything: `project.loaded()` holds the same lock."""
     from ..library import project   # here and not above: the project reads this package
-    held = getattr(project, "exclusive", None)
-    with (held() if held else contextlib.nullcontext()):
-        yield
+    return project.exclusive()
 
 
 # ---------------------------------------------------------------- the disk, without following a link
@@ -243,7 +235,7 @@ def safe_write(root: Path, rel: str, data: bytes, mode: int) -> None:
     directory = _open_dir(root, parts[:-1], True)
     try:
         try:
-            fd = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+            fd = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                          mode, dir_fd=directory)
         except OSError as error:
             raise Unsafe(f"{rel} cannot be made: {error.strerror}", _owner(root)) from None
@@ -384,21 +376,12 @@ def _ancestors(rel):
 
 # ---------------------------------------------------------------- what is on disk
 
-def _read(path, limit=MAX_FILE) -> Tuple[bytes, os.stat_result]:
+def _read(path, limit=MAX_FILE) -> bytes:
     """The content of a regular file, never through a link; `Unsafe` for anything else or a file over `limit`."""
-    try:
-        fd = os.open(os.fspath(path), os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
-                     | getattr(os, "O_CLOEXEC", 0))
-    except OSError as error:
-        raise Unsafe(f"{path} cannot be read: {error.strerror}", _owner(path)) from None
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
-            raise Unsafe(f"{path} is not a regular file of a size a catalog has", _owner(path))
-        with os.fdopen(fd, "rb", closefd=False) as source:
-            return source.read(limit + 1), info
-    finally:
-        os.close(fd)
+    data, _ = registry._read(os.fspath(path), limit, follow=False)
+    if data is None:
+        raise Unsafe(f"{path} is not a regular file of a size a catalog has", _owner(path))
+    return data
 
 
 def _oid(data: bytes) -> str:
@@ -434,8 +417,9 @@ def _audit(root, kept: List[bare.Entry]) -> Dict[str, str]:
             entry = expected.get(path)
             if entry is None:
                 raise Unsafe(f"a file that was not judged: {path}", _owner(root))
-            data, info = _read(os.path.join(here, name))
-            if _oid(data) != entry.oid or len(data) != entry.size or stat.S_IMODE(info.st_mode) != _perm(entry):
+            data = _read(os.path.join(here, name))
+            if _oid(data) != entry.oid or len(data) != entry.size \
+                    or stat.S_IMODE(os.lstat(os.path.join(here, name)).st_mode) != _perm(entry):
                 raise Unsafe(f"{path} is not what was judged", _owner(root))
             found[path] = hashlib.sha256(data).hexdigest()
     gone = sorted(set(expected) - set(found))
@@ -643,15 +627,9 @@ def _manifest_in(root, ns) -> Optional[dict]:
     commit it is for, or None: a folder can be an install, a staging folder or a `.removed-<ns>-*` folder, and each says
     what it holds in its own file."""
     try:
-        data, _ = _read(os.path.join(root, paths.MANIFEST), MANIFEST_LIMIT)
-        found = json.loads(data.decode("utf-8-sig"))
-    except (Unsafe, ValueError, RecursionError):
+        return registry._load_manifest(ns)(_read(os.path.join(root, paths.MANIFEST), MANIFEST_LIMIT))
+    except Unsafe:
         return None
-    if not (isinstance(found, dict) and found.get("schema") == 1 and found.get("catalog") == ns
-            and isinstance(found.get("commit"), str) and isinstance(found.get("files"), dict)
-            and isinstance(found.get("units"), dict)):
-        return None
-    return found
 
 
 def _listed(ns, root) -> Optional[Set[str]]:
@@ -786,24 +764,6 @@ def _restore(ns, root) -> List[str]:
     return moved
 
 
-def _collides(root, kept, going) -> bool:
-    """Whether a file of `kept` would land on something that is not a file of the old install (`going`): a machine file
-    where a content file goes, a file or a link where a folder must be, a folder where a file goes."""
-    for entry in kept:
-        parts, here = entry.path.split("/"), os.fspath(root)
-        for number, part in enumerate(parts):
-            here = os.path.join(here, part)
-            info = _lstat(here)
-            if info is None:
-                break
-            if number < len(parts) - 1:
-                if not stat.S_ISDIR(info.st_mode):
-                    return True
-            elif stat.S_ISDIR(info.st_mode) or entry.path not in going:
-                return True
-    return False
-
-
 def _target(ns, kept) -> str:
     """What the install folder of `ns` allows for a new install, after making it so: "rename" when nothing is there (the
     stage is renamed to it) and "merge" when a folder is there that holds only the machine's files and what the previous
@@ -822,7 +782,7 @@ def _target(ns, kept) -> str:
     content = _scan(root, listed)[0]
     known = _manifest_in(root, ns)
     going = set(known["files"]) if known else set()
-    if (listed is None and content) or _collides(root, kept, going):
+    if (listed is None and content) or any(_in_the_way(root, entry.path, going, going) for entry in kept):
         _aside(ns, root)
         return "rename"
     _vacate(ns, root)
@@ -830,6 +790,16 @@ def _target(ns, kept) -> str:
 
 
 # ---------------------------------------------------------------- adding a catalog
+
+def already(address) -> str:
+    """The address as a person reads it; `already_added` when a catalog the person has is at it, in any spelling."""
+    shown = registry.display_address(address.url if address.kind == "git" else address.path)
+    for other in registry.entries():
+        there = defaults.effective(other)[0] if other["kind"] == "git" else other.get("path")
+        if shown and registry.display_address(there or "") == shown:
+            raise CatalogError("already_added", f"Already added as {_called(other['id'])}.", 409, id=other["id"])
+    return shown
+
 
 def _free(ns, entry, held, address):
     """Whether `ns` can be added now: an entry that is a download that has not ended is the provision of a
@@ -839,14 +809,9 @@ def _free(ns, entry, held, address):
         if entry.get("kind") == "git" and not held.get("pin"):
             return
         raise CatalogError("already_added", f"Already added as {_called(ns)}.", 409, id=ns)
-    others = registry.entries()
-    shown = registry.display_address(address.url if address.kind == "git" else address.path)
-    for other in others:
-        there = defaults.effective(other)[0] if other["kind"] == "git" else other.get("path")
-        if shown and registry.display_address(there or "") == shown:
-            raise CatalogError("already_added", f"Already added as {_called(other['id'])}.", 409, id=other["id"])
+    shown = already(address)
     listed = {row["id"] for row in defaults.read() if registry.display_address(row["url"]) == shown}
-    registry.check_namespace(ns, taken=[one["id"] for one in others], listed=listed)
+    registry.check_namespace(ns, taken=[one["id"] for one in registry.entries()], listed=listed)
 
 
 def taken(ns) -> CatalogError:
@@ -891,11 +856,11 @@ def _config_with(entry):
 
 
 def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], audience: str, roots: list,
-               meta: Optional[dict] = None, host: bool = False, auto: bool = True) -> dict:
+               meta: Optional[dict] = None, host: bool = False) -> dict:
     """The install of a catalog, with the first download of a listed catalog (whose entry exists already) as the same
     pipeline. Under the locks: the namespace is still free and the stage is what was judged (every file has the id and
     the mode git gave it, no other file is there); the manifest is written into the stage; the store is renamed to
-    `<ns>.git` with `refs/lab/pin` at the commit (already there for a download that fetched into its own store); the
+    `<ns>.git` (already there for a download that fetched into its own store); the
     lock entry is written with `pin` null and `pending` {add, null, commit} so that a stop from here on is recognized;
     the stage is renamed to the install (or merged into the folder a Remove that kept the settings left, and the machine
     files of the newest `.removed-<ns>-*` are moved in); the lock is written with the pin and `pending` null (the commit
@@ -927,7 +892,6 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
         _write_manifest(staged.path, _document(ns, staged.commit, staged.kept, staged.ignored, shas))
         _step("add:store")
         final = registry.store_dir(ns)
-        bare.set_ref(staged.store, "pin", staged.commit)
         if os.path.abspath(staged.store) != os.path.abspath(final):
             _clear(final)   # a store left by an attempt that never became a catalog
             os.rename(staged.store, final)
@@ -947,7 +911,7 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
         row = entry
         if entry is None:
             _step("add:config")
-            row = {"id": ns, "kind": "git", "url": address.url, "auto": bool(auto), "added": now}
+            row = {"id": ns, "kind": "git", "url": address.url, "auto": True, "added": now}
             asked = gitx.asked_branch(branch, address)
             if asked:
                 row["branch"] = asked
@@ -1100,14 +1064,12 @@ def _turn_off(keys):
 # ---------------------------------------------------------------- updating and going back
 
 def _git_entry(ns):
-    """The entry and the lock entry of a git catalog that is installed and not linked; `linked` for a folder, `damaged`
-    for a git catalog whose install does not read."""
+    """Refuses a catalog that is not a git catalog installed and not linked: `linked` for a folder or a working copy."""
     entry = registry.entry(ns)
     if entry is None:
         raise ValueError(f"{ns} is not a catalog of this machine")
     if entry["kind"] != "git" or registry.lock_of(ns).get("shadowed"):
         raise CatalogError("linked", LINKED, 409)
-    return entry, registry.lock_of(ns)
 
 
 def _need(ns, commit):
@@ -1120,7 +1082,7 @@ def _need(ns, commit):
 
 def _unreadable(meta, contract, entry) -> Optional[CatalogError]:
     """The refusal (`lab_new`, `lab_old`) when the version staged is written for a level this Lab does not read, by the strict
-    reading of its catalog.yml: `pick` chooses a commit from a tolerant reading that may be unsure of the level (an anchor,
+    reading of its catalog.yml: `searched` chooses a commit from a tolerant reading that may be unsure of the level (an anchor,
     a number spelled another way) and takes such a version for one this Lab may read, so this is where it is known. None
     for a Lab whose level the caller did not give."""
     if not isinstance(contract, dict):
@@ -1192,7 +1154,7 @@ def unknown_at(store_path, commit) -> Optional[list]:
 
 
 def readable(store_path):
-    """What `manifest.pick` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`).
+    """What `manifest.searched` asks of a version of the catalog in the store: whether this Lab reads all it uses (`unknown_at`).
     A version it could not tell of stops the choice: an older one is no answer, and that one is not one that needs a newer
     Gravitee Lab. It raises `docker_missing` while Docker Compose cannot read here (not installed, not started yet, older
     than 5), else `unread`."""
@@ -1215,10 +1177,10 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     (what is new in the units it changes, adds or removes, unit by unit, as the notes of a release say it: `store.notes`,
     each subject once), ignored, kept (the files written), stage, meta (the validated catalog.yml of the candidate), context}.
     `rewritten`: the history is not the one installed (the roots differ, or the pin is not an ancestor of the target; for a
-    Go back, the two are not one history), unless the new roots are the ones in `context["vouched"]`; or `context["moved"]`,
+    Go back, the two are not one history); or `context["moved"]`,
     the release installed is a tag the owners moved to the target since, which an update does not take silently either. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
     rule adds to those the on file turns on. `context["contract"]`, `{contract, contract_min}`: the level this Lab reads; a
-    version written for another is refused (`lab_new`, `lab_old`) whatever `pick` made of it, and so is one whose catalog.yml
+    version written for another is refused (`lab_new`, `lab_old`) whatever `searched` made of it, and so is one whose catalog.yml
     has a key this Lab does not read (`lab_new`: it needs a newer Gravitee Lab), the staged folder cleared. The
     plan is applied by `apply_update`, which asks again."""
     context = dict(context or {})
@@ -1235,7 +1197,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
         same = after == old["units"] and digests.get("@catalog") == _rec(old["files"], manifest.FILE).get("oid")
         if target == held["pin"]:
             return {"upToDate": True}
-        if same and not _rewritten(ns, store_path, held, target, context):   # the same files on another history are still news
+        if same and not _rewritten(store_path, held, target):   # the same files on another history are still news
             return {"upToDate": True}
         op = "undo" if target == held.get("previous") else "update"
         _write_stage(registry.stage_dir(ns), store_path, kept)
@@ -1263,7 +1225,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
                  "change": sorted(path for path in set(now) & set(old["files"])
                                   if (now[path].oid, now[path].mode)
                                   != (_rec(old["files"], path).get("oid"), _rec(old["files"], path).get("mode")))}
-        rewritten = _rewritten(ns, store_path, held, target, context, op) or (op == "update" and bool(context.get("moved")))
+        rewritten = _rewritten(store_path, held, target, op) or (op == "update" and bool(context.get("moved")))
         news = _whatsnew(store_path, held["pin"], target, updates + adds + removes + sorted(renamed) + sorted(renamed.values())) \
             if op == "update" else []
         touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
@@ -1283,30 +1245,31 @@ def _renamed_units(items, before, after) -> Dict[str, str]:
             if old in before and old not in after and new in after and new not in before}
 
 
-def _rewritten(ns, store_path, held, target, context, op="update") -> bool:
+def _rewritten(store_path, held, target, op="update") -> bool:
     """Whether the history of `target` is not the one installed: the roots differ, or the pin is not an ancestor of the target (for a
-    Go back, the two are not one history), unless the new roots are the ones the engine lists for this catalog."""
-    roots, vouched = bare.roots(store_path, target), sorted(set(context.get("vouched") or ()))
+    Go back, the two are not one history)."""
     joined = bare.is_ancestor(store_path, held["pin"], target)
     if op == "undo":
         joined = joined or bare.is_ancestor(store_path, target, held["pin"])
-    return (not joined or roots != sorted(held.get("roots") or [])) and not (vouched and roots == vouched)
+    return not joined or bare.roots(store_path, target) != sorted(held.get("roots") or [])
 
 
-def _whatsnew(store_path, old, new, keys, limit=WHATSNEW):
+def _whatsnew(store_path, old, new, keys):
     """What's new of an update: the notes of the units it touches (`store.notes`), their subjects one after the other, each
-    once, at most `limit`; with no unit touched, those of catalog.yml."""
+    once, at most WHATSNEW; with no unit touched, those of catalog.yml."""
     lines = [subject for _, subjects in bare.notes(store_path, old, new, keys) for subject in subjects] if keys \
         else bare.log(store_path, old, new, [manifest.FILE])
-    return list(dict.fromkeys(lines))[:limit]
+    return list(dict.fromkeys(lines))[:WHATSNEW]
 
 
 def _only(folder, rel, going) -> bool:
-    """Whether every file under `folder` (`rel` inside the install) is one of `going`: a folder that holds nothing else
-    is emptied by the update and its place is free."""
-    for here, _, files in os.walk(folder, followlinks=False):
+    """Whether the update takes `folder` (`rel` inside the install) away: all it holds is files of `going`. A folder with no
+    file in it or a link to a folder stays, and a file cannot replace it."""
+    for here, folders, files in os.walk(folder, followlinks=False):
+        if not folders and not files:
+            return False
         base = os.path.relpath(here, folder)
-        for name in files:
+        for name in files + [one for one in folders if os.path.islink(os.path.join(here, one))]:
             if (f"{rel}/{name}" if base == "." else f"{rel}/{base}/{name}".replace(os.sep, "/")) not in going:
                 return False
     return True
@@ -1343,7 +1306,7 @@ def apply_update(ns: str, plan: dict, confirm_history: bool = False) -> None:
     of the on file and of `plan["context"]["on"]`), and a rewritten history is confirmed (`history_changed`). Then
     `lock.pending` is set, the files that changed are replaced one by one and the ones the new version drops are deleted
     under the project lock, `.installed.json` is written last, and the lock write that moves `pin` (`previous` is the
-    commit left) commits it. The refs of the store follow; a stop before the commit is finished by `recover()`. Something of the machine's where a file of the new
+    commit left) commits it; a stop before the commit is finished by `recover()`. Something of the machine's where a file of the new
     version goes (a folder with a `.state` in it where the catalog now has a file, or a file or a link that the
     installed version did not list where the new one now has a file) is `damaged` before anything is touched; but for a
     regular file that is the very file the new version writes there (what an update that failed halfway left, and a Repair
@@ -1403,10 +1366,6 @@ def _roll(ns, frm, to, label, meta=None):
         fields["release"] = manifest.release_of(store_path, to, fields.get("version"))
     _step(f"{label}:lock")
     registry.set_lock(ns, pin=to, installed=_utc(), error=None, pending=None, **change, **fields)
-    _step(f"{label}:refs")
-    if frm != to:
-        bare.set_ref(store_path, "previous", frm)
-    bare.set_ref(store_path, "pin", to)
     _clear(registry.stage_dir(ns))
     _step(f"{label}:done")
 
@@ -1418,7 +1377,7 @@ def _matches(path, entry) -> Optional[os.stat_result]:
     if info is None or not stat.S_ISREG(info.st_mode) or info.st_size != entry.size:
         return None
     try:
-        data, _ = _read(path)
+        data = _read(path)
     except Unsafe:
         return None
     return info if _oid(data) == entry.oid else None
@@ -1528,7 +1487,7 @@ def repair(ns: str) -> None:
             raise ValueError(f"{ns} is not a catalog of this machine")
         if entry["kind"] == "folder" and not registry.lock_of(ns).get("shadowed"):
             return
-        entry, held = _git_entry(ns)
+        _git_entry(ns)
         _settle(ns)
         held = registry.lock_of(ns)
         if not held.get("pin"):
@@ -1540,40 +1499,34 @@ def repair(ns: str) -> None:
         _roll(ns, held["pin"], held["pin"], "repair")
 
 
+def _differing(root, files) -> List[str]:
+    """The paths of `files`, what a manifest lists, that are not in the folder `root` with the sha256 it says: gone, no regular
+    file or changed. Reads each file once, never through a link, and nothing else."""
+    bad = []
+    for path in files:
+        try:
+            if not _safe(path) or hashlib.sha256(_read(os.path.join(root, path))).hexdigest() != _rec(files, path).get("sha256"):
+                bad.append(path)
+        except Unsafe:
+            bad.append(path)
+    return bad
+
+
 def verify(ns: str, names: Iterable[str]) -> List[str]:
-    """The installed files whose sha256 differs from the manifest's, or that are gone, or are no longer regular files,
-    among those of the units `names` (`kind:name`; `catalog.yml` is always checked), sorted. Reads each file once, never
-    through a link, and nothing else. A catalog with no valid manifest is `damaged`."""
+    """The installed files that `_differing` finds among those of the units `names` (`kind:name`; `catalog.yml` is always
+    checked), sorted. A catalog with no valid manifest is `damaged`."""
     found = registry.manifest(ns)
     if found is None:
         raise Unsafe("no manifest the pin accepts", ns)
-    wanted = set(names)
-    root = os.fspath(registry.install_dir(ns))
-    bad = []
-    for path, record in found["files"].items():
-        unit = unit_key(path)
-        if unit is not None and unit not in wanted:
-            continue
-        info = _lstat(os.path.join(root, path)) if _safe(path) and isinstance(record, dict) else None
-        if info is None or not stat.S_ISREG(info.st_mode) or info.st_size != record.get("size"):
-            bad.append(path)
-            continue
-        try:
-            data, _ = _read(os.path.join(root, path))
-        except Unsafe:
-            bad.append(path)
-            continue
-        if hashlib.sha256(data).hexdigest() != record.get("sha256"):
-            bad.append(path)
-    return sorted(bad)
+    wanted = {None, *names}
+    return sorted(_differing(os.fspath(registry.install_dir(ns)),
+                             {path: record for path, record in found["files"].items() if unit_key(path) in wanted}))
 
 
 def unit_key(path):
     """`kind:name` of the unit a path of a catalog belongs to, None for catalog.yml and what belongs to no unit."""
-    found = _UNITS.match(path)
-    if not found:
-        return None
-    return f"{_KIND[found.group(1)]}:{found.group(2)}" if found.group(1) else f"setup:{found.group(3)}"
+    unit = bare._unit_of(path.split("/"))
+    return f"{unit[0]}:{unit[1]}" if unit else None
 
 
 # ---------------------------------------------------------------- removing
@@ -1653,7 +1606,7 @@ def _record_file(ns) -> Path:
 
 def _read_record(ns) -> Optional[dict]:
     try:
-        data, _ = _read(_record_file(ns))
+        data = _read(_record_file(ns))
         found = json.loads(data.decode("utf-8"))
     except (Unsafe, ValueError):
         return None
@@ -1671,7 +1624,7 @@ def _declared_id(folder) -> Optional[str]:
     if not _is_regular(path):
         return None
     try:
-        return registry.scan(_read(path, manifest.FILE_LIMIT)[0]).get("id")
+        return registry.scan(_read(path, manifest.FILE_LIMIT)).get("id")
     except Unsafe:
         return None
 
@@ -1848,20 +1801,6 @@ def _settle(ns):
         _finish(ns)
 
 
-def _intact(root, found) -> bool:
-    """Whether every file a manifest lists is in the folder `root` with the sha256 it says."""
-    for path, record in found["files"].items():
-        if not (_safe(path) and isinstance(record, dict)):
-            return False
-        try:
-            data, _ = _read(os.path.join(root, path))
-        except Unsafe:
-            return False
-        if hashlib.sha256(data).hexdigest() != record.get("sha256"):
-            return False
-    return True
-
-
 def _complete(ns, commit) -> bool:
     """Whether the install of `ns` is whole for `commit`: its manifest says `commit`, every file it lists is there with
     the sha256 it says, and the store holds the commit."""
@@ -1869,7 +1808,7 @@ def _complete(ns, commit) -> bool:
     found = _manifest_in(root, ns)
     if found is None or found["commit"] != commit or not os.path.isdir(registry.store_dir(ns)):
         return False
-    return bare.resolve(registry.store_dir(ns), commit) == commit and _intact(root, found)
+    return bare.resolve(registry.store_dir(ns), commit) == commit and not _differing(root, found["files"])
 
 
 def _finish(ns):
@@ -1893,7 +1832,6 @@ def _finish(ns):
                 _follow(ns, renames.between(registry.store_dir(ns), None, to), "add")
             now = _utc()
             registry.set_lock(ns, pin=to, previous=None, installed=now, checked=now, error=None, pending=None)
-            bare.set_ref(registry.store_dir(ns), "pin", to)
             _unlink(root, MARKER)
             _clear(registry.stage_dir(ns))
         else:
@@ -2003,10 +1941,10 @@ def _sweep_install(ns, root) -> List[Tuple[str, str]]:
 def recover() -> None:
     """At the start of the Lab (after the bind), under the locks: finishes the operations the lock
     says are under way, finishes a shadow link or its reversal, removes what a stop left (rule 12: `sweep`, the lock
-    entries and the stores that have no entry in `catalogs.json`), writes again the refs of the stores and removes the
+    entries and the stores that have no entry in `catalogs.json`) and removes the
     markers of the folders a catalog has been added into. Everything is idempotent and judged by the disk, so a stop inside it is finished by the next. The trouble of
     one catalog never ends the start, and neither does a start without git (state `needs_git`): an operation under way
-    keeps its record, the refs are written at a start that has git. It raises `busy` when another process holds the lock
+    keeps its record. It raises `busy` when another process holds the lock
     for longer than the wait."""
     with _guard():
         _step("recover:begin")
@@ -2041,22 +1979,10 @@ def recover() -> None:
 
 
 def _tidy(entry):
-    """The last of `recover()` for one catalog: the refs of its store written again, and the marker of a folder a catalog
-    has been added into removed. Git runs for the refs, and a start without git (state `needs_git`: an installed catalog
-    keeps working) goes on: the refs are an optimization, tried again at the next start, and the rest needs no git."""
+    """The last of `recover()` for one catalog: the marker of a folder a catalog has been added into removed."""
     held = registry.lock_of(entry["id"])
     if entry["kind"] != "git" or not held.get("pin") or held.get("pending"):
         return
-    try:
-        store_path = registry.store_dir(entry["id"])
-        if os.path.isdir(store_path) and bare.resolve(store_path, held["pin"]) == held["pin"]:
-            if bare.resolve(store_path, "pin") != held["pin"]:
-                bare.set_ref(store_path, "pin", held["pin"])
-            if held.get("previous") and bare.resolve(store_path, held["previous"]) == held["previous"] \
-                    and bare.resolve(store_path, "previous") != held["previous"]:
-                bare.set_ref(store_path, "previous", held["previous"])
-    except TROUBLE:
-        pass
     if registry.manifest(entry["id"]) is not None:
         _unlink(registry.install_dir(entry["id"]), MARKER)
 

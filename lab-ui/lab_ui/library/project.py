@@ -505,7 +505,7 @@ def _remembered(key, stamp, make, keep):
 
 def _config(files, timeout=UNIT_TIMEOUT):
     """compose._config, whole and with `--no-env-resolution`: `env_file` and `label_file` stay in the answer, where the
-    policy reads their real places."""
+    policy refuses them (T01)."""
     return compose._config(files, "--no-env-resolution", timeout=timeout)
 
 
@@ -1767,26 +1767,22 @@ def _apart(problems, given):
 
 
 def _summaries(units, verdicts, catalogs, problems):
-    """What the units found out about each catalog: {namespace: {id, name, kind, counts, blocked, uses_machine, needs,
-    problems}}, for each catalog that has a unit, and for this machine's own area when it has one. The registry says the rest
-    of a row (version, state, address); this is what only the project knows. `blocked` lists the units that cannot start
-    and why, `uses_machine` the services that take more of this machine than a container does and the reason each gave, `needs`
-    the catalogs its units include from that are not here."""
+    """What the units found out about each catalog: {namespace: {id, name, kind, counts, blocked, uses_machine, problems}}, for
+    each catalog that has a unit, and for this machine's own area when it has one. The registry says the rest of a row (version,
+    state, address); this is what only the project knows. `blocked` lists the units that cannot start and why, `uses_machine` the
+    services that take more of this machine than a container does and the reason each gave."""
     found = {}
     for key, unit in units.items():
         ns = unit["catalog"]
         row = catalogs.get(ns) or {}
         one = found.setdefault(ns, {"id": ns, "name": row.get("name") or ns, "kind": row.get("kind"),
                                     "counts": {"playground": 0, "setup": 0, "addon": 0}, "blocked": [], "uses_machine": [],
-                                    "needs": [], "problems": list(problems.get(ns) or [])})
+                                    "problems": list(problems.get(ns) or [])})
         one["counts"][key[0]] += 1
         if unit["blocked"]:
             one["blocked"].append({"kind": key[0], "id": unit["id"], "name": unit["name"], "reasons": list(unit["blocked"]["reasons"])})
         one["uses_machine"] += [{"id": unit["id"], "name": use["label"], "service": use["service"], "what": list(use["what"]),
                                  "why": use["why"]} for use in ((verdicts.get(key) or {}).get("surface") or {}).get("uses_machine", [])]
-        for need in unit["needs_catalogs"]:
-            if not any(seen["id"] == need["id"] for seen in one["needs"]):
-                one["needs"].append({field: need.get(field) for field in ("id", "name", "url", "min")})
     return found
 
 
@@ -2088,7 +2084,7 @@ def staged_unknown(ns):
     """What the units of the staged tree of `ns` use that this Lab does not read (`understood`), sorted: each unit read as
     `gather` reads a catalog's (its text screened, then its file as written, with what it includes merged in, the includes
     that are not there left out, the time a unit has), and only as far as the screen lets it: a unit it refuses, or one that
-    includes what it refuses, says nothing here, and its judgement says it cannot be read. What `pick` reads of a version of a
+    includes what it refuses, says nothing here, and its judgement says it cannot be read. What `searched` reads of a version of a
     published catalog to know whether this Lab understands it, without the judgement of each unit against the core. None when
     Docker did not answer for a unit (a time limit, a docker that did not run): this Lab cannot tell."""
     held = understood.lock()

@@ -58,8 +58,6 @@ ENTRIES_LIMIT, SUGGESTIONS_MAX = 200, 50
 RACY = 2.0
 # How deep a JSON document of the Lab may nest: the formats of are 5 deep, and a newer Lab's keys are kept
 DEPTH_LIMIT = 64
-# A temporary file of a write that was killed is removed after this long
-LEFTOVER_AGE = 86400.0
 
 # The keys of an entry of catalogs.json that this Lab reads; any other is a newer Lab's and is kept as it is
 ENTRY_KEYS = ("id", "kind", "url", "path", "branch", "auto", "host", "added", "shadows")
@@ -112,7 +110,7 @@ def busy() -> CatalogError:
 def _acquire(path, wait):
     """The descriptor that holds the advisory lock of `path`, taken within `wait` seconds (the change is `busy` after);
     None where there is nothing to lock with (a file that cannot be made, a file system that cannot lock)."""
-    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         descriptor = os.open(path, flags, 0o600)
@@ -181,9 +179,9 @@ def _root(*parts):
 def _read(path, limit, follow=True):
     """(content, None), (None, _MISSING) for a file that does not exist, or (None, why) for one that cannot be used: not
     a regular file, over `limit`, unreadable. Never blocks on a pipe. `follow` False refuses a link as the file."""
-    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
     if not follow:
-        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= os.O_NOFOLLOW
     try:
         descriptor = os.open(path, flags)
     except (FileNotFoundError, NotADirectoryError):
@@ -222,15 +220,15 @@ def _number(digits):
     return value
 
 
-def _nested(value, limit=DEPTH_LIMIT):
-    """Whether the parsed JSON `value` nests deeper than `limit` levels of list or mapping. Walked with a stack of its
+def _nested(value):
+    """Whether the parsed JSON `value` nests deeper than DEPTH_LIMIT levels of list or mapping. Walked with a stack of its
     own, so that no depth can exhaust the one of the interpreter (a copy or a dump of such a value would)."""
     pending = [(value, 1)]
     while pending:
         item, depth = pending.pop()
         if not isinstance(item, (dict, list)):
             continue
-        if depth > limit:
+        if depth > DEPTH_LIMIT:
             return True
         pending.extend((child, depth + 1) for child in (item.values() if isinstance(item, dict) else item)
                        if isinstance(child, (dict, list)))
@@ -255,12 +253,12 @@ _cache = {}   # path -> (stamp, value), the parsed form of the files that are bi
 _cache_lock = threading.Lock()
 
 
-def _cached(path, load, limit, follow=False):
+def _cached(path, load, limit):
     """`load(bytes)` of a regular file, kept until the file changes: a manifest is read by every state, and parsing one
     would cost more than the budget of the fingerprint. None when the file is missing or `load` refuses it. A file
     modified within RACY seconds is read again each time."""
     try:
-        info = os.lstat(path) if not follow else os.stat(path)
+        info = os.lstat(path)
     except OSError:
         return None
     if not stat.S_ISREG(info.st_mode):
@@ -270,7 +268,7 @@ def _cached(path, load, limit, follow=False):
         found = _cache.get(path)
     if found and found[0] == stamp and time.time() - info.st_mtime > RACY:
         return found[1]
-    data, why = _read(path, limit, follow)
+    data, why = _read(path, limit, follow=False)
     value = load(data) if why is None else None
     with _cache_lock:
         if len(_cache) > 256:
@@ -287,9 +285,6 @@ def shown(text, limit):
                    for c in text if unicodedata.category(c) not in ("Cf", "Cs"))
     text = " ".join(text.split())
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
-
-
-_shown = shown   # the name the first modules of the package import
 
 
 def _plain(text, limit=4096):
@@ -329,30 +324,11 @@ def _defaults():
 
 
 def _tracked():
-    """({id: row} in the order of the tracked file, the set of the listed ids). Tolerant: a default module that is not
-    there or fails lists nothing, except the first entry's id that `paths` reads itself."""
-    rows = {}
-    try:
-        for row in _defaults().read():
-            if isinstance(row, dict) and isinstance(row.get("id"), str):
-                rows.setdefault(row["id"], row)
-    except Exception:  # noqa: BLE001 - the default file is another module's: whatever it fails with, nothing is listed
-        rows = {}
+    """({id: row} in the order of the tracked file, the set of the listed ids)."""
+    rows = {row["id"]: row for row in _defaults().read()}
     first = paths.default_ns()
     ids = set(rows) | ({first} if first else set())
     return rows, ids
-
-
-def _effective(entry):
-    """(url, branch) a git entry is read at: the tracked ones for a listed entry, its own for any other."""
-    if entry.get("kind") == "git":
-        try:
-            url, branch = _defaults().effective(entry)
-            if isinstance(url, str) and url:
-                return url, branch if isinstance(branch, str) and branch else None
-        except Exception:  # noqa: BLE001 - the default module is another module's: the stored address is the fallback
-            pass
-    return entry.get("url"), entry.get("branch")
 
 
 # ---------------------------------------------------------------- catalogs.json
@@ -360,14 +336,14 @@ def _effective(entry):
 def _entry(raw, listed):
     """(entry, None, cleaned) for an entry of catalogs.json read as the Lab uses it, or (None, why, False) for one that
     cannot be: not an object, no valid id, a reserved or personal id (reserved ones are for the listed catalogs only),
-    no address. `listed` is a function that answers the set of listed ids, called only when it matters. `cleaned` says a
+    no address. `listed` is the set of listed ids. `cleaned` says a
     user name was taken out of the address. Unknown keys are kept: a newer Lab's keys survive a round trip."""
     if not isinstance(raw, dict):
         return None, "an entry is not an object", False
     ns = raw.get("id")
     if not _namespace(ns):
         return None, "an entry has no valid id", False
-    if ns == LOCAL or (ns in paths.RESERVED_NS and ns not in listed()):
+    if ns == LOCAL or (ns in paths.RESERVED_NS and ns not in listed):
         return None, f"{ns} is a reserved name", False
     kind = raw.get("kind")
     if kind not in ("git", "folder"):
@@ -389,7 +365,7 @@ def _entry(raw, listed):
         entry["branch"] = raw["branch"]
     if isinstance(raw.get("auto"), bool):
         entry["auto"] = raw["auto"]
-    if raw.get("host") is True and ns not in listed():   # a listed catalog's allowance is implied, and dropped
+    if raw.get("host") is True and ns not in listed:   # a listed catalog's allowance is implied, and dropped
         entry["host"] = True
     if isinstance(raw.get("added"), str) and _plain(raw["added"], 40):
         entry["added"] = raw["added"]
@@ -403,17 +379,6 @@ def _entry(raw, listed):
                 entry["shadows"][key] = shadows[key]
     entry.update((key, value) for key, value in raw.items() if key not in ENTRY_KEYS)
     return entry, None, cleaned
-
-
-def _lazy(function):
-    """`function` called once, when first asked."""
-    box = []
-
-    def asked():
-        if not box:
-            box.append(function())
-        return box[0]
-    return asked
 
 
 def _load_config():
@@ -440,7 +405,7 @@ def _load_config():
         return blank, [(LISTING_PROBLEM.format(why=why), f"could not be read ({why})")]
     config = {"schema": SCHEMA, **{key: item for key, item in value.items() if key not in ("schema", "catalogs")},
               "catalogs": []}
-    listed = _lazy(lambda: _tracked()[1])
+    listed = _tracked()[1]
     seen, dropped = set(), []
     for number, raw in enumerate(value["catalogs"]):
         entry, reason, _ = _entry(raw, listed) if number < ENTRIES_LIMIT else (None, "there are too many", False)
@@ -541,37 +506,14 @@ def _set_aside(file):
     return target
 
 
-_LEFTOVER = re.compile(r"\.catalogs\.(?:json|lock)\.[a-z0-9_]{1,16}\.tmp")
-
-
-def _sweep(folder):
-    """Removes from `folder` the temporary files of a write that was killed half way (`paths.write_atomic` makes
-    `.catalogs.json.<random>.tmp` and `.catalogs.lock.<random>.tmp` next to the file and renames it): the regular files
-    of those names that are older than LEFTOVER_AGE. Called by the writers under the locks, so none is a live
-    write's."""
-    try:
-        with os.scandir(folder) as listing:
-            found = [one for one in listing if _LEFTOVER.fullmatch(one.name)]
-    except OSError:
-        return
-    for one in found:
-        try:
-            info = one.stat(follow_symlinks=False)
-            if stat.S_ISREG(info.st_mode) and time.time() - info.st_mtime > LEFTOVER_AGE:
-                os.unlink(one.path)
-        except OSError:
-            pass
-
-
 def _write(relative, text, problems):
     """`text` written to a file of .lab replaced whole with mode 0600, after a file that has `problems` (it cannot be
-    read: a person's file, or a newer Lab's) is kept aside. The leftovers of a write that was killed are swept."""
+    read: a person's file, or a newer Lab's) is kept aside."""
     file = Path(paths.ROOT) / relative
     file.parent.mkdir(parents=True, exist_ok=True)
     if problems:
         _set_aside(file)
     paths.write_atomic(file, text, mode=0o600)
-    _sweep(file.parent)
 
 
 def _checked_config(config):
@@ -581,7 +523,7 @@ def _checked_config(config):
         raise ValueError('a catalog configuration is {"schema": 1, "catalogs": [...]}')
     if len(config["catalogs"]) > ENTRIES_LIMIT:
         raise ValueError(f"at most {ENTRIES_LIMIT} catalogs")
-    listed = _lazy(lambda: _tracked()[1])
+    listed = _tracked()[1]
     document = {"schema": SCHEMA, **{key: item for key, item in config.items() if key not in ("schema", "catalogs")},
                 "catalogs": []}
     for raw in config["catalogs"]:
@@ -639,7 +581,7 @@ def precedence() -> list:
 
 _SHAS = ("pin", "previous", "tip")
 _ORDER = ("pin", "previous", "tip", "roots", "audience", "name", "version", "release", "lab", "installed", "checked", "error",
-          "pending", "via", "shadowed")
+          "pending", "shadowed")
 
 
 def _blank():
@@ -705,10 +647,6 @@ def _lock_entry(raw, strict):
         found["pending"] = {"op": pending["op"], "from": pending.get("from"), "to": pending["to"]}
     elif pending is not None:
         refuse("pending", "{op, from, to}")
-    if raw.get("via") in ("https", "ssh"):
-        found["via"] = raw["via"]
-    elif raw.get("via") is not None:
-        refuse("via", "https or ssh")
     if isinstance(raw.get("shadowed"), bool):
         found["shadowed"] = raw["shadowed"]
     elif raw.get("shadowed") is not None:
@@ -762,16 +700,15 @@ def lock_of(ns: str) -> dict:
 def set_lock(ns: str, **fields) -> dict:
     """Sets fields of the lock entry of `ns` (made if it has none) and writes the file: read, change and write under
     LOCK and flock, so that two changes never lose one another, in this process or in another. A field set to None is
-    its blank (`via` and `shadowed`: removed). Answers the new entry."""
+    its blank (`shadowed`: removed). Answers the new entry."""
     if not _namespace(ns):
         raise ValueError(f"not a namespace: {ns!r}")
     with flock():
         lock, problems = _load_lock()
         current = lock["catalogs"].get(ns) or _blank()
         merged = {**current, **fields}
-        for optional in ("via", "shadowed"):
-            if merged.get(optional) is None:
-                merged.pop(optional, None)
+        if merged.get("shadowed") is None:
+            merged.pop("shadowed", None)
         lock["catalogs"][ns] = _lock_entry(merged, strict=True)
         _write(LOCK_FILE, _dump(_checked_lock(lock)), problems)
         return copy.deepcopy(lock["catalogs"][ns])
@@ -834,7 +771,7 @@ def check_namespace(ns: str, taken: Iterable[str] = (), listed: Iterable[str] = 
         other = entry(ns)
         where = ""
         if other:
-            where = display_address(_effective(other)[0] if other["kind"] == "git" else other["path"])
+            where = display_address(_defaults().effective(other)[0] if other["kind"] == "git" else other["path"])
         raise CatalogError("name_taken", f"Another catalog already uses the name {ns}{f' ({where})' if where else ''}. "
                            "Remove it first, or ask the owner of this one to rename it.", 409, id=ns)
 
@@ -935,18 +872,6 @@ def units_of(ns: str) -> dict:
     return _units(ns, one, read_lock()["catalogs"].get(ns) or {})
 
 
-def units(kind: Optional[str] = None) -> list:
-    """The ids of the units of every installed catalog, of one kind or of all (kind by kind): bare for the default
-    catalog's, which is the only form of them that is an id, `@ns/name` for the others. The catalogs in the order
-    of precedence, each one's names sorted. The personal area is not a catalog and is not listed."""
-    if kind is not None and kind not in KINDS:
-        raise ValueError(f"not a kind of unit: {kind!r}")
-    default = paths.default_ns()
-    vouched = [(ns, _units(ns, one, held)) for ns, one, held in _catalogs() if ns != LOCAL]
-    return [("" if ns == default else f"@{ns}/") + name
-            for wanted in (KINDS if kind is None else (kind,)) for ns, found in vouched for name in found[wanted]]
-
-
 # ---------------------------------------------------------------- catalog.yml, read for what it says of itself
 
 def _uncomment(line):
@@ -1013,30 +938,27 @@ def _closed(text):
     return False
 
 
-def _item(text, depth, lost):
+def _item(text, depth):
     """A value inside a flow: another flow while there is room for one, else a scalar."""
     text = text.strip()
     if depth < 8 and len(text) >= 2 and (text[0], text[-1]) in (("[", "]"), ("{", "}")):
-        return _flow(text, depth + 1, lost)
+        return _flow(text, depth + 1)
     return _scalar(text)
 
 
-def _flow(text, depth=0, lost=None):
+def _flow(text, depth=0):
     """A one-line YAML flow list or mapping: [a, b] or {key: value, key: "value"}, its values scalars or flows of the
-    same kind. A part of a mapping that is no `key: value` is left out and noted in the list `lost`."""
-    lost = [] if lost is None else lost
+    same kind. A part of a mapping that is no `key: value` is left out."""
     inner = text[1:-1]
     cuts = [-1] + _outside(inner, ",") + [len(inner)]
     parts = [inner[a + 1:b] for a, b in zip(cuts, cuts[1:]) if inner[a + 1:b].strip()]
     if text[0] == "[":
-        return [_item(part, depth, lost) for part in parts]
+        return [_item(part, depth) for part in parts]
     result = {}
     for part in parts:
         colon = next((at for at in _outside(part, ":") if part[at + 1:at + 2] in ("", " ", "\t")), None)
-        if colon is None:
-            lost.append(part.strip()[:20])
-        else:
-            result[_scalar(part[:colon])] = _item(part[colon + 1:], depth, lost)
+        if colon is not None:
+            result[_scalar(part[:colon])] = _item(part[colon + 1:], depth)
     return result
 
 
@@ -1044,19 +966,13 @@ def _flow(text, depth=0, lost=None):
 _NAME_OF_KEY = r"[A-Za-z0-9_][A-Za-z0-9_.-]*"
 _KEY = re.compile(rf"(?:({_NAME_OF_KEY})|\"({_NAME_OF_KEY})\"|'({_NAME_OF_KEY})'):(?:[ \t]+(.*))?")
 _TOP = re.compile(r"(?:x-gravitee-catalog|\"x-gravitee-catalog\"|'x-gravitee-catalog'):(?:[ \t]+(.*))?")
-# What this Lab reads of the block; a key of any other name that the scan cannot read is nothing to it
-_WANTED = ("id", "name", "description", "version", "lab", "requires", "host_access")
-# A number in a spelling that YAML knows and the scan does not read (0x2, +2, 1_0, 2.0, 2e0)
-_NUMBER = re.compile(r"[+-]?(?:0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+"
-                     r"|[0-9][0-9_]*(?:\.[0-9_]*)?(?:[eE][+-]?[0-9]+)?)")
 
 
-def _block(lines, at, indent, skipped, trail=()):
+def _block(lines, at, indent, depth=0):
     """({key: value}, next line) of the block of mapping keys at `indent` of `lines`, [(indent, text)]: a value is a
     plain or quoted scalar, a one-line flow list or mapping, or the block below the key. What it cannot read it leaves
-    out, and appends to `skipped` the path of the key it belongs to: a list in block form, a scalar on several lines, an
-    anchor, an alias, a tag, a line that is no key (path `?`)."""
-    result, last = {}, None
+    out: a list in block form, a scalar on several lines, an anchor, an alias, a tag, a line that is no key."""
+    result = {}
     while at < len(lines):
         here, content = lines[at]
         if here < indent:
@@ -1064,27 +980,19 @@ def _block(lines, at, indent, skipped, trail=()):
         at += 1
         found = _KEY.fullmatch(content) if here == indent else None
         if not found:
-            if here == indent:   # a list item level with its key (YAML allows it), or a line this does not know
-                skipped.append(trail + ((last if content.startswith("- ") and last else "?"),))
             continue
         name, value = next(one for one in found.groups()[:3] if one), (found.group(4) or "").strip()
-        last, below = name, False
-        if not value and at < len(lines) and lines[at][0] > indent and not lines[at][1].startswith("- ") \
-                and len(trail) < 8:
-            result[name], at = _block(lines, at, lines[at][0], skipped, trail + (name,))
+        below = False
+        if not value and at < len(lines) and lines[at][0] > indent and not lines[at][1].startswith("- ") and depth < 8:
+            result[name], at = _block(lines, at, lines[at][0], depth + 1)
             continue
         while at < len(lines) and lines[at][0] > indent:
             at, below = at + 1, True
-        lost = []
         if below:   # a list in block form below the key, or a scalar that goes on over several lines
-            skipped.append(trail + (name,))
-        elif value[:1] in ("{", "[") and _closed(value):
-            result[name] = _flow(value, 0, lost)
-            if lost:
-                skipped.append(trail + (name,))
-        elif value and value[0] in "|>&*!{[":
-            skipped.append(trail + (name,))
-        elif value:
+            continue
+        if value[:1] in ("{", "[") and _closed(value):
+            result[name] = _flow(value)
+        elif value and value[0] not in "|>&*!{[":
             result[name] = _scalar(value)
     return result, at
 
@@ -1107,18 +1015,14 @@ def scan(data):
     name, description, version, lab, host_access (only when true), requires_catalogs: {ns: {name, url, min}}}, a requirement's url being the address
     of a git repository or None. The block is the one shows (a mapping, two spaces deep, or one line of
     flow); this is not a YAML parser, it reads that shape and nothing else, and what it does not understand it leaves
-    out.
-    `partial` is True, and there only then, when something it could not read may have been a key the Lab reads (an
-    anchor, a scalar on several lines, a number spelled 0x2, a block it cannot find): the answer is then not the
-    file's, and the strict reading of a catalog (manifest.read_catalog, at Add) is. A file with no block, or one that
-    is not YAML, is {}."""
+    out: the strict reading of a catalog (manifest.read_catalog, at Add) has the last word. A file with no block it can
+    find, or one that is not YAML, is {}."""
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         return {}
-    every = text.splitlines()
     lines = []
-    for line in every[:4000]:
+    for line in text.splitlines()[:4000]:
         stripped = _uncomment(line).rstrip()
         if stripped.strip():
             content = stripped.lstrip(" \t")
@@ -1128,21 +1032,18 @@ def scan(data):
             lines.append((len(lead), content))
     start = next((at for at, (indent, content) in enumerate(lines) if indent == 0 and _TOP.fullmatch(content)), None)
     if start is None:
-        return {"partial": True} if len(every) > 4000 else {}
-    skipped, lost, partial = [], [], False
+        return {}
     inline = (_TOP.fullmatch(lines[start][1]).group(1) or "").strip()
     if inline:   # the block on the line of its key: a flow mapping, else something this does not read
         if not (inline.startswith("{") and _closed(inline)):
-            return {"partial": True}
-        block = _flow(inline, 0, lost)
-        partial = bool(lost)
+            return {}
+        block = _flow(inline)
     else:
         end = next((at for at in range(start + 1, len(lines)) if lines[at][0] == 0), len(lines))
         inside = lines[start + 1:end]
         if not inside or inside[0][0] == 0:
             return {}
-        block, stop = _block(inside, 0, inside[0][0], skipped)
-        partial = stop < len(inside) or any(path[0] in _WANTED or path[0] == "?" for path in skipped)
+        block = _block(inside, 0, inside[0][0])[0]
     found = {}
     if isinstance(block.get("id"), str) and _namespace(block["id"]):
         found["id"] = block["id"]
@@ -1154,8 +1055,6 @@ def scan(data):
         found["version"] = block["version"]
     if isinstance(block.get("lab"), str) and re.fullmatch(r"[0-9]{1,6}", block["lab"]):
         found["lab"] = int(block["lab"])
-    elif isinstance(block.get("lab"), str) and _NUMBER.fullmatch(block["lab"]):
-        partial = True
     if block.get("host_access") == "true":
         found["host_access"] = True
     needs = {}
@@ -1168,16 +1067,11 @@ def scan(data):
                          "url": _git_url(want.get("url")),
                          "min": floor if isinstance(floor, str) and _VERSION.fullmatch(floor) else None}
     found["requires_catalogs"] = needs
-    if partial:
-        found["partial"] = True
     return found
 
 
-_scan = scan   # the name the first modules of the package import
-
-
 def _summary(ns):
-    """_scan of the catalog.yml of the install of `ns` (read only, cached); {} when it cannot be read. The file must be
+    """`scan` of the catalog.yml of the install of `ns` (read only, cached); {} when it cannot be read. The file must be
     a regular file: a link in its place leads anywhere."""
     return _cached(_root(paths.CATALOGS_DIR, ns, CATALOG_FILE), scan, SUMMARY_LIMIT) or {}
 
@@ -1231,7 +1125,7 @@ def web_url(entry: dict) -> Optional[str]:
     and any address that is not https."""
     if not isinstance(entry, dict) or entry.get("kind", "git") != "git":
         return None
-    url = _effective(entry)[0] if isinstance(entry.get("id"), str) else entry.get("url")
+    url = _defaults().effective(entry)[0]
     found = re.fullmatch(r"(?i)https://(?:[^/@\s]*@)?([A-Za-z0-9.-]+(?::[0-9]{1,5})?|\[[0-9A-Fa-f:]+\](?::[0-9]{1,5})?)"
                          r"/([A-Za-z0-9._~+/-]+)", url) if isinstance(url, str) else None
     if not found:
@@ -1280,17 +1174,8 @@ def suggestions() -> list:
     spelling). A row is {id (the listed id, else None), kind (always suggested), name, description, url, branch,
     host_access, listed}. `host_access` only preselects a choice in the Add dialog, it never allows anything. The
     file is read, never written; a file that is missing, damaged or hostile, or a row that is, gives nothing."""
-    added = {display_address(_effective(one)[0]) for one in entries() if one["kind"] == "git"}
-    rows = []
-    try:
-        for row in _defaults().not_added():
-            if isinstance(row, dict) and isinstance(row.get("id"), str) and isinstance(row.get("url"), str):
-                rows.append({"id": row["id"], "kind": "suggested", "name": shown(row.get("name") or row["id"], 40),
-                             "description": shown(row.get("description") or "", 90), "url": row["url"],
-                             "branch": row["branch"] if isinstance(row.get("branch"), str) and row["branch"] else None,
-                             "host_access": False, "listed": True})
-    except Exception:  # noqa: BLE001 - the default module is another module's: failing, it adds no row
-        rows = []
+    added = {display_address(_defaults().effective(one)[0]) for one in entries() if one["kind"] == "git"}
+    rows = [{**row, "branch": row.get("branch"), "host_access": False} for row in _defaults().not_added()]
     where = suggestions_file()
     data, why = _read(where, SUGGESTIONS_LIMIT) if where else (None, _MISSING)
     value = _json(data)[0] if why is None else None
@@ -1318,7 +1203,7 @@ def _facts(ns, one, held):
     return "git", _manifest(ns, held), False
 
 
-def _state(kind, one, held, found, folder_here):
+def _state(kind, held, found, folder_here):
     """The state key a catalog is in as far as the disk says it, without the network: `machine` for the
     personal area; for a folder `linked` or `missing_folder`; for a git catalog `updating` or `downloading` while an
     operation is under way (`damaged` when a hold stopped it, for Repair to finish), `damaged` when its manifest is not valid
@@ -1356,7 +1241,7 @@ def _row(ns, one, held, tracked, listed_ids):
             "description": "" if kind == "machine" else description, "version": version, "lab": lab,
             "audience": held["audience"] if kind != "machine" else "private", "kind": kind,
             "requires_catalogs": copy.deepcopy(summary.get("requires_catalogs") or {}),
-            "state": _state(kind, one, held, found, folder_here), "units": _units(ns, one, held),
+            "state": _state(kind, held, found, folder_here), "units": _units(ns, one, held),
             "ignored": found["ignored"] if found else 0, "error": held.get("error"),
             "pending": copy.deepcopy(held.get("pending")), "listed": listed, "host": host}
 
@@ -1369,19 +1254,6 @@ def _catalogs():
     first = paths.default_ns()
     ids = ([first] if first in by_id else []) + [LOCAL] + [ns for ns in by_id if ns != first]
     return [(ns, by_id.get(ns), held.get(ns) or _blank()) for ns in ids]
-
-
-def sources() -> list:
-    """The catalogs to read, in the order they claim names: the default catalog, `local`, then the
-    others as added. Each {id, kind (git, folder or machine), path (where its units are read, relative to the project:
-    .lab/catalogs/<id>), state (the key of inputs)}. A catalog whose state is `downloading`, `missing_folder` or
-    `damaged` has nothing to read."""
-    found = []
-    for ns, one, held in _catalogs():
-        kind, manifest_found, folder_here = _facts(ns, one, held)
-        found.append({"id": ns, "kind": kind, "path": f"{paths.CATALOGS_DIR}/{ns}",
-                      "state": _state(kind, one, held, manifest_found, folder_here)})
-    return found
 
 
 def inputs() -> dict:

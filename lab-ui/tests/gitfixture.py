@@ -223,17 +223,6 @@ def force_push_over(repo, files: Files, message: str = "Rewrite") -> str:
     return _commit(repo, files, message, root=True, skip=86400)
 
 
-def bare(repo) -> Path:
-    """A bare repository to use as a remote: `repo` itself when it is one, else a bare clone beside it."""
-    repo = Path(repo)
-    if (repo / "HEAD").is_file() and not (repo / ".git").exists():
-        return repo
-    target = repo.with_name(repo.name + ".git")
-    if not target.exists():
-        git("clone", "--bare", "--quiet", "--", str(repo), str(target))
-    return target
-
-
 def url(repo) -> str:
     """The address of a repository as git is given it: a file URL."""
     return "file://" + str(Path(repo).resolve())

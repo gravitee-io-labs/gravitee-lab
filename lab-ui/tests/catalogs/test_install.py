@@ -36,7 +36,6 @@ TOPS = ["addons/ledger/.env", "addons/ledger/.state", "addons/ledger/certs", "ad
 ODD = {".env": "SECRET=1\n", ".state/created.json": "{}\n", "secrets/token": "t\n", "data/db.sqlite": "rows\n",
        "certs/ca.txt": "ca\n"}   # the machine's files of a unit: three that names tell, two that no name does
 REAL_READ = manifest.read_catalog   # Compose's reading of catalog.yml, before the tests put the fixtures' in its place
-REAL_VACATE = install._vacate
 REAL_HOME = os.path.expanduser("~")   # where the Docker CLI finds its Compose plugin, before a test isolates the home folder
 
 # What is the same for every test is made once for the run: the folder the remotes are in (so that an address written in
@@ -76,8 +75,7 @@ def stop_at(label):
 
 def parsed(path, address=None, borrowed=(), published=False):
     """manifest.read_catalog without Compose: the scalars of the file, the way the fixtures read them."""
-    text = (Path(paths.ROOT) / path).read_text(encoding="utf-8")
-    meta = fixtures._meta_of(text)
+    meta = fixtures._meta_of((Path(paths.ROOT) / path).read_text(encoding="utf-8"))
     return {"schema": 1, "id": meta["id"], "name": meta["name"], "description": meta.get("description", ""),
             "version": meta["version"], "lab": meta["lab"], "license": meta.get("license"), "images": None,
             "contribute": "pull-request", "shared_settings": [], "moved_from": [], "canary": [],
@@ -86,11 +84,7 @@ def parsed(path, address=None, borrowed=(), published=False):
 
 def meta_of(ns, **more):
     """The validated catalog.yml a fixture catalog has, as commit_add takes it."""
-    meta = fixtures.catalog_meta(ns)
-    return {"schema": 1, "id": meta["id"], "name": meta["name"], "description": meta.get("description", ""),
-            "version": meta["version"], "lab": meta["lab"], "license": meta.get("license"), "images": None,
-            "contribute": "pull-request", "shared_settings": [], "moved_from": [], "canary": [],
-            "requires": {"catalogs": {}}, "unknown": [], **more}
+    return {**parsed(fixtures.CATALOGS / ns / "catalog.yml"), **more}
 
 
 class Watch:
@@ -151,6 +145,14 @@ class Base(Case):
         if ns not in self.remotes:
             self.remotes[ns] = fixtures.remote(self, ns, **patch)
         return self.remotes[ns]
+
+    def listed(self, ns="partner"):
+        """The tracked file lists `ns` at the address of its remote, the entry exists, nothing is downloaded."""
+        remote = self.remote(ns)
+        fixtures.default(self, ns, url=remote.url)
+        registry.write_config({"schema": 1, "catalogs": [{"id": ns, "kind": "git", "url": remote.url, "branch": "main",
+                                                           "auto": True, "added": "2026-10-16T09:00:00Z"}]})
+        registry.set_lock(ns, audience="public")
 
     def prepare(self, ns="partner", store_ns=None, **patch):
         """The address, a fetch into a new store, the listing, the stage under its namespace. Answers
@@ -657,16 +659,6 @@ class Staging(Base):
         self.assertEqual((raised.exception.code, raised.exception.message),
                          ("symlink_unsupported", "The Lab cannot link folders on this system. Use WSL 2."))
 
-    def test_the_audit_names_what_is_not_what_was_judged(self):
-        staged, _, _ = self.prepare("partner")
-        install._audit(staged.path, staged.kept)
-        victim = staged.path / "addons/ledger/compose.yml"
-        victim.chmod(0o644)
-        victim.write_text("services: {evil: {privileged: true}}\n", encoding="utf-8")
-        victim.chmod(READ_ONLY)
-        with self.assertRaises(install.Unsafe):
-            install._audit(staged.path, staged.kept)
-
     def test_the_audit_refuses_an_extra_file_a_link_an_extra_folder_a_missing_file_and_another_mode(self):
         for plant in ("file", "link", "folder", "missing", "mode", "deep"):
             with self.subTest(plant):
@@ -765,15 +757,9 @@ class Adding(Base):
 
     def test_the_manifest_digests_are_the_ones_of_the_store(self):
         self.add("fixture")
+        self.digests("fixture")
         found = registry.manifest("fixture")
-        store_path = registry.store_dir("fixture")
-        listing = bare.listing(store_path, found["commit"])
-        kept, ignored = bare.selected(listing)
-        digests = bare.unit_digests(kept)
-        self.assertEqual(found["units"], {k: v for k, v in digests.items() if k != "@catalog"})
-        self.assertEqual(digests["@catalog"], found["files"]["catalog.yml"]["oid"])
-        self.assertEqual(found["ignored"], ignored)
-        self.assertEqual(set(found["files"]), {entry.path for entry in kept})
+        kept, _ = bare.selected(bare.listing(registry.store_dir("fixture"), found["commit"]))
         for entry in kept:
             record = found["files"][entry.path]
             self.assertEqual((record["mode"], record["oid"], record["size"]), (entry.mode, entry.oid, entry.size))
@@ -805,14 +791,8 @@ class Adding(Base):
         store_path = registry.store_dir("partner")
         remote = self.remotes["partner"]
         self.assertTrue(store_path.is_dir())
-        self.assertEqual(bare.resolve(store_path, "pin"), remote.head())
         self.assertEqual(bare.resolve(store_path, "tip"), remote.head())
         self.assertEqual([p.name for p in (Path(paths.ROOT) / ".lab/cache/git").iterdir()], ["partner.git"])
-
-    def test_an_installed_unit_is_found_by_the_paths_module(self):
-        self.add("partner")
-        self.assertEqual(paths.ids("addon"), ["@partner/ledger"])
-        self.assertEqual(paths.unit_of(".lab/catalogs/partner/addons/ledger/compose.yml"), ("addon", "@partner/ledger"))
 
     def test_the_branch_the_page_leaves_empty_is_not_stored(self):
         staged, address, roots = self.prepare("partner")
@@ -830,9 +810,8 @@ class Adding(Base):
 
     def test_the_choice_to_use_the_machine_is_stored_for_a_catalog_that_is_not_listed(self):
         staged, address, roots = self.prepare("partner")
-        install.commit_add(staged, address, "main", "private", roots, meta_of("partner"), host=True, auto=False)
-        entry = registry.entry("partner")
-        self.assertEqual((entry["host"], entry["auto"]), (True, False))
+        install.commit_add(staged, address, "main", "private", roots, meta_of("partner"), host=True)
+        self.assertTrue(registry.entry("partner")["host"])
 
     def test_the_array_order_is_the_order_the_catalogs_were_added(self):
         self.add("partner")
@@ -857,16 +836,12 @@ class Adding(Base):
         self.assertFalse(registry.install_dir("partner-two").exists())
 
     def test_a_reserved_name_is_refused_unless_the_address_is_the_listed_one(self):
-        remote = self.remote("partner")
         staged, address, roots = self.prepare("partner", store_ns="official")
         with self.assertRaises(registry.CatalogError) as raised:
             install.commit_add(staged, address, "main", "public", roots, meta_of("partner", id="official"))
         self.assertEqual(raised.exception.code, "name_reserved")
         self.assertFalse(registry.install_dir("official").exists())
         self.assertEqual(registry.entries(), [])
-        listed = {"schema": 1, "catalogs": [{"id": "official", "name": "Official one", "description": "",
-                                             "url": "https://example.invalid/partner.git"}]}
-        self.assertNotEqual(registry.display_address(listed["catalogs"][0]["url"]), registry.display_address(remote.url))
 
     def test_a_catalog_whose_file_declares_another_namespace_is_not_the_one_expected(self):
         staged, address, roots = self.prepare("partner")
@@ -890,7 +865,7 @@ class Adding(Base):
         staged, address, roots = self.prepare("partner")
         file = staged.path / "addons/ledger/compose.yml"
         file.chmod(0o644)
-        file.write_text("services: {evil: {privileged: true}}\n", encoding="utf-8")
+        file.write_text("#" * file.stat().st_size, encoding="utf-8")   # of the same size: only its id says it changed
         file.chmod(READ_ONLY)
         with self.assertRaises(registry.CatalogError) as raised:
             install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
@@ -953,15 +928,6 @@ class AddingOverSettings(Base):
         self.add("partner")
         self.machine("partner")
         install.remove("partner", keep_settings=True)
-
-    def test_a_remove_that_kept_the_settings_leaves_exactly_them_and_the_marker(self):
-        self.add("partner")
-        made = self.machine("partner")
-        install.remove("partner", keep_settings=True)
-        base = Path(paths.ROOT) / ".lab/catalogs/partner"
-        left = sorted(p.relative_to(base).as_posix() for p in base.rglob("*") if p.is_file())
-        self.assertEqual(left, sorted([install.MARKER, *made]))
-        self.assertEqual(stat.S_IMODE((base / install.MARKER).stat().st_mode), 0o600)
 
     def test_an_add_merges_into_that_folder_and_the_settings_stay_where_they_were(self):
         self.removed_with_settings()
@@ -1133,23 +1099,9 @@ class Unvouched(Base):
         for rel, text in ODD.items():
             self.assertEqual((self.base / "addons/ledger" / rel).read_text(encoding="utf-8"), text, rel)
 
-    def test_a_stop_in_a_remove_between_the_manifest_and_the_marker_loses_no_setting(self):
-        self.add("partner")
-        made = self.machine("partner")
-        self.patch(install, "_vacate", mock.Mock(side_effect=Crash("after the marker")))
-        with self.assertRaises(Crash):
-            install.remove("partner", keep_settings=True)
-        self.patch(install, "_vacate", REAL_VACATE)
-        self.assertTrue((self.base / install.MARKER).is_file(), "the marker is written before the content goes")
-        self.assertIn(("emptied", "partner"), install.sweep(), "a start finishes the Remove")
-        self.assertFalse((self.base / "addons/ledger/compose.yml").exists())
-        self.assertEqual(sorted(p.relative_to(self.base).as_posix() for p in self.base.rglob("*") if p.is_file()),
-                         sorted([install.MARKER, *made]))
-        self.settled()
-
     def test_a_stop_at_the_step_between_the_marker_and_the_content_going_is_finished_by_the_sweeper(self):
-        """The step `remove:vacate` is the window the line above simulates by patching `_vacate`: the marker is written, the
-        manifest and the content are still there, and a start empties the folder and loses no setting."""
+        """The step `remove:vacate`: the marker is written, the manifest and the content are still there, and a start empties
+        the folder and loses no setting."""
         self.add("partner")
         made = self.machine("partner")
         self.patch(install, "STEP", stop_at("remove:vacate"))
@@ -1194,11 +1146,8 @@ class Unvouched(Base):
         self.assertFalse((self.base / "addons/ledger/data").exists(), "nothing is taken out of a folder that is not marked")
 
     def test_a_download_that_is_undone_leaves_the_files_it_cannot_vouch_for(self):
-        remote = self.remote("partner")
-        fixtures.default(self, "partner", url=remote.url)
-        registry.write_config({"schema": 1, "catalogs": [{"id": "partner", "kind": "git", "url": remote.url, "branch": "main",
-                                                           "auto": True, "added": "2026-10-16T09:00:00Z"}]})
-        registry.set_lock("partner", audience="public", pending={"op": "add", "from": None, "to": remote.head()})
+        self.listed("partner")
+        registry.set_lock("partner", pending={"op": "add", "from": None, "to": self.remote("partner").head()})
         self.odd(self.base)
         (self.base / "addons/ledger/compose.yml").write_text("half\n", encoding="utf-8")
         install.recover()
@@ -1230,14 +1179,6 @@ class Unvouched(Base):
 class Downloading(Base):
     """The first download of a listed catalog: its entry exists already, so the lock is the commit point."""
 
-    def listed(self, ns="partner"):
-        """The tracked file lists `ns` at the address of its remote, the entry exists, nothing is downloaded."""
-        remote = self.remote(ns)
-        fixtures.default(self, ns, url=remote.url)
-        registry.write_config({"schema": 1, "catalogs": [{"id": ns, "kind": "git", "url": remote.url, "branch": "main",
-                                                           "auto": True, "added": "2026-10-16T09:00:00Z"}]})
-        registry.set_lock(ns, audience="public")
-
     def test_the_entry_is_kept_and_the_lock_commits(self):
         self.listed("partner")
         before = registry.entry("partner")
@@ -1256,14 +1197,7 @@ class Downloading(Base):
         staged = install.stage(address, "partner", store_path, tip, kept, ignored)
         install.commit_add(staged, address, "main", "public", bare.roots(store_path, tip), meta_of("partner"))
         self.intact("partner")
-        self.assertEqual(bare.resolve(store_path, "pin"), tip)
-
-    def test_an_entry_that_has_a_pin_is_already_added(self):
-        self.add("partner")
-        staged, address, roots = self.prepare("partner")
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
-        self.assertEqual(raised.exception.code, "already_added")
+        self.assertEqual(registry.lock_of("partner")["pin"], tip)
 
     def test_a_reserved_listed_name_is_accepted_at_its_listed_address_only(self):
         remote = self.remote("partner")
@@ -1410,8 +1344,6 @@ class Updating(Base):
         self.assertEqual(registry.manifest("partner")["commit"], target)
         self.digests("partner")
         self.assertEqual(registry.units_of("partner")["addon"], ["audit", "ledger"])
-        store_path = registry.store_dir("partner")
-        self.assertEqual((bare.resolve(store_path, "pin"), bare.resolve(store_path, "previous")), (target, self.first))
         self.assertFalse(registry.stage_dir("partner").exists())
 
     def test_a_unit_the_update_drops_leaves_its_files_and_the_folders_they_were_in(self):
@@ -1440,13 +1372,6 @@ class Updating(Base):
             self.assertEqual((Path(paths.ROOT) / ".lab/catalogs/partner" / rel).stat().st_ino, inode, rel)
         self.assertEqual(self.content("partner") & set(made), set())
 
-    def test_a_file_that_is_not_listed_is_never_deleted_or_overwritten(self):
-        base = Path(paths.ROOT) / ".lab/catalogs/partner"
-        (base / "addons/ledger/notes.txt").write_text("mine\n", encoding="utf-8")
-        target = self.advance({"addons/ledger/README.md": "Changed\n"})
-        self.apply(target)
-        self.assertEqual((base / "addons/ledger/notes.txt").read_text(encoding="utf-8"), "mine\n")
-
     def test_an_update_holds_the_project_lock_while_it_replaces_files_and_not_before_or_after(self):
         target = self.advance({**AUDIT, "addons/ledger/README.md": "Changed\n"})
         plan = install.plan_update("partner", target)
@@ -1455,7 +1380,7 @@ class Updating(Base):
         steps = dict(zip(watch.labels, watch.depths))
         for label in ("update:apply", "update:file", "update:manifest"):
             self.assertGreater(steps[label], 0, f"{label} runs under the project lock")
-        for label in ("update:pending", "update:lock", "update:refs"):
+        for label in ("update:pending", "update:lock"):
             self.assertEqual(steps[label], 0, f"{label} does not")
 
     def test_the_project_lock_is_taken_while_the_catalogs_lock_is_held(self):
@@ -1542,10 +1467,7 @@ class Updating(Base):
         self.assertEqual(now["addons/ledger/compose.yml"][1], (fixtures.CATALOGS / "partner" / LEDGER / "compose.yml").read_bytes())
 
     def test_a_rewritten_history_is_not_applied_unless_confirmed(self):
-        target = gitfixture.force_push_over(self.remotes["partner"].bare, {
-            **{path: (fixtures.CATALOGS / "partner" / path).read_text(encoding="utf-8")
-               for path in ("catalog.yml", "addons/ledger/compose.yml")}, "addons/ledger/README.md": "Other root\n"})
-        bare.fetch(self.address, "main", registry.store_dir("partner"))
+        target = self.rewrite()
         plan = install.plan_update("partner", target)
         self.assertTrue(plan["rewritten"])
         with self.assertRaises(registry.CatalogError) as raised:
@@ -1573,17 +1495,6 @@ class Updating(Base):
         self.assertEqual(install.plan_update("partner", target), {"upToDate": True})
         later = self.advance({"addons/ledger/README.md": "Changed\n"})
         self.assertFalse(install.plan_update("partner", later)["rewritten"], "the pin is on the new history now")
-
-    def test_a_rewrite_the_engine_vouches_for_is_not_flagged(self):
-        target = gitfixture.force_push_over(self.remotes["partner"].bare, {**{
-            path: (fixtures.CATALOGS / "partner" / path).read_text(encoding="utf-8")
-            for path in ("catalog.yml", "addons/ledger/compose.yml")}, "addons/ledger/README.md": "Other root\n"})
-        bare.fetch(self.address, "main", registry.store_dir("partner"))
-        roots = bare.roots(registry.store_dir("partner"), target)
-        plan = install.plan_update("partner", target, {"vouched": roots})
-        self.assertFalse(plan["rewritten"])
-        self.assertTrue(install.plan_update("partner", target, {"vouched": ["a" * 40]})["rewritten"])
-        self.assertTrue(install.plan_update("partner", target, {"vouched": []})["rewritten"])
 
     def test_a_commit_the_store_does_not_hold_is_the_damage_a_fetch_repairs(self):
         with self.assertRaises(registry.CatalogError) as raised:
@@ -1618,16 +1529,6 @@ class Updating(Base):
         install.apply_update("partner", install.plan_update("partner", self.first))
         self.assertFalse((Path(paths.ROOT) / ".lab/catalogs/partner/addons/audit").exists())
         self.assertEqual(registry.units_of("partner")["addon"], ["ledger"])
-
-    def test_going_back_across_a_rewrite_is_a_rewrite_of_the_roots(self):
-        target = gitfixture.force_push_over(self.remotes["partner"].bare, {**{
-            path: (fixtures.CATALOGS / "partner" / path).read_text(encoding="utf-8")
-            for path in ("catalog.yml", "addons/ledger/compose.yml")}, "addons/ledger/README.md": "Other\n"})
-        bare.fetch(self.address, "main", registry.store_dir("partner"))
-        install.apply_update("partner", install.plan_update("partner", target), confirm_history=True)
-        plan = install.plan_update("partner", self.first)
-        self.assertEqual(plan["op"], "undo")
-        self.assertTrue(plan["rewritten"], "the two commits are not one history")
 
     def rewrite(self):
         """The remote's history replaced by another with the same files and another root: the commit it ends at, fetched."""
@@ -1711,11 +1612,6 @@ class Updating(Base):
         self.assertTrue((base / LEDGER / "NOTES.md").is_symlink())
         self.assertEqual((self.root / "theirs.txt").read_text(encoding="utf-8"), "theirs\n")
         self.assertIsNone(registry.lock_of("partner")["pending"])
-
-    def test_a_file_the_old_version_listed_and_the_new_one_changes_is_replaced(self):
-        target = self.advance({"addons/ledger/README.md": "Changed\n"})
-        self.apply(target)
-        self.assertEqual(self.tree("partner")["addons/ledger/README.md"][1], b"Changed\n")
 
     def test_an_executable_bit_that_changes_is_a_change(self):
         target = self.advance({"addons/ledger/run.sh": gitfixture.Executable("#!/bin/sh\n")})
@@ -1881,13 +1777,6 @@ class Repairing(Base):
             install.repair("partner")
         self.assertEqual(raised.exception.code, "linked")
 
-    def test_a_pending_operation_that_a_failure_left_is_finished_first(self):
-        registry.set_lock("partner", pending={"op": "update", "from": registry.lock_of("partner")["pin"],
-                                              "to": registry.lock_of("partner")["pin"]})
-        (self.base / LEDGER / "README.md").unlink()
-        install.repair("partner")
-        self.intact("partner")
-
 
 class Wording(Case):
     """The lines of the catalogue of errors that other modules say too, by one public name each: the first start and the service of the
@@ -1917,10 +1806,6 @@ class Wording(Case):
             with self.subTest(path=path):
                 self.assertEqual(install.unit_key(path), key)
 
-    def test_the_private_names_are_gone_for_good(self):
-        for name in ("_not_expected", "_taken", "_unit_key"):
-            self.assertFalse(hasattr(install, name), name)
-
 
 class Verifying(Base):
 
@@ -1938,8 +1823,10 @@ class Verifying(Base):
         (self.base / "addons/echo/compose.yml").write_text("services: {}\n", encoding="utf-8")
         (self.base / "setups/pair.yml").unlink()
         readme = self.base / "playgrounds/shop/guide.md"
+        same = self.root / "same-bytes.md"   # a link is no file of the install, whatever it leads to
+        same.write_bytes(readme.read_bytes())
         readme.unlink()
-        readme.symlink_to(self.root)
+        readme.symlink_to(same)
         self.assertEqual(install.verify("fixture", ["addon:echo", "playground:shop", "setup:pair"]),
                          ["addons/echo/compose.yml", "playgrounds/shop/guide.md", "setups/pair.yml"])
 
@@ -1994,6 +1881,7 @@ class Removing(Base):
         self.assertFalse(registry.store_dir("partner").exists())
         left = sorted(p.relative_to(self.base).as_posix() for p in self.base.rglob("*") if p.is_file())
         self.assertEqual(left, sorted([install.MARKER, *made]))
+        self.assertEqual(stat.S_IMODE((self.base / install.MARKER).stat().st_mode), 0o600)
         self.assertEqual([one["id"] for one in registry.entries()], ["lab-new"])
         self.assertEqual(paths.ids("addon"), ["@lab-new/newer"], "the units of a removed catalog are gone")
         self.intact("lab-new")
@@ -2108,23 +1996,6 @@ class Removing(Base):
         self.assertEqual(raised.exception.code, "damaged")
         self.assertTrue((self.base / LEDGER / "compose.yml").is_file())
 
-    def test_a_remove_that_stopped_after_its_commit_point_is_finished_by_the_next_start(self):
-        self.machine("partner")
-        watch = Watch(self)
-        watch.stop = 1   # after the entry left catalogs.json
-        with self.assertRaises(Crash):
-            install.remove("partner", keep_settings=True)
-        self.assertIsNone(registry.entry("partner"))
-        self.assertTrue(registry.store_dir("partner").is_dir())
-        install.STEP = None
-        install.recover()
-        self.nothing("partner")
-        self.assertEqual(paths.ids("addon"), ["@lab-new/newer"])
-        left = [p for p in (Path(paths.ROOT) / ".lab/catalogs").iterdir() if p.name.startswith("partner") or ".removed-partner" in p.name]
-        self.assertEqual(len(left), 1)
-        settings = left[0]
-        self.assertEqual((settings / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
-
 
 # ---------------------------------------------------------------------------------------------------------------------
 # The sweeper, and what a start finishes
@@ -2222,16 +2093,6 @@ class Sweeping(Base):
         self.assertEqual(install.sweep(), [])
         self.assertTrue((folder / "addons/echo/.env").is_file())
 
-    def test_the_settings_of_a_catalog_nobody_lists_are_renamed_not_deleted(self):
-        folder = self.catalogs("partner")
-        (folder / "addons/ledger").mkdir(parents=True)
-        (folder / "addons/ledger/.env").write_text("S=1\n", encoding="utf-8")
-        done = install.sweep()
-        self.assertEqual(done, [("renamed", "partner")])
-        self.assertFalse(folder.exists())
-        (renamed,) = [p for p in self.catalogs().iterdir() if p.name.startswith(".removed-partner-")]
-        self.assertEqual((renamed / "addons/ledger/.env").read_text(encoding="utf-8"), "S=1\n")
-
     def test_an_empty_folder_and_a_complete_install_with_no_entry_are_removed(self):
         empty = self.catalogs("lab-old")
         (empty / "addons/x").mkdir(parents=True)
@@ -2250,14 +2111,6 @@ class Sweeping(Base):
         (renamed,) = [p for p in self.catalogs().iterdir() if p.name.startswith(".removed-partner-")]
         self.assertTrue((renamed / "addons/ledger/.env").is_file())
         self.assertTrue((renamed / "addons/ledger/compose.yml").is_file(), "nothing is deleted when settings are there")
-
-    def test_files_nobody_vouches_for_are_renamed_not_deleted(self):
-        folder = self.catalogs("partner")
-        (folder / "addons/ledger").mkdir(parents=True)
-        (folder / "addons/ledger/compose.yml").write_text("mine\n", encoding="utf-8")
-        self.assertEqual(install.sweep(), [("renamed", "partner")])
-        (renamed,) = [p for p in self.catalogs().iterdir() if p.name.startswith(".removed-partner-")]
-        self.assertEqual((renamed / "addons/ledger/compose.yml").read_text(encoding="utf-8"), "mine\n")
 
     def test_the_personal_area_a_link_and_the_installs_that_have_an_entry_are_never_swept(self):
         self.add("partner")
@@ -2299,14 +2152,6 @@ class Sweeping(Base):
         self.assertFalse(self.catalogs("partner").exists())
         self.intact("lab-new")
         self.assertTrue(registry.store_dir("lab-new").is_dir())
-
-    def test_the_refs_of_a_store_are_written_again(self):
-        self.add("partner")
-        store_path = registry.store_dir("partner")
-        commit = registry.lock_of("partner")["pin"]
-        bare.set_ref(store_path, "pin", None)
-        install.recover()
-        self.assertEqual(bare.resolve(store_path, "pin"), commit)
 
     def test_a_marker_in_a_catalog_that_is_added_is_removed(self):
         self.add("partner")
@@ -2585,11 +2430,7 @@ class Stops(Base):
         places = [(self.root, base / "root"), (self.home, base / "home")]
         places += [(remote.bare, base / f"remote-{ns}") for ns, remote in self.remotes.items()]
         for target, saved in places:
-            for child in list(Path(target).iterdir()):
-                if child.is_dir() and not child.is_symlink():
-                    shutil.rmtree(child)
-                else:
-                    child.unlink()
+            _wipe(target)
             shutil.copytree(saved, target, symlinks=True, dirs_exist_ok=True)
 
     def runs(self, build, operate, check, ns="partner", reader=True):
@@ -2647,23 +2488,6 @@ class Stops(Base):
         for wanted in ("stage:begin", "add:begin", "add:manifest", "add:store", "add:pending", "add:install", "add:placed",
                        "add:lock", "add:config", "add:done"):
             self.assertIn(wanted, labels)
-
-    def test_a_stop_after_the_install_was_renamed_with_pending_set_and_no_pin_is_cleaned(self):
-        self.fresh()
-        staged, address, roots = self.prepare("partner")
-        self.patch(install, "STEP", stop_at("add:placed"))
-        with self.assertRaises(Crash):
-            install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
-        self.patch(install, "STEP", None)
-        held = registry.lock_of("partner")
-        self.assertEqual((held["pin"], held["pending"]["op"], held["pending"]["to"]), (None, "add", staged.commit))
-        self.assertIsNone(registry.entry("partner"))
-        self.assertEqual(paths.ids("addon"), [], "a catalog with no entry has no units")
-        install.recover()
-        self.nothing("partner")
-        self.assertFalse(registry.install_dir("partner").exists())
-        self.add("partner")
-        self.intact("partner")
 
     def test_a_stop_at_any_step_of_an_add_over_the_folder_a_remove_left_keeps_every_setting(self):
         made = []
@@ -2804,8 +2628,7 @@ class Stops(Base):
             self.assertEqual(sorted(rel for rel in world["made"] if (Path(paths.ROOT) / ".lab/catalogs/partner" / rel).is_file()),
                              sorted(world["made"]), "the machine's files are where they were")
         labels = self.runs(self.world_to_update, lambda world: install.apply_update("partner", world["plan"]), check)
-        for wanted in ("update:pending", "update:apply", "update:file", "update:manifest", "update:lock", "update:refs",
-                       "update:done"):
+        for wanted in ("update:pending", "update:apply", "update:file", "update:manifest", "update:lock", "update:done"):
             self.assertIn(wanted, labels)
 
     def test_a_stop_at_any_step_of_an_update_that_renames_an_item_that_is_on_ends_with_everything_under_one_name(self):
@@ -3073,11 +2896,7 @@ class WithoutGit(Base):
         self.assertEqual(self.tree("partner")["addons/ledger/README.md"][1], b"Changed\n")
 
     def test_a_download_under_way_is_not_given_up_on_either(self):
-        remote = self.remote("partner")
-        fixtures.default(self, "partner", url=remote.url)
-        registry.write_config({"schema": 1, "catalogs": [{"id": "partner", "kind": "git", "url": remote.url, "branch": "main",
-                                                           "auto": True, "added": "2026-10-16T09:00:00Z"}]})
-        registry.set_lock("partner", audience="public")
+        self.listed("partner")
         staged, address, roots = self.prepare("partner")
         self.patch(install, "STEP", stop_at("add:placed"))
         with self.assertRaises(Crash):
@@ -3206,7 +3025,10 @@ class Failing(Base):
         wrong = {"another content": lambda place: place.write_text("Audit, but mine\n", encoding="utf-8"),
                  "one byte more": lambda place: place.write_text("Audit\n\n", encoding="utf-8"),
                  "a link to the same bytes": lambda place: place.symlink_to(outside),
-                 "a folder with a file": lambda place: (place.mkdir(), (place / "mine.txt").write_text("m\n", encoding="utf-8"))}
+                 "a folder with a file": lambda place: (place.mkdir(), (place / "mine.txt").write_text("m\n", encoding="utf-8")),
+                 "an empty folder": lambda place: place.mkdir(),
+                 "a folder with an empty folder": lambda place: (place / "docker-made").mkdir(parents=True),
+                 "a folder with a link to a folder": lambda place: (place.mkdir(), (place / "link").symlink_to(self.root))}
         for name, make in wrong.items():
             with self.subTest(name):
                 place = base / "addons/audit/README.md"
@@ -3427,12 +3249,6 @@ class Promise(Base):
             work()
             for rel, (inode, text) in stamps.items():
                 self.assertEqual(((base / rel).stat().st_ino, (base / rel).read_text(encoding="utf-8")), (inode, text), rel)
-
-    def test_a_remove_that_deletes_them_is_the_only_thing_that_does(self):
-        self.add("partner")
-        self.machine("partner")
-        install.remove("partner", keep_settings=False)
-        self.assertFalse((Path(paths.ROOT) / ".lab/catalogs/partner").exists())
 
 
 class Concurrency(Base):

@@ -84,7 +84,7 @@ const submit = { hidden: false, reason: "" };   // Create, or Save: hidden for a
 const chosen = { how: "form", catalog: "" };
 
 // The catalogs an item can be made in besides this machine: those that are folders of the person's, which can be written
-const editable = () => catalogRows().filter((c) => c.kind === "folder" && c.writable);
+const editable = () => catalogRows().filter((c) => c.kind === "folder");
 const nameOf = (id) => editable().find((c) => c.id === id)?.name || id;
 
 // What the checklist was drawn for, so that it is drawn again when the catalogs arrive or fail while the dialog is open, and not at every

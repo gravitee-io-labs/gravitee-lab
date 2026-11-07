@@ -14,7 +14,7 @@ build needs the credentials of their own private base images; the untrusted lane
 - Only the build keys of the T18 allow-list are accepted: `context`, `dockerfile`, `args`, `target`, `labels`. Any other key is
   BD02, the service is not built, and the others still are (one run lists everything to fix). The allow-list is default-deny,
   which a deny list is not: `dockerfile_inline`, `extra_hosts`, `cache_from`, `ulimits` and `pull` pass a list of `ssh`, `secrets`
-  and `network`. `additional_contexts` is for the Lab's seeder, which is not built here.
+  and `network`.
 - A service built from the Lab's seeder is the Lab's own code, tested in the Lab's CI: it is left out.
 - A service with a `build:` and no `image:` is built too, under a name of this stage's own (`lab-ci/<kind>-<unit>-<service>:ci`,
   `local_tag`), and tested under it: the Lab builds such a service when it runs it, and a Dockerfile that is never built in CI
@@ -40,7 +40,7 @@ import time
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from ...docker import compose
-from .. import explain, report, trust
+from .. import report, trust
 from ..report import ERROR, Problem
 from ..rules.images import repository
 from . import (BD01_PLAIN, DOCKER_DOWN, IMAGE_NAME, Loaded, Unavailable, cell, conclude, docker_ready, entry, fence, load, megabytes,
@@ -107,15 +107,7 @@ def allowed() -> frozenset:
 def t18(path: str, service: str, variant: int = 0) -> Problem:
     """The trust policy's own T18 finding for a build that leaves the catalog or the pin: its reason and its fix, in the Lab's words."""
     reason = trust.RULES["T18"]["lines"][variant]
-    fix = (getattr(trust, "FIXES", None) or explain.T_FIXES).get("T18", "")
-    return Problem("T18", ERROR, path, 0, f"{service}: {reason}. Fix: {fix}".rstrip())
-
-
-def pinned(context: str) -> bool:
-    """Whether a remote build context is a git repository at a commit: a git address, then # and 40 hexadecimal characters (T18)."""
-    address, _, ref = context.partition("#")
-    git = address.endswith(".git") or address.startswith(("git@", "git://", "ssh://", "github.com/"))
-    return bool(git and trust.PINNED.fullmatch(ref))
+    return Problem("T18", ERROR, path, 0, f"{service}: {reason}. Fix: {trust.FIXES['T18']}")
 
 
 def inside(path: str, root: str) -> bool:
@@ -183,7 +175,7 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
         return None, [], Row(unit.key, name, "", "skipped", note="no image name to give the build")
     if REMOTE.match(context):
         remote = True
-        if not pinned(context):   # a git repository at a commit, or not at all (T18)
+        if not trust.pinned(context):   # a git repository at a commit, or not at all (T18)
             return None, [t18(where, name, 1)], Row(unit.key, name, image, "refused", note="its context is not pinned")
     elif os.path.isabs(context):
         real = os.path.realpath(context)

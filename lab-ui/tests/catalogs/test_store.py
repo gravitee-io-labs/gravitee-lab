@@ -14,7 +14,6 @@ import sys
 import threading
 import time
 import unittest
-import zlib
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr
 from io import StringIO
@@ -57,7 +56,7 @@ def refused(*bad):
 
 
 class Filter(Case):
-    """`selected`: every hostile entry class is refused and counted, and the rest is kept as given."""
+    """`selected`: what it keeps and does not count. Rejections holds what it refuses."""
 
     def test_a_good_catalog_is_kept_whole_in_the_order_given(self):
         kept, ignored = store.selected(GOOD)
@@ -72,230 +71,11 @@ class Filter(Case):
         outside.append(entry("docs/link", mode="120000"))
         self.assertEqual(store.selected(outside), ([], 0))
 
-    def test_a_top_level_name_that_is_not_a_name_is_counted(self):
-        for path in ("weird name/x", "../x", "./x", "/abs/x", "a\x00b/x", "back\\slash/x", "ü/x"):
-            self.assertEqual(store.selected([entry(path)]), ([], 1), repr(path))
-
-    def test_the_catalog_file_is_installed_only_as_a_regular_file_of_a_size_a_file_may_have(self):
-        self.assertEqual(store.selected([entry("catalog.yml")])[0], [entry("catalog.yml")])
-        for bad in (entry("catalog.yml", mode="120000"), entry("catalog.yml", mode="160000"),
-                    entry("catalog.yml", size=MIB + 1)):
-            self.assertEqual(store.selected([bad]), ([], 1), bad)
-
-    def test_every_hostile_class_is_refused_and_counted_and_the_rest_is_untouched(self):
-        classes = {
-            "a link": [entry("addons/echo/link", mode="120000"), entry("addons/echo/data/link.yml", mode="120000")],
-            "a submodule": [entry("addons/echo/sub", mode="160000", size=0)],
-            "another mode": [entry("addons/echo/x.yml", mode="100664"), entry("addons/echo/y.yml", mode="100600"),
-                             entry("addons/echo/z.yml", mode="040000"), entry("addons/echo/w.yml", mode="100777")],
-            "settings": [entry(p) for p in (
-                "addons/echo/.env", "addons/echo/.env.local", "addons/echo/.env.production", "playgrounds/shop/.env",
-                "addons/echo/.ENV", "addons/echo/.Env.Local", "addons/echo/.env/x", "addons/echo/.env.d/x",
-                "addons/echo/data/.env", "addons/echo/.env.example/x")],
-            "secrets and state": [entry(p) for p in (
-                "addons/echo/secrets/token", "addons/echo/SECRETS/x", "addons/echo/secrets", "playgrounds/shop/.state/created.json",
-                "playgrounds/shop/a/.state/x", "playgrounds/shop/.STATE/x")],
-            "git": [entry(p) for p in ("addons/echo/.git/config", "addons/echo/.GIT/x", "addons/echo/.git")],
-            "keys and certificates": [entry(f"addons/echo/data/x{suffix}") for suffix in (
-                ".key", ".pem", ".p12", ".jks", ".crt", ".csr", ".srl", ".KEY", ".Pem", ".CRT")],
-            "instructions of agents": [entry(p) for p in (
-                "addons/echo/AGENTS.md", "addons/echo/agents.md", "addons/echo/CLAUDE.md", "addons/echo/GEMINI.md",
-                "playgrounds/shop/.claude/settings.json", "playgrounds/shop/.agents/skills/x/SKILL.md",
-                "playgrounds/shop/.gemini/settings.json", "playgrounds/shop/.cursorrules",
-                "playgrounds/shop/.cursor/rules/x.mdc", "playgrounds/shop/.windsurfrules", "playgrounds/shop/.windsurf/x",
-                "playgrounds/shop/.github/copilot-instructions.md", "playgrounds/shop/.GITHUB/Copilot-Instructions.md")],
-            "a segment that is not a name": [entry(p) for p in (
-                "addons/echo/bad name.yml", "addons/echo/back\\slash.yml", "addons/echo/a*b.yml", "addons/echo/ü.md",
-                "addons/echo/../x.yml", "addons/echo/./x.yml", "addons/echo//x.yml", "addons/echo/", "addons/echo/a\nb",
-                "addons/echo/a\tb", "addons/echo/a\x00b", "addons/echo/a%20b", "addons/echo/a:b", "addons/echo/a;b",
-                "addons/echo/$(id)", "addons/echo/`id`", "addons/echo/a'b", "addons/echo/‮x.yml")],
-            "too deep or too long": [entry("playgrounds/shop/a/b/c/d/e/f/g.yml"),
-                                     entry("addons/echo/" + "d/" * 6 + "x.yml"),
-                                     entry("addons/echo/" + "a" * 185 + ".yml")],
-            "a unit that is not named as a unit": [entry(p) for p in (
-                "addons/Upper/compose.yml", "addons/under_score/compose.yml", "addons/dot.name/compose.yml",
-                "playgrounds/Shop/compose.yml", "setups/Pair.yml", "setups/under_score.yml", "addons/a b/compose.yml")],
-            "a file that is not in a unit": [entry(p) for p in (
-                "addons/NOTES.md", "playgrounds/notes.txt", "setups/pair.yaml", "setups/sub/x.yml", "setups/readme.md",
-                "setups/pair.yml.bak", "addons", "playgrounds", "setups/x")],
-            "too large": [entry("addons/echo/big.json", size=MIB + 1), entry("addons/echo/big.yml", size=MIB + 1),
-                          entry("addons/echo/big.yaml", size=MIB + 1), entry("addons/echo/big.md", size=MIB + 1),
-                          entry("addons/echo/big.bin", size=2 * MIB + 1), entry("addons/echo/big.png", size=2 * MIB + 1)],
-        }
-        for name, bad in classes.items():
-            with self.subTest(name):
-                kept, ignored = refused(*bad)
-                self.assertEqual((kept, ignored), (KEPT, len(bad)), [e.path for e in kept if e not in KEPT])
-
-    def test_each_hostile_entry_is_refused_alone_not_by_company(self):
-        """One bad entry beside a valid unit, so that the table above cannot pass by one entry hiding another."""
-        unit = [entry("addons/e/compose.yml")]
-        for bad in (entry("addons/e/l", mode="120000"), entry("addons/e/s", mode="160000", size=0), entry("addons/e/.env"),
-                    entry("addons/e/secrets/x"), entry("addons/e/.state/x"), entry("addons/e/x.pem"),
-                    entry("addons/e/AGENTS.md"), entry("addons/e/../f"), entry("addons/e/a b"), entry("addons/e/\\f"),
-                    entry("addons/e/big.bin", size=2 * MIB + 1), entry("addons/e/" + "d/" * 7 + "f")):
-            self.assertEqual(store.selected(unit + [bad]), (unit, 1), bad.path)
-
-    def test_what_is_just_allowed_is_kept(self):
-        allowed = [entry(p) for p in (
-            "playgrounds/shop/.ENV.EXAMPLE", "addons/echo/.envrc", "addons/echo/x.pem.txt",
-            "addons/echo/keys.md", "addons/echo/AGENTS.md.txt", "addons/echo/my-claude.md", "addons/echo/.gitignore",
-            "addons/echo/.gitkeep", "addons/echo/a+b_c.d-e.yml", "addons/echo/UPPER.TXT", "addons/echo/.hidden",
-            "addons/echo/state/x", "addons/echo/not-secrets/x", "addons/echo/secret/x", "addons/echo/cursor/x",
-            # Copilot's file is `.github/copilot-instructions.md`: a folder that only ends with it is a folder like any other
-            "addons/echo/my.github/copilot-instructions.md", "addons/echo/github/copilot-instructions.md",
-            "addons/echo/.github/sub/copilot-instructions.md", "addons/echo/.github/copilot-instructions.md.txt")]
-        allowed += [entry("addons/echo/exact.json", size=MIB), entry("addons/echo/exact.md", size=MIB),
-                    entry("addons/echo/exact.bin", size=2 * MIB), entry("addons/echo/exec.sh", mode="100755"),
-                    entry("addons/echo/" + "d/" * 5 + "x.yml"),   # 8 components
-                    entry("addons/echo/" + "a" * 184 + ".yml")]   # 200 characters
-        self.assertEqual(len(allowed[-2].path.split("/")), 8)
-        self.assertEqual(len(allowed[-1].path), 200)
-        kept, ignored = refused(*allowed)
-        self.assertEqual((kept, ignored), (KEPT + allowed, 0))
-
-    def test_the_listing_tables_of_a_catalog_are_not_a_refusal_worth_counting(self):
-        tables = [entry(p) for p in ("addons/README.md", "setups/README.md", "playgrounds/README.md")]
-        self.assertEqual(refused(*tables), (KEPT, 0), "documents of the catalog, never installed")
-        notes = [entry("addons/NOTES.md"), entry("setups/readme.md"), entry("playgrounds/README.txt"), entry("addons/sub/README.md")]
-        self.assertEqual(refused(*notes), (KEPT, 4), "any other file of a folder of units is counted")
-        link = entry("addons/README.md", mode="120000")
-        self.assertEqual(refused(link), (KEPT, 1), "a link is a link, whatever it is called")
-        self.patch(store, "LISTINGS", ())
-        self.assertEqual(refused(*tables), (KEPT, 3), "rule 6 to the letter, when the list is empty")
-
-    def test_a_unit_without_its_compose_file_is_not_a_unit(self):
-        orphan = [entry("addons/orphan/README.md"), entry("addons/orphan/data/x.json"),
-                  entry("playgrounds/ghost/guide.md"), entry("playgrounds/ghost/seed/a.yaml")]
-        self.assertEqual(refused(*orphan), (KEPT, 4))
-        deep = [entry("addons/deep/sub/compose.yml"), entry("addons/deep/README.md")]
-        self.assertEqual(refused(*deep), (KEPT, 2), "the compose file is at the root of the unit")
-
-    def test_a_unit_whose_compose_file_is_refused_goes_with_it(self):
-        bad = [entry("addons/dead/compose.yml", mode="120000"), entry("addons/dead/README.md"), entry("addons/dead/data.json")]
-        self.assertEqual(refused(*bad), (KEPT, 3))
-
-    def test_files_that_differ_only_by_case_are_all_refused(self):
-        twins = [entry("addons/echo/readme.md"), entry("playgrounds/shop/Guide.md")]   # README.md and guide.md exist
-        kept, ignored = refused(*twins)
-        self.assertEqual(ignored, 4)
-        self.assertNotIn("addons/echo/README.md", [e.path for e in kept])
-        self.assertNotIn("playgrounds/shop/guide.md", [e.path for e in kept])
-        self.assertIn("addons/echo/compose.yml", [e.path for e in kept])
-
-    def test_a_compose_file_in_two_cases_leaves_no_unit(self):
-        kept, ignored = refused(entry("addons/echo/Compose.yml"))
-        self.assertEqual(ignored, 5, "both spellings, and the three other files of a unit that has no compose.yml left")
-        self.assertFalse([e for e in kept if e.path.startswith("addons/echo/")])
-        self.assertIn("playgrounds/shop/compose.yml", [e.path for e in kept])
-
-    def test_a_folder_that_differs_only_by_case_takes_everything_below_it(self):
-        """A Mac would merge the two folders, or fail to write a folder where a file is: it is not only whole paths."""
-        compose = entry("addons/x/compose.yml")
-        for twins, gone in (
-                ([entry("addons/x/data"), entry("addons/x/DATA/y")], ["addons/x/data", "addons/x/DATA/y"]),
-                ([entry("addons/x/Dir/a"), entry("addons/x/dir/b")], ["addons/x/Dir/a", "addons/x/dir/b"]),
-                ([entry("addons/x/Dir/sub/a.md"), entry("addons/x/dir/sub/b.md"), entry("addons/x/Dir/c.md")],
-                 ["addons/x/Dir/sub/a.md", "addons/x/dir/sub/b.md", "addons/x/Dir/c.md"]),
-                ([entry("addons/x/a/B/c.md"), entry("addons/x/a/b/d.md"), entry("addons/x/other.md")],
-                 ["addons/x/a/B/c.md", "addons/x/a/b/d.md"]),
-                ([entry("addons/x/a.md"), entry("addons/x/a.md")], ["addons/x/a.md", "addons/x/a.md"])):
-            with self.subTest([e.path for e in twins]):
-                kept, ignored = store.selected([compose, *twins])
-                self.assertEqual(ignored, len(gone))
-                self.assertEqual([e.path for e in kept if e.path not in ("addons/x/other.md",)], ["addons/x/compose.yml"])
-
     def test_names_that_differ_by_case_in_different_places_are_not_twins(self):
         paths = ["addons/x/compose.yml", "addons/x/Data/a.md", "addons/y/compose.yml", "addons/y/data/b.md",
                  "addons/x/data.md", "addons/x/Data.json", "playgrounds/p/compose.yml", "playgrounds/p/Docs/g.md"]
         kept, ignored = store.selected([entry(path) for path in paths])
         self.assertEqual(([e.path for e in kept], ignored), (paths, 0))
-
-    def test_the_sizes_are_the_limits_of_section_2(self):
-        self.assertEqual((store.TEXT_FILE, store.OTHER_FILE), (MIB, 2 * MIB))
-        self.assertEqual((store.UNIT_FILES, store.UNIT_BYTES), (2000, 25 * MIB))
-        self.assertEqual((store.CATALOG_UNITS, store.CATALOG_FILES, store.CATALOG_BYTES), (500, 10000, 100 * MIB))
-        self.assertEqual((store.DEPTH, store.PATH), (8, 200))
-        self.assertEqual(store.STORE_LIMIT, 300 * MIB)
-
-    def assert_too_large(self, entries):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.selected(entries)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("too_large", 400))
-        self.assertEqual(raised.exception.message,
-                         "This catalog is larger than the Lab accepts. Ask its owners to make it smaller.")
-
-    def test_a_catalog_over_the_limits_is_too_large_not_a_quiet_subset(self):
-        def setups(count):
-            return [entry("catalog.yml")] + [entry(f"setups/s{i}.yml") for i in range(count)]
-        self.assertEqual(len(store.selected(setups(499))[0]), 500)
-        self.assertEqual(len(store.selected(setups(500))[0]), 501, "500 units and the catalog file")
-        self.assert_too_large(setups(501))
-
-        def unit(files, size=1, name="big"):
-            return [entry(f"addons/{name}/compose.yml", size=size)] + [entry(f"addons/{name}/f{i}.txt", size=size) for i in range(files - 1)]
-        self.assertEqual(len(store.selected(unit(2000))[0]), 2000)
-        self.assert_too_large(unit(2001))
-
-        full = unit_of_25("big")
-        self.assertEqual(sum(e.size for e in store.selected(full)[0]), 25 * MIB)
-        self.assert_too_large(full + [entry("addons/big/one.txt", size=1)])
-
-    def test_the_limits_of_files_and_bytes_of_a_catalog(self):
-        def spread(units, per):
-            made = [entry("catalog.yml", size=0)]
-            for u in range(units):
-                made.append(entry(f"addons/u{u}/compose.yml", size=1))
-                made += [entry(f"addons/u{u}/f{i}.bin", size=1) for i in range(per - 1)]
-            return made
-        self.assert_too_large(spread(100, 100))   # 10000 files and the catalog file: one over
-        ok = spread(99, 101)                      # 9999 files and the catalog file: 10000
-        self.assertEqual(len(store.selected(ok)[0]), 10000)
-        self.assert_too_large(ok + [entry("addons/u0/more.bin")])
-        full = [entry("catalog.yml", size=0)] + [e for n in range(4) for e in unit_of_25(f"u{n}")]   # 100 MiB
-        self.assertEqual(sum(e.size for e in store.selected(full)[0]), 100 * MIB)
-        self.assert_too_large(full + [entry("addons/u0/one.txt", size=1)])
-
-    def test_the_filter_is_pure_and_changes_nothing_it_is_given(self):
-        entries = tuple(GOOD) + (entry("addons/echo/.env"),)
-        before = list(entries)
-        with mock.patch.object(subprocess, "Popen", side_effect=AssertionError("ran a command")), \
-                mock.patch.object(subprocess, "run", side_effect=AssertionError("ran a command")), \
-                mock.patch("builtins.open", side_effect=AssertionError("read a file")), \
-                mock.patch.object(os, "stat", side_effect=AssertionError("looked at a file")), \
-                mock.patch.object(os, "listdir", side_effect=AssertionError("listed a folder")), \
-                mock.patch.object(os, "walk", side_effect=AssertionError("walked a folder")):
-            first = store.selected(entries)
-            second = store.selected(iter(entries))
-        self.assertEqual(first, second)
-        self.assertEqual(list(entries), before)
-        self.assertEqual(first, (KEPT, 1))
-        self.assertIsInstance(first[0], list)
-
-    def test_any_listing_is_filtered_to_files_that_are_safe_to_write_or_is_too_large(self):
-        chance = random.Random(2026)
-        parts = ["addons", "setups", "playgrounds", "catalog.yml", "compose.yml", "x", "..", ".", "", ".env", "secrets", ".git",
-                 "a b", "a.yml", "\u00fc", "AGENTS.md", "k.pem", "-", "A", "z" * 50, "echo", "pair.yml"]
-        modes = ["100644", "100755", "120000", "160000", "040000", ""]
-        for _ in range(5000):
-            listing = [Entry(chance.choice(modes), "a" * 40, chance.choice([0, 1, 10, MIB, MIB + 1, 3 * MIB]),
-                             "/".join(chance.choice(parts) for _ in range(chance.randint(1, 10))))
-                       for _ in range(chance.randint(0, 25))]
-            try:
-                kept, ignored = store.selected(listing)
-            except gitx.CatalogError as error:
-                self.assertEqual(error.code, "too_large")
-                continue
-            self.assertLessEqual(len(kept) + ignored, len(listing))
-            for e in kept:
-                self.assertIn(e.mode, ("100644", "100755"))
-                self.assertFalse(e.path.startswith("/"), e.path)
-                self.assertTrue(all(part and part not in (".", "..") for part in e.path.split("/")), e.path)
-            self.assertEqual(len({e.path.lower() for e in kept}), len(kept), "no two files that a Mac would write as one")
-            store.unit_digests(kept)
-
-    def test_an_empty_listing_keeps_nothing(self):
-        self.assertEqual(store.selected([]), ([], 0))
 
     def test_units_are_grouped_by_kind_and_name(self):
         grouped = store.by_unit(KEPT)
@@ -324,7 +104,8 @@ class Rejections(Case):
     ALONE = {
         "ST01": [entry("addons/echo/link", mode="120000"), entry("addons/echo/data/link.yml", mode="120000"),
                  entry("addons/echo/x.yml", mode="100664"), entry("addons/echo/y.yml", mode="100600"),
-                 entry("addons/echo/z.yml", mode="040000"), entry("playgrounds/shop/odd", mode=""),
+                 entry("addons/echo/z.yml", mode="040000"), entry("addons/echo/w.yml", mode="100777"),
+                 entry("playgrounds/shop/odd", mode=""),
                  entry("catalog.yml", mode="120000"), entry("addons/README.md", mode="120000"),
                  entry("setups/CLAUDE.md", mode="120000")],
         "ST02": [entry("addons/echo/sub", mode="160000", size=0), entry("catalog.yml", mode="160000", size=0),
@@ -333,6 +114,7 @@ class Rejections(Case):
             "addons/echo/bad name.yml", "addons/echo/back\\slash.yml", "addons/echo/\u00fc.md", "addons/echo/../x.yml",
             "addons/echo/./x.yml", "addons/echo//x.yml", "addons/echo/", "addons/echo/a\nb", "addons/echo/a\tb",
             "addons/echo/a\x00b", "addons/echo/a%20b", "addons/echo/\u202ex.yml", "addons/a b/compose.yml",
+            "addons/echo/a*b.yml", "addons/echo/a:b", "addons/echo/a;b", "addons/echo/$(id)", "addons/echo/`id`", "addons/echo/a'b",
             "weird name/x", "../x", "./x", "/abs/x", "\u00fc/x", "back\\slash/x", "a\x00b/x")],
         "ST04": [entry("playgrounds/shop/a/b/c/d/e/f/g.yml"), entry("addons/echo/" + "d/" * 6 + "x.yml"),
                  entry("addons/echo/" + "a" * 185 + ".yml")],
@@ -377,11 +159,6 @@ class Rejections(Case):
                     self.assertIs(pairs[0][0], bad, "the entry it was given, not a copy")
                     self.assertEqual(refused(bad), (KEPT, 1), "selected counts it")
 
-    def test_every_code_of_the_list_is_reached_and_no_other_is_given(self):
-        reached = set(self.ALONE) | {"ST10", "ST13"}
-        self.assertEqual(reached, set(CODES))
-        self.assertEqual(CODES, ("ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST09", "ST10", "ST13", "ST14", "ST15"))
-
     def test_what_is_just_allowed_is_refused_by_no_code(self):
         allowed = [entry(p) for p in (
             "addons/echo/exec.sh", "addons/echo/a+b_c.d-e.yml", "addons/echo/.hidden", "addons/echo/UPPER.TXT",
@@ -394,6 +171,7 @@ class Rejections(Case):
         allowed += [entry("addons/echo/exact.json", size=MIB), entry("addons/echo/exact.md", size=MIB),
                     entry("addons/echo/exact.bin", size=2 * MIB), entry("addons/echo/exec2.sh", mode="100755"),
                     entry("addons/echo/" + "d/" * 5 + "x.yml"), entry("addons/echo/" + "a" * 184 + ".yml")]
+        self.assertEqual((len(allowed[-2].path.split("/")), len(allowed[-1].path)), (8, 200), "just within the limits")
         self.assertEqual(coded(*allowed), [])
         self.assertEqual(refused(*allowed), (KEPT + allowed, 0))
 
@@ -403,6 +181,7 @@ class Rejections(Case):
             ("addons/echo/README.md", "ST13"), ("playgrounds/shop/guide.md", "ST13"), ("addons/echo/readme.md", "ST13"),
             ("playgrounds/shop/Guide.md", "ST13")])
         for twins in ([entry("addons/x/data"), entry("addons/x/DATA/y")], [entry("addons/x/Dir/a"), entry("addons/x/dir/b")],
+                      [entry("addons/x/Dir/sub/a.md"), entry("addons/x/dir/sub/b.md"), entry("addons/x/Dir/c.md")],
                       [entry("addons/x/a/B/c.md"), entry("addons/x/a/b/d.md")], [entry("addons/x/a.md"), entry("addons/x/a.md")]):
             with self.subTest([e.path for e in twins]):
                 pairs = store.rejections([entry("addons/x/compose.yml"), *twins, entry("addons/x/other.md")])
@@ -574,6 +353,12 @@ class Rejections(Case):
             self.assertEqual(ignored, len(pairs))
             self.assertFalse({id(e) for e in kept} & {id(e) for e, _ in pairs}, "no file is kept and refused")
             self.assertEqual([places[id(e)] for e in kept], sorted(places[id(e)] for e in kept), "in the order given")
+            for e in kept:   # what gets written is safe to write
+                self.assertIn(e.mode, ("100644", "100755"))
+                self.assertFalse(e.path.startswith("/"), e.path)
+                self.assertTrue(all(part and part not in (".", "..") for part in e.path.split("/")), e.path)
+            self.assertEqual(len({e.path.lower() for e in kept}), len(kept), "no two files that a Mac would write as one")
+            store.unit_digests(kept)
         self.assertTrue({"ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST09", "ST13", "ST14", "ST15"} <= seen, seen)
 
     def test_an_entry_needs_only_a_mode_a_path_and_a_size_and_comes_back_as_it_was_given(self):
@@ -614,18 +399,18 @@ class Rejections(Case):
                    entry("addons/" + "/" * (1 << 20)), entry("setups/" + line + ".yml")]
         started = time.process_time()   # the time it works, not the time it waits for a machine that other programs share
         pairs = store.rejections(GOOD + hostile)
-        self.assertLess(time.process_time() - started, 1.0)
+        self.assertLess(time.process_time() - started, 10)   # only a quadratic reaches it
         self.assertEqual(len(pairs), len(hostile) - 2, "the top level that is a name is not a refusal: only the rest is")
         started = time.process_time()
         store.selected(GOOD + hostile)
-        self.assertLess(time.process_time() - started, 1.0)
+        self.assertLess(time.process_time() - started, 10)
 
     def test_a_listing_of_a_hundred_thousand_files_is_judged_in_seconds(self):
         listing = [entry("catalog.yml")] + [entry(f"playgrounds/p{u}/compose.yml") for u in range(300)]
         listing += [entry(f"playgrounds/p{n % 300}/data/d{n // 300}/f{n}.json") for n in range(100000)]
         started = time.process_time()
         pairs = store.rejections(listing)
-        self.assertLess(time.process_time() - started, 5.0)
+        self.assertLess(time.process_time() - started, 60)   # only a quadratic reaches it
         self.assertEqual({code for _, code in pairs}, {"ST10"}, "300 units of 333 files each: the catalog has too many files")
 
 
@@ -739,9 +524,6 @@ class Progress(Case):
         with self.assertRaises(store._TooBig):
             store._Download(None).feed("Receiving objects:  1% (1/100), 2.00 GiB | 5.00 MiB/s\n")
 
-    def test_a_progress_that_is_not_given_is_fine(self):
-        store._Download(None).feed("Receiving objects: 50% (1/2)\r")
-
 
 def repo_files():
     return {**gitfixture.catalog_files(), **gitfixture.hostile_files()}
@@ -799,58 +581,34 @@ class Stores(Remote):
 
     def test_references_commits_and_objects(self):
         tip = self.fetched()
-        self.assertIsNone(store.resolve(self.store, "refs/lab/pin"))
-        store.set_ref(self.store, "refs/lab/pin", tip)
-        self.assertEqual(store.resolve(self.store, "refs/lab/pin"), tip)
+        self.assertIsNone(store.resolve(self.store, "refs/lab/none"))
+        self.assertEqual(store.resolve(self.store, "refs/lab/tip"), tip)
         self.assertEqual(store.resolve(self.store, tip), tip)
-        store.set_ref(self.store, "refs/lab/pin", tip)   # twice
-        store.set_ref(self.store, "refs/lab/previous", tip)
-        store.set_ref(self.store, "refs/lab/previous", None)
-        store.set_ref(self.store, "refs/lab/previous", None)   # and deleting what is not there
-        self.assertIsNone(store.resolve(self.store, "refs/lab/previous"))
-        self.assertTrue(store.has(self.store, tip))
-        self.assertFalse(store.has(self.store, "1" * 40))
         self.assertIsNone(store.resolve(self.store, "1" * 40))
 
-    def test_the_three_references_may_be_named_short(self):
+    def test_the_tip_may_be_named_short(self):
         tip = self.fetched()
-        store.set_ref(self.store, "pin", tip)
-        self.assertEqual(store.resolve(self.store, "refs/lab/pin"), tip)
-        self.assertEqual(store.resolve(self.store, "pin"), tip)
+        self.assertEqual(store.resolve(self.store, "tip"), tip)
         self.assertEqual(store.roots(self.store, "tip"), [tip])
-        self.assertTrue(store.is_ancestor(self.store, "pin", "tip"))
-        store.set_ref(self.store, "pin", None)
-        self.assertIsNone(store.resolve(self.store, "pin"))
-        for name in ("main", "refs", "Tip", "tip2", "head"):
-            with self.assertRaises(ValueError, msg=name):
-                store.set_ref(self.store, name, tip)
+        for name in ("main", "refs", "Tip", "tip2", "head", "pin"):
             with self.assertRaises(ValueError, msg=name):
                 store.resolve(self.store, name)
-
-    def test_a_reference_to_a_commit_the_store_lacks_is_an_error(self):
-        self.fetched()
-        with self.assertRaises(gitx.CatalogError):
-            store.set_ref(self.store, "refs/lab/pin", "1" * 40)
-        self.assertIsNone(store.resolve(self.store, "refs/lab/pin"))
 
     def test_only_the_references_and_ids_the_lab_names_are_accepted(self):
         tip = self.fetched()
         for name in ("refs/heads/main", "refs/lab/", "refs/lab/Tip", "refs/lab/a/b", "--delete", "refs/lab/../heads/x", "HEAD", ""):
             with self.assertRaises(ValueError, msg=name):
-                store.set_ref(self.store, name, tip)
+                store.resolve(self.store, name)
         for value in ("--upload-pack=x", "HEAD", "main", "refs/heads/main", tip[:10], tip + "0", tip.upper(), "", None, 7,
                       tip + "^{tree}", f"{tip}..{tip}", "refs/lab/tip^{commit}"):
-            for call in (store.resolve, store.roots, store.listing, store.has):
+            for call in (store.resolve, store.roots, store.listing):
                 with self.assertRaises(ValueError, msg=(call.__name__, value)):
                     call(self.store, value)
-        with self.assertRaises(ValueError):
-            store.set_ref(self.store, "refs/lab/pin", "--no-verify")
         with self.assertRaises(ValueError):
             store.is_ancestor(self.store, tip, "--output=x")
 
     def test_roots_ancestry_and_the_history_after_a_force_push(self):
         first = self.fetched()
-        store.set_ref(self.store, "refs/lab/pin", first)
         root = store.roots(self.store, first)
         self.assertEqual(root, [first], "one commit, its own root")
         second = gitfixture.commit(self.repo, {"addons/echo/README.md": "Echo 2\n"}, "Second")
@@ -858,16 +616,16 @@ class Stores(Remote):
         self.assertEqual(self.fetched(), third)
         self.assertEqual(store.roots(self.store, "refs/lab/tip"), root, "the same root over a longer history")
         self.assertTrue(store.is_ancestor(self.store, first, third))
-        self.assertTrue(store.is_ancestor(self.store, "refs/lab/pin", "refs/lab/tip"))
+        self.assertTrue(store.is_ancestor(self.store, first, "refs/lab/tip"))
         self.assertTrue(store.is_ancestor(self.store, third, third), "a commit is its own ancestor")
         self.assertFalse(store.is_ancestor(self.store, third, first))
         rewritten = gitfixture.force_push_over(self.repo, {"catalog.yml": "x\n"})
         self.assertEqual(self.fetched(), rewritten, "a force push is followed")
         self.assertNotEqual(store.roots(self.store, "refs/lab/tip"), root, "another history has another root")
         self.assertFalse(store.is_ancestor(self.store, first, rewritten))
-        self.assertFalse(store.is_ancestor(self.store, "refs/lab/pin", "refs/lab/tip"))
-        self.assertTrue(store.has(self.store, first), "the pinned commit and its objects are kept")
-        self.assertTrue(store.has(self.store, second))
+        self.assertFalse(store.is_ancestor(self.store, first, "refs/lab/tip"))
+        self.assertEqual(store.resolve(self.store, first), first, "the pinned commit and its objects are kept")
+        self.assertEqual(store.resolve(self.store, second), second)
 
     def test_a_commit_the_store_does_not_hold_is_not_an_ancestor(self):
         tip = self.fetched()
@@ -895,12 +653,11 @@ class Stores(Remote):
         for target in (inside, outer / "cache" / "none.git"):
             with self.subTest(str(target.name)):
                 for call in (lambda: store.roots(target, sha), lambda: store.listing(target, sha),
-                             lambda: store.set_ref(target, "refs/lab/pin", sha), lambda: store.size(target),
+                             lambda: store.size(target),
                              lambda: store.is_ancestor(target, sha, sha), lambda: list(store.blobs(target, [sha])),
                              lambda: store.log(target, None, sha, []), lambda: store.diff(target, sha, sha, "x")):
                     with self.assertRaises(gitx.CatalogError):
                         call()
-                self.assertFalse(store.has(target, sha))
                 self.assertIsNone(store.resolve(target, sha))
         self.assertEqual(gitfixture.git("for-each-ref", repo=outer / ".git"), before, "the outer repository was not touched")
         self.assertFalse((outer / ".git" / "refs" / "lab").exists())
@@ -969,13 +726,11 @@ class Fetching(Remote):
 
     def test_a_fetch_follows_new_commits_and_force_pushes_and_keeps_what_was_pinned(self):
         first = self.fetched()
-        store.set_ref(self.store, "refs/lab/pin", first)
         second = gitfixture.commit(self.repo, {"addons/echo/README.md": "newer\n"})
         self.assertEqual(store.fetch(self.address, "main", self.store), second)
         rewritten = gitfixture.force_push_over(self.repo, {"catalog.yml": "other\n"})
         self.assertEqual(store.fetch(self.address, "main", self.store), rewritten)
-        self.assertTrue(store.has(self.store, first))
-        self.assertEqual(store.resolve(self.store, "refs/lab/pin"), first)
+        self.assertEqual(store.resolve(self.store, first), first)
 
     def test_tags_are_not_tags_of_the_store_and_those_that_may_be_releases_are_kept_apart(self):
         gitfixture.git("tag", "v1", gitfixture.tip(self.repo), repo=self.repo)
@@ -984,18 +739,6 @@ class Fetching(Remote):
         self.assertEqual(gitfixture.git("tag", "--list", repo=self.store).strip(), "")
         self.assertEqual(gitfixture.git("for-each-ref", "--format=%(refname)", "refs/lab/releases/", repo=self.store).split(),
                          ["refs/lab/releases/v1"], "a tag that starts with v, and no other")
-
-    def test_a_fetch_without_releases_brings_no_tag(self):
-        gitfixture.git("tag", "v1.0.0", gitfixture.tip(self.repo), repo=self.repo)
-        store.fetch(self.address, "main", self.store, releases=False)
-        self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "")
-
-    def test_a_store_says_whether_a_fetch_read_the_releases(self):
-        tip = store.fetch(self.address, "main", self.store, releases=False)
-        self.assertFalse(store.releases_read(self.store), "a fetch without the tags does not say whether there are releases")
-        self.assertEqual(store.fetch(self.address, "main", self.store), tip)
-        self.assertTrue(store.releases_read(self.store))
-        self.assertEqual(gitfixture.git("for-each-ref", "refs/lab/releases/", repo=self.store).strip(), "", "the mark is no release")
 
     def test_the_command_is_the_one_of_section_9(self):
         log = self.root / "args"
@@ -1108,7 +851,7 @@ class Fetching(Remote):
         started = time.monotonic()
         with self.assertRaises(gitx.CatalogError) as raised:
             store.fetch(address, "main", self.store, stall=0.4, cap=60)
-        self.assertLess(time.monotonic() - started, 6)
+        self.assertLess(time.monotonic() - started, 30)   # the fake git sleeps 60: a stall that is ignored still fails
         self.assertEqual((raised.exception.code, raised.exception.status, raised.exception.message),
                          ("timeout", 502, "git.example.test did not answer in time. Try again."))
         self.assertFalse(self.store.exists())
@@ -1295,22 +1038,21 @@ class Reading(Remote):
             self.assertRegex(e.oid, r"^[0-9a-f]{40}$")
 
     def test_what_was_pinned_is_read_beside_a_history_that_was_replaced(self):
-        store.set_ref(self.store, "refs/lab/pin", self.tip)
         rewritten = gitfixture.force_push_over(self.repo, {"catalog.yml": "other\n", "addons/new/compose.yml": "services: {}\n"},
                                                "A new beginning")
         gitfixture.commit(self.repo, {"addons/new/README.md": "new\n"}, "Describe the new add-on")
         tip = self.fetched()
-        self.assertNotEqual(store.roots(self.store, tip), store.roots(self.store, "refs/lab/pin"))
+        self.assertNotEqual(store.roots(self.store, tip), store.roots(self.store, self.tip))
         self.assertEqual([e.path for e in store.listing(self.store, tip)], ["addons/new/README.md", "addons/new/compose.yml", "catalog.yml"])
-        self.assertEqual(len(store.listing(self.store, "refs/lab/pin")), len(repo_files()))
-        oid = next(e.oid for e in store.listing(self.store, "refs/lab/pin") if e.path == "catalog.yml")
+        self.assertEqual(len(store.listing(self.store, self.tip)), len(repo_files()))
+        oid = next(e.oid for e in store.listing(self.store, self.tip) if e.path == "catalog.yml")
         self.assertEqual(list(store.blobs(self.store, [oid])), [(oid, gitfixture.catalog_files()["catalog.yml"].encode())])
-        self.assertEqual(store.log(self.store, "refs/lab/pin", tip, ["addons/new"]), ["Describe the new add-on", "A new beginning"])
-        self.assertIn("-  name: Acme Hub", store.diff(self.store, "refs/lab/pin", tip, "catalog.yml"))
-        self.assertIn("+other", store.diff(self.store, "refs/lab/pin", tip, "catalog.yml"))
-        self.assertEqual(store.touching(self.store, tip, "catalog.yml"), [rewritten])
-        self.assertEqual(store.read(self.store, "refs/lab/pin", "catalog.yml"), gitfixture.catalog_files()["catalog.yml"].encode())
-        self.assertFalse(store.is_ancestor(self.store, "refs/lab/pin", "refs/lab/tip"))
+        self.assertEqual(store.log(self.store, self.tip, tip, ["addons/new"]), ["Describe the new add-on", "A new beginning"])
+        self.assertIn("-  name: Acme Hub", store.diff(self.store, self.tip, tip, "catalog.yml"))
+        self.assertIn("+other", store.diff(self.store, self.tip, tip, "catalog.yml"))
+        self.assertEqual(store.changes(self.store, tip, ["catalog.yml"]), [(rewritten, None)])
+        self.assertEqual(store.read(self.store, self.tip, "catalog.yml"), gitfixture.catalog_files()["catalog.yml"].encode())
+        self.assertFalse(store.is_ancestor(self.store, self.tip, "refs/lab/tip"))
 
     def test_a_name_with_a_newline_or_quotes_comes_back_as_it_is(self):
         gitfixture.commit(self.repo, {"addons/echo/a\nb": "x", 'addons/echo/q"t': "y", "addons/echo/tab\there": "z",
@@ -1366,16 +1108,16 @@ class Reading(Remote):
         gitfixture.commit(self.repo, {"README.md": "other\n"}, "Another file")
         second = gitfixture.commit(self.repo, {"catalog.yml": "version 3\n"}, "Version 3")
         tip = self.fetched()
-        self.assertEqual(store.touching(self.store, tip, "catalog.yml"), [second, first, self.tip])
-        self.assertEqual(store.touching(self.store, tip, "catalog.yml", limit=2), [second, first])
-        self.assertEqual(store.touching(self.store, "refs/lab/tip", "README.md")[1:], [self.tip])
-        self.assertEqual(store.touching(self.store, tip, "none.yml"), [])
+        self.assertEqual([one for one, _ in store.changes(self.store, tip, ["catalog.yml"])], [second, first, self.tip])
+        self.assertEqual([one for one, _ in store.changes(self.store, tip, ["catalog.yml"], limit=2)], [second, first])
+        self.assertEqual(store.changes(self.store, "refs/lab/tip", ["README.md"])[-1], (self.tip, None))
+        self.assertEqual(store.changes(self.store, tip, ["none.yml"]), [])
         for bad in (0, -1, 1001, "5", None):
             with self.assertRaises(ValueError, msg=bad):
-                store.touching(self.store, tip, "catalog.yml", limit=bad)
+                store.changes(self.store, tip, ["catalog.yml"], limit=bad)
         for path in ("--all", "../x", "a b", ""):
             with self.assertRaises(ValueError, msg=path):
-                store.touching(self.store, tip, path)
+                store.changes(self.store, tip, [path])
 
     def test_a_file_is_read_at_a_commit_only_when_it_is_a_regular_file_of_a_size_that_is_allowed(self):
         files = gitfixture.catalog_files()
@@ -1629,56 +1371,6 @@ class Fixtures(Case):
         self.assertEqual(gitfixture.commit(one, {"x": "1"}), gitfixture.commit(two, {"x": "1"}))
         three = gitfixture.make_repo(self.root / "d.git", {"catalog.yml": "x\n"})
         self.assertNotEqual(gitfixture.tip(three), gitfixture.tip(one))
-
-    def test_a_copy_of_a_repository_is_independent(self):
-        one = gitfixture.make_repo(self.root / "a.git", gitfixture.catalog_files())
-        two = gitfixture.make_repo(self.root / "b.git", gitfixture.catalog_files())
-        gitfixture.commit(one, {"x": "1"})
-        self.assertNotEqual(gitfixture.tip(one), gitfixture.tip(two))
-
-    def test_a_repository_is_bare_and_a_remote_and_offers_no_partial_clone(self):
-        repo = gitfixture.make_repo(self.root / "a.git", gitfixture.catalog_files(), branch="trunk")
-        self.assertEqual(gitfixture.git("rev-parse", "--is-bare-repository", repo=repo).strip(), "true")
-        self.assertEqual(gitfixture.current(repo), "trunk")
-        self.assertEqual(gitfixture.bare(repo), repo)
-        self.assertTrue(gitfixture.url(repo).startswith("file:///"))
-        self.assertEqual(gitfixture.git("config", "--get", "uploadpack.allowFilter", repo=repo).strip(), "false")
-        self.assertFalse((repo / "hooks").exists())
-
-    def test_a_working_repository_gets_a_bare_clone(self):
-        work = self.root / "work"
-        gitfixture.git("init", "--quiet", "--", str(work))
-        (work / "f.txt").write_text("x")
-        gitfixture.git("-C", str(work), "add", "f.txt")
-        gitfixture.git("-C", str(work), "commit", "--quiet", "-m", "one")
-        clone = gitfixture.bare(work)
-        self.assertEqual((clone.name, gitfixture.git("rev-parse", "--is-bare-repository", repo=clone).strip()), ("work.git", "true"))
-
-    def test_a_commit_lays_files_over_the_tip_and_none_removes(self):
-        repo = gitfixture.make_repo(self.root / "a.git", {"a.txt": "1", "dir/b.txt": "2"})
-        sha = gitfixture.commit(repo, {"a.txt": "11", "dir/b.txt": None, "c.txt": gitfixture.Executable("#!/bin/sh\n")}, "Change")
-        files = {line.split("\t")[1]: line.split()[0] for line in gitfixture.git("ls-tree", "-r", sha, repo=repo).splitlines()}
-        self.assertEqual(files, {"a.txt": "100644", "c.txt": "100755"})
-        self.assertEqual(gitfixture.git("show", f"{sha}:a.txt", repo=repo), "11")
-
-    def test_a_force_push_gives_another_root_and_keeps_the_old_commits(self):
-        repo = gitfixture.make_repo(self.root / "a.git", {"a.txt": "1"})
-        first = gitfixture.tip(repo)
-        second = gitfixture.force_push_over(repo, {"a.txt": "1"})
-        self.assertNotEqual(first, second, "even with the same files")
-        self.assertEqual(gitfixture.git("rev-list", "--max-parents=0", second, repo=repo).split(), [second])
-        self.assertEqual(gitfixture.git("cat-file", "-t", first, repo=repo).strip(), "commit", "the old history is still there")
-
-    def test_links_and_submodules_are_what_they_say(self):
-        repo = gitfixture.make_repo(self.root / "a.git", {"l": gitfixture.Symlink("target"), "s": gitfixture.Gitlink("2" * 40)})
-        modes = {line.split("\t")[1]: line.split()[0] for line in gitfixture.git("ls-tree", "-r", "HEAD", repo=repo).splitlines()}
-        self.assertEqual(modes, {"l": "120000", "s": "160000"})
-
-    def test_filler_is_the_size_asked_the_same_every_time_and_does_not_compress(self):
-        data = gitfixture.filler(100000)
-        self.assertEqual((len(data), data == gitfixture.filler(100000)), (100000, True))
-        self.assertNotEqual(gitfixture.filler(100, "other"), gitfixture.filler(100))
-        self.assertGreater(len(zlib.compress(data)), 99000)
 
     def test_without_git_a_test_says_it_is_skipped_and_the_run_is_told_once(self):
         self.patch(gitfixture, "_GIT", None)

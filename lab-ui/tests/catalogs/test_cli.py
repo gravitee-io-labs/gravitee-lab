@@ -137,7 +137,7 @@ class Linking(Tool):
         self.assertIsNone(self.config())
         self.run_tool("link", str(self.author()))
         self.assertEqual([one["id"] for one in self.config()["catalogs"]], [PARTNER])
-        self.assertEqual([row["id"] for row in defaults.not_added([one["id"] for one in registry.entries()])], ["fixture"])
+        self.assertEqual([row["id"] for row in defaults.not_added()], ["fixture"])
 
     def test_linking_again_changes_nothing(self):
         folder = self.author()
@@ -919,14 +919,19 @@ class Linked(Tool):
 class Explain(Tool):
     """explain CODE: the long form of a rule code."""
 
-    def test_the_rule_why_it_exists_the_fix_in_full_and_what_the_lab_does_with_the_file(self):
+    def test_the_rule_its_fix_and_why_it_exists(self):
         code, out, err = self.run_tool("explain", "ST05")
         self.assertEqual((code, err), (0, ""))
         self.assertTrue(out.startswith("ST05 (error)\n"), out)
-        for word in ("Rule     ", "Message  ", "Why      ", "Fix      git rm --cached {path}", "At Add   "):
+        for word in ("Rule     ", "Message  ", "Why      ", "Fix: git rm --cached {path}"):
             self.assertIn(word, out)
         self.assertEqual(self.run_tool("explain", "st05"), (code, out, err), "the case of the code does not matter")
         self.assertEqual(self.run_tool("explain", " ST05 "), (code, out, err))
+
+    def test_a_note_of_the_policy_is_not_said_to_block(self):
+        out = self.run_tool("explain", "N01")[1]
+        self.assertTrue(out.startswith("N01 (info)\n"), out)
+        self.assertNotIn("Blocked", out)
 
     def test_the_policy_and_the_stages_are_codes_too_and_every_code_the_lab_knows_is_explained(self):
         from lab_ui.catalogs import explain
@@ -951,7 +956,7 @@ class Explain(Tool):
         code, out, err = self.run_tool("explain", "T03", "--format", "json")
         found = json.loads(out)
         self.assertEqual((code, found["code"], found["severity"]), (0, "T03", "error"))
-        self.assertEqual(sorted(found), ["code", "lab", "message", "more", "rule", "severity", "why"])
+        self.assertEqual(sorted(found), ["code", "message", "more", "rule", "severity", "why"])
 
 
 class Delegated(Tool):
@@ -1175,7 +1180,7 @@ class Service(Tool):
         members.setdefault("check_now", lambda ns: {})
         return mock.patch.dict(sys.modules, {"lab_ui.catalogs.service": module(**members)})
 
-    PREVIEW = {"ticket": "abc", "expires": 600, "address": "github.com/acme/hub", "audience": "private",
+    PREVIEW = {"ticket": "abc", "address": "github.com/acme/hub", "audience": "private",
                "catalog": {"id": "hub", "name": "Acme Hub", "version": "1.4.0"}, "counts": {"playground": 2, "addon": 1},
                "rows": {"builds": {"local": 2, "remote": ["github.com/acme/app"]}, "ports": [8140, 8141],
                         "core": ["API Management gateway"], "reads": ["license"],

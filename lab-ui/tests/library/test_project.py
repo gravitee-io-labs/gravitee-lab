@@ -1814,8 +1814,6 @@ class Needs(Case):
         _, built, _ = self.pair(catalogs={"lab-new": {}})
         self.assertEqual(built["addons"]["echo"]["needs_catalogs"], [])
         self.assertTrue(built["addons"]["future"]["blocked"])
-        self.assertEqual(built["catalogs"]["fixture"]["needs"],
-                         [{key: self.PARTNER[key] for key in ("id", "name", "url", "min")}])
 
     def test_a_catalog_that_is_added_and_not_downloaded_is_downloading_or_failed(self):
         for error, reason in ((None, "downloading"), ("unreachable", "failed")):
@@ -2366,8 +2364,6 @@ class Allowed(Case):
         found = self.partner(host=True)["addons"]["@partner/cluster"]
         self.assertIsNone(found["blocked"])
         self.assertEqual(found["uses_machine"][0]["service"], "partner-cluster")
-        with mock.patch.object(trust, "ALLOWANCE", False):   # without the milestone, whatever the entry says
-            self.assertTrue(self.partner(host=True)["addons"]["@partner/cluster"]["blocked"])
 
     def test_a_gateway_declared_by_a_catalog_that_is_not_trusted_with_one_is_cleared_before_any_reader_sees_it(self):
         built = self.partner()

@@ -27,21 +27,10 @@ from lab_ui.catalogs import store as bare
 from lab_ui.catalogs.registry import CatalogError
 
 from .. import Case, fixtures, gitfixture
+from .test_install import Crash, stop_at
 
 CONTRACT = {"contract": 1, "contract_min": 1}
 OPEN = "No access to example/demos. Run gh auth login in a terminal, then try again."
-
-
-class Crash(BaseException):
-    """The process died here. A BaseException, so that no handler of the code under test cleans up."""
-
-
-def stop_at(label):
-    """A hook for `install.STEP` that stops the run at the first step with this label."""
-    def hook(step):
-        if step == label:
-            raise Crash(label)
-    return hook
 
 
 def read_catalog(path, address=None, borrowed=(), published=False):
@@ -101,9 +90,16 @@ class Served:
 
     NS = "demos"
 
+    def stop_worker(self):
+        worker = firstrun._worker
+        if worker is not None:
+            worker.stop.set()
+            worker.nudge.set()
+            worker.thread.join(5)
+
     def world(self, files=None, ns=None, **entry):
         """The project folder, the default file listing `ns` at the address of its remote, and the remote. `entry` sets
-        keys of the listed entry (a branch, roots)."""
+        keys of the listed entry (a branch)."""
         gitfixture.require()
         ns = ns or self.NS
         self.ns = ns
@@ -185,7 +181,7 @@ class Provision(Served, Case):
         self.assertEqual((row["id"], row["name"]), (self.ns, "Acme Hub"))
         self.assertEqual(row["state"]["key"], "uptodate")
         self.assertEqual(firstrun.PROGRESS, {}, "an attempt that ended leaves nothing on the bar")
-        self.assertEqual(firstrun.content({}, {})["key"], "ready")
+        self.assertEqual(firstrun.content({})["key"], "ready")
 
     def test_a_download_asked_for_by_name_is_not_skipped_by_the_variable_of_the_start(self):
         # LAB_NO_FIRST_RUN is for the start of the Lab: a tool that names the catalog (make catalogs) gets it
@@ -218,7 +214,7 @@ class Provision(Served, Case):
         def fetch(address, branch, store, stall=30, cap=600, progress=None):
             tip = real(address, branch, store, stall, cap, progress)
             (row,) = [one for one in service.describe({}, {}) if one.get("id") == self.ns]
-            seen.append((row["state"]["key"], row["progress"], firstrun.content({}, {})))
+            seen.append((row["state"]["key"], row["progress"], firstrun.content({})))
             return tip
         self.patch(bare, "fetch", fetch)
         self.started()
@@ -323,22 +319,8 @@ class Provision(Served, Case):
         self.assertFalse((self.root / ".lab/catalogs" / self.ns).exists(), "nothing of it is put in place")
         self.assertFalse((self.root / ".lab/catalogs" / f".stage-{self.ns}").exists(), "the stage goes")
         self.assertEqual(registry.inputs()[self.ns]["state"], "wrong_catalog")
-        said = firstrun.content({}, {})
+        said = firstrun.content({})
         self.assertEqual((said["key"], said["code"], said["line"]), ("failed", "wrong_catalog", caught.exception.message))
-
-    def test_roots_that_differ_from_the_ones_the_file_pins_are_wrong_catalog(self):
-        roots = sorted(self.remote.git("rev-list", "--max-parents=0", "HEAD").split())
-        self.listed(self.ns, url=self.remote.url, roots=["a" * 40])
-        self.started()
-        with self.assertRaises(CatalogError) as caught:
-            firstrun.provision(self.ns)
-        self.assertEqual(caught.exception.code, "wrong_catalog")
-        self.assertEqual((self.lock()["pin"], self.lock()["error"]), (None, "wrong_catalog"))
-        self.assertFalse((self.root / ".lab/cache/git" / f"{self.ns}.git").exists(), "another repository is not kept")
-        self.listed(self.ns, url=self.remote.url, roots=roots)
-        firstrun.reconcile()
-        firstrun.provision(self.ns)
-        self.assertEqual(self.lock()["pin"], self.remote.head(), "the roots the file pins")
 
     def test_a_repository_without_a_catalog_file_is_not_a_catalog(self):
         self.world(files={"README.md": "nothing\n"})
@@ -449,7 +431,7 @@ class Provision(Served, Case):
         self.assertEqual((caught.exception.code, caught.exception.message),
                          ("git_old", "Git 2.20.1 is too old. Install Git 2.25 or later, then try again."))
         self.assertEqual(registry.inputs()[self.ns]["state"], "needs_git")
-        self.assertEqual(firstrun.content({}, {})["line"], caught.exception.message,
+        self.assertEqual(firstrun.content({})["line"], caught.exception.message,
                          "the line of the content is the one of the attempt")
 
     def test_a_fetch_that_stalls_is_a_timeout_and_leaves_nothing(self):
@@ -506,94 +488,35 @@ class Provision(Served, Case):
         asked = [argv for argv, _ in git if "ls-remote" in argv]
         self.assertTrue(any("credential.helper=" in argv for argv in asked), "the audience is asked as a stranger")
 
-    def test_the_environment_of_git_is_asserted_on_its_own_too(self):
-        env = gitx.environment()
-        self.assertEqual((env["GIT_TERMINAL_PROMPT"], env["GIT_ASKPASS"], env["SSH_ASKPASS_REQUIRE"], env["GCM_INTERACTIVE"]),
-                         ("0", "", "never", "never"))
-        self.assertIn("-o BatchMode=yes", env["GIT_SSH_COMMAND"])
+    # -- an address that refuses ---------------------------------------------------------------------------------------
 
-    # -- the ssh form ----------------------------------------------------------------------------------------------
-
-    def github(self, refuse=("no_access",), ssh_refuses=None, ssh_code="ssh_denied"):
-        """The default file lists a github.com address; the https form is refused with `refuse` and the ssh form is served by
-        the remote of this test (or refused with `ssh_code`). Answers the list of (form, answer) of every ls-remote."""
+    def refused(self, code):
+        """The default file lists a github.com address, which refuses with `code`, and the ssh form of it is never asked."""
         self.listed(self.ns, url="https://github.com/example/demos.git")
-        real_ls, real_fetch = gitx.ls_remote, bare.fetch
-        local = gitx.parse_address(self.remote.url)
-        asked = []
-
-        def served(address):
-            return local if gitx.is_ssh(address) and ssh_refuses is None else address
 
         def ls_remote(address, branch=None, anonymous=False, timeout=20):
-            asked.append((address.url, anonymous))
-            if anonymous:
-                raise gitx.fail("no_access", address)
-            if gitx.is_ssh(address):
-                if ssh_refuses is not None:
-                    raise gitx.fail(ssh_code, address)
-                return real_ls(local, branch, anonymous, timeout)
-            raise gitx.fail(refuse[0], address)
-
-        def fetch(address, branch, store, stall=30, cap=600, progress=None):
-            self.assertTrue(gitx.is_ssh(address), "only the form that answered is fetched")
-            return real_fetch(local, branch, store, stall, cap, progress)
+            self.assertFalse(gitx.is_ssh(address))
+            raise gitx.fail(code, address)
         self.patch(gitx, "ls_remote", ls_remote)
-        self.patch(bare, "fetch", fetch)
-        return asked
 
-    def test_https_refused_and_ssh_accepted_installs_and_records_the_form_that_answered(self):
-        asked = self.github()
-        self.started()
-        firstrun.provision(self.ns)
-        self.assertEqual(self.lock()["via"], "ssh")
-        self.assertEqual(self.lock()["pin"], self.remote.head())
-        self.assertEqual([url for url, anonymous in asked if not anonymous],
-                         ["https://github.com/example/demos.git", "git@github.com:example/demos.git"])
-        self.assertNotIn("git@", json.dumps(self.config()), "the form that answered is never written to the intent")
-
-    def test_the_next_run_starts_with_the_form_that_answered(self):
-        asked = self.github()
-        self.started()
-        registry.set_lock(self.ns, via="ssh")
-        firstrun.provision(self.ns)
-        self.assertEqual([url for url, anonymous in asked if not anonymous][0], "git@github.com:example/demos.git")
-        self.assertEqual(len([url for url, anonymous in asked if not anonymous]), 1, "it answered: no second form")
-        self.assertEqual(self.lock()["via"], "ssh")
-
-    def test_the_form_that_answers_is_https_and_it_is_recorded_for_a_listed_catalog(self):
-        # A public catalog answers over https: nothing is asked over ssh, and the next run starts with https
-        self.listed(self.ns, url="https://github.com/example/demos.git")
-        real_ls, real_fetch = gitx.ls_remote, bare.fetch
-        local = gitx.parse_address(self.remote.url)
-        asked = []
-        self.patch(gitx, "ls_remote", lambda a, b=None, anonymous=False, timeout=20: (asked.append(a.url),
-                                                                                         real_ls(local, b, anonymous, timeout))[1])
-        self.patch(bare, "fetch", lambda a, b, s, stall=30, cap=600, progress=None: real_fetch(local, b, s, stall, cap, progress))
-        self.started()
-        firstrun.provision(self.ns)
-        self.assertEqual(self.lock()["via"], "https")
-        self.assertNotIn("git@github.com:example/demos.git", asked)
-
-    def test_both_forms_refused_is_no_access_with_the_sign_in_hint_of_the_host(self):
-        self.github(ssh_refuses=True, ssh_code="ssh_denied")
+    def test_a_refusal_is_no_access_with_the_sign_in_hint_of_the_host(self):
+        self.refused("no_access")
         self.started()
         with self.assertRaises(CatalogError) as caught:
             firstrun.provision(self.ns)
         self.assertEqual((caught.exception.code, caught.exception.message), ("no_access", OPEN))
         self.assertEqual(self.lock()["error"], "no_access")
         self.assertEqual(registry.inputs()[self.ns]["state"], "noaccess")
-        self.assertNotIn("via", self.lock(), "no form answered")
 
     def test_a_404_over_https_reads_as_no_access_and_keeps_its_code(self):
-        self.github(refuse=("not_found",), ssh_refuses=True, ssh_code="host_key")
+        self.refused("not_found")
         self.started()
         with self.assertRaises(CatalogError) as caught:
             firstrun.provision(self.ns)
         self.assertEqual((caught.exception.code, caught.exception.message), ("not_found", OPEN),
                          "GitHub answers 404 to a private repository, and the address is the engine's own")
         self.assertEqual(self.lock()["error"], "not_found")
-        self.assertEqual(firstrun.content({}, {})["line"], OPEN)
+        self.assertEqual(firstrun.content({})["line"], OPEN)
 
     def test_another_host_is_told_to_sign_in_with_git(self):
         self.listed(self.ns, url="https://git.example.test/team/demos.git")
@@ -656,30 +579,6 @@ class Provision(Served, Case):
         self.assertEqual([kind for kind, _ in talked], ["run", "run", "stream"], "two ls-remote and one fetch")
         self.assertTrue(all(ok for _, ok in talked), talked)
 
-    def test_a_person_who_adds_a_catalog_during_the_download_is_not_told_busy(self):
-        answers = []
-        real_stream = gitx.stream
-
-        def stream(args, *rest, **how):
-            if "fetch" in args:
-                done = []
-
-                def another():
-                    try:
-                        with registry.flock(wait=0):
-                            done.append("free")
-                    except CatalogError as error:
-                        done.append(error.code)
-                thread = threading.Thread(target=another)
-                thread.start()
-                thread.join()
-                answers.extend(done)
-            return real_stream(args, *rest, **how)
-        self.patch(gitx, "stream", stream)
-        self.started()
-        firstrun.provision(self.ns)
-        self.assertEqual(answers, ["free"], "the catalogs lock is free while the fetch runs")
-
     def test_the_commit_takes_the_locks_and_only_the_commit(self):
         held = []
         real = install.commit_add
@@ -701,25 +600,6 @@ class Provision(Served, Case):
         firstrun.PROGRESS.clear()
         install.recover()
         firstrun.reconcile()
-
-    def test_a_crash_after_the_install_was_put_in_place_converges_at_the_next_start(self):
-        self.started()
-        self.patch(install, "STEP", stop_at("add:placed"))   # step 15 done, the lock not written (step 16)
-        with self.assertRaises(Crash):
-            firstrun.provision(self.ns)
-        held = self.lock()
-        self.assertEqual(held["pin"], None)
-        self.assertEqual(held["pending"]["op"], "add", "a stop is recognized from here on")
-        self.assertTrue((self.root / ".lab/catalogs" / self.ns / ".installed.json").is_file())
-        self.patch(install, "STEP", None)
-        self.restart()
-        held = self.lock()
-        self.assertEqual((held["pin"], held["pending"], held["error"]), (self.remote.head(), None, None))
-        self.assertEqual(firstrun.content({}, {})["key"], "ready")
-        self.assertEqual(firstrun.PROGRESS, {}, "nothing is left to download")
-        self.assertEqual(install.verify(self.ns, list(registry.manifest(self.ns)["units"])), [])
-        self.silent()
-        self.assertEqual(firstrun.provision(self.ns)["id"], self.ns, "and a provision after it has nothing to do")
 
     def test_a_crash_at_every_step_of_the_install_converges_to_a_whole_catalog(self):
         labels = ["stage:begin", "stage:written", "add:begin", "add:manifest", "add:store", "add:pending", "add:install",
@@ -749,7 +629,7 @@ class Provision(Served, Case):
                 self.assertEqual(found["commit"], held["pin"])
                 self.assertEqual(install.verify(self.ns, list(found["units"])), [])
                 self.assertEqual(registry.units_of(self.ns)["addon"], ["echo"])
-                self.assertEqual(firstrun.content({}, {})["key"], "ready")
+                self.assertEqual(firstrun.content({})["key"], "ready")
 
     def test_a_stale_install_with_no_pin_is_replaced_and_the_machine_files_stay(self):
         self.started()
@@ -821,30 +701,18 @@ class Provision(Served, Case):
         self.assertIsNone(self.lock()["error"], "the next start downloads it as if nothing had happened")
 
     def test_a_note_that_cannot_be_written_after_the_install_is_no_failure(self):
-        calls = []
+        self.newer()
+        real = registry.set_lock
 
-        def remember(ns, address, answered):
-            calls.append(ns)
-            if len(calls) > 1:   # the second one is after the commit: the lock is held by another process
+        def set_lock(ns, **fields):
+            if "seen" in fields:   # after the commit: the lock is held by another process
                 raise CatalogError("busy", "Another catalog change is running.", 409)
-        self.patch(firstrun, "_remember", remember)
+            return real(ns, **fields)
+        self.patch(registry, "set_lock", set_lock)
         self.started()
         row = firstrun.provision(self.ns)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual((row["id"], self.lock()["pin"], self.lock()["error"]), (self.ns, self.remote.head(), None))
-
-    def test_the_form_that_answered_is_remembered_even_when_the_fetch_then_fails(self):
-        self.github()
-        real = bare.fetch
-
-        def fetch(*args, **how):
-            real(*args, **how)
-            raise gitx.fail("timeout", args[0])
-        self.patch(bare, "fetch", fetch)
-        self.started()
-        with self.assertRaises(CatalogError):
-            firstrun.provision(self.ns)
-        self.assertEqual(self.lock()["via"], "ssh", "and the next attempt starts with it")
+        self.assertEqual((row["id"], self.lock()["error"]), (self.ns, None))
+        self.assertTrue(self.lock()["pin"])
 
     def test_a_catalog_the_person_does_not_have_leaves_no_store_behind_when_it_fails(self):
         registry.write_config({"schema": 1, "catalogs": []})
@@ -891,14 +759,14 @@ class Provision(Served, Case):
             held = self.lock()
             self.assertEqual((caught.exception.code, held["error"], held["pending"], held["pin"]),
                              ("name_taken", "name_taken", None, None), "the flag of the commit is not left standing")
-            said = firstrun.content({}, {})
+            said = firstrun.content({})
             self.assertEqual((said["key"], said["code"], said["line"]), ("failed", "name_taken", line))
             self.assertEqual(self.failure_row(), "failed", "the Catalogs row says it too, and has its Try again")
             self.assertEqual(firstrun.PROGRESS, {})
         link.unlink()   # the person removed what was in the way
         row = firstrun.provision(self.ns)
         self.assertEqual((row["id"], self.lock()["pin"], self.lock()["error"]), (self.ns, self.remote.head(), None))
-        self.assertEqual(firstrun.content({}, {})["key"], "ready")
+        self.assertEqual(firstrun.content({})["key"], "ready")
 
     def test_an_ordinary_failure_at_any_step_of_the_commit_is_a_failure_and_the_next_attempt_converges(self):
         labels = ["add:begin", "add:manifest", "add:store", "add:pending", "add:install", "add:placed", "add:lock"]
@@ -927,7 +795,7 @@ class Provision(Served, Case):
                 held = self.lock()
                 self.assertEqual((held["pin"], held["pending"], held["error"]), (None, None, "failed"),
                                  "a failed commit is a failure, and not a download that never ends")
-                said = firstrun.content({}, {})
+                said = firstrun.content({})
                 self.assertEqual((said["key"], said["code"], said["line"]), ("failed", "failed", firstrun.LINES["failed"]))
                 self.assertEqual(self.failure_row(), "failed")
                 self.patch(install, "STEP", None)
@@ -937,7 +805,7 @@ class Provision(Served, Case):
                 found = registry.manifest(self.ns)
                 self.assertEqual(found["commit"], held["pin"])
                 self.assertEqual(install.verify(self.ns, list(found["units"])), [])
-                self.assertEqual(firstrun.content({}, {})["key"], "ready")
+                self.assertEqual(firstrun.content({})["key"], "ready")
 
     def test_a_failure_after_the_commit_point_leaves_a_whole_catalog_and_no_failure(self):
         self.started()
@@ -951,7 +819,7 @@ class Provision(Served, Case):
         self.assertEqual(caught.exception.code, "failed", "the worker counts it, and the next round finds nothing to do")
         held = self.lock()
         self.assertEqual((held["pin"], held["pending"], held["error"]), (self.remote.head(), None, None))
-        self.assertEqual(firstrun.content({}, {})["key"], "ready")
+        self.assertEqual(firstrun.content({})["key"], "ready")
         self.assertEqual(self.failure_row(), "uptodate")
 
     def failed_once(self):
@@ -960,12 +828,12 @@ class Provision(Served, Case):
         registry.write_config({"schema": 1, "catalogs": [{"id": self.ns, "kind": "git", "url": self.remote.url}]})
         with mock.patch.object(gitx, "ls_remote", side_effect=gitx.fail("unreachable")), self.assertRaises(CatalogError):
             firstrun.provision(self.ns)
-        self.assertEqual(firstrun.content({}, {})["key"], "failed")
+        self.assertEqual(firstrun.content({})["key"], "failed")
 
     def test_a_silent_retry_stays_failed_through_every_step_of_its_commit(self):
         self.failed_once()
         seen = []
-        self.patch(install, "STEP", lambda step: seen.append((step, firstrun.content({}, {})["key"])))
+        self.patch(install, "STEP", lambda step: seen.append((step, firstrun.content({})["key"])))
         firstrun.provision(self.ns)
         steps = [step for step, _ in seen]
         self.assertTrue({"add:pending", "add:install", "add:placed", "add:lock", "add:done"} <= set(steps), steps)
@@ -977,9 +845,9 @@ class Provision(Served, Case):
         self.failed_once()
         registry.set_lock(self.ns, error=None)   # what service.check_now does, and then it marks the catalog
         firstrun.reconcile()
-        self.assertEqual(firstrun.content({}, {})["key"], "downloading")
+        self.assertEqual(firstrun.content({})["key"], "downloading")
         seen = []
-        self.patch(install, "STEP", lambda step: seen.append((step, firstrun.content({}, {})["key"])))
+        self.patch(install, "STEP", lambda step: seen.append((step, firstrun.content({})["key"])))
         firstrun.provision(self.ns)
         steps = [step for step, _ in seen]
         end = steps.index("add:done")
@@ -994,7 +862,7 @@ class Provision(Served, Case):
         row = firstrun.provision(self.ns)   # layers.prepare_catalogs reads it as UTF-8: it leaves the file alone, after the install
         self.assertEqual((row["id"], self.lock()["pin"], self.lock()["error"]), (self.ns, self.remote.head(), None))
         self.assertEqual((self.root / ".env").read_bytes(), env, "the person's file is not touched")
-        self.assertEqual(firstrun.content({}, {})["key"], "ready")
+        self.assertEqual(firstrun.content({})["key"], "ready")
         self.assertFalse(layers.prepare_catalogs(), "nothing to say of a file it cannot read, for any caller")
 
     def test_the_first_catalog_that_arrives_adds_the_two_settings_that_keep_compose_from_fetching_an_include_to_the_env_once(self):
@@ -1028,6 +896,7 @@ class Provision(Served, Case):
                  ("no_access", other, "", "No access to team/demos. Sign in with Git on this machine, then try again."),
                  ("certificate", github, "", "The certificate of github.com was refused. A company proxy may be in the way."),
                  ("wrong_catalog", github, "", "example/demos is not the catalog this Lab expects. Run make update, then try again."),
+                 ("wrong_catalog", None, "", "This repository is not the catalog this Lab expects. Run make update, then try again."),
                  ("no_readable_version", github, "", "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab."),
                  ("lab_new", github, "", "The catalog needs a newer Gravitee Lab. Run make update, then restart the Lab."),
                  ("lab_old", github, "", "The catalog is not ready for this version of the Lab. Try again later."),
@@ -1258,11 +1127,6 @@ class Beat(Served, Case):
         worker.tick()
         self.assertEqual(len(self.checked), 2)
 
-    def test_the_jitter_is_up_to_ten_minutes(self):
-        self.assertEqual((firstrun.CHECK_EVERY, firstrun.JITTER), (6 * 3600.0, 600.0))
-        seen = {firstrun.random.uniform(0, firstrun.JITTER) for _ in range(50)}
-        self.assertTrue(all(0 <= one <= 600 for one in seen) and len(seen) > 1)
-
     def test_a_check_that_fails_does_not_end_the_thread(self):
         self.patch(firstrun, "FIRST_CHECK", 5.0)
         self.patch(service, "check_all", side_effect=RuntimeError("boom"))
@@ -1283,13 +1147,6 @@ class Beat(Served, Case):
         now[0] += 60
         worker.tick()
         self.assertEqual(order, ["provision", "check"])
-
-    def test_nothing_is_attempted_when_nothing_is_waiting_and_the_wait_is_bounded(self):
-        self.patch(firstrun, "NAP", 60.0)
-        self.patch(firstrun, "provision", side_effect=AssertionError("nothing to download"))
-        registry.write_config({"schema": 1, "catalogs": []})
-        _, worker = self.worker()
-        self.assertLessEqual(worker.tick(), firstrun.NAP)
 
     def test_a_catalog_edited_into_the_file_later_is_found_within_a_minute(self):
         self.patch(firstrun, "NAP", 60.0)
@@ -1316,7 +1173,7 @@ class Beat(Served, Case):
 
     def thread(self):
         firstrun.start_worker()
-        self.addCleanup(firstrun.stop_worker)
+        self.addCleanup(self.stop_worker)
         return firstrun._worker
 
     def until(self, test, seconds=60.0):
@@ -1336,11 +1193,11 @@ class Beat(Served, Case):
         found = [one for one in threading.enumerate() if one.name == "lab-first-run"]
         self.assertEqual(len(found), 1)
         self.assertTrue(found[0].daemon)
-        firstrun.stop_worker()
+        self.stop_worker()
         self.assertFalse(found[0].is_alive())
         firstrun.start_worker()   # after it ended, a new one can start
         self.assertIsNot(firstrun._worker, first)
-        self.addCleanup(firstrun.stop_worker)
+        self.addCleanup(self.stop_worker)
 
     def test_the_worker_downloads_the_catalog_and_is_a_thread_apart(self):
         self.started()
@@ -1352,7 +1209,7 @@ class Beat(Served, Case):
         self.assertTrue(self.until(lambda: self.lock()["pin"]), "the catalog arrived")
         self.assertEqual(ran[0].name, "lab-first-run")
         self.assertIsNot(ran[0], main)
-        self.assertTrue(self.until(lambda: firstrun.content({}, {})["key"] == "ready"))
+        self.assertTrue(self.until(lambda: firstrun.content({})["key"] == "ready"))
 
     def test_the_add_of_a_listed_catalog_from_its_row_is_a_download_of_the_worker(self):
         registry.write_config({"schema": 1, "catalogs": []})
@@ -1375,7 +1232,7 @@ class Beat(Served, Case):
             thread.start()
         for thread in threads:
             thread.join(10)
-        self.addCleanup(firstrun.stop_worker)
+        self.addCleanup(self.stop_worker)
         self.assertEqual(len([one for one in threading.enumerate() if one.name == "lab-first-run"]), 1)
 
     def test_a_pass_that_fails_does_not_end_the_thread(self):
@@ -1395,25 +1252,6 @@ class Beat(Served, Case):
             self.assertTrue(self.until(lambda: len(ticks) >= 3, 10), "it went on")
         self.assertIn("RuntimeError", "".join(call.args[0] for call in err.write.call_args_list))
 
-    def test_an_automatic_retry_leaves_the_content_failed_with_no_flicker(self):
-        # The repository does not exist yet: every attempt fails, silently, until it does
-        missing = self.scratch / "later.git"
-        self.listed(self.ns, url=f"file://{missing}")
-        self.patch(firstrun, "SCHEDULE", (0.05,))
-        self.patch(firstrun, "LATER", 0.05)
-        self.started()
-        self.assertEqual(firstrun.content({}, {})["key"], "downloading", "the first state, before any attempt")
-        seen = []
-        self.thread()
-        self.assertTrue(self.until(lambda: (seen.append(firstrun.content({}, {})["key"]) or True) and seen[-1] == "failed"))
-        for _ in range(60):   # the retries go on every 50 ms, and what the page reads is the same each time
-            seen.append(firstrun.content({}, {})["key"])
-            time.sleep(0.01)
-        self.assertEqual(set(seen[seen.index("failed"):]), {"failed"}, f"no flicker: {seen}")
-        gitfixture.make_repo(missing, gitfixture.catalog_files(self.ns))
-        self.assertTrue(self.until(lambda: self.lock()["pin"]), "and the retry that works installs it")
-        self.assertTrue(self.until(lambda: firstrun.content({}, {})["key"] == "ready"))
-
     def test_try_again_wakes_the_worker_and_shows_the_download(self):
         missing = self.scratch / "later.git"
         self.listed(self.ns, url=f"file://{missing}")
@@ -1424,7 +1262,7 @@ class Beat(Served, Case):
         self.started()
         self.thread()
         self.assertTrue(self.until(lambda: self.lock()["error"] == "not_found"), "the first attempt failed")
-        self.assertEqual(firstrun.content({}, {})["key"], "failed")
+        self.assertEqual(firstrun.content({})["key"], "failed")
         marks = len([one for one in firstrun.PROGRESS.sets if one[0] == self.ns])
         gitfixture.make_repo(missing, gitfixture.catalog_files(self.ns))
         service.check_now(self.ns)   # the route of Try again: it clears the failure, marks the catalog, wakes the worker

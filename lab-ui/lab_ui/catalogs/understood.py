@@ -1,7 +1,7 @@
 """What this Lab understands of a catalog: the items of the contract (`contract.lock`, at the root of the engine) that the files of
 a catalog use, and those among them that this Lab does not list. A Lab uses what it understands, and says when it needs a newer
 version: a published catalog (a git catalog the person added) that uses anything this Lab does not list is not used, and shown
-as needing a newer Gravitee Lab (`project._judge_units`, `manifest.pick`), while `catalog.py check` names each such item as a
+as needing a newer Gravitee Lab (`project._judge_units`, `manifest.searched`), while `catalog.py check` names each such item as a
 mistake of its author ([the contract](../../../docs/contract.md)).
 
 What the lock lists of each kind is closed, so a name that is not there is something this Lab does not read: a key of
@@ -90,16 +90,16 @@ def lock(root: Optional[Path] = None) -> Optional[Lock]:
     return found
 
 
-def levels(root: Optional[Path] = None) -> Optional[dict]:
+def levels() -> Optional[dict]:
     """The levels this Lab reads, {contract, contract_min}, from its lock, which says those of the core file (tests/test_contract.py):
     known without Docker, where the core file is read through Compose. None without a lock."""
-    found = lock(root)
+    found = lock()
     return {"contract": found.contract, "contract_min": found.contract_min} if found else None
 
 
-def fingerprint(root: Optional[Path] = None) -> str:
+def fingerprint() -> str:
     """What a memory of a verdict is valid for: the lock as it is now (a Lab that is updated understands more)."""
-    found = lock(root)
+    found = lock()
     return "" if found is None else f"{found.contract}:{found.contract_min}:{len(found.rows)}:{hash(frozenset(found.rows))}"
 
 

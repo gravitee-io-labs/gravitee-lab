@@ -2,7 +2,7 @@
 compatible pin that picks the newest commit this Lab reads, and the generated index.
 
 A Lab uses what it understands: a version of a published catalog is read when every item of the contract it uses is one this
-Lab lists (`understood`), which `pick` learns by reading that version's files (`readable`). `schema` and `lab` are the legacy
+Lab lists (`understood`), which `searched` learns by reading that version's files (`readable`). `schema` and `lab` are the legacy
 fields that older Gravitee Labs read: a catalog.yml does not need them, a `lab` that is there is a fast hint (a version
 whose `lab` this Lab does not read is passed over without reading its files), and `with_legacy` keeps them true where
 `catalog.py` writes the file.
@@ -14,7 +14,7 @@ check` and the template's tests use it. It does not judge a namespace against th
 person has (`registry.check_namespace`) nor a name against the address that serves it: the listed names are `borrowed`,
 and the caller that knows the address says which.
 
-`compat`, `pick`, `parse_version` and `at_least` are pure and tested over tables. `levels` is the git half of `pick`:
+`compat` and `searched` are pure and tested over tables. `levels` is the git half of `searched`:
 the versions of `catalog.yml` in the first-parent history of the tip, read from the bare store, newest first, and each version of
 the units within each of them. `releases` is the other half, for a catalog that makes releases: its release tags that lead to the
 tip and that its catalog.yml agrees with. `offer` says which of the two a catalog follows, and the commit it offers
@@ -26,7 +26,7 @@ import re
 import stat
 import time
 from pathlib import Path
-from typing import Iterable, List, NamedTuple, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional
 
 from ..docker import compose
 from .. import paths
@@ -35,9 +35,8 @@ from . import store as bare
 from .registry import CatalogError
 
 SCHEMA = 1   # the format of catalog.yml and of the layout that this Lab reads
-LEGACY = ("schema", "lab")   # what older Gravitee Labs need in catalog.yml, and this Lab does not
 LEGACY_NOTE = "# For older Gravitee Labs: written by catalog.py"   # the comment of their lines in a file catalog.py writes
-# The versions of a catalog whose files `pick` reads to find one this Lab understands, and the seconds it spends on them: a real
+# The versions of a catalog whose files `searched` reads to find one this Lab understands, and the seconds it spends on them: a real
 # history has its newest readable version among the first few, and a catalog this Lab cannot read is said once the budget is spent
 READS, READ_SECONDS = 20, 10.0
 UNITS = ("addons", "setups", "playgrounds")   # what holds the units: a version of them is a version of the catalog
@@ -80,30 +79,11 @@ _LICENSE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*(?: (?:AND|OR|WITH) [A-Za-z0-9
 _IMAGES = re.compile(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+")
 _SETTING = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 _UNIT = re.compile(r"(addon|setup|playground):[a-z0-9-]+")
-_SHA = re.compile(r"[0-9a-f]{40}")
 
 NAMESPACE_PROBLEM = "id must be 2 to 24 lowercase letters, digits and dashes"
 
 
 # ---------------------------------------------------------------- versions and levels
-
-def parse_version(text: str) -> Tuple[int, int, int]:
-    """(major, minor, patch) of a version of three numbers with dots, `1.4.0`; ValueError for anything else (a fourth
-    number, a suffix, a sign, a digit that is not an ASCII one)."""
-    if not isinstance(text, str) or not _VERSION.fullmatch(text):
-        raise ValueError(f"not a version of three numbers: {text!r}")
-    major, minor, patch = (int(part) for part in text.split("."))
-    return major, minor, patch
-
-
-def at_least(have: str, need: str) -> bool:
-    """Whether the version `have` is `need` or later (`min` of a required catalog, 5.3). False when either is not a
-    version, so that a doubt never counts as enough."""
-    try:
-        return parse_version(have) >= parse_version(need)
-    except ValueError:
-        return False
-
 
 def _level(value, default):
     return value if type(value) is int else default
@@ -120,12 +100,12 @@ def compat(level: int, contract: int, contract_min: int) -> str:
     return "new" if level > high else "old" if level < low else "ok"
 
 
-def pick(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
-         seconds: Optional[float] = None) -> tuple:
+def searched(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
+             seconds: Optional[float] = None) -> tuple:
     """The compatible pin. `levels` is [(commit, lab)], newest first (`levels()`, or a catalog's releases): `levels[0]` is the
     tip with the `lab` its catalog.yml states. Answers (the first commit this Lab reads, or None; how the tip stands: "ok",
-    "new" when it needs a newer Gravitee Lab, "old"). With nothing to choose from there is no commit and the tip is "old".
-    `searched` gives the number of versions read as well, when the budget ran out before one was found.
+    "new" when it needs a newer Gravitee Lab, "old"; the number of versions read when the budget ran out with none found, else
+    0). With nothing to choose from there is no commit and the tip is "old".
 
     A `lab` is a fast hint: a version whose `lab` this Lab does not read (`compat`) is passed over, its files unread. Any other
     version is read when `readable` is given, `readable(commit)` saying whether this Lab understands every item of the contract
@@ -134,13 +114,6 @@ def pick(levels: list, contract: int, contract_min: int, readable=None, reads: O
     budget is about that long; past it none is taken. Without `readable` (a caller that reads the version it stages) a
     `lab` of None, the form with no `lab` and the form the tolerant reader could not be sure of, is taken for a version this Lab
     may read, and the strict reading of the staged file decides. Pure but for `readable` and the clock."""
-    commit, state, _ = searched(levels, contract, contract_min, readable, reads, seconds)
-    return commit, state
-
-
-def searched(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
-             seconds: Optional[float] = None) -> tuple:
-    """`pick`, with a third answer: the number of versions read when the budget ran out with none found, else 0."""
     reads = READS if reads is None else reads
     seconds = READ_SECONDS if seconds is None else seconds
     if not levels:
@@ -203,15 +176,15 @@ def not_understood(found: Iterable) -> CatalogError:
 
 
 def no_commit(levels: list, contract: int, contract_min: int, listed: bool = False, searched: int = 0) -> CatalogError:
-    """The refusal when `pick` found no commit (the one rule): `no_readable_version` when the tip needs a newer Lab, by its
+    """The refusal when `searched` found no commit (the one rule): `no_readable_version` when the tip needs a newer Lab, by its
     legacy `lab` or by what its files use (so does every version), `lab_old` when the catalog is older than this Lab reads,
     or there is nothing to choose from. `listed` words `lab_old` for a catalog the engine lists. `searched`: the versions read
-    when the budget of `pick` ran out, so that the line says what was looked at and no more."""
+    when the budget of `searched` ran out, so that the line says what was looked at and no more."""
     if searched:
         return CatalogError("no_readable_version", f"This Lab found no version of this catalog it reads among the newest {searched}. "
                             "Fix: update Gravitee Lab (make update), then add it again.", 400)
     level = levels[0][1] if levels else 0
-    if level is None or compat(level, contract, contract_min) != "old":   # None: its files need a newer Lab (`pick`)
+    if level is None or compat(level, contract, contract_min) != "old":   # None: its files need a newer Lab (`searched`)
         return CatalogError("no_readable_version",
                             "Every version of this catalog needs a newer Gravitee Lab. Run make update, then add it again.", 400)
     return compat_error(level, contract, contract_min, listed)
@@ -517,23 +490,9 @@ def _screen(file) -> None:
     """Reads the file without following a link, bounded, and refuses with `catalog_invalid` a file that is not text or
     holds more than its block (`_only_the_block`): Compose is asked nothing about it, since an `include` that names a pipe
     or a file without end would hold or fill the process that reads it."""
-    try:
-        fd = os.open(os.fspath(file), os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0)
-                     | getattr(os, "O_CLOEXEC", 0))
-    except OSError:
-        raise CatalogError("catalog_invalid", "catalog.yml: it could not be read.", 400) from None
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            raise CatalogError("catalog_invalid", "catalog.yml: it could not be read.", 400)
-        with os.fdopen(fd, "rb", closefd=False) as source:
-            data = source.read(FILE_LIMIT + 1)
-    except OSError:
-        raise CatalogError("catalog_invalid", "catalog.yml: it could not be read.", 400) from None
-    finally:
-        os.close(fd)
-    if len(data) > FILE_LIMIT:
-        raise CatalogError("catalog_invalid", "catalog.yml: it is larger than 1 MB.", 400)
+    data, _ = registry._read(os.fspath(file), FILE_LIMIT, follow=False)
+    if data is None:
+        raise CatalogError("catalog_invalid", "catalog.yml: it could not be read.", 400)
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -636,49 +595,23 @@ def with_legacy(text: str, lab: Optional[int]) -> str:
 
 def _lab_of(data) -> Optional[int]:
     """The `lab` a catalog.yml states, from its bytes, read the way the registry reads the file of an install; 0 (a
-    level no Lab reads) for a file that is missing or damaged, or whose `lab` is no number. None when it states none, the
-    form a catalog has now, and when the reader says it is not sure (`partial`: an anchor, a scalar on several lines, a
-    number spelled another way, a block it did not find): the files of that version say whether this Lab reads it (`pick`
-    with `readable`), and the strict reading of a catalog (`read_catalog`, at Add and at Update) has the last word, so a
-    level is never invented here."""
+    level no Lab reads) for a file that is missing or damaged. None when it states none, the form a catalog has now, and
+    when it states one the reader does not read (a word, an anchor, a number spelled another way): the files of that version
+    say whether this Lab reads it (`searched` with `readable`), and the strict reading of a catalog (`read_catalog`, at Add and
+    at Update) has the last word, so a level is never invented here."""
     found = registry.scan(data) if data else {}
-    if found.get("partial"):
-        return None
-    if type(found.get("lab")) is int:
-        return found["lab"]
-    return None if found and not _states_lab(data) else 0
-
-
-def _states_lab(data) -> bool:
-    """Whether the x-gravitee-catalog block of a catalog.yml has a `lab` line of its own, at its first level, whatever it says:
-    one that is no number is no level. A `lab` deeper in the block (under `requires`) or in another block is not the catalog's."""
-    text = data.decode("utf-8", "replace") if isinstance(data, bytes) else str(data or "")
-    inside, indent = False, None
-    for line in text.replace("\r\n", "\n").split("\n"):
-        if not line.strip() or line.lstrip(" \t").startswith("#"):
-            continue
-        if line[0] not in " \t":
-            inside = bool(_BLOCK_LINE.fullmatch(line))
-            indent = None
-            continue
-        if inside:
-            here = len(line) - len(line.lstrip(" \t"))
-            indent = here if indent is None else indent
-            if here == indent and re.match(r"[\"']?lab[\"']?[ \t]*:", line.lstrip(" \t")):
-                return True
-    return False
+    return found.get("lab") if found else 0
 
 
 def levels(store: Path, tip: str, limit: int = 50, address: Optional[gitx.Address] = None) -> list:
-    """The versions of this catalog that `pick` chooses among: [(commit, lab)], newest first, at most `limit`.
+    """The versions of this catalog that `searched` chooses among: [(commit, lab)], newest first, at most `limit`.
     `levels[0]` is `tip` with the `lab` its `catalog.yml` states; for each older form of that file there is one more,
     the newest commit that still has it, which is the first parent of the commit that changed the file next. Since it is
     the files that say whether this Lab reads a version, each form is also a version for each change of its units: the
     first parent of each commit that changed `addons/`, `setups/` or `playgrounds/` since the form appeared, with the `lab`
-    of the form, which `pick` reads as a hint. One `git log --first-parent` for the commits that touched the file, one for
-    the changes of the units of each form, and one read of the file for each form. A form that states no `lab` is None, one
-    that is damaged is `lab` 0, which no Lab reads, one the reader cannot be sure of is None (`_lab_of`), and a form that was
-    deleted is left out. A tip with no `catalog.yml` is `not_catalog` (`address` names the repository in the line); a tip
+    of the form, which `searched` reads as a hint. One `git log --first-parent` for the commits that touched the file, one for
+    the changes of the units of each form, and one read of the file for each form. A form that states no `lab` the reader
+    reads is None (`_lab_of`), one that is damaged is `lab` 0, which no Lab reads, and a form that was deleted is left out. A tip with no `catalog.yml` is `not_catalog` (`address` names the repository in the line); a tip
     the store does not hold is `fsck`."""
     commit = bare.resolve(store, tip)
     if commit is None:
@@ -725,7 +658,7 @@ def releases(store: Path, tip: str) -> list:
 
 class Offer(NamedTuple):
     """What a catalog offers this Lab: `commit`, the version to install (None when it has none this Lab reads); `tip`, how
-    the newest version stands with this Lab (`pick`'s second answer: "ok", "new" or "old"); `release`, the version of the
+    the newest version stands with this Lab (`searched`'s second answer: "ok", "new" or "old"); `release`, the version of the
     release `commit` is, or None for a catalog that has no release, which is followed commit by commit; `levels`, what
     `no_commit` reads when there is no commit; `searched`, the versions read when the budget ran out with none found."""
     commit: Optional[str]
@@ -740,7 +673,7 @@ def offer(store: Path, tip: str, contract: int, contract_min: int, address: Opti
     """The version of a catalog this Lab installs, from what the store holds of the branch it follows (`tip`). A catalog
     with a release on that branch is offered its greatest release this Lab reads, and the commits made since are not offered
     until they are released; one with none is offered the newest commit this Lab reads (`levels`), as it always was. A tip
-    with no catalog.yml is `not_catalog`, released or not. `readable` is what `pick` asks of each version, released or not:
+    with no catalog.yml is `not_catalog`, released or not. `readable` is what `searched` asks of each version, released or not:
     whether this Lab reads all that its files use (`install.readable`, which every caller of a published catalog gives)."""
     found = releases(store, tip)
     if not found:
@@ -784,37 +717,31 @@ def _standard(ns) -> Optional[int]:
     return level if type(level) is int and 1 <= level <= STANDARD_MAX else None
 
 
-def _builds(unit, services, raw=None) -> list:
+def _builds(unit, services, raw) -> list:
     """What a unit builds, for the index: [{service, image}], the services of the unit whose file has a `build:` (`raw`, the
     files of the project as gather() read them), with the image each runs as Compose resolved it, or None for a build that
     names none. The file says it, and not the `built` of the project, which also marks a service that runs an image another
     service of the project builds, in this catalog or in another: that service builds nothing, and the same catalog would
-    list other services with other catalogs installed. Without the files (a project given as it is) `built` is all there is.
+    list other services with other catalogs installed.
     No digest and no time, so two runs give the same list, sorted by service. A setup defines no service, and a unit that is
     blocked lists none (the project clears them); the service built from the Lab's seeder is listed like any other, and
     whoever publishes images leaves it out."""
-    defined = None
-    if isinstance(raw, dict):
-        file = raw.get(unit.get("file")) if isinstance(unit.get("file"), str) else None
-        defined = file.get("services") if isinstance(file, dict) else None
-        defined = defined if isinstance(defined, dict) else {}
+    file = raw.get(unit.get("file")) if isinstance(unit.get("file"), str) else None
+    defined = file.get("services") if isinstance(file, dict) else None
+    defined = defined if isinstance(defined, dict) else {}
     found = []
     for name in unit.get("services") or []:
         service = services.get(name) if isinstance(services, dict) and isinstance(name, str) else None
         if not isinstance(service, dict):
             continue
-        if defined is None:
-            builds = bool(service.get("built"))
-        else:
-            written = defined.get(name)
-            builds = isinstance(written, dict) and bool(written.get("build"))
-        if builds:
+        written = defined.get(name)
+        if isinstance(written, dict) and written.get("build"):
             image = registry.shown(service["image"], 300) if service.get("image") else ""
             found.append({"service": registry.shown(name, 100), "image": image or None})
     return sorted(found, key=lambda one: (one["service"], one["image"] or ""))
 
 
-def _index_unit(ns, kind, uid, unit, project, services=None, raw=None):
+def _index_unit(ns, kind, uid, unit, project, services, raw):
     """One entry of the index for a unit of `ns`: its name inside the catalog and what it says of itself."""
     name = paths.split_ref(uid)[1]
     prefix = f"{paths.CATALOGS_DIR}/{ns}/"
@@ -834,28 +761,23 @@ def _index_unit(ns, kind, uid, unit, project, services=None, raw=None):
     return found
 
 
-def build_index(ns: str, loaded: Optional[dict] = None, meta: Optional[dict] = None, raw: Optional[dict] = None) -> dict:
+def build_index(ns: str) -> dict:
     """The generated `catalog.json` of catalog `ns`: {schema, catalog: {id, name, description, version, lab (when its
     catalog.yml states one), license}, standard (the level of the standard the catalog follows, from its `.github/standard.json`; the key is there only
     when that file says one, _standard), units: [{kind, id, path, name, description, category, tags, requires, brings,
     conflicts, builds: [{service, image}]} and, for a playground, duration, first_start, source]}, the units sorted by kind
-    and id. It reads the project as `project.build` gives it (`loaded`) and the catalog's own `catalog.yml` (`meta`, which
-    `read_catalog` answers), so there is one reader and no second parser. When `loaded` is not given, the project is loaded
-    (`project.loaded()`) with the files it was read from (`raw`, {project file: its services as written}), which say what each
-    unit builds (_builds); a project given without them is listed by its own `built`. Nothing in it changes between two runs
+    and id. It reads the project (`project.loaded()`), with the files it was read from, which say what each unit builds (_builds),
+    and the catalog's own `catalog.yml` (`read_catalog`), so there is one reader and no second parser. Nothing in it changes between two runs
     or with what else is installed: no time, no commit, no digest. What a unit says it was tested with is not in it, and was
     not before."""
     from ..library import project   # here and not above: the project reads this package
-    if loaded is None:
-        loaded, read = project.loaded()
-        raw = read.get("raw") if raw is None else raw
-    if meta is None:
-        meta = read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{FILE}")
+    loaded, read = project.loaded()
+    meta = read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{FILE}")
     units = []
     for kind in paths.KINDS:
         for uid, unit in sorted((loaded.get(f"{kind}s") or {}).items()):
             if paths.origin(uid) == ns:
-                units.append(_index_unit(ns, kind, uid, unit, project, loaded.get("services"), raw))
+                units.append(_index_unit(ns, kind, uid, unit, project, loaded.get("services"), read["raw"]))
     units.sort(key=lambda one: (one["kind"], one["id"]))
     found = {"schema": 1,
              "catalog": {key: meta.get(key) for key in ("id", "name", "description", "version", "lab", "license")

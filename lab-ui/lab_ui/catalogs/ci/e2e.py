@@ -141,7 +141,7 @@ def check_inputs(sha: Optional[str], number: Optional[str], words: Optional[Sequ
 
 
 def head_of(folder: str) -> Optional[str]:
-    return trees.head_of(folder)
+    return trees.resolve(folder, "HEAD")
 
 
 def merge_base(change: str, sha: str, main_tip: Optional[str]) -> Optional[str]:

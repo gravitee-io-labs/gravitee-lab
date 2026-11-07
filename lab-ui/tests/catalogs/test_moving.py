@@ -14,45 +14,37 @@ from lab_ui.docker import compose, envfiles
 from lab_ui.library import check, files, project
 
 from .. import Case, fixtures
+from .test_exports import evil_playground, evil_zip
 
 
-def held(case):
-    """The lock of the catalogs held by another thread, as a change under way does, until the test ends."""
-    import threading
-    taken, done = threading.Event(), threading.Event()
-
-    def hold():
-        with registry.flock():
-            taken.set()
-            done.wait(30)
-    worker = threading.Thread(target=hold, daemon=True)
-    worker.start()
-    taken.wait(10)
-    case.addCleanup(worker.join)
-    case.addCleanup(done.set)
-
-
-class Moving(Case):
+class Base(Case):
 
     def setUp(self):
         fixtures.need_compose()
         fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        self.patch(gitx, "home", lambda: paths.ROOT.parent)
+        project.forget()
+        self.addCleanup(project.forget)
+
+    def local(self, rel):
+        return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
+
+
+class Moving(Base):
+
+    def setUp(self):
+        super().setUp()
         fixtures.local(self, "sandbox")
         fixtures.local(self, "scratch")
-        self.patch(gitx, "home", lambda: paths.ROOT.parent)
         self.patch(exports, "_address", lambda ns: "https://github.com/acme/fixture-catalog.git")
         self.patch(exports.images, "private_images", lambda pulled: {})
         project.forget()
-        self.addCleanup(project.forget)
         data = exports.archive("local/sandbox")["data"]
         for rel in ("playgrounds/sandbox", "addons/scratch"):   # what was exported is no longer of this machine: it comes back imported
             shutil.rmtree(self.local(rel))
         service.add(exports.receive(data)["ticket"])
         (paths.ROOT / exports.IMPORTS_DIR / "sandbox" / "addons" / "scratch" / ".env").write_text("SCRATCH_NOTES_VERSION=1.35\n")
         project.forget()
-
-    def local(self, rel):
-        return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
 
     def test_the_plan_says_what_each_choice_moves(self):
         plan = moving.plan("playground", "@sandbox/sandbox")
@@ -133,14 +125,14 @@ class Moving(Case):
         self.assertEqual(caught.exception.code, "held")
         self.assertEqual(self.local("playgrounds/sandbox/compose.yml").read_text(), before, "what is on is left as it is")
 
-    def failing_copy(self, after=1, error=OSError(28, "No space left on device")):
-        """The writing of the new items fails at its second item, as a full disk makes it, or a stop of the Lab (`error`)."""
+    def failing_copy(self):
+        """The writing of the new items fails at its second item, as a full disk makes it."""
         copytree, calls = shutil.copytree, []
 
         def failing(*args, **how):
             calls.append(args)
-            if len(calls) > after:
-                raise error
+            if len(calls) > 1:
+                raise OSError(28, "No space left on device")
             return copytree(*args, **how)
         self.patch(moving.shutil, "copytree", failing)
 
@@ -289,7 +281,6 @@ class Moving(Case):
         self.assertFalse([one for one in loads if one], "the project is not read again once the items are placed")
 
     def test_a_file_where_the_person_has_a_folder_keeps_it_and_wedges_nothing(self):
-        from .test_exports import evil_playground, evil_zip
         fixtures.local(self, "sandbox")
         mine = self.local("playgrounds/sandbox")
         (mine / "secrets/tls").mkdir(parents=True)
@@ -335,8 +326,7 @@ class Moving(Case):
                                           ".lab/imports/sandbox/playgrounds/sandbox with administrator rights.")
 
     def test_a_move_waits_for_another_change_of_catalogs(self):
-        held(self)
-        with self.assertRaises(CatalogError) as caught:
+        with fixtures.lock_held(), self.assertRaises(CatalogError) as caught:
             moving.move("playground", "@sandbox/sandbox", True)
         self.assertEqual(caught.exception.code, "busy")
         self.assertFalse(self.local("playgrounds/sandbox").exists(), "nothing moved")
@@ -347,22 +337,17 @@ class Moving(Case):
         self.assertEqual(caught.exception.code, "not_imported")
 
 
-class Copying(Case):
+class Copying(Base):
     """Copy to Personal: Echo of the default catalog, which Echo core and Pair include and Scratch of this machine too. Alone, the
     copy says whose copy it is and is its twin, so that neither blocks the other; with what uses it, Echo core and Pair are copied
     and include the copy, and Scratch does. Partner, whose Ledger Pair includes, is added: an item that waits for a catalog is not
     judged, and is not copied."""
 
     def setUp(self):
-        fixtures.need_compose()
-        fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
+        super().setUp()
         fixtures.install(self, "partner", kind="git", audience="public")
         fixtures.local(self, "scratch")
         project.forget()
-        self.addCleanup(project.forget)
-
-    def local(self, rel):
-        return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
 
     def test_the_plan_says_what_each_choice_copies_and_switches(self):
         plan = moving.copy_plan("addon", "echo")
@@ -427,8 +412,7 @@ class Copying(Case):
         self.assertIn("../../../fixture/addons/echo/compose.yml", self.local("addons/scratch/compose.yml").read_text())
 
     def test_a_copy_waits_for_another_change_of_catalogs(self):
-        held(self)
-        with self.assertRaises(CatalogError) as caught:
+        with fixtures.lock_held(), self.assertRaises(CatalogError) as caught:
             moving.copy("addon", "echo")
         self.assertEqual(caught.exception.code, "busy")
 
@@ -440,7 +424,6 @@ class Copying(Case):
         self.assertEqual(moving.copy_plan("addon", "echo")["alone"]["held"], "Echo is in Personal already: delete or rename that one first")
 
     def test_back_to_the_catalog_version_drops_the_copy_and_what_used_it_uses_the_original_again(self):
-        from lab_ui.catalogs import contribute
         moving.copy("addon", "echo", users=True)
         contribute.use_catalog_version(project.load(), "addon", "local/echo")
         self.assertFalse(self.local("addons/echo").exists())
@@ -450,17 +433,12 @@ class Copying(Case):
         self.assertIsNone(found["addons"]["local/scratch"]["blocked"])
 
 
-class Unjudged(Case):
+class Unjudged(Base):
     """An imported playground that includes an item of a catalog this Lab has not added: Compose cannot read it, so nothing judged
     it, and it can no more move or be copied to Personal than an item that is blocked."""
 
     def setUp(self):
-        from .test_exports import evil_playground, evil_zip
-        fixtures.need_compose()
-        fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
-        self.patch(gitx, "home", lambda: paths.ROOT.parent)
-        project.forget()
-        self.addCleanup(project.forget)
+        super().setUp()
         data = evil_zip(playground=evil_playground(include="../../../partner/addons/ledger/compose.yml"), needs=True)
         service.add(exports.receive(data)["ticket"])
         project.forget()
@@ -481,18 +459,8 @@ class Unjudged(Case):
         self.assertFalse((paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "evil").exists())
 
 
-class Stopped(Case):
+class Stopped(Base):
     """What a change left set aside when the Lab stopped in the middle of it comes back at the next change of catalogs, and is said."""
-
-    def setUp(self):
-        fixtures.need_compose()
-        fixtures.project(self, paths, project, compose, envfiles, check, files, ns="fixture", kind="git", store=True)
-        self.patch(gitx, "home", lambda: paths.ROOT.parent)
-        project.forget()
-        self.addCleanup(project.forget)
-
-    def local(self, rel):
-        return paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / rel
 
     def journal(self, name, phase, items):
         swap = paths.ROOT / paths.LAB_DIR / f".swap-{name}"
@@ -508,7 +476,6 @@ class Stopped(Case):
             (root / rel / path.replace("__", "/")).write_text(text)
 
     def test_a_change_stopped_before_all_its_items_were_in_is_undone_from_its_journal(self):
-        from .test_exports import evil_playground, evil_zip
         swap = self.journal("0a1b2c3d", "in", ["playgrounds/sandbox", "playgrounds/other"])
         self.item(swap / "old", "playgrounds/sandbox", "Sandbox", **{".env": "MINE=1\n"})
         self.item(swap / "old", "playgrounds/other", "Other")

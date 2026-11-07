@@ -268,7 +268,7 @@ def _found(kinds, default):
 def ids(kind):
     """The ids of a kind found on disk, by catalog: the default catalog's (bare), those of this machine (local/), then
     each other catalog's (@<namespace>/) by namespace, each group sorted. It is the set of units, not who wins a name:
-    that is the precedence of registry.sources(), in the order catalogs were added. A git install lists the units its
+    that is the precedence of registry.precedence(), in the order catalogs were added. A git install lists the units its
     manifest vouches for, as registry.units_of says it, and only those; a folder catalog, a link and this machine's own
     folder are listed as they are."""
     return _found((kind,), default_ns())[kind]
