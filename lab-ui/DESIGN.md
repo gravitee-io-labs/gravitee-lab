@@ -1488,9 +1488,9 @@ dark, at 1440 and 900 px wide.
    and a state is the same dot and word on every row. Run the measure of the page's rules, if you have one, at 1966, 1440, 1100, 900
    and 375 px: heights, cells centered, columns lined up, nothing cut that carries a version or a reason.
    - *The head*: its title, no state (the sidebar's chip says it, on every page), the badge "Apply needed", in amber, while
-     something runs behind what is saved (hover it, Tab to it, tap it, and the popover says why), and one button at most: Start with the platform stopped
+     something runs behind what is saved (hover it, Tab to it, tap it, and the popover says why), and one button at most: Start all with the platform stopped
      (the one primary, and the banner has no Start line), Apply with changes to apply (the primary, and the banner has no
-     Apply line), else Stop, which shows its progress here and on the Containers page. No Restart, no Update and no menu: they
+     Apply line), else Stop all, which shows its progress here and on the Containers page. No Restart, no Update and no menu: they
      are the Containers page's. On any other page the banner has its lines. Start the platform from here: the same dialog as
      Containers.
       - *Gravitee Platform*: the license pill after its title, then *Containers 12* and *Change versions*, two buttons in its head; the
@@ -1521,25 +1521,25 @@ dark, at 1440 and 900 px wide.
      *Running* and *Starred*, alone or together; "Nothing running", "Nothing starred" and "No matches" with *Clear filters*; more
      than eight rows make pages. Nothing on: "Nothing running or starred" and *Browse playgrounds*. A visit starts without a
      search; Starred is kept.
-   - *Resources*: folded by default, one line: *Resources*, its chevron, "CPU 1.0%", "Memory 4.7 GB", "Storage 85.8 GB" that follow the
+   - *Resources*: folded by default, one line: *Resources*, its chevron, "CPU 1.0%" and "Memory 4.7 GB" that follow the
      samples, Docker's versions muted at its end on a wide window; at 375 px two lines at most, nothing cut. A click anywhere on it,
      or Tab to its toggle and Enter or Space, unfolds it quickly (at once with reduced motion), the ring on the whole line; a reload
      keeps the choice. Folded, the Performance panel shows no animation frame. Unfolded, the CPU and memory lines slide continuously
      (no step every second) and end in a round dot at the right edge, at any width, light and dark. A hidden tab, or leaving the page, ends the stream and the animation: no `docker stats`
      process comes (`ps`) once both tabs are gone. With reduced motion set in the system, the lines
      are drawn when a sample comes. The strip is one row of 64 px at 1440 and 1966 px, two or three short rows at 1100 and 900 px,
-     and one item over the other at 375 px. Hover, then Tab to, each part of the storage bar and the "unused" figure, and tap them
-     on a touch screen: the same popover as the Apply needed badge opens for each, in light and dark,
+     and one item over the other at 375 px. Hover, then Tab to, the "unused" figure, and tap it
+     on a touch screen: the same popover as the Apply needed badge opens, in light and dark,
      inside the page. *Storage* says what Docker keeps and what is
      unused: compare each figure with `docker system df` (the sizes and the unused column, the
      unused total being their sum) and with `docker system df -v`. *Count storage again* reads Docker's data again (about 2 seconds,
      the button at work); another page and back within a minute does not. No word *reclaimable* anywhere.
    - Docker stopped: Storage and the charts are dashes, no dot is colored, no count
-     is said, the actions say it as their title, nothing is to open; the Cloud and the catalog still show. A first
+     is said, the actions say it as their tooltip, nothing is to open; the Cloud and the catalog still show. A first
      start, nothing created: the dots are rings, and Start leads.
    - Light and dark, keyboard only: Tab goes through the head, each row and tile, with the same ring as every page.
 2. **The three lists.** Search (`/` focuses it), categories (several, then All), the toggle chips Running and Starred (kept
-   at the next visit), All / Shared / Personal, a star on a row (S on its toggle) and on a playground's page, the pager,
+   at the next visit), the catalog picker, a star on a row (S on its toggle) and on a playground's page, the pager,
    "Clear filters". A row opened and closed (a click on it, Enter or Space on its toggle, which says expanded or collapsed),
    its detail with what uses it, the setup of a playground opened on its add-ons, the
    file and key buttons of a row and of what its detail lists. A name in a detail and a "via" note lead to that row
@@ -1547,23 +1547,24 @@ dark, at 1440 and 900 px wide.
 3. **Start and stop an add-on.** Its button says so at the click and fills, the activity chip too, the drawer has
    its bar. Once the job ended the button stays at work until the add-on runs, then says "✓ Start" and gives its face
    back, "Stop", after 100% for a moment when the job got all the way (not while a gateway it restarts still passes its health
-   check). The first add-on that configures the gateway says first that it restarts it.
-4. **A dependency.** Kafka Desk brings Kafka, which says "via Kafka Desk". Stopping Kafka shows that both stop.
-5. **A conflict.** Jade while AI Agent Lens runs says "Stops AI Agent Lens"; while it is on and stopped, "Turns
-   off".
-6. **A setup** (Event Streams). Start, stop. It is Running when its add-ons run, whoever started them; with some of them
+   check). Its face fades at the click, and no button fades at rest. The first add-on that configures the gateway says first that it restarts it.
+4. **A dependency.** An add-on that includes another brings it, which says "via" and its name. Stopping that one shows that both stop.
+5. **A conflict.** An add-on started while one it conflicts with runs says "Stops" and that one's name; while that one is on and
+   stopped, "Turns off".
+6. **A setup.** Start, stop. It is Running when its add-ons run, whoever started them; with some of them
    on, off and "Partly on". Its Stop keeps what a playground that is on uses ("Keeps").
-7. **New add-on, New setup and New playground.** The form, the AI agent prompt and its Copy, Personal and Shared. A setup
+7. **New add-on, New setup and New playground.** The form, the AI agent prompt and its Copy, Personal and a catalog that is a folder. A setup
    edited, renamed ("Changes" when another file includes it) and duplicated. A personal item started, stopped, shared
    ("Share": what keeps it, then where it goes and what changes with it) and deleted ("Turn it off first" while it is on
    and stopped).
-8. **The playground** (Acme Bakery).
+8. **A playground.**
    - "Before you start": the platform line first, the names that lead to their items, a license line that opens the
      License form, a version line whose "Images page" opens that row (`#/images/<VARIABLE>`).
    - Its guide is readable before it starts. Start until it runs, Re-seed, then its two ways to stop.
    - Stopped from Containers, its Start runs it again in one job, without its seed. Re-seed says which service it waits for.
    - Its settings (the key) say whether its apps are built here or pulled.
-9. **A running playground with UIs** (Acme Bakery), at 1664 and at 1100 px, the menu open and collapsed.
+   - The reason Start is off wraps whole under its button, inside its card.
+9. **A running playground with UIs**, at 1664 and at 1100 px, the menu open and collapsed.
    - The page is pushed by the menu as on Containers, nothing over it, its toggle there above 1100 px, its guide and its
      tabs side by side, the guide's text running the width of its panel.
    - The head's Open (the first console), Details > Open under Playground and the products of the platform. An action link
@@ -1577,9 +1578,10 @@ dark, at 1440 and 900 px wide.
      divider gone. Clicking between a frame and the guide reads no check again.
    - Several pages of Gamma opened with the guide turned in between, then Gamma's own Back (a detail page's, the Policy
      Studio's) and the browser's: the guide and the tab stay where they are, and turning the guide never moves Gamma.
+   - A diagram of the guide shows the text of its edge labels in the dark theme.
 10. **A failed job and a canceled one.** The row says Failed, "Show output" opens it, Start works again.
 11. **Containers.** Stop, Restart, Update, Start or Apply (the primary, last), the ⋯ menu.
-    - The core's line, *Gravitee Platform* (its toggle, which folds the groups and the add-ons' band under it; the *Add-ons* band, which holds the platform's own add-ons (`ofPlatform`) and not Kafka or Jade, which come after under *Other add-ons*,
+    - The core's line, *Gravitee Platform* (its toggle, which folds the groups and the add-ons' band under it; the *Add-ons* band, which holds the platform's own add-ons (`ofPlatform`) and not the others, which come after under *Other add-ons*,
       folds its own groups, the browser keeping both in `shut`; each stays open, with no toggle, while a group under it is in an issue; its license pill in words, *Enterprise Edition* and the tier, *Community Edition*, or
       *License not saved* in amber while what runs still reads one, whose popover says where and what the next Apply does; a button
       to the License dialog; its file and key buttons), a group (its ports and uptime, its toggle opening it), a container, the Consoles card (a link's port and path:
@@ -1591,13 +1593,14 @@ dark, at 1440 and 900 px wide.
       starts beyond the core.
     - A container stopped leaves its group "Partly running". Reset says that it turns off the playground that is on.
     - Without a license, the Alert Engine is off with "Needs a license" (its form opens), has no Start, and the platform
-      reads Running; once a license is saved, it is a group as any other and Start runs it.
+      reads Running; once a license is saved, it is a group as any other and Start runs it. With a license, the License dialog keeps
+      no empty cell for the ways to get one, and the packs stay beside the facts.
     - The platform stopped, an add-on running alone: the head has Stop, Restart and Update.
 12. **Apply needed.** A version saved on Images while its container runs: the rows and the banner's notice, on every page but Containers, show the badge "Apply needed" (the notice its count; no page has it beside its title); hover it, tab to it (its name for a screen reader holds
     the reason) and tap it on a touch screen: the popover is one table, the tags that run and those saved under *Running* and
     *Saved* (an older one saved in amber), or the names of the settings that changed, and what Apply does; Apply's dialog says what
     goes back and what loses its license, its button in red. Images and the editor offer Apply, which lists what it
-    restarts. Once applied, it is gone. Escape, a tap elsewhere or another badge closes the popover. A badge "Needs settings"
+    restarts. Once applied, it is gone. Escape, a tap elsewhere or another badge closes the popover, and a scroll inside a long one keeps it open. A badge "Needs settings"
     names the settings as chips with a button to the form; "Needs newer versions" each version needed.
 13. **Logs, Images, Plugins.**
     - Logs: first *Choose services*, then several services, a level, search, the lines loaded. A service chosen is followed
@@ -1622,10 +1625,10 @@ dark, at 1440 and 900 px wide.
     playground's guide (Code and Preview, saved, then shown again on its page). Opened from an item, its pane lists the
     core, the item, the setups a playground includes and the add-ons it brings. Opened from the core, it lists the on file
     and everything that is on. A setup's file has Save only.
-14. **Docker stopped, then started again.** Meanwhile no dot is colored and every action says "Docker is not reachable".
+15. **Docker stopped, then started again.** Meanwhile no dot is colored and every action says "Docker is not reachable".
     Once it is back, what was stopped from Containers stays stopped.
-15. **Back and Forward**, through the pages and a playground's page.
-16. **Gravitee Cloud.** With the fake Cloud (`python3 lab-ui/tests/fake_cloud.py --port 9990`, which prints the Account Tokens,
+16. **Back and Forward**, through the pages and a playground's page.
+17. **Gravitee Cloud.** With the fake Cloud (`python3 lab-ui/tests/fake_cloud.py --port 9990`, which prints the Account Tokens,
     the Account IDs and a Cloud Token for each environment), light and dark, at 1966, 1440, 900 and 375 px (the table is four
     columns, then two cells under the name, then stacked rows; never a horizontal scroll):
     - *No account*: the name of the space, one line, *Connect account*; no button in the head. While the page loads, rows
@@ -1633,8 +1636,7 @@ dark, at 1440 and 900 px wide.
     - *Connect account* with http://localhost:9990: the keyboard on the token's field, the information marks of the two labels
       say what each is and where it is, no line under the fields; a wrong token refused in the dialog, then the account's hrid
       `my-account` as Account ID, refused in the same words, then `fake-account-token` with the Account ID the fake prints.
-      With the Name empty the card says *My Account*; connecting that account again with the same name says *A platform is
-      already named My Account*. The card lists Development, Test and Production under *Not set up*, each with *Set up*, no
+      The card says *My Account*; that Account ID typed again says *Already connected as My Account*, and Connect stays off. The card lists Development, Test and Production under *Not set up*, each with *Set up*, no
       table and no label of columns, behind the dialog, which goes on to *Environment* in place: *Account* checked, the picker on
       Development, the two pictures of the Cloud Token chosen above them, *Skip for now* closes it and the account stays. At 1440 x
       900, 1440 x 700, 1100 x 800 and 375 x 800: the footer never covers the picture or the fields, the picture is whole inside the
@@ -1670,16 +1672,16 @@ dark, at 1440 and 900 px wide.
       into view, the keyboard on its band. Remove one from its *More*: the confirmation of the environment's *Remove gateway*. An
       account with none: *No hybrid gateway* and *Set up Development*. At 900 px a row is three lines, at 375 px one cell over the
       other, never a sideways scroll.
-17. **Deploy to.** On a fresh clone, as [Test your change like a new
+18. **Deploy to.** On a fresh clone, as [Test your change like a new
     user](../CONTRIBUTING.md#test-your-change-like-a-new-user) says, with its own `COMPOSE_PROJECT_NAME` and `UI_PORT` so
-    that it sees an empty Docker. The fake Cloud stands in for the platform; with a real account, call
-    `curl http://localhost:8090/hotels/hotels?city=Paris` at the end of S2. With the fake Cloud, the gateway cannot
+    that it sees an empty Docker. The fake Cloud stands in for the platform; with a real account, call the API on
+    `localhost:8090` at the end of S2. With the fake Cloud, the gateway cannot
     connect, so the pass ends when the seed waits for it.
-    - *S1, no platform registered.* Every page, dialog, note and button is as it was: the head of Acme Hostels API has
+    - *S1, no platform registered.* Every page, dialog, note and button speaks of no platform: the head of a playground has
       *Open*, *Start* and *Stop* and no *Deploy to*; no row has a cloud mark; no port has a tooltip; the banner keeps its
       calm *stopped* line. The only differences are the *Gravitee Cloud* entry, which offers *Connect account*, and the Hybrid
       gateway row of Add-ons, which reads *Needs settings*.
-    - *S2, a Cloud account and no local core.* The core stays stopped. *Connect account*. Acme Hostels API has a cloud mark
+    - *S2, a Cloud account and no local core.* The core stays stopped. *Connect account*. A playground that seeds `seed/apim/` alone has a cloud mark
       and *Deploy to* in its head. Choose the environment: its tail reads *No hybrid gateway*, *Before you start*
       describes that place, and *Start* is disabled with *Set up a gateway in Development (My Account) first*. The plus
       creates the gateway with the environment chosen, the key adds the Cloud Token, and the lines move to *Done for you
@@ -1687,10 +1689,10 @@ dark, at 1440 and 900 px wide.
       the core. The phases are Add-ons, Apps and services, Gateway and Seed. Containers lists the hybrid gateway and the
       apps, with the core's groups gray; the banner has no *stopped* line. *Details* lists *Deployed to*, and *Open* has a
       group named after the platform. Reload: the picker still shows the environment, on every playground.
-    - *S3, the full core and a Cloud environment.* The core runs and Acme Hostels API is on *This machine*. Change *Deploy
+    - *S3, the full core and a Cloud environment.* The core runs and that playground is on *This machine*. Change *Deploy
       to* to the environment: the button reads *Deploy*, its dialog lists the hybrid gateway and the environment and no
       row of the core, and the core's containers keep their uptime. *Deployed to* lists both places. *Re-seed* acts on the
-      place shown only. *Stop* lists a row *Stays* or *Deletes* for each place, and *Reset* says *Stays: Acme Hostels API
-      in Development (My Account)*. On Acme Bakery the environments are disabled, with *Needs Access Management* as their
+      place shown only. *Stop* lists a row *Stays* or *Deletes* for each place, and *Reset* says *Stays:* and its name
+      in *Development (My Account)*. On a playground that fills Gamma the environments are disabled, with the first reason as their
       tail.
     - Both themes, 1440 and 900 px, and Back and Forward through the playground's page.
