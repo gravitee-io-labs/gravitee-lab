@@ -313,7 +313,7 @@ What the reference says of each part: [`include`](playgrounds.md#include), [`req
 ### Apps
 
 An app is built from its folder (`build: ./apps/<app>`) or from a repository (`build: https://github.com/...git#<commit>:path`,
-the commit pinned). It follows the rules of an add-on's services: [addons/AGENTS.md](units.md#add-ons).
+the commit pinned). It follows [the rules of an add-on's services](units.md#add-ons).
 The apps of a playground follow these conventions:
 
 - **Folder**: `Dockerfile`, `.dockerignore`, `requirements.txt`, `README.md`, `server.py` as the entry point, and

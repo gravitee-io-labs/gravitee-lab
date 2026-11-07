@@ -349,8 +349,7 @@ its Dockerfile:
       dockerfile: assistant/Dockerfile
 ```
 
-An app follows the rules of an add-on's services, `restart: unless-stopped` included. See
-[`addons/AGENTS.md`](units.md#add-ons). This is Acme Shop's open REST API:
+An app follows [the rules of an add-on's services](units.md#add-ons), `restart: unless-stopped` included. This is Acme Shop's open REST API:
 
 ```yaml
   shop-api:
