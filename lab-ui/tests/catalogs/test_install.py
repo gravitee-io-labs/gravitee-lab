@@ -2319,8 +2319,8 @@ class Shadowing(Base):
     def test_a_machine_entry_that_would_not_move_waits_aside_and_nothing_is_lost(self):
         real = moves.relocate
 
-        def stuck(src, dst, why):
-            return "copied" if src.endswith("secrets") else real(src, dst, why)
+        def stuck(src, dst):
+            return "copied" if src.endswith("secrets") else real(src, dst)
         self.patch(moves, "relocate", stuck)
         answer = install.shadow("partner", str(self.folder))
         self.assertIn("addons/ledger/secrets", answer["moved"])
@@ -2347,8 +2347,8 @@ class Shadowing(Base):
     def test_an_entry_no_pattern_knows_that_would_not_move_is_kept_by_the_marker_and_comes_back_at_the_next_add(self):
         real = moves.relocate
 
-        def stuck(src, dst, why):
-            return "stayed" if src.endswith("/data") else real(src, dst, why)
+        def stuck(src, dst):
+            return "stayed" if src.endswith("/data") else real(src, dst)
         self.patch(moves, "relocate", stuck)
         install.shadow("partner", str(self.folder))
         (aside,) = [p for p in (Path(paths.ROOT) / ".lab/catalogs").iterdir() if p.name.startswith(".removed-partner-")]

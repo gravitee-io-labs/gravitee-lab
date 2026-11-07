@@ -1,6 +1,6 @@
-"""moves: a file or a folder moved without overwriting and written to a journal first, the paths of a compose file
-written again, the stars and tested sets that follow an item, folders merged. Nothing here runs Docker, git or the network: a crash is injected
-between any two steps with `moves.STEP`, and every run is repeated until it converges."""
+"""moves: a file or a folder moved without overwriting, the paths of a compose file written again, the stars and tested sets
+that follow an item, folders merged. Nothing here runs Docker, git or the network: a crash is injected with `moves.STEP`, and
+a run that stopped is repeated until it converges."""
 
 import errno
 import hashlib
@@ -12,9 +12,7 @@ import stat
 import struct
 import subprocess
 import tempfile
-import threading
 import unittest
-from pathlib import Path
 from unittest import mock
 
 from lab_ui.library import moves
@@ -47,16 +45,13 @@ def crash_on(wanted):
     return hook
 
 
-def digest(root, skip=()):
-    """Every entry under `root`, links not followed: {path: (kind, mode[, sha256 or target])}. What `skip` names is left
-    out, with what is under it."""
+def digest(root):
+    """Every entry under `root`, links not followed: {path: (kind, mode[, sha256 or target])}."""
     found = {}
     for folder, folders, files in os.walk(root):
         for name in sorted(folders + files):
             path = os.path.join(folder, name)
             key = os.path.relpath(path, root)
-            if any(key == one or key.startswith(one + os.sep) for one in skip):
-                continue
             info = os.lstat(path)
             mode = stat.S_IMODE(info.st_mode)
             if stat.S_ISLNK(info.st_mode):
@@ -67,19 +62,6 @@ def digest(root, skip=()):
                 with open(path, "rb") as f:
                     found[key] = ("file", mode, hashlib.sha256(f.read()).hexdigest())
     return found
-
-
-def contents(root, skip=()):
-    """What the files under `root` hold, as a sorted list of their texts: where a secret ended up does not matter, that
-    it is somewhere does."""
-    found = []
-    for folder, _, files in os.walk(root):
-        for name in files:
-            path = os.path.join(folder, name)
-            if not any(os.path.relpath(path, root).startswith(one) for one in skip) and not os.path.islink(path):
-                with open(path, "rb") as f:
-                    found.append(f.read())
-    return sorted(found)
 
 
 class Moves(Case):
@@ -98,9 +80,6 @@ class Moves(Case):
 
     def exists(self, path):
         return os.path.lexists(self.root / path)
-
-    def journal(self, op=None):
-        return [entry for entry in moves.read_journal() if op in (None, entry["op"])]
 
     def mode(self, path):
         return stat.S_IMODE(os.lstat(self.root / path).st_mode)
@@ -126,7 +105,7 @@ class Relocate(Moves):
 
     def test_a_file_moves_with_its_mode_and_makes_the_folders_it_needs(self):
         self.put("addons/echo/.env", "TOKEN=1\n", 0o600)
-        self.assertEqual(moves.relocate("addons/echo/.env", ".lab/catalogs/fixture/addons/echo/.env", "machine"),
+        self.assertEqual(moves.relocate("addons/echo/.env", ".lab/catalogs/fixture/addons/echo/.env"),
                          "moved")
         self.assertFalse(self.exists("addons/echo/.env"))
         self.assertEqual(self.text(".lab/catalogs/fixture/addons/echo/.env"), "TOKEN=1\n")
@@ -137,8 +116,7 @@ class Relocate(Moves):
         self.put("playgrounds/shop/.state/locked", "closed\n", 0o000)   # a rename does not read what is inside
         before = os.stat(self.root / "playgrounds/shop/.state").st_ino
         self.addCleanup(os.chmod, self.root / ".lab/catalogs/fixture/playgrounds/shop/.state/locked", 0o600)
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", ".lab/catalogs/fixture/playgrounds/shop/.state",
-                                        "machine"), "moved")
+        self.assertEqual(moves.relocate("playgrounds/shop/.state", ".lab/catalogs/fixture/playgrounds/shop/.state"), "moved")
         moved = self.root / ".lab/catalogs/fixture/playgrounds/shop/.state"
         self.assertEqual((os.stat(moved).st_ino, self.mode(".lab/catalogs/fixture/playgrounds/shop/.state/locked")),
                          (before, 0o000))
@@ -146,11 +124,10 @@ class Relocate(Moves):
                          '{"a": 1}\n')
 
     def test_gone_when_the_source_is_not_there_and_after_it_moved(self):
-        self.assertEqual(moves.relocate("addons/echo/.env", "elsewhere/.env", "machine"), "gone")
+        self.assertEqual(moves.relocate("addons/echo/.env", "elsewhere/.env"), "gone")
         self.put("addons/echo/.env", "TOKEN=1\n")
-        self.assertEqual(moves.relocate("addons/echo/.env", "elsewhere/.env", "machine"), "moved")
-        self.assertEqual(moves.relocate("addons/echo/.env", "elsewhere/.env", "machine"), "gone")
-        self.assertEqual(len(self.journal("move")), 1)
+        self.assertEqual(moves.relocate("addons/echo/.env", "elsewhere/.env"), "moved")
+        self.assertEqual(moves.relocate("addons/echo/.env", "elsewhere/.env"), "gone")
 
     def test_a_destination_that_is_there_is_never_overwritten_or_merged(self):
         self.put("old/.env", "OLD=1\n")
@@ -161,25 +138,23 @@ class Relocate(Moves):
         self.put("old/dangling", "file\n")
         for name in (".env", ".state", "dangling"):
             with self.subTest(name=name):
-                self.assertEqual(moves.relocate(f"old/{name}", f"new/{name}", "machine"), "conflict")
+                self.assertEqual(moves.relocate(f"old/{name}", f"new/{name}"), "conflict")
         self.assertEqual((self.text("old/.env"), self.text("new/.env"), self.exists("new/.state/created.json")),
                          ("OLD=1\n", "NEW=1\n", False))
         self.assertEqual(os.readlink(self.root / "new/dangling"), "nowhere")
-        self.assertEqual(self.journal(), [])   # nothing was done, so nothing is said to have been
 
     def test_names_with_spaces_and_unicode(self):
         name = "Démo ünï cöde $(x) 'q' ✓"
         self.put(f"old/{name}/compose.yml", "services: {}\n")
-        self.assertEqual(moves.relocate(f"old/{name}", f"new/{name}", "machine"), "moved")
+        self.assertEqual(moves.relocate(f"old/{name}", f"new/{name}"), "moved")
         self.assertEqual(self.text(f"new/{name}/compose.yml"), "services: {}\n")
-        self.assertEqual(self.journal("move")[0]["src"], f"old/{name}")
 
     def test_a_link_moves_as_a_link_and_is_never_followed(self):
         outside = self.put("outside/precious.txt", "keep\n", 0o600)
         os.symlink(outside, self.root / "old-link")
         os.symlink("nowhere", self.root / "old-dangling")
-        self.assertEqual(moves.relocate("old-link", "new/link", "machine"), "moved")
-        self.assertEqual(moves.relocate("old-dangling", "new/dangling", "machine"), "moved")
+        self.assertEqual(moves.relocate("old-link", "new/link"), "moved")
+        self.assertEqual(moves.relocate("old-dangling", "new/dangling"), "moved")
         self.assertEqual((os.readlink(self.root / "new/link"), os.readlink(self.root / "new/dangling")),
                          (str(outside), "nowhere"))
         self.assertEqual((outside.read_text(encoding="utf-8"), self.mode("outside/precious.txt")), ("keep\n", 0o600))
@@ -188,51 +163,26 @@ class Relocate(Moves):
         self.put("a/b.txt", "x\n")
         for target in ("a", "a/inside", "a/./inside", "a/../a/inside"):
             with self.subTest(target=target), self.assertRaisesRegex(moves.Refused, "same place or inside"):
-                moves.relocate("a", target, "machine")
+                moves.relocate("a", target)
         self.assertEqual(self.text("a/b.txt"), "x\n")
-        self.assertEqual(self.journal(), [])
 
     def test_a_path_is_relative_to_the_project_or_absolute(self):
         self.put("one", "1\n")
         self.put("two", "2\n")
-        self.assertEqual(moves.relocate(self.root / "one", self.root / "dir/one", "machine"), "moved")
-        self.assertEqual(moves.relocate("two/", "dir/two", "machine"), "moved")   # a slash at the end is a name
+        self.assertEqual(moves.relocate(self.root / "one", self.root / "dir/one"), "moved")
+        self.assertEqual(moves.relocate("two/", "dir/two"), "moved")   # a slash at the end is a name
         self.assertEqual((self.text("dir/one"), self.text("dir/two")), ("1\n", "2\n"))
-
-    def test_the_move_is_in_the_journal_before_it_is_made(self):
-        self.put("old/.env", "TOKEN=1\n")
-        seen = []
-
-        def hook(label):
-            if label == "relocate:journaled":
-                seen.append((self.journal("move"), self.exists("old/.env"), self.exists("new/.env")))
-        self.patch(moves, "STEP", hook)
-        moves.relocate("old/.env", "new/.env", "machine")
-        (lines, at_source, at_target), = seen
-        self.assertEqual([(line["src"], line["dst"], line["why"]) for line in lines],
-                         [("old/.env", "new/.env", "machine")])
-        self.assertEqual((at_source, at_target), (True, False))
-
-    def test_a_path_outside_the_project_is_journaled_whole(self):
-        with tempfile.TemporaryDirectory() as other:
-            other = Path(other).resolve()
-            (other / "copy").mkdir()
-            (other / "copy/.env").write_text("TOKEN=1\n", encoding="utf-8")
-            moves.relocate(other / "copy/.env", ".lab/catalogs/fixture/addons/echo/.env", "shadow")
-        self.assertEqual(self.journal("move")[0]["src"], f"{other}/copy/.env")
-        self.assertEqual(self.journal("move")[0]["dst"], ".lab/catalogs/fixture/addons/echo/.env")
 
     def test_what_is_made_in_the_private_folder_is_0700(self):
         self.put("addons/moved/.env", "TOKEN=1\n", 0o600)
         self.put("addons/moved/secrets/token", "t\n")
         os.makedirs(self.root / ".lab/migration", mode=0o755)
         os.chmod(self.root / ".lab/migration", 0o755)   # a folder that exists with a wider mode is closed
-        moves.relocate("addons/moved/.env", ".lab/migration/kept/moved/.env", "kept")
-        moves.relocate("addons/moved/secrets", ".lab/migration/kept/moved/secrets", "kept")
+        moves.relocate("addons/moved/.env", ".lab/migration/kept/moved/.env")
+        moves.relocate("addons/moved/secrets", ".lab/migration/kept/moved/secrets")
         for folder in (".lab/migration", ".lab/migration/kept", ".lab/migration/kept/moved"):
             with self.subTest(folder=folder):
                 self.assertEqual(self.mode(folder), 0o700)
-        self.assertEqual(self.mode(".lab/migration/journal.jsonl"), 0o600)
         self.assertEqual(self.mode(".lab/migration/kept/moved/.env"), 0o600)
 
     def nested(self):
@@ -250,9 +200,8 @@ class Relocate(Moves):
         for src, dst in (("", "elsewhere"), ("   ", "elsewhere"), ("addons/f.env", ""), ("addons/f.env", "\t"),
                          ("", "")):
             with self.subTest(src=src, dst=dst), self.assertRaisesRegex(moves.Refused, "path to move is empty"):
-                moves.relocate(src, dst, "machine")
-        self.assertEqual((sorted(os.listdir(outer)), self.text("outer/project/addons/f.env"), self.journal()),
-                         (["project"], "T=1\n", []))
+                moves.relocate(src, dst)
+        self.assertEqual((sorted(os.listdir(outer)), self.text("outer/project/addons/f.env")), (["project"], "T=1\n"))
 
     def test_the_project_folder_and_the_folders_above_it_are_refused_and_move_nothing(self):
         outer = self.nested()
@@ -261,9 +210,9 @@ class Relocate(Moves):
         aside = self.root / "aside"
         for src in (".", "./", "addons/..", project, str(project), "..", outer, outer.parent, project / "addons/../.."):
             with self.subTest(src=str(src)), self.assertRaisesRegex(moves.Refused, "project folder is not moved"):
-                moves.relocate(src, aside, "machine")
-        self.assertEqual((sorted(os.listdir(outer)), self.text("outer/project/addons/f.env"), aside.exists(),
-                          self.journal()), (["project"], "T=1\n", False, []))
+                moves.relocate(src, aside)
+        self.assertEqual((sorted(os.listdir(outer)), self.text("outer/project/addons/f.env"), aside.exists()),
+                         (["project"], "T=1\n", False))
 
     def test_the_project_reached_through_a_link_is_the_same_project(self):
         outer = self.nested()
@@ -271,144 +220,30 @@ class Relocate(Moves):
         os.symlink(project, self.root / "via")
         self.patch(paths, "ROOT", self.root / "via")   # the Lab was started from the link
         with self.assertRaisesRegex(moves.Refused, "project folder is not moved"):
-            moves.relocate(project, self.root / "aside", "machine")
+            moves.relocate(project, self.root / "aside")
         with self.assertRaisesRegex(moves.Refused, "project folder is not moved"):
-            moves.relocate(outer, self.root / "aside", "machine")
+            moves.relocate(outer, self.root / "aside")
         self.assertEqual((project.is_dir(), (self.root / "aside").exists()), (True, False))
 
     def test_a_link_to_the_project_moves_as_a_link(self):
         self.nested()
         os.symlink(paths.ROOT, paths.ROOT / "shortcut")
-        self.assertEqual(moves.relocate("shortcut", "elsewhere/shortcut", "machine"), "moved")
+        self.assertEqual(moves.relocate("shortcut", "elsewhere/shortcut"), "moved")
         self.assertEqual((os.readlink(paths.ROOT / "elsewhere/shortcut"), os.path.lexists(paths.ROOT / "shortcut")),
                          (str(paths.ROOT), False))
-
-    def test_a_folder_that_another_run_made_in_the_meantime_is_used(self):
-        self.put("old/.env", "TOKEN=1\n")
-        self.put("old/other", "2\n")
-        real, raced = os.mkdir, []
-
-        def mkdir(path, mode=0o777, **how):
-            if not raced:   # the other run is first at the first folder, as the look and the mkdir are two steps
-                raced.append(path)
-                real(path, mode)
-            return real(path, mode, **how)
-        self.patch(moves.os, "mkdir", mkdir)
-        self.assertEqual(moves.relocate("old/.env", ".lab/catalogs/fixture/addons/x/.env", "machine"), "moved")
-        self.assertEqual(moves.relocate("old/other", ".lab/catalogs/fixture/addons/x/other", "machine"), "moved")
-        self.assertEqual(self.text(".lab/catalogs/fixture/addons/x/.env"), "TOKEN=1\n")
-        self.assertEqual(len(raced), 1)
-
-    def test_a_link_where_the_folder_was_to_be_is_an_error_and_the_source_stays(self):
-        self.put("old/.env", "TOKEN=1\n")
-        os.makedirs(self.root / "elsewhere")
-        real, raced = os.mkdir, []
-
-        def mkdir(path, mode=0o777, **how):
-            if not raced:   # the other run put a link where the folder goes
-                raced.append(path)
-                os.symlink(self.root / "elsewhere", path)
-            return real(path, mode, **how)
-        self.patch(moves.os, "mkdir", mkdir)
-        with self.assertRaises(FileExistsError):
-            moves.relocate("old/.env", "new/.env", "machine")
-        self.assertEqual((self.text("old/.env"), os.listdir(self.root / "elsewhere"), self.journal()),
-                         ("TOKEN=1\n", [], []))
-
-    def test_runs_that_need_the_same_new_folder_at_once_all_succeed(self):
-        for number in range(120):
-            self.put(f"old/{number}", f"{number}\n")
-        failed, start = [], threading.Barrier(6)
-
-        def run(first):
-            start.wait()
-            for number in range(first, 120, 6):
-                try:
-                    moves.relocate(f"old/{number}", f".lab/catalogs/fixture/addons/x/{number}", "machine")
-                except (OSError, moves.Refused) as error:   # the test says which
-                    failed.append(repr(error))
-        threads = [threading.Thread(target=run, args=(first,)) for first in range(6)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        self.assertEqual(failed, [])
-        self.assertEqual((len(os.listdir(self.root / ".lab/catalogs/fixture/addons/x")), os.listdir(self.root / "old"),
-                          len(self.journal("move"))), (120, [], 120))
 
     def test_any_other_error_of_the_disk_is_raised_and_the_source_stays(self):
         self.put("old/.env", "TOKEN=1\n")
         self.patch(moves.os, "rename", side_effect=OSError(errno.ENOSPC, "No space left on device"))
         with self.assertRaisesRegex(OSError, "No space left"):
-            moves.relocate("old/.env", "new/.env", "machine")
+            moves.relocate("old/.env", "new/.env")
         self.assertEqual(self.text("old/.env"), "TOKEN=1\n")
 
     def test_a_busy_folder_stays_where_it_is(self):
         self.put("old/.state/a", "1\n")
         self.patch(moves.os, "rename", side_effect=OSError(errno.EBUSY, "Device or resource busy"))
-        self.assertEqual(moves.relocate("old/.state", "new/.state", "machine"), "stayed")
+        self.assertEqual(moves.relocate("old/.state", "new/.state"), "stayed")
         self.assertEqual(self.text("old/.state/a"), "1\n")
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# The journal
-# ---------------------------------------------------------------------------------------------------------------------
-
-class Journal(Moves):
-
-    def test_one_line_each_with_paths_and_the_time_and_no_content(self):
-        moves.journal("move", src="a", dst="b", why="machine")
-        moves.journal("rekey", ids={"playground:x": "local/x"})
-        lines = self.text(".lab/migration/journal.jsonl").splitlines()
-        self.assertEqual(len(lines), 2)
-        first = json.loads(lines[0])
-        self.assertEqual({key: first[key] for key in ("op", "src", "dst", "why")},
-                         {"op": "move", "src": "a", "dst": "b",
-                                                                                     "why": "machine"})
-        self.assertRegex(first["at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
-
-    def test_a_torn_line_is_skipped_and_the_next_one_starts_a_line(self):
-        moves.journal("move", src="a", dst="b", why="machine")
-        with open(self.root / moves.JOURNAL, "ab") as f:
-            f.write(b'{"op":"move","src":"torn')   # the power went out in the middle of a write
-        moves.journal("move", src="c", dst="d", why="machine")
-        with open(self.root / moves.JOURNAL, "ab") as f:
-            f.write(b"not json at all\n[1, 2]\n{\"no\": \"op\"}\n")
-        self.assertEqual([(entry["src"], entry["dst"]) for entry in moves.read_journal()], [("a", "b"), ("c", "d")])
-
-    def test_a_folder_that_was_open_to_others_is_closed(self):
-        os.makedirs(self.root / ".lab/migration")
-        os.chmod(self.root / ".lab/migration", 0o755)
-        moves.journal("move", src="a", dst="b", why="machine")
-        self.assertEqual((self.mode(".lab/migration"), self.mode(".lab/migration/journal.jsonl")), (0o700, 0o600))
-
-    def test_lines_written_at_the_same_time_stay_whole(self):
-        def write(number):
-            for index in range(25):
-                moves.journal("move", src=f"a{number}-{index}", dst="b", why="machine")
-        threads = [threading.Thread(target=write, args=(number,)) for number in range(8)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        written = [entry["src"] for entry in moves.read_journal()]
-        self.assertEqual(sorted(written), sorted(f"a{number}-{index}" for number in range(8) for index in range(25)))
-
-    def test_no_journal_reads_as_nothing(self):
-        self.assertEqual(moves.read_journal(), [])
-
-    def test_a_name_that_is_not_utf8_survives(self):
-        name = os.fsdecode(b"bad-\xff-name")
-        moves.journal("move", src=name, dst="b", why="machine")
-        self.assertEqual(moves.read_journal()[0]["src"], name)
-
-    def test_the_journal_is_not_followed_when_it_is_a_link(self):
-        os.makedirs(self.root / ".lab/migration")
-        elsewhere = self.put("elsewhere.txt", "keep\n")
-        os.symlink(elsewhere, self.root / moves.JOURNAL)
-        with self.assertRaises(OSError):
-            moves.journal("move", src="a", dst="b", why="machine")
-        self.assertEqual(elsewhere.read_text(encoding="utf-8"), "keep\n")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -578,10 +413,10 @@ class Tracked(Moves):
         before = digest(self.root)
         for source in ("addons/echo/compose.yml", "addons/echo", "addons"):
             with self.subTest(source=source), self.assertRaisesRegex(moves.Refused, "tracked by git"):
-                moves.relocate(repo / source, self.root / "elsewhere" / source, "machine")
-        self.assertEqual(digest(self.root), before)   # no journal either
+                moves.relocate(repo / source, self.root / "elsewhere" / source)
+        self.assertEqual(digest(self.root), before)
         # What git does not track moves: the machine file beside a tracked one
-        self.assertEqual(moves.relocate(repo / "addons/echo/.env", self.root / "elsewhere/.env", "machine"), "moved")
+        self.assertEqual(moves.relocate(repo / "addons/echo/.env", self.root / "elsewhere/.env"), "moved")
 
     def test_a_checkout_that_cannot_be_read_refuses_every_move(self):
         repo = self.root / "repo"
@@ -589,12 +424,12 @@ class Tracked(Moves):
         (repo / ".git/index").write_bytes(b"garbage")
         self.put("repo/.env", "TOKEN=1\n")
         with self.assertRaisesRegex(moves.Refused, "tracked by git"):
-            moves.relocate(repo / ".env", self.root / "elsewhere/.env", "machine")
+            moves.relocate(repo / ".env", self.root / "elsewhere/.env")
         self.assertEqual(self.text("repo/.env"), "TOKEN=1\n")
 
     def test_a_source_that_is_gone_is_gone_whatever_git_says(self):
         repo = self.checkout(["a.txt"])
-        self.assertEqual(moves.relocate(repo / "a.txt", self.root / "elsewhere/a.txt", "machine"), "gone")
+        self.assertEqual(moves.relocate(repo / "a.txt", self.root / "elsewhere/a.txt"), "gone")
 
 
 @unittest.skipUnless(shutil.which("git"),
@@ -672,8 +507,8 @@ class TrackedByGit(Moves):
     def test_relocate_leaves_git_status_as_it_was(self):
         before = self.git("status", "--porcelain")
         with self.assertRaises(moves.Refused):
-            moves.relocate(self.repo / "addons/echo", self.root / "elsewhere/echo", "machine")
-        self.assertEqual(moves.relocate(self.repo / "addons/echo/.env", self.root / "elsewhere/.env", "machine"),
+            moves.relocate(self.repo / "addons/echo", self.root / "elsewhere/echo")
+        self.assertEqual(moves.relocate(self.repo / "addons/echo/.env", self.root / "elsewhere/.env"),
                          "moved")
         self.assertEqual(self.git("status", "--porcelain"), before.replace(b"?? addons/echo/.env\n", b""))
 
@@ -686,18 +521,15 @@ class Elsewhere(Moves):
     """A rename that fails for a right or a filesystem: only the rename of the source is made to fail, so that the Lab's
     own files are still written."""
 
-    def refusing(self, source, error):
-        """A patch of `os.rename` that raises `error` for the rename of `source` and for no other."""
+    def failing(self, source, error):
+        """Has `os.rename` raise `error` for the rename of `source` and for no other."""
         real = os.rename
 
         def rename(src, dst, *more, **how):
             if str(src) == str(self.root / source):
                 raise error
             return real(src, dst, *more, **how)
-        return mock.patch.object(moves.os, "rename", rename)
-
-    def failing(self, source, error):
-        self.start(self.refusing(source, error))
+        self.patch(moves.os, "rename", rename)
 
     def tree(self):
         self.put("playgrounds/shop/.state/created.json", '{"a": 1}\n', 0o640)
@@ -713,83 +545,38 @@ class Copied(Elsewhere):
         self.tree()
         self.failing("playgrounds/shop/.state", PermissionError(errno.EACCES, "Permission denied"))
         original = digest(self.root / "playgrounds/shop/.state")
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
+        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state"), "copied")
         self.assertEqual(digest(self.root / "new/.state"), original)   # modes and links as they were
+        self.assertEqual(self.mode("new/.state"), self.mode("playgrounds/shop/.state"))   # of the folder itself too
         self.assertEqual(digest(self.root / "playgrounds/shop/.state"), original)
         self.assertEqual(os.readlink(self.root / "new/.state/outside"), "/etc/hosts")   # a link stays a link
         self.assertFalse(self.exists("new/.state.partial"))
-        (line,) = self.journal("copied")
-        self.assertEqual((line["src"], line["dst"], line["left"]), ("playgrounds/shop/.state", "new/.state", 0))
 
     def test_a_file_refused_for_a_right_is_copied_with_its_mode(self):
         self.put("old/.env", "TOKEN=1\n", 0o600)
         self.failing("old/.env", PermissionError(errno.EPERM, "Operation not permitted"))
-        self.assertEqual(moves.relocate("old/.env", "new/.env", "machine"), "copied")
+        self.assertEqual(moves.relocate("old/.env", "new/.env"), "copied")
         self.assertEqual((self.text("new/.env"), self.mode("new/.env"), self.text("old/.env")),
                          ("TOKEN=1\n", 0o600, "TOKEN=1\n"))
 
-    def test_what_cannot_be_read_is_left_out_and_counted(self):
+    def test_what_cannot_be_read_is_left_out(self):
         self.tree()
         self.put("playgrounds/shop/.state/secret", "closed\n", 0o000)
         os.mkfifo(self.root / "playgrounds/shop/.state/pipe")
         self.addCleanup(os.chmod, self.root / "playgrounds/shop/.state/secret", 0o600)
         self.failing("playgrounds/shop/.state", PermissionError(errno.EACCES, "Permission denied"))
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
+        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state"), "copied")
         readable = os.access(self.root / "playgrounds/shop/.state/secret", os.R_OK)   # root reads it
-        self.assertEqual(self.journal("copied")[0]["left"], 1 if readable else 2)
         self.assertFalse(self.exists("new/.state/pipe"))
         self.assertEqual(self.exists("new/.state/secret"), readable)
         self.assertEqual(self.text("new/.state/created.json"), '{"a": 1}\n')
-
-    def test_a_repeat_copies_nothing_more_and_is_not_a_conflict(self):
-        self.tree()
-        self.failing("playgrounds/shop/.state", PermissionError(errno.EACCES, "Permission denied"))
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
-        (self.root / "new/.state/created.json").write_text("changed since\n", encoding="utf-8")
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
-        self.assertEqual((self.text("new/.state/created.json"), len(self.journal("copied"))), ("changed since\n", 1))
-
-    def test_a_copied_file_is_moved_once_the_right_comes_back(self):
-        self.put("old/.env", "TOKEN=1\n", 0o600)
-        with self.refusing("old/.env", PermissionError(errno.EACCES, "Permission denied")):
-            self.assertEqual(moves.relocate("old/.env", "new/.env", "machine"), "copied")
-        self.assertEqual(moves.relocate("old/.env", "new/.env", "machine"), "moved")
-        self.assertEqual((self.exists("old/.env"), self.text("new/.env")), (False, "TOKEN=1\n"))
-
-    def test_a_copy_that_differs_from_a_file_that_changed_is_a_conflict(self):
-        self.put("old/.env", "TOKEN=1\n")
-        with self.refusing("old/.env", PermissionError(errno.EACCES, "Permission denied")):
-            moves.relocate("old/.env", "new/.env", "machine")
-        (self.root / "old/.env").write_text("TOKEN=2\n", encoding="utf-8")
-        self.assertEqual(moves.relocate("old/.env", "new/.env", "machine"), "copied")   # kept, not removed
-        self.assertEqual((self.text("old/.env"), self.text("new/.env")), ("TOKEN=2\n", "TOKEN=1\n"))
-
-    def test_a_folder_that_was_read_only_gets_its_mode_back_after_a_crash_and_only_then(self):
-        self.tree()
-        os.chmod(self.root / "playgrounds/shop/.state", 0o555)
-        self.addCleanup(os.chmod, self.root / "playgrounds/shop/.state", 0o755)
-        self.addCleanup(os.chmod, self.root / "new/.state", 0o755)
-        self.failing("playgrounds/shop/.state", PermissionError(errno.EACCES, "Permission denied"))
-        self.patch(moves, "STEP", crash_on("relocate:renamed"))
-        with self.assertRaises(Crash):
-            moves.relocate("playgrounds/shop/.state", "new/.state", "machine")
-        self.patch(moves, "STEP", None)
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
-        self.assertEqual(self.mode("new/.state"), 0o555)   # the crash came before the seal: the repeat gives it
-        os.chmod(self.root / "new/.state", 0o755)   # the person makes it writable
-        (self.root / "new/.state/mine.json").write_text("{}\n", encoding="utf-8")
-        before = os.lstat(self.root / "new/.state")
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
-        after = os.lstat(self.root / "new/.state")
-        self.assertEqual((self.mode("new/.state"), self.exists("new/.state/mine.json"), after.st_mtime_ns),
-                         (0o755, True, before.st_mtime_ns))
 
     def test_a_partial_copy_of_an_earlier_crash_is_replaced(self):
         self.tree()
         self.put("new/.state.partial/stale", "half\n")
         os.chmod(self.root / "new/.state.partial", 0o555)   # a copy keeps the mode of what it copied
         self.failing("playgrounds/shop/.state", PermissionError(errno.EACCES, "Permission denied"))
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "copied")
+        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state"), "copied")
         self.assertEqual((self.exists("new/.state.partial"), self.exists("new/.state/stale")), (False, False))
 
 
@@ -798,16 +585,15 @@ class Devices(Elsewhere):
     def test_a_file_is_copied_checked_and_removed(self):
         self.put("old/.env", "TOKEN=1\n", 0o600)
         self.failing("old/.env", OSError(errno.EXDEV, "Invalid cross-device link"))
-        self.assertEqual(moves.relocate("old/.env", "new/.env", "machine"), "moved")
+        self.assertEqual(moves.relocate("old/.env", "new/.env"), "moved")
         self.assertEqual((self.exists("old/.env"), self.text("new/.env"), self.mode("new/.env"),
                           self.exists("new/.env.partial")),
                          (False, "TOKEN=1\n", 0o600, False))
-        self.assertEqual([entry["op"] for entry in self.journal()], ["move", "copied"])
 
     def test_a_link_is_copied_as_a_link(self):
         os.symlink("../target", self.root / "old-link")
         self.failing("old-link", OSError(errno.EXDEV, "Invalid cross-device link"))
-        self.assertEqual(moves.relocate("old-link", "new/link", "machine"), "moved")
+        self.assertEqual(moves.relocate("old-link", "new/link"), "moved")
         self.assertEqual((os.path.lexists(self.root / "old-link"), os.readlink(self.root / "new/link")),
                          (False, "../target"))
 
@@ -815,7 +601,7 @@ class Devices(Elsewhere):
         self.tree()
         self.failing("playgrounds/shop/.state", OSError(errno.EXDEV, "Invalid cross-device link"))
         before = digest(self.root / "playgrounds/shop/.state")
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "stayed")
+        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state"), "stayed")
         self.assertEqual((digest(self.root / "playgrounds/shop/.state"), self.exists("new/.state"),
                           self.exists("new/.state.partial")),
                          (before, False, False))
@@ -824,86 +610,24 @@ class Devices(Elsewhere):
         self.put("old/.env", "OLD=1\n")
         self.put("new/.env", "NEW=1\n")
         self.failing("old/.env", OSError(errno.EXDEV, "Invalid cross-device link"))
-        self.assertEqual(moves.relocate("old/.env", "new/.env", "machine"), "conflict")
+        self.assertEqual(moves.relocate("old/.env", "new/.env"), "conflict")
         self.assertEqual((self.text("old/.env"), self.text("new/.env")), ("OLD=1\n", "NEW=1\n"))
 
-    def test_a_move_that_was_announced_and_not_made_is_said(self):
-        self.tree()
-        self.failing("playgrounds/shop/.state", OSError(errno.EXDEV, "Invalid cross-device link"))
-        self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state", "machine"), "stayed")
-        self.assertEqual([(line["src"], line["dst"]) for line in self.journal("stayed")],
-                         [("playgrounds/shop/.state", "new/.state")])
-
-    def test_a_link_copied_whose_original_stayed_is_finished_by_a_repeat(self):
-        os.symlink("../target", self.root / "old-link")
-        self.failing("old-link", OSError(errno.EXDEV, "Invalid cross-device link"))
-        self.patch(moves, "STEP", crash_on("relocate:renamed"))
-        with self.assertRaises(Crash):
-            moves.relocate("old-link", "new/link", "machine")
-        self.patch(moves, "STEP", None)
-        self.assertEqual(moves.relocate("old-link", "new/link", "machine"), "moved")
-        self.assertEqual((os.path.lexists(self.root / "old-link"), os.readlink(self.root / "new/link")),
-                         (False, "../target"))
+    def test_a_partial_copy_of_an_earlier_crash_is_replaced(self):
+        self.put("old/.env", "TOKEN=1\n")
+        self.put("new/.env.partial", "half\n")
+        self.failing("old/.env", OSError(errno.EXDEV, "Invalid cross-device link"))
+        self.assertEqual(moves.relocate("old/.env", "new/.env"), "moved")
+        self.assertEqual((self.text("new/.env"), self.exists("new/.env.partial")), ("TOKEN=1\n", False))
 
     def test_a_copy_that_differs_is_an_error_and_leaves_the_original(self):
         self.put("old/.env", "TOKEN=1\n")
         self.failing("old/.env", OSError(errno.EXDEV, "Invalid cross-device link"))
         self.patch(moves.filecmp, "cmp", return_value=False)
         with self.assertRaisesRegex(OSError, "differs"):
-            moves.relocate("old/.env", "new/.env", "machine")
+            moves.relocate("old/.env", "new/.env")
         self.assertEqual((self.text("old/.env"), self.exists("new/.env"), self.exists("new/.env.partial")),
                          ("TOKEN=1\n", False, False))
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# A run that stops between any two steps
-# ---------------------------------------------------------------------------------------------------------------------
-
-class Crashes(Elsewhere):
-
-    def converge(self, build, run, expected):
-        """Runs `run` after `build` once to see how many steps it takes, then again for each step with a crash at it,
-        and again without: the folder ends as it did the first time, and what was in it is never lost on the way."""
-        build()
-        hook = crash_at(0)
-        self.patch(moves, "STEP", hook)
-        run()
-        clean, steps = digest(self.root, skip=(moves.JOURNAL,)), len(hook.calls)
-        expected(clean)
-        self.assertGreater(steps, 0)
-        for number in range(1, steps + 1):
-            with self.subTest(step=number):
-                self.wipe()
-                build()
-                moves.STEP = crash_at(number)
-                with self.assertRaises(Crash):
-                    run()
-                moves.STEP = None
-                self.assertIn(b"TOKEN=1\n", contents(self.root, skip=(".lab",)), "lost at the crash")
-                run()
-                self.assertEqual(digest(self.root, skip=(moves.JOURNAL,)), clean)
-
-    def test_a_move(self):
-        def build():
-            self.put("old/.env", "TOKEN=1\n", 0o600)
-        self.converge(build, lambda: moves.relocate("old/.env", "new/.env", "machine"),
-                      lambda clean: self.assertEqual(clean["new/.env"][0:2], ("file", 0o600)))
-
-    def test_a_folder_copied_for_want_of_a_right(self):
-        def build():
-            self.put("old/.state/created.json", '{"a": 1}\n')
-            self.put("old/.env", "TOKEN=1\n")
-            self.failing("old/.state", PermissionError(errno.EACCES, "Permission denied"))
-        self.converge(build, lambda: moves.relocate("old/.state", "new/.state", "machine"),
-                      lambda clean: self.assertEqual(sorted(key for key in clean if key.startswith("new")),
-                                                     ["new", "new/.state", "new/.state/created.json"]))
-
-    def test_a_file_across_devices(self):
-        def build():
-            self.put("old/.env", "TOKEN=1\n", 0o600)
-            self.failing("old/.env", OSError(errno.EXDEV, "Invalid cross-device link"))
-        self.converge(build, lambda: moves.relocate("old/.env", "new/.env", "machine"),
-                      lambda clean: self.assertNotIn("old/.env", clean))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1119,7 +843,6 @@ class Rekey(Moves):
         moves.rekey({})
         self.assertEqual([os.stat(self.root / ".lab" / name).st_ino for name in ("starred.json", "tested.json")],
                          before)
-        self.assertEqual(self.journal("rekey"), [])
 
     def test_a_file_that_is_not_there_is_not_made(self):
         moves.rekey({"addon:echo": "local/echo"})
@@ -1159,7 +882,7 @@ class Rekey(Moves):
         mapping = {"addon:echo": "local/echo", "playground:mine": "local/mine"}
         build()
         moves.rekey(mapping)
-        clean = digest(self.root, skip=(moves.JOURNAL,))
+        clean = digest(self.root)
         for number in (1, 2):
             with self.subTest(step=number):
                 shutil.rmtree(self.root / ".lab")
@@ -1169,7 +892,7 @@ class Rekey(Moves):
                     moves.rekey(mapping)
                 self.patch(moves, "STEP", None)
                 moves.rekey(mapping)
-                self.assertEqual(digest(self.root, skip=(moves.JOURNAL,)), clean)
+                self.assertEqual(digest(self.root), clean)
 
     def test_the_files_keep_the_mode_they_have(self):
         self.stars({"addon": ["echo"], "playground": ["mine"]})
@@ -1181,12 +904,13 @@ class Rekey(Moves):
                          (["local/echo"], ["local/mine"]))
         self.assertEqual((self.mode(".lab/starred.json"), self.mode(".lab/tested.json")), (0o600, 0o640))
 
-    def test_the_journal_says_what_was_re_keyed(self):
-        self.stars({"addon": ["echo"]})
-        self.versions({"mine": sets("1")})
-        moves.rekey({"addon:echo": "local/echo", "playground:mine": "local/mine"})
-        (line,) = self.journal("rekey")
-        self.assertEqual(line["ids"], {"addon:echo": "local/echo", "playground:mine": "local/mine"})
+
+class PersonalFiles(Moves):
+
+    def test_they_are_those_of_this_machine_and_never_those_of_a_catalog(self):
+        for ns in ("local", "partner"):
+            self.put(f".lab/catalogs/{ns}/addons/echo/compose.yml", "services: {}\n")
+        self.assertEqual(moves._personal_files(), [".lab/catalogs/local/addons/echo/compose.yml"])
 
 
 class Merge(Moves):
@@ -1198,37 +922,36 @@ class Merge(Moves):
         self.put("from/apps/web/key", "k")
         self.put("from/apps/api/.env", "I=1\n")
         self.put("to/apps/web/Dockerfile", "FROM busybox\n")
-        found = moves.merge("from", "to", "use-catalog")
+        found = moves.merge("from", "to")
         self.assertEqual(sorted((one["path"], one["result"]) for one in found),
                          [(".env", "moved"), ("apps/api", "moved"), ("apps/web/.env", "moved"), ("apps/web/key", "moved")])
         self.assertEqual([self.text(path) for path in ("to/.env", "to/apps/web/.env", "to/apps/web/key", "to/apps/api/.env",
                                                        "to/apps/web/Dockerfile")],
                          ["A=1\n", "W=1\n", "k", "I=1\n", "FROM busybox\n"])
         self.assertEqual((self.mode("to/.env"), self.mode("to/apps/web/.env")), (0o600, 0o600))
-        self.assertEqual([entry["why"] for entry in self.journal("move")], ["use-catalog"] * 4)
 
     def test_a_file_whose_place_is_taken_is_not_put_over_it_and_stays_where_it_is(self):
         self.put("from/.env", "mine\n")
         self.put("from/apps/web/.env", "mine\n")
         self.put("to/.env", "theirs\n")
         self.put("to/apps/web/.env", "theirs\n")
-        found = moves.merge("from", "to", "use-catalog")
+        found = moves.merge("from", "to")
         self.assertEqual(sorted((one["path"], one["result"]) for one in found), [(".env", "conflict"), ("apps/web/.env", "conflict")])
         self.assertEqual([self.text(path) for path in ("to/.env", "to/apps/web/.env", "from/.env", "from/apps/web/.env")],
                          ["theirs\n", "theirs\n", "mine\n", "mine\n"])
         # Repeating it changes nothing, and what was moved is gone
         self.put("from/new", "n")
-        again = moves.merge("from", "to", "use-catalog")
+        again = moves.merge("from", "to")
         self.assertEqual(sorted((one["path"], one["result"]) for one in again),
                          [(".env", "conflict"), ("apps/web/.env", "conflict"), ("new", "moved")])
-        self.assertEqual(moves.merge("from", "to", "use-catalog")[-1]["result"], "conflict")
+        self.assertEqual(moves.merge("from", "to")[-1]["result"], "conflict")
 
     def test_records_and_secrets_are_moved_whole_at_the_top_and_at_any_depth_when_asked(self):
         for base in ("from", "to"):
             self.put(f"{base}/.state/{base}.json", base)
             self.put(f"{base}/secrets/{base}", base)
             self.put(f"{base}/apps/web/.state/{base}.json", base)
-        found = moves.merge("from", "to", "rename")
+        found = moves.merge("from", "to")
         self.assertEqual(sorted((one["path"], one["result"]) for one in found),
                          [(".state", "conflict"), ("apps/web/.state/from.json", "moved"), ("secrets", "conflict")],
                          "at the top a record folder is never mixed; deeper it is a folder like another unless asked")
@@ -1238,7 +961,7 @@ class Merge(Moves):
             self.put(f"{base}/secrets/{base}", base)
             self.put(f"{base}/apps/web/.state/{base}.json", base)
             self.put(f"{base}/apps/web/secrets/{base}", base)
-        found = moves.merge("from", "to", "rename", everywhere=True)
+        found = moves.merge("from", "to", everywhere=True)
         self.assertEqual(sorted((one["path"], one["result"]) for one in found),
                          [(".state", "conflict"), ("apps/web/.state", "conflict"), ("apps/web/secrets", "conflict"),
                           ("secrets", "conflict")])
@@ -1252,7 +975,7 @@ class Merge(Moves):
         for origin, home in (("file", "to"), ("to", "file"), ("link", "to"), ("to", "link"), ("missing", "to")):
             with self.subTest(origin=origin, home=home):
                 with self.assertRaises(moves.Refused):
-                    moves.merge(origin, home, "use-catalog")
+                    moves.merge(origin, home)
 
     def test_a_link_inside_moves_as_a_link_and_is_never_followed(self):
         os.makedirs(self.root / "outside/deep")
@@ -1260,7 +983,7 @@ class Merge(Moves):
         self.put("from/keep", "k")
         os.symlink("../outside", self.root / "from/shared")
         os.makedirs(self.root / "to")
-        found = moves.merge("from", "to", "use-catalog")
+        found = moves.merge("from", "to")
         self.assertEqual(sorted((one["path"], one["result"]) for one in found), [("keep", "moved"), ("shared", "moved")])
         self.assertTrue((self.root / "to/shared").is_symlink())
         self.assertEqual(self.text("outside/deep/f"), "x")
@@ -1269,11 +992,11 @@ class Merge(Moves):
         for index in range(4):
             self.put(f"from/f{index}", str(index))
         os.makedirs(self.root / "to")
-        self.patch(moves, "STEP", crash_on("use-catalog:entry"))
+        self.patch(moves, "STEP", crash_on("merge:entry"))
         with self.assertRaises(Crash):
-            moves.merge("from", "to", "use-catalog")
+            moves.merge("from", "to")
         moves.STEP = None
-        moves.merge("from", "to", "use-catalog")
+        moves.merge("from", "to")
         self.assertEqual(sorted(path.name for path in (self.root / "to").iterdir()), ["f0", "f1", "f2", "f3"])
         self.assertEqual(os.listdir(self.root / "from"), [])
 
@@ -1287,7 +1010,7 @@ class Merge(Moves):
                 raise OSError(errno.EBUSY, "Resource busy")
             return real(source, target, *args, **kwargs)
         with mock.patch.object(os, "rename", busy):
-            self.assertEqual(moves.merge("from", "to", "use-catalog"), [{"path": "f", "result": "stayed"}])
+            self.assertEqual(moves.merge("from", "to"), [{"path": "f", "result": "stayed"}])
         self.assertEqual(self.text("from/f"), "x")
 
 

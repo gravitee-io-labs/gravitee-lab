@@ -27,7 +27,7 @@ from pathlib import Path, PurePosixPath
 from ..docker import compose, envfiles
 from ..gravitee import license, platforms
 from .. import paths
-from ..catalogs import registry, renames, resolve, trust, understood
+from ..catalogs import manifest, registry, renames, resolve, trust, understood
 from ..products import AM, APIM, APIM_FEATURES, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
@@ -53,8 +53,6 @@ URL_HOST = re.compile(r"://(?:[^/?#\s@]*@)?([\w.-]+)")   # the host a URL names,
 # The pages of the Lab UI that the platform's UIs and the apps let frame them (x-ui-frames in docker-compose.yml, the
 # frame-ancestors of the apps): the Lab UI is served on its own port, 9000
 PAGES = ("http://localhost:9000", "http://127.0.0.1:9000")
-LOCK_FILE = "contract.lock"   # what the engine promises units: its anchors say which plugin folders a unit may mount
-ANCHOR = re.compile(r"anchor[ \t]+plugins/([a-z0-9-]+)(?:[ \t]|$)")   # one line of it: `anchor plugins/apim since=1`
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -102,7 +100,7 @@ def fingerprint():
     and nothing else."""
     inputs = _cache.get("inputs") or {}
     reach = inputs.get("reach") or {}
-    files = [CORE_FILE, ENV_FILE, LOCK_FILE, *_catalog_files(), *(inputs.get("seed_files") or ())]
+    files = [CORE_FILE, ENV_FILE, understood.LOCK_FILE, *_catalog_files(), *(inputs.get("seed_files") or ())]
     for file in paths.files():
         found = paths.unit_of(file)
         files += _read_from((reach.get(file) or {}).get("files") or [file])
@@ -391,12 +389,6 @@ def _plain_file(path):
         return None
 
 
-# The key `include` wherever a YAML text can put one: at the start of a line (after the dashes, question marks and properties
-# a key may have) or after the brace, bracket or comma of a flow collection
-INCLUDE_KEY = re.compile(r"""(?:^|[{\[,])[ \t]*(?:[-?][ \t]+)*(?:[&!][^\s,\[\]{}]*[ \t]+)*["']?include["']?[ \t]*:""", re.M)
-BREAKS = re.compile(r"\r(?!\n)|[\u0085\u2028\u2029]")   # the line breaks of YAML that are not \n or \r\n: a text with one is not read by line
-
-
 def _reach(start, bad, clean=()):
     """What the include closure of a unit file reaches: {files: those that exist, targets: every one it names,
     missing: those under .lab/catalogs/ that are not files, unsafe: those it must not be given to Compose with}. A catalog's
@@ -612,22 +604,18 @@ def _core_config():
 
 
 def _shared_settings(ns):
-    """The names a catalog says its units share (`shared_settings` of its catalog.yml, 4.1): a list of setting names. Read
-    with Compose, after the same screen as a unit and only when the file includes nothing (it is no unit: nothing screens
-    what it would include); [] when the file says none or cannot be read, and a failure of Compose is not kept."""
-    file = f"{paths.CATALOGS_DIR}/{ns}/catalog.yml"
+    """The names a catalog says its units share (`shared_settings` of its catalog.yml): a list of setting names, read as every
+    reader reads that file (manifest.read_catalog); [] when the file says none or cannot be read, and a failure of Compose is
+    not kept."""
+    file = f"{paths.CATALOGS_DIR}/{ns}/{manifest.FILE}"
 
     def read():
-        text, why = _read(file)
-        if why or trust.prescreen(text, file) or not re.search(r"^\s*shared_settings\s*:", text, re.M) \
-                or BREAKS.search(text) or INCLUDE_KEY.search(trust.unescaped(text)):
+        try:
+            return manifest.read_catalog(file, published=True)["shared_settings"]
+        except registry.CatalogError as error:
+            return None if UNANSWERED.fullmatch(str((error.detail or {}).get("output") or "").strip()) else []
+        except (ValueError, RecursionError):   # nested deeper than Python reads
             return []
-        config, problem = _raw(file, timeout=UNIT_TIMEOUT)
-        if problem:
-            return None if UNANSWERED.fullmatch(problem["message"].strip()) else []
-        names = ((config or {}).get("x-gravitee-catalog") or {}).get("shared_settings")
-        return [name for name in names if isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)] \
-            if isinstance(names, list) else []
     return _remembered(f"catalog:{ns}", _stamp([file], ()), read, lambda found: found is not None) or []
 
 
@@ -671,26 +659,19 @@ def _contract(core):
             "seeder_image": seeder["image"] if isinstance(seeder.get("image"), str) else ""}
 
 
-def _anchored_plugins():
-    """The plugin folders the contract names as anchors (contract.lock: `anchor plugins/apim`, `anchor plugins/am`): the places
-    in the engine that a unit may mount to give a service the plugins of a product. A fresh clone has not made them yet (`make
-    init` does) and a catalog's CI run has no plugins/ folder at all; a unit that binds one where it is meant to be is no unit
-    that mounts files outside its folder, whether the folder is there or not. Only a plain file is read; [] when it is not."""
-    text, why = _read(LOCK_FILE)
-    if why:
-        return []
-    return [found.group(1) for found in (ANCHOR.match(row) for row in text.splitlines()) if found]
-
-
 def _plugin_folders():
     """The names of the products whose plugin folders a unit may reach (the roots of inputs["products"]): the folders of
-    plugins/, and the anchors the contract names, which are there for the Lab and for a catalog's check alike."""
+    plugins/, and the anchors the contract names (contract.lock: `anchor plugins/apim`), which a fresh clone has not made yet
+    (`make init` does) and a catalog's CI run has not at all: a unit that binds one where it is meant to be is no unit that
+    mounts files outside its folder, whether the folder is there or not."""
     base = os.path.join(ROOT, "plugins")
     try:
         here = [name for name in os.listdir(base) if os.path.isdir(os.path.join(base, name))]
     except OSError:
         here = []
-    return sorted({*here, *_anchored_plugins()})
+    held = understood.lock()
+    return sorted({*here, *(name.partition("/")[2] for kind, name in (held.rows if held else ())
+                            if kind == "anchor" and name.startswith("plugins/"))})
 
 
 def gather():
@@ -1588,8 +1569,7 @@ def _rank(unit, catalogs):
 
 
 def _judge_units(inputs, raw, core, addons, setups, playgrounds):
-    """Judges the units of the catalogs and settles what the project says of each among the others (and the
-    first half of 10): its verdict (`verdict`, and `blocked` when it cannot start), its level (`compat`), what of the contract
+    """Judges the units of the catalogs and settles what the project says of each among the others: its verdict (`verdict`, and `blocked` when it cannot start), its level (`compat`), what of the contract
     it uses that this Lab does not read when its catalog is published (`unknown`: the unit needs a newer Gravitee Lab, and is
     "new"; in a catalog of the person's own, a folder or a working copy, the check names each instead), the catalogs it
     lacks (`needs_catalogs`), what of this machine it uses (`uses_machine`), the unit of this machine it is also (`twin`),
@@ -1972,7 +1952,7 @@ def judge_inputs(inputs):
 def _alias(ns):
     """A function that gives the name a catalog will have to every path and text it is read under while it is staged:
     `.lab/catalogs/.stage-<ns>` becomes `.lab/catalogs/<ns>`, in a key, a text, a list or a mapping, whether the path is the
-    project's or an absolute one that Compose printed. The stage and the install are at the same depth (rule 1 of),
+    project's or an absolute one that Compose printed. The stage and the install are at the same depth,
     so nothing else of a path differs, and the policy judges the unit where it will be."""
     stage = re.compile(rf"\.lab/catalogs/\.stage-{re.escape(ns)}(?![\w.-])")
     final = f".lab/catalogs/{ns}"

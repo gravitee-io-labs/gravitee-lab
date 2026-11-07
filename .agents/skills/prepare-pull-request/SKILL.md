@@ -24,9 +24,8 @@ it never pushes or opens a pull request unless the person asks. `CONTRIBUTING.md
    It prints nothing. No `.env`, `.lab/`, `plugins/`, `local/`, `secrets/` or `.state/` path is staged, and no license,
    key or certificate. Unstage what it prints with `git restore --staged <path>`. A commit has the person's own name and
    email, and no tool as author, co-author or credit.
-4. For a new add-on, setup or playground, confirm that the documentation that describes what changed is up to date, and,
-   when the catalog keeps a table of its items (`addons/README.md`, `setups/README.md` or `playgrounds/README.md`), its row:
-   the check prints the exact row. For a playground, `tested` holds the versions it was checked on, and the versions and
+4. For a new add-on, setup or playground, confirm that the documentation that describes what changed is up to date. For a
+   playground, `tested` holds the versions it was checked on, and the versions and
    the time of its first start go under "Tried on" in the description. CI starts it on each set once a maintainer has
    approved the run (`CONTRIBUTING.md`, "What CI does"): say so.
 5. Print the description. Read `.github/PULL_REQUEST_TEMPLATE.md` and fill its fields: under "What and why", what the

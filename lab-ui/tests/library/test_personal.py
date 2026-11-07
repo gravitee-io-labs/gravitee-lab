@@ -13,7 +13,7 @@ from unittest import mock
 from lab_ui.catalogs import cli as catalog, standard
 
 from lab_ui.gravitee import places
-from lab_ui.library import check, files, moves, personal, playgrounds
+from lab_ui.library import check, files, personal, playgrounds
 from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs.registry import CatalogError
@@ -555,12 +555,11 @@ class Following(Folder):
         personal.follow(f"{LOCAL}/addons/other", f"{FIXTURE}/addons/other")
         self.assertEqual({path: (self.root / path).stat().st_mtime_ns for path in (WHOAMI, MINE)}, before)
 
-    def test_a_move_is_journaled_and_repeating_it_changes_nothing(self):
+    def test_repeating_a_move_changes_nothing(self):
         personal.follow(f"{LOCAL}/addons/whoami", f"{FIXTURE}/addons/whoami")
-        journal = [entry for entry in moves.read_journal() if entry["op"] == "repoint"]
-        self.assertEqual([entry["path"] for entry in journal], [SANDBOX])
+        before = (self.root / SANDBOX).stat().st_mtime_ns
         personal.follow(f"{LOCAL}/addons/whoami", f"{FIXTURE}/addons/whoami")
-        self.assertEqual(len([entry for entry in moves.read_journal() if entry["op"] == "repoint"]), 1)
+        self.assertEqual((self.root / SANDBOX).stat().st_mtime_ns, before)
 
     def test_a_setup_moves_as_a_file_and_the_playground_that_includes_it_follows(self):
         personal.follow(MINE, f"{FIXTURE}/setups/mine.yml")

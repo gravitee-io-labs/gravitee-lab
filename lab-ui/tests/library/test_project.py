@@ -2452,41 +2452,13 @@ class Anchored(Case):
 
     def test_without_the_anchor_the_same_unit_mounts_files_outside_its_folder(self):
         for name, lock in (("no contract.lock", None), ("no anchor in it", "contract 1\ncontract_min 1\nanchor seeder since=1\n"),
-                           ("the other product's", "anchor plugins/am since=1\n")):
+                           ("the other product's", "contract 1\ncontract_min 1\nanchor plugins/am since=1\n")):
             with self.subTest(name):
                 inputs, unit = self.read(lock)
                 self.assertEqual(inputs["products"], ["am"] if lock and "plugins/am" in lock else [])
                 self.assertEqual((unit["blocked"] or {}).get("reasons"), [self.OUTSIDE])
         inputs, unit = self.read(None, ("apim",))
         self.assertIsNone(unit["blocked"], "the folder is there: it never needed the anchor")
-
-    def test_what_the_contract_names_is_read_as_a_folder_name_and_only_so(self):
-        lock = "\n".join(["anchor plugins/ok-1 since=1", "anchor plugins/ok-2", "anchor plugins/../etc since=1", "anchor plugins/UPPER since=1",
-                          "anchor plugins/deep/er since=1", "anchor plugins/apim/ since=1", "anchor plugins/ since=1",
-                          "  anchor plugins/indented since=1", "anchors plugins/near since=1", "anchor plugins/a.b since=1",
-                          "anchor plugins/space name since=1", "anchor plugins/tab\tsince=1", "# anchor plugins/commented",
-                          "anchor seeder since=1", "anchor lab-ui port=9000", "anchor plugins/\u0430pim since=1"])
-        self.folder(project)
-        self.write("contract.lock", lock)
-        self.assertEqual(project._anchored_plugins(), ["ok-1", "ok-2", "space", "tab"])
-        self.assertEqual(project._plugin_folders(), ["ok-1", "ok-2", "space", "tab"])
-
-    def test_a_contract_that_is_a_link_or_too_big_or_not_text_names_nothing(self):
-        self.folder(project)
-        (self.root.parent / "elsewhere.lock").write_text("anchor plugins/apim since=1\n", encoding="utf-8")
-        self.addCleanup((self.root.parent / "elsewhere.lock").unlink)
-        (self.root / "contract.lock").symlink_to(self.root.parent / "elsewhere.lock")
-        self.assertEqual(project._anchored_plugins(), [], "a link is not followed")
-        (self.root / "contract.lock").unlink()
-        self.write("contract.lock", "anchor plugins/apim since=1\n" + "# x\n" * (project.TEXT_LIMIT // 4))
-        self.assertEqual(project._anchored_plugins(), [], "over the limit")
-        (self.root / "contract.lock").write_bytes(b"anchor plugins/apim since=1\n\xff\xfe")
-        self.assertEqual(project._anchored_plugins(), [], "not UTF-8 text")
-        (self.root / "contract.lock").unlink()
-        (self.root / "contract.lock").mkdir()
-        self.assertEqual(project._anchored_plugins(), [], "a folder")
-        (self.root / "contract.lock").rmdir()
-        self.assertEqual(project._anchored_plugins(), [], "none")
 
     def test_a_change_of_the_contract_reads_the_project_again(self):
         self.folder(project)
@@ -3679,34 +3651,28 @@ class Reading(Case):
         self.patch(paths, "default_ns", return_value="fixture")
         self.assertEqual(project._seed_names("unit", safe=True), [])
 
-    def test_a_catalog_file_that_includes_something_is_not_read_for_the_names_its_units_share(self):
+    def test_a_catalog_file_that_holds_more_than_its_block_is_not_read_for_the_names_its_units_share(self):
         shared = "x-gravitee-catalog:\n  id: z\n  shared_settings: [A_ONE]\n"
-        with mock.patch.object(project, "_raw", side_effect=AssertionError("Compose was asked")):
+        with mock.patch.object(compose, "raw", side_effect=AssertionError("Compose was asked")):
             for number, text in enumerate(("include:\n  - pipe.yml\n", "include: [pipe.yml]\n", "x: {include: [pipe.yml]}\n",
                                            '"include":\n  - pipe.yml\n', '"inclu\\u0064e": [pipe.yml]\n')):
                 with self.subTest(text=text):
                     self.write(f".lab/catalogs/inc{number}/catalog.yml", text + shared)
                     self.assertEqual(project._shared_settings(f"inc{number}"), [])
-        self.write(".lab/catalogs/fine/catalog.yml", shared + "  description: Does not include: much\n")
-        with mock.patch.object(project, "_raw", lambda path, **how: ({"x-gravitee-catalog": {"shared_settings": ["A_ONE"]}}, None)):
-            self.assertEqual(project._shared_settings("fine"), ["A_ONE"])
+            self.assertEqual(project._shared_settings("absent"), [])
 
     def test_a_file_that_includes_nothing_it_can_read_includes_nothing(self):
         self.assertEqual(project._includes("bytes.yml"), [])
         self.assertEqual(project._includes("absent.yml"), [])
         self.assertEqual(project._includes("pipe.yml"), [])
 
-    def test_the_names_a_catalog_says_its_units_share_are_read_after_the_same_screen_as_a_unit(self):
-        self.write(".lab/catalogs/x/catalog.yml", "x-gravitee-catalog:\n  id: x\n  shared_settings: [A_ONE, b_two, 'not a name', 3]\n")
-        with mock.patch.object(project, "_raw", lambda path, **how: ({"x-gravitee-catalog": {"shared_settings": [
-                "A_ONE", "b_two", "not a name", 3]}}, None)):
-            self.assertEqual(project._shared_settings("x"), ["A_ONE", "b_two"])
-        self.write(".lab/catalogs/y/catalog.yml", "include: [/etc/passwd]\nx-gravitee-catalog:\n  shared_settings: [A]\n")
-        with mock.patch.object(project, "_raw", side_effect=AssertionError("Compose was asked")):
-            self.assertEqual(project._shared_settings("y"), [])
-            self.assertEqual(project._shared_settings("absent"), [])
-            self.write(".lab/catalogs/z/catalog.yml", "x-gravitee-catalog:\n  id: z\n")
-            self.assertEqual(project._shared_settings("z"), [], "no word of it, no call")
+    def test_the_names_a_catalog_says_its_units_share_are_those_of_a_catalog_yml_that_reads(self):
+        block = {"id": "xy", "name": "XY", "description": "It", "version": "1.0.0"}
+        self.write(".lab/catalogs/xy/catalog.yml", "x-gravitee-catalog:\n  id: xy\n")
+        for shared, names in ((["A_ONE"], ["A_ONE"]), (["A_ONE", "not a name"], []), ("A_ONE", [])):
+            with self.subTest(shared=shared), mock.patch.object(compose, "raw", lambda path, **how: {"x-gravitee-catalog": {**block, "shared_settings": shared}}):
+                project.forget()
+                self.assertEqual(project._shared_settings("xy"), names)
 
     def test_the_level_of_the_core_and_its_seeder_are_read_with_a_floor_of_one(self):
         self.assertEqual(project._contract({}), {"contract": 1, "contract_min": 1, "seeder_image": ""})

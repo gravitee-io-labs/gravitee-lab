@@ -1,5 +1,5 @@
 """`make check` and `catalog.py check`: the engine's profile (the core, the skills and the agents' files, and nothing of a
-catalog, with its output pinned) and the catalog's profile (the rules of every item, the names, the paths, the ports, what
+catalog, with its output pinned) and the catalog's profile (the rules of every item, the paths, the ports, what
 catalog.yml says and whether `lab` is the true minimum, and the verdict of the trust policy on each unit; the images a catalog
 builds are the audit's, with the units it is given), and how a folder is read where it is: the temporary link, the scrubbed
 environment, the units for the audit and the findings as problems with a code.
@@ -459,27 +459,6 @@ class Items(Machine):
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": "## 1. One\n## 3. Three\n"}))),
                          ["guide.md: number its steps 1, 2, 3 in order, not 1, 3"])
 
-    def test_the_apis_a_seed_imports_are_json_objects(self):
-        root = self.folder(files={"seed/apim/apis/one.json": '{"api": {"name": "One"}}',
-                                  "seed/apim/apis/two.json": "not json", "seed/apim/apis/three.json": "[]"})
-        self.assertEqual(list(check._seed(root)), [
-            "seed/apim/apis/three.json must hold a JSON object",
-            "seed/apim/apis/two.json is not valid JSON: Expecting value: line 1 column 1 (char 0)"])
-
-    def test_the_apis_of_the_environments_a_seed_adds_are_json_objects_too(self):
-        root = self.folder(files={
-            "seed/apim/apis/one.json": '{"api": {"name": "One"}}',
-            "seed/environments/beet/environment.yaml": "id: beet\nname: Beet\n",
-            "seed/environments/beet/apis/sample-requests.json": '{"api": {"name": "Sample requests"}}',
-            "seed/environments/beet/apis/broken.json": "{",
-            "seed/environments/mallard/environment.yaml": "id: mallard\nname: Mallard\n",
-            "seed/environments/mallard/apis/list.json": "[]",
-            "seed/environments/mallard/portal/apis/not-an-export.json": "not json"})
-        self.assertEqual(list(check._seed(root)), [
-            "seed/environments/beet/apis/broken.json is not valid JSON: "
-            "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
-            "seed/environments/mallard/apis/list.json must hold a JSON object"])
-
 
 PORTAL_COMMAND = ["/bin/sh", "-c", "sed -i -e '/X-Frame-Options/d' -e \"s|self|& {pages}|\" x; sh /run.sh"]
 
@@ -508,7 +487,6 @@ class Playgrounds(Machine):
             core["x-gravitee"]["groups"] = ["API Management"]
         self.machine([inspector, welcome], core=platform, guides={"welcome": "## 1. One\n"}, **more)
         self.patch(check, "_guide", return_value=[])
-        self.patch(check, "_seed", return_value=[])
         return list(check._playground(self.built["playgrounds"]["welcome"], self.built))
 
     def test_its_consoles_are_services_it_runs_with_a_console_each_listed_once(self):
@@ -601,162 +579,6 @@ class Playgrounds(Machine):
         self.assertEqual(found, [])
 
 
-class Hosts(Machine):
-    """What a service takes of this machine beyond its container, and the reason it gives."""
-
-    def setUp(self):
-        super().setUp()
-        self.unit_file = unit("fixture", "addon", "k")
-        self.folder_ = self.root / "/".join(self.unit_file.split("/")[:-1])
-        self.folder_.mkdir(parents=True)
-        self.raw = {}
-
-    def found(self, meta, services, own=None, included=(), others=None, file=None):
-        """What `_host_access` says of the add-on `k` whose services are written like this."""
-        file = file or self.unit_file
-        self.raw = {file: {"services": services}, **{path: {"services": theirs} for path, theirs in (others or {}).items()}}
-        return list(check._host_access(meta, self.raw, file, list(included), list(services if own is None else own)))
-
-    def bind(self, source, target="/t", **more):
-        return {"type": "bind", "source": str(source), "target": target, **more}
-
-    def test_what_a_service_takes_of_this_machine_is_said_in_words(self):
-        roots = check._roots(self.unit_file)
-        inside, here = self.bind(self.folder_ / "conf.yml"), str(self.folder_)
-        self.assertEqual(check._elevations({"image": "x", "ports": ["127.0.0.1:80:80"], "tmpfs": ["/run"],
-                                            "volumes": [inside, {"type": "volume", "source": "data", "target": "/d"}]},
-                                           roots), [], "a folder of the unit, a named volume and a port are nothing")
-        self.assertEqual(check._elevations({"privileged": True, "network_mode": "host", "pid": "host",
-                                            "cap_add": ["SYS_ADMIN", "NET_ADMIN"], "devices": ["/dev/kvm"]}, roots),
-                         ["runs privileged", "shares the network of this machine", "shares the processes of this machine",
-                          "adds the capabilities SYS_ADMIN, NET_ADMIN", "reaches the devices of this machine"])
-        found = check._elevations({"volumes": [self.bind("/var/run/docker.sock", "/s"), self.bind("/etc/hosts", "/h"),
-                                               self.bind("${HOME}/.kube", "/k"), self.bind(f"{here}-other/x", "/o")]}, roots)
-        self.assertEqual(found[0], "mounts the Docker socket")
-        self.assertEqual(len(found), 4)
-        self.assertIn(f"mounts {os.path.realpath('/etc/hosts')} of this machine", found)
-        self.assertIn("mounts ${HOME}/.kube of this machine", found)
-
-    def test_a_service_that_takes_more_of_this_machine_says_why_in_the_file_that_asks_for_it(self):
-        path = self.unit_file
-        user = unit("fixture", "addon", "user")
-        kea = {"kea": {"privileged": True}, "web": {}}
-        ask = "kea: runs privileged: say why in x-gravitee.host_access (kea: <reason>), so that it is read before it runs"
-        self.assertEqual(self.found({}, kea), [ask])
-        self.assertEqual(self.found({"host_access": {"kea": "Runs nested containers"}}, kea), [])
-        # A declaration stays true: for what takes nothing, and for what is not a service of the file
-        self.assertEqual(self.found({"host_access": {"kea": "Runs nested containers", "web": "Why"}}, kea),
-                         ["x-gravitee.host_access: web takes nothing of this machine beyond its container: remove it"])
-        self.assertEqual(self.found({"host_access": {"kea": "Runs nested containers", "ghost": "Why"}}, kea),
-                         ["x-gravitee.host_access: ghost is not a service of this file"])
-        # What an included file asks is its own: only what the file adds is said
-        self.assertEqual(self.found({}, {**kea, "own": {"network_mode": "host"}}, ("kea", "web", "own"), [path], {path: kea}, user),
-                         ["own: shares the network of this machine: say why in x-gravitee.host_access (own: <reason>), "
-                          "so that it is read before it runs"])
-        for bad in ({"host_access": ["kea"]}, {"host_access": {"kea": ""}}, {"host_access": {"kea": 1}}, {"host_access": {1: "x"}}):
-            with self.subTest(bad=bad):
-                self.assertEqual(self.found(bad, kea),
-                                 ["x-gravitee.host_access must map a service to the reason it takes more of this machine"])
-
-    def test_a_bind_inside_the_folder_of_the_unit_asks_nothing_and_one_outside_it_asks_for_a_reason(self):
-        inside = {"s": {"volumes": [self.bind(self.folder_ / "data", "/d")]}}
-        self.assertEqual(self.found({}, inside), [])
-        self.assertEqual(self.found({"host_access": {"s": "why"}}, inside),
-                         ["x-gravitee.host_access: s takes nothing of this machine beyond its container: remove it"])
-        outside = {"s": {"volumes": [self.bind(self.root / "docker-compose.yml", "/d")]}}
-        found = self.found({}, outside)
-        self.assertEqual(len(found), 1)
-        self.assertIn("s: mounts ", found[0])
-        self.assertIn("say why in x-gravitee.host_access (s: <reason>)", found[0])
-        self.assertEqual(self.found({"host_access": {"s": "why"}}, outside), [])
-
-    def test_a_bind_is_compared_by_its_real_place_and_so_is_the_project(self):
-        # The project is reached through a link, and Compose names the files by either spelling: neither is outside
-        real = Path(tempfile.mkdtemp(prefix="gravitee-lab-real-")).resolve()
-        self.addCleanup(shutil.rmtree, real, True)
-        reached = real.parent / f"{real.name}-link"
-        reached.symlink_to(real)
-        self.addCleanup(reached.unlink)
-        (real / "docker-compose.yml").write_text("", encoding="utf-8")
-        self.patch(check, "ROOT", reached)
-        self.patch(paths, "ROOT", reached)
-        folder = real / ".lab/catalogs/fixture/addons/k"
-        folder.mkdir(parents=True)
-        for spelling in (real, reached):
-            with self.subTest(spelling=str(spelling)):
-                services = {"s": {"volumes": [self.bind(spelling / ".lab/catalogs/fixture/addons/k/data", "/d")]}}
-                self.assertEqual(self.found({}, services), [])
-        # A link in the unit's folder that leads out of it is outside, wherever the bind says it is
-        (folder / "elsewhere").symlink_to("/etc")
-        services = {"s": {"volumes": [self.bind(reached / ".lab/catalogs/fixture/addons/k/elsewhere", "/d")]}}
-        found = self.found({}, services)
-        self.assertEqual(len(found), 1)
-        self.assertIn(f"s: mounts {os.path.realpath('/etc')} of this machine", found[0])
-
-    def test_a_bind_whose_source_is_a_variable_with_no_default_is_outside_and_its_declaration_is_never_unneeded(self):
-        here = str(self.folder_)
-        for source in (f"{here}/${{KEY_FILE}}", "${KEY_FILE}", f"{here}/${{KEY_FILE:-}}", f"{here}/${{KEY_FILE:-${{OTHER}}}}"):
-            with self.subTest(source=source):
-                services = {"s": {"volumes": [self.bind(source, "/key")]}}
-                self.assertEqual(self.found({"host_access": {"s": "Reads the key"}}, services), [])
-                said = self.found({}, services)
-                self.assertEqual(len(said), 1)
-                self.assertIn("s: mounts ${KEY_FILE", said[0])
-                self.assertNotIn(here, said[0])
-
-    def test_a_variable_with_no_default_is_outside_in_either_spelling_of_a_project_reached_through_a_link(self):
-        # Compose puts the folder of the file in front of a variable it did not interpolate, in the spelling it was started with
-        real = Path(tempfile.mkdtemp(prefix="gravitee-lab-real-")).resolve()
-        self.addCleanup(shutil.rmtree, real, True)
-        reached = real.parent / f"{real.name}-link"
-        reached.symlink_to(real)
-        self.addCleanup(reached.unlink)
-        (real / ".lab/catalogs/fixture/addons/k").mkdir(parents=True)
-        self.patch(check, "ROOT", reached)
-        self.patch(paths, "ROOT", reached)
-        for spelling in (real, reached):
-            with self.subTest(spelling=str(spelling)):
-                services = {"s": {"volumes": [self.bind(f"{spelling}/.lab/catalogs/fixture/addons/k/${{KEY_FILE}}", "/key")]}}
-                self.assertEqual(self.found({"host_access": {"s": "Reads the key"}}, services), [])
-                said = self.found({}, services)
-                self.assertEqual(len(said), 1)
-                self.assertIn("s: mounts ${KEY_FILE", said[0])
-                self.assertNotIn(str(spelling), said[0])
-        # With a default that is inside the folder it is inside, in either spelling
-        inside = {"s": {"volumes": [self.bind(f"{reached}/.lab/catalogs/fixture/addons/k/${{DATA:-./data}}", "/d")]}}
-        self.assertEqual(self.found({}, inside), [])
-
-    def test_a_variable_with_a_default_is_that_default(self):
-        here = str(self.folder_)
-        inside = {"s": {"volumes": [self.bind(f"{here}/${{DATA_DIR:-./data}}", "/d")]}}
-        self.assertEqual(self.found({}, inside), [])
-        self.assertEqual(self.found({"host_access": {"s": "why"}}, inside),
-                         ["x-gravitee.host_access: s takes nothing of this machine beyond its container: remove it"])
-        outside = {"s": {"volumes": [self.bind(f"{here}/${{DATA_DIR:-/etc/hosts}}", "/d")]}}
-        self.assertIn(f"mounts {os.path.realpath('/etc/hosts')} of this machine", self.found({}, outside)[0])
-
-    def test_a_source_that_compose_typed_a_volume_is_a_bind_when_it_names_a_place(self):
-        # Read without interpolation, `${HOME}/.kube:/k` is a named volume as Compose types it, the text of the source untouched
-        services = {"s": {"volumes": [{"type": "volume", "source": "${HOME}/.kube", "target": "/k", "volume": {}},
-                                      {"type": "volume", "source": "data", "target": "/d", "volume": {}}]}}
-        said = self.found({}, services)
-        self.assertEqual(len(said), 1)
-        self.assertIn("s: mounts ${HOME}/.kube of this machine", said[0])
-        self.assertEqual(self.found({"host_access": {"s": "why"}}, services), [])
-        # The short form, as a text
-        short = {"s": {"volumes": ["${HOME}/.kube:/k:ro", "data:/d", "./conf:/c"]}}
-        self.assertIn("mounts ${HOME}/.kube of this machine", self.found({}, short)[0])
-
-    def test_the_declaration_of_what_binds_a_variable_stays_needed_in_the_files_that_name_the_service_again(self):
-        # An add-on that includes the one that declared it asks nothing it did not add
-        here = str(self.folder_)
-        base = unit("fixture", "addon", "base")
-        (self.root / "/".join(base.split("/")[:-1])).mkdir(parents=True)
-        theirs = {"s": {"volumes": [self.bind(f"{self.root}/{'/'.join(base.split('/')[:-1])}/${{KEY_FILE}}", "/key")]}}
-        mine = {"s": {"volumes": theirs["s"]["volumes"] + [self.bind(f"{here}/data", "/d")]}}
-        self.assertEqual(self.found({}, mine, ("s",), [base], {base: theirs}), [])
-
-
 class Gateways(Machine):
     """The gateway of a platform that an add-on runs."""
 
@@ -844,78 +666,6 @@ class Gateways(Machine):
         self.assertEqual(self.lines("addon", "hyssop"), ["x-gravitee.gateway.service: nothing is not a service of this add-on"])
 
 
-class Listings(Case):
-    """The README of each kind, when a catalog keeps one, lists every item once, in the row its x-gravitee block gives."""
-
-    ROWS = {"addon": ["| [AI Agent Lens](agent-lens/) | Live diagram |", "| [Jade](jade/) | Tracing |",
-                      "| [Kazoo](kazoo/) | Kazoo broker |"],
-            "setup": ["| [Event streams](event-streams.yml) | Kazoo |"],
-            "playground": ["| [Welcome](welcome/) | ACME Hello | 30 min |"]}
-
-    def setUp(self):
-        self.units = {kind: [self.unit(kind, *spec) for spec in specs] for kind, specs in {
-            "addon": [("agent-lens", "AI Agent Lens", "Live diagram"), ("jade", "Jade", "Tracing"),
-                      ("kazoo", "Kazoo", "Kazoo broker")],
-            "setup": [("event-streams", "Event streams", "Kazoo")],
-            "playground": [("welcome", "Welcome", "ACME Hello", "30 min")]}.items()}
-        self.folder(check, paths)
-
-    def unit(self, kind, name, label, description, duration=None):
-        return {"id": name, "kind": kind, "name": label, "description": description, "duration": duration}
-
-    def readme(self, kind, rows, head="# Add-ons\n\nOne each.\n\n| Add-on | What it adds |\n|---|---|\n",
-               tail="\nTo make your own, see [AGENTS.md](AGENTS.md).\n", units=None):
-        self.write(f"catalog/{check.LISTINGS[kind][0]}", head + "".join(f"{row}\n" for row in rows) + tail)
-        return list(check._table(kind, self.units[kind] if units is None else units, self.root / "catalog"))
-
-    def test_every_item_has_its_row_and_nothing_else_does(self):
-        for kind, rows in self.ROWS.items():
-            with self.subTest(kind=kind):
-                self.assertEqual(self.readme(kind, rows), [])
-
-    def test_a_row_is_written_from_the_x_gravitee_block(self):
-        self.assertEqual([check._row(kind, one) for kind, units in self.units.items() for one in units],
-                         [row for rows in self.ROWS.values() for row in rows])
-        # A name is the item's id without x-gravitee.name; a description on several lines is one; no duration is none
-        one = self.unit("playground", "welcome", "Welcome", "ACME\n  Hello  ")
-        self.assertEqual(check._row("playground", one), "| [Welcome](welcome/) | ACME Hello |  |")
-        # The link leads to the name of the folder, whatever the id of the item is in this Lab
-        self.assertEqual(check._row("addon", {**self.units["addon"][1], "id": "@acme-hub/jade"}), self.ROWS["addon"][1])
-
-    def test_a_missing_row_is_shown_as_it_must_read(self):
-        rows = [row for row in self.ROWS["addon"] if "Jade" not in row]
-        self.assertEqual(self.readme("addon", rows), [
-            ("addons/README.md", "does not list Jade: add the row | [Jade](jade/) | Tracing |")])
-
-    def test_a_row_that_differs_from_its_block_is_shown_as_it_must_read(self):
-        rows = [row.replace("Tracing", "OpenTelemetry tracing") for row in self.ROWS["addon"]]
-        rows[2] = "| [Kazoo](kazoo/) | Kazoo broker | |"
-        self.assertEqual(self.readme("addon", rows), [
-            ("addons/README.md", "the row of Jade must read | [Jade](jade/) | Tracing |"),
-            ("addons/README.md", "the row of Kazoo must read | [Kazoo](kazoo/) | Kazoo broker |")])
-
-    def test_an_item_is_listed_once(self):
-        self.assertEqual(self.readme("setup", self.ROWS["setup"] * 2), [
-            ("setups/README.md", "lists Event streams 2 times: keep one row, "
-                                 "| [Event streams](event-streams.yml) | Kazoo |")])
-
-    def test_a_row_of_what_does_not_exist_is_removed(self):
-        rows = [*self.ROWS["playground"], "| [Gone](gone/) | Deleted | 5 min |"]
-        self.assertEqual(self.readme("playground", rows), [
-            ("playgrounds/README.md", "lists gone/, which is no playground of this catalog: remove its row")])
-
-    def test_only_a_row_that_starts_with_a_link_is_a_row(self):
-        head = ("# Setups\n\nSee [AGENTS.md](AGENTS.md) and [the guide](../docs/guide.md).\n\n"
-                "| Setup | What it turns on |\n|---|---|\n")
-        self.assertEqual(self.readme("setup", self.ROWS["setup"], head=head), [])
-
-    def test_a_catalog_that_keeps_no_table_has_no_finding(self):
-        # The template, a new folder catalog and the internal catalog pass on day one
-        for kind in self.units:
-            self.assertEqual(list(check._table(kind, self.units[kind], self.root / "catalog")), [])
-        self.assertEqual(list(check._table("setup", [], self.root / "catalog")), [])
-
-
 class Sharing(Machine):
     """An item of this machine about to be shared is checked as what it will be, and `make check` is silent about the rest."""
 
@@ -989,24 +739,6 @@ class Sharing(Machine):
     def test_a_port_is_published_by_the_file_that_adds_it(self):
         self.whoami()
         self.assertEqual([check.publishers().get(number) for number in ("8082", "8098", "9999")], [CORE, WHOAMI, None])
-
-    def test_a_bind_of_a_plugin_folder_is_an_anchor_of_what_is_about_to_be_shared_as_it_is_of_a_catalog(self):
-        raw = self.whoami()
-        (self.root / "plugins/apim").mkdir(parents=True)
-        raw["services"]["whoami"]["volumes"] = [{"type": "bind", "source": str(self.root / "plugins/apim"), "target": "/plugins"}]
-        self.machine(self.units, products=["apim"])
-        self.assertEqual(self.found(WHOAMI, sharing=WHOAMI), [])
-        # A folder that is not a plugin folder still asks for a reason
-        raw["services"]["whoami"]["volumes"][0]["source"] = str(self.root / "docker-compose.yml")
-        self.machine(self.units, products=["apim"])
-        [(_, asked)] = self.found(WHOAMI, sharing=WHOAMI)
-        self.assertIn("whoami: mounts ", asked)
-
-    def test_the_plugin_folders_of_the_contract_are_anchors_before_a_clone_has_made_them(self):
-        self.assertEqual(check._anchored([]), [], "no contract.lock, no anchor")
-        shutil.copy(REPO / check.LOCK_FILE, self.root / check.LOCK_FILE)
-        self.assertEqual(check._anchored([]), ["am", "apim"])
-        self.assertEqual(check._anchored(["apim", "mine"]), ["am", "apim", "mine"])
 
     def test_the_core_is_checked_whoever_asks(self):
         self.whoami()
@@ -1492,7 +1224,7 @@ class Linking(Case):
     def test_the_folder_is_the_catalog_of_its_id_inside_and_nothing_of_it_is_left_outside(self):
         before = self.taken()
         with check.temporary_link(self.folder_of, "partner") as linked:
-            self.assertEqual((linked.ns, linked.lab, linked.folder), ("partner", self.root, self.folder_of))
+            self.assertEqual((linked.lab, linked.folder), (self.root, self.folder_of))
             self.assertNotEqual(linked.root, self.root)
             self.assertEqual(paths.ROOT, linked.root)
             self.assertTrue(os.path.islink(linked.root / ".lab/catalogs/partner"))
@@ -1891,26 +1623,6 @@ class Hostile(Shared):
             self.assertEqual(len(said), 1, name)
             self.assertRegex(said[0], r"^Cannot be read: .+")
 
-    def test_a_service_that_takes_the_machine_must_say_why_before_the_policy_has_its_say(self):
-        said = self.said("hostile", "addons/t10-docker-socket/compose.yml")
-        self.assertIn("hostile-socket: mounts the Docker socket: say why in x-gravitee.host_access (hostile-socket: <reason>), "
-                      "so that it is read before it runs", said)
-        self.assertIn("hostile-provider: runs a program on this machine: say why in x-gravitee.host_access "
-                      "(hostile-provider: <reason>), so that it is read before it runs",
-                      self.said("hostile", "addons/t05-provider/compose.yml"))
-        # What declares its reason is not asked again; whether this catalog may use the machine is the policy's to say
-        self.assertFalse([line for line in self.said("fixture", "addons/cluster/compose.yml") if "host_access" in line])
-        self.assertIn("Blocked: Runs with full privileges", self.said("hostile", "addons/h-privileged-declared/compose.yml"))
-
-    def test_a_name_that_clashes_is_told_with_the_fix_of_the_prefix(self):
-        said = self.said("hostile", "addons/t21-name-clash/compose.yml")
-        self.assertIn("Blocked: Same name as Echo", said)
-        self.assertIn("fixture-echo: name it hostile-fixture-echo, or start it with the name of the unit, t21-name-clash-", said)
-
-    def test_a_volume_that_is_not_its_own_is_the_policys_and_no_naming_matter(self):
-        self.assertFalse([line for line in self.said("hostile", "addons/t14-external-volume/compose.yml") if "data-" in line])
-        self.assertTrue([line for line in self.said("hostile", "addons/t14-volume-alias/compose.yml") if "data-" in line])
-
     def test_a_path_that_leaves_the_folder_of_the_unit_says_where_the_anchor_is(self):
         said = self.said("hostile", "addons/t18-build-outside/compose.yml")
         self.assertTrue([line for line in said if line.startswith("hostile-build-outside: build context ../../../../.. is outside the folder of this unit: keep what it reads")], said)
@@ -1954,17 +1666,6 @@ def addon(name, body, says=""):
 
 
 AUTHORING = {
-    # The names it gives: no prefix, a container that is not gio-<service>, a volume that is not data-<name>
-    "addons/api/compose.yml": addon("api", """services:
-  server:
-    image: busybox
-    container_name: my-server
-    labels: {io.gravitee.description: Serves}
-    networks: [internal]
-volumes:
-  cache: {}
-"""),
-    "addons/api/README.md": "# Api\n",
     # The depth of its anchors: three folders short for the seeder, one short for a plugin folder
     "addons/depth/compose.yml": addon("depth", """services:
   depth-app:
@@ -2033,8 +1734,8 @@ services:
 
 
 class Authoring(Shared):
-    """What an author is told, on a catalog that is not the engine's (so its names carry its prefix): the names, where the
-    anchors are, what the screen reads, what the Lab does not follow."""
+    """What an author is told, on a catalog that is not the engine's: where the anchors are, what the screen reads, what the
+    Lab does not follow."""
 
     CATALOGS = {"partner": {"files": AUTHORING}}
 
@@ -2043,25 +1744,6 @@ class Authoring(Shared):
         trap = case.root / ".lab/catalogs/partner/playgrounds/trap"
         (trap / "seed").symlink_to("/etc")
         os.mkfifo(trap / ".env")
-
-    def test_a_service_that_a_unit_owns_carries_the_prefix_of_its_catalog_or_the_name_of_its_unit(self):
-        said = self.said("partner", "addons/api/compose.yml")
-        self.assertIn("server: name it partner-server, or start it with the name of the unit, api-", said)
-        self.assertEqual([line for line in self.said("partner", "addons/fine/compose.yml")], [])
-        # The unit's own name, and the prefix of the catalog, pass
-        self.assertFalse([line for line in self.said("partner", "addons/depth/compose.yml") if "name it" in line])
-
-    def test_a_listed_catalog_owes_no_prefix_it_claims_its_names_first(self):
-        unit = self.built["addons"]["@partner/api"]
-        raw = self.inputs["raw"]
-        self.assertEqual(list(check._naming("@partner/api", unit, raw, "partner", True))[0],
-                         "server: container_name is my-server: write gio-server")
-        self.assertEqual(len(list(check._naming("@partner/api", unit, raw, "partner", False))), 3)
-
-    def test_a_container_is_gio_and_the_service_a_volume_is_data_and_what_it_keeps(self):
-        said = self.said("partner", "addons/api/compose.yml")
-        self.assertIn("server: container_name is my-server: write gio-server", said)
-        self.assertIn("volume cache: name a volume it declares data-<what it keeps>", said)
 
     def test_a_path_three_folders_short_says_where_the_anchor_is_and_the_right_one_passes(self):
         said = self.said("partner", "addons/depth/compose.yml")
@@ -2093,7 +1775,7 @@ class Authoring(Shared):
         self.assertTrue([line for line in envy if line.startswith("the screen reads words, not YAML")])
         # The words are told once, and a unit the screen accepts is told none
         self.assertEqual(len([line for line in envy if line.startswith("the screen reads words")]), 1)
-        self.assertEqual([line for line in self.said("partner", "addons/fine/compose.yml") if "screen" in line], [])
+        self.assertEqual(self.said("partner", "addons/fine/compose.yml"), [])
 
     def test_an_include_the_lab_does_not_follow_is_told_of_the_unit_and_of_one_that_includes_it(self):
         for unit in ("listy", "reach"):
@@ -2140,12 +1822,12 @@ class FreshClone(Shared):
     def test_a_plugin_folder_that_is_not_made_yet_is_still_the_anchor_the_contract_names(self):
         self.assertFalse((self.root / "plugins").exists())
         said = self.said("partner", "addons/hyssop/compose.yml")
-        self.assertEqual([line for line in said if "outside the folder" in line or "host_access" in line], [])
+        self.assertEqual([line for line in said if "outside the folder" in line], [])
 
     def test_the_right_depth_is_still_told_for_a_folder_that_is_not_an_anchor(self):
         unit, folder = {"services": ["hyssop-gateway"]}, self.root / ".lab/catalogs/partner/addons/hyssop"
         config = {"services": {"hyssop-gateway": {"volumes": [{"type": "bind", "source": str(self.root / "plugins/other")}]}}}
-        anchors = {**check._anchors(check._anchored([])), "closure": []}
+        anchors = {**check._anchors(project._plugin_folders()), "closure": []}
         [said] = check._geometry(unit, config, folder, {}, anchors)
         self.assertIn("is outside the folder of this unit", said)
         self.assertEqual(list(check._geometry(
@@ -2234,28 +1916,18 @@ class Names(Case):
         self.assertEqual(check._read(self.root / "d"), "fine")
         self.assertIsNone(check._read(self.root / "nowhere"))
 
-    def test_a_guide_a_seed_or_a_table_that_is_a_link_is_never_followed_to_be_read(self):
+    def test_a_guide_that_is_a_link_is_never_followed_to_be_read(self):
         # What a catalog holds is the author's and, in CI, a stranger's: nothing the check reads leads out of the folder
         elsewhere = self.root / "elsewhere"
         elsewhere.mkdir()
         (elsewhere / "guide.md").write_text("## 2. Two\n", encoding="utf-8")
-        (elsewhere / "api.json").write_text("not json", encoding="utf-8")
-        (elsewhere / "README.md").write_text("| [Ghost](ghost/) | Gone |\n", encoding="utf-8")
         unit = self.root / "unit"
-        (unit / "seed/apim/apis").mkdir(parents=True)
+        unit.mkdir()
         (unit / "guide.md").symlink_to(elsewhere / "guide.md")
-        (unit / "seed/apim/apis/one.json").symlink_to(elsewhere / "api.json")
-        (unit / "addons").mkdir()
-        (unit / "addons/README.md").symlink_to(elsewhere / "README.md")
         self.assertEqual(list(check._guide(unit)), [])
-        self.assertEqual(list(check._seed(unit)), [])
-        self.assertEqual(list(check._table("addon", [], unit)), [])
         (unit / "guide.md").unlink()
         (unit / "guide.md").write_text("## 2. Two\n", encoding="utf-8")
         self.assertEqual(list(check._guide(unit)), ["guide.md: number its steps 1, 2, 3 in order, not 2"])
-        big = unit / "seed/apim/apis/big.json"
-        big.write_text(" " * (check.TEXT_LIMIT + 1), encoding="utf-8")
-        self.assertEqual(list(check._seed(unit)), [], "a file over 1 MB is not read: the line about its size is `_not_read`'s")
 
     def test_the_words_the_screen_reads_are_found_wherever_they_are_spelled(self):
         # Escapes of a double-quoted scalar spell a word too, and a flow include is no block list

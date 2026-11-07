@@ -1607,13 +1607,12 @@ def _meet(kind, old, top, here, there) -> str:
     kept = _kept(kind, old.split("/", 1)[1], top)
     if os.path.basename(top) in moves.WHOLE or not (os.path.isdir(here) and os.path.isdir(there) and not os.path.islink(here)
                                                     and not os.path.islink(there)):
-        return moves.relocate(here, kept, "use-catalog-conflict")
+        return moves.relocate(here, kept)
     stayed = False
-    for found in moves.merge(here, there, "use-catalog", everywhere=True):
+    for found in moves.merge(here, there, everywhere=True):
         answer = found["result"]
         if answer == "conflict":
-            answer = moves.relocate(os.path.join(here, found["path"]), os.path.join(kept, found["path"]),
-                                    "use-catalog-conflict")
+            answer = moves.relocate(os.path.join(here, found["path"]), os.path.join(kept, found["path"]))
         stayed = stayed or answer not in ("moved", "copied", "gone")
     return "stayed" if stayed else "moved"
 
@@ -1637,7 +1636,7 @@ def moved(kind: str, old: str, new: str) -> None:
     if kind != "setup":
         source, target = (str(paths.ROOT / paths.unit_folder(kind, one)) for one in (old, new))
         for top in _machine(source) if os.path.isdir(source) else ():
-            answer = moves.relocate(os.path.join(source, top), os.path.join(target, top), "use-catalog")
+            answer = moves.relocate(os.path.join(source, top), os.path.join(target, top))
             if answer == "conflict":
                 answer = _meet(kind, old, top, os.path.join(source, top), os.path.join(target, top))
             if answer not in ("moved", "copied", "gone"):   # "stayed", or the place in kept/ is taken as well
@@ -1695,7 +1694,7 @@ def _set_aside(kind, uid, slug) -> None:
     text = registry._read(os.path.join(folder, "compose.yml"), bare.TEXT_FILE, follow=False)[0]
     stuck = []
     for rel in _unshared(folder, (text or b"").decode("utf-8", "replace"), set(_machine(folder))):
-        if moves.relocate(os.path.join(folder, rel), _kept(kind, slug, rel), "use-catalog-leftover") not in ("moved", "copied", "gone"):
+        if moves.relocate(os.path.join(folder, rel), _kept(kind, slug, rel)) not in ("moved", "copied", "gone"):
             stuck.append(rel)
     if stuck:
         raise ValueError(f"{', '.join(f'{paths.unit_folder(kind, uid)}/{one}' for one in stuck)} could not be set aside in "

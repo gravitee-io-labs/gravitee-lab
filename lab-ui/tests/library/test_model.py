@@ -1366,7 +1366,7 @@ class Behind(Built):
         self.project["services"]["apim-gateway"]["tag"] = "4.12-debian"
         saved = {**SAVED, "images": {**SAVED["images"], "apim-management-api": "sha256:saved"}}
         body = self.build(containers=containers, saved=saved,
-                          changed={"apim-gateway": {"settings": ["GRAVITEE_LICENSE"], "labels": False}})
+                          changed={"apim-gateway": ["GRAVITEE_LICENSE"]})
         said = {name: body["services"][name]["note_title"] for name in ("mongodb", "apim-management-api", "apim-gateway")}
         self.assertEqual(said, {"mongodb": "8.3.12 is saved, 8.3.11 still runs.",
                                 "apim-management-api": "Image 4.13.0 changed since it started.",
@@ -1667,15 +1667,6 @@ class Catalogs(Built):
         self.assertIsNone(self.build()["platform"]["gateways"], "a project that did not choose says nothing")
         self.project["platform"] = {"gateways": {"cloud": "hyssop"}}
         self.assertEqual(self.build()["platform"]["gateways"], {"cloud": "hyssop"})
-
-    def test_what_the_catalogs_and_the_first_start_say_is_in_the_body_as_it_is_given(self):
-        body = self.build()
-        self.assertFalse({"git", "catalogs", "content"} & set(body), "left out when not given")
-        given = {"git": model.git_state((2, 43, 2)), "catalogs": [{"id": "acme-hub"}],
-                 "content": {"key": "ready", "line": "", "code": None, "progress": None, "address": "", "offer": None}}
-        body = self.build(**given)
-        self.assertEqual({key: body[key] for key in given}, given)
-        json.dumps(body)
 
     def test_git_is_said_as_the_page_reads_it(self):
         self.assertEqual(model.git_state((2, 43, 2)), {"available": True, "version": "2.43.2"})

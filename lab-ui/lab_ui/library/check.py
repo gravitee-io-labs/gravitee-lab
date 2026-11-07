@@ -7,8 +7,7 @@ no unit: what an installed catalog holds is that catalog's to check, and with no
 
 The catalog profile (`catalog_problems`, `catalog_files`) is the second half of `catalog.py check`, after the rules of
 `catalogs.audit` (structure, secrets, commits, workflows, Dockerfiles, guides, images): the per-item rules for each unit of
-the catalog, the README tables that its folders keep when they keep any, the names it gives, its ports, what its units use that
-this Lab does not read (`understood`: a published catalog that holds one needs a newer Gravitee Lab), what its `catalog.yml` says
+the catalog, its ports, what its units use that this Lab does not read (`understood`: a published catalog that holds one needs a newer Gravitee Lab), what its `catalog.yml` says
 and whether a `lab` written in it, for older Gravitee Labs, is the true minimum, and the verdict of the trust policy on
 each unit (a Blocked reason is an error). It reads, and never writes. Problems are (file, what is wrong), the file relative to the catalog, which is what a CI
 annotation needs. The images a catalog builds are IM02 and IM04 of the audit, with the Lab's seeder as the one named anchor.
@@ -19,7 +18,6 @@ Lab itself, its `.lab/` and its `catalogs.json` are not touched. Compose reads w
 environment (`scrubbed`)."""
 
 import contextlib
-import json
 import os
 import posixpath
 import re
@@ -27,7 +25,6 @@ import shutil
 import stat
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -59,12 +56,6 @@ STUB_FILE = ".claude/skills/{}/SKILL.md"    # where Claude Code looks for a skil
 FRONTMATTER = re.compile(r"\A\s*---\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)   # the header of a skill file
 AGENTS, CLAUDE = "AGENTS.md", "CLAUDE.md"   # what an agent reads, and the file that sends Claude Code to it
 NOT_SCANNED = {"local", "plugins", "node_modules", "venv", "__pycache__"}   # folders without files of the project
-# The listing of each kind (its README table, in the folder of the kind at the root of a catalog) and the row it holds
-# for an item, written from the item's x-gravitee block. A catalog that keeps no table has no finding
-LISTINGS = {"addon": ("addons/README.md", "| [{name}]({id}/) | {description} |"),
-            "setup": ("setups/README.md", "| [{name}]({id}.yml) | {description} |"),
-            "playground": ("playgrounds/README.md", "| [{name}]({id}/) | {description} | {duration} |")}
-ROW = re.compile(r"^\|\s*\[[^\]]*\]\(([^)\s]*)\)\s*\|")   # a row of a table that starts with a link: where it leads
 FEATURE = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)*")   # a license feature, as the license model writes it
 STEP = re.compile(r"^## (\d+)\.", re.M)   # a numbered section of a guide: one of its steps
 # An action link of a guide, [text](action:id), a title after it too
@@ -76,7 +67,6 @@ CODE = re.compile(r"^(```|~~~).*?^\1|`[^`\n]*`", re.M | re.S)
 SEEDER_IMAGE = re.compile(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+")   # host/path, no tag
 LOCK_FILE = understood.LOCK_FILE   # what the engine promises units, with the level each item appeared at
 KEYWORD = re.compile(r"""(?<![\w.$-])["']?(include|extends|env_file|label_file)["']?[ \t]*:""")   # the words the text screen reads
-DEFAULTED = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:?-([^}$]+)\}")   # ${NAME:-default}, a default that is a plain text
 RUN_BLOCK = re.compile(r"^(?:```|~~~)[ \t]*run\b", re.M)   # a guide's block that the terminal pane runs
 # Where a depth mistake in an anchor shows: a unit's folder sits five folders under the project
 SEEDER_FROM_A_UNIT, PLUGINS_FROM_A_UNIT = "../../../../../seeder", "../../../../../plugins/{}"
@@ -237,57 +227,6 @@ def _included(unit):
             *(paths.unit_file("setup", sid) for sid in unit.get("setups", []))]
 
 
-def _path_like(source):
-    """Whether the source of a volume names a place on this machine, whichever type Compose gave it: read without
-    interpolation, `${HOME}/.kube:/k` is typed a named volume, the text of its source untouched."""
-    return isinstance(source, str) and (source.startswith(("/", ".", "~")) or "${" in source)
-
-
-def _source(source, folders):
-    """The place a bind's source names, as the text trust.elevations can compare: an absolute path, or (for a variable
-    that has no default, which is outside the project whatever it holds) the text as written. Compose puts the folder of the
-    file in front of a variable it did not interpolate (`<folder>/${NAME}`); `folders` are the real folders of the files
-    read, which tell that prefix from a path the author wrote. A variable with a default is that default (a plain text)."""
-    at = source.find("${")
-    if at < 0:
-        return source
-    before, expr = source[:at], source[at:]
-    prefix = None   # the folder Compose put in front, when that is what `before` is
-    if before.endswith("/") and os.path.isabs(before) and os.path.realpath(before.rstrip("/") or "/") in folders:
-        prefix = before.rstrip("/")
-    unknown = expr if prefix is not None else source
-    found = DEFAULTED.match(expr)
-    if found is None:
-        return unknown
-    wanted = found.group(1) + expr[found.end():]
-    if "$" in wanted:
-        return unknown
-    if os.path.isabs(wanted):
-        return wanted
-    if prefix is not None:
-        return posixpath.join(prefix, wanted)
-    return posixpath.join(before.rstrip("/") or "/", wanted) if before else wanted
-
-
-def _mount(volume, folder, folders):
-    """A volume as trust.elevations reads it: a mapping, a bind when its source names a place on this machine, whichever
-    way the file wrote it (the short `source:target` form, or a source Compose could not type), with a relative source
-    taken from the folder of the unit."""
-    if isinstance(volume, str):
-        source, _, rest = volume.partition(":")
-        volume = {"type": "bind" if _path_like(source) else "volume", "source": source, "target": rest.split(":")[0]}
-    if not isinstance(volume, dict):
-        return {}
-    volume = dict(volume)
-    source = volume.get("source")
-    if volume.get("type") in ("bind", "volume") and _path_like(source):
-        source = _source(source, folders)
-        if not os.path.isabs(source) and "${" not in source and not source.startswith("~"):
-            source = posixpath.join(folder, source)
-        volume.update(type="bind", source=source)
-    return volume
-
-
 def _roots(path, closure=(), products=()):
     """The roots the binds of the unit whose file is `path` are judged against (trust.build_roots), real: its folder, the
     folders of what it includes in the same catalog, the plugin folders and the seeder. What is read from a place beyond them
@@ -295,46 +234,6 @@ def _roots(path, closure=(), products=()):
     mine = _namespace(path)
     same = [ROOT / posixpath.dirname(file) for file in closure if _namespace(file) == mine]
     return trust.build_roots(ROOT, ROOT / posixpath.dirname(path), same, products, realpath=os.path.realpath)
-
-
-def _elevations(service, roots, folders=(), members=None):
-    """What a service takes of this machine beyond its own container, in words: trust.elevations, the one vocabulary
-    (what a person reads in the Lab and what an author reads here are one text), over the service as written. Binds are
-    compared by their real place and the project's folder by its real place, so that a link in the way cannot hide where a
-    bind leads and a project that is itself reached through a link says nothing; a source that holds a variable with no
-    default is outside the project, so that the declaration of what binds it is never unneeded."""
-    mounts = [_mount(volume, roots["unit"] or "", set(folders)) for volume in (service or {}).get("volumes") or []]
-    return trust.elevations({**(service or {}), "volumes": mounts}, roots=roots, realpath=os.path.realpath,
-                            home=os.path.expanduser("~"), members=members)
-
-
-def _host_access(meta, raw, path, included, own, products=()):
-    """A service of a shared file that takes more of this machine than its container says so, with the reason: x-gravitee.host_access
-    maps its name to why, so that whoever reviews the file, and whoever starts it, reads what it asks for before it runs. A service
-    that says it and does not need it is told too: the declaration stays true. What the files it includes ask is theirs."""
-    declared = meta.get("host_access") or {}
-    if not (isinstance(declared, dict) and all(isinstance(name, str) and isinstance(why, str) and why.strip()
-                                               for name, why in declared.items())):
-        yield "x-gravitee.host_access must map a service to the reason it takes more of this machine"
-        return
-    services = (raw.get(path) or {}).get("services") or {}
-    folders = {os.path.realpath(ROOT / posixpath.dirname(file)) for file in (path, *included)}
-    members = set(own) | {name for file in included if file in raw for name in (raw[file].get("services") or {})}
-    roots = _roots(path, included, products)
-    theirs = set()
-    for file in (file for file in included if file in raw):
-        reach = _roots(file, (), products)
-        theirs |= {(name, what) for name, service in (raw[file].get("services") or {}).items()
-                   for what in _elevations(service, reach, folders, members)}
-    for name in own:
-        needed = [what for what in _elevations(services.get(name), roots, folders, members) if (name, what) not in theirs]
-        if needed and name not in declared:
-            yield (f"{name}: {', '.join(needed)}: say why in x-gravitee.host_access ({name}: <reason>), "
-                   "so that it is read before it runs")
-        elif name in declared and not needed:
-            yield f"x-gravitee.host_access: {name} takes nothing of this machine beyond its container: remove it"
-    for name in sorted(set(declared) - set(own)):
-        yield f"x-gravitee.host_access: {name} is not a service of this file"
 
 
 def _described(variables):
@@ -478,23 +377,6 @@ def _guide(folder, accounts=()):
             yield f"guide.md: account:{found} is no user of x-gravitee.accounts, so the page cannot show its sign-in"
 
 
-def _seed(folder):
-    """The API definitions the seed imports, those of the platform's environment and of each one it adds, are JSON
-    objects: the checks read the plugins they use."""
-    for file in paths.seed_apis(folder):
-        name = file.relative_to(folder).as_posix()
-        text = _read(file)
-        if text is None:   # a link, a pipe or a file too large: `_not_read` says so
-            continue
-        try:
-            definition = json.loads(text)
-        except ValueError as error:
-            yield f"{name} is not valid JSON: {error}"
-            continue
-        if not isinstance(definition, dict):
-            yield f"{name} must hold a JSON object"
-
-
 def _frameable(service):
     """Whether the Lab UI's pages may frame a console of the platform: its command lets them (x-ui-frames) and drops
     X-Frame-Options, which would refuse every page but its own, or a setting of its own names them as the pages that may."""
@@ -544,7 +426,7 @@ def _terminal(playground, project):
 
 
 def _playground(playground, project, inert=False):
-    """What a playground says of its guide, its UIs, what it requires, its seed. `inert`: it cannot start, so none of its
+    """What a playground says of its guide, its UIs, what it requires. `inert`: it cannot start, so none of its
     services is among the project's and what is asked of them cannot be."""
     if not playground["guide"]:
         yield "guide.md is missing next to it"
@@ -559,13 +441,11 @@ def _playground(playground, project, inert=False):
         if (folder / "seed").is_dir() and len(seeds) != 1:
             yield "seed/ needs one service with the label io.gravitee.role: seed"
     yield from _guide(folder, playground.get("accounts"))
-    yield from _seed(folder)
 
 
 def _unit(kind, uid, project, raw, context=None):
     """What is wrong with one add-on, setup or playground, part of a catalog or about to be. `context` is the catalog's,
-    when one is checked: {catalog (its namespace), declared (the namespaces its catalog.yml declares),
-    products (the plugin folders)}."""
+    when one is checked: {catalog (its namespace), declared (the namespaces its catalog.yml declares)}."""
     context = context or {}
     path = paths.unit_file(kind, uid)
     yield from _includes(kind, path, context.get("catalog"), context.get("declared") or ())
@@ -583,8 +463,6 @@ def _unit(kind, uid, project, raw, context=None):
     yield from _images(raw[path], unit.get("services", []))
     if kind != "setup":
         yield from _readme(kind, uid)
-        yield from _host_access(meta, raw, path, _included(unit), unit.get("services", []),
-                                context.get("products") or ())
     if kind == "playground":
         yield from _listing(meta)
     yield from _restart(raw[path], unit.get("services", []))
@@ -752,68 +630,6 @@ def _contract_keys(core):
                "ghcr.io/owner/repo/seeder, the only image a seed service may have")
 
 
-# ---------------------------------------------------------------------------------------------------------------------
-# The listings: what the units of a catalog have in common
-# ---------------------------------------------------------------------------------------------------------------------
-
-def _row(kind, unit):
-    """The row of an item in the listing of its kind, written from its x-gravitee block. Its link leads to the name of its
-    folder in the catalog."""
-    said = {key: " ".join(str(unit.get(key) or "").split()) for key in ("name", "description", "duration")}
-    return LISTINGS[kind][1].format(id=paths.split_ref(unit["id"])[1], **said)
-
-
-def _table(kind, units, folder):
-    """The README of a kind, in the folder of a catalog, when the catalog keeps one: it lists each item once, in the row
-    written from its x-gravitee block, and no item that does not exist: (the README, what is wrong). No table, no finding."""
-    path, noun = LISTINGS[kind][0], NOUNS[kind]
-    file = Path(folder) / path
-    if not file.is_file():
-        return
-    listed = {}
-    for line in (_read(file) or "").splitlines():
-        found = ROW.match(line)
-        if found:
-            listed.setdefault(found.group(1), []).append(line.rstrip())
-    wanted = set()
-    for unit in units:
-        row = _row(kind, unit)
-        target = ROW.match(row).group(1)
-        wanted.add(target)
-        rows = listed.get(target, [])
-        if not rows:
-            yield path, f"does not list {unit['name']}: add the row {row}"
-        elif len(rows) > 1:
-            yield path, f"lists {unit['name']} {len(rows)} times: keep one row, {row}"
-        elif rows[0] != row:
-            yield path, f"the row of {unit['name']} must read {row}"
-    for target in sorted(set(listed) - wanted):
-        yield path, f"lists {target}, which is no {noun} of this catalog: remove its row"
-
-
-def _naming(uid, unit, raw, catalog, listed):
-    """The names a unit gives: every service of its own starts with the catalog's `<ns>-` or is named like the unit or
-    starts with `<unit>-`; a container is `gio-<service>`; a volume it declares is `data-<name>`. The prefix is what keeps
-    another catalog's unit from losing a name to this one at run time (T21 is the guard), so a listed catalog, whose units
-    claim first and are never blocked for a name, owes none; the other two are the Lab's own conventions, owed by all."""
-    path = unit["file"]
-    config = raw.get(path) or {}
-    services = config.get("services") or {}
-    name = paths.split_ref(uid)[1]
-    for service in unit.get("services") or []:
-        if not listed and not (service == catalog or service.startswith(f"{catalog}-") or service == name
-                               or service.startswith(f"{name}-")):
-            yield f"{service}: name it {catalog}-{service}, or start it with the name of the unit, {name}-"
-        named = (services.get(service) or {}).get("container_name")
-        if isinstance(named, str) and named != f"gio-{service}":
-            yield f"{service}: container_name is {named}: write gio-{service}"
-    theirs = {volume for file in _included(unit) if file in raw for volume in (raw[file].get("volumes") or {})}
-    declared = config.get("volumes") if isinstance(config.get("volumes"), dict) else {}
-    for volume in sorted(set(declared) - theirs):
-        if not volume.startswith("data-") and not (isinstance(declared[volume], dict) and declared[volume].get("external")):
-            yield f"volume {volume}: name a volume it declares data-<what it keeps>"
-
-
 def _within(path, root):
     return bool(path) and bool(root) and (path == root or path.startswith(root.rstrip("/") + "/"))
 
@@ -867,15 +683,6 @@ def _relative(source, root):
         return os.path.relpath(source, root)
     except ValueError:
         return source
-
-
-def _anchored(products):
-    """The plugin folders a unit may reach: the ones the project has and the ones the contract names as anchors
-    (contract.lock: plugins/am, plugins/apim), which a fresh clone has not made yet (`make init` does). A unit that binds one
-    of them where it is meant to be is not told where the anchor is, whether the folder is there or not."""
-    locked = _lock()
-    named = {name.partition("/")[2] for kind, name in (locked[2] if locked else ()) if kind == "anchor" and name.startswith("plugins/")}
-    return sorted({*products, *named})
 
 
 def _anchors(products):
@@ -933,7 +740,7 @@ def _not_read(folder, shown):
 
 
 def _screen_notes(text, file):
-    """What an author is told when the text screen refuses a unit file (, T19). The screen reads words, not YAML: the
+    """What an author is told when the text screen refuses a unit file (T19). The screen reads words, not YAML: the
     words `include`, `extends`, `env_file` and `label_file` followed by a colon are the keys they spell wherever they are
     written (in a quote or a command too), and an `env_file` or a `label_file` is refused whatever file it names."""
     reasons = trust.prescreen(text, file) if text is not None else []
@@ -1329,9 +1136,8 @@ def catalog_files(ns):
 
 def catalog_problems(ns, project=None, inputs=None):
     """Every problem found in catalog `ns`, as (file, what is wrong), the file relative to the catalog: what its
-    catalog.yml says; for each unit the rules of every item (`_unit`), the names it gives, where its paths lead, what the
-    screen and the policy say of it (a Blocked reason is an error: "Blocked: ..."); then the README tables the catalog
-    keeps, the ports its units publish, and whether its declarations of other catalogs and its `lab` are true. The images it builds are the audit's (IM01 to IM04, `audit_units`). It loads
+    catalog.yml says; for each unit the rules of every item (`_unit`), where its paths lead, what the screen and the policy
+    say of it (a Blocked reason is an error: "Blocked: ..."); then the ports its units publish, and whether its declarations of other catalogs and its `lab` are true. The images it builds are the audit's (IM01 to IM04, `audit_units`). It loads
     the project as the Lab does, with the catalog installed or linked in this engine, and never writes. Unavailable when it, or
     a catalog it includes from, is not here."""
     if project is None or inputs is None:
@@ -1342,8 +1148,7 @@ def catalog_problems(ns, project=None, inputs=None):
             or any(gone in ((unit.get("blocked") or {}).get("reasons") or ()) for _, _, unit in catalog_units(ns, project)):
         raise ComposeGone(NO_COMPOSE)
     raw, found = inputs["raw"], []
-    folder = ROOT / paths.CATALOGS_DIR / ns
-    products = _anchored(inputs.get("products") or ())
+    products = inputs.get("products") or ()
 
     def shown(path):
         return _shown(path, ns)
@@ -1351,8 +1156,7 @@ def catalog_problems(ns, project=None, inputs=None):
     found += [(manifest.FILE, line) for line in said]
     units = catalog_units(ns, project)
     declared = sorted(((meta or {}).get("requires") or {}).get("catalogs") or {})
-    context = {"catalog": ns, "declared": declared, "products": products}
-    listed = bool((inputs["catalogs"].get(ns) or {}).get("listed"))
+    context = {"catalog": ns, "declared": declared}
     stubs = {*(inputs.get("screened") or {}), *(inputs.get("unreadable") or {})}
     for kind, uid, unit in units:
         file, where = unit["file"], shown(unit["file"])
@@ -1374,15 +1178,12 @@ def catalog_problems(ns, project=None, inputs=None):
                 written = unit if unit.get("services") or not unit.get("blocked") else {**unit, "services": _written(unit, raw)}
                 roots = _roots(file, _included(unit), products)
                 said_why = _meta(raw.get(file)).get("host_access")
-                here += _naming(uid, written, raw, ns, listed)
                 here += _geometry(written, (inputs.get("configs") or {}).get(file), ROOT / paths.unit_folder(kind, uid),
                                   said_why if isinstance(said_why, dict) else {},
                                   {**_anchors(products), "closure": roots["closure"]})
         found += [(where, line) for line in here]
     for problem in (project.get("catalog_problems") or {}).get(ns, ()):
         found.append((problem.get("display") or shown(problem["file"]), problem["message"]))
-    for kind in KINDS:
-        found += list(_table(kind, [unit for one, _, unit in units if one == kind], folder))
     found += [(shown(file), line) for file, line in _ports(project, raw, None, ns, list(inputs["catalogs"]))]
     if meta is not None:
         found += [(manifest.FILE, line) for line in _dependencies(meta, units, inputs, ns)]
@@ -1411,7 +1212,7 @@ PRODUCT = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 def compose_missing():
     """Why Docker Compose cannot read the units of a catalog here, as the words that follow `Not checked:`, or None when it
-    can (). Compose is looked for in the real environment, in the places the Docker CLI looks (compose.plugin), so that a
+    can. Compose is looked for in the real environment, in the places the Docker CLI looks (compose.plugin), so that a
     Mac with Docker Desktop finds it; it is then asked for its version in the scrubbed environment, which links to the plugin
     that was found, as it will be run. A Docker that has no Compose, no Docker at all and a Compose older than 5 say the same
     thing: the answer is not about the catalog. A daemon that does not run is not asked for."""
@@ -1463,16 +1264,11 @@ def folder_summary(folder):
 
 
 class Linked(NamedTuple):
-    """A folder read as the Lab reads a catalog: its namespace, the project folder it is linked into (temporary), the Lab's own
-    project folder, and the folder as it is."""
-    ns: str
+    """A folder read as the Lab reads a catalog: the project folder it is linked into (temporary), the Lab's own project folder,
+    and the folder as it is."""
     root: Path
     lab: Path
     folder: Path
-
-
-def _utc():
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def _lay_out(project_folder, lab):
@@ -1521,13 +1317,13 @@ def temporary_link(folder, ns, needs=(), audiences=None):
                     os.symlink(os.path.realpath(installed), holder / paths.CATALOGS_DIR / one["id"], target_is_directory=True)
             os.symlink(os.fspath(folder), holder / paths.CATALOGS_DIR / ns, target_is_directory=True)
             registry.write_config({"schema": 1, "catalogs": [*entries, {"id": ns, "kind": "folder", "path": os.fspath(folder),
-                                                                       "added": _utc(), **({"host": True} if host else {})}]})
+                                                                       **({"host": True} if host else {})}]})
             registry.write_lock({"schema": 1, "catalogs": locks})
             for name, audience in (audiences or {}).items():
                 registry.set_lock(name, audience=audience)
             forget()
             try:
-                yield Linked(ns, holder, lab, Path(folder))
+                yield Linked(holder, lab, Path(folder))
             finally:
                 forget()
     finally:
@@ -1648,8 +1444,7 @@ def problems(sharing=None):
     if sharing:
         kind, uid = paths.unit_of(sharing) or (None, None)
         if kind:
-            context = {"products": _anchored(inputs.get("products") or ())}   # a bind of a plugin folder is an anchor, as in a catalog
-            found += [(sharing, message) for message in _unit(kind, uid, project, raw, context)]
+            found += [(sharing, message) for message in _unit(kind, uid, project, raw)]
             if kind == "playground":
                 found += [(sharing, message) for message in _alone(project["playgrounds"][uid])]
             extra = list(_ports(project, raw, sharing))

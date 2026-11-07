@@ -960,8 +960,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
     started"; also a tag that a pull moved, which Docker then names by its id or digest, never read as a version), a
     configuration that changed, with what differs told when it can be (`drift.py`: the variables of the container against the
     ones Compose would set, compared as digests, named by the `.env` setting that holds them when one does, never a value; a
-    variable the container lacks comes from a changed file (a Lab update) and is said as the configuration; and
-    the labels Compose sets, which are no word of a person's and are said as the configuration): "Its settings changed since it started:
+    variable the container lacks comes from a changed file (a Lab update) and is said as the configuration):
+    "Its settings changed since it started:
     INTERNAL_API_PASSWORD", else "Its configuration changed since it started". Services that say the same are one
     clause, each set of settings its own, never a union said of all. A group, an add-on and a playground say it for their services
     grouped by cause, naming them while they are three or fewer, and with no name at all when one clause covers all of them. The

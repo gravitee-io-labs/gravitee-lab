@@ -90,7 +90,7 @@ x-gravitee:
 |---|---|
 | `kind` | `playground` |
 | `name` | How the Lab UI names it |
-| `description` | A phrase with no leading article and no final period: what it shows. Required. Its row in the `playgrounds/README.md` of the catalog repeats it exactly |
+| `description` | A phrase with no leading article and no final period: what it shows. Required |
 | `category` | One of `x-gravitee.categories` in `docker-compose.yml`. Required for what is shared |
 | `tags` | Short labels, shown on its page. Required for what is shared: at least one, none twice |
 | `duration` | How long the guide takes, as `35 min` or `1 h 30 min`. Required for what is shared |
@@ -122,7 +122,7 @@ x-gravitee:
 
 ### Host access
 
-A playground runs containers with your Docker access. A service that takes more of your machine than its own container does must say why, so that a reviewer and a user read it before it runs. `make check` asks for it, for a shared file:
+A playground runs containers with your Docker access. A service that takes more of your machine than its own container does must say why, so that a reviewer and a user read it before it runs. `catalog.py check` and Share ask for it (T28), for a shared file:
 
 ```yaml
 x-gravitee:
@@ -130,7 +130,7 @@ x-gravitee:
     k3s: Runs containerd and the kubelet inside its container, which only a privileged container can do
 ```
 
-What counts: a privileged container, the network, the processes, the shared memory, the host name or the users of the host, added capabilities, devices, a security profile that is `unconfined`, the Docker socket, and a folder of your machine outside the project. A folder of the project, a named volume and a port do not. What a file includes is the included file's to say. A declaration for a service that takes nothing is an error too, so that the list stays true.
+What counts: a privileged container, the network, the processes, the shared memory, the host name or the users of the host, added capabilities, devices, a security profile that is `unconfined`, the Docker socket, and a folder of your machine outside the project. A folder of the project, a named volume and a port do not. What a file includes is the included file's to say.
 
 ### Tested versions
 
@@ -914,8 +914,7 @@ make ci
 ```
 
 `make check` (or `python3 lab-ui/catalog.py check <catalog id or folder>` from the Lab) covers the metadata, includes, conflicts,
-image defaults, restart policies, descriptions, ports, what a playground requires, and the API definitions its seed imports. It
-also checks that the catalog row of the playground reads as its metadata says, and prints the row it expects. `make ci` also
+image defaults, restart policies, descriptions, ports and what a playground requires. `make ci` also
 builds the apps and runs their tests in their images, and the *Seed files* job of its CI reads the seed files of the playgrounds
 (`python seeder/seedlint.py <folder>/playgrounds`, with the seeder's requirements). Then start the playground from
 its page and go through its guide. Share runs the same rules on the copy before anything leaves your machine.

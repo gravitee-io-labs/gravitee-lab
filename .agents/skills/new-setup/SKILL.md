@@ -31,8 +31,7 @@ A setup is a compose file that includes add-ons, and nothing else: they start an
 4. Check it. For an item of a folder catalog, run `python3 -I lab-ui/catalog.py check <catalog id>` from the project's
    folder and fix what it says until it prints "All good". A personal item is read by Compose when the Lab UI shows
    it: the page says why one does not load.
-5. In a catalog that keeps a table in `setups/README.md`, add its row (the check prints the exact row).
-6. Tell the person where the file is, and that the setup shows on the Setups page of the Lab UI (`make ui`), where it is
+5. Tell the person where the file is, and that the setup shows on the Setups page of the Lab UI (`make ui`), where it is
    started.
 
 To share a personal setup later, use the `share-item` skill.

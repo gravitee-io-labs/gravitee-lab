@@ -1671,10 +1671,10 @@ class Ended(Seam):
         self.write(f"{self.LOCAL}/data/db", "rows")
         real = moves.relocate
 
-        def refuse(source, target, why):
-            if why == "use-catalog-leftover":
+        def refuse(source, target):
+            if moves.MIGRATION in target:
                 raise moves.Refused("data is tracked by git: it is not moved")
-            return real(source, target, why)
+            return real(source, target)
         self.patch(moves, "relocate", refuse)
         with self.assertRaisesRegex(ValueError, "is tracked by git"):
             self.use()
@@ -1855,8 +1855,6 @@ class Real(Base):
         self.assertEqual(answer["renames"], [{"from": "PLAIN_APP_CONF", "to": "PARTNER_PLAIN_APP_CONF"}], "its own setting, named for the catalog")
         told = self.blocked(everything)
         self.assertTrue(told, everything)
-        self.assertIn("plain-app: runs privileged, mounts the Docker socket: say why in x-gravitee.host_access (plain-app: <reason>), "
-                      "so that it is read before it runs", everything, "what the author's rules say is there as well")
         # Written into the partner's folder the copy is a unit of it, and the project says the same
         copy = contribute._renamed(contribute.collect("addon", "plain", "partner"), "addon", "plain",
                                    {"PLAIN_APP_CONF": "PARTNER_PLAIN_APP_CONF"})

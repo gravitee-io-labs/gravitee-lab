@@ -9,7 +9,7 @@ import posixpath
 import re
 import shutil
 
-from . import check, files, layers, starred, tested
+from . import check, files, layers, moves, starred, tested
 from ..docker import compose, images
 from .. import paths
 from ..catalogs import registry, renames, resolve
@@ -390,14 +390,9 @@ def delete(project, kind, uid, deployed=()):
     return {}
 
 
-def _personal_files():
-    """The compose files of the items of this machine, relative to the project."""
-    return [file for file in paths.files() if (paths.unit_of(file) or ("", ""))[1].startswith("local/")]
-
-
 def _including(path):
     """The files of this machine that include a file themselves."""
-    return [file for file in _personal_files() if path in compose.includes(file)]
+    return [file for file in moves._personal_files() if path in compose.includes(file)]
 
 
 def follow(old, new):
