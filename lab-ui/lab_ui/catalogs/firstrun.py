@@ -481,8 +481,8 @@ class Worker:
     def tick(self) -> float:
         """What is due now, and the seconds until something is due again."""
         clicked = self.nudge.is_set()
-        self.nudge.clear()
         if clicked:
+            self.nudge.clear()
             self.failures, self.retry_at = 0, None
         self._download(clicked)
         if not self.stop.is_set():

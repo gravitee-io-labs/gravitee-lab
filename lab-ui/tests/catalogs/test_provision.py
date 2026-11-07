@@ -929,6 +929,7 @@ class Beat(Served, Case):
         worker.nudge.set()
         wait = worker.tick()
         self.assertEqual(len(self.calls), calls + 2, "Try again does not wait for the schedule")
+        self.assertFalse(worker.nudge.is_set(), "a click is spent, or the thread would never sleep")
         self.assertEqual(wait, 15.0, "and it starts from the first delay again")
         self.assertEqual(worker.failures, 1)
 
