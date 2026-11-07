@@ -339,9 +339,6 @@ class ApiManagement:
             record(SECTION, "user", "users", name, answer.json()["id"], sourceId=source_id, **self.scope())
         log(SECTION, f"✓ User registered: {source_id}")
 
-    def groups(self, specs):
-        parallel(self.group, specs)
-
     def group(self, spec):
         """A group of the Automation API: written when it is absent or lacks what its file says (a member, a role), found again
         by its hrid. What the platform adds (roles of its own, members someone added) is left. A member the platform does not
@@ -965,7 +962,7 @@ def seed_environment(apim, wanted):
     apim.users(wanted["users"])
     if wanted["settings"]:
         apim.settings(wanted["settings"])
-    apim.groups(wanted["groups"])
+    parallel(apim.group, wanted["groups"])
     imports = [lambda each=each: apim.import_api(*each) for each in wanted["apis"]]
     together(imports + [lambda spec=spec: apim.application(spec) for spec in wanted["applications"]])
     parallel(apim.subscription, wanted["subscriptions"])
