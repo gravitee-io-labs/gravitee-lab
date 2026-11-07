@@ -723,7 +723,7 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   anatomy (`.card-head`: its `h2`, what it is about muted beside it, its buttons with their words at its end, 56 px; a card too
   narrow for both puts the buttons under the title, never only some of them as icons), then its rows under hairlines. Rows have one
   height for one kind: a product 56 px and the row of Gravitee Cloud 56, a catalog item 56 (two lines), the heads of the columns 32,
-  Resources folded 36 with its card's edge, unfolded its line and a strip of 64 px at the most from 1440 px of window. Every cell of a row is centered on the row's middle (and every section of Resources on the strip's middle), its controls
+  Resources folded 36 with its card's edge, unfolded its line and a strip of 64 px from 1260 px of page. Every cell of a row is centered on the row's middle (and every section of Resources on the strip's middle), its controls
   are 32 px, and the icons of a row (the star and the Settings key of an item) 26 px, as on the lists, with a target of 32 on a touch
   screen. The page has no
   subtitle and no helper sentence. **A state is one component wherever the page says one**: a dot and its word (`statusHtml`), the
@@ -878,8 +878,8 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   Unfolded, the line keeps its toggle and its name, and under it the strip of 64 px: CPU, Memory and Storage,
   each its label over its figure in a cell of its own apart by hairlines, then Docker, its label over its versions in the same
   markup ("29.7.2", then "Compose 5.4.0" muted), a section like the others. Every figure is one markup (`figure` of `dashboard.js`, `.dash-figure`): its value
-  and what it is a share of, muted, on one baseline. CPU and Memory are as wide as each other, Storage takes what is left up to
-  760 px, and Docker the rest. Narrower than 1150 px of page, CPU, Memory and Docker share a line over Storage; on a phone, a cell over the other. Free disk space is not shown: Docker's data may be on another disk than the one that holds the home
+  and what it is a share of, muted, on one baseline. CPU and Memory are as wide as each other, Storage as wide as its words, and
+  Docker the rest. Narrower than 1260 px of page, CPU and Memory share a line over Storage and Docker; on a phone, a cell over the other. Free disk space is not shown: Docker's data may be on another disk than the one that holds the home
   folder, and the card says what the lab uses, not what the machine is.
   - *CPU* and *Memory*: a label over the live figure in 15 px and what it is a share of in muted words ("of 6 cores", "of 7.7 GB":
     the cores and the memory Docker has), and a chart 28 px high that fills the rest of its cell, the same for
@@ -893,7 +893,7 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
     it; each type's line says its size and its unused share ("58.9 GB, 42.7 GB unused"). The word Docker uses for it, *reclaimable*, is not
     on the page. An icon button at the end, named for what it does (*Count storage again*; its tooltip "Count again, counted 1 min ago"),
     reads `docker system df` and Docker's versions again. Docker's data is the slowest answer: the figure says "Loading" until the server has
-    it. It is a line of words, no chart and no bar: what Docker stores changes slowly and is seldom what a person came for, so the strip fits one row from 1150 px and the figure is in the strip,
+    it. It is a line of words, no chart and no bar: what Docker stores changes slowly and is seldom what a person came for, so the strip fits one row from 1260 px of page and the figure is in the strip,
     not in the folded line.
   - *What weighs most*: the label of CPU and of Memory has the information mark and opens a popover (`.dash-weigh`, written by `paintValues`
     from each sample's `top`, the load of each container): "Heaviest containers", the five that take most of the memory, or of the CPU as
@@ -1482,8 +1482,8 @@ dark, at 1440 and 900 px wide.
    about three to two, on the same top line, each ending where its content does with nothing blank under it; at 1100 and 900 px they are one
    over the other and as wide as the page; at 375 px a product is a name with its *Open*, then its version and its update, the Cloud its
    name, then its accounts and its count, and nothing scrolls sideways. Rows have the heights of the page (product 56, the Cloud 56, item
-   56, card heads 56) and Resources is one line of 36 px, folded, at every width but a phone's (two lines), its strip 64 px at 1440 and
-   1966 px once unfolded. No text is underlined at rest,
+   56, card heads 56) and Resources is one line of 36 px, folded, at every width but a phone's (two lines), its strip one row of 64 px from
+   1260 px of page once unfolded. No text is underlined at rest,
    and a state is the same dot and word on every row. Run the measure of the page's rules, if you have one, at 1966, 1440, 1100, 900
    and 375 px: heights, cells centered, columns lined up, nothing cut that carries a version or a reason.
    - *The head*: its title, no state (the sidebar's chip says it, on every page), the badge "Apply needed", in amber, while
@@ -1526,7 +1526,7 @@ dark, at 1440 and 900 px wide.
      keeps the choice. Folded, the Performance panel shows no animation frame. Unfolded, the CPU and memory lines slide continuously
      (no step every second) and end in a round dot at the right edge, at any width, light and dark. A hidden tab, or leaving the page, ends the stream and the animation: no `docker stats`
      process comes (`ps`) once both tabs are gone. With reduced motion set in the system, the lines
-     are drawn when a sample comes. The strip is one row of 64 px at 1440 and 1966 px, two or three short rows at 1100 and 900 px,
+     are drawn when a sample comes. The strip is one row of 64 px from 1260 px of page, two short rows under it,
      and one item over the other at 375 px. Hover, then Tab to, the "unused" figure, and tap it
      on a touch screen: the same popover as the Apply needed badge opens, in light and dark,
      inside the page. *Storage* says what Docker keeps and what is
