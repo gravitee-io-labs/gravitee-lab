@@ -53,7 +53,7 @@ ENTRIES_LIMIT, SUGGESTIONS_MAX = 200, 50
 # A file changed this recently is read again whatever its stamp says: two writes within one tick of the clock can leave
 # the same modification time, size and inode number
 RACY = 2.0
-# How deep a JSON document of the Lab may nest: the formats of are 5 deep, and a newer Lab's keys are kept
+# How deep a JSON document of the Lab may nest: its formats are 5 deep, and a newer Lab's keys are kept
 DEPTH_LIMIT = 64
 
 # The keys of an entry of catalogs.json that this Lab reads; any other is a newer Lab's and is kept as it is
@@ -66,7 +66,7 @@ _VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 _STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})")
 _CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
-# The state of a catalog that its last failure names (the keys of), by the code of the catalogue of errors
+# The state of a catalog that its last failure names, by the code of the catalogue of errors
 FAILURES = {
     "git_missing": "needs_git", "git_old": "needs_git", "docker_missing": "needs_docker",
     "no_access": "noaccess", "not_found": "noaccess", "ssh_denied": "noaccess", "host_key": "noaccess",
@@ -581,7 +581,7 @@ def _pending(value):
 
 
 def _lock_entry(raw, strict):
-    """A lock entry with every field of of the type it has. A field that is not (a file edited by hand, a
+    """A lock entry with every field of the type it has. A field that is not (a file edited by hand, a
     newer Lab's) reads as its blank when `strict` is False, and is a ValueError when it is True (a write). Keys this Lab
     does not know are kept."""
     found = _blank()
@@ -639,7 +639,7 @@ def _lock_entry(raw, strict):
 
 
 def read_lock() -> dict:
-    """.lab/catalogs.lock as {"schema": 1, "catalogs": {ns: entry}}, every entry with all the fields of (a
+    """.lab/catalogs.lock as {"schema": 1, "catalogs": {ns: entry}}, every entry with all its fields (a
     field that cannot be read is its blank). Empty when the file does not exist, and empty with `config_problem()`
     saying why when it cannot be read."""
     return _load_lock()[0]
@@ -761,7 +761,7 @@ def check_namespace(ns: str, taken: Iterable[str] = (), listed: Iterable[str] = 
 # ---------------------------------------------------------------- the manifest and the units
 
 def _load_manifest(ns):
-    """The loader of a manifest for `_cached`: the parsed document when it has the shape of and names this
+    """The loader of a manifest for `_cached`: the parsed document when it has the shape of a manifest and names this
     catalog, else None."""
     def load(data):
         value, why = _json(data)
@@ -783,7 +783,7 @@ def _load_manifest(ns):
 
 def _installed(ns):
     """The manifest of the install of `ns` as it is cached (read only), whatever commit it is for: it names this
-    catalog, sits in a real directory (a link would lead anywhere) and is a regular file of the shape of.
+    catalog, sits in a real directory (a link would lead anywhere) and is a regular file of that shape.
     None otherwise."""
     if not _namespace(ns):
         return None
@@ -814,7 +814,7 @@ def read_manifest(ns: str) -> Optional[dict]:
 
 
 def manifest(ns: str) -> Optional[dict]:
-    """.installed.json of the git install `ns`, a new copy, when it is valid: the document of that names
+    """.installed.json of the git install `ns`, a new copy, when it is valid: the document that names
     this catalog, in a real directory, whose `commit` is the pin of the lock (or, while the operation that is installing
     it is not finished, the commit that operation names: a reader never sees a catalog flash as damaged between two
     writes). None otherwise: that is a Damaged catalog, not an error."""
@@ -995,8 +995,8 @@ def _git_url(text):
 def scan(data):
     """What the x-gravitee-catalog block of a catalog.yml says of the catalog, for display and for dependencies: {id,
     name, description, version, lab, host_access (only when true), requires_catalogs: {ns: {name, url, min}}}, a requirement's url being the address
-    of a git repository or None. The block is the one shows (a mapping, two spaces deep, or one line of
-    flow); this is not a YAML parser, it reads that shape and nothing else, and what it does not understand it leaves
+    of a git repository or None. The block is written as a mapping, two spaces deep, or one line of
+    flow; this is not a YAML parser, it reads that shape and nothing else, and what it does not understand it leaves
     out: the strict reading of a catalog (manifest.read_catalog, at Add) has the last word. A file with no block it can
     find, or one that is not YAML, is {}."""
     try:

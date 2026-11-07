@@ -7,7 +7,7 @@ fields that older Gravitee Labs read: a catalog.yml does not need them, a `lab` 
 whose `lab` this Lab does not read is passed over without reading its files), and `with_legacy` keeps them true where
 `catalog.py` writes the file.
 
-`read_catalog` reads the file with Compose (`compose.raw`, no new parser), refuses what the table of 4.1 refuses and
+`read_catalog` reads the file with Compose (`compose.raw`, no new parser), refuses what `validate_catalog` refuses and
 answers the block cleaned for display: names cut and stripped of control characters, lists without repeats, every
 optional key present. `validate_catalog` is the same table as a pure function over the mapping, which is how `catalog.py
 check` and the template's tests use it. It does not judge a namespace against the reserved words or the catalogs the
@@ -353,8 +353,8 @@ def _address_ok(value) -> bool:
 
 
 def validate_catalog(meta: dict, borrowed: Iterable[str] = (), lenient: bool = False) -> List[str]:
-    """The problems of the mapping under `x-gravitee-catalog`, each a short phrase that follows "catalog.yml: " (the
-    table of 4.1, in its order); [] for a valid one. `borrowed`: the names of the listed catalogs that this one is not,
+    """The problems of the mapping under `x-gravitee-catalog`, each a short phrase that follows "catalog.yml: "; [] for a
+    valid one. `borrowed`: the names of the listed catalogs that this one is not,
     so a name that is one of them is refused as a name that is not its own. Pure. A key this Lab does not know is not a
     problem (`unknown_keys`), and neither is a namespace that is reserved or taken: the registry says that. `lenient`, for a
     published catalog: a value of a newer Lab (`unknown_values`) is not a problem either, it needs a newer Gravitee Lab."""

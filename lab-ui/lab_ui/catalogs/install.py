@@ -61,7 +61,7 @@ STEP = None
 CONTAINERS = None
 
 SHADOW = ".shadow-{ns}.json"   # beside the installs: the machine entries a working copy took
-AGE = 24 * 3600.0   # a stage, a store being added, a partial or a share folder older than this is a leftover (rule 12)
+AGE = 24 * 3600.0   # a stage, a store being added, a partial or a share folder older than this is a leftover
 MAX_FILE = 4 * 1024 * 1024   # a file is read whole to be hashed: the filter keeps content under 2 MB
 MANIFEST_LIMIT = 32 * 1024 * 1024   # as the registry reads one
 DEEP = 40   # how far down an install is looked into for its machine files
@@ -199,7 +199,7 @@ def _open_dir(root, parts, create, follow_root=False) -> Optional[int]:
                 except FileExistsError:
                     pass
                 below = os.open(part, _DIR, dir_fd=fd)
-                os.fchmod(below, 0o755)   # whatever the umask: the Lab UI writes a .env beside a unit (rule 7)
+                os.fchmod(below, 0o755)   # whatever the umask: the Lab UI writes a .env beside a unit
             except OSError as error:   # a link (ELOOP) or a file (ENOTDIR)
                 raise Unsafe(f"{part} is not a folder: {error.strerror}", _owner(root)) from None
             os.close(fd)
@@ -485,8 +485,7 @@ def stage(address: gitx.Address, ns: str, store: Optional[Path], commit: str, ke
     that does not know its namespace yet; `rename_stage` gives it one). For git, every file of `kept` (what
     `store.selected` kept of the listing of `commit` in `store`) is written with `safe_write`, catalog.yml first,
     read-only; nothing is run, no hook, no filter, no checkout. For a folder the stage is a link to the folder: nothing
-    is copied. A stage that an earlier attempt left is replaced, and the leftovers older than a day are swept first
-    (rule 12). `ignored` is the number of files the filter left out, kept for the manifest."""
+    is copied. A stage that an earlier attempt left is replaced, and the leftovers older than a day are swept first. `ignored` is the number of files the filter left out, kept for the manifest."""
     target = registry.stage_dir(ns)
     _sweep_stale()
     _step("stage:begin")
@@ -641,7 +640,7 @@ def _leave(ns, root) -> bool:
 
 def _aside(ns, root) -> str:
     """Renames an install folder that cannot be merged to `.removed-<ns>-<utc>` beside it, where its machine files wait
-    for the next Add, and answers the new path. The newest of these is merged into the install at an Add (rule 12)."""
+    for the next Add, and answers the new path. The newest of these is merged into the install at an Add."""
     offset = 0
     while True:
         target = os.path.join(os.path.dirname(os.fspath(root)), f".removed-{ns}-{_compact(offset)}")
@@ -1246,7 +1245,7 @@ def apply_update(ns: str, plan: dict, confirm_history: bool = False) -> None:
 
 
 def _roll(ns, frm, to, label, meta=None):
-    """Steps 11 to 13b of an update from `frm` to `to` (`frm` equal to `to` is a repair), for a lock that is pending:
+    """The end of an update from `frm` to `to` (`frm` equal to `to` is a repair), for a lock that is pending:
     the install is brought to the files of `to`, then the lock commits, with the root commits of `to` when the pin moves:
     a history the person confirmed (`history_changed`) is the history of the catalog from then on, and the next check and
     the next plan compare with it. Idempotent, and what `recover()` runs again for a pending operation: it judges the
@@ -1721,7 +1720,7 @@ def _age(path) -> float:
 
 
 def _sweep_stale() -> None:
-    """The leftovers of rule 12 that age alone judges, which need no lock because nothing that old is in use: the
+    """The leftovers that age alone judges, which need no lock because nothing that old is in use: the
     staging folders and the `*.partial` files of `.lab/catalogs`, and the stores being added, older than a day (`AGE`).
     """
     base = os.path.join(paths.ROOT, paths.CATALOGS_DIR)
@@ -1769,7 +1768,7 @@ def sweep() -> None:
 
 
 def _sweep_install(ns, root) -> None:
-    """Rule 12 for one install folder with no entry. One with no manifest that shows units is a half-made install: it goes aside
+    """One install folder with no entry. One with no manifest that shows units is a half-made install: it goes aside
     whole, for `paths` lists such a folder by what it holds. From any other, what its manifest lists goes, and what is left is the
     machine's, which waits for an Add."""
     if _manifest_in(root, ns) is None and any(paths.names(ns, kind) for kind in paths.KINDS):
@@ -1780,7 +1779,7 @@ def _sweep_install(ns, root) -> None:
 
 def recover() -> None:
     """At the start of the Lab (after the bind), under the locks: finishes the operations the lock
-    says are under way, finishes a shadow link or its reversal, and removes what a stop left (rule 12: `sweep`, the lock
+    says are under way, finishes a shadow link or its reversal, and removes what a stop left (`sweep`, the lock
     entries and the stores that have no entry in `catalogs.json`). Everything is idempotent and judged by the disk, so a stop inside it is finished by the next. The trouble of
     one catalog never ends the start, and neither does a start without git (state `needs_git`): an operation under way
     keeps its record. It raises `busy` when another process holds the lock

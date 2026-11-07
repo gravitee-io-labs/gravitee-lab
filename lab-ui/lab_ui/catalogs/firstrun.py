@@ -2,11 +2,11 @@
 
 `reconcile` writes the intent, `.lab/catalogs.json`, from the tracked default file when the file does not exist, and marks
 every git catalog that has no copy as downloading, in memory, before any network is touched: the first `/api/state`
-already says so. `provision` is the Add pipeline of 9.1 with no ticket and no preview, for a catalog the engine lists: the
+already says so. `provision` is the pipeline of an Add with no ticket and no preview, for a catalog the engine lists: the
 tracked address, the audience, a fetch that reports how far it is, the checks
 that the repository is the catalog expected, the newest version this Lab reads, the stage and `install.commit_add`.
 `start_worker` runs the thread: it downloads what has no copy, retries a failure at 15 s, 1 min, 5 min and then every 30
-min (a click on Try again starts the schedule again), and makes the background check of 9.2 (`service.check_all`) on its
+min (a click on Try again starts the schedule again), and makes the background check (`service.check_all`) on its
 schedule.
 
 Three rules run through it. A download never holds the catalogs lock for its network steps: git runs with no lock, and
@@ -51,7 +51,7 @@ FIRST_CHECK = 5.0   # seconds after the start before the first check of the inst
 CHECK_EVERY, JITTER = 6 * 3600.0, 600.0   # then every six hours, with up to ten minutes added
 NAP = 60.0   # the longest the worker sleeps: it then looks again at what has no copy, in case a person edited the file
 # Where each phase of a download starts and ends in the number the bar draws: the probe, the fetch (git's own
-# percentage fills it), the stage (the judge of 9.1 is the project's, when it reads what was installed) and the commit
+# percentage fills it), the stage (the judge is the project's, when it reads what was installed) and the commit
 PHASES = {"probe": (0.02, 0.05), "fetch": (0.05, 0.85), "stage": (0.85, 0.97), "commit": (0.97, 1.0)}
 
 # The lines of the first start that are not the ones of the catalogue of errors: nobody asked for this catalog, so "then add it again" would be
@@ -317,7 +317,7 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             shutil.rmtree(store_path, ignore_errors=True)   # a store no catalog owns is garbage
         raise
     try:   # the catalog is installed: a note that cannot be written is the first check's to make, not a failure
-        if commit != tip or tip_state != "ok":   # the tip needs a newer Lab: the row says so at once (9.2 case B)
+        if commit != tip or tip_state != "ok":   # the tip needs a newer Lab: the row says so at once
             registry.set_lock(ns, seen={"target": commit, "update": False, "tip": tip_state, "version": meta["version"]})
     except (CatalogError, OSError, ValueError):
         pass
@@ -348,7 +348,7 @@ def _ending(error: BaseException) -> bool:
 
 def _record(ns: str, error: CatalogError) -> None:
     """The failure of an attempt in the lock (`error`), where the Catalogs row and the content read it, and in the same
-    write the flag of the commit it began (`pending`, set at step 14b): an attempt that failed after it is over, and a
+    write the flag of the commit it began (`pending`): an attempt that failed after it is over, and a
     flag left standing would keep the row at Downloading for good, with the failure hidden behind it. Nothing for a
     catalog with no entry, for one that has a copy by now (another process finished what this one failed at: a stale
     failure would mark a good install), and nothing while the Lab UI ends (the flag then stays, for `recover()`). What
@@ -375,7 +375,7 @@ def provision(ns: str) -> dict:
     Nothing happens for a catalog that has a copy. A failure is a CatalogError in the words of the first start, written in the lock
     too (`error`), where the row and the content read it. An automatic retry shows nothing meanwhile: `PROGRESS` holds
     only the attempts a person can see. The network steps hold no lock; `install.commit_add` takes them for the
-    commit, and its write of the lock (step 16) is the commit point."""
+    commit, and its write of the lock is the commit point."""
     if not isinstance(ns, str) or not re.fullmatch(paths.NS, ns):
         raise ValueError(f"not a catalog id: {ns!r}")
     try:
