@@ -3,7 +3,7 @@
 Gravitee Cloud hosts the control plane of API Management: the console where you design and deploy APIs. The Lab can
 connect your Cloud account, run a hybrid gateway in its own Docker network, and deploy what a playground creates into
 a Cloud environment, so that the APIs you manage in Cloud reach the lab's containers as backends. You do not need the
-rest of the lab for that: a deploy to Cloud starts none of the core.
+rest of the lab for that: a deploy to Cloud starts only what the playground needs of this machine's platform.
 
 ## Where things run
 
@@ -52,7 +52,7 @@ flowchart LR
 1. In the Lab UI, open **Gravitee Cloud** and choose *Connect account*. The **Dashboard** has a *Connect account* button
    that opens the same dialog, *Connect Gravitee Cloud*: two steps, *Account* then *Environment*, in one dialog. Beside the
    fields of each step is a picture of the Cloud console that shows where each value is, numbered as the lines of the step.
-2. Choose *Open Gravitee Cloud* (no account yet: *Register for free*, under it). In the console, open Settings, Account
+2. Choose *Open Gravitee Cloud* (no account yet: *start a 14-day trial*, under it). In the console, open Settings, Account
    Tokens, generate an Account Token and copy it (1 on the picture), then copy the Account ID shown at the top of the same
    page (2). Both are needed: the token alone cannot say whose it is ([why](#why-the-account-id-is-asked)). In the dialog,
    the information mark of each label says what it is and where it is; the token's says what it is for: it reads the
@@ -86,12 +86,13 @@ organizations and the environments are read. The US Cloud has no documented cons
 choice: another address goes under *More options*.
 
 The state in the head of the card says whether the account can be used: *Connected*, *Account Token refused* (Cloud
-refuses the Account Token, which has been revoked or has expired: *More*, then *Replace Account Token*) or
+refuses the Account Token, which has been revoked or has expired: the key, *Manage connection*, then *Replace Account Token*) or
 *Unreachable*. While it is not *Connected*, the card gives the cause first and says that its environments cannot be
 listed, with the button that fixes it, and none of them can be deployed to. An account that answered before and does not
 answer a moment later keeps its table, with a notice above it, *Showing what was read before*: the Lab reads it again
 by itself every 30 seconds. The head of the card has *Open console* too, which opens the account's console: the Lab
-knows no address for the console of one environment, so there is no such button on a row.
+knows no address for the console of one environment, so there is no such button on a row. The key beside it, *Manage connection*,
+shows how the Lab reaches the account: its name, its Account ID, its address and whether its Account Token is set, never the token.
 
 ## Set up an environment
 
@@ -198,7 +199,8 @@ its head.
    Token. They open the same forms as the Gravitee Cloud page, with the environment already chosen. *Start* waits for both.
 3. Choose *Start*, or *Deploy* if the playground already runs and has nothing in that environment yet. A dialog always
    opens for a Cloud environment, so that it is named once more where you click. It lists what starts, usually the
-   hybrid gateway and the playground's apps, and *Deploys to* names the environment. Nothing of the core is in it.
+   hybrid gateway and the playground's apps, with what they need of this machine's platform, and *Deploys to* names the
+   environment.
 4. Confirm. The button fills through four phases: **Add-ons**, **Apps and services**, **Gateway**, which waits for Cloud
    to say the gateway is connected (2 minutes at most), and **Seed**, which creates the APIs.
 
@@ -208,7 +210,7 @@ something.
 
 ```mermaid
 flowchart TB
-  go["Deploy to Development (My Account)"] --> up["Starts the hybrid gateway and the playground's apps<br/>nothing of the core"]
+  go["Deploy to Development (My Account)"] --> up["Starts the hybrid gateway and the playground's apps<br/>with what they need of this machine"]
   up --> wait["Waits until Cloud says the gateway is connected"]
   wait --> seed["Runs the seed apart from the core<br/>it creates the APIs in Development"]
   seed --> call["The gateway pulls them<br/>curl http://localhost:8090/..."]
@@ -269,8 +271,8 @@ The Lab registers two when it creates a gateway:
 
 | Domain | Use it from | Example |
 |---|---|---|
-| `localhost:8090` | Your browser, `curl`, any program on this machine | `curl http://localhost:8090/hotels/hotels?city=Paris` |
-| `apim-hybrid-gateway:8082` | A container of the lab | `http://apim-hybrid-gateway:8082/hotels/hotels?city=Paris` |
+| `localhost:8090` | Your browser, `curl`, any program on this machine | `curl http://localhost:8090/shop/items` |
+| `apim-hybrid-gateway:8082` | A container of the lab | `http://apim-hybrid-gateway:8082/shop/items` |
 
 The Gravitee Cloud page shows `localhost:8090` under *Running here*. Write `localhost`, never `127.0.0.1`, which sends another `Host`. The lab's own gateway is
 on port 8082 of `localhost`, and answers the playgrounds deployed to *This machine*.
@@ -281,8 +283,8 @@ A playground has one action for each place, and each action names its place in i
 
 1. With the core running, start **Acme Shop API** with *Deploy to* on *This machine*.
 2. Change *Deploy to* to your environment. The playground runs and holds nothing there, so the button reads *Deploy*.
-   Choose it. The dialog lists the hybrid gateway and the environment, and no row of the core: the lab's own gateway
-   and API Management are not touched.
+   Choose it. The dialog lists the hybrid gateway and the environment: the lab's own gateway and API Management are
+   not touched.
 3. Both gateways now serve the same backend: `localhost:8082` and `localhost:8090`. **Details** lists *Deployed to*
    twice.
 
@@ -312,8 +314,8 @@ The Cloud console's gateway wizard calls the gateway token a Cloud Token too. Th
 Token* on its pages is always the one of type Automation. No token is ever shown again, written in a log, or put in the
 command that runs a seed: the seed receives the Cloud Token by name, from the environment of that one command.
 
-An Account Token that Cloud refuses blocks every environment of its account. Replace it with *More*, then *Replace
-Account Token*, on the account's card: the record, the Cloud Tokens and the gateway tokens stay.
+An Account Token that Cloud refuses blocks every environment of its account. Replace it with the key, *Manage connection*, then
+*Replace Account Token*, on the account's card: the record, the Cloud Tokens and the gateway tokens stay.
 
 ## Swap the gateway
 
@@ -354,26 +356,11 @@ why, *Invalid token* or *Unreachable*, instead of a version.
 
 A playground that asks for what an environment does not run cannot be deployed there. The Lab works that out from the
 files of the playground against what that environment runs, and *Deploy to* disables that option, with the first reason
-as the muted tail.
-
-| Reason | What it means |
-|---|---|
-| *Nothing to deploy* | The playground seeds nothing into API Management |
-| *Needs Gamma* | Its seed has an `aim/` or `authz/` folder, and the account's plan does not enable Gamma |
-| *Needs API Management 4.13* | It asks for a later version of API Management than the gateways of the environment run |
-| *Needs the llm-proxy entrypoint* | The APIs its seed creates use a plugin that the Management API of the environment does not have (the kind is named: entrypoint, endpoint, policy or resource). Read from the seed, with the environment's Cloud Token |
-| *The license lacks the llm-proxy entrypoint* | The Management API has the plugin, and the license of the organization does not deploy it |
-| *The license lacks Agent management* | It requires (`requires.license`) a feature of API Management that the license of the environment's organization does not have. The features of Access Management and Gamma are for the machines they run on. Read with the environment's Cloud Token |
-| *Changes this machine's Management API* | It, or an add-on or a setup it brings, changes a service of API Management's control plane, which Gravitee Cloud runs. What they set on the gateway is not one: it goes to the hybrid gateway |
-| *Its apps use this machine's Management API* | Its apps depend on API Management's Management API or its consoles, or call them |
-| *Seeds more than API Management and Access Management* | Its seed fills something else too: Gamma, controls or refills |
+as the muted tail: [the reasons, and what to change](playgrounds.md#deploying-to-gravitee-cloud).
 
 Access Management runs on this machine whichever platform runs API Management, so it is never a reason: a deploy starts
 what the playground needs of the platform (Access Management and its database, for example) and seeds it here, the seeder
 reaching it as it does for a start on this machine. Only the API Management part of the seed goes to Cloud.
-
-The Lab gives the first reason that applies. A playground that needs Gamma reads *Needs Gamma*
-in an account whose plan does not enable it.
 
 What the Management API of Cloud does when an API refers to this machine: it takes the definition and does not call
 it. An API whose JWT plan reads its keys from `http://am-gateway:8092/.../jwks.json` is imported, published and deployed
@@ -428,7 +415,8 @@ The real Hybrid gateway add-on cannot connect to it, so use it to try the Gravit
   local API Management is not started, but the Lab cannot tell an app that calls the local gateway by its address, with no
   `depends_on`: it starts, and its calls fail. The health chip of the menu and **Containers** still speak of the whole local
   platform.
-- **A deploy fills API Management only.** See [What an environment runs](#what-an-environment-runs).
+- **A deploy fills API Management in the Cloud**, and Access Management and OpenFGA on this machine. See
+  [What an environment runs](#what-an-environment-runs).
 - **Analytics go to Cloud**, not to the lab's Elasticsearch, so an add-on that reads the lab's Elasticsearch does not show
   the traffic of these APIs.
 - **The gateway needs outbound HTTPS** to `eu.cloudgate.gravitee.io`. A gateway that restarts without a link to Cloud
@@ -437,9 +425,8 @@ The real Hybrid gateway add-on cannot connect to it, so use it to try the Gravit
   shows the version each gateway of an environment runs. Change the one that runs here on the Images page.
 - **One hybrid gateway runs here at a time**, and one playground at a time.
 - **The Lab lists hybrid gateways only.** The gateways Cloud hosts are ignored.
-- **The Lab knows only what its own seed created.** It does not list or edit the APIs of an environment, and it does
-  not read or judge Cloud's license. If Cloud refuses a feature the license lacks, the deploy fails with the last line of
-  the seed, and *Show output* has the rest.
+- **The Lab knows only what its own seed created.** It does not list or edit the APIs of an environment. If Cloud refuses what
+  a seed asks, the deploy fails with the last line of the seed, and *Show output* has the rest.
 - **An Account Token is as powerful as the user who created it.** Create it with a dedicated Cloud user. The Lab needs it
   for every deploy, because it lists the environments with it, so revoke it only when you are done with the platform.
   Cloud allows 10 tokens at most.
@@ -458,7 +445,7 @@ has expired (Cloud does not say which), or lacks the rights. *Unreachable*: the 
 machine has no internet.
 
 **Fix:** for *Account Token refused*, create a new Account Token in Cloud and choose *Replace Account Token* on the card,
-which is also in its *More*. For *Unreachable*, check your connection and choose *Check again*.
+which is also behind its key, *Manage connection*. For *Unreachable*, check your connection and choose *Check again*.
 
 ### Adding the platform says the token or the Account ID is not right
 
@@ -476,7 +463,7 @@ add the platform again. *An account named ... is already connected* means that n
 
 **Cause:** the user who created the Account Token lacks the role `ACCOUNT_PRIMARY_OWNER` or `ACCOUNT_OWNER`.
 
-**Fix:** create a new Account Token with a user that has the role, and replace it with *More*, then *Replace Account Token*, on the card.
+**Fix:** create a new Account Token with a user that has the role, and replace it with the key, *Manage connection*, then *Replace Account Token*, on the card.
 
 ### Adding a Cloud Token is refused
 
@@ -563,8 +550,7 @@ runs.
 
 **Symptom:** the job fails, the row says *Failed*, and the tooltip is the seed's last line, such as a 403.
 
-**Cause:** Cloud refused what the seed asked, for example a feature its license lacks. The Lab does not read Cloud's
-license, so it cannot warn first.
+**Cause:** Cloud refused what the seed asked.
 
 **Fix:** *Show output* has the whole run. Nothing is left half done on this machine: the record of the place stays as it
 was, and *Deploy* tries again.
