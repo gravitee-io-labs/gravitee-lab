@@ -369,7 +369,8 @@ class ApiManagement:
         missing = lacking(state, members)
         for member in missing:
             if not self.find_user(member["source"], member["sourceId"]):
-                self.enroll(state["id"], label, member)
+                with self.organization:   # another environment may be making users
+                    self.enroll(state["id"], label, member)
         if missing:
             state = self.automation.get(f"/groups/{hrid}").json()
             for member in lacking(state, members):
@@ -383,10 +384,6 @@ class ApiManagement:
         """Gets the row of a user that has none, by adding it to the group from the search of its identity provider, as the
         Console adds a member: the answer carries a reference that only the platform reads. The user gets the roles its provider
         gives it, in this environment only."""
-        with self.organization:   # another environment may be making users
-            self.make_user(group_id, label, member)
-
-    def make_user(self, group_id, label, member):
         source_id = member["sourceId"]
         spec = self.waiting.get((member["source"], source_id)) or {}
         found = self.find_user(member["source"], source_id)

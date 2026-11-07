@@ -107,16 +107,12 @@ class Identities:
         self.access.connect()
         found = self.access.find_domain(domain)
         self.domain = found.get("hrid") or found["name"]
-        self.url = f"{self.access.env_url}/domains/{found['id']}"
+        self.access.domain_url = f"{self.access.env_url}/domains/{found['id']}"
 
     def find(self, client_id):
         """The id of the application with this client id, which is the identity the catalog attaches. None for none."""
-        api = self.access.api
-        for candidate in items(api.get(f"{self.url}/applications", params={"q": client_id, "size": 200}).json()):
-            detail = api.get(f"{self.url}/applications/{candidate['id']}").json()
-            if ((detail.get("settings") or {}).get("oauth") or {}).get("clientId") == client_id:
-                return detail["id"]
-        return None
+        found = self.access._find_application(client_id)
+        return found["id"] if found else None
 
 
 # --- The agents -----------------------------------------------------------------------------

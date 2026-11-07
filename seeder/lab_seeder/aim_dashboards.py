@@ -33,7 +33,7 @@ class Dashboards:
         stored = self.api.get(f"/dashboards/{dashboard_id}", expect=(200, 404))
         if stored.status_code == 404:
             with making(SECTION, "dashboard", "dashboards", title, missing=True):
-                self.create({"id": dashboard_id, **content}, spec)
+                self.create({"id": dashboard_id, **content})
                 record(SECTION, "dashboard", "dashboards", title, dashboard_id)
             log(SECTION, f"✓ Dashboard created: {title}")
         elif not recorded(SECTION, "dashboard", dashboard_id) and not adopted(SECTION, "dashboard", title, dashboard_id):
@@ -44,16 +44,15 @@ class Dashboards:
                          headers={"If-Match": "*"})   # whatever revision is stored
             log(SECTION, f"✓ Dashboard updated: {title}")
 
-
-    def create(self, body, spec):
-        """A platform whose dashboards belong to a module says so, and is asked again with the module of the file (the one that
-        shows them by default): another does not ask, and is sent nothing more."""
+    def create(self, body):
+        """A platform whose dashboards belong to a module says so, and is asked again with the module: another does not ask, and
+        is sent nothing more."""
         try:
             self.api.post("/dashboards", json=body)
         except HttpError as e:
             if e.status != 400 or "module_required" not in (e.body or ""):
                 raise
-            self.api.post("/dashboards", json={**body, "module": spec.get("module", MODULE)})
+            self.api.post("/dashboards", json={**body, "module": MODULE})
 
 
 def seed():

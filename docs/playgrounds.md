@@ -955,7 +955,7 @@ the code it names once no build that the Lab runs needs it.
 |---|---|---|---|
 | A studio's protocol versions | A list on API Management 4.13.1, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends the key the file gives (`aim_proxies.protocol_versions`) |
 | A studio's keyless plan | The amp-demo build makes it from `KEYLESS`, the name of Agent Management, and its plans read it back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`) |
-| The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | `module`, when it is not the default | Asks again with the module when the answer holds that code (`aim_dashboards`) |
+| The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | Nothing | Asks again with the module when the answer holds that code (`aim_dashboards`) |
 | An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again, or makes the studio again (`apim.UNSUPPORTED`) |
 | Models of an AI workspace with an endpoint of their own | The only kind the amp-demo build takes | A component with `target` and a price on each model | Makes the component the file describes (`aim_workspaces`) |
 | The application of an agent of the catalog | Served by the amp-demo build, not by 4.13.1 | `identity` and `access` in `seed/aim/agents/` on amp-demo; on 4.13.1, an application of `seed/apim/applications` whose `client_id` is the agent's | Stops with a line that says what to write instead (`aim_agents`) |
