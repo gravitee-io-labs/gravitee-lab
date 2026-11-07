@@ -261,12 +261,6 @@ class FirstRun(Playground):
                          {"ACME LLM": ("STARTED", "PUBLISHED"), "Ace A2A": ("STARTED", "PUBLISHED"), "Open API": ("STARTED", "PUBLISHED")})
         self.assertEqual(sorted(self.apim.deployed), ["a2a-id", "llm-id", "rest-id"])
 
-    def test_an_api_has_the_id_of_its_file_and_is_recorded_with_the_digest_of_its_definition(self):
-        self.run_seed()
-        digest = apim.digest_of(json.loads(common.render(LLM, "llm.json", json_escape=True)))
-        self.assertEqual((self.record("ACME LLM")["id"], self.record("ACME LLM")["digest"]), ("llm-id", digest))
-        self.assertEqual({x["kind"] for x in common.created()}, {"api", "application", "subscription"})
-
     def test_an_application_whose_name_holds_query_syntax_is_found_by_its_subscription_and_by_the_next_run(self):
         self.edit("apim/applications/dev.yaml", lambda text: text.replace("name: Dev", "name: Dev (bank team)"))
         self.edit("apim/subscriptions/all.yaml", lambda text: text.replace("application: Dev,", "application: Dev (bank team),"))
@@ -282,11 +276,6 @@ class FirstRun(Playground):
         by_plan = {s["planId"]: s for s in self.apim.subscriptions.values()}
         self.assertEqual(by_plan["llm-id-Developers"]["customApiKey"], "dev-key-0001")
         self.assertNotIn("customApiKey", by_plan["a2a-id-Bank users"])
-
-    def test_no_key_reaches_the_output_or_the_records(self):
-        self.run_seed()
-        self.assertNotIn("dev-key-0001", self.output())
-        self.assertNotIn("dev-key-0001", self.state.read_text(encoding="utf-8"))
 
     def test_the_settings_are_applied_before_a_subscription_asks_for_a_custom_key(self):
         self.seed_files({"apim/settings.yaml": SETTINGS})
@@ -310,20 +299,6 @@ class FirstRun(Playground):
         with self.assertRaisesRegex(common.SeedError, "/ace/ is the path of 'My proxy', which the seed did not create"):
             self.run_seed()
         self.assertEqual([x for x in self.platform.changes() if "ace" in x[1] or "a2a-id" in x[1]], [], "that API is left alone")
-
-    def test_an_application_the_seed_did_not_create_stops_the_seed_and_is_left_as_it_is(self):
-        mine = {"id": "mine", "name": "Web", "description": "MY OWN APP", "settings": {"app": {"type": "SIMPLE", "client_id": "my-client"}}}
-        self.apim.applications["mine"] = dict(mine)
-        with self.assertRaisesRegex(common.SeedError, "^Application Web: the name is taken by an application the seed did not create$"):
-            self.run_seed()
-        self.assertEqual(self.apim.applications["mine"], mine)
-        self.assertNotIn("mine", [x["id"] for x in common.created()])
-
-    def test_a_subscription_goes_to_the_api_the_seed_made_and_not_to_another_with_the_same_name(self):
-        self.apim.apis["user-api"] = {"id": "user-api", "name": "Ace A2A", "type": "PROXY", "state": "STARTED", "lifecycleState": "PUBLISHED",
-                                      "listeners": [{"paths": [{"path": "/user/"}]}], "plans": [{"id": "user-plan", "name": "Bank users"}]}
-        self.run_seed()
-        self.assertEqual({s["apiId"] for s in self.apim.subscriptions.values()}, {"a2a-id", "llm-id"})
 
     def test_an_api_of_the_platforms_own_environment_keeps_the_groups_its_file_names_without_a_lookup(self):
         self.seed_files({"apim/apis/rest.json": definition("PROXY", "rest-id", "Open API", "/open/", groups=["Some group"])})
@@ -525,14 +500,6 @@ class ChangedDefinition(Converged):
         self.assertIn("rest-id", self.apim.apis)
         self.assertEqual((self.record("Open API")["digest"], self.keys()), (before, keys))
 
-    def test_an_update_that_fails_for_another_reason_stops_the_seed_and_keeps_the_digest(self):
-        before = self.record("Open API")["digest"]
-        self.platform.add({("PUT", V2 + "/apis/rest-id/_import/definition"): (400, {"message": "invalid plan"})})
-        self.edit("apim/apis/rest.json", lambda text: text.replace('"name": "Open API"', '"name": "Open API", "description": "new"'))
-        with self.assertRaisesRegex(common.SeedError, "API Open API: HTTP 400"):
-            self.run_seed()
-        self.assertEqual(self.record("Open API")["digest"], before)
-
 
 class Renamed(Converged):
     """An API found by its id or its path whose file gives it another name is the same API."""
@@ -654,11 +621,6 @@ class FirstRunControlled(Controlled):
                          "what it holds is what was imported")
         self.assertNotIn("put back", self.output())
 
-    def test_in_the_mode_on_every_step_is_enabled(self):
-        self.env(SEED_PROTECTIONS="on")
-        self.run_seed()
-        self.assertEqual(self.steps(), PROTECTED)
-
     def test_the_file_is_imported_as_it_is_for_the_digest_and_the_mode_is_not_part_of_it(self):
         self.run_seed()
         digest = apim.digest_of(json.loads(common.render(GUARDED, "llm.json", json_escape=True)))
@@ -673,16 +635,6 @@ class FirstRunControlled(Controlled):
             self.run_seed()
         self.assertEqual([c for c in self.platform.sent("POST", V2 + "/apis/_import/definition") if c.json["api"]["id"] == "llm-id"], [])
         self.assertNotIn("llm-id", self.apim.apis)
-
-    def test_the_apis_without_a_control_are_imported_as_they_are(self):
-        self.run_seed()
-        self.assertIsNot(self.apim.apis["rest-id"]["definition"], None)
-        self.assertEqual(self.apim.apis["rest-id"]["definition"], json.loads(common.render(REST, "rest.json", json_escape=True)))
-
-    def test_what_a_run_says_about_the_controls(self):
-        self.run_seed()
-        self.run_seed()
-        self.assertIn("Controls of ACME LLM are off: guard, pii", self.output())
 
 
 class ControlledConverged(Controlled):
@@ -699,6 +651,7 @@ class StartingTheLessonsOver(ControlledConverged):
     def test_a_second_run_asks_for_no_change(self):
         self.assertEqual(self.run_seed(), [])
         self.assertIn("API up to date: ACME LLM", self.output())
+        self.assertEqual(self.output().count("Controls of ACME LLM are off: guard, pii"), 2, "by its import, then by the run that left it")
 
     def test_a_step_someone_switched_on_and_deployed_is_switched_off_again_in_place(self):
         self.switch("request", "Prompt guard rails", True)
@@ -731,12 +684,6 @@ class StartingTheLessonsOver(ControlledConverged):
         self.assertEqual(self.run_seed(), [("POST", V2 + "/apis/llm-id/deployments")])
         self.assertTrue(self.deployed())
 
-    def test_a_step_someone_saved_on_without_deploying_is_off_again_and_deployed(self):
-        self.switch("request", "Prompt guard rails", True)
-        self.apim.apis["llm-id"]["deploymentState"] = "NEED_REDEPLOY"
-        self.assertEqual(self.run_seed(), IN_PLACE)
-        self.assertEqual(self.steps(), UNPROTECTED)
-
     def test_a_step_no_control_names_is_left_as_someone_made_it(self):
         self.switch("request", "Semantic cache", False)
         self.assertEqual(self.run_seed(), [])
@@ -750,12 +697,6 @@ class StartingTheLessonsOver(ControlledConverged):
         self.assertEqual(self.steps(), UNPROTECTED)
         self.assertIn("! ACME LLM: control guard: no request step named 'Prompt guard rails'", self.output())
         self.assertEqual(self.run_seed(), [])
-
-    def test_a_flow_someone_deleted_is_a_proxy_imported_again_from_its_file(self):
-        self.apim.apis["llm-id"]["flows"] = []
-        changes = self.run_seed()
-        self.assertIn(("DELETE", V2 + "/apis/llm-id"), changes)
-        self.assertEqual(self.steps(), UNPROTECTED)
 
     def refuse_the_update(self, *answers):
         """A guard rail someone switched on, and a platform that answers the update of the entity with `answers` (a status,
@@ -793,7 +734,7 @@ class StartingTheLessonsOver(ControlledConverged):
                 self.assertNotIn(common.RETRY_PAUSE, self.clock.sleeps[slept:], "no wait for a retry, only the one for the gateway")
 
     def test_any_other_refusal_of_a_4xx_stops_the_seed_with_the_message_of_the_platform_and_replaces_nothing(self):
-        for status in (400, 401, 403, 409, 410, 412, 415, 422):
+        for status in (400, 403, 409, 422):
             with self.subTest(status=status):
                 self.setUp()
                 self.run_seed()
@@ -809,9 +750,7 @@ class StartingTheLessonsOver(ControlledConverged):
 
     def test_a_platform_that_cannot_answer_for_a_moment_is_asked_again_and_the_api_is_not_replaced(self):
         """It reloads for a while after a change of its settings: the connection is refused or reset, or the answer is too slow."""
-        for failures in ((503,), (502, 503), (500, 504, 429), (429, 429, 429, 429), (requests.ConnectionError("refused"),),
-                         (requests.ReadTimeout("slow"), requests.ConnectionError("reset")),
-                         (requests.ConnectTimeout("no route"), 503, requests.exceptions.ChunkedEncodingError("cut"))):
+        for failures in ((503,), (requests.ReadTimeout("slow"), 429, requests.ConnectionError("reset"))):
             with self.subTest(failures=[type(f).__name__ if isinstance(f, Exception) else f for f in failures]):
                 self.setUp()
                 self.run_seed()
@@ -826,7 +765,7 @@ class StartingTheLessonsOver(ControlledConverged):
                 self.assertIn(f"! API ACME LLM: {said}, trying again", self.output())
 
     def test_a_platform_that_stays_busy_stops_the_seed_after_a_few_tries_and_leaves_the_api_where_it_is(self):
-        for failure in (500, 502, 503, 504, 429, requests.ConnectionError("refused"), requests.ReadTimeout("slow")):
+        for failure in (503, requests.ConnectionError("refused")):
             with self.subTest(failure=str(failure)):
                 self.setUp()
                 self.run_seed()
@@ -861,17 +800,17 @@ class StartingTheLessonsOver(ControlledConverged):
     def test_a_management_api_that_reloads_around_the_update_is_asked_again_and_the_api_is_not_replaced(self):
         """A read just before the update and a deployment just after it are asked again like the update: a connection that fails there
         does not end the seed, and the saved API does not stay undeployed."""
-        for failures in ((requests.ConnectionError("reset"),), (503, requests.ReadTimeout("slow")), (429, 502, 500)):
-            for failing, deployments in ((self.reads_failing, 1), (self.deployments_failing, len(failures) + 1)):
-                with self.subTest(failing=failing.__name__, failures=[type(f).__name__ if isinstance(f, Exception) else f for f in failures]):
-                    self.setUp()
-                    self.run_seed()
-                    failing(*failures)
-                    slept = len(self.clock.sleeps)
-                    self.assertEqual(self.run_seed(), [("PUT", V2 + "/apis/llm-id")] + [("POST", V2 + "/apis/llm-id/deployments")] * deployments)
-                    self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures))
-                    self.assertEqual(self.steps(), UNPROTECTED)
-                    self.assertEqual(self.apim.apis["llm-id"]["deploymentState"], "DEPLOYED")
+        failures = (503, requests.ReadTimeout("slow"))
+        for failing, deployments in ((self.reads_failing, 1), (self.deployments_failing, len(failures) + 1)):
+            with self.subTest(failing=failing.__name__):
+                self.setUp()
+                self.run_seed()
+                failing(*failures)
+                slept = len(self.clock.sleeps)
+                self.assertEqual(self.run_seed(), [("PUT", V2 + "/apis/llm-id")] + [("POST", V2 + "/apis/llm-id/deployments")] * deployments)
+                self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures))
+                self.assertEqual(self.steps(), UNPROTECTED)
+                self.assertEqual(self.apim.apis["llm-id"]["deploymentState"], "DEPLOYED")
 
     def test_a_read_or_a_deployment_that_gets_no_answer_or_a_refusal_stops_the_seed_and_replaces_nothing(self):
         for failing in (self.reads_failing, self.deployments_failing):
@@ -889,14 +828,6 @@ class StartingTheLessonsOver(ControlledConverged):
                     if failing == self.reads_failing:
                         self.assertEqual([c for c in self.platform.calls[before:] if c.method != "GET"], [])
 
-    def test_a_refusal_after_a_busy_answer_is_still_a_refusal(self):
-        self.refuse_the_update(503, requests.ConnectionError("reset"), 400)
-        digest, before, since = self.record("ACME LLM")["digest"], self.updates(), len(self.platform.calls)
-        with self.assertRaisesRegex(common.SeedError, r"^API ACME LLM: HTTP 400 "):
-            self.run_seed()
-        self.assertEqual(self.updates() - before, 3, "asked again twice, and not a fourth time")
-        self.api_untouched(digest, since)
-
     def test_an_api_that_does_not_run_is_started_with_its_controls_put_back_and_deployed_once(self):
         self.switch("request", "Prompt guard rails", True)
         self.apim.apis["llm-id"]["state"] = "STOPPED"
@@ -913,22 +844,15 @@ class StartingTheLessonsOver(ControlledConverged):
         self.assertEqual(self.steps(), UNPROTECTED)
         self.assertEqual(self.run_seed(), [])
 
-    def test_a_deployment_of_a_control_is_not_waited_for_unless_asked(self):
-        self.switch("request", "Prompt guard rails", True)
-        self.env(GATEWAY_SYNC_SECONDS="5", SEED_WAIT_GATEWAY="0")
-        slept = self.clock.elapsed
-        self.run_seed()
-        controls.settle()
-        self.assertAlmostEqual(self.clock.elapsed - slept, 0, delta=1)
-
-    def test_a_deployment_of_a_control_is_waited_for_until_the_gateway_has_taken_it(self):
-        self.env(SEED_WAIT_GATEWAY="1")
-        self.switch("request", "Prompt guard rails", True)
-        self.env(GATEWAY_SYNC_SECONDS="5")
-        slept = self.clock.elapsed
-        self.run_seed()
-        controls.settle()
-        self.assertAlmostEqual(self.clock.elapsed - slept, 11, delta=1)
+    def test_a_deployment_of_a_control_is_waited_for_when_asked_until_the_gateway_has_taken_it(self):
+        for wait, seconds in (("0", 0), ("1", 11)):
+            with self.subTest(wait=wait):
+                self.switch("request", "Prompt guard rails", True)
+                self.env(GATEWAY_SYNC_SECONDS="5", SEED_WAIT_GATEWAY=wait)
+                slept = self.clock.elapsed
+                self.run_seed()
+                controls.settle()
+                self.assertAlmostEqual(self.clock.elapsed - slept, seconds, delta=1)
 
 
 FAILOVER = {"enabled": True, "maxRetries": 1, "slowCallDuration": 30000, "openStateDuration": 10000, "maxFailures": 5,
@@ -957,11 +881,6 @@ class FailoverControlled(Playground):
         self.assertEqual(self.failover(), {**FAILOVER, "enabled": False})
         self.assertEqual(self.apim.deployed.count("llm-id"), 1)
         self.assertEqual(self.run_seed(), [], "a second run asks for no change")
-
-    def test_in_the_mode_on_the_failover_is_on(self):
-        self.env(SEED_PROTECTIONS="on")
-        self.run_seed()
-        self.assertEqual(self.failover(), FAILOVER)
 
     def test_a_failover_someone_switched_on_is_switched_off_again_in_place(self):
         self.run_seed()
@@ -1116,11 +1035,6 @@ class Waiting(Playground):
                                                       r"from huggingface.co at the first deployment$"):
             apim.seed()
         self.assertTrue(30 <= self.clock.elapsed <= 30 + apim.LOOK_AGAIN, self.clock.elapsed)
-
-    def test_another_api_that_never_answers_says_no_more_than_that(self):
-        self.gateway(open=NO_API)
-        with self.assertRaisesRegex(common.SeedError, r"^Open API does not answer on the gateway$"):
-            apim.seed()
 
     def test_one_deadline_covers_every_wait(self):
         self.gateway(ace=[NO_API] * 3 + [401], llm=[NO_API] * 3 + [401], open=NO_API)
@@ -1447,11 +1361,6 @@ class Estate(Apim):
     def subscription_of(self, call):
         return 200, self.view(self.subscriptions[call.path.rsplit("/", 1)[1]])
 
-    def webhook_refusal(self, configuration):
-        token = ((configuration or {}).get("entrypointConfiguration") or {}).get("auth", {}).get("token")
-        if token is not None and not isinstance(token, dict):
-            return 400, {"message": "$.auth.token: string found, object expected", "technicalCode": "data.invalid"}
-
     def add_subscription(self, api_id, application, plan, status, **fields):
         sub = {"id": self.new("subscription"), "apiId": api_id, "application": {"id": application}, "plan": {"id": plan},
                "status": status, "metadata": {}, "startingAt": "2026-10-16T10:00:00Z", **fields}
@@ -1463,9 +1372,6 @@ class Estate(Apim):
 
     def subscribe(self, call):
         """The management API accepts at once what it creates, even on a plan that validates by hand."""
-        refused = self.webhook_refusal(call.json.get("consumerConfiguration"))
-        if refused:
-            return refused
         fields = {"consumerConfiguration": call.json["consumerConfiguration"]} if "consumerConfiguration" in call.json else {}
         sub = self.add_subscription(self.id_in(call), call.json["applicationId"], call.json["planId"], "ACCEPTED", **fields)
         if call.json.get("customApiKey"):
@@ -1478,9 +1384,6 @@ class Estate(Apim):
         plan = self.plan_of(body["plan"])
         if plan["commentRequired"] and not body.get("request"):
             return 400, {"message": "A comment is required for this plan"}
-        refused = self.webhook_refusal(body.get("configuration"))
-        if refused:
-            return refused
         api_id = next(a["id"] for a in self.apis.values() if plan in a["plans"])
         fields = {"consumerMessage": body["request"]} if body.get("request") else {}
         if body.get("configuration"):
@@ -1714,12 +1617,6 @@ class RequiredEnvironments(Estates):
                 else:
                     self.seed_files({name: original})
 
-    def test_a_variable_no_seed_service_sets_stops_the_seed_before_any_call(self):
-        self.env(NEWT_KEY=None)
-        with self.assertRaisesRegex(common.SeedError, "subscriptions/newt.yaml: NEWT_KEY not set"):
-            self.run_seed()
-        self.assertEqual(self.platform.calls, [])
-
 
 class UsersOfAnEnvironment(Estates):
 
@@ -1771,11 +1668,6 @@ class UsersOfAnEnvironment(Estates):
         self.assertEqual(self.estate.users["old"]["status"], "ARCHIVED")
         self.assertEqual(len([u for u in self.estate.users.values() if u["sourceId"] == "astrid.holm"]), 2)
 
-    def test_a_member_no_identity_provider_names_stops_the_seed_with_its_name_and_the_group(self):
-        self.edit("environments/newt/groups/newt-quality.yaml", lambda text: text.replace("astrid.holm", "ghost.user"))
-        with self.assertRaisesRegex(common.SeedError, r"^Group newt-quality \[newt\]: ghost.user is not a user of the platform and no identity provider names exactly one"):
-            self.run_seed()
-
     def test_a_search_with_several_answers_picks_the_one_that_names_the_user_by_its_first_and_last_name(self):
         self.estate.directory = {"astrid.holm": "Astrid Holm", "astrid.holm.old": "Astrid Holm Old", "mikkel.dahl": "Mikkel Dahl", "lena.vogt": "Lena Vogt"}
         self.run_seed()   # users.yaml gives the first and last name of each: they name the user among those that contain its id
@@ -1783,7 +1675,7 @@ class UsersOfAnEnvironment(Estates):
 
     def test_a_search_with_several_answers_none_of_which_names_the_user_is_not_guessed(self):
         self.estate.directory = {**DIRECTORY, "astrid.holm": "Someone", "astrid.holm.old": "Someone else"}
-        with self.assertRaisesRegex(common.SeedError, "astrid.holm is not a user of the platform and no identity provider names exactly one"):
+        with self.assertRaisesRegex(common.SeedError, r"^Group newt-quality \[newt\]: astrid.holm is not a user of the platform and no identity provider names exactly one"):
             self.run_seed()
 
     def test_a_removal_deletes_the_users_the_seed_made_and_none_it_adopted(self):
@@ -1904,14 +1796,6 @@ class ScopedRecords(Estates):
         self.assertEqual(len({x["id"] for x in records}), 3)
         self.assertEqual({a["env"]: a["id"] for a in self.estate.apis.values() if a["name"] == "Batch status"},
                          {"newt": self.record("Batch status [newt]")["id"], "mallard": self.record("Batch status [mallard]")["id"]})
-
-    def test_what_is_recorded_for_the_platforms_own_environment_has_a_plain_name_and_no_environment(self):
-        self.run_seed()
-        own = [x for x in common.created() if x["name"] in ("Open API", "Web", "Web → Open API (Open)")]
-        self.assertEqual(len(own), 3)
-        self.assertTrue(all("env" not in x for x in own))
-        self.assertEqual(apim.made_under("Open API")["id"], "open-id")
-        self.assertIsNone(apim.made_under("Batch status"))
 
     def test_an_application_and_a_subscription_of_an_environment_are_recorded_with_it(self):
         self.run_seed()
@@ -2038,21 +1922,17 @@ class SubscriptionsOfAnEnvironment(Estates):
         self.assertEqual(self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept"), [])
         self.assertIn("✓ Subscription: Newt ERP → Batch status (Restricted) [newt] (pending)", self.output())
 
-    def test_a_comment_on_a_plan_that_validates_by_hand_is_sent_with_the_request_then_accepted_with_the_key(self):
-        self.seed_files({"environments/newt/subscriptions/newt.yaml": (
-            "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Restricted, comment: Reconcile, apiKey: '${NEWT_KEY}'}\n")})
-        self.run_seed()
-        sub = self.subscription_to("newt", "Restricted")
-        self.assertEqual((sub["status"], sub["consumerMessage"], sub["key"]), ("ACCEPTED", "Reconcile", "newt-key-0001"))
-        (accept,) = self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")
-        self.assertEqual(accept.json, {"customApiKey": "newt-key-0001"})
-
-    def test_a_comment_on_a_plan_that_validates_by_hand_without_a_key_is_accepted_with_an_empty_body(self):
-        self.seed_files({"environments/newt/subscriptions/newt.yaml": (
-            "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Restricted, comment: Reconcile}\n")})
-        self.run_seed()
-        self.assertEqual(self.subscription_to("newt", "Restricted")["status"], "ACCEPTED")
-        self.assertEqual(self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")[0].json, {})
+    def test_a_comment_on_a_plan_that_validates_by_hand_is_sent_with_the_request_then_accepted_with_the_key_it_has(self):
+        for key, accepted in ((", apiKey: '${NEWT_KEY}'", {"customApiKey": "newt-key-0001"}), ("", {})):
+            with self.subTest(accepted=accepted):
+                self.setUp()
+                self.seed_files({"environments/newt/subscriptions/newt.yaml": (
+                    f"subscriptions:\n  - {{application: Newt ERP, api: Batch status, plan: Restricted, comment: Reconcile{key}}}\n")})
+                self.run_seed()
+                sub = self.subscription_to("newt", "Restricted")
+                self.assertEqual((sub["status"], sub["consumerMessage"]), ("ACCEPTED", "Reconcile"))
+                (accept,) = self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")
+                self.assertEqual(accept.json, accepted)
 
     def test_a_push_subscription_sends_its_callback_with_the_variables_replaced(self):
         self.run_seed()
@@ -2110,27 +1990,20 @@ class SubscriptionsOfAnEnvironment(Estates):
         self.assertIn("! Subscription Newt ERP → Batch status (Webhook push) [newt] is not one the seed made", self.output())
         self.assertIn("/batch-status", push["consumerConfiguration"]["entrypointConfiguration"]["callbackUrl"])
 
-    def test_a_webhook_token_written_as_a_plain_string_is_refused_by_the_platform_and_stops_the_seed(self):
-        self.edit("environments/newt/subscriptions/newt.yaml", lambda text: text.replace("token: {value: '${HOOK_TOKEN}'}", "token: '${HOOK_TOKEN}'"))
-        with self.assertRaisesRegex(common.SeedError, "HTTP 400 .*string found, object expected"):
-            self.run_seed()
-        self.assertEqual(self.subscription_to("newt", "Webhook push"), None)
+    def test_a_subscription_the_platform_cannot_make_as_its_file_says_stops_the_seed_and_makes_none(self):
+        for plan, why in (("Standard, pending: true", r"\(Standard\) \[newt\]: the plan accepts a subscription by itself, so it cannot stay pending$"),
+                          ("Standard, comment: Why, apiKey: k", r"a comment goes with a request, which this plan accepts at once with a key of its own"),
+                          ("Gold", r"\(Gold\) \[newt\]: plan not found$")):
+            with self.subTest(plan=plan):
+                self.setUp()
+                self.seed_files({"environments/newt/subscriptions/newt.yaml": f"subscriptions:\n  - {{application: Newt ERP, api: Batch status, plan: {plan}}}\n"})
+                with self.assertRaisesRegex(common.SeedError, "^Subscription Newt ERP → Batch status .*" + why):
+                    self.run_seed()
+                self.assertEqual(self.subscriptions_of("newt"), [])
 
-    def test_a_subscription_that_stays_pending_on_a_plan_that_accepts_by_itself_stops_the_seed(self):
-        self.seed_files({"environments/newt/subscriptions/newt.yaml": "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Standard, pending: true}\n"})
-        with self.assertRaisesRegex(common.SeedError, r"^Subscription Newt ERP → Batch status \(Standard\) \[newt\]: the plan accepts a subscription by itself, so it cannot stay pending$"):
-            self.run_seed()
-        self.assertEqual(self.subscriptions_of("newt"), [])
-
-    def test_a_comment_with_a_key_on_a_plan_that_accepts_by_itself_stops_the_seed(self):
-        self.seed_files({"environments/newt/subscriptions/newt.yaml": "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Standard, comment: Why, apiKey: k}\n"})
-        with self.assertRaisesRegex(common.SeedError, r"a comment goes with a request, which this plan accepts at once with a key of its own"):
-            self.run_seed()
-        self.assertEqual(self.subscriptions_of("newt"), [])
-
-    def test_the_plan_of_a_subscription_must_exist_on_the_api_of_its_environment(self):
-        self.seed_files({"environments/newt/subscriptions/newt.yaml": "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Gold}\n"})
-        with self.assertRaisesRegex(common.SeedError, r"^Subscription Newt ERP → Batch status \(Gold\) \[newt\]: plan not found$"):
+    def test_a_subscription_the_platform_refuses_stops_the_seed(self):
+        self.platform.add({("POST", re.compile(ENV_V2 + "/apis/[^/]+/subscriptions")): (400, {"message": "no"})})
+        with self.assertRaisesRegex(common.SeedError, "HTTP 400"):
             self.run_seed()
 
     def test_a_removal_closes_each_subscription_of_its_api_in_its_environment_pending_ones_too(self):

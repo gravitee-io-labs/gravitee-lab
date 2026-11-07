@@ -142,6 +142,11 @@ class Requests(Seed):
                 self.assertEqual((raised.exception.status, self.sent("GET")), (status, 1))
         self.assertEqual(self.clock.sleeps, [])
 
+    def test_a_refusal_after_a_busy_answer_is_still_a_refusal(self):
+        with self.assertRaisesRegex(common.HttpError, "^GET /x: HTTP 400"):
+            self.ask("GET", 503, requests.ConnectionError("reset"), 400, 200)
+        self.assertEqual(self.sent("GET"), 3)
+
     def test_a_status_the_caller_expects_is_handed_back_and_not_asked_again(self):
         self.assertEqual(self.ask("GET", 503, 200, expect=(200, 503)).status_code, 503)
         self.assertEqual(self.sent("GET"), 1)
