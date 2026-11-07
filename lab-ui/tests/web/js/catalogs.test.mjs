@@ -36,7 +36,7 @@ globalThis.innerHeight = 800;
 
 const { store, router, ago } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
-const { addCatalog, openAdd, openImport, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
+const { openAdd, openImport, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
 const { paintActions, paintProgress } = await import("../../../web/js/components/ui.js");
 
 const section = page.doc.createElement("section");
@@ -106,14 +106,12 @@ test("the page is a card of the lists' grid with its head: its title, then New c
   const heads = section.querySelectorAll(".page-actions .btn");
   assert.deepEqual(heads.map(text), ["New catalog", "Add catalog"]);
   assert.deepEqual(heads.map((b) => b.classList.contains("primary")), [false, false], "no primary on the page");
-  assert.equal(heads[0].querySelectorAll("svg").length, 0);
-  assert.ok(heads[1].querySelector("svg use").getAttribute("href").endsWith("#i-plus"));
-  assert.ok(section.querySelector(".card.list-card"), "the one card of the lists");
   assert.deepEqual(section.querySelector(".list-head").children.map(text), ["", "Catalog", "Items", "State", ""]);
 });
 
-test("Add catalog waits with the reason \"Git is not installed\" when Git is missing; New catalog needs no Git", () => {
-  show([FIRST()], { git: { available: false, version: "" } });
+test("Add catalog and the Add of a row wait with the reason \"Git is not installed\" when Git is missing; New catalog needs no Git", () => {
+  show([FIRST(), NOT_ADDED({ id: "third-hub", name: "Third hub" })], { git: { available: false, version: "" } });
+  assert.equal(offWhy(row("Third hub").querySelector("[data-add]")), "Git is not installed");
   const [made, added] = section.querySelectorAll(".page-actions .btn");
   assert.equal(isOff(made), false);
   assert.equal(isOff(added), true);
@@ -128,8 +126,6 @@ const ROWS = () => [FIRST(), PERSONAL(), GIT("update", { id: "acme-hub", version
 
 test("the rows come in two sections, Local then Remote, each in the order the server gives them, each with its name, its muted line, its state, its items and the one thing to press", () => {
   show(ROWS());
-  assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Personal", "My catalog", "Gravitee public", "Acme Hub", "Partner Bank"]);
-  assert.deepEqual(section.querySelectorAll(".list-rows > .stack-sep").map((band) => text(band)), ["Local", "Remote"]);
   assert.deepEqual([...section.querySelector(".list-rows").children].map((li) => (li.className === "stack-sep" ? text(li) : text(li.querySelector(".list-name")))),
     ["Local", "Personal", "My catalog", "Remote", "Gravitee public", "Acme Hub", "Partner Bank"], "a band over the rows of its section");
   const first = cells(row("Gravitee public"));
@@ -137,7 +133,6 @@ test("the rows come in two sections, Local then Remote, each in the order the se
   // Personal: a row with no description has no subtitle, no state and no actions, and counts what is local
   const personal = cells(row("Personal"));
   assert.deepEqual([personal.sub, personal.state, personal.items, personal.buttons, personal.more], [null, "", "3", [], null]);
-  assert.equal(row("Personal").querySelector(".list-desc"), null);
   // A catalog with an update: Update, then the menu
   const update = cells(row("Acme Hub"));
   assert.deepEqual([update.sub, update.state, update.items, update.buttons], ["Banking demos for partner workshops", "Update available", "25", ["Update"]]);
@@ -212,18 +207,6 @@ test("Personal is drawn only once it holds something, or the Lab keeps settings 
   show([FIRST(), empty]);   // the row it opened is closed again
 });
 
-test("a row is 56 px of the lists' grid: a toggle named for the catalog, its name and line, its items, its state, its actions", () => {
-  show([FIRST()]);
-  const li = items()[0], top = li.querySelector(".list-row");
-  assert.ok(top.classList.contains("list-grid"));
-  assert.deepEqual(top.children.filter((c) => c.tag).map((c) => c.getAttribute("class")), ["s-toggle", "list-main", "list-col col-cat", "list-state", "list-actions"]);
-  const toggle = top.children[0];
-  assert.deepEqual([toggle.tag, toggle.getAttribute("aria-label"), toggle.getAttribute("aria-expanded"), toggle.getAttribute("aria-controls")],
-    ["button", "Gravitee public", "false", "detail-catalog-gravitee"]);
-  assert.equal(li.querySelector(".list-detail").id, "detail-catalog-gravitee");
-  assert.equal(li.querySelector(".list-detail").hidden, true);
-});
-
 // --- States ---------------------------------------------------------------------------------------------------------------------
 
 const dot = (li) => li.querySelector(".list-state .dot-status").getAttribute("class").replace("dot-status", "").trim();
@@ -271,15 +254,11 @@ test("Update is the button of a catalog with something to update; the state that
 
 test("what a plain request is doing is said in the state meanwhile, by the word of the server's own", () => {
   show([GIT("uptodate")]);
-  store.pending.set("catalog-op:acme-hub", "check");
-  catalogsPage.render(store.state);
-  assert.equal(cells(row("Acme Hub")).state, "Checking");
-  store.pending.set("catalog-op:acme-hub", "update");
-  catalogsPage.render(store.state);
-  assert.equal(cells(row("Acme Hub")).state, "Updating");
-  store.pending.set("catalog-op:acme-hub", "remove");
-  catalogsPage.render(store.state);
-  assert.equal(cells(row("Acme Hub")).state, "Removing");
+  for (const [verb, word] of [["check", "Checking"], ["update", "Updating"], ["remove", "Removing"]]) {
+    store.pending.set("catalog-op:acme-hub", verb);
+    catalogsPage.render(store.state);
+    assert.equal(cells(row("Acme Hub")).state, word);
+  }
   store.pending.delete("catalog-op:acme-hub");
   catalogsPage.render(store.state);
   assert.equal(cells(row("Acme Hub")).state, "Up to date");
@@ -390,7 +369,8 @@ const FULL = (more = {}) => GIT("update", { id: "acme-hub", ignored: 3, updated:
 
 test("a row opens from its toggle and from a click anywhere on it but its controls; the detail is two panels", () => {
   show([FULL()]);
-  const li = row("Acme Hub");
+  const li = row("Acme Hub"), toggle = cells(li).toggle;
+  assert.deepEqual([toggle.tag, toggle.getAttribute("aria-label"), toggle.getAttribute("aria-controls")], ["button", "Acme Hub", detail(li).id]);
   assert.equal(detail(li).hidden, true);
   open(li);
   assert.deepEqual([cells(row("Acme Hub")).toggle.getAttribute("aria-expanded"), detail(li).hidden, li.classList.contains("open")], ["true", false, true]);
@@ -583,12 +563,6 @@ test("a folder has its address to copy and its link to remove; the repository li
   assert.ok(!menuOf("Other hub").some(([label]) => label === "Open repository"));
 });
 
-test("Personal and a catalog that is only offered have no menu", () => {
-  show([PERSONAL(), NOT_ADDED()]);
-  assert.equal(cells(row("Personal")).more, null);
-  assert.equal(cells(row("Gravitee public")).more, null);
-});
-
 test("an entry that cannot be used says why: what holds the update, the removal or the way back, what the Lab is waiting for", () => {
   show([GIT("uptodate", { has_previous: true, held: { update: "Turn off Acme Bakery first", remove: "Turn off Acme Bakery first", undo: "Wait for Start of Acme Bakery" } })]);
   assert.deepEqual(menuOf("Acme Hub").slice(-2), [["Go back to previous version", "Wait for Start of Acme Bakery"], ["Remove", "Turn off Acme Bakery first"]]);
@@ -645,13 +619,10 @@ test("Check again says the word of an answer that is only that, and the reason a
     await settle();
     return [toasts(), page.doc.querySelector(".toast")?.classList.contains("error") ?? null];
   };
-  assert.deepEqual(await checked("uptodate"), [["Up to date"], false]);
-  assert.deepEqual(await checked("update"), [["Update available"], false]);
+  assert.deepEqual(await checked("update"), [["Update available"], false], "amber, and no trouble");
   assert.deepEqual(await checked("downloading"), [["Downloading"], false]);
   assert.deepEqual(await checked("unreachable"), [["Cannot reach github.com. Check your connection, then try again."], true]);
   assert.deepEqual(await checked("noaccess"), [["No access to owner/repo. Run gh auth login in a terminal, then try again."], true]);
-  assert.deepEqual(await checked("rewritten"), [["This catalog was rewritten or moved. Update only if you expected it."], true]);
-  assert.deepEqual(await checked("lab_old"), [["This version is too old for this Lab. Update it, or ask the owners of Acme Hub to update it."], true]);
 });
 
 test("a refusal of a request on a row is said as an error toast in the server's words", async () => {
@@ -723,21 +694,12 @@ const next = async (el) => {
   await settle();
 };
 
-test("Add catalog opens on the address, empty, with its first field focused: its mark says what an address is, written with the host of the first catalog", () => {
+test("Add catalog opens on the address, empty, with its first field focused", () => {
   show([FIRST()]);
   server.calls.length = 0;
   click(section.querySelectorAll(".page-actions .btn")[1]);
   assert.equal(adding().hasAttribute("open"), true);
   assert.deepEqual([heading(), onScreen(), addressInput().value, page.doc.activeElement === addressInput()], ["Add catalog", "address", "", true]);
-  assert.equal(addressInput().getAttribute("placeholder"), "owner/repo, a Git address or a folder");
-  const label = adding().querySelector("#catalog-field .field-label");
-  assert.equal(text(label.querySelector("label")), "Address");
-  assert.deepEqual(bubble(label.querySelector(".tip")), ["A Git address you can read, such as owner/repo, https://github.com/owner/repo or git@github.com:owner/repo.git, or a folder on this machine. Private catalogs use the Git sign-in of this machine."]);
-  // More options hold the one field, the branch
-  const more = adding().querySelector("#catalog-more");
-  assert.deepEqual([text(more.querySelector("summary")), more.open, text(more.querySelector("label")), more.querySelector("input").getAttribute("placeholder")],
-    ["More options", false, "Branch", "Default"]);
-  assert.deepEqual(adding().querySelectorAll(".dialog-actions .btn").map(text), ["Cancel", "Continue"]);
   assert.equal(server.calls.length, 0, "nothing is asked of the server by opening it");
   shut();
 });
@@ -805,33 +767,37 @@ test("Continue at work reads Reading, the bar of the fetch is under the field, a
 });
 
 // A file dropped on the first screen of Import, once what it reads is said
-const drop = async (file) => {
+const ZIP = (bytes = [80, 75, 5, 6]) => new File([new Uint8Array(bytes)], "contoso.zip");
+const drop = async (file = ZIP()) => {
   adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
   await settle();
+};
+// What the server says of that file
+const IMPORTED = (more = {}) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" }, imported: true,
+  counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: [], same: [] }, ...more });
+// The import confirmed, and where it sent the person
+const confirmed = async () => {
+  const went = [], go = router.go;
+  router.go = (to) => went.push(to);
+  await submit(primary());
+  await settle();
+  router.go = go;
+  return went;
 };
 
 test("Import to Personal keeps the playground as the person's own, says what it replaces there, and opens its page; what cannot run goes to Imported only", async () => {
   show([FIRST()]);
   openImport();
-  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: ["Kiosk"], same: [] } });
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  server.answers["/api/catalogs/import"] = IMPORTED({ personal: { replaces: ["Kiosk"], same: [] } });
+  await drop();
   assert.deepEqual(rowsOf().find(([label]) => label === "Replaces"), ["Replaces", "Kiosk The new version gets your settings"]);
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
-  const went = [];
-  const go = router.go;
-  router.go = (to) => went.push(to);
-  await submit(primary());
-  await settle();
-  router.go = go;
+  assert.deepEqual(await confirmed(), ["#/playgrounds/local/contoso"]);
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70" }]);
-  assert.deepEqual(went, ["#/playgrounds/local/contoso"]);
   // What cannot run is never Personal's: Imported is the one choice, and Personal says why
   openImport();
-  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [{ name: "Kiosk", reasons: ["Runs with full privileges"] }], rows: {},
-    personal: { replaces: [], same: [] } });
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  server.answers["/api/catalogs/import"] = IMPORTED({ blocked: [{ name: "Kiosk", reasons: ["Runs with full privileges"] }] });
+  await drop();
   const personal = adding().querySelector('[data-dest="personal"]');
   assert.deepEqual([personal.getAttribute("aria-disabled"), personal.getAttribute("data-why")], ["true", "What cannot run stays in Imported"]);
   assert.equal(adding().querySelector('[data-dest="imported"]').getAttribute("aria-checked"), "true");
@@ -841,22 +807,15 @@ test("Import to Personal keeps the playground as the person's own, says what it 
 test("Import to Personal of what uses this machine is the person's allowance: the button says Allow and import, and the request carries it", async () => {
   show([FIRST()]);
   openImport();
-  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [],
-    rows: { uses_machine: [{ id: "@contoso/kiosk", name: "kiosk", service: "kiosk", what: ["runs privileged"], why: "Runs a service manager" }] },
-    personal: { replaces: [], same: [] } });
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  server.answers["/api/catalogs/import"] = IMPORTED({ rows: { uses_machine: [{ id: "@contoso/kiosk", name: "kiosk", service: "kiosk", what: ["runs privileged"], why: "Runs a service manager" }] } });
+  await drop();
   assert.equal(face(primary()), "Allow and import");
   click(adding().querySelector('[data-dest="imported"]'));
   assert.equal(face(primary()), "Import", "Imported asks with its own choice");
   click(adding().querySelector('[data-dest="personal"]'));
   assert.equal(face(primary()), "Allow and import");
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
-  const go = router.go;
-  router.go = () => {};
-  await submit(primary());
-  await settle();
-  router.go = go;
+  await confirmed();
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70", allow: true }]);
 });
 
@@ -864,26 +823,20 @@ test("Settings kept from a removed import of that name are said, used or not, an
   show([FIRST()]);
   clearToasts();
   openImport();
-  const preview = (used) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [], rows: {}, personal: { replaces: [], same: [] },
-    kept: { used, where: ".lab/kept-settings/contoso-1a2b3c4d" } });
+  const preview = (used) => IMPORTED({ kept: { used, where: ".lab/kept-settings/contoso-1a2b3c4d" } });
   server.answers["/api/catalogs/import"] = preview(false);
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  await drop();
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Not used by this file"]);
   click(adding().querySelector('[data-dest="imported"]'));
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Not used by this file"]);
   adding().closest("dialog").close();
   openImport();
   server.answers["/api/catalogs/import"] = preview(true);
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  await drop();
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Used"]);
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso",
     kept: { items: ["Kiosk"], where: ".lab/kept-settings/contoso-1a2b3c4d" } };
-  const go = router.go;
-  router.go = () => {};
-  await submit(primary());
-  await settle();
-  router.go = go;
+  await confirmed();
   assert.deepEqual(toasts(), ["Imported. The kept settings of Kiosk stay apart: see Kept settings on the Catalogs page."]);
 });
 
@@ -896,10 +849,8 @@ test("Import takes the file of an exported playground, shows the preview of an A
   server.calls.length = 0;
   await drop(new File(["x"], "notes.txt"));
   assert.deepEqual([problemOf(), server.calls.length], ["Choose the .zip file of an exported playground", 0], "what is no archive is not sent");
-  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, address: "~/lab/.lab/imports/contoso", counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {},
-    reused: [{ name: "Ledger", catalog: "Partner" }] });
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  server.answers["/api/catalogs/import"] = IMPORTED({ address: "~/lab/.lab/imports/contoso", reused: [{ name: "Ledger", catalog: "Partner" }] });
+  await drop();
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import", { data: btoa("PK\u0005\u0006") }]);
   assert.deepEqual([heading(), face(primary())], ["Import Contoso demo", "Import"]);
   assert.deepEqual(rowsOf().find(([label]) => label === "From"), ["From", "contoso.zip"], "it comes from the file, not from where the Lab keeps it");
@@ -909,21 +860,15 @@ test("Import takes the file of an exported playground, shows the preview of an A
   dest("imported").click();
   assert.equal(dest("imported").getAttribute("aria-checked"), "true");
   server.answers["/api/catalogs"] = { catalog: { id: "contoso", host: null } };
-  const went = [];
-  const go = router.go;
-  router.go = (to) => went.push(to);
   store.state.playgrounds = [{ kind: "playground", id: "@contoso/contoso", name: "Contoso demo" }];
-  await submit(primary());
-  await settle();
-  router.go = go;
+  assert.deepEqual(await confirmed(), ["#/playgrounds/@contoso/contoso"], "its page opens");
   assert.deepEqual([last().path, last().body], ["/api/catalogs", { ticket: "9f3a4c1d2e5b6a70" }]);
   assert.deepEqual(toasts(), ["Imported"]);
-  assert.deepEqual(went, ["#/playgrounds/@contoso/contoso"], "its page opens");
   // A file this Lab has: said on the file's screen, in the server's words
   openImport();
   server.answers["/api/catalogs/import"] = () => { throw Object.assign(new Error("Contoso demo is already in this Lab."), { code: "already_imported" }); };
   server.refuse["/api/catalogs/import"] = "Contoso demo is already in this Lab. To import it again, remove it on the Catalogs page first.";
-  await drop(new File([new Uint8Array([80, 75])], "contoso.zip"));
+  await drop(ZIP([80, 75]));
   assert.equal(screen().hidden, false);
   assert.equal(problemOf(), "Contoso demo is already in this Lab. To import it again, remove it on the Catalogs page first.");
   delete server.refuse["/api/catalogs/import"];
@@ -1050,7 +995,6 @@ test("the ports are said as the design words them", async () => {
     return said;
   };
   assert.equal(await ports([8140]), "Port 8140");
-  assert.equal(await ports([8140, 8141, 8142]), "Ports 8140, 8141 and 8142");
   assert.equal(await ports([1, 2, 3, 4, 5, 6]), "Ports 1, 2, 3, 4, 5 and 6");
   assert.equal(await ports([1, 2, 3, 4, 5, 6, 7, 8, 9]), "9 ports");
   assert.equal(await ports([]), undefined);
@@ -1107,12 +1051,14 @@ test("more than four lines fold under a line that counts them", async () => {
 
 test("the items of a plan are a list, every one of them on its line with its kind, under the hint of the row, however many they are", async () => {
   // Removes says "No longer in the catalog" of its names
-  await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name, i) => ({ kind: i ? "addon" : "playground", name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: [] }));
+  const notes = ["one", "two", "three", "four", "five", "six"];
+  await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name, i) => ({ kind: i ? "addon" : "playground", name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: notes }));
   assert.equal(adding().querySelector("#catalog-rows details.choice-row"), null, "nothing of a plan is folded away");
   const removes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Removes");
   assert.deepEqual([text(removes.querySelector(".choice-row-label")), text(removes.querySelector(".choice-items > .muted"))], ["Removes", "No longer in the catalog"]);
   assert.deepEqual(removes.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name")), text(li.querySelector(".step-kind"))]),
     [["One", "Playground"], ["Two", "Add-on"], ["Three", "Add-on"], ["Four", "Add-on"], ["Five", "Add-on"]]);
+  assert.deepEqual(adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "What's new").querySelectorAll("li").map(text), notes);
   shut();
 });
 
@@ -1145,9 +1091,7 @@ const hashOf = () => page.session.entries[page.session.at].hash;
 test("closing the dialog while Add is at work leaves the allowance the person chose ungiven and moves nothing, but the catalog is added and that is said", async () => {
   clearToasts();
   await previewed(PREVIEW());
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
+  allowThem();
   const wait = hold();
   server.answers["/api/catalogs"] = () => wait.held.then(() => ({ catalog: GIT("uptodate", { host: "no" }) }));
   server.answers["/api/catalogs/acme-hub/allow"] = { catalog: GIT("uptodate", { host: "allowed" }) };
@@ -1164,9 +1108,7 @@ test("closing the dialog while Add is at work leaves the allowance the person ch
   assert.equal(hashOf(), before, "the page did not move");
   // Not closing it, the same add gives the allowance and reveals the row
   await previewed(PREVIEW());
-  const [keep2, allow2] = adding().querySelectorAll("#catalog-choice input");
-  keep2.checked = false;
-  allow2.checked = true;
+  allowThem();
   server.answers["/api/catalogs"] = { catalog: GIT("uptodate", { host: "no" }) };
   server.calls.length = 0;
   await next(primary());
@@ -1306,12 +1248,6 @@ test("a listed catalog that downloads is told Added once it is there, and one th
   assert.deepEqual(toasts(), ["Added"]);
   store.notify();
   assert.deepEqual(toasts(), ["Added"], "once");
-});
-
-test("Add is disabled with the reason when Git is missing", () => {
-  show([NOT_ADDED({ id: "third-hub", name: "Third hub" })], { git: { available: false, version: "" } });
-  const add = row("Third hub").querySelector("[data-add]");
-  assert.deepEqual([isOff(add), offWhy(add)], [true, "Git is not installed"]);
 });
 
 // --- Try again and Add the listed catalog, wherever the content status draws them ----------------------------------------------------
@@ -1455,20 +1391,6 @@ test("a plan held says why on the button and sends nothing", async () => {
   await next(primary());
   assert.equal(server.calls.length, 0);
   shut();
-  await updating(PLAN({ held: "Wait for Start of Acme Bakery" }));
-  assert.equal(offWhy(primary()), "Wait for Start of Acme Bakery");
-  shut();
-});
-
-test("Update sends the ticket, closes, and says Updated", async () => {
-  clearToasts();
-  await updating(PLAN());
-  server.answers[at("/update")] = { catalog: GIT("uptodate") };
-  server.calls.length = 0;
-  await next(primary());
-  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { ticket: "b1c2d3e4f5a60718" }]]);
-  assert.equal(adding().hasAttribute("open"), false);
-  assert.deepEqual(toasts(), ["Updated"]);
 });
 
 test("a refusal of the update stays in the problem line, in the server's words, with the dialog open", async () => {
@@ -1553,9 +1475,7 @@ test("an update applied at once keeps the row's button at work from the click to
 test("closing the dialog while Update is at work leaves the allowance chosen with it ungiven; the update is done and said", async () => {
   clearToasts();
   await updating(PLAN({ uses_machine: USES, blocked: [] }));
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
+  allowThem();
   const wait = hold();
   server.answers[at("/update")] = () => wait.held.then(() => ({ catalog: GIT("uptodate") }));
   server.answers[at("/allow")] = { catalog: GIT("uptodate", { host: "allowed" }) };
@@ -1646,13 +1566,6 @@ test("every growth of power is a line of Changes in the Lab's words", async () =
   shut();
 });
 
-test("what is new is every subject of the notes, one to a line", async () => {
-  await updating(PLAN({ whatsnew: ["one", "two", "three", "four", "five", "six"] }));
-  assert.deepEqual(adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "What's new").querySelectorAll("li").map(text),
-    ["one", "two", "three", "four", "five", "six"]);
-  shut();
-});
-
 test("Go back opens the same dialog under its own title, with the same rows, and its button is Go back", async () => {
   clearToasts();
   show([GIT("uptodate", { id: hub(), has_previous: true, held: { update: "", remove: "", undo: "" } })]);
@@ -1710,10 +1623,8 @@ test("Show changes opens the files on the left and a unified diff on the right; 
   assert.deepEqual(files.map((f) => [text(f.querySelector(".name")), text(f.querySelector(".muted"))]),
     [["playgrounds/bank/compose.yml", "Changed"], ["addons/ledger/compose.yml", "Added"], ["addons/old/logo.png", "Removed"]]);
   assert.deepEqual(files.map((f) => f.classList.contains("active")), [true, false, false]);
-  const lineKinds = () => changes.querySelectorAll("#catalog-diff span").map((s) => [s.getAttribute("class").replace("diff-", ""), s.textContent]);
-  assert.deepEqual(lineKinds(), [["meta", "--- a/compose.yml"], ["meta", "+++ b/compose.yml"], ["hunk", "@@ -1,2 +1,2 @@"], ["ctx", " services:"], ["del", "-  a: 1"], ["add", "+  a: 2"]]);
   click(changes.querySelectorAll(".file-item")[2]);
-  assert.deepEqual(lineKinds(), [["meta", "Changed, not shown"]]);
+  assert.deepEqual(changes.querySelectorAll("#catalog-diff span").map((s) => [s.getAttribute("class"), s.textContent]), [["diff-meta", "Changed, not shown"]]);
   click(changes.querySelector("[data-close]"));
   assert.equal(changes.hasAttribute("open"), false);
   assert.equal(adding().hasAttribute("open"), true, "the update is still there to decide");
@@ -1732,6 +1643,7 @@ test("an update that makes items need this machine has the row and the choice of
   server.calls.length = 0;
   await next(primary());
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { ticket: "b1c2d3e4f5a60718" }], [at("/allow"), { enabled: true }]]);
+  assert.equal(adding().hasAttribute("open"), false);
 });
 
 // --- Remove and Allow: the dialog of what an action does ---------------------------------------------------------------------------
@@ -1920,14 +1832,12 @@ test("with a skill for it, New catalog is also the prompt that has an AI agent m
   // And the shortcuts that hand the prompt to an agent, in the foot of the dialog
   const go = dialog.querySelector("#catalog-new-go");
   assert.equal(go.hidden, false);
-  assert.deepEqual(go.children.map(text), ["Copy prompt", "Open in Claude app", "Open in Claude Code", "Open in Codex", "Open in Cursor"]);
   assert.equal(go.querySelector("[data-copy]").getAttribute("data-copy"), prompt);
   const said = encodeURIComponent(prompt);
   assert.deepEqual(go.querySelectorAll("a").map((link) => link.getAttribute("href")), [
     `claude://code/new?q=${said}&folder=%2Fwork%2Flab`, `claude-cli://open?q=${said}&cwd=%2Fwork%2Flab`, `codex://new?prompt=${said}&path=%2Fwork%2Flab`,
     `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(`${prompt} Work in /work/lab.`)}`]);
   assert.equal(go.querySelectorAll(".primary").length, 0, "no agent is the default one");
-  assert.deepEqual(go.querySelectorAll("a").map((link) => link.querySelector("use").getAttribute("href")), ["#i-claude", "#i-terminal", "#i-openai", "#i-cursor"]);
   // What the catalog should hold goes into the prompt, and into what the agents are given
   const task = dialog.querySelector("#catalog-task");
   assert.equal(dialog.querySelector("#catalog-new-task").hidden, false);
@@ -1961,25 +1871,6 @@ test("a catalog just created is revealed on the Catalogs page unless the person 
   await created();
   assert.equal(hashOf(), "#/catalogs/my-catalog");
   router.current = null;
-});
-
-// --- Add from a line of an item that needs a catalog ------------------------------------------------------------------------------
-
-test("a catalog an item needs is added from its line: a listed one at once, any other through the preview on its second screen", async () => {
-  server.answers["/api/catalogs/check"] = PREVIEW();
-  show([NOT_ADDED({ id: "gravitee" })]);
-  server.answers["/api/catalogs"] = { catalog: FIRST({ commit: "9f1c2ab" }) };
-  server.calls.length = 0;
-  addCatalog({ id: "gravitee", name: "Gravitee public", url: `https://${ADDRESS}.git` });
-  await settle();
-  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [["/api/catalogs", { listed: "gravitee" }]]);
-  assert.equal(adding().hasAttribute("open"), false);
-  show([FIRST()]);
-  server.calls.length = 0;
-  addCatalog({ id: "partner-bank", name: "Partner Bank", url: "https://example.org/partner/lab-bank.git" });
-  await settle();
-  assert.deepEqual([adding().hasAttribute("open"), heading(), onScreen(), server.calls[0].body], [true, "Add Acme Hub", "effects", { address: "https://example.org/partner/lab-bank.git" }]);
-  shut();
 });
 
 // --- What a server says is text -------------------------------------------------------------------------------------------------

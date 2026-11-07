@@ -1,30 +1,4 @@
-=== banner: the core stopped, nothing runs ===
-<div id="banner" class="calm">
-  <div class="notice calm">
-    <svg class="notice-icon" aria-hidden="true">
-      <use href="#i-info">
-    <p class="notice-body">
-      <strong class="notice-title">
-        "Gravitee platform is stopped"
-    <span class="notice-actions">
-      <button class="btn pbtn primary" data-act-for="platform" data-act-verb="start" data-busy="" data-platform="start">
-        <span class="pbtn-wrap">
-          <span class="pbtn-face">
-            <svg aria-hidden="true">
-              <use href="#i-play">
-            <span>
-              "Start"
-          <span class="pbtn-side" aria-hidden="true">
-            <span class="pbtn-fill">
-            <span class="pbtn-text" data-wait="Starting…" data-size="Starting 100%">
-              <span>
-                <span class="spinner">
-                <span class="pbtn-mark">
-                <span>
-                  "Starting…"
-=== banner: the core runs ===
-<div id="banner" class="calm" hidden="">
-=== banner: the core stopped, an add-on runs ===
+=== banner: the core stopped ===
 <div id="banner" class="calm">
   <div class="notice calm">
     <svg class="notice-icon" aria-hidden="true">
@@ -644,9 +618,9 @@
             <span class="icon-gap">
             <span class="icon-gap">
             <span class="icon-gap">
-        <li data-key="group:api-management" class="group open">
+        <li data-key="group:api-management" class="group ">
           <div class="group-row cols opens">
-            <button type="button" class="s-toggle" data-toggle="" aria-expanded="true" aria-label="API Management">
+            <button type="button" class="s-toggle" data-toggle="" aria-expanded="false" aria-label="API Management">
               <svg aria-hidden="true">
                 <use href="#i-chevron">
             <span class="s-name">
@@ -682,44 +656,6 @@
                         <span class="pbtn-mark">
                         <span>
                           "Stopping…"
-          <ul class="containers">
-            <li class="container cols" data-service="gateway">
-              <span>
-              <span class="s-name">
-                <span class="c-name" data-tip="gateway (gateway)">
-                  "gateway"
-                <span class="c-id">
-                  "gateway"
-              <span class="s-state">
-                <span class="status muted">
-                  <span class="dot-status stopped" aria-hidden="true">
-                  <span class="status-word">
-                    "Stopped"
-              <span class="s-version" data-tip="graviteeio/gateway:1">
-                "1"
-              <span class="s-ports">
-              <span class="s-uptime">
-              <span class="row-icons">
-                <span class="icon-gap">
-                <span class="icon-gap">
-                <span class="icon-gap">
-                <button class="icon-btn" data-act="logs" data-tip="Logs" aria-label="Logs of gateway">
-                  <svg aria-hidden="true">
-                    <use href="#i-logs">
-                <span class="icon-gap">
-                <button class="pbtn icon-btn" data-act-for="service:gateway" data-act-verb="stop start" data-busy="" data-act="start" data-tip="Start" aria-label="Start gateway">
-                  <span class="pbtn-wrap">
-                    <span class="pbtn-face">
-                      <svg aria-hidden="true">
-                        <use href="#i-play">
-                    <span class="pbtn-side" aria-hidden="true">
-                      <span class="pbtn-fill">
-                      <span class="pbtn-text" data-wait="Stopping…" data-size="Stopping 100%">
-                        <span>
-                          <span class="spinner">
-                          <span class="pbtn-mark">
-                          <span>
-                            "Stopping…"
         <li data-key="section:Other add-ons" class="stack-sep">
           "Other add-ons"
         <li data-key="addon:kazoo" class="group open">

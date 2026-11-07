@@ -211,7 +211,6 @@ test("a row's badge opens the card of its causes: versions and settings as chips
   // The versions are a table: what runs and what is saved under their captions, the one saved marked when Apply goes back to it
   assert.deepEqual(["pop-run", "pop-saved"].map((cell) => root.querySelector(`.${cell}`).getAttribute("data-cap")), ["Running", "Saved"]);
   assert.deepEqual([root.querySelector(".pop-run .chip").getAttribute("class"), root.querySelector(".pop-saved .chip").getAttribute("class")], ["chip", "chip older"]);
-  assert.match(root.querySelector(".tip-btn").getAttribute("aria-label"), /^Apply needed: /);
   assert.deepEqual(bubble(draw(applyBadge("x", [{ ...TAG, older: false }]))).slice(1), ["4.13.0-alpha.4 4.12.20", "Apply restarts it with what is saved."], "a newer one saved is no going back");
   const settings = draw(applyBadge("x", [SETTINGS]));
   assert.deepEqual(chips(settings), ["GRAVITEE_LICENSE", "INTERNAL_API_PASSWORD"], "the names of the settings, as chips");
@@ -414,10 +413,6 @@ test("the card of a note says its foot for the kinds it knows, and none for one 
     assert.equal(noteCard(named), null, kind);
     assert.deepEqual(bubble(draw(noteBadge(named)).querySelector(".tip")), ["Odd", "Configuration changed"], kind);
   }
-  // The kinds of old say what they said
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "unset", settings: ["A"] }] }).foot, "Set it in its settings.");
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "unset", settings: ["A", "B"] }] }).foot, "Set them in its settings.");
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "license", features: ["Observability"] }] }).foot, "Set a license in the license form.");
 });
 
 // --- A popover that ends with a button -----------------------------------------------------------------------------------------

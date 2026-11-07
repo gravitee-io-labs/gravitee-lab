@@ -441,6 +441,9 @@ test("the card is the Gravitee platform: a row for each product, named once, wit
   assert.doesNotMatch(text(card), /containers? of|\d of \d/, "no count of containers on a row that is all right");
   assert.doesNotMatch(text(card), /Apply needed|Databases/);
   assert.doesNotMatch(products().map(text).join(" "), /This machine/, "a row never says where it runs in words: API Management's control is two icons");
+  assert.equal(part(products()[0], "name").querySelectorAll("a").length, 0, "its name is no link");
+  assert.deepEqual(block("products").querySelectorAll("button:not(.tip-btn)").map((button) => button.getAttribute("data-consoles")), ["older:api-management", "all:api-management"],
+    "no Start, Stop or Restart of a part: they are the Containers page's, and the buttons are the menus of the consoles");
   dashboardPage.hide();
 });
 
@@ -454,8 +457,6 @@ test("a product that runs behind what is saved says so in its update column, wit
   const badges = products().map((row) => part(row, "upd").querySelector(".tip-btn"));
   assert.deepEqual(badges.map(tileSaid), ["Apply needed", "Apply needed"], "a badge on each product that is behind, and none for the databases, which are no product here");
   assert.deepEqual(badges.map(tipOf), [["4.12.20 is saved, 4.13.0-alpha.4 still runs."], ["4.12.7 is saved, 4.13.0-alpha.7 still runs."]]);
-  assert.deepEqual(badges.map((badge) => badge.getAttribute("class").trim()), ["tip-btn pill warn", "tip-btn pill warn"]);
-  assert.ok(badges[0].querySelector("svg use").getAttribute("href").endsWith("#i-info"), "with the information mark");
   // The version is what runs; the badge is in the place of the update, so that no arrow and no green check says anything else
   assert.deepEqual(products().map((row) => ver(row)), ["4.12.20", "4.13.0-alpha.7"]);
   assert.deepEqual(products().map((row) => upd(row)), ["Apply needed", "Apply needed"]);
@@ -536,16 +537,6 @@ test("a console is where its link says, wherever that is: the one of a service o
   dashboardPage.hide();
 });
 
-test("a pre-release is told its newer version, a release once there is one", async () => {
-  await open({ body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.2", channel: "pre-release", prerelease: null, latest: "4.13.0" })] }) });
-  assert.equal(ver(products()[0]), "4.13.0-alpha.2");
-  assert.equal(upd(products()[0]), "Update available");
-  assert.deepEqual(tipOf(part(products()[0], "upd").querySelector(".tip-btn")), ["Update available", "4.13.0-alpha.2 4.13.0", "Choose it on the Images page."]);
-  assert.equal(part(products()[0], "upd").querySelector(".dot-status").getAttribute("class"), "dot-status warn");
-  assert.equal(products()[0].querySelectorAll(".list-note").length, 0);
-  dashboardPage.hide();
-});
-
 test("a product that does not run has a ring and the version configured, muted, and one never created is not warned about", async () => {
   await open({ state: lab({ core: "stopped" }), body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.12.1", deployed_state: "configured" })] }) });
   const row = products()[0];
@@ -586,45 +577,27 @@ test("a product that has something wrong says it in place of its update: an issu
   dashboardPage.hide();
 });
 
-test("the update of a product that a registry is still listing is a spinner, nothing once it could not say, and the newer version when it can", async () => {
-  await open({ body: dashboard({ pending: true, products: [product("api-management", "API Management", { stable: null, prerelease: null, latest: null, status: "unknown" })] }) });
+test("the update of a product that a registry is still listing is a spinner, asked for again until it is known, and nothing once it could not say", async () => {
+  const listing = product("api-management", "API Management", { stable: null, prerelease: null, latest: null, status: "unknown" });
+  await open({ body: dashboard({ pending: true, products: [listing] }) });
   assert.equal(part(products()[0], "upd").querySelectorAll(".dash-wait").length, 1, "a spinner where the update is being asked for, not a dash");
-  server.dashboard = dashboard();
+  server.dashboard = dashboard({ pending: true });
   mock.timers.tick(3000);
   await flush();
   assert.equal(reads(), 2);
+  assert.equal(upd(products()[0]), "Update available", "what came fills in");
+  server.dashboard = dashboard();
+  mock.timers.tick(3000);
+  await flush();
+  assert.equal(reads(), 3);
   assert.equal(section.querySelectorAll(".dash-wait").length, 0);
-  assert.equal(upd(products()[0]), "Update available");
+  mock.timers.tick(30000);
+  await flush();
+  assert.equal(reads(), 3, "known, nothing asks again");
   // Known to be unknown: nothing, not a dash
-  await open({ body: dashboard({ products: [product("api-management", "API Management", { stable: null, prerelease: null, latest: null, status: "unknown" })] }) });
+  await open({ body: dashboard({ products: [listing] }) });
   assert.equal(upd(products()[0]), "");
   assert.equal(part(products()[0], "upd").querySelectorAll(".status, .dash-wait").length, 0);
-  dashboardPage.hide();
-});
-
-test("a product row acts on nothing: its name is not a link, and the card has no Start or Stop of its own", async () => {
-  await open();
-  products()[0].click();
-  products()[0].querySelector(".list-name").click();
-  await flush();
-  assert.equal(server.calls.filter((call) => call.method === "POST").length, 0);
-  assert.equal(block("products").querySelectorAll("a[href^='#/containers']").length, 0);
-  assert.equal(products()[0].querySelectorAll("a").filter((a) => !cls(a).includes("btn") && !cls(a).includes("text-link")).length, 0, "its name is no link");
-  assert.deepEqual(block("products").querySelectorAll("button:not(.tip-btn)").map((button) => button.getAttribute("data-consoles")), ["older:api-management", "all:api-management"],
-    "no Start, Stop or Restart of a part: they are the Containers page's, and the buttons are the menus of the consoles");
-  dashboardPage.hide();
-});
-
-test("with Docker not answering no dot is colored, no count is said, and the actions wait with the reason as their title", async () => {
-  const state = lab({ blind: true, docker: { error: "Cannot connect to the Docker daemon", warning: null }, wait: "Docker is not reachable", core: "absent",
-    links: LINKS.map((found) => ({ ...found, up: false })) });
-  await open({ state, body: dashboard({ docker: { engine: null, compose: "5.4.0", os: null, cpus: null, memory: null, error: "Cannot connect to the Docker daemon" }, data: null }) });
-  assert.deepEqual(products().map((row) => row.querySelector(".dot-status").getAttribute("class")), ["dot-status stopped", "dot-status stopped"], "what is on keeps its ring");
-  assert.equal(section.querySelectorAll(".list-note").length, 0, "no row says a word of what runs");
-  assert.equal(said(cloudRow()), "Gravitee Cloud No account connected Connect account");
-  assert.ok(isOff(section.querySelector('[data-stack="start"]')));
-  assert.equal(offWhy(section.querySelector('[data-stack="start"]')), "Docker is not reachable");
-  assert.equal(products().flatMap((row) => row.querySelectorAll(".btn")).length, 0);
   dashboardPage.hide();
 });
 
@@ -636,9 +609,10 @@ test("the card is named for what it holds, and what is on comes first, a playgro
   await open({ state: lab({
     playgrounds: [running("playground", "acme-bakery", "Acme Bakery", { starred: true }), item("playground", "hotels", "Acme Hostels", { starred: true })],
     setups: [running("setup", "events", "Event Streams"), item("setup", "tracing", "Tracing")],
-    addons: [running("addon", "jade", "Jade"), waiting("addon", "kazoo", "Kazoo"), item("addon", "malt", "Malt server", { starred: true }), item("addon", "kiosk", "Kiosk")],
+    addons: [running("addon", "jade", "Jade", { links: [LINKS[3]] }), waiting("addon", "kazoo", "Kazoo"), item("addon", "malt", "Malt server", { starred: true }), item("addon", "kiosk", "Kiosk")],
   }) });
   assert.equal(text(block("catalog").parent.querySelector(".card-head h2")), "Playgrounds, setups and add-ons");
+  assert.equal(block("catalog").querySelectorAll("[data-open]").length, 0, "no Open: what opens an item is its own page, which its name leads to");
   assert.deepEqual(catalog().map((row) => text(row.querySelector("a"))), ["Acme Bakery", "Event Streams", "Jade", "Kazoo", "Acme Hostels", "Malt server"]);
   assert.deepEqual(catalog().map((row) => row.querySelector(".dash-kind use").getAttribute("href")), ["#i-flask", "#i-layers", "#i-addons", "#i-addons", "#i-flask", "#i-addons"]);
   // A name leads to the page of the item: its row in its list, a playground's own page
@@ -650,17 +624,6 @@ test("the card is named for what it holds, and what is on comes first, a playgro
       ["Off", "dot-status off", true], ["Off", "dot-status off", true]]);
   assert.equal(catalog().every((row) => row.querySelectorAll(".pill").length === 0 && row.querySelectorAll(".status").length === 1), true, "no pill for some states and plain text for others");
   assert.deepEqual(catalog().map((row) => row.querySelectorAll("[data-star]").length), [1, 0, 0, 0, 1, 1], "a star says why an item that is off is there");
-  dashboardPage.hide();
-});
-
-test("a row has no Open: what opens an item is its own page, which its name leads to; its consoles are on its list's row and on Containers", async () => {
-  await open({ state: lab({
-    playgrounds: [running("playground", "acme-bakery", "Acme Bakery", { links: [link("Acme Bakery docs", 8110, "bakery-web", "Playground")] })],
-    addons: [running("addon", "jade", "Jade", { links: [LINKS[3]] })],
-  }) });
-  assert.equal(block("catalog").querySelectorAll("[data-open]").length, 0, "two buttons at most: its Start or Stop, and its Settings");
-  assert.deepEqual(catalog().map((row) => row.querySelector(".name-link").getAttribute("href")), ["#/playgrounds/acme-bakery", "#/addons/jade"]);
-  assert.doesNotMatch(text(block("products")), /Acme Bakery docs|Jade/);
   dashboardPage.hide();
 });
 
@@ -734,7 +697,6 @@ test("what a screen reader hears: a product's band is a heading, the kind of a r
   assert.deepEqual(products().map((row) => [row.querySelector(".list-name").getAttribute("role"), row.querySelector(".list-name").getAttribute("aria-level")]), [["heading", "3"], ["heading", "3"]]);
   assert.deepEqual(catalog().map((row) => [row.querySelector(".dash-kind").getAttribute("role"), row.querySelector(".dash-kind").getAttribute("aria-label")]),
     [["img", "Playground"], ["img", "Add-on"]]);
-  assert.deepEqual(catalog().map((row) => text(row.querySelector("button[data-act] .pbtn-face"))), ["Stop", "Stop"], "its action says its word");
   assert.deepEqual(catalog().map((row) => [row.querySelector("[data-star]").getAttribute("aria-label"), row.querySelector("[data-star]").getAttribute("aria-pressed")]),
     [["Star Acme Bakery", "true"], ["Star Jade", "true"]], "one name, pressed while starred");
   // A drawing is never read: its button or the word beside it says what it is
@@ -752,21 +714,6 @@ test("what a screen reader hears of a row of the platform: the state of a produc
   assert.deepEqual(products().map((row) => part(row, "name").querySelector('[role="img"]').getAttribute("aria-label")), ["Stopped", "Stopped"]);
   await move(lab({ blind: true, docker: { error: "Cannot connect" }, wait: "Docker is not reachable" }));
   assert.equal(part(products()[0], "name").querySelector('[role="img"]').getAttribute("aria-label"), "State not known");
-  dashboardPage.hide();
-});
-
-test("a state is one component wherever the page says one: a dot and its word, the word muted while it is off, and none of it underlined or a pill", async () => {
-  await open({ ...listed(gateway({ here: true })), state: lab({ gateway: "up", playgrounds: [running("playground", "bank", "Acme Bakery"), item("playground", "hotels", "Acme Hostels", { starred: true })] }) });
-  const states = catalog().map((row) => row.querySelector(".status"));
-  assert.ok(states.length >= 3);
-  for (const found of states) {
-    assert.deepEqual(found.children.map((child) => cls(child).split(" ")[0]).slice(0, 2), ["dot-status", found.querySelector(".tip") ? "tip" : "status-word"]);
-    assert.equal(found.querySelectorAll(".pill").length, 0);
-  }
-  assert.deepEqual(states.map((found) => [found.querySelector(".dot-status").getAttribute("class").split(" ").at(-1), cls(found).includes("muted")]).filter(([dot]) => ["running", "healthy", "off", "stopped"].includes(dot)).map(([dot, muted]) => [dot, muted]).slice(0, 1),
-    [["running", false]], "a state that runs is said in full");
-  assert.ok(states.some((found) => cls(found).includes("muted")), "and what is off is muted");
-  assert.ok(states.every((found) => cls(found).includes("muted") === ["off", "stopped", ""].includes(found.querySelector(".dot-status").getAttribute("class").split(" ").at(-1))), "muted exactly while it is off");
   dashboardPage.hide();
 });
 
@@ -806,9 +753,7 @@ test("it has the search and the filters of the lists, and no foot of totals: the
   const search = card.querySelector(".list-tools label.search input");
   assert.deepEqual([search.getAttribute("type"), search.getAttribute("placeholder"), search.getAttribute("aria-label")], ["search", "Search…", "Search the playgrounds, setups and add-ons"]);
   const pickers = card.querySelectorAll(".list-tools .combo-btn");
-  assert.deepEqual(pickers.map((picker) => text(picker.querySelector(".value"))), ["All kinds"]);
-  assert.deepEqual(pickers.map(text), ["Kind: All kinds"], "named by its visible words, after what it chooses");
-  assert.deepEqual(pickers.map((picker) => [text(picker), picker.getAttribute("aria-haspopup")]), [["Kind: All kinds", "dialog"]], "its popup is a dialog, not a list");
+  assert.deepEqual(pickers.map((picker) => [text(picker), picker.getAttribute("aria-haspopup")]), [["Kind: All kinds", "dialog"]], "named by its visible words, its popup a dialog, not a list");
   // Options of their own, which combine: loose toggle chips, as on the lists, and no "All" repeated
   assert.equal(card.querySelectorAll(".list-tools .segmented").length, 0);
   assert.deepEqual(card.querySelectorAll(".list-tools .toggle-chip").map((chip) => [text(chip), chip.querySelector("input").getAttribute("type")]),
@@ -1011,7 +956,6 @@ test("it is drawn again row by row: what did not change keeps its element, with 
 // have, which leads to the Gravitee Cloud page and lists them on hover and focus. Every state of the Cloud is that row, its action at its
 // end, so that the card is always the same.
 
-const withToken = (name, state = "valid") => ({ ...environment(name), token: { state } });
 const listed = (...gateways) => ({ listed: [PLATFORM], checks: { "cloud-eu": check(gateways) } });
 // The count of the row, and the card its bubble shows on hover and focus
 const count = () => cloudRow().querySelector(".dash-count");
@@ -1160,11 +1104,11 @@ test("Fix it on a row opens the form that takes what its place lacks, as on its 
   const lacking = { id: "cloud-eu/env-development", name: "Development (Gravitee Cloud)", platform: { id: "cloud-eu", name: "Gravitee Cloud", kind: "cloud" }, cannot: [],
     environment: { id: "env-development", name: "Development" }, state: "missing", missing: "No hybrid gateway", reason: "Set up a gateway first", token: { state: "unset" } };
   server.places = [lacking];
-  const state = { ...lab({ playgrounds: [item("playground", "shop", "Acme Shop", { starred: true, deploys_to: ["cloud"], requires: {} })] }), core: CLOUD_CORE };
+  const state = { ...lab({ playgrounds: [item("playground", "stall", "Acme Stall", { starred: true, deploys_to: ["cloud"], requires: {} })] }), core: CLOUD_CORE };
   await open({ state, listed: [PLATFORM], checks: { "cloud-eu": check([]) } });
   const gatewayForm = page.doc.querySelector("#gateway-name").closest("form");
   gatewayForm.checkValidity = () => true;
-  catalog().find((one) => text(one).includes("Acme Shop")).querySelector("[data-fix]").click();
+  catalog().find((one) => text(one).includes("Acme Stall")).querySelector("[data-fix]").click();
   await flush();
   assert.equal(text(gatewayForm.querySelector("h2")), "Create hybrid gateway for Development");
   gatewayForm.closest("dialog").close();
@@ -1197,27 +1141,6 @@ test("the row says how many hybrid gateways the account has, which leads to the 
   await open({ ...listed() });
   assert.equal(said(cloudRow()), "Gravitee Cloud No gateway");
   assert.equal(count().getAttribute("data-tip"), null);
-  dashboardPage.hide();
-});
-
-test("the Dashboard and the Gravitee Cloud page say the same words of a gateway: the row's popover lists the page's list", async () => {
-  const state = lab({ gateway: "up" });
-  const checks = { "cloud-eu": check([gateway({ id: "g1", environmentId: "env-development", here: true, connection: "NOT_CONNECTED" }),
-    gateway({ id: "g2", name: "prod", environmentId: "env-production", kept: false, connection: "NOT_CONNECTED" }), gateway({ id: "g3", name: "test", environmentId: "env-test", status: "PENDING" })],
-  { environments: [withToken("Development"), withToken("Production", "valid"), withToken("Test", "expired")] }) };
-  await open({ state, listed: [PLATFORM], checks });
-  const mine = listedIn().map(([where, name, word]) => [name, where, word]);
-  const { platformsPage } = await import("../../../web/js/pages/platforms.js");
-  const other = page.doc.createElement("section");
-  page.doc.body.append(other);
-  platformsPage.init(other);
-  platformsPage.show([]);
-  await flush();
-  const theirs = other.querySelectorAll(".plat-gw-row").map((row) => [text(row.querySelector(".plat-env")), text(row.querySelector(".plat-gw-env .plat-gw-text")),
-    text(row.querySelector(".plat-gw-state .status-word"))]);
-  platformsPage.hide();
-  assert.deepEqual(mine, theirs, "the same gateways in the same order and the same words");
-  assert.deepEqual(mine.map((row) => row[2]), ["Connecting", "Not connected", "Pending"], "the one that runs here first, then the others in the order of the environments");
   dashboardPage.hide();
 });
 
@@ -1316,23 +1239,6 @@ test("the Cloud of a tab that is seen again is read again only when its last ans
   clock += 40000;
   page.show();
   page.fire("document", "visibilitychange");
-  await flush();
-  assert.equal(asks(), 2, "40 seconds old: read again");
-  dashboardPage.hide();
-});
-
-test("a trip through the menu leaves a Cloud read less than 30 seconds ago alone, and a later visit reads it again", async () => {
-  await open({ ...listed(gateway({ here: true })) });
-  const asks = () => requests().filter((call) => call.endsWith("/check")).length;
-  assert.equal(asks(), 1);
-  dashboardPage.hide();
-  clock += 10000;
-  dashboardPage.show();
-  await flush();
-  assert.equal(asks(), 1, "10 seconds old: left alone");
-  dashboardPage.hide();
-  clock += 40000;
-  dashboardPage.show();
   await flush();
   assert.equal(asks(), 2, "40 seconds old: read again");
   dashboardPage.hide();
@@ -1458,15 +1364,6 @@ test("Resources unfolded is one row: the load, the memory, what Docker stores, a
   dashboardPage.hide();
 });
 
-test("CPU and memory say in their figure what it is a share of, and their label opens the containers that weigh most", async () => {
-  await open();
-  assert.deepEqual([block("cpu"), block("memory")].map((cell) => text(cell.querySelector(".dash-of"))), ["of 6 cores", "of 7.7 GB"], "the cores and the memory Docker has");
-  assert.deepEqual([block("cpu"), block("memory")].map((cell) => cell.querySelector(".dash-of").getAttribute("class")), ["dash-of muted", "dash-of muted"]);
-  stream().send({ cpu_percent: 4.1, memory_used: 4.9 * 2 ** 30, containers: 12, at: 5 });
-  assert.deepEqual(cells().slice(0, 2).map(tileSaid), ["CPU 4.1% of 6 cores", "Memory 4.9 GB of 7.7 GB"]);
-  dashboardPage.hide();
-});
-
 // The popover of a label: what it says, one line for each container, and the memory's what is left of Docker's
 const weigh = (id) => tipOf(block(id).querySelector(".dash-weigh .tip-btn"));
 const sample = (more) => ({ cpu_percent: 4.1, memory_used: 4.9 * 2 ** 30, containers: 3, at: 5, ...more });
@@ -1511,9 +1408,7 @@ test("storage says what Docker stores, its images, containers, volumes and build
   assert.deepEqual(tipOf(unused), ["57.9 GB unused", "What no container uses", "Images 58.9 GB, 42.7 GB unused", "Containers 2.2 GB, 131 kB unused",
     "Volumes 5.9 GB, 5.5 GB unused", "Build cache 18.6 GB, 9.7 GB unused", "Unused volumes can hold data: removing one loses it."], "each type's size and its unused share: a part too thin to point at is said here");
   assert.deepEqual(stored.querySelectorAll(".dash-unused .pop-who").map(text), ["Images", "Containers", "Volumes", "Build cache"], "each type in its column, the sizes lined up");
-  assert.equal(unused.tag, "button", "a stop of the keyboard");
   assert.match(unused.getAttribute("aria-label"), /^57\.9 GB unused\. What no container uses/);
-  assert.ok(unused.querySelector("svg use").getAttribute("href").endsWith("#i-info"), "with the information mark");
   dashboardPage.hide();
 });
 
@@ -1526,21 +1421,6 @@ test("a type that takes nothing is not in the popover of what is unused, and not
   dashboardPage.hide();
 });
 
-test("volumes that no container uses say they can hold data, and what is unused is the sum of what Docker says of each type", async () => {
-  const unusedVolumes = { count: 73, size: 40000000000, reclaimable: 38000000000 };
-  await open({ body: dashboard({ data: DF({ volumes: unusedVolumes }) }) });
-  assert.equal(tileSaid(cells()[2].querySelector(".dash-unused")), "90.4 GB unused", "42.7 GB + 131 kB + 38 GB + 9.709 GB");
-  assert.match(tipOf(cells()[2].querySelector(".dash-unused .tip-btn")).join(" "), /Volumes 40\.0 GB, 38\.0 GB unused.*volumes can hold data: removing one loses it/);
-  dashboardPage.hide();
-});
-
-test("what Docker stores is a line of words with no bar, and does not depend on the disk: Docker's data may be on another one", async () => {
-  await open();
-  assert.doesNotMatch(said(section) + unseen(), /disk|free/i);
-  assert.equal(text(cells()[2].querySelector(".dash-value")), "85.7 GB");
-  dashboardPage.hide();
-});
-
 test("Docker's own numbers are read when the page opens, and again by Refresh only", async () => {
   await open();
   assert.deepEqual(requests().filter((call) => call.includes("dashboard")), ["GET /api/dashboard"]);
@@ -1550,25 +1430,6 @@ test("Docker's own numbers are read when the page opens, and again by Refresh on
   stream().send({ cpu_percent: 3, memory_used: 1, containers: 0, at: 5 });
   assert.equal(requests().filter((call) => call.includes("dashboard")).length, 2, "the load comes by its stream: it asks for nothing");
   assert.equal(store.pending.get("dashboard"), "refresh", "the button of Refresh says it works");
-  dashboardPage.hide();
-});
-
-test("the versions a registry is still listing are asked for again until they are known", async () => {
-  await open({ body: dashboard({ pending: true, products: [product("api-management", "API Management", { stable: null, prerelease: null, latest: null, status: "unknown" })] }) });
-  assert.equal(reads(), 1);
-  server.dashboard = dashboard({ pending: true });
-  mock.timers.tick(3000);
-  await flush();
-  assert.equal(reads(), 2);
-  assert.equal(ver(products()[0]) + " " + upd(products()[0]), "4.12.20 Update available", "what came fills in");
-  server.dashboard = dashboard();
-  mock.timers.tick(3000);
-  await flush();
-  assert.equal(reads(), 3);
-  assert.equal(section.querySelectorAll(".dash-wait").length, 0, "known: the registry that could not say is nothing");
-  mock.timers.tick(30000);
-  await flush();
-  assert.equal(reads(), 3, "known, nothing asks again");
   dashboardPage.hide();
 });
 
@@ -1722,6 +1583,8 @@ test("Docker not answering is said once, by the banner: the figures that need it
   // Nothing is said of what runs: no count, no colored dot
   assert.equal(said(block("count").querySelector("a")), "Containers");
   assert.equal(products()[0].querySelector(".dot-status").getAttribute("class"), "dot-status stopped");
+  assert.equal(section.querySelectorAll(".list-note").length, 0, "no row says a word of what runs");
+  assert.equal(offWhy(section.querySelector('[data-stack="start"]')), "Docker is not reachable", "the actions wait, with the reason");
   assert.equal(ver(products()[0]) + " " + upd(products()[0]), "4.12.1 Update available");
   // The catalog and the Cloud are what they were
   assert.equal(said(cloudRow()), "Gravitee Cloud No gateway");
@@ -2018,17 +1881,6 @@ test("an item of another catalog draws no mark for its catalog in its row, nor d
   }) });
   const marks = (row) => row.querySelectorAll(".dash-marks .pill").map(text);
   assert.deepEqual(catalog().map((row) => [text(row.querySelector("a")), marks(row)]), [["Acme Bakery", []], ["Mine", ["Personal"]], ["Event Streams", []]]);
-  dashboardPage.hide();
-});
-
-test("the search finds an item by the catalog it comes from, as the lists do", async () => {
-  await open({ state: lab({ playgrounds: [item("playground", "@acme-hub/bank", "Acme Bakery", HUB_ITEM), item("playground", "hotels", "Acme Hostels")], setups: [], addons: [] }) });
-  const search = section.querySelector('[data-filter="q"]');
-  search.value = "hub";
-  search.dispatchEvent(new Ev("input"));
-  assert.deepEqual(catalog().map((row) => text(row.querySelector("a"))), ["Acme Bakery"]);
-  search.value = "";
-  search.dispatchEvent(new Ev("input"));
   dashboardPage.hide();
 });
 

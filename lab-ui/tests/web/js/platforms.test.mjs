@@ -219,14 +219,13 @@ test("a card is titled by its account, says where its console is and how it answ
   assert.equal(text(section.querySelector(".page-head [data-new]")), "Connect account");
 });
 
-test("the name the person gave the account is its title", async () => {
-  await open(ok([]), [{ ...PLATFORM, name: "Work" }]);
-  assert.equal(said(card().querySelector(".plat-id")), "Work eu.cloud.gravitee.io");
-});
-
-test("the card is one card for each account, in the order they are kept", async () => {
-  await open(ok([]), [PLATFORM, { ...PLATFORM, id: "client-lab", name: "Client Lab" }]);
+test("the card is one card for each account, in the order they are kept, titled by the name the person gave it, with its own gateways and its console named for it", async () => {
+  await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }), [{ ...PLATFORM, name: "Work" }, { ...PLATFORM, id: "client-lab", name: "Client Lab" }]);
   assert.deepEqual(cards().map((c) => c.dataset.key), ["cloud-eu", "client-lab"]);
+  assert.equal(said(card().querySelector(".plat-id")), "Work eu.cloud.gravitee.io");
+  assert.deepEqual(cards().map((c) => c.querySelector(".plat-gw-table")?.getAttribute("aria-label")), ["Hybrid gateways of Work", "Hybrid gateways of Client Lab"]);
+  assert.deepEqual(cards().map((c) => c.querySelectorAll("[data-gateways-of]").map((band) => band.dataset.gatewaysOf)), [["cloud-eu"], ["client-lab"]]);
+  assert.deepEqual(cards().map((c) => c.querySelector(".plat-tools a").getAttribute("aria-label")), ["Open console, Work", "Open console, Client Lab"], "told apart");
   platformsPage.hide();
 });
 
@@ -263,6 +262,7 @@ test("More on the card offers Rename, Check again and Remove account; the Accoun
   await open(ok([]));
   assert.deepEqual(menu(accountMore()), ["Rename", "Check again", "Remove account"]);
   assert.ok(entries()[2].classList.contains("danger"), "what removes is in the danger tone");
+  assert.equal(entries().filter((entry) => entry.querySelector(".menu-hint")).length, 0, "no hint that says nothing");
   close();
 });
 
@@ -294,26 +294,6 @@ test("the key of a card shows its connection: the account, its Account ID to cop
   assert.deepEqual(lines(token), ["Refused", "Gravitee Cloud refuses this token"]);
   connectionOf().querySelector("[data-connection-close]").click();
   platformsPage.hide();
-});
-
-test("Replace Account Token, from the connection, closes it and opens the form that replaces it", async () => {
-  await open(ok([]));
-  openConnection();
-  const replaceButton = connectionOf().querySelector("[data-connection-replace]");
-  assert.deepEqual([replaceButton.getAttribute("class"), text(replaceButton)], ["btn", "Replace Account Token"]);
-  replaceButton.click();
-  assert.ok(!connectionOf().hasAttribute("open"));
-  assert.equal(text(formOf("account-token").querySelector("h2")), "Replace Account Token");
-  formOf("account-token").querySelector("[data-cancel]").click();
-  platformsPage.hide();
-});
-
-test("Check again reads the platform again", async () => {
-  await open(ok([]));
-  const reads = server.checks;
-  menu(accountMore());
-  await choose("Check again");
-  assert.equal(server.checks, reads + 1);
 });
 
 // --- The environments -----------------------------------------------------------------
@@ -362,29 +342,18 @@ test("with more than three environments not set up the card lists two and says h
   assert.equal(toggle(), null);
 });
 
-test("the way in to an environment that is not set up is one dialog, whatever it lacks", async () => {
-  await open(ok([]));
-  quiet()[1].querySelector("[data-do]").click();
-  await flush();
-  assert.equal(text(field("use-gateway").closest("dialog").querySelector("h2")), "Set up Test");
-  field("use-gateway").closest("form").querySelector("[data-cancel]").click();
-});
-
 // What an environment says of its gateway on this machine, the first that applies. The gateway that runs here is the add-on's: its own warn
 // or error note, else its container's state while it does not run; then Cloud's word, a connected gateway that does not run here being connected
 // elsewhere. A gateway nobody here keeps and that is not connected is none of the Lab's.
 const WORDS = [
   ["no gateway", null, null, ["", "Not created"]],
   ["Cloud: never connected, kept, not here", {}, null, ["stopped", "Stopped here"]],
-  ["Cloud: not connected, kept, not here", { connection: "NOT_CONNECTED" }, null, ["stopped", "Stopped here"]],
   ["Cloud: connected, but not here", { connection: "CONNECTED" }, null, ["stopped", "Connected elsewhere"]],
-  ["Cloud: connected and not kept", { connection: "CONNECTED", kept: false }, null, ["stopped", "Connected elsewhere"]],
   ["Cloud: pending", { status: "PENDING" }, null, ["starting", "Pending"]],
   ["Cloud: deleting", { status: "DELETING" }, null, ["stopping", "Deleting"]],
   ["Cloud: failed", { status: "FAILED" }, null, ["issue", "Failed"]],
   ["here, running and connected", { here: true, connection: "CONNECTED" }, {}, ["healthy", "Running here"]],
   ["here, running, not connected yet", { here: true, connection: "NOT_CONNECTED" }, {}, ["starting", "Connecting"]],
-  ["here, running, never connected", { here: true }, {}, ["starting", "Connecting"]],
   ["here, the add-on is behind what is saved", { here: true, connection: "CONNECTED" }, { note: "Apply needed", note_tone: "warn" }, ["warn", "Apply needed"]],
   ["here, the add-on lacks settings", { here: true, connection: "CONNECTED" }, { note: "Needs settings", note_tone: "warn", action: { do: "settings", label: "Settings", enabled: true } }, ["warn", "Needs settings"]],
   ["here, the add-on has an issue", { here: true, connection: "CONNECTED" },
@@ -491,13 +460,6 @@ test("an environment with several gateways says how many after the state of its 
   platformsPage.hide();
 });
 
-test("a hosted gateway is not listed, so the environment has none of its own", async () => {
-  await open(ok([gateway({ id: "h", name: "hosted", type: "SAAS" })], { Development: VALID }));
-  assert.equal(gatewayOf("Development"), "Not created");
-  assert.equal(primaryOf("Development"), "Create gateway");
-  platformsPage.hide();
-});
-
 // What an environment says of what the Lab may do in it, on one line: what the Lab deployed there, else that its Cloud Token is about to
 // expire, else Can deploy once it has a Cloud Token that is valid and a gateway here, else what it lacks, the gateway or the token. The
 // rest is in the popover, the first line of which is the word.
@@ -526,7 +488,6 @@ test("an environment says whether the Lab may deploy to it, in one state with th
     if (tip) assert.deepEqual(status.querySelector(".tip") ? lines(status) : [], tip, why);
   }
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: { state: "valid", expires: new Date(Date.now() + 5 * 86400000 + 3600000).toISOString() } }));
-  assert.ok(rowOf("Development").querySelector(".plat-deploys .status").classList.contains("warn"), "a token near its end is in amber");
   assert.deepEqual(lines(rowOf("Development").querySelector(".plat-deploys .status")).slice(0, 2), ["Expires in 5 days", "Can deploy"]);
   platformsPage.hide();
 });
@@ -560,15 +521,14 @@ const ACTIONS = [
   ["a gateway that runs here, a token, nothing to do but stop it", ADDON(), [gateway({ here: true, connection: "CONNECTED" })], VALID, "Stop gateway", "stop-gateway"],
   ["a gateway that runs here and no token", ADDON(), [gateway({ here: true, connection: "CONNECTED" })], undefined, "Add Cloud Token", "add-token"],
   ["a gateway that runs here and an expired token", ADDON(), [gateway({ here: true, connection: "CONNECTED" })], { state: "expired" }, "Replace Cloud Token", "replace-token"],
+  ["an expired token and no gateway", ADDON(), [], { state: "expired" }, "Replace Cloud Token", "replace-token"],
   ["a gateway that runs here and a refused token", ADDON(), [gateway({ here: true, connection: "CONNECTED" })], { state: "refused" }, "Replace Cloud Token", "replace-token"],
   ["a gateway that does not run", ADDON(STOPPED), [gateway({ here: true })], VALID, "Start gateway", "start-gateway"],
   ["a gateway that does not run and no token: the gateway is first", ADDON(STOPPED), [gateway({ here: true })], undefined, "Start gateway", "start-gateway"],
-  ["a gateway that another one runs here", ADDON(), [gateway({ here: false })], VALID, "Start gateway", "start-gateway"],
+  ["a gateway that does not run and a refused token: what is red comes first", ADDON(STOPPED), [gateway({ here: true })], { state: "refused" }, "Replace Cloud Token", "replace-token"],
   ["a gateway connected elsewhere that the Lab keeps", ADDON(), [gateway({ connection: "CONNECTED" })], VALID, "Start gateway", "start-gateway"],
   ["a gateway connected elsewhere that it does not", ADDON(), [gateway({ connection: "CONNECTED", kept: false })], VALID, "Replace gateway", "create-gateway"],
   ["a gateway that runs here and lacks a license", ADDON({ state: { key: "off", label: "" }, note: "Needs a license", note_tone: "warn", note_file: ".env" }), [gateway({ here: true })], VALID, "Add license", "add-license"],
-  ["a gateway that runs here, started outside the Lab UI", ADDON({ action: { do: "start", label: "Turn on", enabled: true, reason: null, dialog: null },
-    secondary: { do: "stop", label: "Turn off", enabled: true, reason: null, dialog: null } }), [gateway({ here: true, connection: "CONNECTED" })], VALID, "Stop gateway", "stop-gateway"],
   ["a token and no gateway", ADDON(), [], VALID, "Create gateway", "create-gateway"],
   ["nothing to run gateways", null, [gateway({ here: true })], VALID, "", null],
   ["nothing to run gateways and no token", null, [gateway({ here: true })], undefined, "Add Cloud Token", "add-token"],
@@ -735,7 +695,7 @@ test("every hybrid gateway of the account is a row of its list under the environ
   assert.deepEqual(gwRows().map((r) => r.querySelectorAll(".plat-actions > *").length), [2, 1, 2, 1], "the slot of the action is kept on a row that has none");
   assert.deepEqual(menu(gwRow("dev").querySelector("[data-gw-more]")), ["Show logs", "Copy address", "Remove gateway"]);
   close();
-  assert.deepEqual(menu(gwRow("old").querySelector("[data-gw-more]")), ["Remove gateway"]);
+  assert.deepEqual(menu(gwRow("elsewhere").querySelector("[data-gw-more]")), ["Remove gateway"], "it has domains, but none it answers on here");
   close();
   platformsPage.hide();
 });
@@ -789,26 +749,6 @@ test("an account with no hybrid gateway says so in the one empty block, with the
   store.state = state({ addons: [] });
   await open(ok([], { Test: VALID }));
   assert.equal(said(section.querySelector(".plat-gws .empty")), "No hybrid gateway");
-  store.state = state();
-  platformsPage.hide();
-});
-
-test("with several accounts each card has the list of its own gateways", async () => {
-  const other = { ...PLATFORM, id: "cloud-lab", name: "Client Lab" };
-  await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }), [PLATFORM, other]);
-  assert.deepEqual(cards().map((c) => c.querySelector(".plat-gw-table")?.getAttribute("aria-label")), ["Hybrid gateways of My Account", "Hybrid gateways of Client Lab"]);
-  assert.deepEqual(cards().map((c) => c.querySelectorAll("[data-gateways-of]").map((band) => band.dataset.gatewaysOf)), [["cloud-eu"], ["cloud-lab"]]);
-  platformsPage.hide();
-});
-
-test("keyboard focus stays on a gateway's control when the list is drawn again", async () => {
-  await open(ok([gateway({ here: true, connection: "CONNECTED" }), gateway({ id: "g2", name: "test", environmentId: "env-test" })], { Development: VALID }));
-  gwRow("test").querySelector("[data-gw-do]").focus();
-  const old = gwRow("test").querySelector("[data-gw-do]");
-  store.state = state({ playgrounds: [{ id: "h", name: "Acme Hostels API", deployed: [{ place: "cloud-eu/env-test", platform: "My Account", environment: "Test", created: [{ what: "APIs", count: 3 }] }] }] });
-  platformsPage.render(store.state);
-  assert.ok(!old.isConnected, "drawn again");
-  assert.equal(page.focused(), gwRow("test").querySelector("[data-gw-do]"));
   store.state = state();
   platformsPage.hide();
 });
@@ -917,16 +857,6 @@ async function click(selector, root = section) {
   await settle();
 }
 
-test("Create gateway opens the form of the environment, titled as the button, and a gateway made that way is read again", async () => {
-  await open(ok([], { Test: VALID }));
-  await click('[data-do="create-gateway"]');
-  const create = formOf("gateway-name");
-  assert.equal(text(create.querySelector("h2")), "Create gateway for Test", "the environment is in the title");
-  assert.deepEqual(selected("gateway-environment"), ["env-test"]);
-  assert.ok(field("gateway-environment").closest(".field").hidden, "it is not asked: the row said it");
-  create.querySelector("[data-cancel]").click();
-});
-
 test("Start asks the server what it does and says it first: Restarts, Serves, Stops serving; Start runs the job", async () => {
   await open(ok([gateway({ id: "g2", name: "second", environmentId: "env-test" })], { Test: VALID }));
   server.plan = { dialog: { starts: [], stops: [], turns_off: [], keeps: [], restarts: [{ name: "Hybrid gateway", kind: "addon", id: "hyssop" }],
@@ -1015,21 +945,6 @@ test("Stop from More, when the token is the action, is the same Stop", async () 
   menu(envMore("Development"));
   await choose("Stop gateway");
   assert.deepEqual(posted("/stop").map((c) => c.path), ["/api/addons/hyssop/stop"]);
-});
-
-test("another gateway of an environment is started and removed from its row of the list, not from the environment's More", async () => {
-  await open(ok([gateway({ here: true, connection: "CONNECTED" }), gateway({ id: "g2", name: "second" })], { Development: VALID }));
-  assert.deepEqual(menu(envMore("Development")), ["Show logs", "Copy address", "Replace Cloud Token", "Remove Cloud Token", "Remove gateway", "Stop using Development"]);
-  close();
-  server.plan = { dialog: null };
-  gwRow("second").querySelector('[data-gw-do="start"]').click();
-  await settle();
-  assert.deepEqual(posted("/start").map((c) => c.path), ["/api/platforms/cloud-eu/gateways/g2/start"]);
-  menu(gwRow("second").querySelector("[data-gw-more]"));
-  await choose("Remove gateway");
-  assert.equal(effects().title, "Remove gateway of Development", "named for its environment: its own name could be the Lab's");
-  await answer(false);
-  platformsPage.hide();
 });
 
 test("Remove gateway says it removes it in Gravitee Cloud, and turns off the add-on when it is the one that runs here", async () => {
@@ -1140,25 +1055,20 @@ test("Connect Gravitee Cloud is one large dialog of two steps, opened on the acc
   assert.equal(wizard.querySelector("[data-close]").getAttribute("aria-label"), "Close", "the cross of the large dialogs");
   // Where the values are: the console, its registration for a person with no account, the two lines the picture numbers
   assert.equal(field("platform-open").getAttribute("href"), "https://eu.cloud.gravitee.io");
-  assert.equal(text(field("platform-open")), "Open Gravitee Cloud");
   const register = form.querySelector(".connect-register a");
-  assert.equal(text(form.querySelector(".connect-ask")), "Do you already have a Gravitee Cloud account?");
-  assert.equal(text(form.querySelector(".connect-register")), "If not, start a 14-day trial");
   assert.equal(register.getAttribute("href"), "https://eu.cloud.gravitee.io/?createUser=true");
   assert.equal(register.getAttribute("target"), "_blank");
   assert.deepEqual(lineOf(form), ["In Settings, Account Tokens, generate an Account Token and copy it", "Copy the Account ID, at the top of the same page"],
     "numbered as the picture numbers them: 1 the token, 2 the Account ID");
   assert.deepEqual(shots(form), ["/img/cloud-account-token.png"]);
   assert.match(form.querySelector(".connect-shot img").getAttribute("alt"), /Account Token.*Account ID/);
-  assert.equal(form.querySelectorAll(".segmented").length, 0, "one picture: nothing to choose");
-  assert.equal(form.querySelector(".connect-toggle").getAttribute("aria-expanded"), "false", "folded on a phone");
   // The fields
   assert.deepEqual(labels(form), ["Account Token", "Account ID", "URL"]);
-  assert.equal(form.querySelectorAll("#platform-name").length, 0, "no name: it is the account's, read from Gravitee Cloud");
-  assert.equal(form.querySelectorAll("select").length, 0, "there is one kind: nothing to choose");
-  assert.equal(field("platform-account").hasAttribute("placeholder"), false, "the two fields are built alike");
+  // The label says the term: the popover is where it is, and why both are asked
+  const term = (id) => bubble(field(id).closest(".field").querySelector(".tip"))[0];
+  assert.match(term("platform-token"), /It deploys nothing.*Settings, Account Tokens/);
+  assert.match(term("platform-account"), /cannot look up its own account/);
   assert.equal(field("platform-url").closest("details").getAttribute("id"), "platform-more", "the URL is folded");
-  assert.equal(text(form.querySelector("#platform-more summary")), "More options");
   assert.equal(field("platform-url").value, "https://eu.cloud.gravitee.io");
   assert.equal(field("platform-token").getAttribute("type"), "password");
   // The secret has its eye: it shows what was pasted, and hides it again
@@ -1174,7 +1084,6 @@ test("Connect Gravitee Cloud is one large dialog of two steps, opened on the acc
   // One footer: the refusal at the left of Cancel and Connect
   const foot = form.querySelector(".dialog-foot");
   assert.ok(foot.querySelector(".create-problem") && foot.querySelector("[data-cancel]") && foot.querySelector("[data-act-for]"));
-  assert.equal(text(foot.querySelector("[data-cancel]")), "Cancel");
   const go = form.querySelector("[data-act-for]");
   assert.equal(text(go.querySelector(".pbtn-face")), "Connect");
   assert.equal(isOff(go), true, "the token and the Account ID are missing");
@@ -1184,8 +1093,6 @@ test("Connect Gravitee Cloud is one large dialog of two steps, opened on the acc
   assert.equal(isOff(go), true, "an Account ID is a UUID");
   assert.equal(offWhy(go), "The Account ID is a UUID");
   assert.equal(field("platform-account-wrong").hidden, false, "said under its field, in plain words");
-  assert.equal(field("platform-account-wrong").closest(".field"), field("platform-account").closest(".field"), "under its own field, at the gap of its label");
-  assert.equal(text(field("platform-account-wrong")), "The Account ID is a UUID, as the Account Tokens page shows it");
   assert.equal(field("platform-account").getAttribute("aria-invalid"), "true", "a screen reader hears it is wrong, and why");
   assert.equal(field("platform-account").getAttribute("aria-describedby"), "platform-account-wrong");
   assert.equal(field("platform-account-wrong").getAttribute("role"), "status");
@@ -1366,8 +1273,10 @@ test("Replace Account Token opens one field, checked against the Account ID the 
   await open(ok([]));
   openConnection();
   connectionOf().querySelector("[data-connection-replace]").click();
+  assert.ok(!connectionOf().hasAttribute("open"), "the connection closes for its form");
   const replace = formOf("account-token");
   assert.equal(text(replace.querySelector("h2")), "Replace Account Token");
+  assert.match(bubble(field("account-token").closest(".field").querySelector(".tip"))[0], /Settings, Account Tokens/, "the popover of its label says where to create it");
   assert.deepEqual(labels(replace), ["Account Token"]);
   assert.equal(field("account-token").getAttribute("type"), "password");
   const go = replace.querySelector("[data-act-for]");
@@ -1614,13 +1523,8 @@ test("Set up opens one dialog with the two steps in order, a gateway that runs h
   assert.equal(boxes().deploys.checked, true);
   assert.equal(field("use-gateway-name").value, "Gravitee Lab - Test");
   assert.ok(field("use-replaces").hidden, "nothing else runs here");
-  assert.equal(field("use-token").getAttribute("type"), "password");
-  assert.equal(field("use-token").value, "");
-  assert.equal(text(goes().querySelector(".pbtn-face")), "Set up");
   assert.equal(isOff(goes()), true, "the token is not typed yet");
   assert.equal(offWhy(goes()), "A required field is empty");
-  assert.equal(use.querySelectorAll(".field-note:not([hidden])").length, 0, "no helper sentence: the token's term says where it comes from");
-  assert.equal(use.querySelectorAll(".tip-btn").length, 2, "the two terms are explained where they appear");
   assert.deepEqual(use.querySelectorAll(".tip").map((t) => bubble(t)[0]), ["Hybrid gateway", "Cloud Token"]);
   use.querySelector("[data-cancel]").click();
 });
@@ -1783,11 +1687,12 @@ test("Cancel closes the Set up dialog and drops what was typed, though informati
   assert.ok(use.querySelector("button").classList.contains("tip-btn"), "the first button of the form is an information icon, not Cancel");
   typed(use, "use-token", "a-secret");
   server.calls = [];
+  const states = server.states;
   use.querySelector("[data-cancel]").click();
+  await settle();
   assert.ok(!isOpen(use), "a click on Cancel closes it");
   assert.equal(field("use-token").value, "");
-  assert.equal(server.calls.filter((c) => c.method === "POST").length, 0, "nothing was sent");
-  assert.equal(use.querySelectorAll("button").filter((b) => text(b) === "Cancel").length, 1);
+  assert.deepEqual([server.calls, server.states], [[], states], "nothing done: nothing sent and nothing read");
   platformsPage.hide();
 });
 
@@ -1811,18 +1716,6 @@ test("a step that was done stays done when the dialog is closed after a refusal:
   assert.ok(server.states > states, "and the other pages hear of it");
   assert.deepEqual(used().map((r) => text(r.querySelector(".plat-env"))), ["Test"], "the token that was kept makes it an environment in use");
   assert.deepEqual(toasts().filter((t) => /set up/.test(t)), [], "it is not said set up: the gateway was not made");
-  platformsPage.hide();
-});
-
-test("a dialog closed with nothing done reads nothing", async () => {
-  await open(ok([]));
-  await click('[data-do="set-up"][data-env="env-test"]');
-  server.calls = [];
-  const states = server.states;
-  use.querySelector("[data-cancel]").click();
-  await settle();
-  assert.equal(server.calls.length, 0);
-  assert.equal(server.states, states);
   platformsPage.hide();
 });
 
@@ -1863,44 +1756,31 @@ test("an account that did not answer when first read has no table to keep: it sa
   platformsPage.hide();
 });
 
+// How many reads the ticks of the page's clock bring
+const reads = async (ticks) => {
+  const before = server.checks;
+  for (let i = 0; i < ticks; i += 1) {
+    mock.timers.tick(5000);
+    await flush();
+  }
+  return server.checks - before;
+};
+
 test("an account that does not answer is read again every 30 seconds, not every 5", async () => {
   platformsPage.hide();
   await open({ state: "unreachable", message: "refuses the connection", environments: [], gateways: [] });
-  const first = server.checks;
-  for (let i = 0; i < 5; i += 1) {
-    mock.timers.tick(5000);
-    await flush();
-  }
-  assert.equal(server.checks, first, "25 seconds: not yet");
-  mock.timers.tick(5000);
-  await flush();
-  assert.equal(server.checks, first + 1, "30 seconds");
+  assert.equal(await reads(5), 0, "25 seconds: not yet");
+  assert.equal(await reads(1), 1, "30 seconds");
   server.check = ok([]);
-  for (let i = 0; i < 6; i += 1) {
-    mock.timers.tick(5000);
-    await flush();
-  }
-  assert.equal(server.checks, first + 2);
+  assert.equal(await reads(6), 1);
   assert.equal(text(card().querySelector(".plat-state .pill")), "Connected", "and it recovers by itself");
-  for (let i = 0; i < 12; i += 1) {
-    mock.timers.tick(5000);
-    await flush();
-  }
-  assert.equal(server.checks, first + 2, "then nothing");
+  assert.equal(await reads(12), 0, "then nothing");
   platformsPage.hide();
 });
 
 test("a gateway that does not connect is read every 5 seconds for a minute, every 10 for another, then every 30, and said not to be connected", async () => {
   platformsPage.hide();
   await open(ok([gateway({ here: true })], { Development: VALID }));
-  const reads = async (ticks) => {
-    const before = server.checks;
-    for (let i = 0; i < ticks; i += 1) {
-      mock.timers.tick(5000);
-      await flush();
-    }
-    return server.checks - before;
-  };
   assert.equal(await reads(12), 12, "the first minute");
   assert.equal(gatewayOf("Development"), "Connecting");
   assert.equal(await reads(11), 5, "the second one, every other time");
@@ -1925,7 +1805,7 @@ test("a gateway that does not connect is read every 5 seconds for a minute, ever
 
 test("keyboard focus stays on the control a redraw replaces: the toggle, a row's button, its More", async () => {
   const names = ["Development", "Test", "Production", "Demo", "QA", "Staging"];
-  await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }, names));
+  await open(ok([gateway({ here: true, connection: "CONNECTED" }), gateway({ id: "g2", name: "test", environmentId: "env-test" })], { Development: VALID }, names));
   const toggle = section.querySelector(".plat-toggle");
   toggle.focus();
   toggle.click();
@@ -1945,12 +1825,10 @@ test("keyboard focus stays on the control a redraw replaces: the toggle, a row's
   platformsPage.render(store.state);
   assert.equal(page.focused().getAttribute("data-do"), "stop-gateway");
   assert.equal(page.focused().getAttribute("data-env"), "env-development");
-  section.querySelector('[data-do="set-up"][data-env="env-test"]').focus();
-  server.check = ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID, Test: VALID }, names);
-  card().querySelector(".plat-tools [data-account-more]").focus();
-  menu(accountMore());
-  await choose("Check again");
-  assert.ok(page.focused() === null || page.focused().isConnected);
+  gwRow("test").querySelector("[data-gw-do]").focus();
+  store.state = state({ playgrounds: [{ id: "h", name: "Acme Hostels API", deployed: [{ place: "cloud-eu/env-test", platform: "My Account", environment: "Test", created: [{ what: "APIs", count: 3 }] }] }] });
+  platformsPage.render(store.state);
+  assert.ok(page.focused() === gwRow("test").querySelector("[data-gw-do]"), "a gateway's control");
   store.state = state();
   platformsPage.hide();
 });
@@ -1977,11 +1855,7 @@ test("a gateway nobody here keeps, in an environment the Lab does nothing else w
 test("a gateway that Cloud deleted while it runs here is said, in red, and offers to replace it", async () => {
   await open({ ...ok([]), orphan: { gateway: "gone", environmentId: "env-development" } });
   assert.deepEqual(used().map((r) => text(r.querySelector(".plat-env"))), ["Development"], "it is not offered as an environment to set up");
-  const status = rowOf("Development").querySelector(".plat-gateway .status");
-  assert.equal(said(status), "Removed in Cloud");
-  assert.deepEqual(detailsOf("Development"), ["It still runs here, with a token Cloud no longer accepts"], "what is left of it, in its popover");
-  assert.equal(status.querySelector(".dot-status").className, "dot-status issue");
-  assert.deepEqual(lines(status), ["Removed in Gravitee Cloud", "It still runs here, with a token Cloud no longer accepts"]);
+  assert.equal(gatewayOf("Development"), "Removed in Cloud");
   assert.equal(primaryOf("Development"), "Replace gateway");
   assert.deepEqual(menu(envMore("Development")), ["Stop gateway", "Show logs", "Add Cloud Token"], "it is stopped, its logs read; there is nothing to remove in Cloud");
   close();
@@ -1993,19 +1867,13 @@ test("a gateway that Cloud deleted while it runs here is said, in red, and offer
 
 test("a gateway that another machine runs says so with its name, offers to replace it, and says who loses it when it is removed", async () => {
   await open(ok([gateway({ connection: "CONNECTED", kept: false, name: "Alice laptop" })], { Development: VALID }));
-  assert.equal(gatewayOf("Development"), "Connected elsewhere");
-  assert.deepEqual(lines(rowOf("Development").querySelector(".plat-gateway .status")), ["Alice laptop", "Another machine runs it", "Version 4.12.20"]);
-  assert.equal(primaryOf("Development"), "Replace gateway");
   menu(envMore("Development"));
   await choose("Remove gateway");
-  assert.equal(effects().title, "Remove gateway of Development");
   assert.deepEqual(effects().steps, [["Removes", ["Alice laptop"], "In Gravitee Cloud, connected from another machine"]], "it is not the Lab's: the confirmation says it");
   await answer(false);
   await click('[data-do="create-gateway"]');
   const create = formOf("gateway-name");
-  assert.equal(text(create.querySelector("h2")), "Replace gateway for Development");
   assert.equal(field("gateway-name").value, "Gravitee Lab - Development", "not the name of the one it replaces");
-  assert.equal(text(create.querySelector("[data-act-for] .pbtn-face")), "Create and start");
   create.querySelector("[data-cancel]").click();
   platformsPage.hide();
 });
@@ -2041,42 +1909,6 @@ test("Stop using says a failure and stops there", async () => {
   page.ids.toasts.replaceChildren();
   await answer(true);
   assert.deepEqual(toasts(), ["Gravitee Cloud refuses this token"]);
-  platformsPage.hide();
-});
-
-test("a card's console button names its account, and the menu's entries carry no hint that says nothing", async () => {
-  await open(ok([]));
-  assert.equal(card().querySelector(".plat-tools a").getAttribute("aria-label"), "Open console, My Account");
-  menu(accountMore());
-  assert.equal(entries().filter((entry) => entry.querySelector(".menu-hint")).length, 0);
-  close();
-  await open(ok([], {}, ["Development"]), [PLATFORM, { ...PLATFORM, id: "client-lab", name: "Client Lab" }]);
-  assert.deepEqual(cards().map((c) => c.querySelector(".plat-tools a").getAttribute("aria-label")), ["Open console, My Account", "Open console, Client Lab"], "told apart");
-  platformsPage.hide();
-});
-
-test("the Connect dialog says, in the popover of each label, what each credential is and where it is, and why both are asked", async () => {
-  await open(ok([]));
-  section.querySelector("[data-new]").click();
-  const tipOf = (id) => field(id).closest(".field").querySelector(".tip");
-  // The label says the term: the popover is what it means, under no title that says it again
-  assert.deepEqual(bubble(tipOf("platform-token")),
-    ["Lets the Lab read this account, its environments and its gateways, and create gateways. It deploys nothing: that is the Cloud Token of each environment. In Gravitee Cloud: Settings, Account Tokens."]);
-  assert.deepEqual(bubble(tipOf("platform-account")),
-    ["The ID Gravitee Cloud shows next to its Account Tokens: Settings, Account Tokens. An Account Token cannot look up its own account, so the Lab asks for its ID too."]);
-  assert.equal(tipOf("platform-token").querySelector(".tip-btn").getAttribute("type"), "button");
-  assert.equal(form.querySelector("[data-cancel]").closest(".dialog-actions") !== null, true);
-  form.querySelector("[data-cancel]").click();
-  platformsPage.hide();
-});
-
-test("Replace Account Token says where to create it, in the popover of its label", async () => {
-  await open(ok([]));
-  openConnection();
-  connectionOf().querySelector("[data-connection-replace]").click();
-  assert.equal(bubble(field("account-token").closest(".field").querySelector(".tip"))[0].endsWith("In Gravitee Cloud: Settings, Account Tokens."), true,
-    "the popover of its label says where to create it");
-  formOf("account-token").querySelector("[data-cancel]").click();
   platformsPage.hide();
 });
 

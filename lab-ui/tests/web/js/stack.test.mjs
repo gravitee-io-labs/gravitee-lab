@@ -144,7 +144,7 @@ function withItems() {
   state.services.kazoo = service("kazoo", RUNNING);
   state.services.app = service("app", RUNNING);
   state.addons = [{ ...group("kazoo", "Kazoo", ["kazoo"], RUNNING), kind: "addon", category: "Event", on: true, up: true },
-    { ...group("federation", "API Federation", ["agent"], RUNNING), kind: "addon", category: "Gravitee platform", on: true, up: true }];
+    { ...group("sorrel", "Sorrel", ["agent"], RUNNING), kind: "addon", category: "Gravitee platform", on: true, up: true }];
   state.playgrounds = [{ ...group("shop", "Shop", ["app"], RUNNING), kind: "playground", on: true, up: true, apps: ["app"], deployed: [], deploys_to: [] }];
   return state;
 }
@@ -152,7 +152,7 @@ const keys = () => section.querySelectorAll(".groups > li").map((li) => li.getAt
 
 test("the platform's groups come under its band, its own add-ons inside it under a band of their own, then the other add-ons and the playground", () => {
   draw(withItems());
-  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "addon:federation", "section:Other add-ons", "addon:kazoo",
+  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "addon:sorrel", "section:Other add-ons", "addon:kazoo",
     "section:Playground", "playground:shop"]);
 });
 

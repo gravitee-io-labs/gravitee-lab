@@ -12,7 +12,7 @@ const { ID_PATTERN, compareVersions, hrefOf, router, splitKey, store } = await i
 
 const shown = [];   // the pages the router showed, in order
 for (const [id, pattern] of [["dashboard", /^#\/dashboard$/], ["stack", /^#\/containers$/], ["logs", /^#\/logs$/]]) {
-  router.register({ id, pattern, show: () => shown.push(id) });
+  router.register({ id, pattern, title: id, show: () => shown.push(id) });
 }
 store.state = {};
 const hashes = () => page.session.entries.map((entry) => entry.hash);
@@ -21,6 +21,7 @@ test("the page that opens with no address is the Dashboard", () => {
   router.start();
   assert.deepEqual(shown, ["dashboard"]);
   assert.deepEqual(hashes(), ["#/dashboard"], "its address is written in place of the empty one");
+  assert.equal(page.doc.title, "dashboard - Gravitee Lab");
 });
 
 test("an address that is no page leads to the Dashboard too", () => {

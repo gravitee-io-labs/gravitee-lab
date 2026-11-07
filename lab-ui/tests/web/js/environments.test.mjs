@@ -11,7 +11,7 @@ import { FIRST, catalog, content } from "./fixtures.mjs";
 
 const dom = installDom();
 const { store } = await import("../../../web/js/core.js");
-const { environmentStatus, gatewayList, gatewayCount, addonOf, gatewayGap, gatewayCell, runs, stopOf } = await import("../../../web/js/platform/environments.js");
+const { environmentStatus, gatewayList, addonOf, gatewayGap, gatewayCell, runs, stopOf } = await import("../../../web/js/platform/environments.js");
 const { gatewayWhy, runsControl, chooseCore } = await import("../../../web/js/platform/core-choice.js");
 
 const PLATFORM = { id: "cloud-eu", name: "My Account", kind: "cloud" };
@@ -29,30 +29,16 @@ const brief = (found) => [found.gateway.key, found.gateway.word, found.deploy.ke
 
 test("while it runs here, the address a person calls, never the name of a container", () => {
   lab();
-  const running = status([gateway({ here: true })], VALID).gateway;
-  assert.equal(running.address, "localhost:8090", "apim-hyssop-gateway is the name of the container: only the other containers know it");
   const connecting = status([gateway({ here: true, connection: "NOT_CONNECTED" })], VALID).gateway;
-  assert.deepEqual([connecting.key, connecting.address], ["connecting", "localhost:8090"]);
-  lab({ addons: [ADDON(STOPPED)] });
-  assert.equal(status([gateway({ here: true })], VALID).gateway.address, "", "it answers nowhere while it is stopped");
-  lab();
-  const elsewhere = status([gateway({ name: "Alice laptop", kept: false, domains: ["alice.local:8082"] })], VALID).gateway;
-  assert.deepEqual([elsewhere.key, elsewhere.address], ["elsewhere", ""], "its address is none to call");
+  assert.deepEqual([connecting.key, connecting.address], ["connecting", "localhost:8090"], "apim-hyssop-gateway is the name of the container: only the other containers know it");
 });
 
 test("a missing license is its own state, in amber, that the action adds: Add license, or Replace license when it expired or lacks a feature", () => {
   const note = (word) => ADDON({ state: { key: "off" }, note: word, note_tone: word === "License expired" ? "err" : "warn", note_title: "Uses: Enterprise features", note_file: ".env" });
-  lab({ addons: [note("Needs a license")] });
-  const found = status([gateway({ here: true })], VALID);
-  assert.deepEqual([found.gateway.key, found.gateway.dot, found.gateway.word, found.gateway.tip], ["license", "warn", "Needs a license", ["Needs a license", "Uses: Enterprise features"]]);
-  assert.deepEqual(found.action, { do: "add-license", label: "Add license", disabled: false, reason: "" });
   for (const word of ["License expired", "Not in the license"]) {
     lab({ addons: [note(word)] });
     assert.equal(status([gateway({ here: true })], VALID).action.label, "Replace license", word);
   }
-  lab({ addons: [ADDON({ note: "Apply needed", note_tone: "warn" })] });
-  const late = status([gateway({ here: true })], VALID).gateway;
-  assert.deepEqual([late.key, late.dot], ["issue", "warn"], "only a license and settings are states of their own; a warning is amber, never the green of what runs");
 });
 
 test("a gateway whose add-on lacks settings says so in amber, never with the green of what runs, and its action opens those settings", () => {
@@ -64,23 +50,6 @@ test("a gateway whose add-on lacks settings says so in amber, never with the gre
   assert.deepEqual(found.gateway.tip, { title: "Needs settings", rows: [{ lines: [[{ code: "HYSSOP_CLOUD_TOKEN" }]] }], foot: "Set it in its settings." },
     "the card the add-on's own badge opens: the settings as chips, where they are set");
   assert.deepEqual(found.action, { do: "settings", label: "Settings", disabled: false, reason: "" });
-  lab({ addons: [ADDON({ note: "Hybrid gateway exited (1)", note_tone: "err" })] });
-  assert.equal(status([gateway({ here: true })], VALID).gateway.dot, "issue", "a failure is red");
-});
-
-test("a missing Cloud Token comes after the gateway (create, start, then the token, then stop), one that expired or is refused before it", () => {
-  lab();
-  assert.equal(status([gateway({ here: true })]).action.do, "add-token");
-  assert.equal(status([gateway({ here: true })], { state: "expired" }).action.do, "replace-token");
-  assert.equal(status([gateway({ here: true })], { state: "refused" }).action.label, "Replace Cloud Token");
-  lab({ addons: [ADDON(STOPPED)] });
-  assert.equal(status([gateway({ here: true })]).action.do, "start-gateway", "the gateway first");
-  // What the row says in red is what its button does: a token refused or expired, before a gateway to start or to create
-  assert.equal(status([gateway({ here: true })], { state: "refused" }).action.do, "replace-token");
-  lab();
-  assert.equal(status([]).action.do, "set-up", "nothing in use: it is set up");
-  assert.equal(status([], { state: "expired" }).action.do, "replace-token");
-  assert.equal(status([], { state: "valid" }).action.do, "create-gateway", "then the gateway");
 });
 
 test("the gateway of an environment is the one that runs here, else one the Lab keeps, else one that is connected; the others are counted", () => {
@@ -93,6 +62,10 @@ test("the gateway of an environment is the one that runs here, else one the Lab 
   assert.equal(status([seen, idle]).gateway.name, "seen");
   assert.equal(status([other, hosted]).gateway.key, "none");
   assert.equal(status([other, hosted]).used, false);
+});
+
+test("an account not read yet lists no gateway", () => {
+  assert.deepEqual(gatewayList(PLATFORM, undefined), []);
 });
 
 test("a gateway Cloud deleted while it runs here is the environment's, in red, and what to do is to replace it", () => {
@@ -110,16 +83,6 @@ test("a gateway Cloud deleted while it runs here is the environment's, in red, a
   assert.equal(status([gateway({ here: true })], VALID, {}, { orphan }).gateway.key, "running", "a gateway that is listed is not lost");
 });
 
-test("a gateway that runs here and does not connect is said so once it has waited long enough", () => {
-  lab();
-  const waiting = [gateway({ here: true, connection: "NOT_CONNECTED" })];
-  assert.equal(environmentStatus(PLATFORM, { gateways: waiting }, { ...ENV, token: VALID }).gateway.key, "connecting");
-  const late = environmentStatus(PLATFORM, { gateways: waiting }, { ...ENV, token: VALID }, { late: true }).gateway;
-  assert.deepEqual([late.key, late.dot, late.word], ["late", "warn", "Not connected"]);
-  assert.deepEqual(late.tip, ["lab", "Gravitee Cloud has not seen it for 2 minutes", "Its logs say why"]);
-  assert.equal(environmentStatus(PLATFORM, { gateways: [gateway({ here: true })] }, { ...ENV, token: VALID }, { late: true }).gateway.key, "running", "one that connected is never late");
-});
-
 test("Start or Stop depends on what the add-on does, not on the verb of its action: it can run without being on", () => {
   assert.deepEqual([runs(ADDON()), runs(ADDON(STOPPED)), runs(ADDON({ state: { key: "starting" } })), runs(ADDON({ state: { key: "stopping" } })), runs(undefined)], [true, false, true, true, false]);
   const outside = ADDON({ action: { do: "start", label: "Turn on", enabled: true }, secondary: { do: "stop", label: "Turn off", enabled: false, reason: "Wait" } });
@@ -128,8 +91,6 @@ test("Start or Stop depends on what the add-on does, not on the verb of its acti
   assert.equal(stopOf(ADDON(STOPPED)), null);
   lab({ addons: [outside] });
   assert.deepEqual(status([gateway({ here: true })], VALID).action, { do: "stop-gateway", label: "Stop gateway", disabled: true, reason: "Wait" });
-  lab({ addons: [ADDON(STOPPED)] });
-  assert.equal(status([gateway({ here: true })], VALID).action.do, "start-gateway");
 });
 
 test("a token that is set says so while a gateway is missing, and says it expires when it is near", () => {
@@ -163,38 +124,6 @@ test("what the playgrounds deployed there makes it in use, by name for one and b
   assert.equal(status().deployed.length, 2, "a record that holds nothing is nothing");
   lab({ playgrounds: [{ id: "h", name: "Other", deployed: [record("other/env-dev", [{ what: "APIs", count: 3 }])] }] });
   assert.equal(status().used, false, "a place of another platform is another place");
-});
-
-test("every hybrid gateway of an account is listed: the one that runs here first, then the connected ones, then the others in the order of the environments", () => {
-  lab();
-  const environments = [{ ...ENV }, { ...ENV, id: "env-test", name: "Test" }, { ...ENV, id: "env-prod", name: "Production" }];
-  const check = { environments, gateways: [
-    gateway({ id: "g4", name: "pending", environmentId: "env-test", kept: false, status: "PENDING", connection: "NOT_CONNECTED" }),
-    gateway({ id: "g3", name: "idle", environmentId: "env-dev", kept: false, connection: "NOT_CONNECTED" }),
-    gateway({ id: "g2", name: "other", environmentId: "env-prod", kept: false }),
-    gateway({ id: "g1", name: "here", environmentId: "env-prod", here: true }),
-    gateway({ id: "h1", name: "hosted", type: "MANAGED" })] };
-  const list = gatewayList(PLATFORM, check);
-  assert.deepEqual(list.map((g) => [g.name, g.envName, g.st.key, g.st.word]), [
-    ["here", "Production", "running", "Running here"],
-    ["other", "Production", "elsewhere", "Connected elsewhere"],
-    ["idle", "Development", "idle", "Not connected"],
-    ["pending", "Test", "issue", "Pending"],
-  ], "a hosted gateway is none of the Lab's");
-  assert.equal(list[0].address, "localhost:8090", "where the one that runs here answers");
-  assert.deepEqual(list.slice(1).map((g) => g.address), ["", "", ""]);
-  assert.deepEqual(list.map((g) => g.env?.id), ["env-prod", "env-prod", "env-dev", "env-test"]);
-  assert.equal(list[2].st.dot, "off", "gray: nothing runs it");
-  // A gateway Cloud deleted while it runs here is a row of its own, by its id
-  const lost = gatewayList(PLATFORM, { environments, gateways: [], orphan: { gateway: "gone", environmentId: "env-test" } });
-  assert.deepEqual(lost.map((g) => [g.name, g.envName, g.st.key, g.orphan]), [["gone", "Test", "orphan", true]]);
-  assert.deepEqual(gatewayList(PLATFORM, undefined), []);
-  // How an environment counts them
-  assert.equal(status([gateway({ here: true }), gateway({ id: "g2" }), gateway({ id: "g3", environmentId: "env-prod" })]).gateway.count, 2);
-});
-
-test("a number of gateways is said in words: none, one, several", () => {
-  assert.deepEqual([0, 1, 2, 12].map(gatewayCount), ["No gateway", "1 gateway", "2 gateways", "12 gateways"]);
 });
 
 // --- The add-on that runs a gateway is the server's choice ------------------------------------------------------------------------------

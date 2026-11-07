@@ -26,7 +26,7 @@ const CANNOT = { "acme-bakery": "Needs Access Management" };   // what a place s
 const server = { calls: [], dialog: null };
 const JOB = { id: "ab12cd34", for: "playground:acme-hostels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // The groups of the Stack the page remembers open, and the place that was last chosen to deploy to (the default of every playground)
-const stored = { expanded: JSON.stringify({ "group:api-management": true, "addon:kazoo": true }), deploy: "acme/development" };
+const stored = { expanded: JSON.stringify({ "addon:kazoo": true }), deploy: "acme/development" };
 const page = installDom({ stored, fetch: async (path, options = {}) => {
   const call = { method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined };
   if (path !== "/api/state") server.calls.push(call);
@@ -157,12 +157,8 @@ const REMEMBERED = [lacks("No hybrid gateway", "Set up a gateway in Development 
 // Everything these pages draw for the lab of S1, by name
 function everything() {
   const dom = {};
-  draw(S1.calm, [], REMEMBERED);
-  dom["banner: the core stopped, nothing runs"] = drawn(banner());
-  draw(S1.running, [], REMEMBERED);
-  dom["banner: the core runs"] = drawn(banner());
   draw(S1.away, [], REMEMBERED);
-  dom["banner: the core stopped, an add-on runs"] = drawn(banner());
+  dom["banner: the core stopped"] = drawn(banner());
   open("playgrounds", "acme-hostels");
   open("setups", "messaging");
   open("addons", "kazoo");
@@ -476,8 +472,7 @@ test("the Start of a row waits for the places while a place is kept and they are
 });
 
 test("the note of an add-on that needs a hybrid gateway leads to the Gravitee Cloud page", () => {
-  const needs = (more) => lab({ ...more });
-  const withNote = needs({});
+  const withNote = lab();
   withNote.addons[0] = { ...withNote.addons[0], note: "Needs a hybrid gateway", note_tone: "warn", note_target: { kind: "platform" } };
   draw(withNote, [ACCOUNT], [place()]);
   const note = row("addons", "kazoo").querySelector(".list-state .note");
@@ -920,20 +915,6 @@ test("the status is written once and stays while it does not change: the bar is 
   draw(noItem("failed", {}, [catalog({ id: "gravitee", commit: "" })]));
   assert.ok(status("playgrounds")[0] !== block);
   assert.equal(status("playgrounds").length, 1, "one status, never two");
-  alone();
-});
-
-test("Try again and Add the catalog that is listed answer from the lists", async () => {
-  draw(noItem("failed", {}, [catalog({ id: "gravitee", commit: "" })]));
-  server.calls = [];
-  page.doc.dispatchEvent(new Ev("click", { target: status("playgrounds")[0].querySelector("[data-content-act]") }));
-  await flush();
-  assert.deepEqual(posts(), [["/api/catalogs/gravitee/check", {}]]);
-  draw(noItem("none"));
-  server.calls = [];
-  page.doc.dispatchEvent(new Ev("click", { target: status("setups")[0].querySelector("[data-content-act]") }));
-  await flush();
-  assert.deepEqual(posts(), [["/api/catalogs", { listed: "gravitee" }]]);
   alone();
 });
 

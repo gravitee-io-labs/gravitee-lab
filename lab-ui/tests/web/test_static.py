@@ -114,7 +114,7 @@ class Imports(Case):
 class Routes(Case):
 
     def test_the_id_of_an_item_is_written_in_its_path_as_it_is(self):
-        # The routes take the slash of `local/acme-shop` and `@catalog/acme-shop`: an id written %2F is a 404 (the terminal was)
+        # The routes take the slash of `local/hotels` and `@catalog/hotels`: an id written %2F is a 404 (the terminal was)
         for module in MODULES:
             self.assertNotRegex(module.read_text(), r"/api/(?:playgrounds|addons|setups)/\$\{encodeURIComponent\(",
                                 f"{name(module)} writes the id of an item with encodeURIComponent in its path")
