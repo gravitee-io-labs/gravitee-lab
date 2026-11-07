@@ -2151,7 +2151,7 @@ class GoingBack(Partner):
     def test_going_back_to_a_version_written_for_a_level_this_lab_no_longer_reads_is_refused_as_an_update_is(self):
         # The Lab moved on since: the version the person left is "Written for an older Gravitee Lab", and going back to it is not offered
         before = (registry.lock_of("partner"), self.digest())
-        self.patch(service, "_contract", lambda: {"contract": 2, "contract_min": 2, "seeder_image": ""})
+        self.patch(service, "_contract", lambda: {"contract": 2, "contract_min": 2})
         for listed, line in ((False, "Written for an older Gravitee Lab. Ask its owners to update it."),
                              (True, "The catalog is not ready for this version of the Lab. Try again later.")):
             if listed:
@@ -2162,7 +2162,7 @@ class GoingBack(Partner):
             self.assertFalse((self.root / ".lab" / "catalogs" / ".stage-partner").exists(), "what was refused is not left to install")
             self.assertEqual(service.TICKETS, {})
         self.assertEqual((registry.lock_of("partner"), self.digest()), before, "nothing moved")
-        self.patch(service, "_contract", lambda: {"contract": 2, "contract_min": 1, "seeder_image": ""})
+        self.patch(service, "_contract", lambda: {"contract": 2, "contract_min": 1})
         self.assertEqual(service.undo("partner", check=True)["to"], self.first[:7], "a Lab that still reads it goes back")
 
     def test_going_back_while_an_item_is_on_is_held_like_an_update(self):
