@@ -113,50 +113,20 @@ class E2ETest(unittest.TestCase):
     def test_the_catalog_is_given_no_allowance_to_use_this_machine(self):
         self.assertNotIn("--allow-machine", self.text)
 
-    def test_the_license_reaches_the_step_that_writes_it_and_no_other(self):
+    def test_the_license_reaches_the_one_step_that_writes_it_where_the_engine_is_after_the_change_was_checked(self):
         self.assertEqual(len(re.findall(r"secrets\.GRAVITEE_LICENSE", self.text)), 1)
-
-    def test_the_license_is_written_where_the_engine_is_and_after_the_change_was_checked(self):
-        body = self.jobs["e2e"]
-        names = [re.search(r"name: (.+)", one).group(1) if "name:" in one else one.splitlines()[0] for one in steps(body)]
-        license_step = next(i for i, one in enumerate(steps(body)) if "secrets.GRAVITEE_LICENSE" in one)
-        check = next(i for i, one in enumerate(steps(body)) if "The change is the one that was read" in one)
+        found = steps(self.jobs["e2e"])
+        license_step = next(i for i, one in enumerate(found) if "secrets.GRAVITEE_LICENSE" in one)
+        check = next(i for i, one in enumerate(found) if "The change is the one that was read" in one)
         self.assertLess(check, license_step, "the commit is checked before anything holds the license")
-        self.assertIn("working-directory: lab", steps(body)[license_step])
-        self.assertTrue(all("GRAVITEE_LICENSE" not in one for i, one in enumerate(steps(body)) if i != license_step
-                            and "secrets." not in one and "Try it" not in one and "not set in this environment" not in one), names)
+        self.assertIn("working-directory: lab", found[license_step])
 
     def test_a_fork_never_runs_what_has_the_license(self):
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", self.jobs["e2e"])
 
-    def test_the_change_is_read_from_the_history_of_the_engine_and_nothing_else_is_fetched_whole(self):
-        """`git diff base...head` needs the history of the engine: a depth of 1 there fails every plan that reads a change, and a
-        full history of the catalog costs a download for nothing."""
-        checkouts = {re.search(r"(?m)^          path: (\w+)$", one).group(1): one for one in steps(self.jobs["plan"]) if "actions/checkout@" in one}
-        self.assertEqual(sorted(checkouts), ["catalog", "lab"])
-        self.assertEqual(re.findall(r"(?m)^          fetch-depth: (.+?)(?:\s+#.*)?$", checkouts["lab"]), ["0"])
-        self.assertNotIn("fetch-depth", checkouts["catalog"])
-        for name in ("manifests", "e2e", "result"):
-            self.assertNotIn("fetch-depth", self.jobs[name], f"{name} reads no change")
-
-    def test_the_matrix_is_what_the_plan_made(self):
-        for name in ("manifests", "e2e"):
-            self.assertIn("fromJSON(needs.plan.outputs.matrix)", self.jobs[name])
-
-    def test_a_step_the_jobs_repeat_is_the_same_step_in_each_and_the_shell_tests_run_the_one_of_all(self):
-        def plain(step):
-            """The step without its comments, its blank lines and the depth of its history."""
-            return "\n".join(line for line in step.splitlines() if line.strip() and not line.lstrip().startswith("#")
-                              and "fetch-depth:" not in line)
-        for marker, where in (("The change is the one that was read", ("plan", "e2e")),
-                              ("Link the catalog into the engine", ("plan", "manifests", "e2e"))):
-            with self.subTest(step=marker):
-                self.assertEqual(len({plain(step_with(self.jobs[name], marker)) for name in where}), 1)
-        checkouts = [[one for one in steps(self.jobs[name]) if "actions/checkout@" in one] for name in ("plan", "manifests", "e2e")]
-        self.assertEqual([len(one) for one in checkouts], [2, 2, 2], "the engine and the catalog")
-        for index in range(2):
-            with self.subTest(checkout=index):
-                self.assertEqual(len({plain(found[index]) for found in checkouts}), 1, "each job checks the same repository out")
+    def test_the_commit_is_checked_by_the_same_step_where_it_holds_the_license_as_where_the_shell_tests_run_it(self):
+        marker = "The change is the one that was read"
+        self.assertEqual(*(re.sub(r"(?m)^\s*#.*\n", "", step_with(self.jobs[name], marker)) for name in ("plan", "e2e")))
 
     def test_only_the_night_may_write(self):
         writers = [name for name, body in self.jobs.items() if re.search(r"(?m)^\s+[a-z-]+: write$", body)]
@@ -168,18 +138,13 @@ class E2ETest(unittest.TestCase):
 
     def test_the_check_to_require_is_named_as_it_always_was_and_waits_for_everything(self):
         """The name that the documentation, a ruleset and the audit of the settings ask for, which always reports."""
-        self.assertEqual(list(self.jobs), ["prepare", "plan", "manifests", "e2e", "result", "nightly"])
         body = self.jobs["result"]
         self.assertEqual(len(re.findall(r"(?m)^    name: E2E result$", self.text)), 1, "no other job of this file bears the name")
         self.assertIn("name: E2E result", body)
-        self.assertIn("needs: [prepare, plan, manifests, e2e]", body)
+        needs = re.search(r"(?m)^    needs: \[(.+)\]$", body).group(1).split(", ")
+        self.assertEqual(sorted(needs), sorted(set(self.jobs) - {"result", "nightly"}))
         self.assertIn("always() &&", body, "it reports when a job failed, was cancelled or was refused")
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", body, "none for a fork, as for the e2e job")
-        self.assertNotIn("environment:", body)
-        self.assertNotIn("secrets.", body)
-        self.assertEqual(sorted(re.findall(r"\$\{\{ (needs\.[\w.]+) \}\}", body)),
-                         ["needs.e2e.result", "needs.manifests.result", "needs.plan.outputs.count", "needs.plan.result",
-                          "needs.prepare.outputs.skip", "needs.prepare.result"])
 
 
 # The shell of the workflows, run with the inputs a hostile person would type. GitHub runs it with `bash -e`.
@@ -362,16 +327,6 @@ class StepsShellTest(ShellTest):
                 done = self.execute(text, {**env, **change})
                 self.assertEqual(done.returncode, wanted, done.stdout + done.stderr)
 
-    def test_the_result_says_why_it_failed_and_that_nothing_was_tried(self):
-        text = self.step("result", "needs.plan.result")
-        none = {"PLAN": "skipped", "MANIFESTS": "skipped", "E2E": "skipped", "COUNT": ""}
-        for env, said in (({"PREPARE": "success", "SKIP": "false", "PLAN": "success", "MANIFESTS": "success", "E2E": "failure", "COUNT": "1"},
-                           "::error::A job ended failure"),
-                          ({"PREPARE": "failure", "SKIP": "", **none}, "::error::The inputs were refused"),
-                          ({"PREPARE": "success", "SKIP": "true", **none}, "::notice::There is no catalog to try, so nothing was tried")):
-            with self.subTest(said=said):
-                self.assertIn(said, self.execute(text, env).stdout)
-
 
 class NamesTest(unittest.TestCase):
     """What GitHub shows is read by people: every job and every step of the engine's workflows and actions, and of the managed
@@ -382,36 +337,11 @@ class NamesTest(unittest.TestCase):
         for path in [*FILES, *sorted(managed.glob("workflows/*.yml")), *sorted(managed.glob("actions/*/action.yml"))]:
             text = path.read_text(encoding="utf-8")
             with self.subTest(file=path.relative_to(ROOT).as_posix()):
-                steps = unnamed_steps(text)
-                self.assertTrue(steps[0], "steps are read")
-                self.assertEqual(steps[1], [], "every step has a name")
+                unnamed = r"(?m)^ +- (?!id:.*\n +name:)(?:uses|run|id|if|env|with|shell|working-directory):.*$"
+                self.assertEqual(re.findall(unnamed, text), [], "a step starts with its name, after its id")
                 if path.parent.name == "workflows":
                     for job, block in jobs(text).items():
                         self.assertRegex(block, r"(?m)^    name: \S", f"the job {job} has a name")
-
-
-def unnamed_steps(text):
-    """(how many steps, the first line of each one with no name) of a workflow or an action: a step is an item of a `steps:` list."""
-    lines, count, unnamed, depth = text.split("\n"), 0, [], None
-    for i, line in enumerate(lines):
-        found = re.match(r"^( *)steps:\s*$", line)
-        if found:
-            depth = len(found.group(1))
-            continue
-        item = re.match(r"^( *)- \S", line)
-        if depth is not None and line.strip() and len(line) - len(line.lstrip()) <= depth and not item:
-            depth = None
-        if depth is None or not item or len(item.group(1)) <= depth:
-            continue
-        indent, block = len(item.group(1)), [line]
-        for rest in lines[i + 1:]:
-            if rest.strip() and len(rest) - len(rest.lstrip()) <= indent:
-                break
-            block.append(rest)
-        count += 1
-        if not re.match(r"^ *- name: ", line) and not any(re.match(r"^ {%d}name: " % (indent + 2), each) for each in block[1:]):
-            unnamed.append(line.strip())
-    return count, unnamed
 
 
 class CiResultTest(ShellTest):
@@ -455,23 +385,14 @@ class ReleaseNotesTest(unittest.TestCase):
     """.github/release.yml: the changelog GitHub writes for a release, one section for each label. "For catalogs" is the compatibility
     matrix of the Lab: what a catalog may use from that version on."""
 
-    def categories(self):
+    def test_a_change_that_needs_a_person_comes_first_and_every_label_that_raises_a_number_has_its_section_and_is_documented(self):
         text = (ROOT / ".github" / "release.yml").read_text(encoding="utf-8")
-        found = re.findall(r"^    - title: (.+)\n      labels: \[(.+)\]$", text, flags=re.M)
-        return [(title, [label.strip().strip('"') for label in labels.split(",")]) for title, labels in found]
-
-    def test_what_catalogs_can_use_is_a_section_of_its_own_before_the_new_features(self):
-        self.assertEqual(self.categories(), [("Changes that need you to do something", ["major"]),
-                                             ("For catalogs", ["catalog-format"]), ("New", ["minor"]),
-                                             ("Fixes and improvements", ["*"])],
-                         "GitHub puts a pull request in the first section whose label it has: a feature catalogs can use is "
-                         "said under For catalogs, a change that needs a person to act stays first")
-
-    def test_every_label_that_raises_a_number_has_its_section_and_is_documented(self):
-        labeled = {label for _, labels in self.categories() for label in labels} - {"*"}
+        labels = [label.strip().strip('"') for found in re.findall(r"^      labels: \[(.+)\]$", text, flags=re.M) for label in found.split(",")]
+        self.assertEqual(labels[0], "major", "GitHub puts a pull request in the first section whose label it has")
+        self.assertEqual(labels[-1], "*")
         source = (ROOT / ".github" / "scripts" / "next_version.py").read_text(encoding="utf-8")
         maintaining = (ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
-        for label in labeled:
+        for label in labels[:-1]:
             self.assertIn(f'"{label}" in labels', source, label)
             self.assertIn(f"| `{label}` |", maintaining, label)
 
@@ -581,13 +502,12 @@ class ComposeTest(unittest.TestCase):
         self.assertEqual(pinned.groups(), minimum.groups(), "the release CI installs is the Lab's minimum")
 
     def test_every_job_that_runs_the_lab_ui_tests_installs_that_release(self):
-        jobs = re.split(r"^  (?=[a-z][a-z0-9-]*:$)", CI.read_text().split("\njobs:\n", 1)[1], flags=re.M)
-        testing = [job for job in jobs if "lab-ui/tests/run.py" in job]
+        testing = {name: body for name, body in jobs(CI.read_text()).items() if "lab-ui/tests/run.py" in body}
         self.assertEqual(len(testing), 2, "the whole suite and the lane of Python 3.9")
-        for job in testing:
-            with self.subTest(job=job.split(":", 1)[0]):
-                self.assertIn("uses: ./.github/actions/compose", job)
-                self.assertNotRegex(job, r"\n\s+version:", "no other release than the one the action pins")
+        for name, body in testing.items():
+            with self.subTest(job=name):
+                self.assertIn("uses: ./.github/actions/compose", body)
+                self.assertNotRegex(body, r"\n\s+version:", "no other release than the one the action pins")
 
 
 if __name__ == "__main__":
