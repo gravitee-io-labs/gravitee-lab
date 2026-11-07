@@ -899,7 +899,7 @@ class Handler(BaseHTTPRequestHandler):
                 return handler(self, *found.groups())
         raise paths.NotFound("Not found")
 
-    def read_json(self, limit=MAX_BODY):
+    def read_json(self, limit):
         size = self.headers.get("Content-Length") or "0"
         if not (size.isascii() and size.isdigit()):   # a negative number reads until the connection closes
             raise ValueError("The Content-Length must be a number of bytes")

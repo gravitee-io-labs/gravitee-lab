@@ -91,18 +91,15 @@ class AnyId(Case):
     def setUp(self):
         self.patch(paths, "default_ns", return_value="base")
 
-    def test_an_item_of_another_catalog_is_named_with_its_catalog(self):
-        self.assertEqual(e2e.target("playground:@hub/bank", self.BUILT), ("playground", "@hub/bank"))
-        self.assertEqual(e2e.target("addon:@hub/ledger", self.BUILT), ("addon", "@hub/ledger"))
-
-    def test_an_item_of_the_first_catalog_may_be_written_with_its_catalog_too_and_is_the_bare_one(self):
-        self.assertEqual(e2e.target("playground:@base/shop", self.BUILT), ("playground", "shop"))
+    def test_an_item_is_named_with_its_catalog_and_the_first_catalog_may_be_written_too(self):
+        for text, found in (("playground:@hub/bank", ("playground", "@hub/bank")), ("addon:@hub/ledger", ("addon", "@hub/ledger")),
+                            ("playground:@base/shop", ("playground", "shop"))):
+            self.assertEqual(e2e.target(text, self.BUILT), found)
 
     def test_an_item_of_a_catalog_that_has_no_such_item_is_said(self):
-        with self.assertRaisesRegex(ValueError, "No playground named @hub/shop"):
-            e2e.target("playground:@hub/shop", self.BUILT)
-        with self.assertRaisesRegex(ValueError, "No add-on named @other/ledger"):
-            e2e.target("addon:@other/ledger", self.BUILT)
+        for text, words in (("playground:@hub/shop", "No playground named @hub/shop"), ("addon:@other/ledger", "No add-on named @other/ledger")):
+            with self.assertRaisesRegex(ValueError, words):
+                e2e.target(text, self.BUILT)
 
     def test_what_belongs_to_this_machine_is_refused_for_what_it_is(self):
         with self.assertRaisesRegex(ValueError, "playground:local/mine belongs to this machine"):
@@ -204,31 +201,28 @@ class Versions(Case):
 
 class Machine(Case):
 
-    def shell(self, answers):
-        calls = []
-
-        def run(command, timeout=0):
-            calls.append(command)
-            return answers.pop(0)
-        return run, calls
+    def asked(self, *answers):
+        """Docker answers these in turn, of the project gravitee: what clean_machine says, and the commands it ran."""
+        self.patch(compose, "project_name", return_value="gravitee")
+        ran = self.patch(compose, "run", side_effect=answers)
+        return e2e.clean_machine(), [call.args[0] for call in ran.call_args_list]
 
     def test_a_machine_with_no_lab_is_free(self):
-        shell, calls = self.shell([(0, "", ""), (0, "\n", "")])
-        self.assertIsNone(e2e.clean_machine(shell, "gravitee"))
+        said, calls = self.asked((0, "", ""), (0, "\n", ""))
+        self.assertIsNone(said)
         self.assertEqual([command[:3] for command in calls], [["docker", "ps", "-aq"], ["docker", "volume", "ls"]])
         self.assertIn("label=com.docker.compose.project=gravitee", calls[0])
 
     def test_containers_or_volumes_a_person_left_are_not_run_over(self):
         for answers, what in (([(0, "a1b2\n", "")], "containers"), ([(0, "", ""), (0, "gravitee_mongo\n", "")], "volumes")):
             with self.subTest(what=what):
-                shell, _ = self.shell(answers)
-                said = e2e.clean_machine(shell, "gravitee")
+                said, _ = self.asked(*answers)
                 self.assertIn(f"already has {what} of the lab (gravitee)", said)
                 self.assertIn("make reset", said)
 
     def test_docker_that_does_not_answer_is_said(self):
-        shell, _ = self.shell([(1, "", "Cannot connect\nIs the docker daemon running?")])
-        self.assertEqual(e2e.clean_machine(shell, "gravitee"), "Docker does not answer: Is the docker daemon running?")
+        said, _ = self.asked((1, "", "Cannot connect\nIs the docker daemon running?"))
+        self.assertEqual(said, "Docker does not answer: Is the docker daemon running?")
 
 
 class Starting(Case):
@@ -857,9 +851,7 @@ class Planning(Case):
     def test_a_change_in_the_engine_is_read_in_the_engine_and_runs_the_canary_when_it_changes_what_every_item_shares(self):
         self.assertEqual(self.items(self.changed("seeder/seed.py", "docs/a.md")), ["playground:tour"])
         self.assertEqual(self.changed("docs/a.md")["count"], 0)
-
-    def test_a_change_in_the_engine_never_tries_an_item_for_a_file_that_looks_like_one(self):
-        self.assertEqual(self.changed("addons/echo/compose.yml")["count"], 0)
+        self.assertEqual(self.changed("addons/echo/compose.yml")["count"], 0, "a file that looks like an item is not one")
 
     def test_a_catalog_this_engine_does_not_have_is_said_with_how_to_link_it(self):
         self.linked.clear()

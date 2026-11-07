@@ -147,13 +147,13 @@ def keep_on_file():
     return restore
 
 
-def clean_machine(shell=compose.run, name=None):
+def clean_machine():
     """What a machine that is free for a run holds of the lab: nothing. Containers and volumes of the project, whatever their
     state, are what a person left, and the run removes everything it made at its end: it will not remove theirs. Returns
     the reason it is not free, or None."""
-    name = name or compose.project_name()
+    name = compose.project_name()
     for what, command in (("containers", ["docker", "ps", "-aq"]), ("volumes", ["docker", "volume", "ls", "-q"])):
-        rc, out, err = shell([*command, "--filter", f"label=com.docker.compose.project={name}"], timeout=30)
+        rc, out, err = compose.run([*command, "--filter", f"label=com.docker.compose.project={name}"], timeout=30)
         if rc != 0:
             return f"Docker does not answer: {(err or out).strip().splitlines()[-1] if (err or out).strip() else 'no reason given'}"
         if out.strip():
@@ -567,10 +567,10 @@ def named(words, built, ns):
     return list(dict.fromkeys(found))
 
 
-def shortened(text, limit=60):
+def shortened(text):
     """Text from anywhere as one quoted line that can be printed: cut, and in quotes, so that it starts with no `::`."""
     text = " ".join(str(text).split())
-    return repr(text if len(text) <= limit else text[:limit - 1] + "…")
+    return repr(text if len(text) <= 60 else text[:59] + "…")
 
 
 def jobs(items, sets):

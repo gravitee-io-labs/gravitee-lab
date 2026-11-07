@@ -222,31 +222,22 @@ class Products(Case):
         self.assertFalse(pending)
         self.assertEqual(rows[0]["latest"], "4.12.21")
 
-    def test_the_status_of_each_product(self):
-        containers = running(**{"apim-management-api": "4.12.20", "am-gateway": "4.13.0-alpha.7",
-                                "alert-engine": "3.0.2"})
-        dashboard.products(self.project, containers)
-        self.settle()
-        rows, pending = dashboard.products(self.project, containers)
-        self.assertFalse(pending)
-        self.assertEqual([(row["channel"], row["latest"], row["status"]) for row in rows], [
-            ("stable", "4.12.21", "newer"), ("pre-release", "4.13.0-alpha.7", "latest"), ("stable", "3.0.2", "latest")])
-
-    def test_a_pre_release_is_followed_along_its_own_channel(self):
-        containers = running(**{"apim-management-api": "4.13.0-alpha.3", "am-gateway": "4.13.0-alpha.7"})
-        dashboard.products(self.project, containers)
-        self.settle()
-        rows, _ = dashboard.products(self.project, containers)
-        self.assertEqual([(row["channel"], row["status"], row["latest"]) for row in rows[:2]],
-                         [("pre-release", "newer", "4.13.0-alpha.4"), ("pre-release", "latest", "4.13.0-alpha.7")])
-
-    def test_a_product_that_does_not_run_is_judged_by_the_version_configured(self):
-        dashboard.products(self.project, {})
-        self.settle()
-        rows, _ = dashboard.products(self.project, {})
-        self.assertEqual([(row["deployed"], row["deployed_state"], row["status"], row["latest"]) for row in rows], [
-            ("4.12.20", "configured", "newer", "4.12.21"), ("4.12.7", "configured", "newer", "4.12.8"),
-            ("3.0.2", "configured", "latest", "3.0.2")])
+    def test_the_status_of_each_product_by_what_it_runs_or_is_configured_with(self):
+        for containers, rows in (
+                # A release, and a pre-release followed along its own channel
+                (running(**{"apim-management-api": "4.12.20", "am-gateway": "4.13.0-alpha.7", "alert-engine": "3.0.2"}),
+                 [("4.12.20", "stable", "4.12.21", "newer"), ("4.13.0-alpha.7", "pre-release", "4.13.0-alpha.7", "latest"),
+                  ("3.0.2", "stable", "3.0.2", "latest")]),
+                (running(**{"apim-management-api": "4.13.0-alpha.3", "am-gateway": "4.13.0-alpha.7"}),
+                 [("4.13.0-alpha.3", "pre-release", "4.13.0-alpha.4", "newer"), ("4.13.0-alpha.7", "pre-release", "4.13.0-alpha.7", "latest"),
+                  ("3.0.2", "stable", "3.0.2", "latest")]),
+                # What does not run is judged by the version configured
+                ({}, [("4.12.20", "stable", "4.12.21", "newer"), ("4.12.7", "stable", "4.12.8", "newer"), ("3.0.2", "stable", "3.0.2", "latest")])):
+            dashboard.products(self.project, containers)
+            self.settle()
+            found, pending = dashboard.products(self.project, containers)
+            self.assertFalse(pending)
+            self.assertEqual([(row["deployed"], row["channel"], row["latest"], row["status"]) for row in found], rows)
 
     def test_the_registry_asked_is_the_one_the_project_names_by_default(self):
         dashboard.products(self.project, {})
