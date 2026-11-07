@@ -17,10 +17,8 @@ The management API answers as the real Cloud does to an Account Token, which ope
 
 Cloud Gate (/apim/rest) takes a Cloud Token, a JWT with the claims of a real one (org, envs, scopes automation and rest,
 aud CloudGate, exp). It answers 401 to a token that is revoked, expired, for another environment than the path's, or no
-Cloud Token. A gateway's token carries claims too (scopes reports and sync, meta GATEWAYID). It serves what a seed does
-to put an API in an environment and to take it out: the list, the import, the publication, the deployment, the start,
-the stop and the deletion. Deploying an API whose type needs a feature that the organization's license lacks answers
-403, as the real Cloud does."""
+Cloud Token. A gateway's token carries claims too (scopes reports and sync, meta GATEWAYID). It answers the read that proves
+a token, the plugins and the license: a seed cannot put anything there."""
 
 import argparse
 import base64
@@ -58,9 +56,7 @@ SECOND_ACCOUNT = {"id": "d7a34c19-52f0-4b86-8e1d-3c9a60b7f215", "hrid": "client-
                   "installationId": "fake-second-installation"}
 SECOND_ENVIRONMENTS = environments("fake-second-organization", "Client Lab",
                                    ("client-dev", "Development"), ("client-test", "Test"))
-# The features that the license of each organization gives, which decide what a deploy is allowed to put there
-FEATURES = {"fake-organization": ["apim-bridge-gateway"], "fake-second-organization": ["apim-bridge-gateway", "mcp"]}
-NEEDS = {"MCP_PROXY": "mcp"}   # the feature that deploying an API of a type needs
+
 ID = "([^/]+)"
 
 
@@ -135,7 +131,7 @@ class State:
     def __init__(self, connect_after=5.0, version=VERSION):
         self.connect_after, self.gateways, self.tokens, self.lock = connect_after, {}, {}, threading.Lock()
         self.version = version
-        self.apis, self.revoked, self.asked = {}, set(), []
+        self.revoked, self.asked = set(), []
         # What the Cloud says of what it offers: the plan of the account (gammaEnabled), the scopes of the access points
         # of its organizations, the license text, and what the Management API has installed, by kind, {id: deployed}
         self.subscription = {"maxNumberOrgs": 10, "maxNumberEnvs": 10, "gammaEnabled": False, "maxNumberSaasGateways": 10}
@@ -319,106 +315,9 @@ class Handler(BaseHTTPRequestHandler):
         organization, environment, rest = scope.groups()
         if organization != found.get("org") or [environment] != found.get("envs"):
             return self.fail(401, "Unauthorized")   # a Cloud Token opens its own environment
-        self.scope = (organization, environment)
-        for verb, pattern, handler in [
-            ("GET", "/apis", lambda: self.apis(url.query)),
-            ("POST", "/apis/_import/definition", self.import_api),
-            ("GET", f"/apis/{ID}", self.api),
-            ("PUT", f"/apis/{ID}", self.update_api),
-            ("POST", f"/apis/{ID}/deployments", self.deploy),
-            ("POST", f"/apis/{ID}/_start", self.start),
-            ("POST", f"/apis/{ID}/_stop", self.stop),
-            ("DELETE", f"/apis/{ID}", self.remove),
-        ]:
-            matched = re.fullmatch(pattern, rest or "") if verb == method else None
-            if matched:
-                return handler(*matched.groups())
+        if method == "GET" and rest == "/apis":
+            return self.send(200, {"data": [], "pagination": {}})
         return self.fail(404, "Not found")
-
-    def held(self, api):
-        """The API of this environment with this id, None for none: it answers 404 for the caller."""
-        found = self.server.state.apis.get(api)
-        if found and (found["organizationId"], found["environmentId"]) == self.scope:
-            return found
-        self.fail(404, f"Api [{api}] cannot be found")
-
-    def body_object(self):
-        """The JSON object the request sent, None after it answered 400."""
-        try:
-            body = json.loads(self.body or b"{}")
-        except ValueError:
-            body = None
-        if not isinstance(body, dict):
-            self.fail(400, "Bad request: the body is not a JSON object")
-        return body if isinstance(body, dict) else None
-
-    def apis(self, query):
-        per = parse_qs(query).get("perPage", ["10"])[0]
-        size = int(per) if per.isdigit() and int(per) > 0 else 10
-        state = self.server.state
-        with state.lock:
-            mine = [found for found in state.apis.values()
-                    if (found["organizationId"], found["environmentId"]) == self.scope]
-        self.send(200, {"data": mine[:size], "pagination": {
-            "page": 1, "perPage": size, "pageCount": -(-len(mine) // size) or 1, "pageItemsCount": len(mine[:size]),
-            "totalCount": len(mine)}})
-
-    def import_api(self):
-        body = self.body_object()
-        if body is None:
-            return
-        definition = body.get("api")
-        if not isinstance(definition, dict) or not isinstance(definition.get("name"), str) or not definition["name"]:
-            return self.fail(400, "Bad request: the definition holds no api with a name")
-        found = {"id": definition["id"] if isinstance(definition.get("id"), str) and definition["id"]
-                 else str(uuid.uuid4()),
-                 "name": definition["name"], "type": definition.get("type") or "PROXY", "state": "STOPPED",
-                 "lifecycleState": "CREATED", "deploymentState": "NEED_REDEPLOY",
-                 "organizationId": self.scope[0], "environmentId": self.scope[1]}
-        with self.server.state.lock:
-            self.server.state.apis[found["id"]] = found
-        self.send(201, found)
-
-    def api(self, api):
-        found = self.held(api)
-        if found:
-            self.send(200, found)
-
-    def update_api(self, api):
-        found = self.held(api)
-        body = self.body_object() if found else None
-        if body is not None:
-            if isinstance(body.get("lifecycleState"), str):
-                found["lifecycleState"] = body["lifecycleState"]
-            self.send(200, found)
-
-    def deploy(self, api):
-        found = self.held(api)
-        if not found:
-            return
-        needed = NEEDS.get(found["type"])
-        if needed and needed not in FEATURES.get(self.scope[0], []):
-            return self.fail(403, f"Feature '{needed}' is not available with your license tier")
-        found["deploymentState"] = "DEPLOYED"
-        self.send(202, found)
-
-    def start(self, api):
-        found = self.held(api)
-        if found:
-            found["state"] = "STARTED"
-            self.send(204)
-
-    def stop(self, api):
-        found = self.held(api)
-        if found:
-            found["state"] = "STOPPED"
-            self.send(204)
-
-    def remove(self, api):
-        if self.held(api):
-            with self.server.state.lock:
-                del self.server.state.apis[api]
-            self.send(204)
 
 
 def serve(port=0, connect_after=5.0, version=VERSION):
