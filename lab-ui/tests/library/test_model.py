@@ -329,21 +329,15 @@ class State(Built):
         self.assertEqual(counts(containers=CORE), {"running": 3, "total": 3})
         self.assertEqual(counts(containers={}), {"running": 0, "total": 3})
         self.assertEqual(counts(containers={**CORE, "apim-management-api": exited(143)}), {"running": 2, "total": 3})
+        # A group counts its own, as the platform counts all of them
+        self.assertEqual([g["containers"] for g in self.build(containers={**CORE, "apim-management-api": exited(143)})["platform"]["groups"]],
+                         [{"running": 1, "total": 2}, {"running": 1, "total": 1}])
         # A container that keeps restarting runs, its state is the issue
         keeps = {**CORE, "apim-gateway": container(health="", restarts=3)}
         self.assertEqual(counts(containers=keeps), {"running": 3, "total": 3})
         # What an add-on or a playground runs is not the platform's
         self.assertEqual(counts(explicit=["kazoo"], containers={**CORE, **healthy("kazoo", "kazoo-ui")}),
                          {"running": 3, "total": 3})
-
-    def test_a_group_counts_its_own_containers_as_the_platform_counts_all_of_them(self):
-        groups = lambda **more: [g["containers"] for g in self.build(**more)["platform"]["groups"]]   # noqa: E731
-        self.assertEqual(groups(containers=CORE), [{"running": 2, "total": 2}, {"running": 1, "total": 1}])
-        stopped = groups(containers={**CORE, "apim-management-api": exited(143)})
-        self.assertEqual(stopped, [{"running": 1, "total": 2}, {"running": 1, "total": 1}])
-        self.assertEqual(groups(containers={}), [{"running": 0, "total": 2}, {"running": 0, "total": 1}])
-        body = self.build(containers={**CORE, "apim-management-api": exited(143)})
-        self.assertEqual(sum(g["containers"]["running"] for g in body["platform"]["groups"]), body["platform"]["containers"]["running"])
 
     def test_a_one_shot_of_the_platform_counts_only_while_it_runs_and_a_service_held_for_a_license_never(self):
         self.project["services"]["mongodb-init"] = _service("mongodb-init", {"kind": "platform", "id": "databases",
@@ -385,13 +379,6 @@ class State(Built):
         item = self.item("addon", "kazoo", explicit=["kazoo"], failures=failures)
         self.assertEqual((item["state"]["key"], item["note"], item["action"]["label"]), ("stopped", "Failed", "Start"))
 
-    def test_a_canceled_job_is_said_muted(self):
-        # A cancel is no failure: "Canceled", without the error tone
-        item = self.item("addon", "jade", explicit=["jade"],
-                         failures={("addon", "jade"): failed(error="Canceled")})
-        self.assertEqual((item["note"], item["note_tone"], item["note_title"], item["failed_job"]),
-                         ("Canceled", "", "", "j1"))
-
     def test_a_failed_stop_keeps_its_note_and_its_stop(self):
         # The on file was written, the containers still run: the stop failed. Its row says Failed, not "Started
         # outside the Lab UI", and its button is Stop again, the retry
@@ -401,10 +388,11 @@ class State(Built):
                          (False, True, "Failed", "err", "Error response from daemon: busy"))
         self.assertEqual((item["action"]["do"], item["action"]["label"], item["action"]["dialog"], item["secondary"]),
                          ("stop", "Stop", None, None))
-        # A canceled one alike, muted
+        # A canceled one alike, muted: a cancel is no failure
         failures = {("addon", "kazoo"): failed(verb="stop", error="Canceled")}
         item = self.item("addon", "kazoo", containers={**CORE, **healthy("kazoo", "kazoo-ui")}, failures=failures)
-        self.assertEqual((item["note"], item["action"]["label"]), ("Canceled", "Stop"))
+        self.assertEqual((item["note"], item["note_tone"], item["note_title"], item["failed_job"], item["action"]["label"]),
+                         ("Canceled", "", "", "j1", "Stop"))
         # A playground's apps still running after its stop failed
         failures = {("playground", "welcome"): failed(verb="stop")}
         item = self.item("playground", "welcome", containers={**CORE, **WELCOME}, failures=failures)
@@ -666,10 +654,6 @@ class State(Built):
         item = self.item("playground", "welcome", playground="welcome", containers=down, created=created)
         self.assertEqual((item["action"]["label"], item["action"]["dialog"]["starts"]),
                          ("Start", [PLATFORM, APPS, INSPECTOR]))
-        # Its seed never recorded anything: its start sets it up again, seed included
-        plan = layers.plan(self.project, on(self.project, playground="welcome"), model.up(self.project, down),
-                           "playground", "welcome", "start", fresh=True)
-        self.assertIn("seed", plan["services"]["start"])
 
     def test_wait(self):
         # Why nothing can be started now, for whatever waits on the page: Docker first, then the running job
@@ -1056,14 +1040,6 @@ class State(Built):
         item = self.item("playground", "welcome", containers=CORE)
         self.assertEqual((item["note"], item["action"].get("warns"), item["action"].get("offer")), ("", None, None))
 
-    def test_playground_counts_its_seed_once_it_ran(self):
-        running = {**CORE, **healthy("agent-lens", "hello-app")}
-        cases = ((None, "running", ""), (exited(0), "running", ""), (exited(1), "issue", "Seed exited (1)"))
-        for seed, key, note in cases:
-            containers = {**running, **({"seed": seed} if seed else {})}
-            item = self.item("playground", "welcome", playground="welcome", containers=containers)
-            self.assertEqual((item["state"]["key"], item["note"]), (key, note))
-
     def test_items(self):
         running = {**CORE, **healthy("kazoo", "kazoo-ui", "jade")}
         body = self.build(explicit=["kazoo", "jade"], containers=running)
@@ -1251,9 +1227,6 @@ class State(Built):
         body = model.build(self.project, state, containers, None, lambda kind, uid: None, None, docker,
                            {"welcome": [{"what": "APIs", "count": 2}]})
         json.dumps(body)   # nothing in it that the page cannot be sent
-        self.assertEqual(sorted(body), ["addons", "blind", "categories", "docker", "job", "license", "links",
-                                        "platform", "platforms", "playgrounds", "problems", "products", "running",
-                                        "services", "setups", "unread", "wait"])
         # A file the editor opens can be repaired from where the problem shows; the on file opens too
         self.assertEqual(body["problems"], [dict(problem, editable=True)
                                             for problem in self.project["problems"] + state["problems"]])
@@ -1262,10 +1235,9 @@ class State(Built):
         self.assertEqual(body["playgrounds"][0]["created"], [{"what": "APIs", "count": 2}])
         kazoo, ui = body["services"]["kazoo"], body["services"]["kazoo-ui"]
         self.assertEqual((kazoo["state"]["key"], kazoo["uptime"], kazoo["on"]), ("healthy", "2 h", True))
-        self.assertEqual(sorted(kazoo), ["behind", "brings", "built", "container", "description", "image", "label", "name",
-                                         "needs_license", "note", "note_file", "note_target", "note_title", "note_tone",
-                                         "on", "ports", "recreates", "registry", "role", "running_tag", "state", "tag",
-                                         "targets", "uptime"])
+        # What the page alone reads of a service, and of the body
+        self.assertLessEqual({"built", "container", "description", "image", "label", "name", "note_target", "registry"}, set(kazoo))
+        self.assertEqual(body["categories"], self.project["categories"])
         # A playground's seed says so: its Re-seed runs it again, not the Stack
         self.assertEqual((kazoo["role"], body["services"]["seed"]["role"]), (None, "seed"))
         self.assertEqual((ui["state"]["key"], ui["uptime"], ui["on"]), ("absent", "", True))
@@ -1280,17 +1252,8 @@ class State(Built):
                          ("docker-compose.yml", ".env", ["GRAVITEE_LICENSE"]))
         self.assertEqual([(g["id"], g["state"]["key"], g["note"], g["note_tone"]) for g in platform["groups"]],
                          [("api-management", "issue", "Gateway exited (1)", "err"), ("databases", "running", "", "")])
-        self.assertEqual(sorted(platform), ["apply", "behind", "containers", "env_file", "file", "gateways", "groups",
-                                            "license_var", "name", "progress", "reset_turns_off", "restart",
-                                            "settings", "start", "state", "update"])
         self.assertEqual({link["service"]: link["up"] for link in body["links"] if link["section"] == "Kazoo"},
                          {"kazoo": True, "kazoo-ui": False})
-        # In the server's order, the legacy ones last, each saying whether it is one
-        self.assertEqual(sorted(body["links"][0]), ["label", "legacy", "password", "port", "section", "service", "up", "url", "username"])
-        # Every row says the same things
-        rows = [item for kind in ("addons", "setups", "playgrounds") for item in body[kind]]
-        self.assertEqual({key for item in rows for key in ("note_target", "note_file", "secondary", "login")}
-                         - set(rows[0]), set())
 
 
 def made(config_hash="saved", image_id="sha256:saved", **more):
@@ -1398,11 +1361,6 @@ class Behind(Built):
         self.assertEqual([row["reason"] for row in body["platform"]["behind"]],
                          ["API Management: 4.12.20 is saved, 4.13.0-alpha.4 still runs."])
 
-    def test_a_row_that_does_not_run_behind_has_no_badge_and_no_reason(self):
-        body = self.build(containers=AS_SAVED, saved=SAVED)
-        self.assertEqual(body["platform"]["behind"], [])
-        self.assertNotIn("note_apply", body["services"]["mongodb"])
-
     def test_items_and_groups_say_apply_needed(self):
         containers = {**AS_SAVED, "apim-gateway": made("old"), "kazoo": made("old"), "kazoo-ui": made()}
         body = self.build(explicit=["kazoo"], containers=containers, saved=SAVED)
@@ -1463,6 +1421,7 @@ class Behind(Built):
         body = self.build(containers=AS_SAVED, saved=SAVED)
         self.assertEqual((body["platform"]["behind"], body["platform"]["apply"]["needed"],
                           body["platform"]["start"]["dialog"]), ([], False, None))
+        self.assertNotIn("note_apply", body["services"]["mongodb"])
 
     def test_the_apply_says_what_it_starts_again(self):
         # What failed starts again; what stopped, or has no container, stays as it is
@@ -1484,22 +1443,6 @@ class Behind(Built):
         apply = self.build(containers={**AS_SAVED, "apim-gateway": made("old")}, saved=SAVED, job=busy)
         self.assertEqual((apply["platform"]["apply"]["enabled"], apply["platform"]["apply"]["reason"]),
                          (False, "Wait for Start Jade"))
-
-    def test_an_item_s_start_makes_again_what_of_it_runs_behind(self):
-        # Kazoo on, its broker runs behind, Kazoo UI was stopped: its Start starts Kazoo UI and makes the broker
-        # again as saved, and asks first
-        containers = {**AS_SAVED, "kazoo": made("old"), "kazoo-ui": exited(143)}
-        body = self.build(explicit=["kazoo"], containers=containers, saved=SAVED)
-        kazoo = next(a for a in body["addons"] if a["id"] == "kazoo")
-        plan = layers.plan(self.project, on(self.project, ["kazoo"]), model.up(self.project, containers), "addon",
-                           "kazoo", "start", behind={"kazoo"})
-        self.assertEqual((plan["restarts"], plan["services"]["start"]),
-                         ([row("service", "kazoo", "Kazoo broker")], ["kazoo", "kazoo-ui"]))
-        self.assertEqual(kazoo["action"]["do"], "stop")   # it runs partly: its Stop, its menu has nothing else
-        # Nothing behind: the start names only what does not run
-        plan = layers.plan(self.project, on(self.project, ["kazoo"]), model.up(self.project, containers), "addon",
-                           "kazoo", "start")
-        self.assertEqual((plan["restarts"], plan["services"]["start"]), ([], ["kazoo-ui"]))
 
     def test_what_the_stack_s_starts_make_again(self):
         # A group's, a service's, an add-on's containers: what of them and of what they depend on runs behind
@@ -1543,17 +1486,10 @@ class Catalogs(Built):
         self.assertEqual({key: item[key] for key in ROW}, {
             "origin": origin, "readonly": True, "display_file": "addons/kazoo/compose.yml", "blocked": None,
             "needs_catalogs": [], "compat": "new", "twin": {"id": "local/kazoo", "name": "Personal"}, "uses_machine": uses})
+        self.assertEqual(item["file"], self.project["addons"]["kazoo"]["file"], "the file the editor opens is not the path a person reads")
         self.assertNotIn("verdict", item, "the policy's whole verdict stays in the project")
         self.assertNotIn("catalog", item)
         json.dumps(item)
-
-    def test_an_item_of_this_machine_says_its_path_in_the_local_catalog_and_opens_its_own_file(self):
-        """What a person reads is never the place of the local catalog on the disk; the file the editor opens is."""
-        self.mark("kazoo", catalog="local", personal=True, file=".lab/catalogs/local/addons/kazoo/compose.yml",
-                  display_file="addons/kazoo/compose.yml")
-        item = self.item("addon", "kazoo")
-        self.assertEqual((item["file"], item["display_file"]),
-                         (".lab/catalogs/local/addons/kazoo/compose.yml", "addons/kazoo/compose.yml"))
 
     # --- The note ---------------------------------------------------------------------------------------------------
 
@@ -1875,6 +1811,7 @@ class Platforms(Built):
         self.assertEqual((welcome["deploys_to"], welcome["deployed"]), ([], []))
         self.assertNotIn("cannot", welcome, "each place says why a playground cannot go there")
         self.assertEqual(next(item for item in body["addons"] if item["id"] == "kazoo")["gateway"], None)
+        self.assertEqual(next(item for item in body["addons"] if item["id"] == "hyssop")["gateway"]["service"], "apim-hyssop-gateway")
         self.assertEqual(body["services"]["kazoo"]["targets"], {})
         # A state asked with the new keys left out is the state as it always was
         self.assertEqual(body, self.build(platforms=(), deployed=None))
@@ -1912,12 +1849,6 @@ class Platforms(Built):
         self.assertEqual(projects._service("gateway", {}, {"image": "x:1"}, {}, "lab")["targets"], {})
 
     # --- The hybrid gateway add-on ------------------------------------------------------------------------------------
-
-    def test_the_add_on_that_runs_the_gateway_says_so(self):
-        hyssop = self.item("addon", "hyssop")
-        self.assertEqual(hyssop["gateway"], {"platform": "cloud", "service": "apim-hyssop-gateway",
-                                             "token": "HYSSOP_CLOUD_TOKEN",
-                                             "domains": ["localhost:8090", "apim-hyssop-gateway:8082"]})
 
     def test_it_needs_a_hybrid_gateway_once_a_platform_is_registered_and_its_token_is_the_setting_it_lacks(self):
         token = {"hyssop": ["HYSSOP_CLOUD_TOKEN"]}

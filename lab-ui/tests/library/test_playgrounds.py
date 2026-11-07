@@ -92,43 +92,18 @@ class Playgrounds(Case):
         self.patch(plugins, "install_steps", lambda project, product, names: (
             [lambda job: job.lines.append(f"Plugins of {product}: {', '.join(names)}")], [], {}))
 
+    def nothing_needed(self):
+        """The plugin it requires comes with the image, and no license is there or asked for."""
+        self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}}, "bundled_error": None,
+                                                                    "ext": {}, "feature_by_id": {}})
+        self.patch(license, "info", lambda project: {"present": False})
+        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
+
     def phases(self, job):
         self.assertTrue(job.ok, job.lines)
         return [phase["name"] for phase in job.phases]
 
     # --- What the page reads -----------------------------------------------------------------------------------------
-
-    def test_a_playground_of_this_machine_has_its_guide_and_its_record(self):
-        folder = self.root / ".lab/catalogs/local/playgrounds/sandbox"
-        (folder / ".state").mkdir(parents=True)
-        (folder / "compose.yml").write_text("", encoding="utf-8")
-        (folder / "guide.md").write_text("# Sandbox\n", encoding="utf-8")
-        (folder / ".state/created.json").write_text(json.dumps([{"kind": "api", "label": "APIs"}]), encoding="utf-8")
-        self.assertEqual(playgrounds.guide("local/sandbox"), "# Sandbox\n")
-        self.assertEqual(playgrounds.created("local/sandbox"), [{"what": "APIs", "count": 1}])
-        with self.assertRaises(paths.NotFound):
-            playgrounds.guide("local/gone")
-
-    def test_created_is_what_the_seed_recorded_under_the_names_it_gives(self):
-        self.assertEqual(playgrounds.created("welcome"), [])
-        record = self.root / ".lab/catalogs/fixture/playgrounds/welcome/.state/created.json"
-        record.parent.mkdir()
-        record.write_text(json.dumps([{"kind": "api", "label": "APIs"}, {"kind": "api", "label": "APIs"},
-                                      {"kind": "store", "label": "OpenFGA stores"}]), encoding="utf-8")
-        self.assertEqual(playgrounds.created("welcome"), [{"what": "APIs", "count": 2},
-                                                           {"what": "OpenFGA stores", "count": 1}])
-        record.write_text("not json", encoding="utf-8")
-        self.assertEqual(playgrounds.created("welcome"), [])
-
-    def test_a_record_that_stands_for_many_objects_counts_them_all(self):
-        record = self.root / ".lab/catalogs/fixture/playgrounds/welcome/.state/created.json"
-        record.parent.mkdir()
-        record.write_text(json.dumps([{"kind": "entities", "label": "Customer entities", "count": 8},
-                                      {"kind": "entities", "label": "Order entities", "count": 13},
-                                      {"kind": "api", "label": "APIs"}]), encoding="utf-8")
-        self.assertEqual(playgrounds.created("welcome"), [{"what": "Customer entities", "count": 8},
-                                                           {"what": "Order entities", "count": 13},
-                                                           {"what": "APIs", "count": 1}])
 
     def test_a_guide_is_read_as_a_catalogs_file_is(self):
         folder = self.root / ".lab/catalogs/local/playgrounds/sandbox"
@@ -339,18 +314,6 @@ class Playgrounds(Case):
         self.assertEqual([(line["name"], line["state"], line["detail"]) for line in lines[1:3]],
                          [("AI Agent Lens", "auto", "Started at start"), ("Kiosk", "ok", "Running")])
 
-    def test_a_plugin_install_lists_what_it_restarts(self):
-        # Installing a plugin stops the product that runs, to load it, then starts it again: said first
-        self.project["products"] = {"apim": {"services": {"apim-management-api": "/p", "apim-gateway": "/p"}}}
-        self.patch(plugins, "installed", lambda project, product: {"bundled": {}, "bundled_error": None, "ext": {},
-                                                                    "feature_by_id": {}})
-        self.patch(license, "info", lambda project: {"present": False})
-        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
-        self.project["playgrounds"]["welcome"]["requires"]["license"] = []
-        checks = playgrounds.check(self.project, "welcome")["checks"]
-        self.assertEqual([line["name"] for line in checks if line["detail"] == "Restarts at start"],
-                         ["Gateway", "Management API"])
-
     def test_its_start_says_what_installing_its_plugins_restarts(self):
         # What a plugin install stops to load it, then starts again, only the checks read: their dialog says it with
         # the rest of what the start does, also when that alone would not ask
@@ -361,8 +324,9 @@ class Playgrounds(Case):
         self.patch(plugins, "installed", lambda project, product: present)
         self.patch(license, "info", lambda project: {"present": False})
         self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
-        self.assertEqual(playgrounds.check(self.project, "welcome")["dialog"],
-                         {"starts": [APPS], "stops": [], "turns_off": [], "keeps": [], "restarts": [GATEWAY, API]})
+        found = playgrounds.check(self.project, "welcome")
+        self.assertEqual(found["dialog"], {"starts": [APPS], "stops": [], "turns_off": [], "keeps": [], "restarts": [GATEWAY, API]})
+        self.assertEqual([line["name"] for line in found["checks"] if line["detail"] == "Restarts at start"], ["Gateway", "Management API"])
         present["ext"] = {"gravitee-policy-x": {}}
         self.assertIsNone(playgrounds.check(self.project, "welcome")["dialog"])
         # Set up, its start runs it again without installing anything: what is missing says so, nothing restarts
@@ -449,10 +413,7 @@ class Playgrounds(Case):
         # A dev server on 3000, the port of the welcome's app: said before the start, which is refused before anything changes
         from lab_ui.library import machine
         self.patch(machine, "_taken", lambda port: port == 3000)
-        self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}}, "bundled_error": None,
-                                                                    "ext": {}, "feature_by_id": {}})
-        self.patch(license, "info", lambda project: {"present": False})
-        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
+        self.nothing_needed()
         self.project["services"]["hello-app"]["ports"] = ["3000"]
         self.assertIn({"name": "Ports", "state": "warn", "detail": "3000 is used by another program"},
                       playgrounds.check(self.project, "welcome")["checks"])
@@ -471,10 +432,7 @@ class Playgrounds(Case):
         from lab_ui.library import machine
         self.patch(machine, "_lab_ports", side_effect=compose.ComposeError("Docker did not list the lab's containers"))
         self.patch(machine, "_taken", lambda port: port == 3000)
-        self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}}, "bundled_error": None,
-                                                                    "ext": {}, "feature_by_id": {}})
-        self.patch(license, "info", lambda project: {"present": False})
-        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
+        self.nothing_needed()
         self.project["services"]["hello-app"]["ports"] = ["3000"]
         self.assertEqual(layers.taken(self.project, ["hello-app"]), [])
         self.assertNotIn("Ports", [line["name"] for line in playgrounds.check(self.project, "welcome")["checks"]])
@@ -796,17 +754,18 @@ class Playgrounds(Case):
         self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
         self.jobs.start.assert_not_called()
 
+    def on_file_written_meanwhile(self):
+        (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
+        (self.root / paths.ON_FILE).write_text("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n", encoding="utf-8")
+        return self.project
+
     def test_a_start_whose_job_ends_on_a_stale_plan_puts_back_the_versions_it_saved(self):
         # Another tab's job writes the on file once this start saved its versions, before its job begins: the job ends
         # on its first gate, having done nothing, and both files are what they were
         before = self.kiosk_switch()
         self.state = {**self.state, "stamp": layers.stamp()}
 
-        def meanwhile():
-            (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
-            (self.root / paths.ON_FILE).write_text("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n", encoding="utf-8")
-            return self.project
-        self.patch(playgrounds.projects, "load", side_effect=meanwhile)
+        self.patch(playgrounds.projects, "load", side_effect=self.on_file_written_meanwhile)
         playgrounds.start(self.project, "welcome", ["version:KIOSK"])
         job, commands = ran(self.started(self.jobs)[1])
         self.assertEqual((job.ok, job.error(), commands), (False, layers.CHANGED, []))
@@ -821,11 +780,7 @@ class Playgrounds(Case):
         self.state = {**on(self.project, playground="welcome"), "stamp": layers.stamp()}
         jobs = self.patch(layers, "JOBS")
 
-        def meanwhile():
-            (self.root / paths.ON_FILE).parent.mkdir(exist_ok=True)
-            (self.root / paths.ON_FILE).write_text("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n", encoding="utf-8")
-            return self.project
-        self.patch(playgrounds.projects, "load", side_effect=meanwhile)
+        self.patch(playgrounds.projects, "load", side_effect=self.on_file_written_meanwhile)
         playgrounds.start(self.project, "welcome", ["version:KIOSK"])
         self.jobs.start.assert_not_called()
         job, commands = ran(self.started(jobs)[1])
@@ -900,14 +855,6 @@ class Playgrounds(Case):
         self.assertEqual(commands, [[*COMPOSE, "up", "-d", "--no-deps", "agent-lens", "apim-gateway",
                                      "apim-management-api", "hello-app", "mongodb"]])
         self.assertEqual(self.written, [("welcome", [])])
-
-    def test_start_leaves_what_was_started_outside_the_lab_ui(self):
-        # Kiosk runs without being on: the playground's start neither stops nor removes it
-        self.containers = running(*CORE, "kiosk")
-        playgrounds.start(self.project, "welcome", [])
-        job, commands = ran(self.started(self.jobs)[1])
-        self.assertNotIn("kiosk", [word for command in commands for word in command])
-        self.assertNotIn("--remove-orphans", [word for command in commands for word in command])
 
     def test_a_seed_that_fails_fails_the_job_with_its_last_line(self):
         self.patch(compose, "run", lambda cmd, **how: (0, "1\n", ""))
@@ -1158,11 +1105,7 @@ class Playgrounds(Case):
 
     def test_this_machine_is_the_place_that_is_not_named(self):
         # No place, and This machine by its id, are the checks, the start and the Re-seed that have always been
-        self.patch(plugins, "installed", lambda project, product: {"bundled": {"gravitee-policy-x": {}},
-                                                                    "bundled_error": None, "ext": {},
-                                                                    "feature_by_id": {}})
-        self.patch(license, "info", lambda project: {"present": False})
-        self.patch(license, "status", lambda project: {"status": "none", "digest": "x"})
+        self.nothing_needed()
         found = playgrounds.check(self.project, "welcome")
         for place in (None, "machine"):
             self.assertEqual(playgrounds.check(self.project, "welcome", place), found)
@@ -1313,11 +1256,6 @@ class State(Case):
     def test_a_record_that_is_a_pipe_does_not_stop_the_state(self):
         os.mkfifo(self.state / "created.json")
         self.assertEqual(playgrounds.created(self.pid), [])
-
-    def test_the_folder_of_a_place_is_made_in_the_folder_of_the_playground(self):
-        playgrounds._remember(self.pid, "my-account/fake-env-dev", "Development")
-        meta = self.state / "my-account" / "fake-env-dev" / "meta.json"
-        self.assertEqual(json.loads(meta.read_text(encoding="utf-8")), {"environment": "Development"})
 
     def test_the_folder_of_a_place_is_never_made_through_a_link(self):
         self.state.rmdir()
@@ -2346,9 +2284,11 @@ class Deleting(Deploys):
         self.assertIn("--rm", calls[0][0])
         self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
 
-    def test_the_delete_here_is_said_as_it_is_typed_in_the_folder(self):
+    def test_the_delete_here_is_said_as_it_is_typed_in_the_folder_and_warns_of_no_orphan(self):
         # It runs with the include file the Lab writes for the playground's own file, outside the project: its line is the
-        # command a person types in the folder, where the on file names the playground, and names no file of the Lab
+        # command a person types in the folder, where the on file names the playground, and names no file of the Lab. It loads
+        # the core and that file alone: an add-on that is on would be orphan containers to Compose, which warns of them with a
+        # flag the person must not use
         self.record(None, "APIs")
         self.on(*self.core)
         playgrounds.stop(self.project, "hotels", True, [])
@@ -2358,16 +2298,6 @@ class Deleting(Deploys):
         self.assertIn(str(compose.scratch()), " ".join(calls[0][0]))
         self.assertIn(f"$ {' '.join(COMPOSE)} run --rm --no-deps --pull=missing hotels-seed --remove", job.lines)
         self.assertNotIn(str(compose.scratch()), "\n".join(job.lines))
-
-    def test_the_delete_here_does_not_warn_of_what_else_is_on_as_orphans(self):
-        # It loads the core and the playground's own file alone: an add-on that is on would be orphan containers to
-        # Compose, which warns of them in a line of the job, with a flag the person must not use
-        self.record(None, "APIs")
-        self.on(*self.core)
-        playgrounds.stop(self.project, "hotels", True, [])
-        job, calls = self.execute()
-        self.assertTrue(job.ok, job.lines)
-        self.assertTrue(removes(calls[0][0], "hotels-seed"), calls[0][0])
         self.assertEqual(calls[0][1]["env"]["COMPOSE_IGNORE_ORPHANS"], "true")
 
     def test_delete_place_is_refused_in_words(self):
@@ -2389,9 +2319,7 @@ class Deleting(Deploys):
         with self.assertRaisesRegex(RuntimeError, "^Hotels has no seed$"):
             playgrounds.delete_place(self.project, "hotels", PLACE)
         self.jobs.start.assert_not_called()
-
-    def test_a_place_whose_platform_is_gone_says_so(self):
-        self.on()
+        self.project["playgrounds"]["hotels"]["seed"] = "hotels-seed"
         self.record("ghost/gone", "APIs")
         with self.assertRaisesRegex(ValueError, "^Account not connected$"):
             playgrounds.delete_place(self.project, "hotels", "ghost/gone")

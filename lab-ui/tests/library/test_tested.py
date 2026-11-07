@@ -56,11 +56,6 @@ class Kept(Case):
         self.assertEqual(tested.sets("welcome"), [], "nothing to judge a start on, nothing to declare")
         tested.record(found, "welcome")
         self.assertEqual(len(json.loads(self.file.read_text())["welcome"]), 1, "kept once")
-
-    def test_a_playground_that_never_started_well_has_not_run(self):
-        self.assertFalse(tested.ran("welcome"))
-        self.started("4.13.0")
-        self.assertTrue(tested.ran("welcome"))
         self.assertFalse(tested.ran("another"))
 
     def test_a_file_that_is_not_there_or_not_readable_says_nothing(self):

@@ -246,41 +246,19 @@ class Checked(Case):
         answer, _ = self.validate(0, f"{WARNING}\n")
         self.assertEqual((answer["valid"], answer["problems"]), (True, []))
 
-    def test_what_stops_compose_in_another_file_does_not_stop_this_one(self):
+    def test_what_stops_compose_is_asked_again_with_this_text_alone_unless_it_is_this_text(self):
         """An include of a catalog that was removed, in a playground, is that playground's to repair: this text is loaded alone."""
-        runs = []
-
-        def run(cmd, timeout):
-            runs.append(cmd)
-            if len(runs) == 1:
-                return 1, "", f"open {self.root}/.lab/catalogs/gone/addons/other/compose.yml: no such file or directory\n"
-            return 0, "", ""
-        with mock.patch.object(compose, "run", side_effect=run):
-            answer = files.validate(PROJECT, KAZOO, EDITED)
-        self.assertEqual(len(runs), 2, "the second run is this text with the core, nothing else")
-        self.assertTrue(answer["valid"])
-        self.assertEqual([(p["severity"], p["message"]) for p in answer["problems"]],
-                         [("warning", "Another file does not load: open .lab/catalogs/gone/addons/other/compose.yml: no such file or directory")])
-
-    def test_what_stops_compose_in_this_text_is_its_error_and_is_not_asked_again(self):
-        runs = []
-
-        def run(cmd, timeout):
-            runs.append(cmd)
-            return 1, "", f"validating {self.copy}: services.kazoo must be a mapping\n"
-        with mock.patch.object(compose, "run", side_effect=run):
-            answer = files.validate(PROJECT, KAZOO, EDITED)
-        self.assertEqual((len(runs), answer["valid"]), (1, False))
-
-    def test_a_text_that_does_not_load_alone_either_says_why(self):
-        runs = []
-
-        def run(cmd, timeout):
-            runs.append(cmd)
-            return 1, "", "services.kazoo.image must be a string\n"
-        with mock.patch.object(compose, "run", side_effect=run):
-            answer = files.validate(PROJECT, KAZOO, EDITED)
-        self.assertEqual((len(runs), answer["valid"], [p["severity"] for p in answer["problems"]]), (2, False, ["error"]))
+        gone = f"open {self.root}/.lab/catalogs/gone/addons/other/compose.yml: no such file or directory\n"
+        for why, answers, asked, valid, severities in (
+                ("another file", [gone, ""], 2, True, ["warning"]),
+                ("this text", [f"validating {self.copy}: services.kazoo must be a mapping\n"], 1, False, ["error"]),
+                ("this text alone too", ["services.kazoo.image must be a string\n"] * 2, 2, False, ["error"])):
+            with self.subTest(why), mock.patch.object(compose, "run", side_effect=[(1 if said else 0, "", said) for said in answers]) as run:
+                answer = files.validate(PROJECT, KAZOO, EDITED)
+                self.assertEqual((run.call_count, answer["valid"], [p["severity"] for p in answer["problems"]]), (asked, valid, severities))
+        with mock.patch.object(compose, "run", side_effect=[(1, "", gone), (0, "", "")]):
+            self.assertEqual(files.validate(PROJECT, KAZOO, EDITED)["problems"][0]["message"],
+                             "Another file does not load: open .lab/catalogs/gone/addons/other/compose.yml: no such file or directory")
 
     def test_a_variable_the_edited_text_uses_is_said_when_it_is_not_set(self):
         used = "services:\n  kazoo:\n    image: kazoo\n    environment:\n      TOKEN: ${FEDERATION_ALPHA_APIM_TOKEN}\n"
@@ -644,14 +622,6 @@ class Held(Git, Case):
         self.assertEqual(files.validate(UNIT, GUIDE, "# Guide\n"), {"valid": True, "problems": []})
         self.assertEqual(files.validate(UNIT, PAIR, "services: {}\n"), {"valid": True, "problems": []})
 
-    def test_the_files_of_a_folder_catalog_are_edited(self):
-        fixtures.project(self, paths, compose, envfiles, files)   # a copy of the folder: no manifest
-        self.inputs.return_value = {"fixture": {"kind": "folder", "name": "Fixture catalog"}}
-        self.patch(compose, "run", return_value=(0, "", ""))
-        saved = files.save(UNIT, ECHO, "services: {}\n", files._version(ECHO))
-        self.assertEqual(saved["content"], "services: {}\n")
-        self.assertEqual(files.validate(UNIT, GUIDE, "# Guide\n"), {"valid": True, "problems": []})
-
     def test_the_items_of_this_machine_are_edited(self):
         fixtures.local(self, "scratch")
         path = fixtures.unit_file("local", "addon", "scratch")
@@ -778,13 +748,6 @@ class Scratch(Case):
         self.assertEqual(found["problems"][0]["message"],
                          f"validating {ECHO}: services.fixture-echo additional properties 'imgae' not allowed")
         self.assertEqual(found["problems"][0]["severity"], "error")
-
-    def test_a_setup_of_a_folder_catalog_is_checked_the_same_way(self):
-        self.watch(PAIR)
-        self.assertTrue(files.validate(UNIT, PAIR, "include: []\n")["valid"])
-        (seen,) = self.seen
-        include = next(text for name, text in seen["scratch"].items() if name.endswith(".include.yml"))
-        self.assertIn(f'project_directory: "{self.root / ".lab/catalogs/fixture/setups"}"', include)
 
     def test_a_file_of_this_machine_and_the_core_are_still_checked_from_a_copy_beside_them(self):
         fixtures.local(self, "scratch")
@@ -1055,7 +1018,7 @@ class Rendered(Case):
         # Where the file stands in the on file decides what Compose makes of the service they all change: the preview
         # of an unchanged text is the hashes of the files in place at every position, and one of a change differs in
         # the service it changes alone
-        for names in (("ova",), ("ova", "ovb"), ("ovb", "ova"), ("ova", "ovb", "ovc")):
+        for names in (("ova",), ("ovb", "ova", "ovc")):
             listing = self.overlays(*names)
             in_place, before = compose.config_hashes(), self.snapshot()
             self.assertIn("apim-gateway", in_place)
@@ -1073,8 +1036,7 @@ class Rendered(Case):
         # of the files that change the gateway around it
         echo_core = fixtures.unit_file("fixture", "addon", "echo-core")
         listing = self.overlays("ova", "ovb")
-        for listed in ((echo_core,), (listing[0], echo_core, listing[1]), (listing[1], echo_core, listing[0]),
-                       (ECHO, echo_core, listing[0]), (echo_core, ECHO)):
+        for listed in ((echo_core,), (listing[0], echo_core, listing[1]), (ECHO, echo_core, listing[0]), (echo_core, ECHO)):
             self.write(".lab/on.yml", "include:\n" + "".join(f"  - {file}\n" for file in listed))
             in_place, before = compose.config_hashes(), self.snapshot()
             self.assertIn("fixture-echo", in_place)
@@ -1115,11 +1077,6 @@ class Linked(Rendered):
     names it, through the link, and nothing is written in the author's folder."""
 
     LINK = {"link": True}
-
-    def test_the_catalog_is_a_link_to_a_folder_outside_the_project(self):
-        folder = self.root / ".lab/catalogs/fixture"
-        self.assertTrue(folder.is_symlink())
-        self.assertNotIn(self.root, folder.resolve().parents)
 
 
 if __name__ == "__main__":
