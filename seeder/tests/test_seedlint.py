@@ -270,10 +270,6 @@ class Studios(Made):
                 self.assertEqual(found[0][:2], ("studio", "desk.yaml"))
                 self.assertIn(message, found[0][2])
 
-    def test_the_lint_and_the_seed_take_the_same_keys(self):
-        self.assertEqual(seedlint.STUDIO_SUBSCRIPTION, aim_proxies.SUBSCRIPTION_KEYS)
-        self.assertEqual(seedlint.STUDIO_VERSIONS, aim_proxies.VERSION_KEYS)
-
     def test_a_file_of_another_folder_is_not_read_as_a_studio(self):
         folder = self.playground({**GOOD, "seed/aim/mcp-proxies/desk.yaml": STUDIO + "subscriptions: [{plan: 3}]\n"})
         self.assertEqual(seedlint.problems(folder), [])
@@ -435,17 +431,6 @@ class Command(Made):
         self.assertEqual(out.splitlines()[-3:], [f"2 problems in 1 seed file of 1 playground ({self.root}/one)",
                                                   f"All good: 2 seed files of 1 playground ({self.root}/two)",
                                                   f"No folder {self.root}/three: nothing to lint."])
-
-    def test_paths_under_the_folder_it_runs_in_are_printed_relative_to_it(self):
-        self.bad()
-        before = os.getcwd()
-        os.chdir(self.root)
-        self.addCleanup(os.chdir, before)
-        # os.getcwd() of a temporary folder can be a link (/var on a Mac), the path the command compares with is its own
-        here = Path.cwd()
-        code, out, _ = run(str(here / "acme"), "--format", "github")
-        self.assertEqual(code, 1)
-        self.assertTrue(out.startswith("::error file=acme/seed/a.yaml,line=1,"), out[:80])
 
     def test_only_the_first_problems_are_printed_and_the_others_counted(self):
         text = "".join(f"v{n}: ${{NO{n}}}\n" for n in range(seedlint.MANY))
@@ -671,7 +656,7 @@ class Hostile(Made):
             return construct(loader, node)
 
         with mock.patch.object(yaml.SafeLoader, "construct_document", building):
-            self.assertEqual(seedlint.problems(folder), [Problem("read", str(folder / "seed/aim/skills/x/SKILL.md"), 0, seedlint.MERGES)])
+            self.assertEqual(seedlint.problems(folder), [Problem("read", str(folder / "seed/aim/skills/x/SKILL.md"), 0, common.MERGES)])
 
     def test_the_front_matter_is_found_as_the_seeder_of_the_skills_finds_it(self):
         source = (SEEDER / "lab_seeder" / "aim_catalog.py").read_text(encoding="utf-8")
@@ -861,16 +846,16 @@ class OneMegabyteLine(unittest.TestCase):
         found = probed()["found"]
         for case in MERGING:
             with self.subTest(case=case):
-                self.assertEqual(found[case], [["read", seedlint.MERGES]])
+                self.assertEqual(found[case], [["read", common.MERGES]])
 
     def test_the_compose_file_and_the_files_of_an_environment_are_not_loaded_either(self):
         found = probed()["found"]
         for case in COMPOSES:
             with self.subTest(case=case):
-                self.assertEqual(found[case], [["playground", seedlint.MERGES]])
+                self.assertEqual(found[case], [["playground", common.MERGES]])
         for case in IN_AN_ENVIRONMENT:
             with self.subTest(case=case):
-                self.assertEqual(found[case + " in an environment"][0], ["environment.yaml", seedlint.MERGES])
+                self.assertEqual(found[case + " in an environment"][0], ["environment.yaml", common.MERGES])
 
     def test_defaults_that_nothing_closes_are_named_and_not_read(self):
         found = probed()["found"]

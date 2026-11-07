@@ -45,7 +45,7 @@ from collections import namedtuple
 from pathlib import Path
 
 try:
-    from . import common
+    from . import aim_proxies, common
 except ImportError as e:
     raise ImportError("seedlint reads the seed as the seeder does and needs its requirements: pip install -r "
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
@@ -60,13 +60,11 @@ SMALL = 256 * 1024         # the most an image of a theme may weigh: a theme is 
 LIMIT = 1024 * 1024        # the most of a file that is read, as the Lab's readers do (Tree.read)
 RENDERED = 8 * 1024 * 1024  # the most a file may weigh once its variables are replaced
 SLOW = 20_000_000          # characters a file may make the seeder's patterns read for defaults that nothing closes
-COPIED = common.COPIED     # the pairs the loader of YAML may copy for the merge keys of a file (about 0.3 s: the real files need 300)
 MANY = 20                  # the findings of one kind that are told for a file; the others are counted
 SHOWN = 500                # the problems the command prints, the others are counted
 MESSAGE = 400              # the characters of a message that are kept: a message may quote a stranger's file
 UNCLOSED = ("opens defaults, ${NAME:- , that nothing closes: the seed would read on to the end of the file for each. "
             "Fix: close each with }")
-MERGES = common.MERGES
 # The front matter of a SKILL.md, as the seeder of the skills (aim_catalog.skill_files) reads it
 FRONT_MATTER = re.compile(r"---\n(.*?)\n---", re.S)
 # What a program that prints a line takes for a command of the runner: GitHub's workflow commands, the new and the old one
@@ -74,10 +72,6 @@ COMMANDS = ("::", "##[")
 
 Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
-# What a subscription of a studio's file may say (aim_proxies.SUBSCRIPTION_KEYS)
-STUDIO_SUBSCRIPTION = ("application", "plan", "apiKey")
-# The keys of a studio's file that give its protocol versions, one of the two (aim_proxies.VERSION_KEYS)
-STUDIO_VERSIONS = ("supportedProtocolVersions", "protocolVersion")
 TITLES = {"variable": "Seed variable", "read": "Seed file", "parse": "Seed file",
           "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
 
@@ -286,7 +280,7 @@ def seed_service(compose):
     try:
         document = common.parse_yaml(text, compose)
     except common.MergeError:
-        raise Unreadable(compose, MERGES) from None
+        raise Unreadable(compose, common.MERGES) from None
     services = document.get("services") if isinstance(document, dict) else None
     services = services if isinstance(services, dict) else {}
     return next((s for s in services.values()
@@ -397,7 +391,7 @@ def _loaded(path, provided=None):
     try:
         return common.load(path, provided=provided)
     except common.MergeError:
-        raise Unreadable(path, MERGES) from None
+        raise Unreadable(path, common.MERGES) from None
 
 
 def _load(path, provided=None):
@@ -557,8 +551,8 @@ def studio_problems(spec):
     in steps (`access`), whose registration plan is closed."""
     if not isinstance(spec, dict):
         return []
-    given = [spec[key] for key in STUDIO_VERSIONS if key in spec]
-    found = [] if len(given) == 1 else [f"it gives {' or '.join(STUDIO_VERSIONS)}, one of the two"]
+    given = [spec[key] for key in aim_proxies.VERSION_KEYS if key in spec]
+    found = [] if len(given) == 1 else [f"it gives {' or '.join(aim_proxies.VERSION_KEYS)}, one of the two"]
     if len(given) == 1 and not all(isinstance(v, str) for v in (given[0] if isinstance(given[0], list) else [given[0]])):
         found.append("a protocol version is text: quote it")
     listed = spec.get("subscriptions")
@@ -567,10 +561,10 @@ def studio_problems(spec):
     if not isinstance(listed, list) or not all(isinstance(sub, dict) for sub in listed):
         return [*found, "subscriptions is a list of {application, plan, apiKey}"]
     for sub in listed:
-        unknown = sorted(set(sub) - set(STUDIO_SUBSCRIPTION), key=str)
+        unknown = sorted(set(sub) - set(aim_proxies.SUBSCRIPTION_KEYS), key=str)
         if unknown:
             found.append(f"subscriptions: {_brief(', '.join(map(str, unknown)))} is not a key of a subscription "
-                         f"({', '.join(STUDIO_SUBSCRIPTION)})")
+                         f"({', '.join(aim_proxies.SUBSCRIPTION_KEYS)})")
         if not (isinstance(sub.get("application"), str) and sub["application"]):
             found.append("subscriptions: each names its application")
         elif "plan" in sub and not (isinstance(sub["plan"], str) and sub["plan"]):
@@ -656,8 +650,8 @@ def _lint(folder):
             if len(unset) > MANY:
                 out.append(Problem("variable", str(path), 0, f"{len(unset) - MANY} more variables have no value."))
             blocked = bool(unset)
-        if path.name == "SKILL.md" and common.merged_pairs(_front_matter(text)) > COPIED:
-            out.append(Problem("read", str(path), 0, MERGES))
+        if path.name == "SKILL.md" and common.merged_pairs(_front_matter(text)) > common.COPIED:
+            out.append(Problem("read", str(path), 0, common.MERGES))
         if not blocked and path.suffix in (".yaml", ".yml", ".json"):
             failure = _parse(path, text, matches, environment, provided)
             if failure:
@@ -779,36 +773,20 @@ def _n(count, noun):
     return f"{count} {noun}" + ("" if count == 1 else "s")
 
 
-def _shown(folder):
-    """A folder as the command prints it: relative to where it runs when it is under it, as the runner of a workflow wants."""
-    folder = Path(folder)
-    if folder.is_absolute():
-        try:
-            return folder.relative_to(Path.cwd())
-        except ValueError:
-            return folder
-    return folder
-
-
-def _parser():
-    parser = argparse.ArgumentParser(prog="seedlint.py", description="Lints the seed files of playgrounds, as the seeder reads them.",
-                                     epilog="Exit code 0: nothing wrong, 1: problems, 2: wrong command line.")
-    parser.add_argument("folders", nargs="+", metavar="FOLDER", help="a folder of playgrounds, or one playground")
-    parser.add_argument("--format", choices=("text", "github"), default="text")
-    return parser
-
-
 def main(argv=None, out=None):
     """The command. `out` is where it prints (sys.stdout)."""
-    args = _parser().parse_intermixed_args(argv)
+    parser = argparse.ArgumentParser(prog="seedlint.py", description="Lints the seed files of playgrounds, as the seeder reads them.",
+                                     epilog="Exit code 0: nothing wrong, 1: problems, 2: wrong command line.")
+    parser.add_argument("folders", nargs="+", type=Path, metavar="FOLDER", help="a folder of playgrounds, or one playground")
+    parser.add_argument("--format", choices=("text", "github"), default="text")
+    args = parser.parse_intermixed_args(argv)
     out = sys.stdout if out is None else out
-    folders = [_shown(folder) for folder in args.folders]
-    for folder in folders:
+    for folder in args.folders:
         if os.path.lexists(folder) and not os.path.isdir(folder):
             print(f"{folder} is not a folder", file=sys.stderr)
             return 2
     lines, found = [], []
-    for folder in folders:
+    for folder in args.folders:
         if not os.path.isdir(folder):
             lines.append(f"No folder {folder}: nothing to lint.")
             continue
