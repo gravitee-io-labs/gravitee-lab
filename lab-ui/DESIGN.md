@@ -715,7 +715,7 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   follow it (`state.core.start`, `state.core.stop`): *Start all* asks `GET /api/core/plan`, then always confirms (*Starts*, *Serves*
   with the environment, *Not started* with the server's reason after its pills), then sends `POST /api/stack/start {core: true,
   accept}`; it is disabled with the server's reason while it cannot start (no hybrid gateway, an account that cannot be read, a license
-  the gateway lacks). The banner leaves out *Gravitee platform is stopped* while API Management runs in the Cloud.
+  the gateway lacks). The banner leaves out *Gravitee Platform is stopped* while API Management runs in the Cloud.
 - **The order is the layout.** The questions, most frequent first: the head, then two columns, *Gravitee Platform* with a row for
   *Gravitee Cloud* under its products, and *Playgrounds, setups and add-ons*, then *Resources* across the page, one line that unfolds. Spacing is one scale,
   `--sp-1` to `--sp-5` in `base.css` (4, 8, 12, 16 and 24 px): 16 px at the sides of a card (`--pad`), 24 px between the cards and
@@ -1477,7 +1477,7 @@ Tests do not see the page. After a change, with the platform running, click thro
 dark, at 1440 and 900 px wide.
 
 1. **Dashboard.** The Lab UI opens on it with no hash and an address that is no page leads
-   here. The menu has it first, alone above Catalog, collapsed too. At 1440 px the platform's card (its products, the Cloud's row under
+   here. The menu has it first, alone above Library, collapsed too. At 1440 px the platform's card (its products, the Cloud's row under
    them) and the catalog's card are side by side,
    about three to two, on the same top line, each ending where its content does with nothing blank under it; at 1100 and 900 px they are one
    over the other and as wide as the page; at 375 px a product is a name with its *Open*, then its version and its update, the Cloud its
