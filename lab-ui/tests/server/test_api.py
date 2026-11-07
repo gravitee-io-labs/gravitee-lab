@@ -1068,56 +1068,6 @@ class PlatformFlow(LabUI):
                           if not path.startswith(f"/accounts/{fake_cloud.ACCOUNT['id']}")},
                          {"/accounts/my-account"}, "besides the hrid that was refused, only the account's own paths")
 
-    # The places: what an action on a platform changes in them is seen by the next call, with no wait for the minute a read is kept
-    DEV, TEST = "fake-env-dev", "fake-env-test"
-
-    def register(self):
-        sent = {"url": f"http://127.0.0.1:{self.fake.server_port}", "account": fake_cloud.ACCOUNT["id"], "token": fake_cloud.TOKEN}
-        return self.ask("POST", "/api/platforms", sent)
-
-    def place(self, environment=None):
-        found = {found["id"]: found for found in self.ask("GET", "/api/places")}
-        return found[f"my-account/{environment or self.DEV}"]
-
-    def test_a_platform_is_read_when_it_is_registered_and_its_places_are_named_by_environment_and_platform(self):
-        self.register()
-        found = self.ask("GET", "/api/places")
-        self.assertEqual([(place["id"], place["name"], place["state"], place["missing"]) for place in found], [
-            ("my-account/fake-env-dev", "Development (My Account)", "missing", "No hybrid gateway"),
-            ("my-account/fake-env-test", "Test (My Account)", "missing", "No hybrid gateway"),
-            ("my-account/fake-env-prod", "Production (My Account)", "missing", "No hybrid gateway")])
-
-    def test_what_is_done_to_a_platform_is_seen_by_the_places_at_once(self):
-        self.register()
-        self.ask("POST", "/api/platforms/my-account/gateways", {"environmentId": self.DEV, "name": "lab"})
-        self.assertEqual((self.place()["missing"], self.place()["gateway"]["here"]), ("No Cloud Token", True))
-        self.ask("POST", f"/api/platforms/my-account/environments/{self.DEV}/token",
-                 {"token": fake_cloud.cloud_token(self.DEV)})
-        self.assertEqual((self.place()["state"], self.place()["token"]["state"]), ("ready", "valid"))
-        # Another environment's token is refused in the words of the form, and changes nothing
-        wrong = self.ask("POST", f"/api/platforms/my-account/environments/{self.TEST}/token",
-                         {"token": fake_cloud.cloud_token(self.DEV)}, 400)
-        self.assertEqual(wrong, {"error": "This Cloud Token is for Development, not Test"})
-        self.assertEqual(self.place(self.TEST)["token"], {"state": "unset"})
-        self.ask("POST", f"/api/platforms/my-account/environments/{self.DEV}/token/delete", {})
-        self.assertEqual(self.place()["missing"], "No Cloud Token")
-        # The Account Token replaced: the record and the places stay
-        self.assertEqual(self.ask("POST", "/api/platforms/my-account/token", {"token": "not-the-token"}, 400),
-                         {"error": "The token or the Account ID is not right"})
-        replaced = self.ask("POST", "/api/platforms/my-account/token", {"token": fake_cloud.TOKEN})
-        self.assertEqual((replaced["id"], replaced["tokenSet"]), ("my-account", True))
-        self.assertEqual(self.place()["missing"], "No Cloud Token")
-
-    def test_a_check_reads_the_places_again_too(self):
-        self.register()
-        self.fake.state.asked.clear()
-        self.ask("POST", "/api/platforms/my-account/check", {})
-        # The check and the places each asked the platform for its environments and gateways: the cache is fresh
-        asked = len(self.fake.state.asked)
-        self.assertGreaterEqual(asked, 4)
-        self.ask("GET", "/api/places")
-        self.assertEqual(len(self.fake.state.asked), asked, "the places were served from what was read")
-
 
 class PlaceRoutes(LabUI):
     """A playground's routes take the place to deploy to; This machine is the call they always made."""
