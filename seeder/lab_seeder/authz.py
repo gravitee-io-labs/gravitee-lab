@@ -110,17 +110,8 @@ def reason(body):
     try:
         said = json.loads(body)
     except ValueError:
-        return excerpt(body)
-    if isinstance(said, dict):
-        for key in ("message", "error", "detail", "title"):
-            if isinstance(said.get(key), str) and said[key].strip():
-                return excerpt(said[key])
-        errors = said.get("errors")
-        first = errors[0] if isinstance(errors, list) and errors else None
-        first = first.get("message") if isinstance(first, dict) else first
-        if isinstance(first, str) and first.strip():
-            return excerpt(first)
-    return excerpt(body)
+        said = None
+    return excerpt(said["message"] if isinstance(said, dict) and said.get("message") else body)
 
 
 def explain(what, error):
@@ -194,9 +185,7 @@ def as_text(value):
 
 
 def pair(value, where):
-    """(type, id) of a `[Type, id]`, or of a `{type, id}`."""
-    if isinstance(value, dict):
-        value = [value.get("type"), value.get("id")]
+    """(type, id) of a `[Type, id]`."""
     if not (isinstance(value, (list, tuple)) and len(value) == 2 and all(as_text(v) for v in value)):
         raise SeedError(f"{where}: expected [Type, id]")
     return as_text(value[0]), as_text(value[1])
@@ -435,7 +424,8 @@ def schema_document(api, slug):
         raise SeedError("seed/authz/schema.yaml: schema is the text of the schema")
     wanted = fill(spec["schema"], slug, "The schema")
     try:
-        current = held_schema(api.get("/schema", expect=(200, 404)))
+        held = api.get("/schema", expect=(200, 404))
+        current = held.json().get("schema") if held.status_code == 200 else None
         if current and same_text(current, wanted):
             log(SECTION, "Schema exists")
             return
@@ -455,17 +445,6 @@ def schema_document(api, slug):
         log(SECTION, f"✓ Schema {'put back' if current else 'created'}")
     except SeedError as e:
         log(SECTION, f"! Schema skipped: {e}")
-
-
-def held_schema(answer):
-    """The text of the schema the platform holds, empty when it holds none (a 404, or an answer that has no text)."""
-    if answer.status_code != 200:
-        return ""
-    try:
-        said = answer.json()
-    except ValueError:
-        return ""
-    return (said.get("schema") or "") if isinstance(said, dict) else ""
 
 
 def why_invalid(errors):
