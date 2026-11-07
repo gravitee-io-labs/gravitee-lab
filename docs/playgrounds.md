@@ -965,7 +965,7 @@ how the seed treats it:
 - **A release** (`4.13.3`) is seeded by its version: what changed from one release to the next is in the table below, and
   the seeder fills **4.12 and later** releases. Below 4.12 the seed stops before it changes anything.
 - **A build that is no release** (`4.13.0-amp-demo-SNAPSHOT`, a master build), or a platform that says no version (a Cloud
-  environment with no gateway yet), is seeded by what it answers: [What differs from one build to
+  environment with no gateway yet, a platform whose gateway is not started), is seeded by what it answers: [What differs from one build to
   another](#what-differs-from-one-build-to-another). Nothing is promised for it.
 
 | What changed | Product | First release |
@@ -984,7 +984,7 @@ with the code it names once no build that the Lab runs needs it.
 
 | What differs | Builds | What the seed file writes | What the seeder does |
 |---|---|---|---|
-| A studio's protocol versions | A list on API Management 4.13.1, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends the key the file gives (`aim_proxies.protocol_versions`) |
+| A studio's protocol versions | A list on every release, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends a release the list, from either key, and a build the key the file gives (`aim_proxies.protocol_versions`) |
 | A studio's keyless plan | The amp-demo build makes it from `KEYLESS`, the name of Agent Management, and its plans read it back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`) |
 | The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | `module`, when it is not the default | Asks again with the module when the answer holds that code (`aim_dashboards`) |
 | An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again (`apim.UNSUPPORTED`), or makes the studio again (`aim_proxies.UNSUPPORTED`) |

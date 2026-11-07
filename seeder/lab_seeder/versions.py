@@ -9,7 +9,8 @@ MINIMUM for people, and a test keeps the two equal.
 
 Where the version comes from, with the credentials of the seed: API Management says it for each gateway that reports to it
 (the instances of the environment that are started), Access Management for the plugins it ships with (its reporters). The
-technical APIs that say it directly listen on their container's own address."""
+technical APIs that say it directly listen on their container's own address, and the modules and plugins of API Management
+have numbers of their own (4.13.8 in 4.13.3): with no gateway started, API Management says no version."""
 
 import re
 
@@ -48,6 +49,11 @@ def note(product, said):
         log(SECTION, f"{product} {text}: a release, seeded by its version")
     else:
         log(SECTION, f"{product} {text or 'says no version'}: not a release, the seed adapts to what it answers")
+
+
+def released(product):
+    """Whether the product is a release, read at the start of the seed: what every release takes is sent to it."""
+    return _found.get(product, (None, None))[1] is not None
 
 
 def since(name):

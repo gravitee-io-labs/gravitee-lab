@@ -30,7 +30,7 @@ class Reading(Seed):
         self.seed_files({"apim/settings.yaml": "{}"})
         self.answer({INSTANCES: gateways(("4.12.3", "STARTED"), ("4.13.2", "UNKNOWN"))})
         versions.read()
-        self.assertEqual((versions.since("gamma"), self.platform.sent(*REPORTERS)), (False, []))
+        self.assertEqual((versions.since("gamma"), versions.released(versions.APIM), self.platform.sent(*REPORTERS)), (False, True, []))
         self.assertIn("[versions] API Management 4.12.3: a release, seeded by its version", self.output())
 
     def test_gateways_that_disagree_or_say_nothing_are_no_version_and_the_seed_adapts(self):
@@ -45,7 +45,7 @@ class Reading(Seed):
         self.seed_files({"apim/settings.yaml": "{}"})
         self.answer({INSTANCES: gateways(("4.13.0-amp-demo-SNAPSHOT", "STARTED"))})
         versions.read()
-        self.assertIsNone(versions.since("gamma"))
+        self.assertEqual((versions.since("gamma"), versions.released(versions.APIM)), (None, False))
         self.assertIn("API Management 4.13.0-amp-demo-SNAPSHOT: not a release, the seed adapts to what it answers", self.output())
 
     def test_access_management_says_its_version_by_its_reporters(self):

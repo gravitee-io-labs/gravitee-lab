@@ -13,6 +13,7 @@ import requests
 
 from lab_seeder import aim_proxies
 from lab_seeder import common
+from lab_seeder import versions
 from lab_seeder.testkit import Seed
 
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
@@ -359,6 +360,13 @@ class Creation(Studios):
         self.assertEqual(call.json["supportedProtocolVersions"], ["2025-11-25"])
         self.assertNotIn("protocolVersion", call.json)
         self.assertEqual(self.world.gateway_calls[0].json["params"]["protocolVersion"], "2025-11-25")
+
+    def test_a_release_gets_the_list_of_versions_from_a_file_that_gives_one(self):
+        versions.note(versions.APIM, ["4.13.3"])
+        self.seed()
+        [call] = self.platform.sent("POST", AIM + "/mcp-studios")
+        self.assertEqual(call.json["supportedProtocolVersions"], ["2025-11-25"])
+        self.assertNotIn("protocolVersion", call.json)
 
     def test_a_tool_without_an_alias_goes_by_its_own_name(self):
         self.file(STUDIO.replace(", alias: search_customers", ""))
