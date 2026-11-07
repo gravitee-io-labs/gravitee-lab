@@ -31,7 +31,7 @@ to sign in as a persona, and `templates/` what a new catalog is made from.
 
 `tests/` mirrors `lab_ui/`: a folder for each package, a file for each module (`tests/library/test_project.py` tests `lab_ui/library/project.py`).
 `tests/web/` holds the page's tests: `test_static.py` for its files, `js/` for its rules (`node --test`, run by `test_page.py`; `dom-stub.mjs`
-is a small DOM, which `images.test.mjs` uses to run the Images page). `tests/run.py` runs them in parallel, and in shards for the CI.
+is the small DOM they run the page's modules in). `tests/run.py` runs them in parallel, and in shards for the CI.
 The rest of `tests/` is what they share: `fixtures.py` (catalogs on disk), `fakedocker.py`, `gitfixture.py`, `data/`, `smoke.py`, and `fake_cloud.py`, a Gravitee
 Cloud with its Cloud Gate to try the platforms without an account (`python3 lab-ui/tests/fake_cloud.py --port 9990`). Their cases share
 `Case` (`tests/__init__.py`): `self.patch` replaces something until the test ends, `self.folder(*modules, files=...)` and `self.write` give a
