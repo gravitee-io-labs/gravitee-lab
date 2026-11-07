@@ -339,11 +339,11 @@ class Stage(Case):
         self.assertEqual(self.up_calls(), [])
 
     def test_a_unit_that_needs_settings_is_not_tried_and_is_never_a_pass(self):
-        needs = ci.Refused("addon", "apigee", "addons/apigee/compose.yml", (
+        needs = ci.Refused("addon", "aspen", "addons/aspen/compose.yml", (
             "Cannot be read: error while interpolating services.a.environment.KEY: required variable KEY is missing a value",))
         code = self.run_stage(refused=[needs], extra=["--ci"])
         self.assertEqual(code, 0)   # (a warning: it is said, it fails nothing)
-        self.assertIn("::warning file=addons/apigee/compose.yml,title=SM03::addon:apigee was not tried: it needs settings or a license.\n",
+        self.assertIn("::warning file=addons/aspen/compose.yml,title=SM03::addon:aspen was not tried: it needs settings or a license.\n",
                       self.out.getvalue())
         self.assertEqual(self.fake.calls(), [])   # (not even a docker version: there was nothing to start)
 

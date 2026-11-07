@@ -222,8 +222,8 @@ services:
     image: ${REGISTRY:-graviteeio}/agent:${VERSION:-${CORE_VERSION:-4.12.20}-debian}
     command: run --password ${PASSWORD:-demo}
     environment:
-      # Apigee X, and its integration
-      type: apigee
+      # Aspen X, and its integration
+      type: aspen
       integration: ${INTEGRATION_ID}
       project: ${PROJECT_ID}
 
@@ -248,8 +248,8 @@ services:
 
     def test_comment_heading_the_block(self):
         found = self.variables()
-        self.assertEqual(found["INTEGRATION_ID"]["comment"], "Apigee X, and its integration")
-        self.assertEqual(found["PROJECT_ID"]["comment"], "Apigee X, and its integration")
+        self.assertEqual(found["INTEGRATION_ID"]["comment"], "Aspen X, and its integration")
+        self.assertEqual(found["PROJECT_ID"]["comment"], "Aspen X, and its integration")
         self.assertEqual(found["REGION"]["comment"], "")   # a blank line ends the block
         self.assertEqual(found["REGISTRY"]["comment"], "")   # a comment heading a block further out is not its own
 
