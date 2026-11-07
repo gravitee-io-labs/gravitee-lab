@@ -22,8 +22,9 @@ project, people and AI agents alike. The process (branches, pull requests, CI) i
 | `docs/` | For people: [installation.md](docs/installation.md) (prerequisites, first start, licenses, stop and remove), [lab-ui.md](docs/lab-ui.md), [configuration.md](docs/configuration.md), [playgrounds.md](docs/playgrounds.md) (writing a playground), [troubleshooting.md](docs/troubleshooting.md), [maintaining.md](docs/maintaining.md) (moving or forking the repository, the one-time GitHub settings), [cloud.md](docs/cloud.md) (using Gravitee Cloud with the Lab) |
 | `README.md`, `CONTRIBUTING.md`, `SECURITY.md` | What the lab is and where to start; the contribution process; the vulnerability policy and what the lab exposes |
 | `LICENSE`, `NOTICE` | AGPL-3.0, and the attribution term that NOTICE adds |
+| `contract.lock`, `catalogs.default.json` | What [the contract](docs/contract.md) pins; the catalog the Lab is set up with |
 | `.github/` | CI, the end-to-end workflow (`e2e.yml`, with the scripts that plan its jobs and check that images exist), the workflow that publishes the seeder's image, the Compose action, issue and pull request templates, Dependabot, and `tests/` for the Makefile, the scripts, the workflows' rules and the Compose conventions |
-| `.agents/skills/<name>/SKILL.md` | A skill: what an AI agent follows to create an add-on, a setup or a playground, to share a personal one, or to prepare a pull request |
+| `.agents/skills/<name>/SKILL.md` | A skill: what an AI agent follows to create an add-on, a setup, a playground or a catalog, to share a personal one, or to prepare a pull request |
 | `.claude/skills/<name>/SKILL.md` | The stub that Claude Code reads: the skill's `name` and `description`, then one line that sends to the skill |
 | `AGENTS.md`, `CLAUDE.md`, `.gemini/settings.json` | The guide of a folder; next to each, a `CLAUDE.md` holding the single line `@AGENTS.md`; the setting that makes Gemini CLI read `AGENTS.md` |
 | `ruff.toml`, `.editorconfig`, `.gitattributes`, `.gitignore` | Lint settings, editor settings, LF line endings, what git ignores |
@@ -45,9 +46,9 @@ the id `local/<id>`, so `local` is not an id. An item of a catalog is read only 
 the default catalog, `@<catalog>/<id>` for another.
 
 - A personal item and a catalog item sit at the same depth, so the same relative paths work in both. An add-on includes an
-  add-on of its catalog as `../kafka/compose.yml`, a setup as `../addons/kafka/compose.yml` and a playground as
-  `../../addons/kafka/compose.yml`; one of another catalog, such as the default one, is
-  `../../../<catalog id>/addons/kafka/compose.yml` from an add-on; a playground's seed builds `../../../../../seeder`.
+  add-on of its catalog as `../<id>/compose.yml`, a setup as `../addons/<id>/compose.yml` and a playground as
+  `../../addons/<id>/compose.yml`; one of another catalog, such as the default one, is
+  `../../../<catalog id>/addons/<id>/compose.yml` from an add-on; a playground's seed builds `../../../../../seeder`.
   [The format of the units](docs/units.md) gives the depth of each kind.
 - An item of a catalog includes what its catalog holds, or what the catalogs it declares in `requires.catalogs` hold, and never
   a personal item, because what a catalog holds runs on any machine. A personal item includes what it wants.
@@ -55,8 +56,8 @@ the default catalog, `@<catalog>/<id>` for another.
   skills `new-addon`, `new-setup` and `new-playground`, in Personal or in a catalog that is a folder of yours.
 - Share a personal one with the Lab UI's Share or the `share-item` skill: it is copied into a catalog you can write to, as a
   branch to propose with a pull request or as a copy into a folder. The personal item stays and runs until "Use the catalog
-  version" replaces it. A playground is shared once it has started well here. An item of a catalog is not made personal again;
-  create a personal one for a private variant.
+  version" replaces it. A playground is shared once it has started well here. An item of a catalog stays there: "Copy to Personal"
+  makes a private variant ([Your own items](docs/catalogs.md#your-own-items)).
 - The Lab UI runs your own git only to push that branch, with your name and email. It never commits to your work.
 
 ## Rules
@@ -75,14 +76,14 @@ the default catalog, `@<catalog>/<id>` for another.
 - **No hardcoded password.** Every password, secret, token and key in a compose file is a setting, never a literal:
   `${NAME:-default}`, whose default may be a public demo value, or `${NAME}` when the user must provide it. In a
   file of a catalog, its check refuses a literal in a key whose name contains `PASSWORD`, `PASSWD`, `PASSPHRASE`, `SECRET` or
-  `API_KEY` or ends in `_TOKEN`, in the `password` and `key` of `x-gravitee.accounts`, and in a URI
+  `API_KEY` or ends in `_TOKEN` or `_KEY`, in the `password` and `key` of `x-gravitee.accounts`, and in a URI
   (`postgres://user:password@host`). It cannot see a secret under another name: make it a setting too. A script that
   puts a secret in a file, as the `generate.sh` of the certificates does, reads the same setting, from the environment
   or the `.env`. The one literal it accepts is the demo sign-in a console shows (`io.gravitee.console.<id>.password`),
   which sets nothing: the core's consoles say the password their image comes with. A console whose password is a
   setting says that setting.
 - **Seeds use endpoints, not container names.** Seed files hold `${VAR}` for every address and the seed service sets
-  them, because the seeder reads every endpoint from its settings. `make test` fails on a literal address.
+  them, because the seeder reads every endpoint from its settings. `seedlint`, in the CI of a catalog, fails on a literal address.
 - **Names.** An id is lowercase letters, digits and dashes. Service names are global to the project, because services
   of one name in two files merge: a playground's services carry its prefix (`shop-api`, not `api`), and an add-on's the
   name of what they run (`kafka-ui`, `smtp4dev`). Prefix an item's own settings with its id (`ACME_SHOP_*`,
@@ -106,13 +107,13 @@ the default catalog, `@<catalog>/<id>` for another.
 without `.env`: [Logins](docs/configuration.md#logins) lists the secrets. Add-ons, setups and playgrounds are included
 on top of it and change its services only by the keys they need.
 
-- `x-gravitee` holds `name`, `groups` (the sections of the Containers page, in order) and `categories` (the values an item's
-  `category` may take).
+- `x-gravitee` holds `name`, `groups` (the sections of the Containers page, in order), `categories` (the values an item's
+  `category` may take), and `contract`, `contract_min` and `seeder` ([the contract](docs/contract.md)).
 - A service has the labels `io.gravitee.name`, `io.gravitee.description` and `io.gravitee.group` (one of `groups`);
   `make check` asks for the last two. A UI to open adds `io.gravitee.console.<id>.name` and `.url`.
 - An image is `${NAME_VERSION:-tag}`, and a Gravitee image `${NAME_REGISTRY:-graviteeio}/repository:${NAME_VERSION:-tag}`.
   The Images page finds each component from these lines and writes the chosen version to `.env`, so a version never goes
-  in code. The variables: [images and versions](docs/configuration.md#images-and-versions).
+  in code. The variables: [the settings of the core](docs/contract.md#settings-of-the-core).
 - `x-ui-frames` is the `command` of the consoles that the Lab UI shows in frames next to a guide. It removes
   `X-Frame-Options` and lets `http://localhost:9000` frame the page. A platform service listed in a playground's
   `consoles` needs it, or a setting of its own that names `http://localhost:9000` and `http://127.0.0.1:9000` as the pages that

@@ -9,9 +9,9 @@ Run `make help` to list them. A target that needs a tool the machine lacks stops
 
 | Target | What it does | Needs |
 |---|---|---|
-| `make ui` | Opens the Lab UI on http://localhost:9000. `UI_PORT=9001 make ui` uses another port, and then the UIs of a playground do not show next to the guide | Python 3.9 or later, `openssl`, Docker with Compose 5.0 or later. Docker does not have to run |
+| `make ui` | Opens the Lab UI on http://localhost:9000. `UI_PORT=9001 make ui` uses another port, and then the UIs of a playground do not show next to the guide | Python 3.9 or later, `openssl`. Its first step checks Docker |
 | `make all` | Creates and starts the core and what is on | Docker running |
-| `make init` | Creates what a fresh clone lacks: `.env`, the demo certificates, the plugin folders and `.lab/on.yml` | Python 3.9 or later, `openssl`, Docker with Compose 5.0 or later. Docker does not have to run |
+| `make init` | Creates what a fresh clone lacks: `.env`, the demo certificates, the plugin folders and `.lab/on.yml` | `openssl` |
 | `make start` | Starts stopped containers | Docker running |
 | `make stop` | Stops all containers, keeps data | Docker running |
 | `make restart` | Restarts containers (`SVC=name` for one service) | Docker running |
@@ -42,7 +42,8 @@ Notes:
   turns off the playground that is on.
 - `make test` runs the page tests only when Node is recent enough (see [Set up your machine](../CONTRIBUTING.md#set-up-your-machine)),
   and the seeder's tests only when `requests`, `pyyaml` and `redis` import, which `make setup` installs.
-- When `.venv` exists, `make` uses its Python. Otherwise it uses `python3`, or the program `PYTHON3` names.
+- When `.venv` exists, `make` uses its Python. Otherwise it uses the program `PYTHON3` names, or the first of `python3` and
+  `python3.14` down to `python3.9` that is 3.9 or later.
 - `make setup` stops when its Python is older than 3.10. It removes the `.venv` it made and says to run it again with a
   newer `python3`. A `.venv` that was there before is left alone: remove it yourself.
 
@@ -98,17 +99,7 @@ Every image has a default version in the compose file that runs it. A `.env` onl
 for a value that differs from the default: the core's `.env` for the platform, and for an add-on or a playground the `.env` of its folder in the catalog's install
 (`.lab/catalogs/<catalog>/addons/<id>/.env`), which the Lab UI writes.
 
-The core's variables:
-
-| Component | Version | Registry | Default |
-|---|---|---|---|
-| API Management (Management API, Console, Portal, Gamma Console) | `APIM_VERSION` | `APIM_REGISTRY` | 4.13.1 |
-| API gateway | `APIM_GATEWAY_VERSION` | `APIM_GATEWAY_REGISTRY` | the APIM version with `-debian`, and the APIM registry |
-| Access Management | `AM_VERSION` | `AM_REGISTRY` | 4.13.2 |
-| Alert Engine | `AE_VERSION` | `AE_REGISTRY` | 3.0.3 |
-| MongoDB | `MONGODB_VERSION` | | 8.0.34 |
-| Elasticsearch | `ELASTICSEARCH_VERSION` | | 9.5.5 |
-| Redis | `REDIS_VERSION` | | 8.10.2-alpine |
+The core's variables are in [the settings of the core](contract.md#settings-of-the-core), their defaults in `docker-compose.yml`.
 
 The default registry of the Gravitee images is `graviteeio`, on Docker Hub. Each Gravitee component has its own
 registry variable, so components can come from different registries. A component can follow another instead of having
@@ -142,7 +133,7 @@ The key button of an add-on or a playground opens its settings as a form. The fo
 
 - Every `${VAR}` of the file is a field. A comment on its line, or heading its block, is the description you see.
 - A name with `TOKEN`, `SECRET`, `PASSWORD`, `LICENSE` or `_KEY` goes under *Secrets*, the others under *Settings*.
-- A variable without a default is *Required*. An add-on that lacks one shows *Settings* instead of *Start*.
+- A variable without a default is *Required*. An add-on that lacks one keeps its *Start*, which waits and says which.
 - Every demo password, secret, token and key is one of these variables, with its public demo value as the default: [Logins](#logins) lists them. Changing one is a line in a `.env`.
 - Image versions and registries stay on the Images page.
 
@@ -161,8 +152,8 @@ which of its images are built from another project's source:
 
 The Lab UI never forces a build.
 
-The CI of a catalog builds each image its add-ons and playgrounds build, for `linux/amd64` and `linux/arm64`, after a change
-on `main`, and pushes them to the registry prefix its `catalog.yml` names (`images`) as `latest` and `sha-<commit>`. The
+The CI of a catalog builds each image its add-ons and playgrounds build, for the architectures it lists (`linux/amd64`, `linux/arm64`
+or both), after a change on `main`, and pushes them to the registry prefix its `catalog.yml` names (`images`) as `latest` and `sha-<commit>`. The
 Lab's own CI does the same for the seeder. If a pull is refused, the lab builds the image here.
 
 ### Gravitee's private registry
@@ -183,7 +174,7 @@ Images page.
 
 Every port is published on `127.0.0.1`, so only this machine reaches it. Nothing is reachable from other machines. To
 open a port to the network, edit its line in the file of the service, for example from `"127.0.0.1:8083:8083"` to
-`"8083:8083"`. The demo logins are public, so do this only on a network you trust. the check of a catalog refuses it in
+`"8083:8083"`. The demo logins are public, so do this only on a network you trust. The check of a catalog refuses it in
 an item of a catalog.
 
 `–` means the lab sets no login. A login is the default one: [Logins](#logins) names the setting that changes it, when there is one.
@@ -191,7 +182,6 @@ an item of a catalog.
 | Port | Service | What it is | Login |
 |---|---|---|---|
 | 6379 | `redis` | Redis: rate limit counters, caches, vector stores | Password `redispassword` |
-| 8072 | `apim-management-api` | Integration controller that API Federation agents connect to | A personal access token of APIM |
 | 8081 | `am-management-ui` | AM Console | `admin` / `adminadmin` |
 | 8082 | `apim-gateway` | API gateway, HTTP entrypoint | – |
 | 8083 | `apim-management-api` | APIM Management API, which also serves Gamma | `admin` / `admin` |
@@ -202,7 +192,6 @@ an item of a catalog.
 | 8093 | `am-management-api` | AM Management API | `admin` / `adminadmin` |
 | 8443 | `apim-gateway` | API gateway, HTTPS and mTLS entrypoint | A client certificate, when the API asks |
 | 9000 | Lab UI | The Lab UI, started by `make ui` | – |
-| 9092 | `apim-gateway` | The gateway's Kafka entrypoint, TLS | Depends on the API |
 | 9200 | `elasticsearch` | Elasticsearch HTTP API | – |
 | 27017 | `mongodb` | MongoDB | – |
 
@@ -330,7 +319,7 @@ repository URI is derived from them.
 | Packages and source for local builds | PyPI, npm, Docker Hub, and GitHub for the apps that build from a repository | When an app or the seeder is built here |
 | Gravitee's private registry | `graviteeio.azurecr.io`, with `az login` | An item that pulls from it |
 | Gravitee Cloud | `eu.cloud.gravitee.io` for the Gravitee Cloud page, `eu.cloudgate.gravitee.io` for the hybrid gateway, for a Cloud Token and for the seed of a deploy | An account on the Gravitee Cloud page, the Hybrid gateway add-on, a playground deployed to Cloud: [Use Gravitee Cloud with the Lab](cloud.md) |
-| The Lab UI's libraries, in your browser | `cdnjs.cloudflare.com` and `cdn.jsdelivr.net` | A guide with diagrams, the file editor |
+| The Lab UI's libraries, in your browser | `cdnjs.cloudflare.com` and `cdn.jsdelivr.net` | A guide with diagrams, the file editor, a playground's terminal |
 | Hosts an item calls | Named in its README | Only when you use the item, or set the key it asks for |
 
 Ollama models are pulled by `ollama pull`, outside the lab.

@@ -27,13 +27,13 @@ Keep port 9000. The platform's consoles and the playground apps let only that ad
 
 The core is the Gravitee platform under everything else: API Management, Access Management, Alert Engine, Gamma and their
 databases. Of its products, only API Management can run in Gravitee Cloud; the rest always runs on this machine. Choose where
-API Management runs in *How Gravitee Lab works*, on API Management's row of the Dashboard (two icons after its name, *This
+API Management runs on the *API Management* step of *Welcome to Gravitee Lab*, on API Management's row of the Dashboard (two icons after its name, *This
 machine* and *Gravitee Cloud*) or in the head of the [Gravitee Cloud page](#gravitee-cloud) (*Where API Management runs*): one
 setting of this machine, kept in `.lab/core.json`, out of git.
 
 | API Management runs on | What runs where | What *Start all* on the Dashboard does |
 |---|---|---|
-| *This machine*, the default | Docker runs the whole platform of `docker-compose.yml` here, as the lab always did | Starts the platform and what is on |
+| *This machine*, the default | Docker runs the whole platform of `docker-compose.yml` here | Starts the platform and what is on |
 | *Gravitee Cloud* | API Management runs in one environment of your Gravitee Cloud account, its hybrid gateway here; the rest of the platform runs here | Starts the hybrid gateway of that environment, the rest of the platform with the services it depends on, and what is on; not API Management's own services |
 
 - **Choosing *Gravitee Cloud* goes where it can be done.** With no account, it opens *Connect Gravitee Cloud*; with an account
@@ -59,7 +59,7 @@ setting of this machine, kept in `.lab/core.json`, out of git.
 | Dashboard | The page the Lab UI opens on, first in the menu: is the platform up, which version of each product runs and is there a newer one, how many hybrid gateways your Gravitee Cloud accounts have, what else is on and a search through the catalog, how much the lab uses of the machine. [Details](#dashboard) |
 | Playgrounds | Use cases with their apps, sample data and a guide. Each has [its own page](#the-playground-page) |
 | Setups | Named sets of add-ons, turned on and off as one |
-| Add-ons | One capability each. One that needs a secret shows *Settings* until it has it |
+| Add-ons | One capability each. One that lacks a setting keeps its *Start*, which waits for it and says which |
 | Catalogs | Where the items come from: add, update, go back to the previous copy or remove a catalog, make a new one, and see what each holds: [Catalogs](catalogs.md) |
 | Containers | The containers by group, the platform's actions, and every console to open |
 | Logs | Several services merged in time order, filtered by level and by text |
@@ -84,7 +84,7 @@ containers, and *Apply*; the summary opens the list of what and why), Docker's m
 read, which opens in the editor. Before the Lab UI first answers, the page says it is reading the lab; when it does not
 answer at all, the page says so, how to start it (`make ui`) and *Try again*. Once you connected a
 [Gravitee Cloud account](#gravitee-cloud), it leaves out the calm *stopped* line while an add-on or a playground runs, because a deploy to
-Gravitee Cloud runs without the core.
+Gravitee Cloud needs little of the core.
 
 ## Your machine
 
@@ -127,7 +127,7 @@ On the Playgrounds, Setups and Add-ons lists, what is to know of a row is a badg
 Dashboard), never in its description, which is one muted line under the name (two on a phone) and says what the item is: *Started
 by hand*, *Needs a license*, *Needs newer versions*, *Apply needed*, *Needs settings*. A star follows the name. A badge that leads to its fix has an arrow and is amber when it keeps the
 item from starting (*Needs a license* opens the license form, *Needs newer versions* the Images page, *Needs settings* the
-settings that lack a value, or the add-on that lacks them, *via Kafka Desk* that add-on); hovering or focusing it says
+settings that lack a value, or the add-on that lacks them, *via* and a name that add-on); hovering or focusing it says
 why (the versions it needs, the names of the settings without a value, what of the license it uses) and where it is fixed. One
 with an information mark tells more on hover, focus or a tap. A long name is cut before its badges are. An add-on that lacks a
 setting keeps its *Start*, which waits for it and says which (hover or focus it), or its *Stop* while it runs; its key button
@@ -147,7 +147,6 @@ The button of a row says what a click does:
 | Stop | It runs | Stops it and turns it off |
 | Turn off | It is on and does not run | Turns it off |
 | Turn on | It runs without being on (started by a command, not from the Lab UI: *Started by hand*) | Adds it to what is on, so that it starts with the platform. It has no play icon: it starts nothing |
-| Settings | An add-on lacks a required setting | Opens its settings |
 
 A row that is on and does not run keeps *Turn off* in its ⋯ menu. A name in a detail leads to that item's row, and the
 file and key buttons of a row open its compose file and its settings.
@@ -188,7 +187,7 @@ resources run across the page under them, one line that you unfold.
   state the platform is, so the *Apply* button is never there without a reason: [hover the badge, focus it or tap it to read
   why](#apply-needed), a row for each product, with the version that runs and the one that is saved. The state of the platform
   is the menu's, which every page shows. The head offers the one
-  button that fits: *Start* while the platform is stopped, *Apply* when something runs behind what is saved, else *Stop*. Restart,
+  button that fits: *Start all* while the platform is stopped, *Apply* when something runs behind what is saved, else *Stop all*. Restart,
   Update, Remove containers and Reset are on the Containers page. The buttons do what they do there, with the same dialogs and the
   same progress, and the banner above leaves out the Start and the Apply that the head has.
 - **Where API Management runs**, two icons after API Management's name on its row: [Where API Management runs](#where-api-management-runs).
@@ -244,12 +243,12 @@ resources run across the page under them, one line that you unfold.
   *Starred* what you starred, together or apart. A long list is paged, and a search that finds nothing says so. With nothing on, a button leads to the playgrounds. The head of the
   card has *Catalogs*, with how many there are, which opens the Catalogs page.
 - **Resources.** What the lab's containers use of your machine. By default it is one thin line: *CPU* and *Memory* in
-  words, live, and the versions of Docker and Docker Compose at its end when the window has room. Click it, or Tab to it and press
+  words, read about every 3 seconds, and the versions of Docker and Docker Compose at its end when the window has room. Click it, or Tab to it and press
   Enter, to unfold it; your browser remembers the choice. Unfolded, it is a strip of sections: *CPU*, *Memory*, *Storage* and
   *Docker*, each its label over its figure. *CPU* is the load of the containers as a percentage of the cores Docker
   has and *Memory* what they use of the memory Docker has ("4.1% of 6 cores" and "4.9 GB of 7.7 GB"), each beside the last
   minute as a line that slides as time passes, across the rest of its section, between the top of its scale and zero, which are written beside it
-  (the CPU's scale is 10 % until a higher point needs more; the memory's is what Docker has). Hover the chart to read what it covers. A load that stops coming is not kept on screen: the figures are dashes until it speaks again. Only the containers of
+  (the CPU's scale is 10 % until a higher point needs more; the memory's is what Docker has). Hover the chart to read what it covers. With *reduce motion* set in your system, the charts do not slide. A load that stops coming is not kept on screen: the figures are dashes until it speaks again. Only the containers of
   the lab count, not what else Docker runs. Hover the label of *CPU* or *Memory*, or Tab to it, to see the five containers that take
   the most and what each takes, and for the memory what is left of Docker's: it says what to stop to make room. The memory turns amber
   when Docker has less than 15 % of it left, and red under 5 %, before a container is stopped for want of it. *Storage* is what Docker
@@ -257,28 +256,6 @@ resources run across the page under them, one line that you unfold.
   container uses it (hover it to read how much of each type is unused). Unused volumes can hold data, so removing one loses it. The icon
   button at its end, *Count storage again*, reads them again. *Docker* says the versions of Docker and Docker Compose.
   On a narrower window CPU and Memory share a line, with Storage and Docker under; on a phone, a section over the other.
-
-### What the Dashboard reads
-
-| What | From | When |
-|---|---|---|
-| The state of the platform, its parts, what is on and what can be opened | The same state as every page | Always, as it changes |
-| The versions of the products and of the catalog | The Compose files, `docker ps` and Docker Hub, read by the code of the Images page | The page opens, and again when what runs changes. Docker Hub is kept for an hour |
-| The environments of the Cloud | The Gravitee Cloud page's own reads, one call to the Cloud for each account | The page shows, and the tab is seen again |
-| The versions of Docker and Compose, the cores and memory Docker has | `docker info` and `docker compose version` | The page opens |
-| What Docker stores and what is unused: images, containers, volumes and build cache | `docker system df`, which takes about 2 seconds | The page opens, and *Count storage again* |
-| The load and memory of the containers | `docker stats --no-stream`, which takes about 2 seconds | Every few seconds while the page is in view, folded or not |
-
-- **Docker's answers are kept.** What Docker stores is kept for a minute, its Compose's version too; what Docker says of itself
-  until it restarts (at most 10 minutes), the same answer every page and the first step of *Welcome to Gravitee Lab* read. Going to
-  another page and back reads nothing again. *Count storage again* reads them again at once. A read that failed is tried again after
-  10 seconds.
-- **The load is live.** While a page listens, the Lab UI reads it every few seconds, and the pages that listen share a reading. A tab you hide, or a page you leave, closes its connection, so the Lab UI in the background
-  costs Docker nothing. A connection that the browser gave up on is opened again after 3 seconds, then 6, 12 and so on up to a minute. The CPU is the sum of the lab's
-  containers' CPU divided by the cores Docker has, so 100% is every core it has. The last minute is drawn by the page, on a scale that never changes (the line grows in from the right, then passes) and kept nowhere, and only while Resources is unfolded. With *reduce motion* set in
-  your system, the charts are drawn when a sample comes and do not slide.
-- **The latest versions never hold the page.** It shows what it has, asks again every 3 seconds while Docker Hub is
-  still answering, and fills them in. Without internet they show a dash.
 - **Without Docker**, the banner says why, once, and the menu's chip says it is not reachable. The figures that need it,
   CPU, Memory and Storage, are dashes and the charts are gone. No dot is colored, no count is said, the buttons wait and say
   why, and there is nothing to open. The page still shows what needs no Docker: the versions configured for the products, the
@@ -289,7 +266,7 @@ resources run across the page under them, one line that you unfold.
 The Containers page lists the containers by group, under the band of the platform (*Gravitee Platform*), which folds: its groups
 (API Management, Access Management, Alert Engine, Databases), then under a band of their own, which folds too, the add-ons of the
 platform (the ones in the *Gravitee Platform* category) that are on or still run. Below it, the other add-ons that are on or still run
-(*Other add-ons*: Kafka, Jade…), then the playground. A band stays open while one of its groups is in an issue. Each row shows the group with what the Lab notes
+(*Other add-ons*), then the playground. A band stays open while one of its groups is in an issue. Each row shows the group with what the Lab notes
 of it as a badge after its name (*Apply needed*, *Needs a license*, *Started by hand*), its state (a dot and a
 word: *Running*, *Partly running*, *Stopped*), its version, the ports it publishes (the first, and how many more, all of
 them in its tooltip) and how long it has run whole (the uptime of its youngest container), with buttons to open it, read its
@@ -320,7 +297,7 @@ A group, a container, or the containers of an add-on or a playground start, stop
 item stays on or off.
 
 Once a [Gravitee Cloud account](#gravitee-cloud) is connected, the ports of a container have a tooltip with the address another container
-of the lab uses to reach it, such as `In the lab: smtp4dev:80`. That is what a backend URL in Gravitee Cloud takes.
+of the lab uses to reach it, such as `In the lab: shop-api:8000`. That is what a backend URL in Gravitee Cloud takes.
 
 ## Apply needed
 
@@ -419,101 +396,17 @@ comment that describes it in the compose file, and *Required* when it has no def
 
 ## Gravitee Cloud
 
-The Gravitee Cloud page (`#/cloud`), under **Configure**, shows the Gravitee Cloud accounts connected to this lab. The lab's own
-platform is the one the pages call *This machine* wherever you choose a place. Connecting an
-account adds places to deploy to, and only what this page and [Deploy to](#deploy-to) list: with none connected, the lab is
-as it always was. The whole path, from the Account Token to a call, is in [Use Gravitee Cloud with the Lab](cloud.md).
+The Gravitee Cloud page (`#/cloud`), under **Configure**, shows the Gravitee Cloud accounts connected to this lab, each a card
+with its state, its environments and its hybrid gateways (`#/cloud/<id>` brings a card into view). The lab's own platform is the one
+the pages call *This machine* wherever you choose a place. Connecting an account adds places to deploy to, and only what this page
+and [Deploy to](#deploy-to) list. With no account, the page says *No account connected* and offers *Connect account*. The head of
+the page has [Where API Management runs](#where-api-management-runs) too.
 
-With no account, the page says *No account connected* and offers *Connect account*. With one or more, each is a card,
-and the head of the page has *Connect account*. The head has [Where API Management runs](#where-api-management-runs) too, with
-the environment picker when several environments are linked.
+[Use Gravitee Cloud with the Lab](cloud.md) is the whole path, from the Account Token to a call, with what each word and each action
+of the page means.
 
-**The card.** Its title is the name of the account, with where its console is under it, and its state as a pill:
-*Connected*, *Account Token refused* (Cloud refuses the Account Token) or *Unreachable*, *Loading* before the first answer
-and *Checking* while you ask again. *Open console* opens the Cloud console of the account in a
-new tab: there is none for one environment, because the Lab knows no address for it. The key beside it, *Manage connection*, shows
-how the Lab reaches the account: its name, its Account ID (with a button that copies it), its address and whether its Account Token
-is set (*Set*, or *Refused*; the token itself is never shown), with *Replace Account Token*. *More* has *Rename*, *Check again* and
-*Remove account*. An account that cannot list its environments says so in a notice under the head:
-*Environments cannot be listed*, the reason, and the one thing that changes it: *Replace Account Token* (red) when Cloud
-refuses the token, *Check again* (amber) when it does not answer. An account that answered before and does not now keeps its
-table under the notice, which then says *Showing what was read before*, and is read again every 30 seconds. `#/cloud/<id>` brings a card into view.
-
-**The environments** are one table, the ones you use first under *In use*, the others under *Not set up*:
-
-| Column | What it says |
-|---|---|
-| Environment | Its name |
-| Gateway | On this machine: the state of its [hybrid gateway](cloud.md#create-a-hybrid-gateway), a dot and a word. Its popover has its name, its version and, while it runs here, the address to call |
-| Deploys | Whether the Lab may deploy playgrounds into it, a dot and a word: what the Lab deployed ("Acme Shop API deployed", "2 playgrounds deployed"), else that the Cloud Token expires soon (in amber), else the state of the token. Its popover has the rest: the token's state and expiry, what each playground created |
-| (the last one) | The one action to take, then *More* |
-
-An environment is in use when it holds a hybrid gateway (the Lab's, one that is connected, or any other, so that it can be
-removed), a gateway Cloud deleted while it ran here, a Cloud Token of the Lab's, or something deployed in it. A line of the
-others is a name and *Set up*; with more than three of them, the first two show and *Show N more environments* lists the
-rest. Each cell is one line, as on the Dashboard, so that both pages draw an environment alike. The terms are explained by the
-info icon next to their column, which the keyboard reaches.
-
-- **Gateway** reads *Running here*, *Stopped here*, *Starting*, *Connecting* (it runs and Cloud has not seen
-  it yet; *Not connected* after 2 minutes), *Connected elsewhere* (another machine runs it, named in its popover),
-  *Removed in Cloud* (it was deleted there while it runs here) or *Not created*. The add-on's own warnings replace these, with
-  an amber dot, never the green of what runs: *Needs a license* (and no gateway can start), *Needs settings* (the settings that
-  have no value are named in its popover), *License expired*, *Failed* (red), *Apply needed*.
-- **Deploys** reads *Can deploy* (a valid Cloud Token and a gateway here), *Needs a gateway* (*Cloud Token set* when the
-  gateway's own column already says none is created), *Needs a Cloud Token*, *Cloud Token expired* or *Cloud Token refused*;
-  *Expires in 5 days* in amber in its place when the token ends within 14 days; or what the Lab deployed there.
-- **The action** is the first that applies: *Add license* (*Replace license*), *Settings* (the add-on's settings, when they
-  lack a value), *Create gateway* (*Replace gateway* for a
-  gateway of another machine or one Cloud deleted) or *Start gateway* (the add-on's own action, which shows the same
-  progress as the Hybrid gateway row of **Add-ons**), then *Add Cloud Token* or *Replace Cloud Token*, then *Stop gateway*.
-  *Set up* is for an environment that is not in use. A gateway made here is started at once, through the same dialog as a
-  Start, which says first when it stops another environment's gateway.
-- **More** has the rest, and is not there when there is none: *Stop gateway*, *Show logs*, *Copy address*, *Add Cloud Token* or
-  *Replace Cloud Token*, then what removes, in red, each with what it does on its line: *Remove Cloud Token* (*Deploys stop*),
-  *Remove gateway* (its name; its dialog is titled *Remove gateway of Development*, and says when another machine is connected to
-  it) and *Stop using Development* (*Removes its token and gateway*), which does both with one confirmation. An environment with
-  several gateways says how many after the state of its own (*2 gateways*): click it to see them in the list below.
-
-**The hybrid gateways** of the account are listed under its environments, every one of them, the one that runs on this machine first,
-then the connected ones, then the others: its name, its environment, its state (the words of the Gateway column, and *Not connected*
-for one that nothing runs), its version and the domains it answers on. *Stop gateway* is on the one that runs here, *Start gateway* on
-one whose token the Lab keeps (it takes the place of the one that runs here, after the same dialog), and *More* has *Show logs* and
-*Copy address* while it runs here, and *Remove gateway*. With none, the list says *No hybrid gateway* and offers to set up the first
-environment.
-
-*Connect account* opens *Connect Gravitee Cloud*, one large dialog of two steps, *Account* then *Environment*, which stays open
-from one to the next: the steps are in its head, the current one filled and the one done checked. At the left of each step is
-what to do in the Cloud console and the fields; at the right a picture of the console, numbered as the lines at the left (under
-860 px it goes under the fields, and on a phone it opens with *Show where to find it*). One footer has the buttons, and a refusal
-at their left. Once *Connect* succeeds the page shows the account behind the dialog, which goes on to the environment: *Set up*,
-or *Skip for now* (the account stays connected however the dialog closes). An account with no environment, or whose environments
-cannot be read, ends there, with a message. The other forms are short dialogs. What each asks:
-
-| Form | Fields |
-|---|---|
-| *Connect Gravitee Cloud*, first step | *Open Gravitee Cloud* and, under it, *No account? Register for free*; the two lines of the picture (generate an Account Token and copy it; copy the Account ID at the top of the same page); then Account Token and Account ID, each with an information mark on its label whose popover says what it is and where Gravitee Cloud shows it (Settings, Account Tokens). Both are needed: an Account Token is a UUID that carries no claim, and Cloud answers no call that would say whose it is ([why](cloud.md#why-the-account-id-is-asked)). An Account ID that is no UUID is said under its field. *More options* holds the URL, already filled in with Europe's, which *Open Gravitee Cloud* follows. The account's name is read from Cloud (*Rename* in the card's menu changes it) |
-| *Connect Gravitee Cloud*, second step | The environment (Development first), then the two parts of *Set up* below |
-| *Replace Account Token* | The new token, checked against the Account ID the Lab kept; the popover of its label says where to create it. The record, the Cloud Tokens and the gateways stay |
-| *Set up Development* (*Set up* of a row) | The second step of the same dialog, for that environment alone. Two parts you may leave out, their fields shown while ticked: *Run a gateway here* (Name, *Gravitee Lab - Development* by default) and *Allow deploys* (*Open Gravitee Cloud*, the two lines of the pictures *1 Generate* and *2 Choose the environment*, which a segmented control above them chooses, then the Cloud Token). The token is kept first, because it is checked before it is kept, then the gateway is created and started. A part that was done stays done when the other is refused, and closing the dialog still shows it on the card |
-| *Create gateway for Development* | Name, and *Create and start*. A line says when another gateway runs here and this one stops it. From *Before you start* it is *Create hybrid gateway for Development* and *Create*: the playground's Start starts it |
-| *Add Cloud Token for Development*, *Replace Cloud Token for Development* | Cloud Token, the popover of its label saying where to create it |
-
-A refusal is said in the form, in the server's words. The Lab keeps the tokens in the `.env` files, which git ignores, and
-never shows one again. It never asks for the token of a hybrid gateway: it creates the gateway, keeps the token and
-writes it in the settings of the Hybrid gateway add-on.
-
-- **One hybrid gateway runs here at a time.** *Start gateway* on an environment whose gateway is not the one that runs swaps
-  it, after a dialog that says which environment it *Serves* from now on and which it *Stops serving*. *Stop gateway* is on
-  the one that runs. These are the add-on's own actions, so the Hybrid gateway row of **Add-ons** shows the same job.
-- **Remove** asks first. A gateway is removed in Cloud, and the add-on is turned off if it ran here. A Cloud Token is
-  forgotten on this machine and *Stays there*. An account is forgotten with its tokens and what the playgrounds recorded
-  there; its gateways and the APIs they created *Stay there*.
-- A gateway that runs here and has not connected is read again every 5 seconds for a minute, every 10 for another, then every 30,
-  and reads *Not connected* after 2 minutes, while the page is open.
-- **Keyboard**: every control is a button or a link, and a redraw leaves the focus where it was. The explanations of the terms are
-  tooltips that the keyboard reaches.
-- **Without an account**, the Hybrid gateway add-on reads *Needs settings* like any add-on that lacks a secret. With one,
-  the add-on reads *Needs a hybrid gateway*, a link to this page.
+Without an account, the Hybrid gateway add-on reads *Needs settings* like any add-on that lacks a secret. With one, it reads
+*Needs a hybrid gateway*, a link to this page.
 
 ### Without a license
 
@@ -564,7 +457,7 @@ A warning does not block Start: the part of the guide that needs the missing pie
 missing on one of its add-ons does block it, so does an image version older than the playground needs, and so does a
 license that everything of it needs (*Needs a license*, *License expired*, *Not in the license*); a license needed for
 one step only blocks nothing. The button says why. For the images, it names every one that is too old in one sentence,
-such as *Needs Access Management 4.13 or later and API Management 4.13.0-alpha.5 or later: choose them on the Images
+such as *Needs Access Management 4.14 or later and API Management 4.14 or later: choose them on the Images
 page*, so one visit to Images is enough. A port another program uses is asked when you click Start, which is refused
 then, its line saying which. The guide is readable before the first start.
 
@@ -645,47 +538,17 @@ Reset that fails or is canceled once a volume is deleted does that too.
 
 ### Deploy to
 
-Once a [Gravitee Cloud account](#gravitee-cloud) is connected, the head of every playground has *Deploy to*. A place is *This machine*,
-which is what the lab always did, or one environment of an account, written *Development (My Account)*: the environment,
-then the account. The containers always run here. The place says where the seed creates the APIs. With no account
-connected, none of what follows is drawn and the page is as it always was.
+Once a [Gravitee Cloud account](#gravitee-cloud) is connected, the head of every playground has *Deploy to*: *This machine*, or one
+environment of an account, written *Development (My Account)*. The containers always run here, and the place says where the seed
+creates the APIs. The choice is one for the lab, kept in this browser; without one, [where API Management runs](#where-api-management-runs)
+is. With no account connected, none of this is drawn.
 
-- **The picker** lists *This machine*, then the environments of each account, by account name. An environment that lacks
-  something can be chosen, and its muted tail says the first thing: *No hybrid gateway*, *No Cloud Token*, *Cloud Token
-  expired*, *Cloud Token refused*. An environment the playground cannot go to is disabled, with the reason as its tail
-  (*Needs Access Management*, *Needs API Management 4.13* and the others, judged against what the gateways of that
-  environment run: [What an environment runs](cloud.md#what-an-environment-runs)). An account that cannot be used is one disabled option: *Invalid token*,
-  *Unreachable* or *Loading*.
-- **The choice is one for the lab.** The place you pick on any page is the default of every playground, kept in this
-  browser; without one, [where API Management runs](#where-api-management-runs) is. A playground that cannot go to it shows *This machine*. You can change it while the playground runs: only the
-  seed moves, never a container.
-- **The main button** reads *Start* while the playground does not run. Once it runs, it reads *Re-seed* where the place
-  already holds something, and *Deploy* where it holds nothing. *Re-seed* and *Deploy* act on the place shown, and never
-  reach another one.
-- **Before you start** describes the place. For an environment it replaces the lines about the core with the account
-  (*Connected*), the *Cloud Token* (*Valid*, *Not set*, *Expired*, *Refused*) and the *Hybrid gateway* (*None in
-  Development*, *Its token is not kept here*, *Not connected*, *Turned on at start*, *Switches to Development*,
-  *Running*), plus the playground's add-ons and host prerequisites. A plus button creates the missing hybrid gateway and
-  a key button adds or replaces the Cloud Token, in the same forms as the Gravitee Cloud page. What is missing disables
-  *Start* and says so in its tooltip.
-- **A dialog always opens for an environment**, even when nothing starts, so that the place is named once more where you
-  click. It lists what starts and restarts, with the gateway swap's *Serves* and *Stops serving*, and *Deploys to* names
-  the environment. It lists no service of the core: a deploy starts, restarts and recreates none, and it runs the seed
-  apart. Deploying another playground first stops the one that runs, which *Stops* lists, because one runs at a time.
-- **The phases** are **Add-ons**, **Apps and services**, **Gateway**, which waits up to 2 minutes for Gravitee Cloud to
-  say the gateway is connected, and **Seed**.
-- **Deployed to** is a panel on the page of the playground, on the not-running page after *What runs* and under
-  **Details**. It appears only when an account holds something, and lists each place that does, *This machine* first,
-  with a summary such as *3 APIs, 1 Application*. The trash icon of a remote row deletes what the seed created there; it
-  needs the playground on, and says why when it is disabled.
-- **Open** has a group named after each account where the playground deployed, with a link for each environment that
-  holds something, to the account's console.
-- **Stop** lists each place that holds something: *Keep what it created* has a row *Stays* for each, *Delete what it
-  created* a row *Deletes* for each, and is disabled with the reason of the first place that cannot be reached. The
-  hybrid gateway is not part of it: it stops from its own line.
-- **On the Playgrounds list**, a playground that can go to Gravitee Cloud has a cloud mark, and its note says what the place
-  you picked lacks (*Needs a hybrid gateway*, *Needs a Cloud Token*, *Invalid token*, *Unreachable*), leading to the form
-  that fixes it. Its *Start* deploys to that place.
+[Deploy a playground](cloud.md#deploy-a-playground) is the whole path (the picker, *Before you start*, the dialog and its phases,
+*Deployed to*), and [Use both places](cloud.md#use-both-places) says what *Stop* and *Reset* do with several places.
+
+On the Playgrounds list, a playground that can go to Gravitee Cloud has a cloud mark, and its note says what the place you picked
+lacks (*Needs a hybrid gateway*, *Needs a Cloud Token*, *Invalid token*, *Unreachable*), leading to the form that fixes it. Its
+*Start* deploys to that place.
 
 ## The on file
 
@@ -739,16 +602,10 @@ remove](installation.md#stop-update-remove).
 The page uses CSS features that need Chrome or Edge 117, Firefox 121 or Safari 16.4, or later. An app of an item can
 need a later one, which its README says.
 
-It loads four libraries from the internet when it needs them:
-
-| Library | From | Used for |
-|---|---|---|
-| marked and DOMPurify | cdnjs.cloudflare.com | Rendering a guide safely |
-| Mermaid | cdnjs.cloudflare.com | Drawing the diagrams of a guide |
-| Monaco | cdn.jsdelivr.net | The file editor |
-
-Without internet, a guide shows as plain text, diagrams included, and the editor as a plain text area. Everything
-else works. See [What needs the internet](configuration.md#what-needs-the-internet).
+It loads its libraries from the internet when it needs them, from `cdnjs.cloudflare.com` and `cdn.jsdelivr.net`: for a guide, its
+diagrams, the file editor and a playground's terminal. Without internet, a guide shows as plain text, diagrams included, the
+editor as a plain text area, and the terminal's panel says it needs the internet. Everything else works. See
+[What needs the internet](configuration.md#what-needs-the-internet).
 
 Keyboard:
 
