@@ -1048,15 +1048,20 @@ test("Connect Gravitee Cloud is one large dialog of two steps, opened on the acc
   section.querySelector(".plat-lonely [data-new]").click();
   assert.equal(titleOf(form), "Connect Gravitee Cloud");
   assert.ok(wizard.classList.contains("platform-wizard"), "the large dialog");
+  assert.equal(wizard.querySelector(".wizard-steps").getAttribute("aria-label"), "Steps");
+  assert.equal(wizard.querySelector(".wizard-steps").hidden, false);
   assert.deepEqual(steps(), [["Account", "step"], ["Environment", ""]], "the first step is the current one");
   assert.ok(isOpen(form) && !form.hidden && step2().hidden, "the account's form shows, the environment's waits in the same dialog");
+  assert.equal(wizard.querySelector("[data-close]").getAttribute("aria-label"), "Close", "the cross of the large dialogs");
   // Where the values are: the console, its registration for a person with no account, the two lines the picture numbers
   assert.equal(field("platform-open").getAttribute("href"), "https://eu.cloud.gravitee.io");
   const register = form.querySelector(".connect-register a");
   assert.equal(register.getAttribute("href"), "https://eu.cloud.gravitee.io/?createUser=true");
+  assert.equal(register.getAttribute("target"), "_blank");
   assert.deepEqual(lineOf(form), ["In Settings, Account Tokens, generate an Account Token and copy it", "Copy the Account ID, at the top of the same page"],
     "numbered as the picture numbers them: 1 the token, 2 the Account ID");
   assert.deepEqual(shots(form), ["/img/cloud-account-token.png"]);
+  assert.match(form.querySelector(".connect-shot img").getAttribute("alt"), /Account Token.*Account ID/);
   // The fields
   assert.deepEqual(labels(form), ["Account Token", "Account ID", "URL"]);
   // The label says the term: the popover is where it is, and why both are asked
@@ -1090,10 +1095,12 @@ test("Connect Gravitee Cloud is one large dialog of two steps, opened on the acc
   assert.equal(field("platform-account-wrong").hidden, false, "said under its field, in plain words");
   assert.equal(field("platform-account").getAttribute("aria-invalid"), "true", "a screen reader hears it is wrong, and why");
   assert.equal(field("platform-account").getAttribute("aria-describedby"), "platform-account-wrong");
+  assert.equal(field("platform-account-wrong").getAttribute("role"), "status");
   typed(form, "platform-account", "4b2f6a1e-8c3d-4e57-9a10-7d5c2b8e3f46");
   assert.equal(isOff(go), false);
   assert.equal(field("platform-account-wrong").hidden, true);
   assert.equal(field("platform-account").hasAttribute("aria-invalid"), false);
+  assert.equal(form.querySelector(".create-problem").getAttribute("role"), "alert", "a refusal is said at once");
   // The console's link follows the address under More options
   typed(form, "platform-url", "http://localhost:9990");
   field("platform-url").dispatchEvent(new Ev("input"));
@@ -1508,6 +1515,7 @@ test("Set up opens one dialog with the two steps in order, a gateway that runs h
   assert.ok(wizard.querySelector(".wizard-steps").hidden, "no steps");
   assert.ok(form.hidden && !use.hidden);
   assert.ok(field("use-choice").hidden, "the environment is the row's: not asked");
+  assert.equal(text(use.querySelector("[data-cancel]")), "Cancel");
   assert.deepEqual(shots(use), ["/img/cloud-token-generate.png"], "with the pictures of where a Cloud Token is made");
   assert.equal(text(field("use-env-name")), "Test");
   assert.deepEqual(labels(use).filter(Boolean), ["Environment", "Run a gateway here", "Name", "Allow deploys", "Cloud Token"]);

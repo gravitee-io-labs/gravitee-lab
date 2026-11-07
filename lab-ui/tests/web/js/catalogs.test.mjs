@@ -1826,6 +1826,9 @@ test("with a skill for it, New catalog is also the prompt that has an AI agent m
   const lines = dialog.querySelectorAll("#catalog-new-agent > div").map((l) => [text(l.querySelector("dt")), text(l.querySelector("dd")), l.querySelector("[data-copy]")?.getAttribute("data-copy") ?? null]);
   const prompt = "Use the new-catalog skill (.agents/skills/new-catalog/SKILL.md) to create a catalog.";
   assert.deepEqual(lines, [["Prompt", prompt, prompt], ["Folder", "/work/lab", "/work/lab"]]);
+  // The copy buttons are the shared one: their label says what they copy
+  assert.deepEqual(dialog.querySelectorAll("#catalog-new-agent [data-copy]").map((b) => [b.getAttribute("class"), b.getAttribute("aria-label")]),
+    [["icon-btn copy", "Copy prompt"], ["icon-btn copy", "Copy folder"]]);
   // And the shortcuts that hand the prompt to an agent, in the foot of the dialog
   const go = dialog.querySelector("#catalog-new-go");
   assert.equal(go.hidden, false);
