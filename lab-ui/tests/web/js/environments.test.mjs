@@ -220,6 +220,20 @@ test("the Cloud controls say why they cannot be used: no gateway add-on, then th
   assert.equal(gatewayWhy(), "", "an add-on that is there runs a gateway, whatever the catalogs are doing");
 });
 
+test("wherever an add-on is named for a platform, nothing holds its gateway for want of one: the entries of the environment's menu that create a gateway have no hold to make", () => {
+  // The menu of an environment (pages/platforms.js) offers Create gateway and Replace gateway only with the add-on found by addonOf, and
+  // asks nothing of gatewayWhy: this is what lets it not. No state of the contract has an add-on named and the hold of a missing one.
+  const states = [{}, { cloud: null }, { cloud: "hyssop" }, { cloud: "other" }, { cloud: "gone" }, { cloud: "" }, { cloud: 0 }, { cloud: "hyssop", other: "other" }];
+  for (const content_ of ["ready", "downloading", "failed", "none"]) {
+    for (const gateways of states) {
+      served(gateways, { content: content(content_) });
+      for (const kind of ["cloud", "other", "constructor", "__proto__", "toString", "x"]) {
+        if (addonOf({ ...PLATFORM, kind })) assert.equal(gatewayWhy(kind), "", `${JSON.stringify(gateways)} ${content_} ${kind}`);
+      }
+    }
+  }
+});
+
 test("a key that reaches the Cloud choice while nothing can run its gateway asks for nothing; with an add-on the same key goes on", async () => {
   const original = globalThis.fetch, sent = [];
   globalThis.fetch = async (path) => { sent.push(path); return { ok: true, status: 200, headers: { get: () => "" }, json: async () => (path === "/api/places" ? [] : {}) }; };
