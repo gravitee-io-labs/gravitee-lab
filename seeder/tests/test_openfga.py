@@ -207,7 +207,3 @@ class Removal(Case):
     def test_a_store_that_is_gone_is_not_an_error(self):
         openfga.remove([{"product": "openfga", "kind": "store", "name": "Documents", "id": "store-7", "label": ""}])
         self.assertEqual(self.platform.changes(), [("DELETE", "/stores/store-7")])
-
-
-if __name__ == "__main__":
-    unittest.main()

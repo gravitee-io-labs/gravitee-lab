@@ -553,7 +553,3 @@ class Waiting(Seed):
             common.wait_until("test", "API", lambda: (_ for _ in ()).throw(requests.ConnectionError("HTTPConnectionPool(host='x')")),
                               timeout=5)
         self.assertEqual(str(raised.exception), "API not ready after 5 s: the connection was cut")
-
-
-if __name__ == "__main__":
-    unittest.main()

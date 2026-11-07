@@ -5,7 +5,6 @@ the seed made."""
 import itertools
 import json
 import re
-import unittest
 from unittest import mock
 from urllib.parse import unquote
 
@@ -751,7 +750,3 @@ class OwnEndpoint(Workspaces):
         self.assertEqual(len(self.bulk()), 1)
         [component] = self.the_workspace()["models"]
         self.assertEqual(component["models"][0]["inputPrice"], 50.0)
-
-
-if __name__ == "__main__":
-    unittest.main()

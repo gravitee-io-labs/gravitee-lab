@@ -163,7 +163,3 @@ class EnvironmentChecks(unittest.TestCase):
     def test_a_variable_the_engine_gives_and_one_the_service_sets_replace_in_every_file(self):
         with self.assertRaises(common.SeedError):
             self.check(**{"portal/content/welcome.md": None, "groups/newt.yaml": "hrid: newt\nname: ${UNSET}\n"})
-
-
-if __name__ == "__main__":
-    unittest.main()

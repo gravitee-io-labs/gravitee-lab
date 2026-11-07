@@ -3,7 +3,6 @@ with the words written for a model in place of the generated ones, and the metad
 that these tests define: an import that refuses a tool entry with a key it does not take."""
 
 import copy
-import unittest
 
 from lab_seeder import aim_catalog
 from lab_seeder import common
@@ -534,7 +533,3 @@ class Metadata(Tools):
         self.run_seed()
         [call] = self.sent("PUT", "/catalog/agents/*")
         self.assertEqual(call.json["metadata"], {"riskClassification": "limited", "compliance.riskAssessment": "RA-14"})
-
-
-if __name__ == "__main__":
-    unittest.main()

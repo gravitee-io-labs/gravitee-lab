@@ -6,7 +6,6 @@ of scopes has fifty a page at most)."""
 
 import copy
 import re
-import unittest
 
 from lab_seeder import am
 from lab_seeder import common
@@ -513,7 +512,3 @@ class Users(Case):
         for post in self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/users")):
             self.assertNotIn("optional", post.json)
         self.assertEqual(sorted(user["username"] for user in self.am.objects("users")), ["kim@orchid.test", "sam@orchid.test"])
-
-
-if __name__ == "__main__":
-    unittest.main()

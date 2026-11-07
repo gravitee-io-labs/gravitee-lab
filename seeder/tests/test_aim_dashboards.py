@@ -2,7 +2,6 @@
 created once, left alone by a second run, put back when someone edited it, and removed."""
 
 import re
-import unittest
 
 from lab_seeder import aim_dashboards
 from lab_seeder import common
@@ -177,7 +176,3 @@ class Removal(Dashboard):
     def test_a_dashboard_that_is_gone_is_not_an_error(self):
         self.console.dashboards.clear()
         aim_dashboards.remove(common.created())
-
-
-if __name__ == "__main__":
-    unittest.main()

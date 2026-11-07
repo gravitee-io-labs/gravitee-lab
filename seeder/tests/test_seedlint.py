@@ -966,7 +966,3 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(STUDIO + "subscriptions:\n"), [])
-
-
-if __name__ == "__main__":
-    unittest.main()

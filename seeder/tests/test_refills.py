@@ -347,7 +347,3 @@ class Requirements(unittest.TestCase):
     def test_the_seeder_installs_the_library_the_refill_imports(self):
         requirements = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8").split()
         self.assertTrue(any(line.startswith("redis==") for line in requirements))
-
-
-if __name__ == "__main__":
-    unittest.main()

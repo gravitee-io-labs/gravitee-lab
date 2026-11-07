@@ -6,7 +6,6 @@ missing, never taking over what the seed did not make, and removed with only wha
 import itertools
 import os
 import re
-import unittest
 from unittest import mock
 
 from lab_seeder import aim_agents
@@ -773,7 +772,3 @@ class Removal(Agents):
             self.assertEqual(self.main("--remove"), 0, self.output())
         self.assertEqual(self.world.deleted_applications, [APPLICATION_ID])
         self.assertEqual(common.created(), [])
-
-
-if __name__ == "__main__":
-    unittest.main()

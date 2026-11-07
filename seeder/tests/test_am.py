@@ -6,7 +6,6 @@ keeps what it is given; a second seed saves nothing."""
 import itertools
 import json
 import re
-import unittest
 from unittest import mock
 
 from lab_seeder import am
@@ -547,7 +546,3 @@ class Gateway(Case):
         [call] = self.asked("http://am-gateway:8092/kiosk-orders/oauth/token")
         self.assertEqual((call.auth, call.data), (None, {"grant_type": "client_credentials", "client_id": "till",
                                                          "client_secret": "till-secret"}))
-
-
-if __name__ == "__main__":
-    unittest.main()

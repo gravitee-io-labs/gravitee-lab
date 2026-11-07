@@ -843,7 +843,3 @@ class SchemaDocument(Case):
         self.assertEqual(self.platform.sent("POST", AUTHZ + "/schemas")[0].json["name"], "Old")
         self.assertEqual(self.world.schema_text.strip(), SCHEMA_TEXT.strip())
         self.assertEqual(sorted(x["kind"] for x in common.created()), ["schema", "schema-document"])
-
-
-if __name__ == "__main__":
-    unittest.main()

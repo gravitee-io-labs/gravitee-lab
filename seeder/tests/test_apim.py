@@ -8,7 +8,6 @@ import json
 import re
 import shutil
 import threading
-import unittest
 from unittest import mock
 
 import requests
@@ -2312,7 +2311,3 @@ class UsersOfTheOrganization(Together, Estates):
                 mock.patch.object(apim.ApiManagement, "enroll", watched(make)):
             self.run_seed()
         self.assertEqual(overlapped, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

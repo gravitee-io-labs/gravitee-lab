@@ -1,7 +1,6 @@
 """The Gamma client: where each client points, how it signs in, what it asks again while the management API reloads,
 and how it reads a paged list."""
 
-import unittest
 
 import requests
 
@@ -368,7 +367,3 @@ class Modules(Seed):
         self.answer({("GET", "https://gamma.example.com/gamma/organizations/DEFAULT/modules"): (200, [{"id": "aim"}])})
         gamma.require_modules({"aim"})
         self.assertEqual(self.platform.calls[0].headers["Authorization"], "Bearer token-1")
-
-
-if __name__ == "__main__":
-    unittest.main()

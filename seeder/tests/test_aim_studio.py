@@ -6,7 +6,6 @@ The requests are those of the scripts that were run against the live platform.""
 import copy
 import itertools
 import re
-import unittest
 from types import SimpleNamespace
 
 import requests
@@ -1134,7 +1133,3 @@ class Subscriptions(Studios):
         [sub] = self.world.subscriptions.values()
         self.assertEqual(sub["status"], "ACCEPTED", "the key of the file works")
         self.assertIn("✓ Subscription accepted: Steward on 13 tools → Lumenbank operations (Copilots)", self.output())
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -8,7 +8,6 @@ import re
 import subprocess
 import sys
 import threading
-import unittest
 from unittest import mock
 
 from lab_seeder import am
@@ -331,7 +330,3 @@ class Fakes(Seed):
     def test_a_call_no_route_answers_fails_the_test(self):
         with self.assertRaisesRegex(AssertionError, r"Unexpected GET /nowhere \{'q': 1\}"):
             self.get("/nowhere", params={"q": 1})
-
-
-if __name__ == "__main__":
-    unittest.main()

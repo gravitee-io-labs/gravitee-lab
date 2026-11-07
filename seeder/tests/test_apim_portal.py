@@ -1813,7 +1813,3 @@ class Helpers(unittest.TestCase):
         self.assertFalse(covers({"l": [{"x": 1}]}, {"l": [{"x": 1}, {"x": 2}]}))
         self.assertFalse(covers({"l": [{"x": 2}, {"x": 1}]}, {"l": [{"x": 1}, {"x": 2}]}))
         self.assertFalse(covers(None, {"a": 1}))
-
-
-if __name__ == "__main__":
-    unittest.main()

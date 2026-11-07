@@ -7,7 +7,6 @@ import itertools
 import json
 import os
 import re
-import unittest
 import zipfile
 from unittest import mock
 
@@ -1196,7 +1195,3 @@ class Guard(Catalog):
             aim_catalog.seed()
         self.assertEqual(self.platform.calls, [])
         self.assertEqual(self.output(), "")
-
-
-if __name__ == "__main__":
-    unittest.main()

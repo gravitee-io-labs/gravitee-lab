@@ -4,7 +4,6 @@ never touched."""
 
 import itertools
 import re
-import unittest
 from unittest import mock
 
 from lab_seeder import authz
@@ -378,7 +377,3 @@ class Protections(Case):
         authz.seed()
         controls.settle()
         self.assertAlmostEqual(self.clock.elapsed, 11, delta=1)
-
-
-if __name__ == "__main__":
-    unittest.main()
