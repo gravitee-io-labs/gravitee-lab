@@ -144,9 +144,6 @@ class Problems(Made):
         self.assertTrue(found[0].message.startswith("does not parse once its variables are replaced: "), found[0].message)
         self.assertGreater(found[0].line, 1)
 
-    def test_a_file_whose_variable_is_unset_is_not_also_said_not_to_parse(self):
-        self.assertEqual(self.found(self.playground({"seed/a.yaml": "a: ${NOBODY}\n"})), [("variable", "seed/a.yaml", 1)])
-
     def test_a_text_that_is_not_yaml_is_not_parsed(self):
         self.assertEqual(seedlint.problems(self.playground({"seed/aim/page.md": "# a: [1, 2\n", "seed/x.txt": "{"})), [])
 

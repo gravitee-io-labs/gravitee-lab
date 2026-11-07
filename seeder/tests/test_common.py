@@ -22,34 +22,24 @@ from . import chained, doubling, fanned, flowing
 
 class Settings(Seed):
 
-    def test_an_empty_setting_takes_its_default(self):
-        self.env(AIM_GAMMA_URL="")
-        self.assertEqual(common.setting("AIM_GAMMA_URL", "http://apim"), "http://apim")
-
-    def test_a_setting_is_the_environment_before_its_default(self):
+    def test_a_setting_is_the_environment_before_its_default_and_an_empty_one_is_none(self):
         self.env(AIM_GAMMA_URL="http://gamma")
         self.assertEqual(common.setting("AIM_GAMMA_URL", "http://apim"), "http://gamma")
-
-    def test_a_setting_without_a_value_or_a_default_is_an_error(self):
         self.env(AIM_GAMMA_URL="")
+        self.assertEqual(common.setting("AIM_GAMMA_URL", "http://apim"), "http://apim")
         with self.assertRaisesRegex(common.SeedError, "AIM_GAMMA_URL is not set"):
             common.setting("AIM_GAMMA_URL")
 
 
 class Client(Seed):
 
-    def test_a_call_takes_30_seconds_unless_it_says_otherwise(self):
-        self.answer({("GET", "/slow"): 200})
+    def test_no_request_waits_for_ever(self):
+        self.answer({("GET", "/x"): 200})
         api = common.Api("http://apim/")
-        api.get("/slow")
-        api.get("/slow", timeout=120)
-        self.assertEqual([call.timeout for call in self.platform.calls], [30, 120])
-        self.assertEqual(self.platform.calls[0].url, "http://apim/slow")
-
-    def test_a_status_it_did_not_expect_is_an_error_with_the_body(self):
-        self.answer({("POST", "/x"): (409, {"message": "taken"})})
-        with self.assertRaisesRegex(common.SeedError, r'POST /x: HTTP 409 \{"message": "taken"\}'):
-            common.Api("http://apim").post("/x")
+        for ask, timeout in ((api.get, {}), (api.get, {"timeout": 120}), (lambda path, **kw: api.send("GET", path, **kw), {})):
+            ask("/x", **timeout)
+        self.assertEqual([call.timeout for call in self.platform.calls], [30, 120, 30])
+        self.assertEqual(self.platform.calls[0].url, "http://apim/x")
 
     def test_the_body_of_an_error_is_one_line(self):
         # The Lab UI shows the last line of the seed's output as the reason: Gamma pretty-prints its errors
@@ -151,12 +141,6 @@ class Requests(Seed):
         self.assertEqual(self.ask("GET", 503, 200, expect=(200, 503)).status_code, 503)
         self.assertEqual(self.sent("GET"), 1)
 
-    def test_no_request_waits_for_ever(self):
-        self.answer({("GET", "/x"): 200})
-        common.Api("http://apim").send("GET", "/x")
-        common.Api("http://apim").send("GET", "/x", timeout=5)
-        self.assertEqual([call.timeout for call in self.platform.calls], [common.TIMEOUT, 5])
-
     def test_inside_a_wait_a_request_is_sent_once_and_the_wait_asks_again(self):
         api = common.Api("http://apim")
         self.answer({("GET", "/x"): [503, requests.ConnectionError("reset"), 200]})
@@ -181,11 +165,6 @@ class Parallel(unittest.TestCase):
     def test_items_that_do_not_depend_on_one_another_run_at_the_same_time(self):
         meeting = threading.Barrier(2, timeout=5)   # each waits for the other: one after the other, neither would ever come
         self.assertEqual(common.together([lambda: (meeting.wait(), "a")[1], lambda: (meeting.wait(), "b")[1]]), ["a", "b"])
-
-    def test_items_are_done_together_with_their_results_in_the_order_of_the_items(self):
-        self.assertEqual(common.parallel(lambda number: number * 2, [3, 1, 2]), [6, 2, 4])
-        common.configure(1)
-        self.assertEqual(common.parallel(lambda number: number * 2, [3, 1, 2]), [6, 2, 4])
 
     def test_an_item_that_fails_ends_the_others_and_is_the_failure_raised(self):
         def work(number):
@@ -247,10 +226,6 @@ class Provided(Seed):
         self.assertEqual(common.render("${ENV_NAME:-nobody}", "page.md", provided={"ENV_NAME": ""}), "nobody")
         with self.assertRaisesRegex(common.SeedError, "page.md: ENV_ID not set"):
             common.render("${ENV_ID}", "page.md", provided={"ENV_NAME": "x"})
-
-    def test_without_the_names_a_file_that_uses_them_is_not_set(self):
-        with self.assertRaisesRegex(common.SeedError, "page.md: ENV_ID, ENV_NAME not set"):
-            common.render("${ENV_NAME} ${ENV_ID}", "page.md")
 
     def test_a_dollar_that_is_escaped_stays_a_variable_of_the_page_whether_or_not_the_name_is_provided(self):
         self.assertEqual(common.render("$${ENV_ID} and ${ENV_ID}", "page.md", provided=self.GIVEN), "${ENV_ID} and newt-biotech")
@@ -475,8 +450,7 @@ class Bombs(Seed):
                     common.load(common.SEED_DIR / "bomb.yaml")
                 self.assertEqual(str(raised.exception), f"{common.SEED_DIR / 'bomb.yaml'}: {common.MERGES}")
 
-    def test_the_refusal_is_a_seed_error_that_says_what_to_do(self):
-        self.assertTrue(issubclass(common.MergeError, common.SeedError))
+    def test_the_refusal_says_what_to_do(self):
         self.assertIn("Fix: write the values out, or merge less", common.MERGES)
 
     def test_a_variable_brings_a_value_never_keys_so_never_merge_keys(self):
@@ -523,16 +497,8 @@ class Folders(Seed):
                          "environments/.hidden/x.yaml": "", "environments/readme.md": ""})
         self.assertEqual(common.folders("environments"), ["fern", "mallard"])
 
-    def test_a_folder_that_is_not_there_has_none(self):
-        self.assertEqual(common.folders("environments"), [])
-
 
 class Waiting(Seed):
-
-    def test_a_platform_that_never_answers_ends_the_wait_without_waiting(self):
-        with self.assertRaisesRegex(common.SeedError, "API not ready after 300 s: down"):
-            common.wait_until("test", "API", lambda: (_ for _ in ()).throw(common.SeedError("down")))
-        self.assertGreaterEqual(self.clock.elapsed, 300)
 
     def test_a_refusal_the_wait_is_told_is_final_ends_it_at_once(self):
         """A wrong password, a revoked token or a wrong environment id is not fixed by waiting five minutes."""

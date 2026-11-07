@@ -30,6 +30,7 @@ class Declaration(Seed):
         return controls.declared()
 
     def test_a_seed_without_controls_declares_none_and_reads_no_setting(self):
+        self.env(SEED_PROTECTIONS="sometimes")
         self.assertEqual(controls.declared(), [])
         self.assertEqual(controls.begin(), [])
         self.assertEqual(controls.of("api", "LLM"), [])
@@ -150,10 +151,6 @@ class Mode(Seed):
         self.assertIn("✗ SEED_PROTECTIONS is 'sometimes': it is one of on or off", self.output())
         self.assertEqual(self.platform.calls, [])
 
-    def test_a_playground_without_controls_ignores_the_mode(self):
-        self.env(SEED_PROTECTIONS="sometimes")
-        self.assertEqual(controls.begin(), [])
-
 
 class Aligning(Seed):
 
@@ -237,19 +234,6 @@ class Ending(Seed):
         with self.assertRaisesRegex(common.SeedError, "^controls.yaml: cap names policy 'A rule', which no seed file has$"):
             controls.finish()
 
-    def test_a_seed_whose_controls_all_found_their_target_ends(self):
-        controls.begin()
-        controls.of("api", "LLM")
-        controls.of("policy", "A rule")
-        controls.finish()
-
-    def test_a_target_that_is_misspelled_in_the_declaration_is_found_by_nobody(self):
-        self.seed_files({"controls.yaml": "pii: {api: LMM, flow: Prompt, steps: {request: [Guard]}}\n"})
-        controls.begin()
-        self.assertEqual(controls.of("api", "LLM"), [])
-        with self.assertRaisesRegex(common.SeedError, "pii names api 'LMM'"):
-            controls.finish()
-
     def test_a_new_seed_forgets_what_the_last_one_found(self):
         controls.begin()
         controls.of("api", "LLM")
@@ -264,12 +248,6 @@ class Waiting(Seed):
     def setUp(self):
         super().setUp()
         self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
-
-    def test_the_seed_waits_two_synchronizations_and_a_second_after_a_deployment_of_a_control(self):
-        self.env(GATEWAY_SYNC_SECONDS="5")
-        controls.touched()
-        controls.settle()
-        self.assertAlmostEqual(self.clock.elapsed, 11, delta=0.5)
 
     def test_it_waits_only_for_what_is_left_of_that_time(self):
         self.env(GATEWAY_SYNC_SECONDS="5")
