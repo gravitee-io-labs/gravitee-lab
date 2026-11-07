@@ -1239,7 +1239,7 @@ class Estate(Apim):
 
     ROLES = ("USER", "OWNER", "ADMIN")
 
-    def __init__(self, environments=("DEFAULT", "novo", "moderna"), directory=None):
+    def __init__(self, environments=("DEFAULT", "newt", "mallard"), directory=None):
         self.ids = itertools.count(1)
         self.environments, self.unlisted = set(environments), set()   # unlisted: where the login of the seed has no role, so the platform does not list it
         self.directory = dict(directory or {})   # sourceId -> displayName of the memory users of the management API's configuration
@@ -1567,33 +1567,33 @@ def feed(name, cross_id, path, groups):
 
 
 CALLBACK = ("      entrypointId: webhook\n      entrypointConfiguration:\n        callbackUrl: ${RECEIVER}/hooks/${ENV_ID}/batch-status\n"
-            "        headers: [{name: X-Source, value: apelor-gravitee}]\n        auth: {type: token, token: {value: '${HOOK_TOKEN}'}}\n")
-NOVO = {
-    "environments/novo/environment.yaml": "id: novo\nname: Novo Nordisk\ndescription: Dedicated environment of Novo Nordisk\n",
-    "environments/novo/settings.yaml": "plan: {security: {customApiKey: {enabled: true}, push: {enabled: true}}}\nportalNext: {siteTitle: '${ENV_NAME}'}\n",
-    "environments/novo/users.yaml": ("users:\n  - {source: memory, sourceId: astrid.holm, email: astrid@novo.test, firstname: Astrid, lastname: Holm}\n"
-                                    "  - {source: memory, sourceId: mikkel.dahl, email: mikkel@novo.test, firstname: Mikkel, lastname: Dahl}\n"),
-    "environments/novo/groups/novo-quality.yaml": (
-        "hrid: novo-quality\nname: Novo Quality\nnotifyMembers: false\nmembers:\n"
+            "        headers: [{name: X-Source, value: walnut-gravitee}]\n        auth: {type: token, token: {value: '${HOOK_TOKEN}'}}\n")
+NEWT = {
+    "environments/newt/environment.yaml": "id: newt\nname: Newt Biotech\ndescription: Dedicated environment of Newt Biotech\n",
+    "environments/newt/settings.yaml": "plan: {security: {customApiKey: {enabled: true}, push: {enabled: true}}}\nportalNext: {siteTitle: '${ENV_NAME}'}\n",
+    "environments/newt/users.yaml": ("users:\n  - {source: memory, sourceId: astrid.holm, email: astrid@newt.test, firstname: Astrid, lastname: Holm}\n"
+                                    "  - {source: memory, sourceId: mikkel.dahl, email: mikkel@newt.test, firstname: Mikkel, lastname: Dahl}\n"),
+    "environments/newt/groups/newt-quality.yaml": (
+        "hrid: newt-quality\nname: Newt Quality\nnotifyMembers: false\nmembers:\n"
         "  - {source: memory, sourceId: astrid.holm, roles: {API: USER, APPLICATION: OWNER}}\n"
         "  - {source: memory, sourceId: mikkel.dahl, roles: {API: USER, APPLICATION: OWNER}}\n"
         "defaults: {roles: {API: USER, APPLICATION: OWNER}, lockApiRole: false}\n"),
-    "environments/novo/apis/batch-status.json": feed("Batch status", "novo-batch-status", "/events/${ENV_ID}/batch-status/", ["novo-quality"]),
-    "environments/novo/applications/sap.yaml": "name: Novo SAP\ndescription: SAP integration\ngroups: [novo-quality]\nsettings: {app: {type: SIMPLE}}\n",
-    "environments/novo/subscriptions/novo.yaml": (
+    "environments/newt/apis/batch-status.json": feed("Batch status", "newt-batch-status", "/events/${ENV_ID}/batch-status/", ["newt-quality"]),
+    "environments/newt/applications/erp.yaml": "name: Newt ERP\ndescription: ERP integration\ngroups: [newt-quality]\nsettings: {app: {type: SIMPLE}}\n",
+    "environments/newt/subscriptions/newt.yaml": (
         "subscriptions:\n"
-        "  - {application: Novo SAP, api: Batch status, plan: Standard, apiKey: '${NOVO_KEY}'}\n"
-        "  - {application: Novo SAP, api: Batch status, plan: Restricted, pending: true, comment: Reconcile batch genealogy}\n"
-        "  - application: Novo SAP\n    api: Batch status\n    plan: Webhook push\n    consumerConfiguration:\n" + CALLBACK),
+        "  - {application: Newt ERP, api: Batch status, plan: Standard, apiKey: '${NEWT_KEY}'}\n"
+        "  - {application: Newt ERP, api: Batch status, plan: Restricted, pending: true, comment: Reconcile batch genealogy}\n"
+        "  - application: Newt ERP\n    api: Batch status\n    plan: Webhook push\n    consumerConfiguration:\n" + CALLBACK),
 }
-MODERNA = {
-    "environments/moderna/environment.yaml": "id: moderna\nname: Moderna\n",
-    "environments/moderna/users.yaml": "users:\n  - {source: memory, sourceId: lena.vogt, firstname: Lena, lastname: Vogt}\n",
-    "environments/moderna/groups/moderna-process.yaml": (
-        "hrid: moderna-process\nname: Moderna Process\nmembers:\n  - {source: memory, sourceId: lena.vogt, roles: {API: USER}}\n"),
-    "environments/moderna/apis/batch-status.json": feed("Batch status", "moderna-batch-status", "/events/${ENV_ID}/batch-status/", ["moderna-process"]),
-    "environments/moderna/applications/process.yaml": "name: Moderna Process\ngroups: [moderna-process]\n",
-    "environments/moderna/subscriptions/moderna.yaml": "subscriptions:\n  - {application: Moderna Process, api: Batch status, plan: Standard}\n",
+MALLARD = {
+    "environments/mallard/environment.yaml": "id: mallard\nname: Mallard\n",
+    "environments/mallard/users.yaml": "users:\n  - {source: memory, sourceId: lena.vogt, firstname: Lena, lastname: Vogt}\n",
+    "environments/mallard/groups/mallard-process.yaml": (
+        "hrid: mallard-process\nname: Mallard Process\nmembers:\n  - {source: memory, sourceId: lena.vogt, roles: {API: USER}}\n"),
+    "environments/mallard/apis/batch-status.json": feed("Batch status", "mallard-batch-status", "/events/${ENV_ID}/batch-status/", ["mallard-process"]),
+    "environments/mallard/applications/process.yaml": "name: Mallard Process\ngroups: [mallard-process]\n",
+    "environments/mallard/subscriptions/mallard.yaml": "subscriptions:\n  - {application: Mallard Process, api: Batch status, plan: Standard}\n",
 }
 OWN = {"apim/apis/open.json": definition("PROXY", "open-id", "Open API", "/open/"),
        "apim/applications/web.yaml": "name: Web\n",
@@ -1604,14 +1604,14 @@ DIRECTORY = {"astrid.holm": "astrid.holm", "mikkel.dahl": "mikkel.dahl", "lena.v
 class Estates(Seed):
     """The module's seed files for the platform's own environment and two others, and a platform that has them."""
 
-    FILES = {**OWN, **NOVO, **MODERNA}
+    FILES = {**OWN, **NEWT, **MALLARD}
     run_seed, edit, record = Playground.run_seed, Playground.edit, Playground.record
 
     def setUp(self):
         super().setUp()
         self.estate = Estate(directory=DIRECTORY)
         self.answer(self.estate.routes())
-        self.env(RECEIVER="http://receiver:8000", HOOK_TOKEN="hook-token", NOVO_KEY="novo-key-0001")
+        self.env(RECEIVER="http://receiver:8000", HOOK_TOKEN="hook-token", NEWT_KEY="newt-key-0001")
         self.seed_files(self.FILES)
 
     def records(self, kind):
@@ -1640,9 +1640,9 @@ class RequiredEnvironments(Estates):
     def test_the_platforms_own_environment_is_seeded_first_and_the_others_in_name_order(self):
         self.run_seed()
         said = [line for line in self.output().splitlines() if line.startswith("[apim] Environment ") or "API imported" in line]
-        self.assertEqual(said, ["[apim] ✓ API imported: Open API", "[apim] Environment Moderna (moderna)",
-                                "[apim] ✓ API imported: Batch status [moderna]", "[apim] Environment Novo Nordisk (novo)",
-                                "[apim] ✓ API imported: Batch status [novo]"])
+        self.assertEqual(said, ["[apim] ✓ API imported: Open API", "[apim] Environment Mallard (mallard)",
+                                "[apim] ✓ API imported: Batch status [mallard]", "[apim] Environment Newt Biotech (newt)",
+                                "[apim] ✓ API imported: Batch status [newt]"])
 
     def test_an_environment_that_does_not_exist_stops_the_seed_before_anything_is_changed_anywhere(self):
         self.seed_files({"environments/ghost/environment.yaml": "id: ghost\nname: Ghost\n"})
@@ -1652,7 +1652,7 @@ class RequiredEnvironments(Estates):
         self.assertEqual(common.created(), [])
 
     def test_a_folder_that_is_badly_named_or_is_the_platforms_own_environment_stops_the_seed_before_any_call(self):
-        for folder, why in (("Novo_Nordisk", "an environment is named with lowercase letters, digits and dashes"),
+        for folder, why in (("Newt_Biotech", "an environment is named with lowercase letters, digits and dashes"),
                             ("default", "this is the environment of the platform")):
             with self.subTest(folder=folder):
                 self.seed_files({f"environments/{folder}/environment.yaml": f"id: {folder}\nname: x\n"})
@@ -1662,45 +1662,45 @@ class RequiredEnvironments(Estates):
                 shutil.rmtree(common.SEED_DIR / "environments" / folder)
 
     def test_the_environment_file_names_its_folder_and_the_environment(self):
-        for text, why in (("name: x\n", "id is None, the folder's name is 'novo'"), ("id: other\nname: x\n", "id is 'other', the folder's name is 'novo'"),
-                          ("id: novo\n", "name is missing")):
+        for text, why in (("name: x\n", "id is None, the folder's name is 'newt'"), ("id: other\nname: x\n", "id is 'other', the folder's name is 'newt'"),
+                          ("id: newt\n", "name is missing")):
             with self.subTest(text=text):
-                self.seed_files({"environments/novo/environment.yaml": text})
-                with self.assertRaisesRegex(common.SeedError, f"seed/environments/novo/environment.yaml: {why}"):
+                self.seed_files({"environments/newt/environment.yaml": text})
+                with self.assertRaisesRegex(common.SeedError, f"seed/environments/newt/environment.yaml: {why}"):
                     self.run_seed()
                 self.assertEqual(self.platform.calls, [])
-        (common.SEED_DIR / "environments/novo/environment.yaml").unlink()
-        with self.assertRaisesRegex(common.SeedError, "seed/environments/novo: environment.yaml is missing"):
+        (common.SEED_DIR / "environments/newt/environment.yaml").unlink()
+        with self.assertRaisesRegex(common.SeedError, "seed/environments/newt: environment.yaml is missing"):
             self.run_seed()
         self.assertEqual(self.platform.calls, [])
 
     def test_what_the_files_say_of_one_another_is_checked_before_any_call(self):
         cases = {
-            "an API of a group the folder has not": ("environments/novo/apis/batch-status.json", feed("Batch status", "x", "/x/", ["ghost"]),
+            "an API of a group the folder has not": ("environments/newt/apis/batch-status.json", feed("Batch status", "x", "/x/", ["ghost"]),
                                                      "apis/batch-status.json: ghost is no group of the environment"),
-            "an application of a group the folder has not": ("environments/novo/applications/sap.yaml", "name: SAP\ngroups: [ghost]\n",
-                                                             "applications: SAP names ghost, which is no group of the environment"),
-            "two groups of a hrid": ("environments/novo/groups/again.yaml", "hrid: novo-quality\nname: Again\n", "two groups have the hrid novo-quality"),
-            "a group with no name": ("environments/novo/groups/novo-quality.yaml", "hrid: novo-quality\n", "a group needs a hrid and a name"),
-            "a member with no source": ("environments/novo/groups/novo-quality.yaml", "hrid: novo-quality\nname: N\nmembers: [{sourceId: x}]\n",
-                                        "groups/novo-quality: a member needs a source and a sourceId"),
-            "defaults the platform has no field for": ("environments/novo/groups/novo-quality.yaml", "hrid: novo-quality\nname: N\ndefaults: {color: red}\n",
+            "an application of a group the folder has not": ("environments/newt/applications/erp.yaml", "name: ERP\ngroups: [ghost]\n",
+                                                             "applications: ERP names ghost, which is no group of the environment"),
+            "two groups of a hrid": ("environments/newt/groups/again.yaml", "hrid: newt-quality\nname: Again\n", "two groups have the hrid newt-quality"),
+            "a group with no name": ("environments/newt/groups/newt-quality.yaml", "hrid: newt-quality\n", "a group needs a hrid and a name"),
+            "a member with no source": ("environments/newt/groups/newt-quality.yaml", "hrid: newt-quality\nname: N\nmembers: [{sourceId: x}]\n",
+                                        "groups/newt-quality: a member needs a source and a sourceId"),
+            "defaults the platform has no field for": ("environments/newt/groups/newt-quality.yaml", "hrid: newt-quality\nname: N\ndefaults: {color: red}\n",
                                                        "defaults has color, which the platform has no field for"),
-            "two APIs of a name": ("environments/novo/apis/other.json", feed("Batch status", "y", "/y/", None), "two APIs are named Batch status"),
-            "two applications of a name": ("environments/novo/applications/again.yaml", "name: Novo SAP\ndescription: Again\n",
-                                           "novo/applications: two applications are named Novo SAP"),
-            "a user with no source": ("environments/novo/users.yaml", "users: [{sourceId: x}]\n", "users.yaml: a user needs a source and a sourceId"),
-            "a subscription with no plan": ("environments/novo/subscriptions/novo.yaml", "subscriptions:\n  - {application: A, api: B}\n",
+            "two APIs of a name": ("environments/newt/apis/other.json", feed("Batch status", "y", "/y/", None), "two APIs are named Batch status"),
+            "two applications of a name": ("environments/newt/applications/again.yaml", "name: Newt ERP\ndescription: Again\n",
+                                           "newt/applications: two applications are named Newt ERP"),
+            "a user with no source": ("environments/newt/users.yaml", "users: [{sourceId: x}]\n", "users.yaml: a user needs a source and a sourceId"),
+            "a subscription with no plan": ("environments/newt/subscriptions/newt.yaml", "subscriptions:\n  - {application: A, api: B}\n",
                                             "a subscription needs an application, an api and a plan"),
-            "a pending subscription with a key": ("environments/novo/subscriptions/novo.yaml",
+            "a pending subscription with a key": ("environments/newt/subscriptions/newt.yaml",
                                                   "subscriptions:\n  - {application: A, api: B, plan: C, pending: true, apiKey: k}\n", "stays pending, so it takes no apiKey"),
-            "a key YAML reads as a number": ("environments/novo/subscriptions/novo.yaml",
+            "a key YAML reads as a number": ("environments/newt/subscriptions/newt.yaml",
                                              "subscriptions:\n  - {application: A, api: B, plan: C, apiKey: 12345}\n", "the apiKey of A → B is read as int, not as text"),
-            "a token YAML reads as a boolean": ("environments/novo/subscriptions/novo.yaml",
+            "a token YAML reads as a boolean": ("environments/newt/subscriptions/newt.yaml",
                                                 "subscriptions:\n  - application: A\n    api: B\n    plan: C\n    consumerConfiguration:\n"
                                                 "      entrypointId: webhook\n      entrypointConfiguration: {auth: {type: token, token: {value: true}}}\n",
                                                 "the token of A → B is read as bool, not as text"),
-            "a callback with no entrypoint": ("environments/novo/subscriptions/novo.yaml",
+            "a callback with no entrypoint": ("environments/newt/subscriptions/newt.yaml",
                                               "subscriptions:\n  - {application: A, api: B, plan: C, consumerConfiguration: {channel: x}}\n", "needs an entrypointId"),
         }
         for what, (name, text, why) in cases.items():
@@ -1716,8 +1716,8 @@ class RequiredEnvironments(Estates):
                     self.seed_files({name: original})
 
     def test_a_variable_no_seed_service_sets_stops_the_seed_before_any_call(self):
-        self.env(NOVO_KEY=None)
-        with self.assertRaisesRegex(common.SeedError, "subscriptions/novo.yaml: NOVO_KEY not set"):
+        self.env(NEWT_KEY=None)
+        with self.assertRaisesRegex(common.SeedError, "subscriptions/newt.yaml: NEWT_KEY not set"):
             self.run_seed()
         self.assertEqual(self.platform.calls, [])
 
@@ -1726,10 +1726,10 @@ class UsersOfAnEnvironment(Estates):
 
     def test_a_memory_user_has_no_row_until_its_group_gets_it_from_its_identity_provider(self):
         changes = self.run_seed()
-        self.assertEqual([c for c in changes if c[1].endswith("/users")].count(("POST", ORG + "/environments/novo/users")), 2)   # the 404s
+        self.assertEqual([c for c in changes if c[1].endswith("/users")].count(("POST", ORG + "/environments/newt/users")), 2)   # the 404s
         self.assertEqual(sorted(u["sourceId"] for u in self.estate.users.values()), ["astrid.holm", "lena.vogt", "mikkel.dahl"])
-        self.assertEqual(sorted(self.records("user")), ["astrid.holm [novo]", "lena.vogt [moderna]", "mikkel.dahl [novo]"])
-        self.assertEqual({x["env"] for x in common.created() if x["kind"] == "user"}, {"novo", "moderna"})
+        self.assertEqual(sorted(self.records("user")), ["astrid.holm [newt]", "lena.vogt [mallard]", "mikkel.dahl [newt]"])
+        self.assertEqual({x["env"] for x in common.created() if x["kind"] == "user"}, {"newt", "mallard"})
         self.assertIn("User astrid.holm: no row yet, its first login or its first group makes it", self.output())
         self.assertIn("✓ User astrid.holm: made by its group", self.output())
 
@@ -1737,33 +1737,33 @@ class UsersOfAnEnvironment(Estates):
         self.run_seed()
         search = self.sent("GET", ORG + "/search/users")
         self.assertEqual([c.params["q"] for c in search], ["lena.vogt", "astrid.holm", "mikkel.dahl"])   # the environments in name order
-        group = self.group("novo", "novo-quality")
+        group = self.group("newt", "newt-quality")
         added = self.sent("POST", ENV + "/configuration/groups/" + group["id"] + "/members")
         self.assertEqual(added[0].json, [{"reference": "ref:astrid.holm", "roles": [{"scope": "API", "name": "USER"}, {"scope": "APPLICATION", "name": "OWNER"}]}])
-        self.assertEqual(self.sent("POST", ORG + "/environments/novo/configuration/groups/[^/]+/members")[0].path, added[0].path)
+        self.assertEqual(self.sent("POST", ORG + "/environments/newt/configuration/groups/[^/]+/members")[0].path, added[0].path)
 
     def test_a_memory_user_of_no_group_has_no_row_and_the_seed_goes_on(self):
-        self.seed_files({"environments/novo/groups/novo-quality.yaml": NOVO["environments/novo/groups/novo-quality.yaml"].replace(
+        self.seed_files({"environments/newt/groups/newt-quality.yaml": NEWT["environments/newt/groups/newt-quality.yaml"].replace(
             "  - {source: memory, sourceId: mikkel.dahl, roles: {API: USER, APPLICATION: OWNER}}\n", "")})
         self.run_seed()
         self.assertNotIn("mikkel.dahl", [u["sourceId"] for u in self.estate.users.values()])
         self.assertIn("User mikkel.dahl: no row yet", self.output())
 
     def test_a_user_of_a_source_the_platform_registers_is_registered_in_the_environment_and_recorded(self):
-        self.seed_files({"environments/moderna/users.yaml": "users:\n  - {source: gravitee, sourceId: lena@moderna.test, email: lena@moderna.test, firstname: Lena, lastname: Vogt}\n",
-                         "environments/moderna/groups/moderna-process.yaml": "hrid: moderna-process\nname: Moderna Process\n"})
+        self.seed_files({"environments/mallard/users.yaml": "users:\n  - {source: gravitee, sourceId: lena@mallard.test, email: lena@mallard.test, firstname: Lena, lastname: Vogt}\n",
+                         "environments/mallard/groups/mallard-process.yaml": "hrid: mallard-process\nname: Mallard Process\n"})
         self.run_seed()
-        (register,) = self.sent("POST", ORG + "/environments/moderna/users")
-        self.assertEqual(register.json, {"source": "gravitee", "sourceId": "lena@moderna.test", "email": "lena@moderna.test", "firstname": "Lena", "lastname": "Vogt"})
-        self.assertIn("lena@moderna.test [moderna]", self.records("user"))
+        (register,) = self.sent("POST", ORG + "/environments/mallard/users")
+        self.assertEqual(register.json, {"source": "gravitee", "sourceId": "lena@mallard.test", "email": "lena@mallard.test", "firstname": "Lena", "lastname": "Vogt"})
+        self.assertIn("lena@mallard.test [mallard]", self.records("user"))
 
     def test_a_user_that_exists_is_adopted_as_it_is_and_never_recorded(self):
         for source_id in ("astrid.holm", "mikkel.dahl"):
             self.estate.users[source_id] = {"id": source_id, "source": "memory", "sourceId": source_id, "status": "ACTIVE"}
         self.run_seed()
-        self.assertEqual(self.sent("POST", ORG + "/environments/novo/users"), [])
+        self.assertEqual(self.sent("POST", ORG + "/environments/newt/users"), [])
         self.assertEqual([c.params["q"] for c in self.sent("GET", ORG + "/search/users")], ["lena.vogt"])   # no search for the users it has
-        self.assertEqual(self.records("user"), ["lena.vogt [moderna]"])
+        self.assertEqual(self.records("user"), ["lena.vogt [mallard]"])
         self.assertIn("User exists: astrid.holm", self.output())
 
     def test_a_user_that_was_deleted_is_none_and_is_made_again(self):
@@ -1773,8 +1773,8 @@ class UsersOfAnEnvironment(Estates):
         self.assertEqual(len([u for u in self.estate.users.values() if u["sourceId"] == "astrid.holm"]), 2)
 
     def test_a_member_no_identity_provider_names_stops_the_seed_with_its_name_and_the_group(self):
-        self.edit("environments/novo/groups/novo-quality.yaml", lambda text: text.replace("astrid.holm", "ghost.user"))
-        with self.assertRaisesRegex(common.SeedError, r"^Group novo-quality \[novo\]: ghost.user is not a user of the platform and no identity provider names exactly one"):
+        self.edit("environments/newt/groups/newt-quality.yaml", lambda text: text.replace("astrid.holm", "ghost.user"))
+        with self.assertRaisesRegex(common.SeedError, r"^Group newt-quality \[newt\]: ghost.user is not a user of the platform and no identity provider names exactly one"):
             self.run_seed()
 
     def test_a_search_with_several_answers_picks_the_one_that_names_the_user_by_its_first_and_last_name(self):
@@ -1805,8 +1805,8 @@ class UsersOfAnEnvironment(Estates):
         self.platform.add({("DELETE", re.compile(ORG + "/users/[^/]+")): answer})
         before = len(common.created())
         self.assertEqual(self.main("--remove"), 0, self.output())
-        self.assertEqual([x["name"] for x in common.created()], ["astrid.holm [novo]"])
-        self.assertIn("! User 'astrid.holm [novo]' kept: HTTP 400 {\"message\": \"User is still the primary owner of 1 application\"}", self.output())
+        self.assertEqual([x["name"] for x in common.created()], ["astrid.holm [newt]"])
+        self.assertIn("! User 'astrid.holm [newt]' kept: HTTP 400 {\"message\": \"User is still the primary owner of 1 application\"}", self.output())
         self.assertIn(f"✓ {before - 1} items removed, 1 kept", self.output())
         self.assertEqual((self.estate.apis, self.estate.groups, self.estate.applications), ({}, {}, {}))
         self.assertEqual(sum(u["status"] == "ARCHIVED" for u in self.estate.users.values()), 2)
@@ -1819,75 +1819,75 @@ class GroupsOfAnEnvironment(Estates):
 
     def test_a_group_is_written_with_its_members_and_recorded_with_its_hrid_and_environment(self):
         self.run_seed()
-        group = self.group("novo", "novo-quality")
+        group = self.group("newt", "newt-quality")
         self.assertEqual([m["sourceId"] for m in group["members"]], ["astrid.holm", "mikkel.dahl"])
-        self.assertEqual(self.record("novo-quality [novo]"), {"product": "apim", "kind": "group", "label": "groups", "name": "novo-quality [novo]",
-                                                            "id": group["id"], "hrid": "novo-quality", "env": "novo"})
-        put = next(c for c in self.sent("PUT", AUTOMATION + "/groups") if "/novo/" in c.path)
-        self.assertEqual({k: put.json[k] for k in ("hrid", "name", "notifyMembers")}, {"hrid": "novo-quality", "name": "Novo Quality", "notifyMembers": False})
+        self.assertEqual(self.record("newt-quality [newt]"), {"product": "apim", "kind": "group", "label": "groups", "name": "newt-quality [newt]",
+                                                            "id": group["id"], "hrid": "newt-quality", "env": "newt"})
+        put = next(c for c in self.sent("PUT", AUTOMATION + "/groups") if "/newt/" in c.path)
+        self.assertEqual({k: put.json[k] for k in ("hrid", "name", "notifyMembers")}, {"hrid": "newt-quality", "name": "Newt Quality", "notifyMembers": False})
         self.assertNotIn("defaults", put.json)
 
     def test_the_roles_a_new_member_gets_are_written_with_the_update_of_the_group_and_only_when_they_differ(self):
         self.run_seed()
-        group = self.group("novo", "novo-quality")
+        group = self.group("newt", "newt-quality")
         self.assertEqual((group["roles"], group["lock_api_role"]), ({"API": "USER", "APPLICATION": "OWNER"}, False))
         (update,) = self.sent("PUT", ENV + "/configuration/groups/[^/]+")
-        self.assertEqual(update.json["name"], "Novo Quality")
+        self.assertEqual(update.json["name"], "Newt Quality")
         self.assertEqual(update.json["roles"], {"API": "USER", "APPLICATION": "OWNER"})
         self.assertEqual(self.run_seed(), [])
-        self.edit("environments/novo/groups/novo-quality.yaml", lambda text: text.replace("lockApiRole: false", "lockApiRole: true"))
-        self.assertEqual(self.run_seed(), [("PUT", ORG + "/environments/novo/configuration/groups/" + group["id"])])
+        self.edit("environments/newt/groups/newt-quality.yaml", lambda text: text.replace("lockApiRole: false", "lockApiRole: true"))
+        self.assertEqual(self.run_seed(), [("PUT", ORG + "/environments/newt/configuration/groups/" + group["id"])])
         self.assertTrue(group["lock_api_role"])
 
     def test_what_the_platform_adds_to_a_group_is_not_a_difference_and_what_someone_added_is_left(self):
         self.run_seed()
-        group = self.group("novo", "novo-quality")
+        group = self.group("newt", "newt-quality")
         group["members"].append({"source": "memory", "sourceId": "someone.else", "roles": {"API": "OWNER"}})
         self.assertEqual(self.run_seed(), [])
         self.assertEqual(len(group["members"]), 3)
 
     def test_a_group_that_lacks_a_member_or_a_name_is_written_again(self):
         self.run_seed()
-        group = self.group("novo", "novo-quality")
+        group = self.group("newt", "newt-quality")
         group["members"].pop()
-        self.assertEqual(self.run_seed(), [("PUT", AUTOMATION.replace("[^/]+", "novo") + "/groups")])
+        self.assertEqual(self.run_seed(), [("PUT", AUTOMATION.replace("[^/]+", "newt") + "/groups")])
         self.assertEqual(len(group["members"]), 2)
-        self.edit("environments/novo/groups/novo-quality.yaml", lambda text: text.replace("name: Novo Quality", "name: Novo Quality Assurance"))
+        self.edit("environments/newt/groups/newt-quality.yaml", lambda text: text.replace("name: Newt Quality", "name: Newt Quality Assurance"))
         self.run_seed()
-        self.assertEqual(group["name"], "Novo Quality Assurance")
+        self.assertEqual(group["name"], "Newt Quality Assurance")
         self.assertEqual(self.estate.groups[group["id"]], group, "the same group, renamed")
 
     def test_a_member_whose_role_does_not_exist_stops_the_seed_with_what_the_platform_says(self):
-        self.edit("environments/novo/groups/novo-quality.yaml", lambda text: text.replace("sourceId: astrid.holm, roles: {API: USER,", "sourceId: astrid.holm, roles: {API: NOSUCHROLE,"))
+        self.edit("environments/newt/groups/newt-quality.yaml", lambda text: text.replace("sourceId: astrid.holm, roles: {API: USER,", "sourceId: astrid.holm, roles: {API: NOSUCHROLE,"))
         for source_id in ("astrid.holm", "mikkel.dahl"):   # users with a row: the Automation API adds them itself
             self.estate.users[source_id] = {"id": source_id, "source": "memory", "sourceId": source_id, "status": "ACTIVE"}
-        with self.assertRaisesRegex(common.SeedError, r"^Group novo-quality \[novo\]: astrid.holm is not a member of it as its file says: member role \[NOSUCHROLE\] doesn't exist$"):
+        with self.assertRaisesRegex(common.SeedError, r"^Group newt-quality \[newt\]: astrid.holm is not a member of it as its file says: member role \[NOSUCHROLE\] doesn't exist$"):
             self.run_seed()
 
     def test_a_user_with_no_row_whose_role_does_not_exist_is_refused_by_the_platform_with_its_name_and_group(self):
-        self.edit("environments/novo/groups/novo-quality.yaml", lambda text: text.replace("sourceId: astrid.holm, roles: {API: USER,", "sourceId: astrid.holm, roles: {API: NOSUCHROLE,"))
-        with self.assertRaisesRegex(common.SeedError, r"^Group novo-quality \[novo\]: astrid.holm could not be added to it: HTTP 404 .*NOSUCHROLE"):
+        self.edit("environments/newt/groups/newt-quality.yaml", lambda text: text.replace("sourceId: astrid.holm, roles: {API: USER,", "sourceId: astrid.holm, roles: {API: NOSUCHROLE,"))
+        with self.assertRaisesRegex(common.SeedError, r"^Group newt-quality \[newt\]: astrid.holm could not be added to it: HTTP 404 .*NOSUCHROLE"):
             self.run_seed()
 
     def test_a_hrid_that_a_group_the_seed_did_not_make_holds_stops_the_seed_and_changes_it_not(self):
-        self.estate.groups["theirs"] = {"id": "theirs", "env": "novo", "hrid": "novo-quality", "name": "Theirs", "roles": {}, "lock_api_role": False,
+        self.estate.groups["theirs"] = {"id": "theirs", "env": "newt", "hrid": "newt-quality", "name": "Theirs", "roles": {}, "lock_api_role": False,
                                         "members": [], "origin": None, "notifyMembers": True}
-        with self.assertRaisesRegex(common.SeedError, r"^Group novo-quality \[novo\]: the hrid is taken by a group the seed did not create$"):
+        with self.assertRaisesRegex(common.SeedError, r"^Group newt-quality \[newt\]: the hrid is taken by a group the seed did not create$"):
             self.run_seed()
         self.assertEqual(self.estate.groups["theirs"]["name"], "Theirs")
-        self.assertEqual([c for c in self.platform.changes() if "/novo/" in c[1] and "groups" in c[1]], [])
+        self.assertEqual([c for c in self.platform.changes() if "/newt/" in c[1] and "groups" in c[1]], [])
 
     def test_the_flag_that_says_a_member_is_not_one_of_the_users_file_is_not_sent_to_the_platform(self):
         self.estate.users["admin"] = {"id": "admin", "source": "memory", "sourceId": "admin", "status": "ACTIVE"}
-        self.edit("environments/novo/groups/novo-quality.yaml", lambda text: text.replace("defaults:", "  - {source: memory, sourceId: admin, external: true, roles: {API: OWNER}}\ndefaults:"))
+        self.edit("environments/newt/groups/newt-quality.yaml", lambda text: text.replace("defaults:", "  - {source: memory, sourceId: admin, external: true, roles: {API: OWNER}}\ndefaults:"))
         self.run_seed()
-        put = next(c for c in self.sent("PUT", AUTOMATION + "/groups") if "/novo/" in c.path)
+        put = next(c for c in self.sent("PUT", AUTOMATION + "/groups") if "/newt/" in c.path)
         self.assertEqual([m["sourceId"] for m in put.json["members"]], ["astrid.holm", "mikkel.dahl", "admin"])
         self.assertTrue(all("external" not in m for m in put.json["members"]))
 
     def test_a_removal_deletes_a_group_by_its_id_in_its_environment(self):
         self.run_seed()
-        ids = {env: self.group(env, hrid)["id"] for env, hrid in (("novo", "novo-quality"), ("moderna", "moderna-process"))}
+        ids = {env: self.group(env, hrid)["id"] for env, hrid in (("newt", "newt-quality"), ("mallard", "mallard-process"))}
         calls = len(self.platform.calls)
         self.assertEqual(self.main("--remove"), 0, self.output())
         deleted = [c.path for c in self.platform.calls[calls:] if c.method == "DELETE" and "/configuration/groups/" in c.path]
@@ -1901,10 +1901,10 @@ class ScopedRecords(Estates):
         self.run_seed()
         records = [x for x in common.created() if x["kind"] == "api"]
         self.assertEqual(sorted((x["name"], x.get("env")) for x in records),
-                         [("Batch status [moderna]", "moderna"), ("Batch status [novo]", "novo"), ("Open API", None)])
+                         [("Batch status [mallard]", "mallard"), ("Batch status [newt]", "newt"), ("Open API", None)])
         self.assertEqual(len({x["id"] for x in records}), 3)
         self.assertEqual({a["env"]: a["id"] for a in self.estate.apis.values() if a["name"] == "Batch status"},
-                         {"novo": self.record("Batch status [novo]")["id"], "moderna": self.record("Batch status [moderna]")["id"]})
+                         {"newt": self.record("Batch status [newt]")["id"], "mallard": self.record("Batch status [mallard]")["id"]})
 
     def test_what_is_recorded_for_the_platforms_own_environment_has_a_plain_name_and_no_environment(self):
         self.run_seed()
@@ -1916,21 +1916,21 @@ class ScopedRecords(Estates):
 
     def test_an_application_and_a_subscription_of_an_environment_are_recorded_with_it(self):
         self.run_seed()
-        self.assertEqual(self.records("application"), ["Moderna Process [moderna]", "Novo SAP [novo]", "Web"])
-        self.assertIn("Novo SAP → Batch status (Standard) [novo]", self.records("subscription"))
-        self.assertEqual(self.record("Novo SAP → Batch status (Standard) [novo]")["api"], self.api("novo")["id"])
+        self.assertEqual(self.records("application"), ["Mallard Process [mallard]", "Newt ERP [newt]", "Web"])
+        self.assertIn("Newt ERP → Batch status (Standard) [newt]", self.records("subscription"))
+        self.assertEqual(self.record("Newt ERP → Batch status (Standard) [newt]")["api"], self.api("newt")["id"])
 
     def test_a_subscription_goes_to_the_api_of_its_environment_and_not_to_the_one_with_the_same_name_of_another(self):
-        self.seed_files({"environments/moderna/applications/process.yaml": "name: Novo SAP\ngroups: [moderna-process]\n",
-                         "environments/moderna/subscriptions/moderna.yaml": "subscriptions:\n  - {application: Novo SAP, api: Batch status, plan: Standard}\n"})
+        self.seed_files({"environments/mallard/applications/process.yaml": "name: Newt ERP\ngroups: [mallard-process]\n",
+                         "environments/mallard/subscriptions/mallard.yaml": "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Standard}\n"})
         self.run_seed()
         mine = {s["apiId"] for s in self.estate.subscriptions.values() if s["application"]["id"] in {
-            a["id"] for a in self.estate.applications.values() if a["env"] == "moderna"}}
-        self.assertEqual(mine, {self.api("moderna")["id"]})
+            a["id"] for a in self.estate.applications.values() if a["env"] == "mallard"}}
+        self.assertEqual(mine, {self.api("mallard")["id"]})
 
     def test_a_removal_goes_where_each_record_says(self):
         self.run_seed()
-        ids = {"DEFAULT": "open-id", "moderna": self.api("moderna")["id"], "novo": self.api("novo")["id"]}
+        ids = {"DEFAULT": "open-id", "mallard": self.api("mallard")["id"], "newt": self.api("newt")["id"]}
         calls = len(self.platform.calls)
         self.assertEqual(self.main("--remove"), 0, self.output())
         deleted = [c.path for c in self.platform.calls[calls:] if c.method == "DELETE" and "/apis/" in c.path]
@@ -1946,52 +1946,52 @@ class ApisOfAnEnvironment(Estates):
 
     def test_an_api_is_imported_with_the_names_of_its_groups_and_the_import_makes_no_group(self):
         self.run_seed()
-        group = self.group("novo", "novo-quality")
-        imported = next(c for c in self.sent("POST", ENV_V2 + "/apis/_import/definition") if "/novo/" in c.path)
-        self.assertEqual(imported.json["api"]["groups"], ["Novo Quality"])
+        group = self.group("newt", "newt-quality")
+        imported = next(c for c in self.sent("POST", ENV_V2 + "/apis/_import/definition") if "/newt/" in c.path)
+        self.assertEqual(imported.json["api"]["groups"], ["Newt Quality"])
         self.assertEqual(self.estate.groups_by_import, [], "an id or a name the platform does not know makes a group")
-        self.assertEqual(self.api("novo")["groups"], [group["id"]])
+        self.assertEqual(self.api("newt")["groups"], [group["id"]])
 
     def test_the_names_the_engine_gives_are_replaced_in_the_files_of_an_environment(self):
         self.run_seed()
-        definition = self.api("novo")["definition"]["api"]
-        self.assertEqual((definition["listeners"][0]["paths"][0]["path"], definition["description"]), ("/events/novo/batch-status/", "Novo Nordisk: novo"))
-        self.assertEqual(self.estate.settings["novo"]["portalNext"], {"siteTitle": "Novo Nordisk"})
+        definition = self.api("newt")["definition"]["api"]
+        self.assertEqual((definition["listeners"][0]["paths"][0]["path"], definition["description"]), ("/events/newt/batch-status/", "Newt Biotech: newt"))
+        self.assertEqual(self.estate.settings["newt"]["portalNext"], {"siteTitle": "Newt Biotech"})
 
     def test_the_digest_of_an_api_is_the_digest_of_its_file_with_the_group_hrids(self):
         self.run_seed()
-        file = json.loads(common.render(NOVO["environments/novo/apis/batch-status.json"], "x.json", json_escape=True, provided={"ENV_ID": "novo", "ENV_NAME": "Novo Nordisk"}))
-        self.assertEqual(self.record("Batch status [novo]")["digest"], apim.digest_of(file))
+        file = json.loads(common.render(NEWT["environments/newt/apis/batch-status.json"], "x.json", json_escape=True, provided={"ENV_ID": "newt", "ENV_NAME": "Newt Biotech"}))
+        self.assertEqual(self.record("Batch status [newt]")["digest"], apim.digest_of(file))
 
     def test_an_api_whose_file_names_no_group_is_left_to_the_platform(self):
-        self.seed_files({"environments/moderna/apis/batch-status.json": feed("Batch status", "moderna-batch-status", "/events/moderna/batch-status/", None)})
+        self.seed_files({"environments/mallard/apis/batch-status.json": feed("Batch status", "mallard-batch-status", "/events/mallard/batch-status/", None)})
         self.run_seed()
-        self.assertEqual(self.api("moderna")["groups"], [])
-        self.assertNotIn("Groups of Batch status [moderna]", self.output())
+        self.assertEqual(self.api("mallard")["groups"], [])
+        self.assertNotIn("Groups of Batch status [mallard]", self.output())
         self.assertEqual(self.run_seed(), [])
 
     def test_the_groups_an_update_by_import_cleared_are_written_back_and_the_api_is_deployed_once(self):
         self.run_seed()
-        self.edit("environments/novo/apis/batch-status.json", lambda text: text.replace('"visibility": "PRIVATE"', '"visibility": "PRIVATE", "apiVersion": "2"'))
-        api_id = self.api("novo")["id"]
+        self.edit("environments/newt/apis/batch-status.json", lambda text: text.replace('"visibility": "PRIVATE"', '"visibility": "PRIVATE", "apiVersion": "2"'))
+        api_id = self.api("newt")["id"]
         changes = self.run_seed()
-        self.assertEqual(changes, [("PUT", f"{v2('novo')}/apis/{api_id}/_import/definition"), ("PUT", f"{v2('novo')}/apis/{api_id}"),
-                                   ("POST", f"{v2('novo')}/apis/{api_id}/deployments")])
-        self.assertEqual(self.api("novo")["groups"], [self.group("novo", "novo-quality")["id"]])
+        self.assertEqual(changes, [("PUT", f"{v2('newt')}/apis/{api_id}/_import/definition"), ("PUT", f"{v2('newt')}/apis/{api_id}"),
+                                   ("POST", f"{v2('newt')}/apis/{api_id}/deployments")])
+        self.assertEqual(self.api("newt")["groups"], [self.group("newt", "newt-quality")["id"]])
         self.assertEqual(self.run_seed(), [])
 
     def test_the_groups_someone_changed_are_set_back_without_an_import(self):
         self.run_seed()
-        self.api("novo")["groups"] = []
-        api_id = self.api("novo")["id"]
-        self.assertEqual(self.run_seed(), [("PUT", f"{v2('novo')}/apis/{api_id}")])
-        self.assertEqual(self.api("novo")["groups"], [self.group("novo", "novo-quality")["id"]])
-        self.assertIn("Groups of Batch status [novo]: 1", self.output())
+        self.api("newt")["groups"] = []
+        api_id = self.api("newt")["id"]
+        self.assertEqual(self.run_seed(), [("PUT", f"{v2('newt')}/apis/{api_id}")])
+        self.assertEqual(self.api("newt")["groups"], [self.group("newt", "newt-quality")["id"]])
+        self.assertIn("Groups of Batch status [newt]: 1", self.output())
 
     def test_an_api_that_the_import_gave_the_groups_of_its_file_has_no_write_of_them(self):
         self.run_seed()
         self.assertNotIn("Groups of Batch status", self.output())
-        self.assertEqual(len([c for c in self.sent("PUT", ENV_V2 + "/apis/[^/]+") if "/novo/" in c.path]), 1, "its publication, and no more")
+        self.assertEqual(len([c for c in self.sent("PUT", ENV_V2 + "/apis/[^/]+") if "/newt/" in c.path]), 1, "its publication, and no more")
 
     def test_the_controls_name_an_api_of_the_platforms_own_environment_and_not_one_of_the_others(self):
         self.seed_files({"controls.yaml": "guard: {api: Batch status, flow: Events, steps: {request: [Rate limit]}}\n"})
@@ -2000,12 +2000,12 @@ class ApisOfAnEnvironment(Estates):
 
     def test_an_application_has_the_ids_of_its_groups_and_they_are_compared_as_a_set(self):
         self.run_seed()
-        group = self.group("novo", "novo-quality")
-        (app,) = [a for a in self.estate.applications.values() if a["name"] == "Novo SAP"]
+        group = self.group("newt", "newt-quality")
+        (app,) = [a for a in self.estate.applications.values() if a["name"] == "Newt ERP"]
         self.assertEqual(app["groups"], [group["id"]])
         self.assertEqual(self.run_seed(), [])
         app["groups"] = []
-        self.assertEqual(self.run_seed(), [("PUT", f"{ORG}/environments/novo/applications/{app['id']}")])
+        self.assertEqual(self.run_seed(), [("PUT", f"{ORG}/environments/newt/applications/{app['id']}")])
         self.assertEqual(app["groups"], [group["id"]])
 
     def test_an_application_without_groups_in_its_file_is_sent_without_any(self):
@@ -2021,56 +2021,56 @@ class SubscriptionsOfAnEnvironment(Estates):
 
     def test_a_subscription_with_a_key_is_made_by_the_management_api_with_that_custom_key(self):
         self.run_seed()
-        standard = self.subscription_to("novo", "Standard")
-        self.assertEqual((standard["status"], standard["key"]), ("ACCEPTED", "novo-key-0001"))
-        (create,) = [c for c in self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions") if "/novo/" in c.path and c.json.get("customApiKey")]
-        self.assertEqual(create.json["customApiKey"], "novo-key-0001")
-        self.assertNotIn("novo-key-0001", self.output())
-        self.assertNotIn("novo-key-0001", self.state.read_text(encoding="utf-8"))
+        standard = self.subscription_to("newt", "Standard")
+        self.assertEqual((standard["status"], standard["key"]), ("ACCEPTED", "newt-key-0001"))
+        (create,) = [c for c in self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions") if "/newt/" in c.path and c.json.get("customApiKey")]
+        self.assertEqual(create.json["customApiKey"], "newt-key-0001")
+        self.assertNotIn("newt-key-0001", self.output())
+        self.assertNotIn("newt-key-0001", self.state.read_text(encoding="utf-8"))
 
     def test_a_pending_subscription_goes_through_the_portal_api_with_its_comment_and_stays_pending(self):
         self.run_seed()
-        pending = self.subscription_to("novo", "Restricted")
+        pending = self.subscription_to("newt", "Restricted")
         self.assertEqual((pending["status"], pending["consumerMessage"]), ("PENDING", "Reconcile batch genealogy"))
         (portal,) = self.sent("POST", PORTAL + "/subscriptions")
-        self.assertEqual(portal.path, "/portal/environments/novo/subscriptions")
-        self.assertEqual(portal.json, {"application": next(a["id"] for a in self.estate.applications.values() if a["name"] == "Novo SAP"),
+        self.assertEqual(portal.path, "/portal/environments/newt/subscriptions")
+        self.assertEqual(portal.json, {"application": next(a["id"] for a in self.estate.applications.values() if a["name"] == "Newt ERP"),
                                        "plan": pending["plan"]["id"], "request": "Reconcile batch genealogy"})
         self.assertEqual(self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept"), [])
-        self.assertIn("✓ Subscription: Novo SAP → Batch status (Restricted) [novo] (pending)", self.output())
+        self.assertIn("✓ Subscription: Newt ERP → Batch status (Restricted) [newt] (pending)", self.output())
 
     def test_a_comment_on_a_plan_that_validates_by_hand_is_sent_with_the_request_then_accepted_with_the_key(self):
-        self.seed_files({"environments/novo/subscriptions/novo.yaml": (
-            "subscriptions:\n  - {application: Novo SAP, api: Batch status, plan: Restricted, comment: Reconcile, apiKey: '${NOVO_KEY}'}\n")})
+        self.seed_files({"environments/newt/subscriptions/newt.yaml": (
+            "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Restricted, comment: Reconcile, apiKey: '${NEWT_KEY}'}\n")})
         self.run_seed()
-        sub = self.subscription_to("novo", "Restricted")
-        self.assertEqual((sub["status"], sub["consumerMessage"], sub["key"]), ("ACCEPTED", "Reconcile", "novo-key-0001"))
+        sub = self.subscription_to("newt", "Restricted")
+        self.assertEqual((sub["status"], sub["consumerMessage"], sub["key"]), ("ACCEPTED", "Reconcile", "newt-key-0001"))
         (accept,) = self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")
-        self.assertEqual(accept.json, {"customApiKey": "novo-key-0001"})
+        self.assertEqual(accept.json, {"customApiKey": "newt-key-0001"})
 
     def test_a_comment_on_a_plan_that_validates_by_hand_without_a_key_is_accepted_with_an_empty_body(self):
-        self.seed_files({"environments/novo/subscriptions/novo.yaml": (
-            "subscriptions:\n  - {application: Novo SAP, api: Batch status, plan: Restricted, comment: Reconcile}\n")})
+        self.seed_files({"environments/newt/subscriptions/newt.yaml": (
+            "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Restricted, comment: Reconcile}\n")})
         self.run_seed()
-        self.assertEqual(self.subscription_to("novo", "Restricted")["status"], "ACCEPTED")
+        self.assertEqual(self.subscription_to("newt", "Restricted")["status"], "ACCEPTED")
         self.assertEqual(self.sent("POST", ENV_V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")[0].json, {})
 
     def test_a_push_subscription_sends_its_callback_with_the_variables_replaced(self):
         self.run_seed()
-        push = self.subscription_to("novo", "Webhook push")
+        push = self.subscription_to("newt", "Webhook push")
         self.assertEqual(push["consumerConfiguration"], {
             "entrypointId": "webhook", "entrypointConfiguration": {
-                "callbackUrl": "http://receiver:8000/hooks/novo/batch-status", "headers": [{"name": "X-Source", "value": "apelor-gravitee"}],
+                "callbackUrl": "http://receiver:8000/hooks/newt/batch-status", "headers": [{"name": "X-Source", "value": "walnut-gravitee"}],
                 "auth": {"type": "token", "token": {"value": "hook-token"}}}})
         self.assertNotIn("hook-token", self.output())
         self.assertNotIn("hook-token", self.state.read_text(encoding="utf-8"))
 
     def test_a_push_subscription_with_a_comment_goes_through_the_portal_api_with_its_callback(self):
-        self.edit("environments/novo/subscriptions/novo.yaml", lambda text: text.replace("plan: Webhook push\n", "plan: Webhook push\n    comment: Push it\n"))
+        self.edit("environments/newt/subscriptions/newt.yaml", lambda text: text.replace("plan: Webhook push\n", "plan: Webhook push\n    comment: Push it\n"))
         self.run_seed()
         portal = [c for c in self.sent("POST", PORTAL + "/subscriptions") if c.json.get("request") == "Push it"]
         self.assertEqual(portal[0].json["configuration"]["entrypointId"], "webhook")
-        push = self.subscription_to("novo", "Webhook push")
+        push = self.subscription_to("newt", "Webhook push")
         self.assertEqual((push["status"], push["consumerMessage"]), ("ACCEPTED", "Push it"))
 
     def test_a_pending_subscription_is_found_again_and_made_once(self):
@@ -2083,55 +2083,55 @@ class SubscriptionsOfAnEnvironment(Estates):
 
     def test_a_pending_subscription_that_someone_accepted_is_left_accepted(self):
         self.run_seed()
-        self.subscription_to("novo", "Restricted")["status"] = "ACCEPTED"
+        self.subscription_to("newt", "Restricted")["status"] = "ACCEPTED"
         self.assertEqual(self.run_seed(), [])
 
     def test_a_callback_that_differs_from_its_file_updates_the_subscription_and_keeps_its_dates(self):
         self.run_seed()
-        push = self.subscription_to("novo", "Webhook push")
-        self.edit("environments/novo/subscriptions/novo.yaml", lambda text: text.replace("/batch-status", "/changed"))
-        self.assertEqual(self.run_seed(), [("PUT", f"{v2('novo')}/apis/{self.api('novo')['id']}/subscriptions/{push['id']}")])
-        self.assertEqual(push["consumerConfiguration"]["entrypointConfiguration"]["callbackUrl"], "http://receiver:8000/hooks/novo/changed")
+        push = self.subscription_to("newt", "Webhook push")
+        self.edit("environments/newt/subscriptions/newt.yaml", lambda text: text.replace("/batch-status", "/changed"))
+        self.assertEqual(self.run_seed(), [("PUT", f"{v2('newt')}/apis/{self.api('newt')['id']}/subscriptions/{push['id']}")])
+        self.assertEqual(push["consumerConfiguration"]["entrypointConfiguration"]["callbackUrl"], "http://receiver:8000/hooks/newt/changed")
         self.assertEqual(push["startingAt"], "2026-10-16T10:00:00Z", "the update clears the dates it is not given")
-        self.assertIn("✓ Subscription updated: Novo SAP → Batch status (Webhook push) [novo]", self.output())
+        self.assertIn("✓ Subscription updated: Newt ERP → Batch status (Webhook push) [newt]", self.output())
         self.assertEqual(self.run_seed(), [])
 
     def test_a_callback_the_platform_added_defaults_to_is_not_a_difference(self):
         self.run_seed()
-        push = self.subscription_to("novo", "Webhook push")
+        push = self.subscription_to("newt", "Webhook push")
         push["consumerConfiguration"]["entrypointConfiguration"]["retry"] = {"retryOption": "No Delay"}
         self.assertEqual(self.run_seed(), [])
 
     def test_the_callback_of_a_subscription_the_seed_did_not_make_is_left_as_it_is(self):
         self.run_seed()
-        push = self.subscription_to("novo", "Webhook push")
+        push = self.subscription_to("newt", "Webhook push")
         common.save_created([x for x in common.created() if x["id"] != push["id"]])
-        self.edit("environments/novo/subscriptions/novo.yaml", lambda text: text.replace("/batch-status", "/changed"))
+        self.edit("environments/newt/subscriptions/newt.yaml", lambda text: text.replace("/batch-status", "/changed"))
         self.assertEqual(self.run_seed(), [])
-        self.assertIn("! Subscription Novo SAP → Batch status (Webhook push) [novo] is not one the seed made", self.output())
+        self.assertIn("! Subscription Newt ERP → Batch status (Webhook push) [newt] is not one the seed made", self.output())
         self.assertIn("/batch-status", push["consumerConfiguration"]["entrypointConfiguration"]["callbackUrl"])
 
     def test_a_webhook_token_written_as_a_plain_string_is_refused_by_the_platform_and_stops_the_seed(self):
-        self.edit("environments/novo/subscriptions/novo.yaml", lambda text: text.replace("token: {value: '${HOOK_TOKEN}'}", "token: '${HOOK_TOKEN}'"))
+        self.edit("environments/newt/subscriptions/newt.yaml", lambda text: text.replace("token: {value: '${HOOK_TOKEN}'}", "token: '${HOOK_TOKEN}'"))
         with self.assertRaisesRegex(common.SeedError, "HTTP 400 .*string found, object expected"):
             self.run_seed()
-        self.assertEqual(self.subscription_to("novo", "Webhook push"), None)
+        self.assertEqual(self.subscription_to("newt", "Webhook push"), None)
 
     def test_a_subscription_that_stays_pending_on_a_plan_that_accepts_by_itself_stops_the_seed(self):
-        self.seed_files({"environments/novo/subscriptions/novo.yaml": "subscriptions:\n  - {application: Novo SAP, api: Batch status, plan: Standard, pending: true}\n"})
-        with self.assertRaisesRegex(common.SeedError, r"^Subscription Novo SAP → Batch status \(Standard\) \[novo\]: the plan accepts a subscription by itself, so it cannot stay pending$"):
+        self.seed_files({"environments/newt/subscriptions/newt.yaml": "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Standard, pending: true}\n"})
+        with self.assertRaisesRegex(common.SeedError, r"^Subscription Newt ERP → Batch status \(Standard\) \[newt\]: the plan accepts a subscription by itself, so it cannot stay pending$"):
             self.run_seed()
-        self.assertEqual(self.subscriptions_of("novo"), [])
+        self.assertEqual(self.subscriptions_of("newt"), [])
 
     def test_a_comment_with_a_key_on_a_plan_that_accepts_by_itself_stops_the_seed(self):
-        self.seed_files({"environments/novo/subscriptions/novo.yaml": "subscriptions:\n  - {application: Novo SAP, api: Batch status, plan: Standard, comment: Why, apiKey: k}\n"})
+        self.seed_files({"environments/newt/subscriptions/newt.yaml": "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Standard, comment: Why, apiKey: k}\n"})
         with self.assertRaisesRegex(common.SeedError, r"a comment goes with a request, which this plan accepts at once with a key of its own"):
             self.run_seed()
-        self.assertEqual(self.subscriptions_of("novo"), [])
+        self.assertEqual(self.subscriptions_of("newt"), [])
 
     def test_the_plan_of_a_subscription_must_exist_on_the_api_of_its_environment(self):
-        self.seed_files({"environments/novo/subscriptions/novo.yaml": "subscriptions:\n  - {application: Novo SAP, api: Batch status, plan: Gold}\n"})
-        with self.assertRaisesRegex(common.SeedError, r"^Subscription Novo SAP → Batch status \(Gold\) \[novo\]: plan not found$"):
+        self.seed_files({"environments/newt/subscriptions/newt.yaml": "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Gold}\n"})
+        with self.assertRaisesRegex(common.SeedError, r"^Subscription Newt ERP → Batch status \(Gold\) \[newt\]: plan not found$"):
             self.run_seed()
 
     def test_a_removal_closes_each_subscription_of_its_api_in_its_environment_pending_ones_too(self):
@@ -2140,7 +2140,7 @@ class SubscriptionsOfAnEnvironment(Estates):
         self.assertEqual(self.main("--remove"), 0, self.output())
         closed = [c.path for c in self.platform.calls[calls:] if c.path.endswith("/_close")]
         self.assertEqual(len(closed), 5)
-        self.assertEqual(sorted(p.split("/environments/")[1].split("/")[0] for p in closed), ["DEFAULT", "moderna", "novo", "novo", "novo"])
+        self.assertEqual(sorted(p.split("/environments/")[1].split("/")[0] for p in closed), ["DEFAULT", "mallard", "newt", "newt", "newt"])
         self.assertEqual(self.estate.subscriptions, {})
 
 
@@ -2152,31 +2152,31 @@ class Membership(Estates):
         self.assertEqual(self.records("membership"), [])
 
     def test_an_environment_the_login_has_no_role_in_is_not_listed_so_the_login_becomes_its_administrator_and_a_removal_takes_the_role_back(self):
-        self.estate.unlisted = {"novo", "moderna"}
+        self.estate.unlisted = {"newt", "mallard"}
         self.run_seed()
         puts = self.sent("PUT", ORG + "/users/[^/]+/roles")
-        self.assertEqual(sorted(p.json["referenceId"] for p in puts), ["moderna", "novo"])
-        self.assertEqual({"user": "admin-id", "referenceType": "ENVIRONMENT", "referenceId": "novo", "roles": ["role-admin"]},
-                         next(p.json for p in puts if p.json["referenceId"] == "novo"))
-        self.assertEqual(self.record("admin [novo]"), {"product": "apim", "kind": "membership", "label": "memberships", "name": "admin [novo]",
-                                                       "id": "admin-id", "env": "novo"})
+        self.assertEqual(sorted(p.json["referenceId"] for p in puts), ["mallard", "newt"])
+        self.assertEqual({"user": "admin-id", "referenceType": "ENVIRONMENT", "referenceId": "newt", "roles": ["role-admin"]},
+                         next(p.json for p in puts if p.json["referenceId"] == "newt"))
+        self.assertEqual(self.record("admin [newt]"), {"product": "apim", "kind": "membership", "label": "memberships", "name": "admin [newt]",
+                                                       "id": "admin-id", "env": "newt"})
         self.assertEqual(self.run_seed(), [])   # listed now: nothing is written again
         self.assertEqual(self.main("--remove"), 0, self.output())
-        self.assertEqual(self.estate.memberships[("admin-id", "novo")], [])
-        self.assertEqual(self.estate.memberships[("admin-id", "moderna")], [])
+        self.assertEqual(self.estate.memberships[("admin-id", "newt")], [])
+        self.assertEqual(self.estate.memberships[("admin-id", "mallard")], [])
         self.assertEqual(common.created(), [])
 
     def test_a_login_that_the_environment_still_does_not_list_stops_the_seed(self):
-        self.estate.unlisted = {"novo"}
+        self.estate.unlisted = {"newt"}
         self.estate.roles_of = lambda call: 200   # the platform does not take the role
         self.platform.add(self.estate.routes())
-        with self.assertRaisesRegex(common.SeedError, r"^Environment novo: the platform does not list it for the seed's login$"):
+        with self.assertRaisesRegex(common.SeedError, r"^Environment newt: the platform does not list it for the seed's login$"):
             self.run_seed()
 
     def test_a_platform_without_an_administrator_role_for_an_environment_stops_the_seed(self):
-        self.estate.unlisted = {"novo"}
+        self.estate.unlisted = {"newt"}
         self.platform.add({("GET", ORG + "/configuration/rolescopes/ENVIRONMENT/roles"): (200, [{"id": "role-user", "name": "USER"}])})
-        with self.assertRaisesRegex(common.SeedError, "Environment novo: the platform has no administrator role for an environment"):
+        with self.assertRaisesRegex(common.SeedError, "Environment newt: the platform has no administrator role for an environment"):
             self.run_seed()
 
 
@@ -2200,11 +2200,11 @@ class ManyEnvironments(Estates):
 
     def test_each_environment_is_seeded_in_the_order_its_objects_depend_on_one_another(self):
         changes = self.run_seed()
-        novo = [c for c in changes if "/novo/" in c[1]]
+        newt = [c for c in changes if "/newt/" in c[1]]
         first = {}
         for kind, marker in (("users", "/users"), ("settings", "/settings"), ("groups", "/groups"), ("apis", "/_import/definition"),
                              ("applications", "/applications"), ("subscriptions", "/subscriptions")):
-            first[kind] = next(i for i, c in enumerate(novo) if marker in c[1])
+            first[kind] = next(i for i, c in enumerate(newt) if marker in c[1])
         # The APIs and the applications depend on the users, the settings and the groups, and not on one another; the
         # subscriptions on both
         self.assertEqual(sorted(first, key=first.get)[:3], ["users", "settings", "groups"])
@@ -2214,32 +2214,32 @@ class ManyEnvironments(Estates):
     def test_the_gateway_is_waited_for_once_for_the_apis_of_every_environment_within_one_deadline(self):
         self.env(SEED_WAIT_GATEWAY="1")
         self.env(GATEWAY_INTERNAL_URL=GATEWAY, GATEWAY_READY_TIMEOUT="30")
-        paths = {"/open/": 401, "/events/novo/batch-status/": [NO_API, 401], "/events/moderna/batch-status/": [NO_API, NO_API, 401]}
+        paths = {"/open/": 401, "/events/newt/batch-status/": [NO_API, 401], "/events/mallard/batch-status/": [NO_API, NO_API, 401]}
         self.platform.add({("GET", GATEWAY + path): answer for path, answer in paths.items()})
         apim.seed()
         self.assertEqual(self.clock.sleeps, [apim.LOOK_AGAIN] * 3)
         out = self.output()
-        self.assertEqual([out.index(f"✓ {name} answers on the gateway") for name in ("Open API", "Batch status [moderna]", "Batch status [novo]")],
-                         sorted(out.index(f"✓ {name} answers on the gateway") for name in ("Open API", "Batch status [moderna]", "Batch status [novo]")))
+        self.assertEqual([out.index(f"✓ {name} answers on the gateway") for name in ("Open API", "Batch status [mallard]", "Batch status [newt]")],
+                         sorted(out.index(f"✓ {name} answers on the gateway") for name in ("Open API", "Batch status [mallard]", "Batch status [newt]")))
         self.assertEqual(out.count("answers on the gateway"), 3)
 
     def test_an_api_of_an_environment_that_never_answers_names_its_environment(self):
         self.env(SEED_WAIT_GATEWAY="1")
         self.env(GATEWAY_INTERNAL_URL=GATEWAY, GATEWAY_READY_TIMEOUT="30")
-        self.platform.add({("GET", GATEWAY + "/open/"): 401, ("GET", GATEWAY + "/events/moderna/batch-status/"): 401,
-                           ("GET", GATEWAY + "/events/novo/batch-status/"): NO_API})
-        with self.assertRaisesRegex(common.SeedError, r"^Batch status \[novo\] does not answer on the gateway$"):
+        self.platform.add({("GET", GATEWAY + "/open/"): 401, ("GET", GATEWAY + "/events/mallard/batch-status/"): 401,
+                           ("GET", GATEWAY + "/events/newt/batch-status/"): NO_API})
+        with self.assertRaisesRegex(common.SeedError, r"^Batch status \[newt\] does not answer on the gateway$"):
             apim.seed()
         self.assertTrue(30 <= self.clock.elapsed <= 30 + apim.LOOK_AGAIN, self.clock.elapsed)
 
     def test_a_removal_leaves_alone_what_an_environment_that_is_gone_held_and_still_deletes_the_users(self):
         self.run_seed()
-        self.estate.environments.discard("novo")
+        self.estate.environments.discard("newt")
         calls = len(self.platform.calls)
         self.assertEqual(self.main("--remove"), 0, self.output())
-        novo = [c for c in self.platform.calls[calls:] if "/environments/novo" in c.path]
-        self.assertEqual([(c.method, c.path) for c in novo], [("GET", ORG + "/environments/novo")], "asked once, then nothing")
-        self.assertIn("✓ Deleted api 'Batch status [novo]': its environment is gone", self.output())
+        newt = [c for c in self.platform.calls[calls:] if "/environments/newt" in c.path]
+        self.assertEqual([(c.method, c.path) for c in newt], [("GET", ORG + "/environments/newt")], "asked once, then nothing")
+        self.assertIn("✓ Deleted api 'Batch status [newt]': its environment is gone", self.output())
         self.assertEqual(common.created(), [])
         self.assertEqual(sum(u["status"] == "ARCHIVED" for u in self.estate.users.values()), 3)
 
@@ -2251,7 +2251,7 @@ class ManyEnvironments(Estates):
         self.assertEqual(deleted, sorted(deleted, key=order.index))
         self.assertEqual(sorted(set(deleted)), sorted(order))
         self.assertEqual((self.estate.apis, self.estate.groups, self.estate.applications, common.created()), ({}, {}, {}, []))
-        self.assertEqual(self.estate.settings["novo"]["plan"], {"security": {"customApiKey": {"enabled": True}, "push": {"enabled": True}}},
+        self.assertEqual(self.estate.settings["newt"]["plan"], {"security": {"customApiKey": {"enabled": True}, "push": {"enabled": True}}},
                          "the settings of an environment are not the seed's to take back")
 
 

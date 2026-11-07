@@ -25,14 +25,14 @@ from tests import doubling
 ENVS = "/management/organizations/DEFAULT/environments"
 AUTO = "/automation/organizations/DEFAULT/environments"
 V2 = "/management/v2/organizations/DEFAULT/environments"
-MODERNA = "environments/moderna"
-DOCS = f"{AUTO}/moderna/portals/moderna-portal/documentations"
-LINKS = f"{AUTO}/moderna/portals/moderna-portal/links"
-ITEMS = f"{V2}/moderna/portal-navigation-items"
+MALLARD = "environments/mallard"
+DOCS = f"{AUTO}/mallard/portals/mallard-portal/documentations"
+LINKS = f"{AUTO}/mallard/portals/mallard-portal/links"
+ITEMS = f"{V2}/mallard/portal-navigation-items"
 LOGO = "<svg xmlns='http://www.w3.org/2000/svg'/>"
 
-THEME = """hrid: moderna-theme
-name: Moderna
+THEME = """hrid: mallard-theme
+name: Mallard
 definition:
   color: {primary: "#B3003C", secondary: "#2D2D2D", pageBackground: "#FAF7F5", cardBackground: "#FFFFFF"}
   font: {fontFamily: "Georgia, serif"}
@@ -40,42 +40,42 @@ assets:
   logo: ../assets/logo.svg
   favicon: ../assets/favicon.svg
 """
-PORTAL = """hrid: moderna-portal
+PORTAL = """hrid: mallard-portal
 name: ${ENV_NAME} Developer Portal
-activeThemeHrid: moderna-theme
+activeThemeHrid: mallard-theme
 structure:
   topNavbar:
     - {path: Guides, visibility: PUBLIC}
     - {path: Event feeds, visibility: PUBLIC}
     - {path: Event feeds/Process development, displayName: Process development, visibility: PRIVATE}
 """
-HOME = "hrid: moderna-home\nname: Home\ntype: GRAVITEE_MARKDOWN\narea: HOMEPAGE\nfile: ../content/home.md\nvisibility: PUBLIC\n"
-GUIDE = "hrid: moderna-guide\nname: Getting started\ntype: GRAVITEE_MARKDOWN\nlocation: Guides\norder: 0\nfile: ../content/guide.md\n"
-LINK = "hrid: moderna-broker\nname: Broker manager\nhref: ${MANAGER_URL}\nlocation: Guides\norder: 1\n"
-LISTING = """hrid: moderna-feeds
+HOME = "hrid: mallard-home\nname: Home\ntype: GRAVITEE_MARKDOWN\narea: HOMEPAGE\nfile: ../content/home.md\nvisibility: PUBLIC\n"
+GUIDE = "hrid: mallard-guide\nname: Getting started\ntype: GRAVITEE_MARKDOWN\nlocation: Guides\norder: 0\nfile: ../content/guide.md\n"
+LINK = "hrid: mallard-broker\nname: Broker manager\nhref: ${MANAGER_URL}\nlocation: Guides\norder: 1\n"
+LISTING = """hrid: mallard-feeds
 apis:
-  - {apiHrid: moderna-batch-status, location: Event feeds/Process development, order: 0, visibility: PRIVATE}
-  - {apiHrid: moderna-telemetry, location: Event feeds/Process development, order: 1}
+  - {apiHrid: mallard-batch-status, location: Event feeds/Process development, order: 0, visibility: PRIVATE}
+  - {apiHrid: mallard-telemetry, location: Event feeds/Process development, order: 1}
 """
 FILES = {
-    f"{MODERNA}/environment.yaml": "id: moderna\nname: Moderna\n",
-    f"{MODERNA}/apis/batch-status.json": json.dumps({"api": {"name": "Batch status", "crossId": "moderna-batch-status"}}),
-    f"{MODERNA}/apis/telemetry.json": json.dumps({"api": {"name": "Telemetry", "crossId": "moderna-telemetry"}}),
-    f"{MODERNA}/assets/logo.svg": LOGO,
-    f"{MODERNA}/assets/favicon.svg": "<svg xmlns='http://www.w3.org/2000/svg' width='1'/>",
-    f"{MODERNA}/portal/theme.yaml": THEME,
-    f"{MODERNA}/portal/portal.yaml": PORTAL,
-    f"{MODERNA}/portal/pages/home.yaml": HOME,
-    f"{MODERNA}/portal/pages/guide.yaml": GUIDE,
-    f"{MODERNA}/portal/content/home.md": "# ${ENV_NAME} (${ENV_ID})\n\nGateway ${GATEWAY}. Expression: $${api.name} and $${NAME}.\n",
-    f"{MODERNA}/portal/content/guide.md": "# Getting started\n",
-    f"{MODERNA}/portal/links/broker.yaml": LINK,
-    f"{MODERNA}/portal/listings/feeds.yaml": LISTING,
+    f"{MALLARD}/environment.yaml": "id: mallard\nname: Mallard\n",
+    f"{MALLARD}/apis/batch-status.json": json.dumps({"api": {"name": "Batch status", "crossId": "mallard-batch-status"}}),
+    f"{MALLARD}/apis/telemetry.json": json.dumps({"api": {"name": "Telemetry", "crossId": "mallard-telemetry"}}),
+    f"{MALLARD}/assets/logo.svg": LOGO,
+    f"{MALLARD}/assets/favicon.svg": "<svg xmlns='http://www.w3.org/2000/svg' width='1'/>",
+    f"{MALLARD}/portal/theme.yaml": THEME,
+    f"{MALLARD}/portal/portal.yaml": PORTAL,
+    f"{MALLARD}/portal/pages/home.yaml": HOME,
+    f"{MALLARD}/portal/pages/guide.yaml": GUIDE,
+    f"{MALLARD}/portal/content/home.md": "# ${ENV_NAME} (${ENV_ID})\n\nGateway ${GATEWAY}. Expression: $${api.name} and $${NAME}.\n",
+    f"{MALLARD}/portal/content/guide.md": "# Getting started\n",
+    f"{MALLARD}/portal/links/broker.yaml": LINK,
+    f"{MALLARD}/portal/listings/feeds.yaml": LISTING,
 }
 DEFAULT_OVERVIEW = "# ${api.name}\n\nDiscover ${api.name}.\n"   # the template the platform gives an API item's default page
 SAMPLE_ASYNCAPI = "asyncapi: 3.0.0\ninfo:\n  title: Default AsyncAPI Page\n  version: 1.0.0\nchannels: {}\n"   # what the platform gives a new AsyncAPI page
-APIS = [{"id": "api-1", "name": "Batch status", "crossId": "moderna-batch-status"},
-        {"id": "api-2", "name": "Telemetry", "crossId": "moderna-telemetry"}]
+APIS = [{"id": "api-1", "name": "Batch status", "crossId": "mallard-batch-status"},
+        {"id": "api-2", "name": "Telemetry", "crossId": "mallard-telemetry"}]
 SETTINGS = {"MANAGER_URL": "http://localhost:8095", "GATEWAY": "http://localhost:8082", "NAME": "kept"}
 
 
@@ -83,21 +83,21 @@ def ident(*parts):
     return str(uuid.uuid5(uuid.NAMESPACE_URL, "/".join(parts)))
 
 
-def item_id(api, env="moderna", portal="moderna-portal", listing="moderna-feeds"):
+def item_id(api, env="mallard", portal="mallard-portal", listing="mallard-feeds"):
     """The id the seed computes for the item of an API of a listing."""
     return str(uuid.uuid5(apim_portal.IDS, f"{env}/{portal}/{listing}/{api}"))
 
 
-FEEDS = [item_id("moderna-batch-status"), item_id("moderna-telemetry")]
-OVERVIEWS = [ident("moderna", "overview", feed) for feed in FEEDS]   # the pages the platform makes under them
-FOLDER = ident("moderna", "folder", "/event-feeds/process-development")
+FEEDS = [item_id("mallard-batch-status"), item_id("mallard-telemetry")]
+OVERVIEWS = [ident("mallard", "overview", feed) for feed in FEEDS]   # the pages the platform makes under them
+FOLDER = ident("mallard", "folder", "/event-feeds/process-development")
 
 
 class World:
     """Environments with a theme, a portal, pages, links and a navigation tree, as the platform keeps them."""
 
     def __init__(self, environments=None, apis=None):
-        self.environments = environments or {"moderna": "Moderna"}
+        self.environments = environments or {"mallard": "Mallard"}
         self.apis = {env: list((apis or {}).get(env, APIS)) for env in self.environments}
         self.store = {}                                   # (env, kind, portal, hrid) -> what the platform answers
         self.items = {env: {} for env in self.environments}
@@ -384,7 +384,7 @@ class World:
 
 
 class Portals(Seed):
-    """Every test runs against one World; the seed is the portal files of Moderna's environment unless a test says otherwise."""
+    """Every test runs against one World; the seed is the portal files of Mallard's environment unless a test says otherwise."""
 
     def setUp(self):
         super().setUp()
@@ -394,7 +394,7 @@ class Portals(Seed):
         self.seed_files(FILES)
 
     def file(self, name, text):
-        self.seed_files({f"{MODERNA}/{name}": text})
+        self.seed_files({f"{MALLARD}/{name}": text})
 
     def only(self, files):
         """A seed folder with these files and no other."""
@@ -420,14 +420,14 @@ class Portals(Seed):
         self.platform.calls.clear()
 
     def items(self, kind=None):
-        return [i for i in self.world.items["moderna"].values() if kind in (None, i["type"])]
+        return [i for i in self.world.items["mallard"].values() if kind in (None, i["type"])]
 
 
 class Creation(Portals):
 
     def test_a_first_run_makes_the_theme_then_the_portal_the_pages_the_link_and_the_listing(self):
         self.assertEqual(self.run_seed(), [
-            ("PUT", f"{AUTO}/moderna/portal-themes"), ("PUT", f"{AUTO}/moderna/portals"), ("PUT", DOCS), ("PUT", DOCS),
+            ("PUT", f"{AUTO}/mallard/portal-themes"), ("PUT", f"{AUTO}/mallard/portals"), ("PUT", DOCS), ("PUT", DOCS),
             ("PUT", LINKS),
             ("POST", ITEMS), ("PUT", f"{ITEMS}/{FEEDS[0]}"), ("POST", ITEMS), ("PUT", f"{ITEMS}/{FEEDS[1]}"),
             ("POST", f"{ITEMS}/_default-pages"), ("PUT", f"{ITEMS}/{OVERVIEWS[0]}"), ("PUT", f"{ITEMS}/{OVERVIEWS[1]}")])
@@ -438,11 +438,11 @@ class Creation(Portals):
         self.run_seed()
         theme = next(x for x in common.created() if x["kind"] == "portal-theme")
         self.assertEqual({key: theme[key] for key in ("product", "label", "name", "env", "hrid")},
-                         {"product": "apim-portal", "label": "portal themes", "name": "moderna: moderna-theme",
-                          "env": "moderna", "hrid": "moderna-theme"})
-        self.assertEqual(theme["id"], ident("moderna", "theme", "moderna-theme"))
-        page = next(x for x in common.created() if x["name"] == "moderna: moderna-guide")
-        self.assertEqual((page["portal"], page["label"]), ("moderna-portal", "portal pages"))
+                         {"product": "apim-portal", "label": "portal themes", "name": "mallard: mallard-theme",
+                          "env": "mallard", "hrid": "mallard-theme"})
+        self.assertEqual(theme["id"], ident("mallard", "theme", "mallard-theme"))
+        page = next(x for x in common.created() if x["name"] == "mallard: mallard-guide")
+        self.assertEqual((page["portal"], page["label"]), ("mallard-portal", "portal pages"))
         self.assertEqual([x["label"] for x in common.created()][3:],
                          ["portal pages", "portal links", "portal listings", "API pages"])
 
@@ -459,13 +459,13 @@ class Creation(Portals):
     def test_an_image_has_the_type_of_its_file(self):
         for suffix, kind in {".png": "image/png", ".jpg": "image/jpeg", ".ico": "image/x-icon", ".webp": "image/webp"}.items():
             with self.subTest(suffix=suffix):
-                self.seed_files({f"{MODERNA}/assets/logo{suffix}": "x"})
+                self.seed_files({f"{MALLARD}/assets/logo{suffix}": "x"})
                 self.file("portal/theme.yaml", THEME.replace("logo.svg", f"logo{suffix}"))
                 self.run_seed()
                 self.assertTrue(self.sent("PUT", "/portal-themes")[-1]["logo"].startswith(f"data:{kind};base64,"))
 
     def test_the_colors_a_theme_gives_the_automation_way_are_kept(self):
-        self.file("portal/theme.yaml", "hrid: moderna-theme\nname: M\ndefinition:\n"
+        self.file("portal/theme.yaml", "hrid: mallard-theme\nname: M\ndefinition:\n"
                                        "  color: {primary: '#111111', background: {page: '#222222', card: '#333333'}}\n")
         self.run_seed()
         self.assertEqual(self.sent("PUT", "/portal-themes")[0]["definition"]["color"],
@@ -474,13 +474,13 @@ class Creation(Portals):
     def test_the_portal_shows_the_theme_and_its_paths_are_kept_as_the_platform_keeps_them(self):
         self.run_seed()
         [portal] = self.sent("PUT", "/portals")
-        self.assertEqual(portal["activeThemeHrid"], "moderna-theme")
-        self.assertEqual(portal["name"], "Moderna Developer Portal")
+        self.assertEqual(portal["activeThemeHrid"], "mallard-theme")
+        self.assertEqual(portal["name"], "Mallard Developer Portal")
         self.assertEqual(portal["structure"]["topNavbar"], [
             {"path": "/guides", "displayName": "Guides", "visibility": "PUBLIC"},
             {"path": "/event-feeds", "displayName": "Event feeds", "visibility": "PUBLIC"},
             {"path": "/event-feeds/process-development", "displayName": "Process development", "visibility": "PRIVATE"}])
-        self.assertEqual(self.world.active, {"moderna": "moderna-theme"})
+        self.assertEqual(self.world.active, {"mallard": "mallard-theme"})
 
     def test_a_folder_with_no_display_name_shows_the_last_words_of_its_path(self):
         self.file("portal/portal.yaml", PORTAL + "    - {path: Support/Help desk}\n")
@@ -489,22 +489,22 @@ class Creation(Portals):
                          {"path": "/support/help-desk", "displayName": "Help desk"})
 
     def test_a_portal_without_the_theme_key_shows_the_theme_of_its_folder(self):
-        self.file("portal/portal.yaml", PORTAL.replace("activeThemeHrid: moderna-theme\n", ""))
+        self.file("portal/portal.yaml", PORTAL.replace("activeThemeHrid: mallard-theme\n", ""))
         self.run_seed()
-        self.assertEqual(self.sent("PUT", "/portals")[0]["activeThemeHrid"], "moderna-theme")
+        self.assertEqual(self.sent("PUT", "/portals")[0]["activeThemeHrid"], "mallard-theme")
 
     def test_a_portal_with_no_theme_shows_the_platforms_own(self):
-        os.remove(common.SEED_DIR / MODERNA / "portal" / "theme.yaml")
-        self.file("portal/portal.yaml", PORTAL.replace("activeThemeHrid: moderna-theme\n", ""))
+        os.remove(common.SEED_DIR / MALLARD / "portal" / "theme.yaml")
+        self.file("portal/portal.yaml", PORTAL.replace("activeThemeHrid: mallard-theme\n", ""))
         self.run_seed()
         self.assertNotIn("activeThemeHrid", self.sent("PUT", "/portals")[0])
         self.assertEqual(self.sent("PUT", "/portal-themes"), [])
 
     def test_a_page_is_rendered_with_the_variables_of_the_seed_and_of_its_environment(self):
         self.run_seed()
-        home = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "moderna-home")
+        home = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "mallard-home")
         self.assertEqual(home["content"],
-                         "# Moderna (moderna)\n\nGateway http://localhost:8082. Expression: ${api.name} and ${NAME}.\n")
+                         "# Mallard (mallard)\n\nGateway http://localhost:8082. Expression: ${api.name} and ${NAME}.\n")
         self.assertEqual((home["area"], home["type"], home["visibility"]), ("HOMEPAGE", "GRAVITEE_MARKDOWN", "PUBLIC"))
         self.assertNotIn("location", home)
 
@@ -515,22 +515,22 @@ class Creation(Portals):
 
     def test_a_page_goes_to_a_path_of_the_portal_and_a_link_too(self):
         self.run_seed()
-        guide = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "moderna-guide")
+        guide = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "mallard-guide")
         self.assertEqual((guide["location"], guide["order"], guide["area"]), ("/guides", 0, "TOP_NAVBAR"))
-        self.assertEqual(self.sent("PUT", "/links"), [{"hrid": "moderna-broker", "name": "Broker manager",
+        self.assertEqual(self.sent("PUT", "/links"), [{"hrid": "mallard-broker", "name": "Broker manager",
                                                        "href": "http://localhost:8095", "location": "/guides", "order": 1}])
 
     def test_a_page_may_hold_its_text_itself(self):
-        self.file("portal/pages/guide.yaml", "hrid: moderna-guide\nname: Guide\ntype: ASYNCAPI\ncontent: 'asyncapi: 3.0.0'\n")
+        self.file("portal/pages/guide.yaml", "hrid: mallard-guide\nname: Guide\ntype: ASYNCAPI\ncontent: 'asyncapi: 3.0.0'\n")
         self.run_seed()
-        guide = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "moderna-guide")
+        guide = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "mallard-guide")
         self.assertEqual((guide["type"], guide["content"]), ("ASYNCAPI", "asyncapi: 3.0.0"))
 
     def test_the_log_names_what_it_did_and_nothing_secret(self):
         self.env(APIM_PASSWORD="s3cret-pass")
         self.run_seed()
-        self.assertIn("✓ Portal theme created: moderna: moderna-theme", self.output())
-        self.assertIn("✓ Portal listing created: moderna: moderna-feeds", self.output())
+        self.assertIn("✓ Portal theme created: mallard: mallard-theme", self.output())
+        self.assertIn("✓ Portal listing created: mallard: mallard-feeds", self.output())
         self.assertNotIn("s3cret-pass", self.output())
 
 
@@ -541,47 +541,47 @@ class SecondRun(Portals):
         records = json.dumps(common.created())
         self.assertEqual(self.run_seed(), [])
         self.assertEqual(json.dumps(common.created()), records)
-        self.assertIn("Portal exists: moderna: moderna-portal", self.output())
-        self.assertIn("Portal listing exists: moderna: moderna-feeds", self.output())
+        self.assertIn("Portal exists: mallard: mallard-portal", self.output())
+        self.assertIn("Portal listing exists: mallard: mallard-feeds", self.output())
 
     def test_a_page_that_changed_is_the_only_one_put_again(self):
         self.seeded()
         self.file("portal/content/guide.md", "# Getting started\n\nMore.\n")
         self.assertEqual(self.run_seed(), [("PUT", DOCS)])
-        self.assertEqual(self.sent("PUT", "/documentations")[0]["hrid"], "moderna-guide")
-        self.assertIn("✓ Portal page updated: moderna: moderna-guide", self.output())
+        self.assertEqual(self.sent("PUT", "/documentations")[0]["hrid"], "mallard-guide")
+        self.assertIn("✓ Portal page updated: mallard: mallard-guide", self.output())
         self.assertEqual(self.run_seed(), [])
 
     def test_a_theme_whose_colors_changed_is_put_again_and_the_rest_is_left(self):
         self.seeded()
         self.file("portal/theme.yaml", THEME.replace("#B3003C", "#C00040"))
-        self.assertEqual(self.run_seed(), [("PUT", f"{AUTO}/moderna/portal-themes")])
+        self.assertEqual(self.run_seed(), [("PUT", f"{AUTO}/mallard/portal-themes")])
 
     def test_an_object_that_is_gone_is_made_again(self):
         self.seeded()
-        del self.world.store[("moderna", "link", "moderna-portal", "moderna-broker")]
+        del self.world.store[("mallard", "link", "mallard-portal", "mallard-broker")]
         self.assertEqual(self.run_seed(), [("PUT", LINKS)])
 
     def test_what_a_removed_file_made_is_deleted_and_forgotten(self):
         self.seeded()
-        (common.SEED_DIR / MODERNA / "portal/links/broker.yaml").unlink()
-        self.assertEqual(self.run_seed(), [("DELETE", f"{LINKS}/moderna-broker")])
-        self.assertIn("✓ Deleted portal-link 'moderna: moderna-broker': its file is gone", self.output())
+        (common.SEED_DIR / MALLARD / "portal/links/broker.yaml").unlink()
+        self.assertEqual(self.run_seed(), [("DELETE", f"{LINKS}/mallard-broker")])
+        self.assertIn("✓ Deleted portal-link 'mallard: mallard-broker': its file is gone", self.output())
         self.assertEqual([x for x in common.created() if x["kind"] == "portal-link"], [])
-        self.assertNotIn(("moderna", "link", "moderna-portal", "moderna-broker"), self.world.store)
+        self.assertNotIn(("mallard", "link", "mallard-portal", "mallard-broker"), self.world.store)
         self.assertEqual(self.run_seed(), [])
 
     def test_a_page_whose_file_is_gone_is_deleted_and_the_others_are_kept(self):
         self.seeded()
-        (common.SEED_DIR / MODERNA / "portal/pages/guide.yaml").unlink()
-        self.assertEqual(self.run_seed(), [("DELETE", f"{DOCS}/moderna-guide")])
-        self.assertEqual([x["hrid"] for x in common.created() if x["kind"] == "portal-page"], ["moderna-home"])
+        (common.SEED_DIR / MALLARD / "portal/pages/guide.yaml").unlink()
+        self.assertEqual(self.run_seed(), [("DELETE", f"{DOCS}/mallard-guide")])
+        self.assertEqual([x["hrid"] for x in common.created() if x["kind"] == "portal-page"], ["mallard-home"])
         self.assertTrue([x for x in common.created() if x["kind"] == "portal-theme"])
         self.assertEqual(self.run_seed(), [])
 
     def test_a_portal_that_lost_its_folders_gets_them_back_and_the_listing_its_items(self):
         self.seeded()
-        self.world.put("moderna", "portal", None, {"hrid": "moderna-portal", "name": "x", "structure": {"topNavbar": [
+        self.world.put("mallard", "portal", None, {"hrid": "mallard-portal", "name": "x", "structure": {"topNavbar": [
             {"path": "/guides", "displayName": "Guides"}]}})   # someone applied another portal: the folders and their items go
         self.assertEqual(self.items("API"), [])
         self.run_seed()
@@ -612,8 +612,8 @@ class Listings(Portals):
         self.run_seed()
         listing = next(x for x in common.created() if x["kind"] == "portal-listing")
         self.assertEqual(listing["items"], FEEDS)
-        self.assertEqual((listing["portal"], listing["env"], listing["hrid"]), ("moderna-portal", "moderna", "moderna-feeds"))
-        self.assertEqual(set(listing["items"]) - set(self.world.items["moderna"]), set())
+        self.assertEqual((listing["portal"], listing["env"], listing["hrid"]), ("mallard-portal", "mallard", "mallard-feeds"))
+        self.assertEqual(set(listing["items"]) - set(self.world.items["mallard"]), set())
 
     def test_an_item_is_created_then_published(self):
         self.run_seed()
@@ -628,9 +628,9 @@ class Listings(Portals):
 
     def test_a_folder_that_was_unpublished_is_published_with_what_is_in_it_before_the_item(self):
         self.seeded()
-        events = ident("moderna", "folder", "/event-feeds")
+        events = ident("mallard", "folder", "/event-feeds")
         for item in self.items():
-            if item["type"] in ("FOLDER", "API") and item["id"] != ident("moderna", "folder", "/guides"):
+            if item["type"] in ("FOLDER", "API") and item["id"] != ident("mallard", "folder", "/guides"):
                 item["published"] = False
         self.assertEqual(self.run_seed(), [("PUT", f"{ITEMS}/{events}")])
         self.assertEqual([c.params for c in self.platform.calls if c.method == "PUT"], [{"propagatePublishToChildren": "true"}])
@@ -641,23 +641,23 @@ class Listings(Portals):
         for feed, key, wrong, right in ((FEEDS[1], "published", False, True), (FEEDS[0], "order", 5, 0),
                                         (FEEDS[0], "title", "Old name", "Batch status")):   # the title the platform gave it under the API's old name
             with self.subTest(key=key):
-                self.world.items["moderna"][feed][key] = wrong
+                self.world.items["mallard"][feed][key] = wrong
                 self.assertEqual(self.run_seed(), [("PUT", f"{ITEMS}/{feed}")])
-                self.assertEqual(self.world.items["moderna"][feed][key], right)
+                self.assertEqual(self.world.items["mallard"][feed][key], right)
 
     def test_the_item_of_an_api_made_again_is_made_again_for_it(self):
         self.seeded()
-        self.world.items["moderna"][FEEDS[0]]["apiId"] = "api-gone"   # an LLM proxy is made again, with a new id, when its file changes
+        self.world.items["mallard"][FEEDS[0]]["apiId"] = "api-gone"   # an LLM proxy is made again, with a new id, when its file changes
         changes = self.run_seed()
         self.assertIn(("DELETE", f"{ITEMS}/{FEEDS[0]}"), changes)
-        self.assertEqual(self.world.items["moderna"][FEEDS[0]]["apiId"], "api-1")
+        self.assertEqual(self.world.items["mallard"][FEEDS[0]]["apiId"], "api-1")
 
     def test_an_api_that_leaves_the_listing_loses_its_item_and_its_page_leaves_the_record(self):
         self.seeded()
-        self.file("portal/listings/feeds.yaml", LISTING.split("  - {apiHrid: moderna-telemetry")[0])
+        self.file("portal/listings/feeds.yaml", LISTING.split("  - {apiHrid: mallard-telemetry")[0])
         self.assertEqual(self.run_seed(), [("DELETE", f"{ITEMS}/{FEEDS[1]}")])
-        self.assertNotIn(FEEDS[1], self.world.items["moderna"])
-        self.assertNotIn(OVERVIEWS[1], self.world.items["moderna"])
+        self.assertNotIn(FEEDS[1], self.world.items["mallard"])
+        self.assertNotIn(OVERVIEWS[1], self.world.items["mallard"])
         listing = next(x for x in common.created() if x["kind"] == "portal-listing")
         self.assertEqual(listing["items"], FEEDS[:1])
         pages = next(x for x in common.created() if x["kind"] == "portal-api-page")
@@ -666,28 +666,28 @@ class Listings(Portals):
 
     def test_an_api_moved_to_another_location_in_its_file_is_moved_with_its_page_and_published_again(self):
         self.seeded()
-        self.file("portal/listings/feeds.yaml", LISTING.replace("{apiHrid: moderna-telemetry, location: Event feeds/Process development, order: 1}",
-                                                                "{apiHrid: moderna-telemetry, location: Guides, order: 0, visibility: PRIVATE}"))
+        self.file("portal/listings/feeds.yaml", LISTING.replace("{apiHrid: mallard-telemetry, location: Event feeds/Process development, order: 1}",
+                                                                "{apiHrid: mallard-telemetry, location: Guides, order: 0, visibility: PRIVATE}"))
         self.assertEqual(self.run_seed(), [("PUT", f"{ITEMS}/{FEEDS[1]}"), ("PUT", f"{ITEMS}/{FEEDS[1]}"), ("PUT", f"{ITEMS}/{OVERVIEWS[1]}")])
-        moved, guides = self.world.items["moderna"][FEEDS[1]], ident("moderna", "folder", "/guides")
+        moved, guides = self.world.items["mallard"][FEEDS[1]], ident("mallard", "folder", "/guides")
         self.assertEqual((moved["parentId"], moved["published"], moved["visibility"]), (guides, True, "PRIVATE"))
-        self.assertEqual(self.world.items["moderna"][OVERVIEWS[1]]["parentId"], FEEDS[1])
-        self.assertTrue(self.world.items["moderna"][OVERVIEWS[1]]["published"])
-        self.assertIn("✓ Portal listing updated: moderna: moderna-feeds", self.output())
+        self.assertEqual(self.world.items["mallard"][OVERVIEWS[1]]["parentId"], FEEDS[1])
+        self.assertTrue(self.world.items["mallard"][OVERVIEWS[1]]["published"])
+        self.assertIn("✓ Portal listing updated: mallard: mallard-feeds", self.output())
         self.platform.calls.clear()
         self.assertEqual(self.run_seed(), [])
-        self.assertIn("Portal listing exists: moderna: moderna-feeds", self.output().split("✓ Portal listing updated")[1])
+        self.assertIn("Portal listing exists: mallard: mallard-feeds", self.output().split("✓ Portal listing updated")[1])
 
     def test_an_item_is_moved_unpublished_because_a_child_is_published_only_under_a_published_folder(self):
         self.seeded()
         self.file("portal/listings/feeds.yaml", LISTING.replace("Event feeds/Process development, order: 1", "Guides, order: 0"))
         self.run_seed()
         move, publish = self.sent("PUT", FEEDS[1])
-        self.assertEqual((move["parentId"], move["published"]), (ident("moderna", "folder", "/guides"), False))
+        self.assertEqual((move["parentId"], move["published"]), (ident("mallard", "folder", "/guides"), False))
         self.assertTrue(publish["published"])
 
     def test_the_default_order_of_an_api_is_its_position_among_the_items_of_its_location(self):
-        both = "hrid: moderna-feeds\napis:\n  - {apiHrid: moderna-batch-status, location: Guides}\n  - {apiHrid: moderna-telemetry, location: %s}\n"
+        both = "hrid: mallard-feeds\napis:\n  - {apiHrid: mallard-batch-status, location: Guides}\n  - {apiHrid: mallard-telemetry, location: %s}\n"
         self.file("portal/listings/feeds.yaml", both % "Guides")
         self.run_seed()
         self.assertEqual(sorted((i["apiId"], i["order"]) for i in self.items("API")), [("api-1", 0), ("api-2", 1)])
@@ -698,24 +698,24 @@ class Listings(Portals):
         self.assertEqual(self.run_seed(), [])
 
     def test_an_api_the_environment_does_not_have_stops_the_seed_before_it_puts_an_item(self):
-        self.world.apis["moderna"] = APIS[:1]
-        with self.assertRaisesRegex(SeedError, "Portal listing moderna-feeds in moderna: moderna-telemetry is the crossId of no API "
-                                               "in moderna: the seed imports it first"):
+        self.world.apis["mallard"] = APIS[:1]
+        with self.assertRaisesRegex(SeedError, "Portal listing mallard-feeds in mallard: mallard-telemetry is the crossId of no API "
+                                               "in mallard: the seed imports it first"):
             self.run_seed()
         self.assertEqual([c for c in self.platform.changes() if "portal-navigation-items" in c[1]], [])
 
     def test_an_api_already_in_the_folder_by_someone_else_is_not_taken(self):
         self.run_seed()
-        item = self.world.items["moderna"].pop(FEEDS[0])
-        self.world.items["moderna"]["by-hand"] = {**item, "id": "by-hand"}
+        item = self.world.items["mallard"].pop(FEEDS[0])
+        self.world.items["mallard"]["by-hand"] = {**item, "id": "by-hand"}
         with self.assertRaisesRegex(SeedError, "Batch status is already in Process development, put there by someone else"):
             self.run_seed()
 
     def test_a_location_that_is_not_in_the_navigation_yet_is_said(self):
         self.seeded()
-        self.world.items["moderna"] = {i: item for i, item in self.world.items["moderna"].items()
+        self.world.items["mallard"] = {i: item for i, item in self.world.items["mallard"].items()
                                        if item["id"] != FOLDER and item["type"] != "API"}
-        with self.assertRaisesRegex(SeedError, "/event-feeds/process-development is not in the navigation of moderna"):
+        with self.assertRaisesRegex(SeedError, "/event-feeds/process-development is not in the navigation of mallard"):
             self.run_seed()
 
     def test_a_folder_is_found_by_the_title_the_portal_file_gives_it_and_not_by_its_path(self):
@@ -731,10 +731,10 @@ class Listings(Portals):
         self.assertEqual(next(i for i in self.items("FOLDER") if i["id"] == guides["parentId"])["title"], "docs")   # a folder a path goes through has the platform's name for it
 
     def test_two_listings_may_name_one_api_in_two_places(self):
-        self.file("portal/listings/more.yaml", "hrid: moderna-more\napis:\n  - {apiHrid: moderna-telemetry, location: Guides}\n")
+        self.file("portal/listings/more.yaml", "hrid: mallard-more\napis:\n  - {apiHrid: mallard-telemetry, location: Guides}\n")
         self.run_seed()
         self.assertEqual(len(self.items("API")), 3)
-        self.assertEqual(sorted(x["hrid"] for x in common.created() if x["kind"] == "portal-listing"), ["moderna-feeds", "moderna-more"])
+        self.assertEqual(sorted(x["hrid"] for x in common.created() if x["kind"] == "portal-listing"), ["mallard-feeds", "mallard-more"])
 
 
 class ApiPages(Portals):
@@ -748,10 +748,10 @@ class ApiPages(Portals):
         self.file("portal/api-overview.md", text)
 
     def page(self, i):
-        return self.world.items["moderna"][OVERVIEWS[i]]
+        return self.world.items["mallard"][OVERVIEWS[i]]
 
     def text(self, i):
-        return self.world.contents["moderna"][self.page(i)["portalPageContentId"]]["content"]
+        return self.world.contents["mallard"][self.page(i)["portalPageContentId"]]["content"]
 
     def test_the_platform_is_asked_once_for_the_default_pages_of_the_api_items_of_a_listing(self):
         self.run_seed()
@@ -768,7 +768,7 @@ class ApiPages(Portals):
     def test_the_text_of_api_overview_is_written_in_the_page_of_every_listed_api_with_the_seeds_variables(self):
         self.overview()
         self.run_seed()
-        expected = 'API: ${api.name}\n\nModerna (moderna) at http://localhost:8082, version ${api.version!"?"}\n'
+        expected = 'API: ${api.name}\n\nMallard (mallard) at http://localhost:8082, version ${api.version!"?"}\n'
         self.assertEqual([self.text(0), self.text(1)], [expected, expected])
         puts = [c for c in self.platform.calls if c.method == "PUT" and "portal-page-contents" in c.path]
         self.assertEqual([c.json for c in puts], [{"type": "GRAVITEE_MARKDOWN", "content": expected}] * 2)
@@ -786,22 +786,22 @@ class ApiPages(Portals):
         records = json.dumps(common.created())
         self.assertEqual(self.run_seed(), [])
         self.assertEqual(json.dumps(common.created()), records)
-        self.assertIn("API pages exist: moderna: moderna-feeds", self.output())
+        self.assertIn("API pages exist: mallard: mallard-feeds", self.output())
 
     def test_a_text_that_changed_is_written_in_every_page_and_nothing_else_is_put(self):
         self.overview()
         self.seeded()
         self.overview(self.TEXT + "More.\n")
-        self.assertEqual(self.run_seed(), [("PUT", f"{V2}/moderna/portal-page-contents/{self.page(i)['portalPageContentId']}") for i in (0, 1)])
+        self.assertEqual(self.run_seed(), [("PUT", f"{V2}/mallard/portal-page-contents/{self.page(i)['portalPageContentId']}") for i in (0, 1)])
         self.assertTrue(self.text(0).endswith("More.\n"))
-        self.assertIn("✓ API pages updated: moderna: moderna-feeds (2)", self.output())
+        self.assertIn("✓ API pages updated: mallard: mallard-feeds (2)", self.output())
         self.assertEqual(self.run_seed(), [])
 
     def test_a_text_someone_edited_in_the_console_is_written_back_to_the_files(self):
         self.overview()
         self.seeded()
-        self.world.contents["moderna"][self.page(1)["portalPageContentId"]]["content"] = "By hand"
-        self.assertEqual(self.run_seed(), [("PUT", f"{V2}/moderna/portal-page-contents/{self.page(1)['portalPageContentId']}")])
+        self.world.contents["mallard"][self.page(1)["portalPageContentId"]]["content"] = "By hand"
+        self.assertEqual(self.run_seed(), [("PUT", f"{V2}/mallard/portal-page-contents/{self.page(1)['portalPageContentId']}")])
         self.assertEqual(self.text(1), self.text(0))
 
     def test_a_page_that_was_unpublished_is_published_alone_and_a_visibility_that_changed_follows_its_item(self):
@@ -815,37 +815,37 @@ class ApiPages(Portals):
         self.overview()
         self.seeded()
         content = self.page(0)["portalPageContentId"]
-        del self.world.items["moderna"][OVERVIEWS[0]]
-        del self.world.contents["moderna"][content]
-        self.assertEqual(self.run_seed(), [("POST", f"{ITEMS}/_default-pages"), ("PUT", f"{V2}/moderna/portal-page-contents/{content}"),
+        del self.world.items["mallard"][OVERVIEWS[0]]
+        del self.world.contents["mallard"][content]
+        self.assertEqual(self.run_seed(), [("POST", f"{ITEMS}/_default-pages"), ("PUT", f"{V2}/mallard/portal-page-contents/{content}"),
                                            ("PUT", f"{ITEMS}/{OVERVIEWS[0]}")])
         self.assertEqual(self.sent("POST", "/_default-pages"), [{"ids": FEEDS[:1]}])
         self.assertEqual((self.text(0), self.page(0)["published"]), (self.text(1), True))
-        self.assertIn("✓ API pages updated: moderna: moderna-feeds (2)", self.output())
+        self.assertIn("✓ API pages updated: mallard: mallard-feeds (2)", self.output())
 
     def test_a_page_of_someone_else_under_an_api_item_is_left_alone_and_the_overview_is_the_one_called_so(self):
         self.overview()
         self.seeded()
         mine = {"id": "changelog", "type": "PAGE", "title": "Changelog", "order": -1, "published": False, "visibility": "PRIVATE",
                 "parentId": FEEDS[0], "portalPageContentId": "changelog-content"}
-        self.world.items["moderna"]["changelog"] = dict(mine)
-        self.world.contents["moderna"]["changelog-content"] = {"id": "changelog-content", "type": "GRAVITEE_MARKDOWN", "content": "# Changelog"}
+        self.world.items["mallard"]["changelog"] = dict(mine)
+        self.world.contents["mallard"]["changelog-content"] = {"id": "changelog-content", "type": "GRAVITEE_MARKDOWN", "content": "# Changelog"}
         self.assertEqual(self.run_seed(), [])
-        self.assertEqual((self.world.items["moderna"]["changelog"], self.world.contents["moderna"]["changelog-content"]["content"]),
+        self.assertEqual((self.world.items["mallard"]["changelog"], self.world.contents["mallard"]["changelog-content"]["content"]),
                          (mine, "# Changelog"))
 
     def test_an_api_item_with_a_page_that_is_not_called_overview_gets_none_from_the_platform_and_the_seed_says_so(self):
         self.seeded()
-        del self.world.items["moderna"][OVERVIEWS[0]]
-        self.world.items["moderna"]["changelog"] = {"id": "changelog", "type": "PAGE", "title": "Changelog", "order": 0, "published": True,
+        del self.world.items["mallard"][OVERVIEWS[0]]
+        self.world.items["mallard"]["changelog"] = {"id": "changelog", "type": "PAGE", "title": "Changelog", "order": 0, "published": True,
                                                     "visibility": "PRIVATE", "parentId": FEEDS[0], "portalPageContentId": "x"}
-        with self.assertRaisesRegex(SeedError, "^Portal listing moderna-feeds in moderna: Batch status has a page that is not called Overview, "
+        with self.assertRaisesRegex(SeedError, "^Portal listing mallard-feeds in mallard: Batch status has a page that is not called Overview, "
                                                "so the platform made no Overview page for it$"):
             self.run_seed()
 
     def test_a_platform_that_makes_no_page_stops_the_seed_with_the_api(self):
         self.platform.add({("POST", self.DEFAULT_PAGES): 204})
-        with self.assertRaisesRegex(SeedError, "^Portal listing moderna-feeds in moderna: the platform made no Overview page for Batch status$"):
+        with self.assertRaisesRegex(SeedError, "^Portal listing mallard-feeds in mallard: the platform made no Overview page for Batch status$"):
             self.run_seed()
 
     def test_the_listing_is_recorded_before_the_pages_so_a_page_that_fails_loses_no_item(self):
@@ -860,7 +860,7 @@ class ApiPages(Portals):
         with self.assertRaises(SeedError) as stopped:
             self.run_seed()
         message = str(stopped.exception)
-        self.assertRegex(message, r"^Overview page of Batch status in moderna \(portal/api-overview\.md\): the platform cannot render it: Invalid template")
+        self.assertRegex(message, r"^Overview page of Batch status in mallard \(portal/api-overview\.md\): the platform cannot render it: Invalid template")
         self.assertNotIn("\n", message)
         self.overview("# $${api.name}\n")   # fixed: the next run goes on from where it stopped
         self.run_seed()
@@ -872,19 +872,19 @@ class ApiPages(Portals):
         self.run_seed()
         pages = next(x for x in common.created() if x["kind"] == "portal-api-page")
         self.assertEqual({k: pages[k] for k in ("product", "label", "name", "env", "hrid", "portal", "items", "count")},
-                         {"product": "apim-portal", "label": "API pages", "name": "moderna: moderna-feeds", "env": "moderna",
-                          "hrid": "moderna-feeds", "portal": "moderna-portal", "items": OVERVIEWS, "count": 2})
-        self.assertIn("✓ API pages created: moderna: moderna-feeds (2)", self.output())
+                         {"product": "apim-portal", "label": "API pages", "name": "mallard: mallard-feeds", "env": "mallard",
+                          "hrid": "mallard-feeds", "portal": "mallard-portal", "items": OVERVIEWS, "count": 2})
+        self.assertIn("✓ API pages created: mallard: mallard-feeds (2)", self.output())
 
     def test_each_listing_has_its_pages_and_its_record(self):
-        self.file("portal/listings/more.yaml", "hrid: moderna-more\napis:\n  - {apiHrid: moderna-telemetry, location: Guides}\n")
+        self.file("portal/listings/more.yaml", "hrid: mallard-more\napis:\n  - {apiHrid: mallard-telemetry, location: Guides}\n")
         self.overview()
         self.run_seed()
         self.assertEqual(sorted(x["name"] for x in common.created() if x["kind"] == "portal-api-page"),
-                         ["moderna: moderna-feeds", "moderna: moderna-more"])
+                         ["mallard: mallard-feeds", "mallard: mallard-more"])
         overviews = [i for i in self.items("PAGE") if i["title"] == "Overview"]
         self.assertEqual(len(overviews), 3)
-        self.assertEqual({self.world.contents["moderna"][i["portalPageContentId"]]["content"] for i in overviews}, {self.text(0)})
+        self.assertEqual({self.world.contents["mallard"][i["portalPageContentId"]]["content"] for i in overviews}, {self.text(0)})
         self.assertEqual(self.run_seed(), [])
 
 
@@ -908,10 +908,10 @@ components:
     created:
       payload: {type: object, properties: {note: {type: string, description: 'Write $${api.name} as it is'}}}
 """
-DOC_RENDERED = DOC.replace("${ENV_NAME}", "Moderna").replace("${ENV_ID}", "moderna").replace("$${", "${")
+DOC_RENDERED = DOC.replace("${ENV_NAME}", "Mallard").replace("${ENV_ID}", "mallard").replace("$${", "${")
 DETAILS = "# $${api.name}\n\n$${api.description}\n\nVersion $${api.version} of an event feed of ${ENV_NAME}.\n"
-DETAILS_RENDERED = "# ${api.name}\n\n${api.description}\n\nVersion ${api.version} of an event feed of Moderna.\n"
-MORE = "hrid: moderna-more\napis:\n  - {apiHrid: moderna-batch-status, location: Guides}\n"
+DETAILS_RENDERED = "# ${api.name}\n\n${api.description}\n\nVersion ${api.version} of an event feed of Mallard.\n"
+MORE = "hrid: mallard-more\napis:\n  - {apiHrid: mallard-batch-status, location: Guides}\n"
 
 
 class Documents(Portals):
@@ -923,7 +923,7 @@ class Documents(Portals):
         self.file(f"portal/api-docs/{feed}.yaml", text)
 
     def drop(self, name):
-        os.remove(common.SEED_DIR / MODERNA / "portal" / name)
+        os.remove(common.SEED_DIR / MALLARD / "portal" / name)
 
     def child(self, i, title):
         return next((p for p in self.items("PAGE") if p.get("parentId") == FEEDS[i] and p["title"] == title), None)
@@ -933,14 +933,14 @@ class Documents(Portals):
         return [p["title"] for p in sorted(self.items("PAGE"), key=lambda p: p["order"]) if p.get("parentId") == FEEDS[i]]
 
     def stored(self, page):
-        return self.world.contents["moderna"][page["portalPageContentId"]]
+        return self.world.contents["mallard"][page["portalPageContentId"]]
 
     def own(self, i):
         """The pages of the API itself (not the system folder the platform makes), by name."""
-        return {p["name"]: p for p in self.world.own["moderna"].get(f"api-{i + 1}", {}).values()}
+        return {p["name"]: p for p in self.world.own["mallard"].get(f"api-{i + 1}", {}).values()}
 
     def address(self, i, name, *more):
-        return "/".join([f"{V2}/moderna/apis/api-{i + 1}/pages", self.own(i)[name]["id"], *more])
+        return "/".join([f"{V2}/mallard/apis/api-{i + 1}/pages", self.own(i)[name]["id"], *more])
 
     def record(self):
         return next(x for x in common.created() if x["kind"] == "portal-api-page")
@@ -995,7 +995,7 @@ class Documents(Portals):
         records = json.dumps(common.created())
         self.assertEqual(self.run_seed(), [])
         self.assertEqual(json.dumps(common.created()), records)
-        self.assertIn("API pages exist: moderna: moderna-feeds", self.output())
+        self.assertIn("API pages exist: mallard: mallard-feeds", self.output())
 
     def test_every_version_the_viewer_shows_is_kept(self):
         for version in apim_portal.ASYNCAPI_VERSIONS:
@@ -1009,7 +1009,7 @@ class Documents(Portals):
         self.seeded()
         self.document(text=DOC + "# more\n")
         page = self.child(0, "AsyncAPI")
-        self.assertEqual(self.run_seed(), [("PUT", f"{V2}/moderna/portal-page-contents/{page['portalPageContentId']}"),
+        self.assertEqual(self.run_seed(), [("PUT", f"{V2}/mallard/portal-page-contents/{page['portalPageContentId']}"),
                                            ("PUT", self.address(0, "AsyncAPI"))])
         self.assertTrue(self.stored(page)["content"].endswith("# more\n"))
         self.assertEqual(self.run_seed(), [])
@@ -1031,7 +1031,7 @@ class Documents(Portals):
         page["published"] = False
         self.assertEqual(self.run_seed(), [("PUT", f"{ITEMS}/{page['id']}")])
         self.assertTrue(page["published"])
-        self.assertIn("✓ API pages updated: moderna: moderna-feeds (4)", self.output())
+        self.assertIn("✓ API pages updated: mallard: mallard-feeds (4)", self.output())
         self.assertEqual(self.run_seed(), [])
 
     def test_a_page_whose_stored_text_is_the_right_one_of_another_type_is_written_again(self):
@@ -1047,7 +1047,7 @@ class Documents(Portals):
         self.document()
         self.document("telemetry")
         self.seeded()
-        self.world.remove_item("moderna", self.child(0, "AsyncAPI")["id"])
+        self.world.remove_item("mallard", self.child(0, "AsyncAPI")["id"])
         self.assertEqual([c for c in self.run_seed() if c[0] == "POST"], [("POST", ITEMS)])
         self.assertEqual(self.stored(self.child(0, "AsyncAPI"))["content"], DOC_RENDERED)
         self.assertEqual(self.record()["items"][1], self.child(0, "AsyncAPI")["id"])
@@ -1057,7 +1057,7 @@ class Documents(Portals):
         self.document()
         self.seeded()
         old = self.child(0, "AsyncAPI")["id"]
-        self.world.remove_item("moderna", OVERVIEWS[0])   # the platform makes the default page of an item only when it has no page
+        self.world.remove_item("mallard", OVERVIEWS[0])   # the platform makes the default page of an item only when it has no page
         self.run_seed()
         self.assertEqual(self.destroyed(), [("DELETE", f"{ITEMS}/{old}")])
         self.assertEqual(self.sent("POST", "/_default-pages"), [{"ids": FEEDS[:1]}])
@@ -1067,13 +1067,13 @@ class Documents(Portals):
 
     def test_a_page_of_someone_else_called_asyncapi_is_not_deleted_to_make_the_platform_give_an_overview(self):
         self.seeded()
-        self.world.remove_item("moderna", OVERVIEWS[1])
+        self.world.remove_item("mallard", OVERVIEWS[1])
         by_hand = {"id": "by-hand", "type": "PAGE", "title": "AsyncAPI", "order": 0, "published": True, "visibility": "PRIVATE",
                    "parentId": FEEDS[1], "portalPageContentId": "x"}
-        self.world.items["moderna"]["by-hand"] = dict(by_hand)
+        self.world.items["mallard"]["by-hand"] = dict(by_hand)
         with self.assertRaisesRegex(SeedError, "Telemetry has a page that is not called Overview"):
             self.run_seed()
-        self.assertEqual((self.destroyed(), self.world.items["moderna"]["by-hand"]), ([], by_hand))
+        self.assertEqual((self.destroyed(), self.world.items["mallard"]["by-hand"]), ([], by_hand))
 
     def test_a_document_that_is_gone_from_the_folder_takes_its_pages_and_only_those_the_seed_made(self):
         self.document()
@@ -1081,11 +1081,11 @@ class Documents(Portals):
         page, legacy = self.child(0, "AsyncAPI"), self.address(0, "AsyncAPI")
         by_hand = {"id": "by-hand", "type": "PAGE", "title": "AsyncAPI", "order": 3, "published": True, "visibility": "PRIVATE",
                    "parentId": FEEDS[1], "portalPageContentId": "x"}
-        self.world.items["moderna"]["by-hand"] = dict(by_hand)
+        self.world.items["mallard"]["by-hand"] = dict(by_hand)
         self.drop("api-docs/batch-status.yaml")
         self.assertEqual(self.run_seed(), [("DELETE", f"{ITEMS}/{page['id']}"), ("DELETE", legacy)])
         self.assertEqual(self.titles(0), ["Overview"])
-        self.assertEqual((self.own(0), self.world.items["moderna"]["by-hand"]), ({}, by_hand))
+        self.assertEqual((self.own(0), self.world.items["mallard"]["by-hand"]), ({}, by_hand))
         self.assertEqual((self.record()["items"], self.record()["legacy"], self.record()["count"]), (OVERVIEWS, [], 2))
         self.assertEqual(self.run_seed(), [])
 
@@ -1112,7 +1112,7 @@ class Documents(Portals):
         self.assertEqual(record["items"], [OVERVIEWS[0], self.child(0, "AsyncAPI")["id"], OVERVIEWS[1], self.child(1, "AsyncAPI")["id"]])
         self.assertEqual((record["legacy"], record["count"]), ([{"api": "api-1", "page": self.own(0)["AsyncAPI"]["id"]},
                                                                {"api": "api-2", "page": self.own(1)["AsyncAPI"]["id"]}], 6))
-        self.assertIn("✓ API pages created: moderna: moderna-feeds (6)", self.output())
+        self.assertIn("✓ API pages created: mallard: mallard-feeds (6)", self.output())
 
     def test_a_folder_with_no_document_records_no_page_of_an_api(self):
         self.run_seed()
@@ -1155,7 +1155,7 @@ class Documents(Portals):
     def test_a_page_that_is_made_is_recorded_before_it_is_published_so_a_failure_leaves_none_the_seed_does_not_know(self):
         self.document()
         self.world.publishing = False
-        with self.assertRaisesRegex(SeedError, rf"^Documentation tab of Batch status in moderna \(.*\): HTTP 500 .* \({common.RETRIES + 1} tries\)$"):
+        with self.assertRaisesRegex(SeedError, rf"^Documentation tab of Batch status in mallard \(.*\): HTTP 500 .* \({common.RETRIES + 1} tries\)$"):
             self.run_seed()
         [made] = self.own(0).values()
         self.assertEqual((made["published"], self.record()["legacy"]), (False, [{"api": "api-1", "page": made["id"]}]))
@@ -1229,7 +1229,7 @@ class Documents(Portals):
         self.file("portal/api-details.md", DETAILS)
         self.seeded()
         old = {p["id"] for p in self.own(0).values()}
-        self.world.own["moderna"]["api-1"].clear()   # the platform deletes the pages of an API with the API
+        self.world.own["mallard"]["api-1"].clear()   # the platform deletes the pages of an API with the API
         self.run_seed()
         self.assertEqual(set(self.own(0)), {"Overview", "AsyncAPI"})
         self.assertTrue(old.isdisjoint({p["id"] for p in self.own(0).values()}))
@@ -1238,12 +1238,12 @@ class Documents(Portals):
 
     def test_a_page_of_an_api_that_the_seed_did_not_make_is_never_taken(self):
         self.document()
-        self.world.own["moderna"]["api-1"] = {"mine": {"id": "mine", "name": "AsyncAPI", "type": "ASYNCAPI", "content": "By hand", "order": 1,
+        self.world.own["mallard"]["api-1"] = {"mine": {"id": "mine", "name": "AsyncAPI", "type": "ASYNCAPI", "content": "By hand", "order": 1,
                                                        "published": True, "visibility": "PUBLIC", "homepage": False}}
-        with self.assertRaisesRegex(SeedError, r"^Documentation tab of Batch status in moderna \(environments/moderna/portal/api-docs/"
+        with self.assertRaisesRegex(SeedError, r"^Documentation tab of Batch status in mallard \(environments/mallard/portal/api-docs/"
                                                r"batch-status\.yaml\): the page is taken by one the seed did not create$"):
             self.run_seed()
-        self.assertEqual(self.world.own["moderna"]["api-1"]["mine"]["content"], "By hand")
+        self.assertEqual(self.world.own["mallard"]["api-1"]["mine"]["content"], "By hand")
         self.assertEqual([c for c in self.platform.changes() if "/apis/" in c[1]], [])
 
     def test_a_record_that_was_lost_leaves_the_pages_of_the_apis_taken_and_the_seed_goes_on_when_it_is_back(self):
@@ -1260,26 +1260,26 @@ class Documents(Portals):
         self.document()
         self.file("portal/api-details.md", DETAILS)
         page = {"order": 1, "published": True, "visibility": "PUBLIC", "homepage": False, "content": "c"}
-        self.world.own["moderna"]["api-1"] = {"a": {**page, "id": "a", "name": "Changelog", "type": "MARKDOWN"},
+        self.world.own["mallard"]["api-1"] = {"a": {**page, "id": "a", "name": "Changelog", "type": "MARKDOWN"},
                                               "b": {**page, "id": "b", "name": "AsyncAPI", "type": "MARKDOWN"},
                                               "c": {**page, "id": "c", "name": "Overview", "type": "ASYNCAPI"}}
         self.run_seed()
-        self.assertEqual(sorted(p["name"] + p["type"] for p in self.world.own["moderna"]["api-1"].values()),
+        self.assertEqual(sorted(p["name"] + p["type"] for p in self.world.own["mallard"]["api-1"].values()),
                          ["AsyncAPIASYNCAPI", "AsyncAPIMARKDOWN", "ChangelogMARKDOWN", "OverviewASYNCAPI", "OverviewMARKDOWN"])
-        self.assertEqual({p["id"]: p["content"] for p in self.world.own["moderna"]["api-1"].values() if p["id"] in "abc"}, {"a": "c", "b": "c", "c": "c"})
+        self.assertEqual({p["id"]: p["content"] for p in self.world.own["mallard"]["api-1"].values() if p["id"] in "abc"}, {"a": "c", "b": "c", "c": "c"})
 
     def test_the_platform_refusing_the_template_of_the_details_stops_the_seed_on_one_line_naming_the_file_and_the_api(self):
         self.file("portal/api-details.md", "# $${api.name}\n\n$${api.entrypoints}\n")
         with self.assertRaises(SeedError) as stopped:
             self.run_seed()
-        self.assertEqual(str(stopped.exception), "Details tab of Batch status in moderna (portal/api-details.md): the platform refuses it: "
+        self.assertEqual(str(stopped.exception), "Details tab of Batch status in mallard (portal/api-details.md): the platform refuses it: "
                                                  "Invalid expression api.entrypoints")
 
     def test_a_text_the_platform_refuses_in_a_page_that_exists_stops_the_seed_too(self):
         self.file("portal/api-details.md", DETAILS)
         self.seeded()
         self.file("portal/api-details.md", "$${nobody}\n")
-        with self.assertRaisesRegex(SeedError, r"Details tab of Batch status in moderna.*: the platform refuses it: Invalid expression nobody$"):
+        with self.assertRaisesRegex(SeedError, r"Details tab of Batch status in mallard.*: the platform refuses it: Invalid expression nobody$"):
             self.run_seed()
 
     def test_an_api_that_leaves_the_listing_loses_its_pages_and_leaves_the_record(self):
@@ -1287,8 +1287,8 @@ class Documents(Portals):
         self.document("telemetry")
         self.seeded()
         gone = self.address(1, "AsyncAPI")
-        self.file("portal/listings/feeds.yaml", LISTING.split("  - {apiHrid: moderna-telemetry")[0])
-        with self.assertRaisesRegex(SeedError, "moderna-telemetry is no API that a listing of this portal shows"):
+        self.file("portal/listings/feeds.yaml", LISTING.split("  - {apiHrid: mallard-telemetry")[0])
+        with self.assertRaisesRegex(SeedError, "mallard-telemetry is no API that a listing of this portal shows"):
             self.run_seed()   # its file would document an API that is not shown
         self.drop("api-docs/telemetry.yaml")
         self.assertEqual(self.run_seed(), [("DELETE", f"{ITEMS}/{FEEDS[1]}"), ("DELETE", gone)])
@@ -1316,7 +1316,7 @@ class Documents(Portals):
             self.run_seed()
         made = next(p for p in self.own(1).values())
         self.assertEqual(self.record()["legacy"], [{"api": "api-2", "page": made["id"]}, stale])
-        self.assertIn(stale["page"], self.world.own["moderna"]["api-1"])
+        self.assertIn(stale["page"], self.world.own["mallard"]["api-1"])
         self.world.publishing = True
         self.run_seed()
         self.assertEqual(self.record()["legacy"], [{"api": "api-2", "page": made["id"]}])
@@ -1338,12 +1338,12 @@ class Documents(Portals):
         page = self.own(0)["AsyncAPI"]["id"]
         self.assertEqual(len(self.own(0)), 1)
         self.assertEqual([x["legacy"] for x in common.created() if x["kind"] == "portal-api-page"], [[{"api": "api-1", "page": page}]] * 2)
-        self.file("portal/listings/more.yaml", MORE.replace("moderna-batch-status", "moderna-telemetry"))
+        self.file("portal/listings/more.yaml", MORE.replace("mallard-batch-status", "mallard-telemetry"))
         self.run_seed()
         self.assertEqual([c for c in self.destroyed() if "/apis/" in c[1]], [])
         self.assertEqual(self.own(0)["AsyncAPI"]["id"], page)
         self.assertEqual({x["name"]: x["legacy"] for x in common.created() if x["kind"] == "portal-api-page"},
-                         {"moderna: moderna-feeds": [{"api": "api-1", "page": page}], "moderna: moderna-more": []})
+                         {"mallard: mallard-feeds": [{"api": "api-1", "page": page}], "mallard: mallard-more": []})
 
     def test_a_removal_deletes_the_pages_of_the_apis_by_id_and_the_pages_of_the_menu_cost_no_call(self):
         self.document()
@@ -1353,28 +1353,28 @@ class Documents(Portals):
         legacy = next(x for x in records if x["kind"] == "portal-api-page")["legacy"]
         apim_portal.remove(records)
         pages = [c for c in self.platform.changes() if "/apis/" in c[1]]
-        self.assertEqual(sorted(pages), sorted(("DELETE", f"{V2}/moderna/apis/{e['api']}/pages/{e['page']}") for e in legacy))
+        self.assertEqual(sorted(pages), sorted(("DELETE", f"{V2}/mallard/apis/{e['api']}/pages/{e['page']}") for e in legacy))
         self.assertEqual(len(pages), 3)
         self.assertEqual([c for c in self.platform.changes() if c[1].endswith(tuple(OVERVIEWS))], [])
-        self.assertEqual(self.world.own["moderna"]["api-1"], {})
+        self.assertEqual(self.world.own["mallard"]["api-1"], {})
         self.assertLess(self.output().index("Deleted portal-api-page"), self.output().index("Deleted portal-listing"))
 
     def test_a_removal_goes_on_when_the_api_and_its_pages_are_gone_already(self):
         self.document()
         self.seeded()
-        self.world.own["moderna"]["api-1"].clear()
-        self.world.apis["moderna"] = APIS[1:]
+        self.world.own["mallard"]["api-1"].clear()
+        self.world.apis["mallard"] = APIS[1:]
         apim_portal.remove(common.created())
-        self.assertIn("✓ Deleted portal-api-page 'moderna: moderna-feeds'", self.output())
+        self.assertIn("✓ Deleted portal-api-page 'mallard: mallard-feeds'", self.output())
 
     def test_a_removal_with_an_environment_that_is_gone_deletes_no_page(self):
         self.document()
         self.seeded()
         records = common.created()
-        self.world.environments.pop("moderna")
+        self.world.environments.pop("mallard")
         apim_portal.remove(records)
         self.assertEqual([c for c in self.platform.calls if "/apis/" in c.path], [])
-        self.assertIn("✓ Deleted portal-api-page 'moderna: moderna-feeds': its environment is gone", self.output())
+        self.assertIn("✓ Deleted portal-api-page 'mallard: mallard-feeds': its environment is gone", self.output())
 
     def test_a_record_from_before_the_pages_of_the_apis_has_none_and_a_run_that_makes_none_leaves_it_as_it_is(self):
         self.seeded()
@@ -1386,7 +1386,7 @@ class Documents(Portals):
         self.assertEqual(self.run_seed(), [])
         self.assertEqual(json.dumps(common.created()), before)
         apim_portal.remove(common.created())
-        self.assertIn("✓ Deleted portal-api-page 'moderna: moderna-feeds'", self.output())
+        self.assertIn("✓ Deleted portal-api-page 'mallard: mallard-feeds'", self.output())
 
 
 
@@ -1394,15 +1394,15 @@ class Occupied(Portals):
     """The folder the platform makes in the top bar of an environment, which the Automation API will not take."""
 
     def made(self, title, *children):
-        self.world.items["moderna"]["default"] = {"id": "default", "type": "FOLDER", "title": title, "published": True, "visibility": "PUBLIC", "order": 0}
+        self.world.items["mallard"]["default"] = {"id": "default", "type": "FOLDER", "title": title, "published": True, "visibility": "PUBLIC", "order": 0}
         for n, child in enumerate(children):
-            self.world.items["moderna"][f"child-{n}"] = {"id": f"child-{n}", "type": child, "title": "Getting started", "parentId": "default"}
+            self.world.items["mallard"][f"child-{n}"] = {"id": f"child-{n}", "type": child, "title": "Getting started", "parentId": "default"}
 
     def test_an_empty_folder_at_a_path_of_the_portal_is_removed_before_the_portal_is_made(self):
         self.made("Event feeds")
         changes = self.run_seed()
-        self.assertEqual(changes[1:3], [("DELETE", f"{ITEMS}/default"), ("PUT", f"{AUTO}/moderna/portals")])
-        self.assertNotIn("default", self.world.items["moderna"])
+        self.assertEqual(changes[1:3], [("DELETE", f"{ITEMS}/default"), ("PUT", f"{AUTO}/mallard/portals")])
+        self.assertNotIn("default", self.world.items["mallard"])
         self.assertNotIn("default", json.dumps(common.created()))
 
     def test_a_folder_at_no_path_of_the_portal_is_left_alone(self):
@@ -1411,9 +1411,9 @@ class Occupied(Portals):
 
     def test_a_folder_that_holds_something_stops_the_seed(self):
         self.made("Event feeds", "PAGE")
-        with self.assertRaisesRegex(SeedError, "^Portal moderna-portal in moderna: /event-feeds holds Event feeds, which the seed did not make$"):
+        with self.assertRaisesRegex(SeedError, "^Portal mallard-portal in mallard: /event-feeds holds Event feeds, which the seed did not make$"):
             self.run_seed()
-        self.assertIn("default", self.world.items["moderna"])
+        self.assertIn("default", self.world.items["mallard"])
 
     def test_a_portal_that_is_there_is_never_cleared(self):
         self.seeded()
@@ -1426,16 +1426,16 @@ class Taken(Portals):
     """A hrid held by what the seed did not make is never changed."""
 
     def test_each_kind_of_object_stops_the_seed_when_the_seed_did_not_make_it(self):
-        cases = {"portal-theme": ("moderna-theme", "Portal theme"), "portal": ("moderna-portal", "Portal"),
-                 "portal-page": ("moderna-guide", "Portal page"), "portal-link": ("moderna-broker", "Portal link")}
+        cases = {"portal-theme": ("mallard-theme", "Portal theme"), "portal": ("mallard-portal", "Portal"),
+                 "portal-page": ("mallard-guide", "Portal page"), "portal-link": ("mallard-broker", "Portal link")}
         for kind, (hrid, what) in cases.items():
             with self.subTest(kind=kind):
                 self.seeded()
                 common.save_created([x for x in common.created() if x["kind"] != kind])   # the platform has it, the record does not
-                with self.assertRaisesRegex(SeedError, f"^{what} {hrid} in moderna: the hrid is taken by one the seed did not create$"):
+                with self.assertRaisesRegex(SeedError, f"^{what} {hrid} in mallard: the hrid is taken by one the seed did not create$"):
                     self.run_seed()
                 self.assertEqual(self.platform.changes(), [])
-                self.worlds({"moderna": "Moderna"})
+                self.worlds({"mallard": "Mallard"})
                 common.save_created([])
                 self.platform.calls.clear()
 
@@ -1445,9 +1445,9 @@ class Refused(Portals):
 
     def refused(self, message, files):
         """The seed with these files stops with this message, and changes nothing; the files are as they were after it."""
-        before = {name: (common.SEED_DIR / MODERNA / name).read_text(encoding="utf-8")
-                  if (common.SEED_DIR / MODERNA / name).exists() else None for name in files}
-        self.seed_files({f"{MODERNA}/{name}": text for name, text in files.items()})
+        before = {name: (common.SEED_DIR / MALLARD / name).read_text(encoding="utf-8")
+                  if (common.SEED_DIR / MALLARD / name).exists() else None for name in files}
+        self.seed_files({f"{MALLARD}/{name}": text for name, text in files.items()})
         try:
             with self.assertRaisesRegex(SeedError, message):
                 self.run_seed()
@@ -1455,7 +1455,7 @@ class Refused(Portals):
         finally:
             for name, text in before.items():
                 if text is None:
-                    (common.SEED_DIR / MODERNA / name).unlink()
+                    (common.SEED_DIR / MALLARD / name).unlink()
                 else:
                     self.file(name, text)
 
@@ -1465,8 +1465,8 @@ class Refused(Portals):
                 (r"logo\.txt is not an image of", {"assets/logo.txt": "x", "portal/theme.yaml": THEME.replace("logo.svg", "logo.txt")}),
                 (r"assets\.banner is not an image of a theme", {"portal/theme.yaml": THEME + "  banner: ../assets/logo.svg\n"}),
                 (r"it is outside the seed", {"portal/theme.yaml": THEME.replace("../assets/logo.svg", "../../../../../../etc/hosts")}),
-                (r"portal\.yaml: activeThemeHrid other-theme is no theme of this folder", {"portal/portal.yaml": PORTAL.replace("moderna-theme", "other-theme")}),
-                (r"portal/portal-2\.yaml: a second portal: there is one portal for an environment", {"portal/portal-2.yaml": PORTAL.replace("moderna-portal", "second-portal")}),
+                (r"portal\.yaml: activeThemeHrid other-theme is no theme of this folder", {"portal/portal.yaml": PORTAL.replace("mallard-theme", "other-theme")}),
+                (r"portal/portal-2\.yaml: a second portal: there is one portal for an environment", {"portal/portal-2.yaml": PORTAL.replace("mallard-portal", "second-portal")}),
                 (r"portal/notes\.yaml: a portal folder has theme\.yaml", {"portal/notes.yaml": "a: 1\n"}),
                 (r"portal/notes\.md: a portal folder has theme\.yaml, portal\.yaml, api-overview\.md, api-details\.md, pages/, content/, links/, listings/ and api-docs/", {"portal/notes.md": "x"}),
                 (r"portal/api-overviews\.md: a portal folder has", {"portal/api-overviews.md": "# $${api.name}\n"}),
@@ -1475,11 +1475,11 @@ class Refused(Portals):
                 (r"pages/guide\.yaml: location 'Support' is no path of portal\.yaml", {"portal/pages/guide.yaml": GUIDE.replace("location: Guides", "location: Support")}),
                 (r"links/broker\.yaml: location 'Nowhere' is no path of portal\.yaml", {"portal/links/broker.yaml": LINK.replace("Guides", "Nowhere")}),
                 (r"listings/feeds\.yaml: location 'Event feeds/Other' is no path of portal\.yaml", {"portal/listings/feeds.yaml": LISTING.replace("Process development", "Other")}),
-                (r"listings/feeds\.yaml: moderna-ghost is the crossId of no API in the apis/ of this environment", {"portal/listings/feeds.yaml": LISTING.replace("moderna-telemetry", "moderna-ghost")}),
-                (r"listings/feeds\.yaml: apis is missing or empty", {"portal/listings/feeds.yaml": "hrid: moderna-feeds\napis: []\n"}),
-                (r"pages: a portal has one homepage", {"portal/pages/second.yaml": HOME.replace("moderna-home", "moderna-home-2")}),
-                (r"pages/guide\.yaml: hrid 'a' is missing or has a character the platform refuses", {"portal/pages/guide.yaml": GUIDE.replace("moderna-guide", "a")}),
-                (r"pages/home\.yaml: the hrid moderna-home is also environments/moderna/portal/pages/guide\.yaml's", {"portal/pages/guide.yaml": GUIDE.replace("moderna-guide", "moderna-home")}),
+                (r"listings/feeds\.yaml: mallard-ghost is the crossId of no API in the apis/ of this environment", {"portal/listings/feeds.yaml": LISTING.replace("mallard-telemetry", "mallard-ghost")}),
+                (r"listings/feeds\.yaml: apis is missing or empty", {"portal/listings/feeds.yaml": "hrid: mallard-feeds\napis: []\n"}),
+                (r"pages: a portal has one homepage", {"portal/pages/second.yaml": HOME.replace("mallard-home", "mallard-home-2")}),
+                (r"pages/guide\.yaml: hrid 'a' is missing or has a character the platform refuses", {"portal/pages/guide.yaml": GUIDE.replace("mallard-guide", "a")}),
+                (r"pages/home\.yaml: the hrid mallard-home is also environments/mallard/portal/pages/guide\.yaml's", {"portal/pages/guide.yaml": GUIDE.replace("mallard-guide", "mallard-home")}),
                 (r"it has file or content, one of the two", {"portal/pages/guide.yaml": GUIDE + "content: x\n"}),
                 (r"it has file or content, one of the two", {"portal/pages/guide.yaml": GUIDE.replace("file: ../content/guide.md\n", "")}),
                 (r"guide\.yaml: \.\./content/none\.md is not a file", {"portal/pages/guide.yaml": GUIDE.replace("guide.md", "none.md")}),
@@ -1493,7 +1493,7 @@ class Refused(Portals):
                 (r"content/guide\.md: api not set", {"portal/content/guide.md": "Name: ${api}\n"}),   # an expression that is not escaped
                 (r"the path Event Feeds is there twice", {"portal/portal.yaml": PORTAL + "    - {path: Event Feeds}\n"}),
                 (r"a path of structure\.topNavbar is missing or has a segment with no letter or digit", {"portal/portal.yaml": PORTAL + "    - {path: Event feeds/--}\n"}),
-                (r"^environments/moderna/portal/links/broker\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$", {"portal/links/broker.yaml": "name: [unclosed\nhref: {\n"}),
+                (r"^environments/mallard/portal/links/broker\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$", {"portal/links/broker.yaml": "name: [unclosed\nhref: {\n"}),
                 (r"links/broker\.yaml: it is not a mapping", {"portal/links/broker.yaml": "- a\n- b\n"}),
                 (r"apis/batch-status\.json: it is not an API export", {"apis/batch-status.json": "[1]"})):
             with self.subTest(message=message):
@@ -1504,32 +1504,32 @@ class Refused(Portals):
         self.run_seed()
 
     def test_an_image_over_256_kb(self):
-        self.seed_files({f"{MODERNA}/assets/logo.svg": "x" * (300 * 1024)})
+        self.seed_files({f"{MALLARD}/assets/logo.svg": "x" * (300 * 1024)})
         with self.assertRaisesRegex(SeedError, r"theme\.yaml: \.\./assets/logo\.svg is 300 KB, over 256 KB"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
 
     def test_an_image_of_256_kb_is_kept(self):
-        self.seed_files({f"{MODERNA}/assets/logo.svg": "x" * (256 * 1024)})
+        self.seed_files({f"{MALLARD}/assets/logo.svg": "x" * (256 * 1024)})
         self.run_seed()
-        self.assertIn(("PUT", f"{AUTO}/moderna/portal-themes"), self.platform.changes())
+        self.assertIn(("PUT", f"{AUTO}/mallard/portal-themes"), self.platform.changes())
 
     def test_api_overview_for_a_portal_that_lists_no_api(self):
-        os.remove(common.SEED_DIR / MODERNA / "portal" / "listings" / "feeds.yaml")
+        os.remove(common.SEED_DIR / MALLARD / "portal" / "listings" / "feeds.yaml")
         self.file("portal/api-overview.md", "# $${api.name}\n")
-        with self.assertRaisesRegex(SeedError, r"^environments/moderna/portal/api-overview\.md: it is the Overview page of the APIs a listing shows, "
+        with self.assertRaisesRegex(SeedError, r"^environments/mallard/portal/api-overview\.md: it is the Overview page of the APIs a listing shows, "
                                                r"and this portal has no listing$"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
 
     def test_a_portal_folder_with_no_portal(self):
-        os.remove(common.SEED_DIR / MODERNA / "portal" / "portal.yaml")
+        os.remove(common.SEED_DIR / MALLARD / "portal" / "portal.yaml")
         with self.assertRaisesRegex(SeedError, r"portal\.yaml is missing: a theme, a page, a link and a listing belong to a portal"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
         for name, text in (("api-overview.md", "# $${api.name}\n"), ("api-docs/batch-status.yaml", DOC)):
             with self.subTest(file=name):
-                shutil.rmtree(common.SEED_DIR / MODERNA / "portal")
+                shutil.rmtree(common.SEED_DIR / MALLARD / "portal")
                 self.file(f"portal/{name}", text)
                 with self.assertRaisesRegex(SeedError, r"portal\.yaml is missing"):
                     self.run_seed()
@@ -1541,10 +1541,10 @@ class Refused(Portals):
         self.assertEqual(self.sent("PUT", "/documentations")[0]["location"], "/support/tickets")
 
     def test_every_file_is_checked_before_any_environment_changes(self):
-        self.seed_files({"environments/beam/environment.yaml": "id: beam\nname: Beam\n",
-                         "environments/beam/portal/portal.yaml": "hrid: beam-portal\nname: Beam\nbad: key\n"})
-        self.worlds({"moderna": "Moderna", "beam": "Beam"})
-        with self.assertRaisesRegex(SeedError, r"environments/beam/portal/portal\.yaml: bad is not a key"):
+        self.seed_files({"environments/fern/environment.yaml": "id: fern\nname: Fern\n",
+                         "environments/fern/portal/portal.yaml": "hrid: fern-portal\nname: Fern\nbad: key\n"})
+        self.worlds({"mallard": "Mallard", "fern": "Fern"})
+        with self.assertRaisesRegex(SeedError, r"environments/fern/portal/portal\.yaml: bad is not a key"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
 
@@ -1556,36 +1556,36 @@ class Documented(Portals):
 
     def test_what_a_document_or_the_details_say_that_cannot_be_right(self):
         for message, files in (
-                (r"^environments/moderna/portal/api-docs/ghost\.yaml: moderna-ghost is no API that a listing of this portal shows$", {"portal/api-docs/ghost.yaml": DOC}),
-                (r"api-docs/moderna-batch-status\.yaml: moderna-moderna-batch-status is no API", {"portal/api-docs/moderna-batch-status.yaml": DOC}),   # named for the feed, not for the crossId
-                (r"api-docs/batch-status\.yml: moderna-batch-status has its document in environments/moderna/portal/api-docs/batch-status\.yaml already",
+                (r"^environments/mallard/portal/api-docs/ghost\.yaml: mallard-ghost is no API that a listing of this portal shows$", {"portal/api-docs/ghost.yaml": DOC}),
+                (r"api-docs/mallard-batch-status\.yaml: mallard-mallard-batch-status is no API", {"portal/api-docs/mallard-batch-status.yaml": DOC}),   # named for the feed, not for the crossId
+                (r"api-docs/batch-status\.yml: mallard-batch-status has its document in environments/mallard/portal/api-docs/batch-status\.yaml already",
                  {"portal/api-docs/batch-status.yaml": DOC, "portal/api-docs/batch-status.yml": DOC}),
                 (r"api-docs/notes\.txt: api-docs/ holds the AsyncAPI document of an API, <feed>\.yaml", {"portal/api-docs/notes.txt": "x"}),
                 (r"api-docs/batch-status\.yaml: UNSET_URL not set", {"portal/api-docs/batch-status.yaml": DOC + "# ${UNSET_URL}\n"}),
                 (r"portal/api-details\.md: UNSET_URL not set", {"portal/api-details.md": "${UNSET_URL}\n"}),
-                (r"^environments/moderna/portal/api-docs/batch-status\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$", {"portal/api-docs/batch-status.yaml": "asyncapi: [unclosed\nx: {\n"}),
+                (r"^environments/mallard/portal/api-docs/batch-status\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$", {"portal/api-docs/batch-status.yaml": "asyncapi: [unclosed\nx: {\n"}),
                 (r"batch-status\.yaml: it is not valid YAML", {"portal/api-docs/batch-status.yaml": "x: 2026-13-45\n"}),
                 (r"batch-status\.yaml: merges mappings with << keys", {"portal/api-docs/batch-status.yaml": doubling(22)})):
             with self.subTest(message=message):
                 self.refused(message, files)
 
     def test_a_file_named_for_an_api_of_the_folder_that_no_listing_shows(self):
-        self.seed_files({f"{MODERNA}/apis/ghost.json": json.dumps({"api": {"name": "Ghost", "crossId": "moderna-ghost"}})})
-        self.refused(r"api-docs/ghost\.yaml: moderna-ghost is no API that a listing of this portal shows", {"portal/api-docs/ghost.yaml": DOC})
+        self.seed_files({f"{MALLARD}/apis/ghost.json": json.dumps({"api": {"name": "Ghost", "crossId": "mallard-ghost"}})})
+        self.refused(r"api-docs/ghost\.yaml: mallard-ghost is no API that a listing of this portal shows", {"portal/api-docs/ghost.yaml": DOC})
 
     def test_a_hidden_file_and_a_folder_in_api_docs_are_none(self):
-        self.seed_files({f"{MODERNA}/portal/api-docs/.keep": "", f"{MODERNA}/portal/api-docs/old/x.yaml": "a: 1\n"})
-        self.assertEqual(self.run_seed()[0], ("PUT", f"{AUTO}/moderna/portal-themes"))
+        self.seed_files({f"{MALLARD}/portal/api-docs/.keep": "", f"{MALLARD}/portal/api-docs/old/x.yaml": "a: 1\n"})
+        self.assertEqual(self.run_seed()[0], ("PUT", f"{AUTO}/mallard/portal-themes"))
 
     def test_documents_for_a_portal_that_lists_no_api(self):
-        os.remove(common.SEED_DIR / MODERNA / "portal" / "listings" / "feeds.yaml")
-        self.refused(r"^environments/moderna/portal/api-docs: they are the documents of the APIs a listing shows, and this portal has no listing$",
+        os.remove(common.SEED_DIR / MALLARD / "portal" / "listings" / "feeds.yaml")
+        self.refused(r"^environments/mallard/portal/api-docs: they are the documents of the APIs a listing shows, and this portal has no listing$",
                      {"portal/api-docs/batch-status.yaml": DOC})
 
     def test_api_details_with_nothing_in_it_or_for_a_portal_that_lists_no_api(self):
         self.refused(r"portal/api-details\.md: it is empty", {"portal/api-details.md": "  \n"})
-        os.remove(common.SEED_DIR / MODERNA / "portal" / "listings" / "feeds.yaml")
-        self.refused(r"^environments/moderna/portal/api-details\.md: it is the Details tab of the APIs a listing shows, and this portal has no listing$",
+        os.remove(common.SEED_DIR / MALLARD / "portal" / "listings" / "feeds.yaml")
+        self.refused(r"^environments/mallard/portal/api-details\.md: it is the Details tab of the APIs a listing shows, and this portal has no listing$",
                      {"portal/api-details.md": DETAILS})
 
     def test_a_file_that_is_no_asyncapi_document(self):
@@ -1627,21 +1627,21 @@ class Documented(Portals):
 class Environments(Portals):
 
     def two(self):
-        """Moderna's environment, and Beam's with the same files."""
-        self.worlds({"moderna": "Moderna", "beam": "Beam Therapeutics"})
-        self.world.apis["beam"] = [{**api, "id": api["id"] + "-beam", "crossId": api["crossId"].replace("moderna", "beam")} for api in APIS]
-        self.seed_files({name.replace("moderna", "beam"): text.replace("moderna", "beam") for name, text in FILES.items()})
-        self.seed_files({"environments/beam/environment.yaml": "id: beam\nname: Beam Therapeutics\n"})
+        """Mallard's environment, and Fern's with the same files."""
+        self.worlds({"mallard": "Mallard", "fern": "Fern Therapeutics"})
+        self.world.apis["fern"] = [{**api, "id": api["id"] + "-fern", "crossId": api["crossId"].replace("mallard", "fern")} for api in APIS]
+        self.seed_files({name.replace("mallard", "fern"): text.replace("mallard", "fern") for name, text in FILES.items()})
+        self.seed_files({"environments/fern/environment.yaml": "id: fern\nname: Fern Therapeutics\n"})
 
     def test_each_environment_has_its_own_portal_and_its_own_records(self):
         self.two()
         self.run_seed()
-        self.assertEqual(sorted(self.world.active), ["beam", "moderna"])
-        self.assertEqual([x["name"] for x in common.created() if x["kind"] == "portal"], ["beam: beam-portal", "moderna: moderna-portal"])
-        self.assertEqual({x["env"] for x in common.created()}, {"beam", "moderna"})
-        beam = [c.json for c in self.platform.calls if c.method == "PUT" and c.path == f"{AUTO}/beam/portals"]
-        self.assertEqual(beam[0]["name"], "Beam Therapeutics Developer Portal")
-        self.assertEqual((len(self.world.items["beam"]), len(self.world.items["moderna"])), (10, 10))
+        self.assertEqual(sorted(self.world.active), ["fern", "mallard"])
+        self.assertEqual([x["name"] for x in common.created() if x["kind"] == "portal"], ["fern: fern-portal", "mallard: mallard-portal"])
+        self.assertEqual({x["env"] for x in common.created()}, {"fern", "mallard"})
+        fern = [c.json for c in self.platform.calls if c.method == "PUT" and c.path == f"{AUTO}/fern/portals"]
+        self.assertEqual(fern[0]["name"], "Fern Therapeutics Developer Portal")
+        self.assertEqual((len(self.world.items["fern"]), len(self.world.items["mallard"])), (10, 10))
 
     def test_two_environments_are_seeded_by_a_second_run_with_no_change(self):
         self.two()
@@ -1650,13 +1650,13 @@ class Environments(Portals):
 
     def test_the_same_hrid_in_two_environments_is_two_objects(self):
         self.two()
-        for env in ("moderna", "beam"):
+        for env in ("mallard", "fern"):
             folder = common.SEED_DIR / "environments" / env / "portal"
-            (folder / "portal.yaml").write_text(PORTAL.replace("moderna-theme", "shared-theme").replace("moderna-portal", "shared-portal"))
-            (folder / "theme.yaml").write_text(THEME.replace("moderna-theme", "shared-theme"))
+            (folder / "portal.yaml").write_text(PORTAL.replace("mallard-theme", "shared-theme").replace("mallard-portal", "shared-portal"))
+            (folder / "theme.yaml").write_text(THEME.replace("mallard-theme", "shared-theme"))
         self.run_seed()
         self.assertEqual(sorted(x["name"] for x in common.created() if x["kind"] == "portal-theme"),
-                         ["beam: shared-theme", "moderna: shared-theme"])
+                         ["fern: shared-theme", "mallard: shared-theme"])
 
     def test_the_platforms_own_environment_is_read_from_apim_portal(self):
         self.worlds({"DEFAULT": "Default environment"})
@@ -1677,27 +1677,27 @@ class Environments(Portals):
         self.assertEqual(self.world.store["lab", "portal", None, "lab-portal"]["name"], "lab")
 
     def test_an_environment_the_platform_does_not_have(self):
-        self.world.environments.pop("moderna")
-        with self.assertRaisesRegex(SeedError, "^Environment moderna does not exist on this platform$"):
+        self.world.environments.pop("mallard")
+        with self.assertRaisesRegex(SeedError, "^Environment mallard does not exist on this platform$"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
 
     def test_an_environment_with_a_portal_folder_that_holds_nothing_is_left_alone(self):
-        self.seed_files({"environments/beam/portal/content/empty.md": "x"})
-        self.worlds({"moderna": "Moderna", "beam": "Beam"})
+        self.seed_files({"environments/fern/portal/content/empty.md": "x"})
+        self.worlds({"mallard": "Mallard", "fern": "Fern"})
         self.run_seed()
-        self.assertEqual({x["env"] for x in common.created()}, {"moderna"})
+        self.assertEqual({x["env"] for x in common.created()}, {"mallard"})
 
     def test_an_environment_with_no_portal_folder_is_not_asked_about(self):
-        self.seed_files({"environments/beam/environment.yaml": "id: beam\nname: Beam\n"})
+        self.seed_files({"environments/fern/environment.yaml": "id: fern\nname: Fern\n"})
         self.run_seed()
-        self.assertNotIn("beam", " ".join(c.path for c in self.platform.calls))
+        self.assertNotIn("fern", " ".join(c.path for c in self.platform.calls))
 
 
 class Quiet(Seed):
 
     def test_a_playground_with_no_portal_folder_needs_no_setting_and_makes_no_call(self):
-        self.seed_files({"apim/applications/a.yaml": "name: A\n", "environments/moderna/environment.yaml": "id: moderna\n"})
+        self.seed_files({"apim/applications/a.yaml": "name: A\n", "environments/mallard/environment.yaml": "id: mallard\n"})
         with mock.patch.dict(os.environ, {}, clear=True):
             apim_portal.seed()
             apim_portal.remove([])
@@ -1707,15 +1707,15 @@ class Quiet(Seed):
 class Trouble(Portals):
 
     def test_a_platform_that_cannot_answer_now_is_asked_again(self):
-        self.platform.add({("PUT", f"{AUTO}/moderna/portal-themes"): [503, 429, (200, {"id": "t1"})]})
+        self.platform.add({("PUT", f"{AUTO}/mallard/portal-themes"): [503, 429, (200, {"id": "t1"})]})
         self.run_seed()
-        self.assertEqual(len(self.sent("PUT", "/moderna/portal-themes")), 3)
+        self.assertEqual(len(self.sent("PUT", "/mallard/portal-themes")), 3)
         self.assertEqual(self.clock.sleeps, [common.RETRY_PAUSE] * 2)
-        self.assertIn("! Portal theme moderna-theme in moderna: HTTP 503, trying again", self.output())
+        self.assertIn("! Portal theme mallard-theme in mallard: HTTP 503, trying again", self.output())
 
     def test_a_platform_that_says_what_it_could_not_put_in_a_200_stops_the_seed(self):
         self.platform.add({("PUT", LINKS): (200, {"id": "l1", "errors": {"severe": ["location: no such path"]}})})
-        with self.assertRaisesRegex(SeedError, "^Portal link moderna-broker in moderna: location: no such path$"):
+        with self.assertRaisesRegex(SeedError, "^Portal link mallard-broker in mallard: location: no such path$"):
             self.run_seed()
 
     def test_a_token_is_used_in_place_of_the_login(self):
@@ -1746,48 +1746,48 @@ class Removal(Portals):
 
     def test_it_deletes_the_listings_the_links_the_pages_the_portal_then_the_theme_by_hrid(self):
         self.seeded()
-        self.world.put("moderna", "page", "moderna-portal", {"hrid": "not-mine", "name": "N", "type": "GRAVITEE_MARKDOWN",
+        self.world.put("mallard", "page", "mallard-portal", {"hrid": "not-mine", "name": "N", "type": "GRAVITEE_MARKDOWN",
                                                               "content": "x", "area": "TOP_NAVBAR"})   # the seed did not make it
         self.platform.calls.clear()
         apim_portal.remove(common.created())
         self.assertEqual(self.platform.changes(), [
             ("DELETE", f"{ITEMS}/{FEEDS[0]}"), ("DELETE", f"{ITEMS}/{FEEDS[1]}"),
-            ("DELETE", f"{LINKS}/moderna-broker"),
-            ("DELETE", f"{DOCS}/moderna-guide"), ("DELETE", f"{DOCS}/moderna-home"),
-            ("DELETE", f"{AUTO}/moderna/portals/moderna-portal"), ("DELETE", f"{AUTO}/moderna/portal-themes/moderna-theme")])
+            ("DELETE", f"{LINKS}/mallard-broker"),
+            ("DELETE", f"{DOCS}/mallard-guide"), ("DELETE", f"{DOCS}/mallard-home"),
+            ("DELETE", f"{AUTO}/mallard/portals/mallard-portal"), ("DELETE", f"{AUTO}/mallard/portal-themes/mallard-theme")])
         self.assertEqual([k for k in self.world.store if k[1] in ("theme", "portal")], [])
 
     def test_what_is_gone_already_counts_as_deleted(self):
         self.seeded()
-        self.worlds({"moderna": "Moderna"})
+        self.worlds({"mallard": "Mallard"})
         apim_portal.remove(common.created())
-        self.assertIn("✓ Deleted portal 'moderna: moderna-portal'", self.output())
+        self.assertIn("✓ Deleted portal 'mallard: mallard-portal'", self.output())
 
     def test_a_refused_delete_stops_the_removal(self):
         self.seeded()
-        self.platform.add({("DELETE", f"{AUTO}/moderna/portals/moderna-portal"): (403, {"message": "no"})})
-        with self.assertRaisesRegex(SeedError, "Portal moderna-portal in moderna: HTTP 403"):
+        self.platform.add({("DELETE", f"{AUTO}/mallard/portals/mallard-portal"): (403, {"message": "no"})})
+        with self.assertRaisesRegex(SeedError, "Portal mallard-portal in mallard: HTTP 403"):
             apim_portal.remove(common.created())
 
     def test_what_an_environment_that_is_gone_held_is_left_one_line_each_and_the_other_environments_are_removed(self):
         self.two()
         self.seeded()
         records = common.created()
-        self.world.environments.pop("moderna")   # the platform answers 400 to every route of an environment it does not have
+        self.world.environments.pop("mallard")   # the platform answers 400 to every route of an environment it does not have
         apim_portal.remove(records)
-        self.assertEqual([(c.method, c.path) for c in self.platform.calls if "/environments/moderna" in c.path], [("GET", f"{ENVS}/moderna")])
+        self.assertEqual([(c.method, c.path) for c in self.platform.calls if "/environments/mallard" in c.path], [("GET", f"{ENVS}/mallard")])
         for kind in ("portal-api-page", "portal-listing", "portal-link", "portal-page", "portal", "portal-theme"):
-            self.assertIn(f"✓ Deleted {kind} 'moderna: ", self.output().split(f"Deleted {kind} 'moderna: ")[0] + f"Deleted {kind} 'moderna: ")
-        self.assertIn("✓ Deleted portal 'moderna: moderna-portal': its environment is gone", self.output())
-        self.assertNotIn("Deleted portal 'beam: beam-portal': its environment is gone", self.output())
-        self.assertEqual([k for k in self.world.store if k[0] == "beam"], [])
+            self.assertIn(f"✓ Deleted {kind} 'mallard: ", self.output().split(f"Deleted {kind} 'mallard: ")[0] + f"Deleted {kind} 'mallard: ")
+        self.assertIn("✓ Deleted portal 'mallard: mallard-portal': its environment is gone", self.output())
+        self.assertNotIn("Deleted portal 'fern: fern-portal': its environment is gone", self.output())
+        self.assertEqual([k for k in self.world.store if k[0] == "fern"], [])
 
     def test_each_record_is_removed_in_its_own_environment(self):
         self.two()
         self.seeded()
         apim_portal.remove(common.created())
         self.assertEqual({c.path.split("/environments/")[1].split("/")[0] for c in self.platform.calls if c.method == "DELETE"},
-                         {"beam", "moderna"})
+                         {"fern", "mallard"})
         self.assertEqual(self.world.store, {})
 
 
@@ -1795,7 +1795,7 @@ class Helpers(unittest.TestCase):
 
     def test_a_path_is_what_the_platform_keeps(self):
         paths = {"Guides": "/guides", "/Event feeds/": "/event-feeds", "Event feeds/Process development": "/event-feeds/process-development",
-                 "Getting Started & FAQ": "/getting-started-faq", "Boston Children's": "/boston-children-s",
+                 "Getting Started & FAQ": "/getting-started-faq", "Willow Children's": "/willow-children-s",
                  "Événements": "/v-nements", "x/ Y z /w": "/x/y-z/w"}
         for path, kept in paths.items():
             with self.subTest(path=path):

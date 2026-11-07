@@ -133,7 +133,7 @@ class Problems(Made):
         self.assertEqual(self.found(self.playground({"seed/a.yaml": "a: ${EMPTY}\n"})), [("variable", "seed/a.yaml", 1)])
 
     def test_the_names_the_engine_gives_are_set_for_the_files_of_an_environment_only(self):
-        files = {"seed/environments/novo/environment.yaml": "id: ${ENV_ID}\nname: Novo\n", "seed/environments/novo/settings.yaml": "name: ${ENV_NAME}\n",
+        files = {"seed/environments/newt/environment.yaml": "id: ${ENV_ID}\nname: Newt\n", "seed/environments/newt/settings.yaml": "name: ${ENV_NAME}\n",
                  "seed/apim/a.yaml": "id: ${ENV_ID}\n"}
         self.assertEqual(self.found(self.playground(files)), [("variable", "seed/apim/a.yaml", 1)])
 
@@ -181,22 +181,22 @@ class Problems(Made):
         self.assertEqual(self.found(folder), [("playground", "compose.yml", 2)])
 
     def test_an_environment_folder_is_checked_against_itself(self):
-        files = {"seed/environments/novo/environment.yaml": "id: novo\nname: Novo\n",
-                 "seed/environments/novo/groups/g.yaml": "hrid: g\nname: G\nmembers:\n  - {source: memory, sourceId: nobody}\n",
+        files = {"seed/environments/newt/environment.yaml": "id: newt\nname: Newt\n",
+                 "seed/environments/newt/groups/g.yaml": "hrid: g\nname: G\nmembers:\n  - {source: memory, sourceId: nobody}\n",
                  "seed/environments/ok/environment.yaml": "id: ok\nname: Ok\n"}
         folder = self.playground(files)
         self.assertEqual(seedlint.problems(folder), [Problem(
-            "environment", str(folder / "seed/environments/novo/groups/g.yaml"), 0,
+            "environment", str(folder / "seed/environments/newt/groups/g.yaml"), 0,
             "nobody is no user of users.yaml: add it there, or flag the member `external: true`")])
 
     def test_an_environment_folder_without_its_file_says_so(self):
-        folder = self.playground({"seed/environments/novo/users.yaml": "users: []\n"})
-        self.assertEqual(self.found(folder), [("environment", "seed/environments/novo/environment.yaml", 0)])
+        folder = self.playground({"seed/environments/newt/users.yaml": "users: []\n"})
+        self.assertEqual(self.found(folder), [("environment", "seed/environments/newt/environment.yaml", 0)])
 
     def test_an_environment_folder_that_cannot_be_read_is_not_also_checked_against_itself(self):
-        files = {"seed/environments/novo/environment.yaml": "id: novo\nname: ${NOBODY}\n", "seed/environments/ok/x.yaml": "a: 1\n"}
+        files = {"seed/environments/newt/environment.yaml": "id: newt\nname: ${NOBODY}\n", "seed/environments/ok/x.yaml": "a: 1\n"}
         self.assertEqual(self.found(self.playground(files)),
-                         [("variable", "seed/environments/novo/environment.yaml", 2), ("environment", "seed/environments/ok/environment.yaml", 0)])
+                         [("variable", "seed/environments/newt/environment.yaml", 2), ("environment", "seed/environments/ok/environment.yaml", 0)])
 
     def test_a_scheme_is_found_in_any_case_and_a_public_host_in_any_case_too(self):
         for text in ("u: HTTP://evil:8080", "u: Http://evil", "u: hTTps://evil/x"):
@@ -597,7 +597,7 @@ class Hostile(Made):
         self.assertFalse(marker.exists())
 
     def test_nothing_is_written_and_the_environment_is_left_as_it_was(self):
-        files = {**GOOD, "seed/bad.yaml": "a: [\n", "seed/environments/novo/environment.yaml": "id: novo\nname: ${NOBODY}\n"}
+        files = {**GOOD, "seed/bad.yaml": "a: [\n", "seed/environments/newt/environment.yaml": "id: newt\nname: ${NOBODY}\n"}
         folder = self.playground(files)
 
         def snapshot():
@@ -615,14 +615,14 @@ class Hostile(Made):
     def test_a_page_or_an_asset_of_an_environment_names_a_file_of_its_folder_and_no_other(self):
         outside = self.root / "outside.svg"
         outside.write_text("<svg/>", encoding="utf-8")
-        env = self.root / "acme" / "seed" / "environments" / "novo"
-        files = {"seed/environments/novo/environment.yaml": "id: novo\nname: Novo\n",
-                 "seed/environments/novo/portal/pages/up.yaml": "hrid: up\nfile: ../../../../../../outside.svg\n",
-                 "seed/environments/novo/portal/pages/abs.yaml": f"hrid: abs\nfile: {outside}\n",
-                 "seed/environments/novo/portal/pages/in.yaml": "hrid: in\nfile: ../content/in.md\n",
-                 "seed/environments/novo/portal/content/in.md": "# in\n",
-                 "seed/environments/novo/portal/theme.yaml": "hrid: theme\nassets: {logo: ../../../../../../outside.svg, home: ../assets/home.svg}\n",
-                 "seed/environments/novo/assets/home.svg": "<svg/>"}
+        env = self.root / "acme" / "seed" / "environments" / "newt"
+        files = {"seed/environments/newt/environment.yaml": "id: newt\nname: Newt\n",
+                 "seed/environments/newt/portal/pages/up.yaml": "hrid: up\nfile: ../../../../../../outside.svg\n",
+                 "seed/environments/newt/portal/pages/abs.yaml": f"hrid: abs\nfile: {outside}\n",
+                 "seed/environments/newt/portal/pages/in.yaml": "hrid: in\nfile: ../content/in.md\n",
+                 "seed/environments/newt/portal/content/in.md": "# in\n",
+                 "seed/environments/newt/portal/theme.yaml": "hrid: theme\nassets: {logo: ../../../../../../outside.svg, home: ../assets/home.svg}\n",
+                 "seed/environments/newt/assets/home.svg": "<svg/>"}
         folder = self.playground(files)
         wanted = ["portal/pages/abs.yaml: file " + str(outside) + " is outside the folder",
                   "portal/pages/up.yaml: file ../../../../../../outside.svg is outside the folder",
@@ -634,10 +634,10 @@ class Hostile(Made):
     def test_a_link_for_an_asset_or_a_file_of_an_environment_is_not_followed(self):
         outside = self.root / "outside.svg"
         outside.write_text("x" * (seedlint.SMALL + 1), encoding="utf-8")
-        files = {"seed/environments/novo/environment.yaml": "id: novo\nname: Novo\n",
-                 "seed/environments/novo/portal/theme.yaml": "hrid: theme\nassets: {logo: ../assets/logo.svg}\n"}
+        files = {"seed/environments/newt/environment.yaml": "id: newt\nname: Newt\n",
+                 "seed/environments/newt/portal/theme.yaml": "hrid: theme\nassets: {logo: ../assets/logo.svg}\n"}
         folder = self.playground(files)
-        env = folder / "seed" / "environments" / "novo"
+        env = folder / "seed" / "environments" / "newt"
         (env / "assets").mkdir()
         self.link(env / "assets" / "logo.svg", outside)
         self.assertEqual(seedlint._environment_findings(env, {}), [("portal/theme.yaml", "assets.logo ../assets/logo.svg does not exist")])
@@ -647,7 +647,7 @@ class Hostile(Made):
 
     def test_a_document_that_repeats_itself_through_aliases_is_not_written_out_in_a_message(self):
         text = ALIASES + "users:\n  - {big: *a12}\n  - {sourceId: *a12, source: memory}\n"
-        files = {"seed/environments/novo/environment.yaml": "id: novo\nname: Novo\n", "seed/environments/novo/users.yaml": text}
+        files = {"seed/environments/newt/environment.yaml": "id: newt\nname: Newt\n", "seed/environments/newt/users.yaml": text}
         found = within(30, lambda: seedlint.problems(self.playground(files)))
         self.assertEqual([p.check for p in found], ["environment", "environment"])
         self.assertTrue(found[0].message.startswith("cannot be checked: TypeError: "), found[0].message)
@@ -657,7 +657,7 @@ class Hostile(Made):
     def test_a_document_of_the_wrong_shape_is_a_finding_and_not_a_crash(self):
         for text in ("- a\n- b\n", "just text\n", "users: {a: 1}\n", "users: [1, 2]\n"):
             with self.subTest(text=text):
-                files = {"seed/environments/novo/environment.yaml": "id: novo\nname: Novo\n", "seed/environments/novo/users.yaml": text}
+                files = {"seed/environments/newt/environment.yaml": "id: newt\nname: Newt\n", "seed/environments/newt/users.yaml": text}
                 found = seedlint.problems(self.playground(files, name=f"p{len(text)}{text[:2].strip('-: ')}"))
                 self.assertTrue(all(p.check == "environment" for p in found), found)
 
@@ -828,9 +828,9 @@ def probe():
             found[name] = [[p.check, p.message] for p in seedlint.problems(playground)]
             whole[f"{name} (not read)"] = time.process_time() - started
         for number, name in enumerate(IN_AN_ENVIRONMENT):   # the files of an environment: the same loader, asked directly
-            playground = make_playground(Path(folder), {"seed/environments/novo/environment.yaml": NOT_READ[name][1]}, f"e{number}")
+            playground = make_playground(Path(folder), {"seed/environments/newt/environment.yaml": NOT_READ[name][1]}, f"e{number}")
             started = time.process_time()
-            found[name + " in an environment"] = seedlint._environment_findings(playground / "seed/environments/novo", {})
+            found[name + " in an environment"] = seedlint._environment_findings(playground / "seed/environments/newt", {})
             whole[f"{name} in an environment (not read)"] = time.process_time() - started
     return {"rules": rules, "whole": whole, "found": found}
 
