@@ -17,7 +17,7 @@ class Paths(Seed):
     def test_each_client_serves_its_own_base_path_of_the_management_api(self):
         g = gamma.Gamma()
         clients = {"v1": g.v1, "v2": g.v2, "org_v1": g.org_v1, "automation": g.automation, "aim": g.aim, "authz": g.authz,
-                   "platform": g.platform, "observability": g.observability, "other": g.module("other")}
+                   "platform": g.platform, "observability": g.observability}
         self.assertEqual({name: api.base_url for name, api in clients.items()}, {
             "v1": f"http://apim/management{SCOPE}",
             "v2": f"http://apim/management/v2{SCOPE}",
@@ -27,7 +27,6 @@ class Paths(Seed):
             "authz": f"http://apim/gamma{SCOPE}/modules/authz",
             "platform": f"http://apim/gamma{SCOPE}/modules/platform",
             "observability": f"http://apim/gamma{SCOPE}/observability",
-            "other": f"http://apim/gamma{SCOPE}/modules/other",
         })
 
     def test_the_organization_and_the_environment_are_settings(self):
@@ -62,7 +61,7 @@ class SigningIn(Seed):
 
     def clients(self):
         g = gamma.Gamma()
-        return [g.v1, g.v2, g.org_v1, g.automation, g.aim, g.authz, g.platform, g.observability, g.module("other")]
+        return [g.v1, g.v2, g.org_v1, g.automation, g.aim, g.authz, g.platform, g.observability]
 
     def calls(self):
         self.answer({("GET", "/x"): 200})
@@ -83,7 +82,7 @@ class SigningIn(Seed):
 
     def test_a_token_needs_no_user(self):
         self.env(APIM_TOKEN="secret", APIM_USERNAME=None, APIM_PASSWORD=None)
-        self.assertEqual(len(self.calls()), 9)
+        self.assertEqual(len(self.calls()), 8)
 
     def test_an_empty_token_is_no_token(self):
         self.env(APIM_TOKEN="")

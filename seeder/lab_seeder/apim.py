@@ -195,13 +195,13 @@ def choose(found, source_id, spec):
 
 
 class ApiManagement:
-    """API Management as one environment sees it: the platform's own (APIM_ENV) unless `env` names another."""
+    """API Management as one environment sees it: the platform's own (APIM_ENV), or another (`at`)."""
 
-    def __init__(self, env=None):
+    def __init__(self):
         self.api = Api(setting("APIM_MANAGEMENT_URL"), SECTION)
         self.org = setting("APIM_ORG", "DEFAULT")
         self.path = setting("APIM_MANAGEMENT_PATH", "/management")   # /apim/rest on the Cloud Gate of Gravitee Cloud
-        self.own, self.env = env is None, env or setting("APIM_ENV", "DEFAULT")
+        self.own, self.env = True, setting("APIM_ENV", "DEFAULT")
         # What the organization holds, the seed's roles and its users, is changed by one environment at a time: made at the same
         # time, users were found without an identity provider or not found after they were made
         self.organization = threading.RLock()
@@ -301,11 +301,11 @@ class ApiManagement:
                 return None
             page += 1
 
-    def appears(self, source, source_id, looks=APPEARS):
+    def appears(self, source, source_id):
         """The user the platform has just made from a group, which its search may list a moment later; None when it never does."""
-        for look in range(looks):
+        for look in range(APPEARS):
             user = self.find_user(source, source_id)
-            if user or look == looks - 1:
+            if user or look == APPEARS - 1:
                 return user
             pause(LOOK_AGAIN / 2)
 
@@ -694,10 +694,6 @@ class ApiManagement:
 
     # --- Applications ---------------------------------------------------------------------
 
-    def find_application(self, name):
-        """The application of that exact name in this environment (see find_application)."""
-        return find_application(self.api, self.v1, name)
-
     def application(self, spec):
         name = spec["name"]
         label = self.scoped(name)
@@ -706,7 +702,7 @@ class ApiManagement:
         groups = self.groups_of(spec.get("groups"))
         if groups is not None:
             payload["groups"] = groups
-        found = self.find_application(name)
+        found = find_application(self.api, self.v1, name)
         if not found:
             with making(SECTION, "application", "applications", label, missing=True, **self.scope()):
                 app = self.api.post(f"{self.v1}/applications", json=payload).json()
@@ -729,7 +725,7 @@ class ApiManagement:
         key, comment, pending = spec.get("apiKey"), spec.get("comment"), spec.get("pending")
         if pending and key:
             raise SeedError(f"Subscription {label}: a subscription that stays pending takes no apiKey, the one who accepts it chooses")
-        app, api = self.find_application(spec["application"]), made_under(self.scoped(spec["api"]))
+        app, api = find_application(self.api, self.v1, spec["application"]), made_under(self.scoped(spec["api"]))
         if not app:
             raise SeedError(f"Subscription {label}: application not found")
         if not api:

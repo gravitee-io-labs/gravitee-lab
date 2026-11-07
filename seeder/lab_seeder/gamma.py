@@ -45,12 +45,6 @@ CATALOG = Paging(first=1, size=200)      # the catalog, providers and credential
 
 # --- The client -------------------------------------------------------------------------
 
-def final(error):
-    """Whether a refusal is the platform's last word, whatever the wait: the module says it is not set up (a license
-    without it). A 404 is too once it lasts (`UNSERVED`)."""
-    return isinstance(error, HttpError) and "not_configured" in (error.body or "")
-
-
 def page_of(body, path):
     """The rows of one page of a list, and the total it announces (None when it announces none)."""
     key = next((key for key in ("content", "data", "items") if isinstance(body, dict) and key in body), None)
@@ -118,7 +112,8 @@ class Gamma:
         self.org_v1 = self._client(management, f"/management/organizations/{self.org}")
         self.automation = self._client(setting("AIM_AUTOMATION_URL", management), f"/automation{self.scope}")
         self.observability = self._client(self.gamma_url, f"/gamma{self.scope}/observability")
-        self.aim, self.authz, self.platform = self.module("aim"), self.module("authz"), self.module("platform")
+        self.aim, self.authz, self.platform = (self._client(self.gamma_url, f"/gamma{self.scope}/modules/{name}")
+                                               for name in ("aim", "authz", "platform"))
 
     def _client(self, root, path):
         api = ManagementApi(root.rstrip("/") + path, SECTION)
@@ -127,10 +122,6 @@ class Gamma:
         else:
             api.session.auth = self.login
         return api
-
-    def module(self, name):
-        """The client of another Gamma module."""
-        return self._client(self.gamma_url, f"/gamma{self.scope}/modules/{name}")
 
     def connect(self, section, probe, what="the management API"):
         """Waits until `probe`, a function that makes one cheap request, succeeds: the management API answers before it
@@ -142,7 +133,7 @@ class Gamma:
             try:
                 probe()
             except HttpError as e:
-                if final(e) or (e.status == 404 and time.time() >= patience):
+                if "not_configured" in (e.body or "") or (e.status == 404 and time.time() >= patience):
                     raise Gone(f"{what} is not available on this platform ({e}): {NEEDS}") from e
                 raise
         wait_until(section, what, check, final=REFUSED)
