@@ -506,8 +506,7 @@ class Reading(Case):
         self.assertEqual(found["contribute"], "pull-request")
 
     def test_the_file_is_read_by_compose_with_a_time_and_by_its_path(self):
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         manifest.read_catalog("catalog.yml")
         raw.assert_called_once()
         self.assertEqual(raw.call_args.args, ("catalog.yml",))
@@ -529,8 +528,7 @@ class Reading(Case):
         outside.write_text("x-gravitee-catalog: {}\n", encoding="utf-8")
         self.file.unlink()
         self.file.symlink_to(outside)
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual(error.code, "not_catalog")
         raw.assert_not_called()
@@ -589,8 +587,7 @@ class Reading(Case):
         self.assertEqual(self.read({**GOOD, "id": "official"})["id"], "official")
 
     def test_an_absolute_path_is_read_where_it_is(self):
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         elsewhere = self.root / "elsewhere"
         elsewhere.mkdir()
         (elsewhere / "catalog.yml").write_text("x-gravitee-catalog: {}\n", encoding="utf-8")
@@ -659,8 +656,7 @@ class Reading(Case):
         self.refused(b"x-gravitee-catalog: {}\n\xff\xfe", "catalog.yml: it could not be read.")
 
     def test_the_forms_a_catalog_file_is_written_in_are_read(self):
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         for text in ("x-gravitee-catalog:\n  id: acme-hub\n",
                      "# a comment first\n\n   # an indented one\nx-gravitee-catalog:\n  id: acme-hub\n\n\n",
                      "---\nx-gravitee-catalog:\n  id: acme-hub\n",
@@ -679,8 +675,7 @@ class Reading(Case):
                 raw.assert_called_once()
 
     def test_a_file_the_size_of_the_limit_is_read_and_one_byte_more_is_not(self):
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         head = "x-gravitee-catalog: {}\n# "
         self.file.write_text(head + "x" * (manifest.FILE_LIMIT - len(head)), encoding="utf-8")
         manifest.read_catalog("catalog.yml")
@@ -696,8 +691,7 @@ class Reading(Case):
         looked = self.file.lstat()
         self.file.unlink()
         self.file.symlink_to(outside)
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         self.patch(type(self.file), "lstat", lambda path, **how: looked)   # what a swap between the look and the read does
         error = self.refusal(lambda: manifest.read_catalog("catalog.yml"))
         self.assertEqual((error.code, error.message), ("catalog_invalid", "catalog.yml: it could not be read."))
@@ -706,8 +700,7 @@ class Reading(Case):
     def test_a_pipe_in_the_place_of_the_file_is_not_opened(self):
         self.file.unlink()
         os.mkfifo(self.file)
-        raw = compose_returning(GOOD)
-        self.patch(compose, "raw", raw)
+        raw = self.patch(compose, "raw", compose_returning(GOOD))
         self.assertEqual(self.refusal(lambda: manifest.read_catalog("catalog.yml")).code, "not_catalog")
         raw.assert_not_called()
 

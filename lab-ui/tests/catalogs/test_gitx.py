@@ -1009,6 +1009,17 @@ class Classification(Case):
         self.assertEqual(gitx.fail("fsck", output="why").detail, {"output": "why"})
 
 
+def watch_run(case):
+    """The calls of gitx.run from now on, each as (args, env), that still run."""
+    seen, real = [], gitx.run
+
+    def watch(args, **how):
+        seen.append((list(args), how.get("env") or {}))
+        return real(args, **how)
+    case.patch(gitx, "run", watch)
+    return seen
+
+
 class Remote(Case):
     """ls-remote and the push probe against bare repositories on this machine."""
 
@@ -1079,16 +1090,10 @@ class Remote(Case):
         self.assertEqual(gitx.ls_remote(self.address), {"branch": None, "head": gitfixture.tip(self.repo)})
 
     def test_an_anonymous_question_forgets_the_credential_helper_and_the_headers(self):
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            seen.append(list(args))
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         gitx.ls_remote(self.address, anonymous=True)
         gitx.ls_remote(self.address)
-        seen = [args for args in seen if "ls-remote" in args]
+        seen = [args for args, _ in seen if "ls-remote" in args]
         self.assertEqual(seen[0][:4], ["-c", "credential.helper=", "-c", "http.extraHeader="])
         self.assertNotIn("credential.helper=", seen[1])
         self.assertEqual(seen[0][seen[0].index("ls-remote"):seen[0].index("ls-remote") + 2], ["ls-remote", "--symref"])
@@ -1108,13 +1113,7 @@ class Remote(Case):
                                 "http.https://github.com.proxy": "http://other.example.test:8080"})
         self.assertNotIn("secret", repr(settings))
         self.assertFalse([one for one in said if "credential" in one or "askpass" in one or "cookie" in one])
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            seen.append((list(args), how.get("env") or {}))
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         gitx.ls_remote(self.address, anonymous=True)
         asked, env = next((args, env) for args, env in seen if "ls-remote" in args)
         self.assertEqual(asked[:4], ["-c", "credential.helper=", "-c", "http.extraHeader="], "a stranger still")
@@ -1244,32 +1243,18 @@ class Stranger(Case):
     def test_a_proxy_of_an_address_with_an_equals_sign_is_carried_and_never_in_the_command_line(self):
         """A key may hold `=`, which a `-c key=value` would cut there; a proxy's password is not for the list of processes."""
         self.sign_in_with(config=f'[http "{self.origin}/other?team=one"]\n\tproxy = http://lab-user:lab-proxy-secret@127.0.0.1:9\n')
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            if "ls-remote" in args:
-                seen.append((list(args), how["env"]))
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         self.assertEqual(self.asked(anonymous=True), ([None], "no_access"), "asked, and not refused by git for its own options")
-        (args, env), = seen
+        (args, env), = [one for one in seen if "ls-remote" in one[0]]
         self.assertNotIn("lab-proxy-secret", " ".join(args))
         self.assertEqual((env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]),
                          ("1", f"http.{self.origin}/other?team=one.proxy", "http://lab-user:lab-proxy-secret@127.0.0.1:9"))
 
     def test_the_empty_home_is_made_for_the_question_and_removed_after_it(self):
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            if "ls-remote" in args:   # the question, not the reading of the person's network settings before it
-                seen.append(how["env"])
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         self.asked(anonymous=True)
         self.asked(anonymous=False)
-        stranger, person = seen
+        stranger, person = [env for args, env in seen if "ls-remote" in args]   # not the reading of the person's network settings before it
         self.assertEqual(stranger["HOME"], stranger["XDG_CONFIG_HOME"])
         self.assertNotEqual(stranger["HOME"], str(self.home))
         self.assertFalse(os.path.exists(stranger["HOME"]), "removed once the question was asked")
@@ -1300,15 +1285,9 @@ class PushProbe(Case):
         self.assertEqual(gitx.push_probe(self.address, gitfixture.tip(self.store), self.root / "none.git"), "unknown")
 
     def test_the_branch_pushed_is_one_that_does_not_exist(self):
-        seen = []
-        real = gitx.run
-
-        def watch(args, **how):
-            seen.append(list(args))
-            return real(args, **how)
-        self.patch(gitx, "run", watch)
+        seen = watch_run(self)
         gitx.push_probe(self.address, gitfixture.tip(self.store), store=self.store)
-        push = next(args for args in seen if "push" in args)
+        push = next(args for args, _ in seen if "push" in args)
         self.assertIn("--dry-run", push)
         self.assertEqual(push[push.index("--") + 1], self.address.url)
         self.assertRegex(push[-1], r"^[0-9a-f]{40}:refs/heads/lab/probe-[0-9a-f]{8}$")

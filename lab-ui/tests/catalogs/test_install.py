@@ -212,6 +212,11 @@ class Base(Case):
         result = install.commit_add(staged, address, "main", audience, roots, meta, **how)
         return result, staged, address
 
+    def add_folder(self, folder, ns="partner", fixture=None):
+        """The folder, that holds the catalog.yml of a fixture (`ns`'s when not said), added under `ns`."""
+        address = gitx.parse_address(str(folder))
+        install.commit_add(install.stage(address, ns, None, "", []), address, None, "private", [], meta_of(fixture or ns, id=ns))
+
     def folder_catalog(self, ns="partner", name=None):
         """A working copy of a fixture catalog under the home folder: a folder an author keeps."""
         target = self.home / (name or f"{ns}-copy")
@@ -831,10 +836,7 @@ class Adding(Base):
         self.add("partner")
         self.machine("partner")
         install.remove("partner", keep_settings=True)
-        folder = self.folder_catalog("partner")
-        address = gitx.parse_address(str(folder))
-        staged = install.stage(address, "partner", None, "", [])
-        install.commit_add(staged, address, None, "private", [], meta_of("partner"))
+        self.add_folder(self.folder_catalog("partner"))
         self.assertTrue(registry.install_dir("partner").is_symlink())
         aside = [p for p in (Path(paths.ROOT) / ".lab/catalogs").iterdir() if p.name.startswith(".removed-partner-")]
         self.assertEqual(len(aside), 1)
@@ -919,8 +921,7 @@ class AddingOverSettings(Base):
         base = Path(paths.ROOT) / ".lab/catalogs"
         (base).mkdir(parents=True, exist_ok=True)
         (base / "partner").write_text("a file", encoding="utf-8")
-        staged, address, roots = self.prepare("partner")
-        self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner")), "name_taken")
+        self.refusal(lambda: self.add("partner"), "name_taken")
         self.assertEqual((base / "partner").read_text(encoding="utf-8"), "a file")
 
 
@@ -992,8 +993,7 @@ class Unvouched(Base):
         held = registry.lock_of("partner")
         self.assertEqual((held["pin"], held["pending"], held["error"]), (None, None, None))
         self.assertEqual((self.base / "addons/ledger/data/db.sqlite").read_text(encoding="utf-8"), "rows\n")
-        staged, address, roots = self.prepare("partner")
-        install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
+        self.add("partner")
         self.intact("partner")
         self.assertEqual((self.base / "addons/ledger/data/db.sqlite").read_text(encoding="utf-8"), "rows\n")
         self.assertEqual((self.base / "addons/ledger/certs/ca.txt").read_text(encoding="utf-8"), "ca\n")
@@ -1012,8 +1012,7 @@ class Downloading(Base):
     def test_the_entry_is_kept_and_the_lock_commits(self):
         self.listed("partner")
         before = registry.entry("partner")
-        staged, address, roots = self.prepare("partner")
-        install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
+        self.add("partner")
         self.assertEqual(registry.entry("partner"), before)
         self.assertEqual(len(registry.entries()), 1)
         self.intact("partner")
@@ -1463,9 +1462,7 @@ class Repairing(Base):
         self.assertIsNone(registry.lock_of("partner")["pending"])
 
     def test_a_folder_catalog_has_nothing_to_repair(self):
-        folder = self.folder_catalog("lab-new")
-        address = gitx.parse_address(str(folder))
-        install.commit_add(install.stage(address, "lab-new", None, "", []), address, None, "private", [], meta_of("lab-new"))
+        self.add_folder(self.folder_catalog("lab-new"), "lab-new")
         install.repair("lab-new")
         self.assertTrue(registry.install_dir("lab-new").is_symlink())
 
@@ -1612,9 +1609,7 @@ class Removing(Base):
 
     def test_a_folder_catalog_loses_its_link_and_the_authors_folder_is_untouched(self):
         folder = self.folder_catalog("fixture", "mine")
-        address = gitx.parse_address(str(folder))
-        install.commit_add(install.stage(address, "mine", None, "", []), address, None, "private", [],
-                           meta_of("fixture", id="mine"))
+        self.add_folder(folder, "mine", "fixture")
         before = sorted(p.relative_to(folder).as_posix() for p in folder.rglob("*"))
         self.assertTrue(registry.install_dir("mine").is_symlink())
         install.remove("mine", keep_settings=False)
@@ -1717,9 +1712,7 @@ class Sweeping(Base):
         (share / "x").write_text("x", encoding="utf-8")
         self.old(share)
         folder = self.folder_catalog("lab-new", "mine")
-        address = gitx.parse_address(str(folder))
-        install.commit_add(install.stage(address, "mine", None, "", []), address, None, "private", [],
-                           meta_of("lab-new", id="mine"))
+        self.add_folder(folder, "mine", "lab-new")
         theirs = folder / ".share-34cd"
         theirs.mkdir()
         self.old(theirs)
@@ -2810,18 +2803,13 @@ class FolderAdds(Base):
 
     def test_a_folder_added_while_a_listed_download_waits_takes_its_entry(self):
         self.listed("partner")
-        address = gitx.parse_address(str(self.folder_catalog("partner")))
-        install.commit_add(install.stage(address, "partner", None, "", []), address, None, "private", [], meta_of("partner"))
+        self.add_folder(self.folder_catalog("partner"))
         self.assertEqual(registry.entry("partner")["kind"], "folder")
 
     def test_the_same_folder_cannot_be_added_twice(self):
         folder = self.folder_catalog("partner")
-        address = gitx.parse_address(str(folder))
-        install.commit_add(install.stage(address, "partner", None, "", []), address, None, "private", [], meta_of("partner"))
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.commit_add(install.stage(address, "partner-two", None, "", []), address, None, "private", [],
-                               meta_of("partner", id="partner-two"))
-        self.assertEqual(raised.exception.code, "already_added")
+        self.add_folder(folder)
+        self.refusal(lambda: self.add_folder(folder, "partner-two", "partner"), "already_added")
 
 
 if __name__ == "__main__":
