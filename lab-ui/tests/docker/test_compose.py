@@ -1224,7 +1224,7 @@ import os, signal, sys, threading, time
 sys.path.insert(0, sys.argv[1])
 from lab_ui.docker import compose, jobs
 compose.stop_on_signals()
-job = jobs.JOBS.start("Start Acme Shop", [["sleep", os.environ["SLEEP"]]], key="addon:acme-shop", verb="start")
+job = jobs.JOBS.start("Start Malt", [["sleep", os.environ["SLEEP"]]], key="addon:malt", verb="start")
 while job._process is None:
     time.sleep(0.05)
 try:
@@ -1296,7 +1296,7 @@ class Exiting(Case):
         process = self.program(JOB)
         os.killpg(process.pid, signal.SIGINT)
         self.assertEqual(self.exits(process), 0)
-        self.assertIn("Stopped with the Lab UI: Start Acme Shop", process.stdout.read())
+        self.assertIn("Stopped with the Lab UI: Start Malt", process.stdout.read())
         self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
 
     def test_a_signal_the_lab_ui_ignores_or_handles_is_left_to_it(self):

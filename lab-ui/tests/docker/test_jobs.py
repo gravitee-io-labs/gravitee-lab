@@ -232,7 +232,7 @@ class Cut(Case):
     def run_job(self, step):
         """A job of one step, a shell script or a function, run in a thread. The output of each command it ran is closed
         once the test ends."""
-        job = Job("Start Acme Shop", [["sh", "-c", step] if isinstance(step, str) else step], key="addon:acme-shop",
+        job = Job("Start Malt", [["sh", "-c", step] if isinstance(step, str) else step], key="addon:malt",
                   verb="start")
         spawned, spawn = [], compose.spawn
         self.patch(compose, "spawn", lambda *args, **how: spawned.append(spawn(*args, **how)) or spawned[-1])
