@@ -7,8 +7,7 @@ no unit: what an installed catalog holds is that catalog's to check, and with no
 
 The catalog profile (`catalog_problems`, `catalog_files`) is the second half of `catalog.py check`, after the rules of
 `catalogs.audit` (structure, secrets, commits, workflows, Dockerfiles, guides, images): the per-item rules for each unit of
-the catalog, the README tables that its folders keep when they keep any, the names it gives, its ports, what its units use that
-this Lab does not read (`understood`: a published catalog that holds one needs a newer Gravitee Lab), what its `catalog.yml` says
+the catalog, its ports, what its units use that this Lab does not read (`understood`: a published catalog that holds one needs a newer Gravitee Lab), what its `catalog.yml` says
 and whether a `lab` written in it, for older Gravitee Labs, is the true minimum, and the verdict of the trust policy on
 each unit (a Blocked reason is an error). It reads, and never writes. Problems are (file, what is wrong), the file relative to the catalog, which is what a CI
 annotation needs. The images a catalog builds are IM02 and IM04 of the audit, with the Lab's seeder as the one named anchor.
@@ -59,12 +58,6 @@ STUB_FILE = ".claude/skills/{}/SKILL.md"    # where Claude Code looks for a skil
 FRONTMATTER = re.compile(r"\A\s*---\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)   # the header of a skill file
 AGENTS, CLAUDE = "AGENTS.md", "CLAUDE.md"   # what an agent reads, and the file that sends Claude Code to it
 NOT_SCANNED = {"local", "plugins", "node_modules", "venv", "__pycache__"}   # folders without files of the project
-# The listing of each kind (its README table, in the folder of the kind at the root of a catalog) and the row it holds
-# for an item, written from the item's x-gravitee block. A catalog that keeps no table has no finding
-LISTINGS = {"addon": ("addons/README.md", "| [{name}]({id}/) | {description} |"),
-            "setup": ("setups/README.md", "| [{name}]({id}.yml) | {description} |"),
-            "playground": ("playgrounds/README.md", "| [{name}]({id}/) | {description} | {duration} |")}
-ROW = re.compile(r"^\|\s*\[[^\]]*\]\(([^)\s]*)\)\s*\|")   # a row of a table that starts with a link: where it leads
 FEATURE = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)*")   # a license feature, as the license model writes it
 STEP = re.compile(r"^## (\d+)\.", re.M)   # a numbered section of a guide: one of its steps
 # An action link of a guide, [text](action:id), a title after it too
@@ -752,68 +745,6 @@ def _contract_keys(core):
                "ghcr.io/owner/repo/seeder, the only image a seed service may have")
 
 
-# ---------------------------------------------------------------------------------------------------------------------
-# The listings: what the units of a catalog have in common
-# ---------------------------------------------------------------------------------------------------------------------
-
-def _row(kind, unit):
-    """The row of an item in the listing of its kind, written from its x-gravitee block. Its link leads to the name of its
-    folder in the catalog."""
-    said = {key: " ".join(str(unit.get(key) or "").split()) for key in ("name", "description", "duration")}
-    return LISTINGS[kind][1].format(id=paths.split_ref(unit["id"])[1], **said)
-
-
-def _table(kind, units, folder):
-    """The README of a kind, in the folder of a catalog, when the catalog keeps one: it lists each item once, in the row
-    written from its x-gravitee block, and no item that does not exist: (the README, what is wrong). No table, no finding."""
-    path, noun = LISTINGS[kind][0], NOUNS[kind]
-    file = Path(folder) / path
-    if not file.is_file():
-        return
-    listed = {}
-    for line in (_read(file) or "").splitlines():
-        found = ROW.match(line)
-        if found:
-            listed.setdefault(found.group(1), []).append(line.rstrip())
-    wanted = set()
-    for unit in units:
-        row = _row(kind, unit)
-        target = ROW.match(row).group(1)
-        wanted.add(target)
-        rows = listed.get(target, [])
-        if not rows:
-            yield path, f"does not list {unit['name']}: add the row {row}"
-        elif len(rows) > 1:
-            yield path, f"lists {unit['name']} {len(rows)} times: keep one row, {row}"
-        elif rows[0] != row:
-            yield path, f"the row of {unit['name']} must read {row}"
-    for target in sorted(set(listed) - wanted):
-        yield path, f"lists {target}, which is no {noun} of this catalog: remove its row"
-
-
-def _naming(uid, unit, raw, catalog, listed):
-    """The names a unit gives: every service of its own starts with the catalog's `<ns>-` or is named like the unit or
-    starts with `<unit>-`; a container is `gio-<service>`; a volume it declares is `data-<name>`. The prefix is what keeps
-    another catalog's unit from losing a name to this one at run time (T21 is the guard), so a listed catalog, whose units
-    claim first and are never blocked for a name, owes none; the other two are the Lab's own conventions, owed by all."""
-    path = unit["file"]
-    config = raw.get(path) or {}
-    services = config.get("services") or {}
-    name = paths.split_ref(uid)[1]
-    for service in unit.get("services") or []:
-        if not listed and not (service == catalog or service.startswith(f"{catalog}-") or service == name
-                               or service.startswith(f"{name}-")):
-            yield f"{service}: name it {catalog}-{service}, or start it with the name of the unit, {name}-"
-        named = (services.get(service) or {}).get("container_name")
-        if isinstance(named, str) and named != f"gio-{service}":
-            yield f"{service}: container_name is {named}: write gio-{service}"
-    theirs = {volume for file in _included(unit) if file in raw for volume in (raw[file].get("volumes") or {})}
-    declared = config.get("volumes") if isinstance(config.get("volumes"), dict) else {}
-    for volume in sorted(set(declared) - theirs):
-        if not volume.startswith("data-") and not (isinstance(declared[volume], dict) and declared[volume].get("external")):
-            yield f"volume {volume}: name a volume it declares data-<what it keeps>"
-
-
 def _within(path, root):
     return bool(path) and bool(root) and (path == root or path.startswith(root.rstrip("/") + "/"))
 
@@ -1329,9 +1260,8 @@ def catalog_files(ns):
 
 def catalog_problems(ns, project=None, inputs=None):
     """Every problem found in catalog `ns`, as (file, what is wrong), the file relative to the catalog: what its
-    catalog.yml says; for each unit the rules of every item (`_unit`), the names it gives, where its paths lead, what the
-    screen and the policy say of it (a Blocked reason is an error: "Blocked: ..."); then the README tables the catalog
-    keeps, the ports its units publish, and whether its declarations of other catalogs and its `lab` are true. The images it builds are the audit's (IM01 to IM04, `audit_units`). It loads
+    catalog.yml says; for each unit the rules of every item (`_unit`), where its paths lead, what the screen and the policy
+    say of it (a Blocked reason is an error: "Blocked: ..."); then the ports its units publish, and whether its declarations of other catalogs and its `lab` are true. The images it builds are the audit's (IM01 to IM04, `audit_units`). It loads
     the project as the Lab does, with the catalog installed or linked in this engine, and never writes. Unavailable when it, or
     a catalog it includes from, is not here."""
     if project is None or inputs is None:
@@ -1342,7 +1272,6 @@ def catalog_problems(ns, project=None, inputs=None):
             or any(gone in ((unit.get("blocked") or {}).get("reasons") or ()) for _, _, unit in catalog_units(ns, project)):
         raise ComposeGone(NO_COMPOSE)
     raw, found = inputs["raw"], []
-    folder = ROOT / paths.CATALOGS_DIR / ns
     products = _anchored(inputs.get("products") or ())
 
     def shown(path):
@@ -1352,7 +1281,6 @@ def catalog_problems(ns, project=None, inputs=None):
     units = catalog_units(ns, project)
     declared = sorted(((meta or {}).get("requires") or {}).get("catalogs") or {})
     context = {"catalog": ns, "declared": declared, "products": products}
-    listed = bool((inputs["catalogs"].get(ns) or {}).get("listed"))
     stubs = {*(inputs.get("screened") or {}), *(inputs.get("unreadable") or {})}
     for kind, uid, unit in units:
         file, where = unit["file"], shown(unit["file"])
@@ -1374,15 +1302,12 @@ def catalog_problems(ns, project=None, inputs=None):
                 written = unit if unit.get("services") or not unit.get("blocked") else {**unit, "services": _written(unit, raw)}
                 roots = _roots(file, _included(unit), products)
                 said_why = _meta(raw.get(file)).get("host_access")
-                here += _naming(uid, written, raw, ns, listed)
                 here += _geometry(written, (inputs.get("configs") or {}).get(file), ROOT / paths.unit_folder(kind, uid),
                                   said_why if isinstance(said_why, dict) else {},
                                   {**_anchors(products), "closure": roots["closure"]})
         found += [(where, line) for line in here]
     for problem in (project.get("catalog_problems") or {}).get(ns, ()):
         found.append((problem.get("display") or shown(problem["file"]), problem["message"]))
-    for kind in KINDS:
-        found += list(_table(kind, [unit for one, _, unit in units if one == kind], folder))
     found += [(shown(file), line) for file, line in _ports(project, raw, None, ns, list(inputs["catalogs"]))]
     if meta is not None:
         found += [(manifest.FILE, line) for line in _dependencies(meta, units, inputs, ns)]

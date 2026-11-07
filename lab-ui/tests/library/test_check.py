@@ -1,5 +1,5 @@
 """`make check` and `catalog.py check`: the engine's profile (the core, the skills and the agents' files, and nothing of a
-catalog, with its output pinned) and the catalog's profile (the rules of every item, the names, the paths, the ports, what
+catalog, with its output pinned) and the catalog's profile (the rules of every item, the paths, the ports, what
 catalog.yml says and whether `lab` is the true minimum, and the verdict of the trust policy on each unit; the images a catalog
 builds are the audit's, with the units it is given), and how a folder is read where it is: the temporary link, the scrubbed
 environment, the units for the audit and the findings as problems with a code.
@@ -842,78 +842,6 @@ class Gateways(Machine):
         raw["x-gravitee"]["gateway"]["service"] = "nothing"
         self.build((file, raw))
         self.assertEqual(self.lines("addon", "hyssop"), ["x-gravitee.gateway.service: nothing is not a service of this add-on"])
-
-
-class Listings(Case):
-    """The README of each kind, when a catalog keeps one, lists every item once, in the row its x-gravitee block gives."""
-
-    ROWS = {"addon": ["| [AI Agent Lens](agent-lens/) | Live diagram |", "| [Jade](jade/) | Tracing |",
-                      "| [Kazoo](kazoo/) | Kazoo broker |"],
-            "setup": ["| [Event streams](event-streams.yml) | Kazoo |"],
-            "playground": ["| [Welcome](welcome/) | ACME Hello | 30 min |"]}
-
-    def setUp(self):
-        self.units = {kind: [self.unit(kind, *spec) for spec in specs] for kind, specs in {
-            "addon": [("agent-lens", "AI Agent Lens", "Live diagram"), ("jade", "Jade", "Tracing"),
-                      ("kazoo", "Kazoo", "Kazoo broker")],
-            "setup": [("event-streams", "Event streams", "Kazoo")],
-            "playground": [("welcome", "Welcome", "ACME Hello", "30 min")]}.items()}
-        self.folder(check, paths)
-
-    def unit(self, kind, name, label, description, duration=None):
-        return {"id": name, "kind": kind, "name": label, "description": description, "duration": duration}
-
-    def readme(self, kind, rows, head="# Add-ons\n\nOne each.\n\n| Add-on | What it adds |\n|---|---|\n",
-               tail="\nTo make your own, see [AGENTS.md](AGENTS.md).\n", units=None):
-        self.write(f"catalog/{check.LISTINGS[kind][0]}", head + "".join(f"{row}\n" for row in rows) + tail)
-        return list(check._table(kind, self.units[kind] if units is None else units, self.root / "catalog"))
-
-    def test_every_item_has_its_row_and_nothing_else_does(self):
-        for kind, rows in self.ROWS.items():
-            with self.subTest(kind=kind):
-                self.assertEqual(self.readme(kind, rows), [])
-
-    def test_a_row_is_written_from_the_x_gravitee_block(self):
-        self.assertEqual([check._row(kind, one) for kind, units in self.units.items() for one in units],
-                         [row for rows in self.ROWS.values() for row in rows])
-        # A name is the item's id without x-gravitee.name; a description on several lines is one; no duration is none
-        one = self.unit("playground", "welcome", "Welcome", "ACME\n  Hello  ")
-        self.assertEqual(check._row("playground", one), "| [Welcome](welcome/) | ACME Hello |  |")
-        # The link leads to the name of the folder, whatever the id of the item is in this Lab
-        self.assertEqual(check._row("addon", {**self.units["addon"][1], "id": "@acme-hub/jade"}), self.ROWS["addon"][1])
-
-    def test_a_missing_row_is_shown_as_it_must_read(self):
-        rows = [row for row in self.ROWS["addon"] if "Jade" not in row]
-        self.assertEqual(self.readme("addon", rows), [
-            ("addons/README.md", "does not list Jade: add the row | [Jade](jade/) | Tracing |")])
-
-    def test_a_row_that_differs_from_its_block_is_shown_as_it_must_read(self):
-        rows = [row.replace("Tracing", "OpenTelemetry tracing") for row in self.ROWS["addon"]]
-        rows[2] = "| [Kazoo](kazoo/) | Kazoo broker | |"
-        self.assertEqual(self.readme("addon", rows), [
-            ("addons/README.md", "the row of Jade must read | [Jade](jade/) | Tracing |"),
-            ("addons/README.md", "the row of Kazoo must read | [Kazoo](kazoo/) | Kazoo broker |")])
-
-    def test_an_item_is_listed_once(self):
-        self.assertEqual(self.readme("setup", self.ROWS["setup"] * 2), [
-            ("setups/README.md", "lists Event streams 2 times: keep one row, "
-                                 "| [Event streams](event-streams.yml) | Kazoo |")])
-
-    def test_a_row_of_what_does_not_exist_is_removed(self):
-        rows = [*self.ROWS["playground"], "| [Gone](gone/) | Deleted | 5 min |"]
-        self.assertEqual(self.readme("playground", rows), [
-            ("playgrounds/README.md", "lists gone/, which is no playground of this catalog: remove its row")])
-
-    def test_only_a_row_that_starts_with_a_link_is_a_row(self):
-        head = ("# Setups\n\nSee [AGENTS.md](AGENTS.md) and [the guide](../docs/guide.md).\n\n"
-                "| Setup | What it turns on |\n|---|---|\n")
-        self.assertEqual(self.readme("setup", self.ROWS["setup"], head=head), [])
-
-    def test_a_catalog_that_keeps_no_table_has_no_finding(self):
-        # The template, a new folder catalog and the internal catalog pass on day one
-        for kind in self.units:
-            self.assertEqual(list(check._table(kind, self.units[kind], self.root / "catalog")), [])
-        self.assertEqual(list(check._table("setup", [], self.root / "catalog")), [])
 
 
 class Sharing(Machine):
@@ -1902,15 +1830,6 @@ class Hostile(Shared):
         self.assertFalse([line for line in self.said("fixture", "addons/cluster/compose.yml") if "host_access" in line])
         self.assertIn("Blocked: Runs with full privileges", self.said("hostile", "addons/h-privileged-declared/compose.yml"))
 
-    def test_a_name_that_clashes_is_told_with_the_fix_of_the_prefix(self):
-        said = self.said("hostile", "addons/t21-name-clash/compose.yml")
-        self.assertIn("Blocked: Same name as Echo", said)
-        self.assertIn("fixture-echo: name it hostile-fixture-echo, or start it with the name of the unit, t21-name-clash-", said)
-
-    def test_a_volume_that_is_not_its_own_is_the_policys_and_no_naming_matter(self):
-        self.assertFalse([line for line in self.said("hostile", "addons/t14-external-volume/compose.yml") if "data-" in line])
-        self.assertTrue([line for line in self.said("hostile", "addons/t14-volume-alias/compose.yml") if "data-" in line])
-
     def test_a_path_that_leaves_the_folder_of_the_unit_says_where_the_anchor_is(self):
         said = self.said("hostile", "addons/t18-build-outside/compose.yml")
         self.assertTrue([line for line in said if line.startswith("hostile-build-outside: build context ../../../../.. is outside the folder of this unit: keep what it reads")], said)
@@ -1954,17 +1873,6 @@ def addon(name, body, says=""):
 
 
 AUTHORING = {
-    # The names it gives: no prefix, a container that is not gio-<service>, a volume that is not data-<name>
-    "addons/api/compose.yml": addon("api", """services:
-  server:
-    image: busybox
-    container_name: my-server
-    labels: {io.gravitee.description: Serves}
-    networks: [internal]
-volumes:
-  cache: {}
-"""),
-    "addons/api/README.md": "# Api\n",
     # The depth of its anchors: three folders short for the seeder, one short for a plugin folder
     "addons/depth/compose.yml": addon("depth", """services:
   depth-app:
@@ -2033,8 +1941,8 @@ services:
 
 
 class Authoring(Shared):
-    """What an author is told, on a catalog that is not the engine's (so its names carry its prefix): the names, where the
-    anchors are, what the screen reads, what the Lab does not follow."""
+    """What an author is told, on a catalog that is not the engine's: where the anchors are, what the screen reads, what the
+    Lab does not follow."""
 
     CATALOGS = {"partner": {"files": AUTHORING}}
 
@@ -2043,25 +1951,6 @@ class Authoring(Shared):
         trap = case.root / ".lab/catalogs/partner/playgrounds/trap"
         (trap / "seed").symlink_to("/etc")
         os.mkfifo(trap / ".env")
-
-    def test_a_service_that_a_unit_owns_carries_the_prefix_of_its_catalog_or_the_name_of_its_unit(self):
-        said = self.said("partner", "addons/api/compose.yml")
-        self.assertIn("server: name it partner-server, or start it with the name of the unit, api-", said)
-        self.assertEqual([line for line in self.said("partner", "addons/fine/compose.yml")], [])
-        # The unit's own name, and the prefix of the catalog, pass
-        self.assertFalse([line for line in self.said("partner", "addons/depth/compose.yml") if "name it" in line])
-
-    def test_a_listed_catalog_owes_no_prefix_it_claims_its_names_first(self):
-        unit = self.built["addons"]["@partner/api"]
-        raw = self.inputs["raw"]
-        self.assertEqual(list(check._naming("@partner/api", unit, raw, "partner", True))[0],
-                         "server: container_name is my-server: write gio-server")
-        self.assertEqual(len(list(check._naming("@partner/api", unit, raw, "partner", False))), 3)
-
-    def test_a_container_is_gio_and_the_service_a_volume_is_data_and_what_it_keeps(self):
-        said = self.said("partner", "addons/api/compose.yml")
-        self.assertIn("server: container_name is my-server: write gio-server", said)
-        self.assertIn("volume cache: name a volume it declares data-<what it keeps>", said)
 
     def test_a_path_three_folders_short_says_where_the_anchor_is_and_the_right_one_passes(self):
         said = self.said("partner", "addons/depth/compose.yml")
@@ -2093,7 +1982,7 @@ class Authoring(Shared):
         self.assertTrue([line for line in envy if line.startswith("the screen reads words, not YAML")])
         # The words are told once, and a unit the screen accepts is told none
         self.assertEqual(len([line for line in envy if line.startswith("the screen reads words")]), 1)
-        self.assertEqual([line for line in self.said("partner", "addons/fine/compose.yml") if "screen" in line], [])
+        self.assertEqual(self.said("partner", "addons/fine/compose.yml"), [])
 
     def test_an_include_the_lab_does_not_follow_is_told_of_the_unit_and_of_one_that_includes_it(self):
         for unit in ("listy", "reach"):
@@ -2245,11 +2134,8 @@ class Names(Case):
         (unit / "seed/apim/apis").mkdir(parents=True)
         (unit / "guide.md").symlink_to(elsewhere / "guide.md")
         (unit / "seed/apim/apis/one.json").symlink_to(elsewhere / "api.json")
-        (unit / "addons").mkdir()
-        (unit / "addons/README.md").symlink_to(elsewhere / "README.md")
         self.assertEqual(list(check._guide(unit)), [])
         self.assertEqual(list(check._seed(unit)), [])
-        self.assertEqual(list(check._table("addon", [], unit)), [])
         (unit / "guide.md").unlink()
         (unit / "guide.md").write_text("## 2. Two\n", encoding="utf-8")
         self.assertEqual(list(check._guide(unit)), ["guide.md: number its steps 1, 2, 3 in order, not 2"])

@@ -37,8 +37,7 @@ An add-on is one capability on top of the core platform: a folder with its `comp
    it: the page says why one does not load.
    A service that takes more of the machine than its container does (privileged, the host's network, the Docker socket, a
    folder outside the project) says why in `x-gravitee.host_access`; the check asks for it in the item of a catalog.
-6. In a catalog, write `README.md` in the add-on's folder for what it adds and how to use it: the check asks for it. When
-   the catalog keeps a table in `addons/README.md`, add the row too (the check prints the exact row).
+6. In a catalog, write `README.md` in the add-on's folder for what it adds and how to use it: the check asks for it.
 7. Tell the person where the folder is, and that the add-on shows on the Add-ons page of the Lab UI (`make ui`), where
    it is started.
 

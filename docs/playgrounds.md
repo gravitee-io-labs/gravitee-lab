@@ -90,7 +90,7 @@ x-gravitee:
 |---|---|
 | `kind` | `playground` |
 | `name` | How the Lab UI names it |
-| `description` | A phrase with no leading article and no final period: what it shows. Required. Its row in the `playgrounds/README.md` of the catalog repeats it exactly |
+| `description` | A phrase with no leading article and no final period: what it shows. Required |
 | `category` | One of `x-gravitee.categories` in `docker-compose.yml`. Required for what is shared |
 | `tags` | Short labels, shown on its page. Required for what is shared: at least one, none twice |
 | `duration` | How long the guide takes, as `35 min` or `1 h 30 min`. Required for what is shared |

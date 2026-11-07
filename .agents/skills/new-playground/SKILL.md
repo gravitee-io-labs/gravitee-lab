@@ -48,8 +48,7 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
 5. Check it. For an item of a folder catalog, run `python3 -I lab-ui/catalog.py check <catalog id>` from the project's
    folder and fix what it says until it prints "All good". A personal item is read by Compose when the Lab UI shows
    it: the page says why one does not load. Run the tests of an app it ships, in its image, when Docker runs.
-6. In a catalog, write `README.md` in its folder for what a user needs to know before and after, and add its row to
-   `playgrounds/README.md` when the catalog keeps that table (the check prints the exact row). Ask the person which
+6. In a catalog, write `README.md` in its folder for what a user needs to know before and after. Ask the person which
    versions they built it and checked it on, and write them as `x-gravitee.tested`: CI starts the playground on each set.
    Never write versions nobody ran it on.
 7. Tell the person where the folder is, and that the playground shows on the Playgrounds page of the Lab UI

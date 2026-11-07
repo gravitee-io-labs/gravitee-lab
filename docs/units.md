@@ -152,8 +152,6 @@ services:
 - **Core services**: change only the keys the add-on needs. The Lab UI restarts a core service the add-on configures
   when the add-on is turned on or off, and says so first.
 - **Data**: a named volume `data-<id>` keeps it across restarts and switches.
-- **Catalog**: a catalog that keeps a table in `addons/README.md` lists each add-on there, in the row `make check` prints from the
-  `x-gravitee` block: its name as a link to its folder, then its description.
 - **README**: `addons/<id>/README.md` when a person needs more than the settings say: what it adds and where to open
   it, what it needs, a table of its settings and what stays after removal.
 
@@ -189,8 +187,6 @@ include:
   include a setup as it includes an add-on.
 - **No conflicts inside**: a setup cannot include add-ons that conflict with each other (`make check` says which).
 - **Name** a setup after what it demonstrates, not after what it contains.
-- **Catalog**: a catalog that keeps a table in `setups/README.md` lists each setup there, in the row `make check` prints from the
-  `x-gravitee` block: its name as a link to its file, then its description.
 
 Then run `make check`. To share a personal setup, see [Personal and shared](../AGENTS.md#personal-and-shared); it
 needs a `category` first.
@@ -370,8 +366,5 @@ API can do, the seed does. The Lab UI cannot see what such a service changes, so
 
 ### Catalog and Lab UI
 
-A catalog that keeps a table in `playgrounds/README.md` lists each playground there, in the row `make check` prints from the
-`x-gravitee` block: its name as a link to its folder, its description, then its duration.
-
-Then run `make check` and start the playground from its page. What a playground's page shows, and what its Start,
+Run `make check` and start the playground from its page. What a playground's page shows, and what its Start,
 Re-seed, Stop and Reset do: [the playground page](lab-ui.md#the-playground-page). To share a personal one, see [Personal and shared](../AGENTS.md#personal-and-shared).
