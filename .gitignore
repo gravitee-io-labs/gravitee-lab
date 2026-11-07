@@ -29,8 +29,10 @@ __pycache__/
 .venv/
 .ruff_cache/
 
-# macOS
+# macOS and editors
 .DS_Store
+.idea/
+.vscode/
 
 # Personal files of AI agents
 CLAUDE.local.md

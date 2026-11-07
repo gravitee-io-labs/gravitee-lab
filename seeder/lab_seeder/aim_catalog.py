@@ -152,7 +152,7 @@ def seed_credentials(aim):
             record(SECTION, "credential", LABELS["credential"], name, found["id"], digest=digest)
             say("credential", "updated", name)
             continue
-        body = {"name": name, "strategy": str(secret.get("type")).upper().replace("-", "_"), "credentials": secret,
+        body = {"name": name, "strategy": secret["type"].upper().replace("-", "_"), "credentials": secret,
                 "allowedUsageSurfaces": USAGE_SURFACES, **service}
         with common.making(SECTION, "credential", LABELS["credential"], name, missing=True):
             created = aim.post(PATHS["credential"], json=body).json()
