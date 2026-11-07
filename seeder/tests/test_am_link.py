@@ -222,6 +222,10 @@ class Link(Seed):
         self.assertEqual(self.world.config["defaultDomainId"], "domain-1")
         self.assertNotIn("serviceAccountAccessToken", self.puts()[0])
 
+    def test_a_link_to_the_playground_s_own_domain_made_again_is_pointed_at_the_new_one(self):
+        self.seed(World(config={**SAVED, "defaultDomainId": "domain-removed-since", "defaultDomainHrid": "acme-bakery"}))
+        self.assertEqual(self.world.config["defaultDomainId"], "domain-1")
+
     def test_a_link_to_another_domain_that_works_is_left_alone_with_a_warning(self):
         other = {"id": "domain-2", "name": "Example", "hrid": "example"}
         link = {**SAVED, "defaultDomainId": "domain-2", "defaultDomainHrid": "example"}
