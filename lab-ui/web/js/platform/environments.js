@@ -97,7 +97,7 @@ function gatewayState(gateway, addon, late) {
     }
     if (CONTAINER[key]) {
       const [dot, word] = CONTAINER[key];
-      return { key: key === "off" ? "stopped" : key, dot, word, tip: lines(gateway) };
+      return { key, dot, word, tip: lines(gateway) };
     }
     if (connected) return { key: "running", dot: "healthy", word: "Running here", tip: lines(gateway) };
     return late ? { key: "late", dot: "warn", word: "Not connected", tip: lines(gateway, "Gravitee Cloud has not seen it for 2 minutes", "Its logs say why") }
@@ -200,7 +200,7 @@ function actionOf(used, main, gateway, deploy, addon, gap) {
 //   used      the Lab has something here: a gateway of the environment, any (even one it cannot use, so that it can be removed), a
 //             gateway it lost in Cloud, a Cloud Token, or a deploy
 //   gateway   {key, dot, word, tip, version, address, name, id, here, kept, count}: key is none, running, connecting, late,
-//             starting, stopping, stopped, elsewhere, issue, license, orphan, unknown, or, with no add-on to run it, noaddon, downloading or
+//             starting, stopping, stopped, off, elsewhere, issue, license, orphan, unknown, or, with no add-on to run it, noaddon, downloading or
 //             nocontent (`extra` the button that mends it); `address` the one to call while it runs here; `count` how many hybrid
 //             gateways the environment has; `license` is set when the word of an issue is a license that is missing, which the action then adds
 //   deploy    {key, dot, word, note, tip, soon}: key is ready, gateway, unset, expired or refused; `note` the line under the word
@@ -275,8 +275,7 @@ export const gatewayCount = (n) => (n ? `${n} ${n === 1 ? "gateway" : "gateways"
 // created and stopped are quiet; while Docker does not answer nothing is known of what runs here: a dot with no color. `extra` follows the
 // word on its line: on the Gravitee Cloud page, how many gateways the environment has when it has several, which leads to their list.
 export function gatewayCell(g, extra = "") {
-  const dot = g.key === "unknown" ? "" : g.dot;
-  return statusHtml(dot, g.word, { tip: gatewayTip(g), quiet: !dot || ["stopped", "off"].includes(dot), extra: extra + (g.extra || "") });
+  return statusHtml(g.dot, g.word, { tip: gatewayTip(g), quiet: !g.dot || ["stopped", "off"].includes(g.dot), extra: extra + (g.extra || "") });
 }
 
 // What the popover of a gateway's state says: its name as its title, its version and, while it runs here, its address, in monospace. A
