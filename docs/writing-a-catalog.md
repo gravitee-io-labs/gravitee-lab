@@ -197,7 +197,7 @@ workflows in as a reviewed pull request.
 
 ### Gravitee versions
 
-Every night `versions.yml` tries each playground on the releases of Gravitee it does not say it was tested with yet: the newest
+Every 30 minutes `versions.yml` tries each playground on the releases of Gravitee it does not say it was tested with yet: the newest
 release of each of the five newest minor versions, and a pre-release above them all. A version below what the playground requires
 (`requires.images`) is never tried, nor a set it has already, nor a playground whose sets are builds of its own (`amp-demo-latest`,
 a registry other than Docker Hub's). Each one starts on a machine with no lab, with the license, as the end-to-end run does.

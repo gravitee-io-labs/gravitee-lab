@@ -1,5 +1,5 @@
-# Managed by the Lab catalog standard 9: change it with catalog.py upgrade, in a pull request a maintainer reads.
-# Every night, on the main branch: each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest
+# Managed by the Lab catalog standard 10: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Every 30 minutes, on the main branch: each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest
 # release of each of the five newest minor versions, and a pre-release above them), on a machine with no lab and with the license, as
 # `make e2e` does. What works is written in its x-gravitee.tested, committed to main and released as the next patch version, so that
 # every Lab sees it at its next check. What does not work opens an issue, or adds to the one that is open.
@@ -14,7 +14,7 @@ name: Gravitee versions
 
 on:
   schedule:
-    - cron: "13 5 * * *"
+    - cron: "13,43 * * * *"   # the plan alone runs when no release is new: it reads Docker Hub and starts nothing
   workflow_dispatch:
 
 permissions:

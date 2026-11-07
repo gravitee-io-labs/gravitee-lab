@@ -1,5 +1,5 @@
 {
-  "level": 9,
+  "level": 10,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -82,6 +82,11 @@
     "9": {
       "summary": "The end-to-end run and versions.yml log in to Gravitee's private registry, graviteeio.azurecr.io, before they start an item, when the environment holds a token that reads it: an item that pulls from it is tried like the others. Without the token nothing changes. No file is added.",
       "manual": ["When an item pulls from graviteeio.azurecr.io: a token of that registry that only reads (az acr token create --scope-map _repositories_pull), in the environments e2e and e2e-nightly, as GRAVITEE_REGISTRY_USERNAME and GRAVITEE_REGISTRY_PASSWORD."],
+      "settings": []
+    },
+    "10": {
+      "summary": "versions.yml looks for a new release of Gravitee every 30 minutes, not every night: a release is tried on the playgrounds within half an hour of its publication. When none is new, its plan reads Docker Hub and starts nothing. No file is added.",
+      "manual": [],
       "settings": []
     }
   }
