@@ -613,16 +613,12 @@ def _read():
     that cannot be read, or is not a list of records, stops the seed: read as nothing, the next write would forget all it
     holds, and a removal would delete nothing and say it did."""
     with held():
-        for attempt in (1, 2):   # a mounted folder can fail a read for a moment
-            try:
-                text = STATE_FILE.read_text(encoding="utf-8")
-                break
-            except FileNotFoundError:
-                return []
-            except OSError as e:
-                if attempt == 2:
-                    raise SeedError(_record(f"cannot be read ({e.strerror or e})", fix=True)) from None
-                pause(0.5)
+        try:
+            text = STATE_FILE.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return []
+        except OSError as e:
+            raise SeedError(_record(f"cannot be read ({e.strerror or e})", fix=True)) from None
         try:
             records = json.loads(text)
         except ValueError:
