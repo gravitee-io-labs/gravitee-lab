@@ -288,12 +288,12 @@ check off for one catalog: its menu, **Stop checking automatically**. To start o
 | The Lab says | What it means | What to do |
 |---|---|---|
 | Docker cannot share this folder | A folder catalog outside the folders Docker Desktop shares | Move it under your home folder |
-| No access to the catalog | Git could not sign in | Sign in with Git on this machine, then **Try again** |
+| No access | Git could not sign in | Sign in with Git on this machine, then **Try again** |
 | Unreachable | No network, or the host is down | Try again later; the copy you have still works |
 | Another catalog already uses the name … | Two catalogs claim one name | Remove one, or ask its owner to rename it |
 | Rewritten | The catalog's history was rewritten | Read what changed; **Update anyway** if you trust it |
 | Damaged | A file of the copy differs from what was installed | **Repair** |
 | Needs a catalog | An item needs another catalog | Add it |
-| Needs a newer Lab | A newer version of the catalog uses what this Lab does not read: you keep the newest version it reads | Update Gravitee Lab (`make update`), then restart it |
+| Needs a newer Gravitee Lab | A newer version of the catalog uses what this Lab does not read: you keep the newest version it reads | Update Gravitee Lab (`make update`), then restart it |
 
 If a line is not here, it names its own fix. `python3 lab-ui/catalog.py explain CODE` gives the long form of a rule code.
