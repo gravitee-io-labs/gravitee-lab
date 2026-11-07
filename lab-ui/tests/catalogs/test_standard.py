@@ -1183,6 +1183,7 @@ class Upgrading(Case):
         self.assertIn(".github/workflows/ci.yml", written)
         self.assertTrue(os.access(ci, os.X_OK))                                                 # a file that was executable still is
         self.assertFalse(os.access(repo.root / ".github/workflows/nightly.yml", os.X_OK))       # a new one is not
+        self.assertFalse(os.access(repo.root / ".github/standard.json", os.X_OK))               # nor one that was not
         self.assertNotIn(b"\r", ci.read_bytes())
         self.assertNotIn(b"# one more", ci.read_bytes())
         self.assertEqual(standard.drift(FolderTree(repo.root)), [])
