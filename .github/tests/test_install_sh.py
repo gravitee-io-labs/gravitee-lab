@@ -65,8 +65,6 @@ ln -s "$REAL_GIT" "$TOOLS/git"
 echo 'OK: 25 MiB in 30 packages'
 """
 
-FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("git") and shutil.which("make"), "needs sh, git and make")
 class Install(unittest.TestCase):
@@ -240,7 +238,7 @@ class Install(unittest.TestCase):
     def test_in_a_terminal_a_live_line_runs_and_each_step_ends_on_its_mark(self):
         code, said = self.terminal(**self.slow_git(), FAKE_WAIT="1")
         self.assertEqual(code, 0, said)
-        self.assertTrue(any(frame in said for frame in FRAMES), "the spinner turned")
+        self.assertTrue(any(frame in said for frame in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"), "the spinner turned")
         self.assertIn("━", said, "the percentage of the clone shows as a bar")
         self.assertIn("45%  \x1b[2mDownloading 1.00 MiB, 2.00 MiB/s", said, "git's phases make one bar, in words")
         self.assertNotIn("Receiving objects", said)

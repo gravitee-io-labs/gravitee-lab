@@ -9,7 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 FILES = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md", ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md",
          *sorted((ROOT / "docs").glob("*.md")), *sorted((ROOT / "lab-ui").glob("*.md")), *sorted((ROOT / "seeder").glob("*.md"))]
-MAKE = re.compile(r"`make ([a-z][a-z0-9-]*)")
 # The targets of a catalog's Makefile, which the pages about catalogs name
 CATALOG_MAKEFILE = ROOT / "lab-ui" / "templates" / "catalog" / "managed" / ".catalog" / "standard.mk"
 
@@ -23,9 +22,7 @@ class Commands(unittest.TestCase):
     def test_every_make_target_the_documentation_names_is_in_the_makefile(self):
         have, missing = targets(ROOT / "Makefile") | targets(CATALOG_MAKEFILE), []
         for file in FILES:
-            if not file.is_file():
-                continue
-            for name in sorted(set(MAKE.findall(file.read_text(encoding="utf-8")))):
+            for name in sorted(set(re.findall(r"`make ([a-z][a-z0-9-]*)", file.read_text(encoding="utf-8")))):
                 if name not in have:
                     missing.append(f"{file.relative_to(ROOT)}: make {name}")
         self.assertEqual([], missing)

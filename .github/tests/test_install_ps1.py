@@ -16,8 +16,6 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "install.ps1"
 # The tokens of PowerShell 7 alone, by the names of its parser: Windows PowerShell 5.1 refuses a script that holds one
 SEVEN = {"AndAnd", "OrOr", "QuestionQuestion", "QuestionQuestionEquals", "QuestionDot", "QuestionLBracket", "QuestionMark"}
-# The command a person runs, as install.ps1 builds it for main
-COMMAND = "irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex"
 
 
 def powershell():
@@ -74,7 +72,8 @@ class InstallPs1(unittest.TestCase):
         self.assertIn('$command = "irm $raw/install.ps1 | iex"', self.text)
         self.assertIn('/gravitee-lab/$branch"', self.text)
         for page in ("README.md", "docs/installation.md"):
-            self.assertIn(COMMAND, (ROOT / page).read_text(), page)
+            self.assertIn("irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex",
+                          (ROOT / page).read_text(), page)
 
 
 if __name__ == "__main__":
