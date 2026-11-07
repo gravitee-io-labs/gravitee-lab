@@ -652,6 +652,7 @@ class Reading(Tool):
         self.assertEqual((found["schema"], found["catalog"]["id"]), (1, PARTNER))
         self.assertEqual([(one["kind"], one["id"]) for one in found["units"]], [("addon", "ledger")])
 
+
 def compose_runs(case, *argv):
     """What Compose was given to run while `argv` ran, with the shell holding a secret of the runner: [(the words after `docker`,
     the environment it was started in)], and what the command answered."""
@@ -959,6 +960,7 @@ class Delegated(Tool):
             code, out, err = self.run_tool("release", "1.0.0")
         self.assertEqual((code, out), (2, ""))
         self.assertIn("a fault of the tool, not a problem of the catalog", err)
+
 
 MANAGED = REPO / "lab-ui" / "templates" / "catalog" / "managed"
 CALL = re.compile(r"python3 -I (?:\$\(CATALOG_PY\)|\S*catalog\.py) (?P<rest>.*)")

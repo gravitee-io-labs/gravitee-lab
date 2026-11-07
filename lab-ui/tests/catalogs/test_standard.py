@@ -1,8 +1,8 @@
 """The standard of a catalog repository: the template, `new`, the drift of a repository
 from it (SD01 to SD05, SD08 to SD10) and `upgrade`. The template is rendered, never run; the shell of the `lab` action is taken
 out of the managed file and run with bash on hostile inputs (the `result` job's, in rules/test_workflows.py); the repositories are
-real folders, and real git where a test is about what git says, made in a temporary home; there is no network and no Docker daemon. Compose 5 (a visible skip without) reads the sample
-add-on in the day-one test.
+real folders, and real git where a test is about what git says, made in a temporary home; there is no network and no Docker
+daemon. Compose 5 (a visible skip without) reads the sample add-on in the day-one test.
 
 `python3 -m tests.catalogs.test_standard --write` refreshes `templates/catalog/golden.json` after the level was raised on purpose."""
 
@@ -37,10 +37,10 @@ EVERYTHING = {"images": "ghcr.io/acme/lab-hub", "with": ["e2e"]}
 tree_of = ListTree.from_files
 
 
-def at(level, **more):
+def at(level):
     """A catalog that an older level left, as this Lab meets it: `standard.json` and the markers say `level`, the files of later
     levels are not there, and `ci.yml` holds a line the Lab changed since (from 3 on it has a registry and the e2e module)."""
-    files = render(**(EVERYTHING if level >= 3 else {}), **more)
+    files = render(**(EVERYTHING if level >= 3 else {}))
     later = {each["path"] for each in standard.manifest()["files"] if each["since"] > level}
     now, then = b"catalog standard %d:" % standard.LEVEL, b"catalog standard %d:" % level
     out = {path: data.replace(now, then) for path, data in files.items() if path not in later}
@@ -696,6 +696,7 @@ class Drift(Case):
         found = self.check(huge)
         self.assertLess(time.process_time() - start, 3.0)
         self.assertEqual(where(found, "SD02"), [".github/workflows/ci.yml"])
+
 
 class LabAction(unittest.TestCase):
     """The first `run:` of the managed `lab` action reads standard.json and writes the two lines the checkout reads, or
