@@ -30,7 +30,7 @@ from typing import Iterable, List, NamedTuple, Optional
 
 from ..docker import compose
 from .. import paths
-from . import gitx, registry, tree, understood
+from . import gitx, registry, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -61,11 +61,6 @@ NAME_LIMIT, DESCRIPTION_LIMIT = 40, 90
 LIST_LIMIT = 50   # moved_from and canary: more than this is not a list a person wrote
 SETTINGS_LIMIT = 100
 RENAMED_LIMIT = 200   # the pairs of one part of `renamed`: every rename a catalog ever made is kept there
-# The file of the standard a catalog follows (governance 3.2): the index carries its level. The Lab never installs it, so it is
-# found beside a catalog that is a linked folder (the CI of a catalog), not in an install
-STANDARD_FILE = ".github/standard.json"
-STANDARD_LIMIT = 1 << 16   # a standard.json is under 4 KB (SD04 says so): more than this is not read, and is no level
-STANDARD_MAX = 1000000   # and a level of more is a number nobody wrote
 
 # What a catalog.yml may not contain: the controls, and the line breaks that YAML takes and a line reading would not
 # (next line, line and paragraph separators), and a byte order mark in the middle
@@ -688,52 +683,7 @@ def release_of(store: Path, commit: str, version: Optional[str]) -> Optional[str
 
 # ---------------------------------------------------------------- the index
 
-def _standard(ns) -> Optional[int]:
-    """The level of the standard that catalog `ns` follows, from its `.github/standard.json`, or None: the file is not there,
-    is not a regular file, is a link or lies behind one (`tree.read_inside` opens every folder of the path without following a
-    link, so a hostile catalog cannot make the index read a file of this machine), is larger than STANDARD_LIMIT, is not
-    UTF-8 JSON, or does not say an integer `standard` of at least 1. Read as data and nothing else: a key it does not know is
-    not looked at, and nothing in it is run, imported or followed."""
-    try:
-        folder = registry.install_dir(ns)   # the one place of a catalog, which says what is not a namespace
-    except ValueError:
-        return None
-    data = tree.read_inside(str(folder), STANDARD_FILE, STANDARD_LIMIT + 1)
-    if data is None or len(data) > STANDARD_LIMIT:
-        return None
-    try:
-        found = json.loads(data.decode("utf-8-sig"))
-    except (ValueError, RecursionError):
-        return None
-    level = found.get("standard") if isinstance(found, dict) else None
-    return level if type(level) is int and 1 <= level <= STANDARD_MAX else None
-
-
-def _builds(unit, services, raw) -> list:
-    """What a unit builds, for the index: [{service, image}], the services of the unit whose file has a `build:` (`raw`, the
-    files of the project as gather() read them), with the image each runs as Compose resolved it, or None for a build that
-    names none. The file says it, and not the `built` of the project, which also marks a service that runs an image another
-    service of the project builds, in this catalog or in another: that service builds nothing, and the same catalog would
-    list other services with other catalogs installed.
-    No digest and no time, so two runs give the same list, sorted by service. A setup defines no service, and a unit that is
-    blocked lists none (the project clears them); the service built from the Lab's seeder is listed like any other, and
-    whoever publishes images leaves it out."""
-    file = raw.get(unit.get("file")) if isinstance(unit.get("file"), str) else None
-    defined = file.get("services") if isinstance(file, dict) else None
-    defined = defined if isinstance(defined, dict) else {}
-    found = []
-    for name in unit.get("services") or []:
-        service = services.get(name) if isinstance(services, dict) and isinstance(name, str) else None
-        if not isinstance(service, dict):
-            continue
-        written = defined.get(name)
-        if isinstance(written, dict) and written.get("build"):
-            image = registry.shown(service["image"], 300) if service.get("image") else ""
-            found.append({"service": registry.shown(name, 100), "image": image or None})
-    return sorted(found, key=lambda one: (one["service"], one["image"] or ""))
-
-
-def _index_unit(ns, kind, uid, unit, project, services, raw):
+def _index_unit(ns, kind, uid, unit, project):
     """One entry of the index for a unit of `ns`: its name inside the catalog and what it says of itself."""
     name = paths.split_ref(uid)[1]
     prefix = f"{paths.CATALOGS_DIR}/{ns}/"
@@ -746,7 +696,7 @@ def _index_unit(ns, kind, uid, unit, project, services, raw):
              "name": unit.get("name") or name, "description": unit.get("description") or "",
              "category": unit.get("category") or "", "tags": list(unit.get("tags") or []),
              "requires": dict(unit.get("requires") or {}), "brings": sorted(dict.fromkeys(brings)),
-             "conflicts": dict(unit.get("conflicts") or {}), "builds": _builds(unit, services, raw)}
+             "conflicts": dict(unit.get("conflicts") or {})}
     if kind == "playground":
         found.update({"duration": unit.get("duration"), "first_start": unit.get("first_start"),
                       "source": unit.get("source")})
@@ -755,30 +705,23 @@ def _index_unit(ns, kind, uid, unit, project, services, raw):
 
 def build_index(ns: str) -> dict:
     """The generated `catalog.json` of catalog `ns`: {schema, catalog: {id, name, description, version, lab (when its
-    catalog.yml states one), license}, standard (the level of the standard the catalog follows, from its `.github/standard.json`; the key is there only
-    when that file says one, _standard), units: [{kind, id, path, name, description, category, tags, requires, brings,
-    conflicts, builds: [{service, image}]} and, for a playground, duration, first_start, source]}, the units sorted by kind
-    and id. It reads the project (`project.loaded()`), with the files it was read from, which say what each unit builds (_builds),
-    and the catalog's own `catalog.yml` (`read_catalog`), so there is one reader and no second parser. Nothing in it changes between two runs
-    or with what else is installed: no time, no commit, no digest. What a unit says it was tested with is not in it, and was
-    not before."""
+    catalog.yml states one), license}, units: [{kind, id, path, name, description, category, tags, requires, brings,
+    conflicts} and, for a playground, duration, first_start, source]}, the units sorted by kind and id. It reads the project
+    (`project.loaded()`) and the catalog's own `catalog.yml` (`read_catalog`), so there is one reader and no second parser. Nothing
+    in it changes between two runs or with what else is installed: no time, no commit, no digest."""
     from ..library import project   # here and not above: the project reads this package
-    loaded, read = project.loaded()
+    loaded = project.loaded()[0]
     meta = read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{FILE}")
     units = []
     for kind in paths.KINDS:
         for uid, unit in sorted((loaded.get(f"{kind}s") or {}).items()):
             if paths.origin(uid) == ns:
-                units.append(_index_unit(ns, kind, uid, unit, project, loaded.get("services"), read["raw"]))
+                units.append(_index_unit(ns, kind, uid, unit, project))
     units.sort(key=lambda one: (one["kind"], one["id"]))
-    found = {"schema": 1,
-             "catalog": {key: meta.get(key) for key in ("id", "name", "description", "version", "lab", "license")
-                         if key != "lab" or meta.get("lab") is not None},
-             "units": units}
-    level = _standard(ns)
-    if level is not None:
-        found["standard"] = level
-    return found
+    return {"schema": 1,
+            "catalog": {key: meta.get(key) for key in ("id", "name", "description", "version", "lab", "license")
+                        if key != "lab" or meta.get("lab") is not None},
+            "units": units}
 
 
 def render_index(index: dict) -> str:

@@ -770,12 +770,6 @@ class Indexing(Tool):
         self.assertEqual(out.read_text(encoding="utf-8"), self.run_tool("index", PARTNER)[1])
         self.assertEqual((paths.ROOT, check.ROOT, project.ROOT, compose.ROOT), (self.root,) * 4)
 
-    def test_the_level_of_the_standard_the_catalog_follows_is_in_it(self):
-        self.have(PARTNER)
-        folder = self.copy_of(files={".github/standard.json": json.dumps({"standard": 1, "lab": {"repository": "o/lab", "ref": "a" * 40}})})
-        self.assertEqual(json.loads(self.run_tool("index", str(folder))[1])["standard"], 1)
-        self.assertNotIn("standard", json.loads(self.run_tool("index", PARTNER)[1]))
-
     def test_a_folder_that_is_no_catalog_has_no_index_and_says_why(self):
         empty = self.work / "elsewhere"
         empty.mkdir()
@@ -807,17 +801,12 @@ class Indexing(Tool):
         secret.write_text("x-gravitee: {kind: addon, name: CANARY-NAME, description: CANARY-DESCRIPTION, category: Other}\n"
                           "services:\n  partner-ledger:\n    image: busybox\n    labels: {io.gravitee.description: CANARY-LABEL}\n",
                           encoding="utf-8")
-        outside = self.home / "outside.json"
-        outside.write_text(json.dumps({"standard": 1, "note": "CANARY-STANDARD"}), encoding="utf-8")
         folder = self.copy_of()
         unit = folder / "addons/ledger/compose.yml"
         unit.unlink()
         unit.symlink_to(secret)
-        (folder / ".github").mkdir()
-        (folder / ".github/standard.json").symlink_to(outside)
         code, out, err = self.run_tool("index", str(folder))
         self.assertNotIn("CANARY", out + err)
-        self.assertNotIn("standard", json.loads(out) if out else {}, "a link is not read")
         (folder / "catalog.yml").unlink()
         (folder / "catalog.yml").symlink_to(self.link_of(PARTNER) / "catalog.yml")
         code, out, err = self.run_tool("index", str(folder))

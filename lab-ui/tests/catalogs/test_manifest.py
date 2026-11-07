@@ -5,8 +5,6 @@ visible skip otherwise); `levels` against bare repositories made on this machine
 
 import json
 import os
-import stat
-import time
 import unittest
 from unittest import mock
 
@@ -1116,43 +1114,21 @@ class Indexing(Case):
             {"id": "gravitee", "name": "Base", "description": "", "url": "https://example.invalid/base.git"}]}), encoding="utf-8")
         self.loaded = {
             "addons": {"@acme-hub/fake-core": unit("addon", "@acme-hub/fake-core", needs=[], tags=["banking"]),
-                       "@acme-hub/tracer": unit("addon", "@acme-hub/tracer", needs=["broker"],
-                                                services=["tracer-ui", "tracer-db", "tracer-agent"]),
+                       "@acme-hub/tracer": unit("addon", "@acme-hub/tracer", needs=["broker"]),
                        "broker": unit("addon", "broker", needs=[])},
             "setups": {"@acme-hub/stack": unit("setup", "@acme-hub/stack", members=["@acme-hub/tracer"],
                                                file=".lab/catalogs/acme-hub/setups/stack.yml")},
             "playgrounds": {"@acme-hub/tour": unit("playground", "@acme-hub/tour", tags=["banking"], duration=15,
                                                    first_start=4, source=None, requires={"lab": 1},
-                                                   addons=["@acme-hub/fake-core", "@partner/ledger", "@acme-hub/tracer"],
-                                                   services=["tour-web", "tour-seed"]),
-                            "elsewhere": unit("playground", "elsewhere", addons=[])},
-            # as project.build gives them: the image Compose resolved, and whether the service is built
-            "services": {"tracer-ui": {"image": "registry.example.invalid/acme-hub/tracer-ui:1.2", "built": True},
-                         "tracer-db": {"image": "postgres:16", "built": False},
-                         "tracer-agent": {"image": "registry.example.invalid/acme-hub/tracer-agent:latest", "built": True},
-                         "tour-web": {"image": "registry.example.invalid/acme-hub/tour-web:latest", "built": True},
-                         "tour-seed": {"image": "registry.example.invalid/lab/seeder:latest", "built": True}}}
+                                                   addons=["@acme-hub/fake-core", "@partner/ledger", "@acme-hub/tracer"]),
+                            "elsewhere": unit("playground", "elsewhere", addons=[])}}
         self.meta = {**GOOD, "license": "Apache-2.0"}
         self.catalog = self.root / paths.CATALOGS_DIR / "acme-hub"
 
-    def index(self, raw=None, ns="acme-hub"):
-        """The index of the project above: `raw` says what its files build, by default the services it marks built."""
-        if raw is None:
-            raw = self.raw(*(name for name, one in self.loaded.get("services", {}).items() if one.get("built")))
-        self.patch(project, "loaded", mock.Mock(return_value=(self.loaded, {"raw": raw})))
+    def index(self, ns="acme-hub"):
+        self.patch(project, "loaded", mock.Mock(return_value=(self.loaded, {})))
         self.patch(manifest, "read_catalog", mock.Mock(return_value=self.meta))
         return manifest.build_index(ns)
-
-    def raw(self, *building):
-        """The files of the project as gather() read them, for the project above: each unit's file holds its services, and those
-        of `building` have a `build:`, the others an image to pull. The fact a unit states, apart from the project's own flag."""
-        found = {}
-        for group in ("addons", "playgrounds"):
-            for one in self.loaded[group].values():
-                found[one["file"]] = {"services": {name: {"build": {"context": "./app"}} if name in building
-                                                   else {"image": "pulled:1"}
-                                                   for name in one.get("services") or [] if isinstance(name, str)}}
-        return found
 
     def test_the_index_has_the_catalog_and_its_units_sorted_by_kind_and_id(self):
         found = self.index()
@@ -1182,7 +1158,7 @@ class Indexing(Case):
         self.assertNotIn("duration", tracer)
         self.assertEqual(tracer["brings"], ["addon:broker"])
         self.assertEqual(set(tracer), {"kind", "id", "path", "name", "description", "category", "tags", "requires", "brings",
-                                       "conflicts", "builds"})
+                                       "conflicts"})
 
     def test_the_text_is_the_same_bytes_twice(self):
         first, second = manifest.render_index(self.index()), manifest.render_index(self.index())
@@ -1200,288 +1176,18 @@ class Indexing(Case):
         for word in ("commit", "pin", "installed", "checked", "time", "Z\""):
             self.assertNotIn(word, text.replace("\"requires\"", ""), word)
 
-    def test_the_project_is_loaded_with_its_files_and_the_file_of_the_catalog_is_read(self):
-        found = self.index(self.raw("tracer-ui", "tour-web"))
+    def test_the_file_of_the_catalog_is_read(self):
+        self.index()
         manifest.read_catalog.assert_called_once_with(".lab/catalogs/acme-hub/catalog.yml")
-        self.assertEqual([one["service"] for unit in found["units"] for one in unit["builds"]], ["tracer-ui", "tour-web"],
-                         "what the files say, and not the project's flag")
 
     def test_an_index_of_a_catalog_with_no_unit_is_empty(self):
-        self.assertEqual(self.index(ns="nobody")["units"], [])
-
-    # -- builds: the services a unit builds, 4.5 -------------------------------------------------------------------------
-
-    def builds(self, name):
-        return next(one for one in self.index()["units"] if one["id"] == name)["builds"]
-
-    def test_a_unit_lists_the_services_it_builds_with_the_image_each_runs_sorted_by_service(self):
-        self.assertEqual(self.builds("tracer"), [
-            {"service": "tracer-agent", "image": "registry.example.invalid/acme-hub/tracer-agent:latest"},
-            {"service": "tracer-ui", "image": "registry.example.invalid/acme-hub/tracer-ui:1.2"}])
-        self.assertEqual(self.builds("tour"), [
-            {"service": "tour-seed", "image": "registry.example.invalid/lab/seeder:latest"},
-            {"service": "tour-web", "image": "registry.example.invalid/acme-hub/tour-web:latest"}])
-
-    def test_a_unit_that_builds_nothing_has_an_empty_list_and_so_has_a_setup(self):
-        self.assertEqual(self.builds("fake-core"), [])
-        self.assertEqual(self.builds("stack"), [])
-
-    def test_a_unit_that_is_blocked_lists_none_for_the_project_clears_its_services(self):
-        self.loaded["addons"]["@acme-hub/tracer"]["services"] = []
-        self.assertEqual(self.builds("tracer"), [])
-
-    def test_a_service_the_project_does_not_know_is_left_out(self):
-        self.loaded["addons"]["@acme-hub/tracer"]["services"] = ["tracer-ui", "ghost", None, ["x"], 7]
-        self.assertEqual([one["service"] for one in self.builds("tracer")], ["tracer-ui"])
-        del self.loaded["services"]
-        self.assertEqual(self.index(self.raw("tracer-ui"))["units"][1]["builds"], [], "a project that lists no service")
-
-    def test_what_a_unit_builds_does_not_depend_on_the_order_the_project_lists_it_in(self):
-        first = manifest.render_index(self.index())
-        self.loaded["addons"]["@acme-hub/tracer"]["services"].reverse()
-        self.loaded["playgrounds"]["@acme-hub/tour"]["services"].reverse()
-        self.loaded["services"] = dict(reversed(list(self.loaded["services"].items())))
-        self.assertEqual(manifest.render_index(self.index()), first)
-        self.assertIn('"builds": [', first)
-
-    def test_an_image_is_shown_as_text_a_person_can_read(self):
-        self.loaded["services"]["tracer-ui"]["image"] = "registry.example.invalid/x\n::error::a\x1b[31m\u2028b" + "z" * 1000
-        found = self.builds("tracer")[-1]["image"]
-        self.assertLessEqual(len(found), 300)
-        self.assertTrue(found.isprintable(), found)
-
-    def test_a_megabyte_of_image_or_service_name_is_cut_at_once(self):
-        self.loaded["services"]["tracer-ui"]["image"] = "registry.example.invalid/" + "z" * 1000000 + "\n::error::x"
-        self.loaded["addons"]["@acme-hub/tracer"]["services"].append("s" * 1000000)
-        self.loaded["services"]["s" * 1000000] = {"image": "busybox", "built": True}
-        began = time.process_time()
-        found = self.builds("tracer")
-        self.assertLess(time.process_time() - began, 10)   # only a quadratic reaches it
-        self.assertLessEqual(max(len(one["image"]) for one in found), 300)
-        self.assertLessEqual(max(len(one["service"]) for one in found), 100)
-
-    # -- builds as the file of the unit states them: the same whatever else is installed ---------------------------------
-
-    def built(self, name, *building):
-        return next(one for one in self.index(self.raw(*building))["units"] if one["id"] == name)["builds"]
-
-    def test_a_service_that_runs_the_image_another_one_builds_is_not_a_build_though_the_project_calls_it_built(self):
-        """project.build marks as built every service whose image another service of the project builds, also in another catalog."""
-        self.loaded["services"]["tracer-db"] = {"image": "registry.example.invalid/acme-hub/tracer-ui:1.2", "built": True}
-        self.assertEqual([one["service"] for one in self.built("tracer", "tracer-ui", "tracer-agent")], ["tracer-agent", "tracer-ui"])
-        self.assertEqual(self.built("tracer"), [], "and a unit whose files build nothing builds nothing")
-
-    def test_a_build_that_names_no_image_is_listed_with_none_and_not_left_out(self):
-        self.loaded["services"]["tracer-agent"] = {"image": "", "built": True}
-        found = self.built("tracer", "tracer-agent", "tracer-ui")
-        self.assertEqual(found, [{"service": "tracer-agent", "image": None},
-                                 {"service": "tracer-ui", "image": "registry.example.invalid/acme-hub/tracer-ui:1.2"}])
-        self.assertIn('"image": null', manifest.render_index(self.index(self.raw("tracer-agent"))))
-
-    def test_an_image_that_is_nothing_once_cleaned_is_none_too(self):
-        self.loaded["services"]["tracer-agent"] = {"image": "\x1b\n\u2028", "built": False}
-        self.assertEqual(self.built("tracer", "tracer-agent"), [{"service": "tracer-agent", "image": None}])
-
-    def test_the_index_of_a_catalog_is_the_same_whatever_else_is_installed(self):
-        """Another catalog builds the image a service of this one only pulls, and the other way round."""
-        raw = self.raw("tracer-ui", "tour-web")
-        first = manifest.render_index(self.index(raw))
-        self.loaded["addons"]["@partner/ledger"] = unit("addon", "@partner/ledger", needs=[], services=["partner-ledger"],
-                                                        file=".lab/catalogs/partner/addons/ledger/compose.yml")
-        self.loaded["services"]["partner-ledger"] = {"image": "registry.example.invalid/acme-hub/tour-web:latest", "built": True}
-        self.loaded["services"]["tracer-db"] = {"image": "registry.example.invalid/partner/ledger:1", "built": True}
-        raw[".lab/catalogs/partner/addons/ledger/compose.yml"] = {"services": {"partner-ledger": {"build": "./app"}}}
-        self.assertEqual(manifest.render_index(self.index(raw)), first)
-        self.assertEqual(self.index(raw, ns="partner")["units"][0]["builds"],
-                         [{"service": "partner-ledger", "image": "registry.example.invalid/acme-hub/tour-web:latest"}])
-
-    def test_only_a_build_that_says_something_is_a_build(self):
-        for value, builds in (({"context": "."}, True), ("./app", True), ({"context": ".", "args": {"A": "b"}}, True),
-                              (None, False), ("", False), ({}, False), (False, False), (0, False), ([], False)):
-            with self.subTest(build=value):
-                raw = self.raw()
-                raw[self.loaded["addons"]["@acme-hub/tracer"]["file"]]["services"]["tracer-ui"] = {"build": value}
-                found = next(one for one in self.index(raw)["units"] if one["id"] == "tracer")["builds"]
-                self.assertEqual([one["service"] for one in found], ["tracer-ui"] if builds else [])
-
-    def test_a_file_of_the_project_that_is_not_what_gather_reads_lists_nothing_and_is_no_error(self):
-        file = self.loaded["addons"]["@acme-hub/tracer"]["file"]
-        for odd in ({}, {file: None}, {file: []}, {file: "x"}, {file: {}}, {file: {"services": None}},
-                    {file: {"services": []}}, {file: {"services": "tracer-ui"}}, {file: {"services": {"tracer-ui": None}}},
-                    {file: {"services": {"tracer-ui": ["build"]}}}, {file: {"services": {"tracer-ui": "build"}}},
-                    {"other": {"services": {"tracer-ui": {"build": "."}}}}, {7: 8}):
-            with self.subTest(raw=odd):
-                found = next(one for one in self.index(odd)["units"] if one["id"] == "tracer")["builds"]
-                self.assertEqual(found, [])
-
-    def test_a_megabyte_of_file_is_read_at_once(self):
-        raw = self.raw("tracer-ui")
-        raw[self.loaded["addons"]["@acme-hub/tracer"]["file"]]["services"].update(
-            {f"s{number}": {"build": "." * 100} for number in range(20000)})
-        began = time.process_time()
-        found = self.index(raw)
-        self.assertLess(time.process_time() - began, 10)
-        self.assertEqual([one["service"] for one in found["units"][1]["builds"]], ["tracer-ui"])
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# The standard a catalog follows (governance 3.2): carried by the index, read as data
-# ---------------------------------------------------------------------------------------------------------------------
-
-class Standard(Case):
-    """`standard` of the index is the level in `.github/standard.json` of the catalog's folder: there only when the file says
-    one. The folder is a hostile tree (the CI of a pull request links it), so nothing leads out of it and nothing is run."""
-
-    def setUp(self):
-        self.folder(paths)
-        self.catalog = self.root / paths.CATALOGS_DIR / "acme-hub"
-        self.catalog.mkdir(parents=True)
-        self.meta = {**GOOD, "license": "Apache-2.0"}
-
-    def index(self):
-        self.patch(project, "loaded", mock.Mock(return_value=({"addons": {}, "setups": {}, "playgrounds": {}}, {"raw": {}})))
-        self.patch(manifest, "read_catalog", mock.Mock(return_value=self.meta))
-        return manifest.build_index("acme-hub")
-
-    def standard(self, content, name="standard.json"):
-        """`.github/<name>` of the catalog written with these bytes (text is UTF-8)."""
-        file = self.catalog / ".github" / name
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_bytes(content if isinstance(content, bytes) else content.encode("utf-8"))
-        return file
-
-    GOOD_FILE = json.dumps({"form": "inline", "lab": {"ref": "0" * 40, "repository": "o/lab"}, "platforms": ["linux/amd64"],
-                            "standard": 1}, indent=2, sort_keys=True) + "\n"
-
-    def test_the_level_the_file_states_is_in_the_index(self):
-        self.standard(self.GOOD_FILE)
-        self.assertEqual(self.index()["standard"], 1)
-        self.standard(json.dumps({"standard": 3}))
-        self.assertEqual(self.index()["standard"], 3)
-
-    def test_without_the_file_there_is_no_key(self):
-        self.assertNotIn("standard", self.index())
-        (self.catalog / ".github").mkdir()
-        self.assertNotIn("standard", self.index())
-
-    def test_the_index_is_the_same_bytes_twice_with_and_without_the_file_and_the_key_is_sorted_in(self):
-        without = manifest.render_index(self.index())
-        self.assertEqual(manifest.render_index(self.index()), without)
-        self.standard(self.GOOD_FILE)
-        first, second = manifest.render_index(self.index()), manifest.render_index(self.index())
-        self.assertEqual(first, second)
-        self.assertEqual(list(json.loads(first)), ["catalog", "schema", "standard", "units"])
-        self.assertEqual(first, json.dumps(json.loads(first), indent=2, sort_keys=True, ensure_ascii=False) + "\n")
-
-    def test_the_rest_of_the_index_is_the_same_with_the_file_and_without(self):
-        without = self.index()
-        self.standard(self.GOOD_FILE)
-        with_file = self.index()
-        self.assertEqual({key: value for key, value in with_file.items() if key != "standard"}, without)
-
-    def test_a_file_that_is_not_a_level_gives_no_key(self):
-        for content in ("", "{", "[]", "null", "1", '"standard"', "{}", '{"standard": 0}', '{"standard": -1}',
-                        '{"standard": true}', '{"standard": 1.0}', '{"standard": "1"}', '{"standard": null}',
-                        '{"standard": [1]}', '{"standard": {"standard": 1}}', '{"Standard": 1}', '{"standard": 1000001}',
-                        '{"standard": ' + "9" * 5000 + "}", '{"standard": NaN}', '{"standard": Infinity}',
-                        '{"standard": 1e2}', "standard: 1\n", "\x00\x01\x02", "{'standard': 1}", '{"standard": 1,}'):
-            with self.subTest(content=content[:40]):
-                self.standard(content)
-                self.assertNotIn("standard", self.index())
-
-    def test_a_file_that_is_not_utf_8_is_not_read(self):
-        for content in ('{"standard": 1}'.encode("utf-16"), '{"standard": 1}'.encode("utf-32"), b'{"standard": 1}\xff',
-                        b'\xff\xfe{"standard": 1}'):
-            with self.subTest(content=content[:12]):
-                self.standard(content)
-                self.assertNotIn("standard", self.index())
-
-    def test_what_is_lenient_is_the_rest_of_the_file_and_a_byte_order_mark(self):
-        self.standard(b"\xef\xbb\xbf" + json.dumps({"standard": 2, "unknown": {"deep": [1, 2, 3]}, "form": 7}).encode())
-        self.assertEqual(self.index()["standard"], 2)
-        self.standard('{"standard": 2, "standard": 4}')
-        self.assertEqual(self.index()["standard"], 4, "the last of a repeated key, as JSON readers take it")
-        self.standard(json.dumps({"standard": 1000000}))
-        self.assertEqual(self.index()["standard"], 1000000)
-
-    def test_a_file_larger_than_the_limit_is_not_read_and_one_at_it_is(self):
-        pad = " " * (manifest.STANDARD_LIMIT - len('{"standard": 1}'))
-        self.standard('{"standard": 1}' + pad)
-        self.assertEqual(self.index()["standard"], 1)
-        self.standard('{"standard": 1}' + pad + " ")
-        self.assertNotIn("standard", self.index())
-
-    def test_a_deeply_nested_file_and_a_megabyte_of_it_are_refused_at_once(self):
-        for content in ('{"a": ' + "[" * 60000 + "]" * 60000 + ', "standard": 1}', "[" * 1000000, '{"standard": 1}' + " " * 1000000):
-            self.standard(content)
-            began = time.process_time()
-            self.assertNotIn("standard", self.index())
-            self.assertLess(time.process_time() - began, 10)
-
-    def test_a_link_in_place_of_the_file_is_not_followed(self):
-        elsewhere = self.root / "elsewhere.json"
-        elsewhere.write_text('{"standard": 1}', encoding="utf-8")
-        file = self.catalog / ".github" / "standard.json"
-        file.parent.mkdir()
-        os.symlink(elsewhere, file)
-        self.assertNotIn("standard", self.index())
-
-    def test_a_link_in_place_of_the_folder_is_not_followed(self):
-        outside = self.root / "outside"
-        (outside).mkdir()
-        (outside / "standard.json").write_text('{"standard": 1}', encoding="utf-8")
-        os.symlink(outside, self.catalog / ".github")
-        self.assertNotIn("standard", self.index())
-
-    def test_a_link_to_a_file_that_is_not_there_is_nothing(self):
-        (self.catalog / ".github").mkdir()
-        os.symlink(self.root / "missing.json", self.catalog / ".github" / "standard.json")
-        self.assertNotIn("standard", self.index())
-
-    def test_a_pipe_in_place_of_the_file_is_not_waited_for(self):
-        (self.catalog / ".github").mkdir()
-        os.mkfifo(self.catalog / ".github" / "standard.json")
-        self.assertNotIn("standard", self.index())
-
-    def test_a_folder_in_place_of_the_file_is_nothing(self):
-        (self.catalog / ".github" / "standard.json").mkdir(parents=True)
-        self.assertNotIn("standard", self.index())
-
-    def test_a_file_that_cannot_be_read_is_nothing(self):
-        file = self.standard(self.GOOD_FILE)
-        file.chmod(0)
-        self.addCleanup(file.chmod, stat.S_IRUSR | stat.S_IWUSR)
-        if os.access(file, os.R_OK):
-            self.skipTest("this user reads a file with no permission")
-        self.assertNotIn("standard", self.index())
-
-    def test_the_folder_of_the_catalog_may_be_a_link_for_that_is_how_a_folder_is_linked(self):
-        folder = self.root / "work-tree"
-        (folder / ".github").mkdir(parents=True)
-        (folder / ".github" / "standard.json").write_text(self.GOOD_FILE, encoding="utf-8")
-        self.catalog.rmdir()
-        os.symlink(folder, self.catalog)
-        self.assertEqual(self.index()["standard"], 1)
-
-    def test_a_name_that_is_not_a_namespace_is_not_a_place_to_read(self):
-        self.standard(self.GOOD_FILE)
-        for name in ("../acme-hub", "acme-hub/..", "", ".", "a/b", "ACME", "acme hub", None, 3):
-            with self.subTest(name=name):
-                self.assertIsNone(manifest._standard(name))
-
-    def test_the_index_reads_nothing_of_the_file_but_the_level(self):
-        self.standard(json.dumps({"standard": 1, "lab": {"ref": "x" * 40}, "platforms": ["linux/amd64"],
-                                  "note": "\x1b[31m::error::a"}))
-        text = manifest.render_index(self.index())
-        self.assertNotIn("::error::", text)
-        self.assertNotIn("platforms", text)
-        self.assertEqual(json.loads(text)["standard"], 1)
+        self.assertEqual(self.index("nobody")["units"], [])
 
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
 class RealIndex(Case):
-    """The index of a catalog as the project reads it with Compose (`docker compose config`, no daemon): what a unit builds is
-    what its files say, and two runs give the same bytes."""
+    """The index of a catalog as the project reads it with Compose (`docker compose config`, no daemon): two runs give the same
+    bytes."""
 
     def setUp(self):
         fixtures.project(self, check, paths, project, compose, envfiles)
@@ -1489,52 +1195,10 @@ class RealIndex(Case):
         project.forget()
         self.addCleanup(project.forget)
 
-    def test_the_units_that_build_list_their_services_and_the_others_an_empty_list(self):
-        found = {(one["kind"], one["id"]): one["builds"] for one in manifest.build_index("fixture")["units"]}
-        self.assertEqual([build["service"] for build in found[("playground", "shop")]], ["fixture-shop-seed", "fixture-shop-web"])
-        self.assertEqual(next(build for build in found[("playground", "shop")] if build["service"] == "fixture-shop-web")["image"],
-                         "registry.example.invalid/lab/fixture-shop-web:latest")
-        self.assertEqual([build["service"] for build in found[("playground", "tour")]], ["fixture-tour-seed"])
-        for key in (("addon", "echo"), ("addon", "cluster"), ("setup", "pair")):
-            self.assertEqual(found[key], [], key)
-
-    def test_two_runs_give_the_same_bytes_and_no_standard_where_no_file_says_one(self):
+    def test_two_runs_give_the_same_bytes(self):
         first = manifest.render_index(manifest.build_index("fixture"))
         project.forget()
         self.assertEqual(manifest.render_index(manifest.build_index("fixture")), first)
-        self.assertNotIn("standard", json.loads(first))
-
-    SHOP_IMAGE = "registry.example.invalid/lab/fixture-shop-web:latest"
-
-    def partner(self, image=None, build=False):
-        """The partner catalog installed, its ledger add-on written to pull `image` or, with `build`, to build ./app and name no
-        image. The project is read again with it."""
-        text = (fixtures.CATALOGS / "partner" / "addons" / "ledger" / "compose.yml").read_text(encoding="utf-8")
-        old = "image: busybox:${PARTNER_LEDGER_VERSION:-1.36}   # Image version"
-        self.assertIn(old, text)
-        files = {"addons/ledger/compose.yml": text.replace(old, f"image: {image}")}
-        if build:
-            files = {"addons/ledger/compose.yml": text.replace(old, "build: ./app\n    pull_policy: ${PARTNER_LEDGER_PULL_POLICY:-build}"),
-                     "addons/ledger/app/Dockerfile": "FROM scratch\n"}
-        fixtures.install(self, "partner", files=files)
-        project.forget()
-        return project.load()
-
-    def test_a_service_that_only_pulls_the_image_another_catalog_builds_is_no_build_and_changes_no_index(self):
-        alone = manifest.render_index(manifest.build_index("fixture"))
-        found = self.partner(image=self.SHOP_IMAGE)
-        self.assertEqual(found["services"]["fixture-shop-web"]["image"], self.SHOP_IMAGE, "the image the shop builds")
-        self.assertIsNone(found["addons"]["@partner/ledger"]["blocked"], "the unit is judged and runs")
-        self.assertTrue(found["services"]["partner-ledger"]["built"], "the project says built: it runs a build of here")
-        self.assertEqual(manifest.build_index("partner")["units"][0]["builds"], [], "and the unit builds nothing")
-        self.assertEqual(manifest.render_index(manifest.build_index("fixture")), alone, "the shop is the same with the partner")
-
-    def test_a_build_that_names_no_image_is_listed_with_none(self):
-        found = self.partner(build=True)
-        self.assertIsNone(found["addons"]["@partner/ledger"]["blocked"], "the unit is judged and runs")
-        self.assertEqual((found["services"]["partner-ledger"]["image"], found["services"]["partner-ledger"]["built"]), ("", True))
-        self.assertEqual(manifest.build_index("partner")["units"][0]["builds"], [{"service": "partner-ledger", "image": None}])
-        self.assertIn('"image": null', manifest.render_index(manifest.build_index("partner")))
 
 
 if __name__ == "__main__":
