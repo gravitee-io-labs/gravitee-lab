@@ -469,9 +469,7 @@ class EndToEnd(Case):
             {"kind": "addon", "id": "@acme/cluster-board", "name": "Cluster board", "was": "Board", "on": True},
             {"kind": "addon", "id": "@acme/trace-viewer", "name": "Trace viewer", "was": "Viewer", "on": True}])
         self.containers = {"acme-board": {"state": "running", "name": "gio-acme-board", "id": "b" * 64}}
-        with self.assertRaises(registry.CatalogError) as raised:
-            service.update("acme", ticket=plan["ticket"])
-        self.assertEqual(raised.exception.code, "held", "a container made since the plan holds the update too")
+        self.refusal("held", service.update, "acme", ticket=plan["ticket"])
         self.containers = {}
         service.update("acme", ticket=plan["ticket"])
         project.forget()
@@ -571,9 +569,7 @@ class EndToEnd(Case):
         service.check_now("acme")
         plan = service.update("acme", check=True)
         self.assertEqual(plan["held"], "Turn off Viewer first", "as for any item that is on and would come back blocked")
-        with self.assertRaises(registry.CatalogError) as raised:
-            service.update("acme", ticket=plan["ticket"])
-        self.assertEqual(raised.exception.code, "held")
+        self.refusal("held", service.update, "acme", ticket=plan["ticket"])
         self.assertTrue((self.addon_dir("viewer") / ".env").is_file())
 
     def test_a_rename_waits_while_docker_cannot_say_what_has_containers(self):
@@ -588,9 +584,7 @@ class EndToEnd(Case):
                 self.patch(compose, "ps", down)
                 plan = service.update("acme", check=True)
                 self.assertEqual(plan["held"], "Start Docker first")
-                with self.assertRaises(registry.CatalogError) as raised:
-                    service.update("acme", ticket=plan["ticket"])
-                self.assertEqual(raised.exception.code, "docker_unknown")
+                self.refusal("docker_unknown", service.update, "acme", ticket=plan["ticket"])
                 self.assertTrue((self.addon_dir("viewer") / ".env").is_file())
 
     def test_a_repair_after_a_rename_that_is_done_does_not_ask_docker(self):
@@ -739,9 +733,7 @@ class EndToEnd(Case):
             return real(path, *args, **kwargs)
         self.patch(manifest, "read_catalog", busy)
         renames._read.clear()
-        with self.assertRaises(registry.CatalogError) as raised:
-            service.update("acme", ticket=plan["ticket"])
-        self.assertEqual(raised.exception.code, "renames_unread")
+        self.refusal("renames_unread", service.update, "acme", ticket=plan["ticket"])
         held = registry.lock_of("acme")
         self.assertEqual((held["pin"], held["pending"], held["error"]), (pin, None, None), "nothing was changed")
         self.assertTrue((self.addon_dir("viewer") / ".env").is_file())

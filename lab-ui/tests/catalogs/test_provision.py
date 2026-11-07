@@ -677,9 +677,7 @@ class Provision(Served, Case):
     def test_a_download_that_git_did_not_run_because_the_lab_ui_ends_is_no_failure_of_the_catalog(self):
         self.started()
         self.patch(gitx, "ls_remote", side_effect=gitx.fail("git_failed", output=gitx.ENDING))
-        with self.assertRaises(CatalogError) as caught:
-            firstrun.provision(self.ns)
-        self.assertEqual(caught.exception.code, "git_failed")
+        self.refusal("git_failed", firstrun.provision, self.ns)
         self.assertIsNone(self.lock()["error"], "the next start downloads it as if nothing had happened")
 
     def test_a_note_that_cannot_be_written_after_the_install_is_no_failure(self):
@@ -763,9 +761,7 @@ class Provision(Served, Case):
                 self.patch(bare, "fetch", cached)
                 self.started()
                 self.patch(install, "STEP", refuse(label))
-                with self.assertRaises(CatalogError) as caught:
-                    firstrun.provision(self.ns)
-                self.assertEqual(caught.exception.code, "failed")
+                self.refusal("failed", firstrun.provision, self.ns)
                 held = self.lock()
                 self.assertEqual((held["pin"], held["pending"], held["error"]), (None, None, "failed"),
                                  "a failed commit is a failure, and not a download that never ends")
@@ -788,9 +784,7 @@ class Provision(Served, Case):
             if step == "add:done":
                 raise OSError(13, "Permission denied")
         self.patch(install, "STEP", refuse)
-        with self.assertRaises(CatalogError) as caught:
-            firstrun.provision(self.ns)
-        self.assertEqual(caught.exception.code, "failed", "the worker counts it, and the next round finds nothing to do")
+        self.refusal("failed", firstrun.provision, self.ns)
         held = self.lock()
         self.assertEqual((held["pin"], held["pending"], held["error"]), (self.remote.head(), None, None))
         self.assertEqual(firstrun.content()["key"], "ready")

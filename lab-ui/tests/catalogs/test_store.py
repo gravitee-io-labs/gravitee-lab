@@ -696,9 +696,7 @@ class Stores(Remote):
         self.assertFalse(lock.exists())
         lock.write_text("")   # a lock git holds right now
         third = gitfixture.commit(self.repo, {"README.md": "and again\n"})
-        with self.assertRaises(gitx.CatalogError) as raised:
-            self.fetched()
-        self.assertEqual(raised.exception.code, "git_failed")
+        self.refusal("git_failed", self.fetched)
         self.assertEqual(store.resolve(self.store, "refs/lab/tip"), second, "the store is as it was")
         self.assertNotEqual(tip, third)
 
@@ -764,9 +762,7 @@ class Fetching(Remote):
         self.assertFalse(self.store.exists())
 
     def test_a_folder_is_not_fetched(self):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(gitx.Address("folder", "", "/h/x", "~/x", "", ""), "main", self.store)
-        self.assertEqual(raised.exception.code, "bad_address")
+        self.refusal("bad_address", store.fetch, gitx.Address("folder", "", "/h/x", "~/x", "", ""), "main", self.store)
         self.assertFalse(self.store.exists())
 
     def test_a_branch_that_is_not_a_name_is_refused_before_anything_is_made(self):
@@ -796,9 +792,7 @@ class Fetching(Remote):
 
     def test_a_remote_that_is_not_there_is_not_found_and_leaves_nothing(self):
         gone = gitx.parse_address("file://" + str(self.root / "remotes" / "none.git"))
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(gone, "main", self.store)
-        self.assertEqual(raised.exception.code, "not_found")
+        self.refusal("not_found", store.fetch, gone, "main", self.store)
         self.assertFalse(self.store.exists())
 
     def test_git_refuses_an_object_that_is_not_right_and_the_store_is_removed(self):
@@ -829,9 +823,7 @@ class Fetching(Remote):
                                   f"  sleep 60 &\n  echo $! > '{pids}'\n"
                                   "  printf 'Receiving objects:  10%% (1/10), 2.00 GiB | 5.00 MiB/s\\r' >&2\n  wait\n  exit 0\nfi; done\n"
                                   "exec \"$REAL\" \"$@\"")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(self.address, "main", self.store, stall=30, cap=60)
-        self.assertEqual(raised.exception.code, "too_large")
+        self.refusal("too_large", store.fetch, self.address, "main", self.store, stall=30, cap=60)
         self.assertFalse(self.store.exists())
         end = time.monotonic() + 5
         pid = int(pids.read_text())
@@ -859,9 +851,7 @@ class Fetching(Remote):
     def test_a_fetch_that_never_ends_is_cut_at_the_cap_though_it_sends(self):
         gitfixture.fake_git(self, "for a in \"$@\"; do if [ \"$a\" = fetch ]; then while true; do printf . >&2; sleep 0.1; done; fi; done\n"
                                   "exec \"$REAL\" \"$@\"")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(self.address, "main", self.store, stall=5, cap=0.6)
-        self.assertEqual(raised.exception.code, "timeout")
+        self.refusal("timeout", store.fetch, self.address, "main", self.store, stall=5, cap=0.6)
 
     def test_the_credentials_in_what_git_said_are_not_kept_in_the_error(self):
         gitfixture.fake_git(self, "for a in \"$@\"; do if [ \"$a\" = fetch ]; then\n"
@@ -1083,9 +1073,7 @@ class Reading(Remote):
 
     def test_a_listing_too_large_to_read_is_too_large(self):
         self.patch(store, "LISTING_LIMIT", 100)
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.listing(self.store, self.tip)
-        self.assertEqual(raised.exception.code, "too_large")
+        self.refusal("too_large", store.listing, self.store, self.tip)
 
     def test_a_record_that_git_did_not_write_is_fsck(self):
         real = gitx.run
@@ -1095,9 +1083,7 @@ class Reading(Remote):
                 return gitx.Result(0, b"100644 blob nothex  1\tx\0", "")
             return real(args, **how)
         self.patch(gitx, "run", odd)
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.listing(self.store, self.tip)
-        self.assertEqual(raised.exception.code, "fsck")
+        self.refusal("fsck", store.listing, self.store, self.tip)
 
     def oids(self, *paths):
         by_path = {e.path: e.oid for e in store.listing(self.store, self.tip)}
@@ -1168,15 +1154,11 @@ class Reading(Remote):
             list(store.blobs(self.store, self.oids("catalog.yml") + ["1" * 40]))
 
     def test_an_object_that_is_not_a_file_is_not_a_blob(self):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            list(store.blobs(self.store, [self.tip]))
-        self.assertEqual(raised.exception.code, "fsck")
+        self.refusal("fsck", list, store.blobs(self.store, [self.tip]))
 
     def test_too_much_content_in_a_batch_is_too_large(self):
         self.patch(store, "BLOBS_LIMIT", 1000)
-        with self.assertRaises(gitx.CatalogError) as raised:
-            list(store.blobs(self.store, self.oids("addons/echo/big.bin")))
-        self.assertEqual(raised.exception.code, "too_large")
+        self.refusal("too_large", list, store.blobs(self.store, self.oids("addons/echo/big.bin")))
 
     def commits(self, *subjects):
         last = self.tip
