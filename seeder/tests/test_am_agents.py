@@ -16,30 +16,30 @@ from tests.test_am import DOMAINS, GRANTS_OF_AN_AGENT, AccessManagement
 SCOPES = re.compile(DOMAINS + "/[^/]+/scopes")
 APPLICATIONS = re.compile(DOMAINS + "/[^/]+/applications")
 SYSTEM_SCOPES = ("openid", "profile", "email")
-SECRET = "care-copilot-secret"
+SECRET = "desk-copilot-secret"
 CALLBACK = "http://localhost:8130/auth/callback"
 CLAIM = "{#context.attributes['user']['additionalInformation']['region']}"
 
 DOMAIN_FILE = """\
-name: harbor
+name: orchid
 scopes:
   - {key: searchCustomers, name: Search customers, description: Find customers of your region}
   - {key: getCustomer, name: Read a customer profile, description: Read the profile of a customer of your region}
   - {key: createRefund, name: Refund an order, description: Refund an order within the limits of your team}
 users:
-  - username: dana@harbor.test
-    email: dana@harbor.test
+  - username: dana@orchid.test
+    email: dana@orchid.test
     firstName: Dana
     lastName: Reyes
     password: demo-password
     additionalInformation: {name: Dana Reyes, region: EU, team: support}
 """
 AGENT_FILE = f"""\
-name: Care copilot
-description: Harbor's customer care copilot
+name: Desk copilot
+description: Orchid's customer desk copilot
 type: AGENT
 kind: HOSTED_DELEGATED
-clientId: care-copilot
+clientId: desk-copilot
 clientSecret: {SECRET}
 redirectUris: ["{CALLBACK}"]
 scopes: [openid, profile, email, searchCustomers, getCustomer, createRefund]
@@ -172,12 +172,12 @@ class Case(test_am.Case):
 
     def files(self, domain=DOMAIN_FILE, agent=AGENT_FILE):
         """The seed files: the domain, and the agent unless it is None (then the folder of applications is empty)."""
-        self.seed_files({"am/domain.yaml": domain, **({"am/applications/care-copilot.yaml": agent} if agent else {})})
+        self.seed_files({"am/domain.yaml": domain, **({"am/applications/desk-copilot.yaml": agent} if agent else {})})
         if not agent:
-            (common.SEED_DIR / "am" / "applications" / "care-copilot.yaml").unlink(missing_ok=True)
+            (common.SEED_DIR / "am" / "applications" / "desk-copilot.yaml").unlink(missing_ok=True)
 
     def agent(self):
-        return self.am.one("applications", clientId="care-copilot")
+        return self.am.one("applications", clientId="desk-copilot")
 
     def oauth(self):
         return self.agent()["settings"]["oauth"]
@@ -218,7 +218,7 @@ class Scopes(Case):
                          {"searchCustomers", "getCustomer", "createRefund"})
 
     def test_a_scope_that_is_there_is_not_made_again_and_the_platform_s_description_stays(self):
-        domain_id = self.am.add_domain("harbor", [("getCustomer", "Customers", "Made when the MCP server was registered")])
+        domain_id = self.am.add_domain("orchid", [("getCustomer", "Customers", "Made when the MCP server was registered")])
         self.seed()
         self.assertEqual([post["key"] for post in self.posts()], ["searchCustomers", "createRefund"])
         self.assertEqual(self.am.one("scopes", key="getCustomer")["description"], "Made when the MCP server was registered")
@@ -227,14 +227,14 @@ class Scopes(Case):
                          "recorded: the two it made")
 
     def test_every_scope_is_found_whatever_page_of_the_list_it_is_on(self):
-        self.am.add_domain("harbor", [(f"scope-{number}", "x", "x") for number in range(120)] + [("getCustomer", "x", "x")])
+        self.am.add_domain("orchid", [(f"scope-{number}", "x", "x") for number in range(120)] + [("getCustomer", "x", "x")])
         self.seed()
         self.assertEqual(self.am.scope_pages, [(0, 50), (1, 50), (2, 50)], "124 scopes, fifty a page")
         self.assertEqual([post["key"] for post in self.posts()], ["searchCustomers", "createRefund"])
 
     def test_a_list_that_gives_no_total_is_read_until_a_page_is_short(self):
         self.am.hide_total = True
-        self.am.add_domain("harbor", [(f"scope-{number}", "x", "x") for number in range(47)])   # 50 with the system scopes
+        self.am.add_domain("orchid", [(f"scope-{number}", "x", "x") for number in range(47)])   # 50 with the system scopes
         self.seed()
         self.assertEqual(self.am.scope_pages, [(0, 50), (1, 50)], "a full page: the next one may have more")
         self.assertEqual(len(self.posts()), 3)
@@ -269,24 +269,24 @@ class Scopes(Case):
         self.assertEqual(self.am.one("scopes", key="getCustomer")["name"], "Read a customer profile")
 
     def test_a_scope_can_be_written_as_its_key_alone(self):
-        self.files(domain="name: harbor\nscopes: [alpha, beta]\n", agent=None)
+        self.files(domain="name: orchid\nscopes: [alpha, beta]\n", agent=None)
         self.seed()
         self.assertEqual(self.posts(), [{"key": "alpha", "name": "alpha", "description": "alpha"},
                                         {"key": "beta", "name": "beta", "description": "beta"}])
 
     def test_a_scope_without_a_key_stops_the_seed_in_one_line(self):
-        self.files(domain="name: harbor\nscopes: [{name: Nameless}]\n", agent=None)
+        self.files(domain="name: orchid\nscopes: [{name: Nameless}]\n", agent=None)
         with self.assertRaisesRegex(common.SeedError, "^seed/am/domain.yaml: a scope needs a key$"):
             self.seed()
 
     def test_a_domain_that_lists_no_scope_asks_for_none(self):
-        self.files(domain="name: harbor\n", agent=None)
+        self.files(domain="name: orchid\n", agent=None)
         self.seed()
         self.assertEqual(self.platform.sent("GET", SCOPES), [])
         self.assertEqual(self.platform.sent("POST", SCOPES), [])
 
     def test_a_key_the_file_lists_twice_is_made_once(self):
-        self.files(domain="name: harbor\nscopes: [{key: a, name: A, description: A}, {key: a, name: B, description: B}]\n", agent=None)
+        self.files(domain="name: orchid\nscopes: [{key: a, name: A, description: A}, {key: a, name: B, description: B}]\n", agent=None)
         self.seed()
         self.assertEqual(len(self.posts()), 1, "a key twice in the file is made once")
 
@@ -299,7 +299,7 @@ class Scopes(Case):
         self.assertEqual(self.am.domains, {})
 
     def test_a_removal_leaves_the_scopes_it_did_not_make(self):
-        domain_id = self.am.add_domain("harbor", [("getCustomer", "x", "x")])
+        domain_id = self.am.add_domain("orchid", [("getCustomer", "x", "x")])
         self.seed()
         records = [x for x in common.created() if x["kind"] == "scope"]
         am.remove(records)
@@ -316,8 +316,8 @@ class Agent(Case):
     def test_it_is_made_as_an_agent_with_the_secret_of_the_file(self):
         self.seed()
         sent = self.platform.sent("POST", APPLICATIONS)[0].json
-        self.assertEqual(sent, {"name": "Care copilot", "type": "AGENT", "kind": "HOSTED_DELEGATED", "clientId": "care-copilot",
-                                "clientSecret": SECRET, "redirectUris": [CALLBACK], "description": "Harbor's customer care copilot"})
+        self.assertEqual(sent, {"name": "Desk copilot", "type": "AGENT", "kind": "HOSTED_DELEGATED", "clientId": "desk-copilot",
+                                "clientSecret": SECRET, "redirectUris": [CALLBACK], "description": "Orchid's customer desk copilot"})
         self.assertEqual((self.agent()["type"], self.agent()["secret"]), ("agent", SECRET))
 
     def test_the_secret_is_not_made_read_or_changed_anywhere_but_in_the_file(self):
@@ -334,7 +334,7 @@ class Agent(Case):
 
     def test_it_signs_in_with_that_secret_where_its_kind_would_have_it_sign_in_with_a_key(self):
         self.seed()
-        self.assertEqual(self.am.at_creation["care-copilot"]["tokenEndpointAuthMethod"], "private_key_jwt", "what AM gave it")
+        self.assertEqual(self.am.at_creation["desk-copilot"]["tokenEndpointAuthMethod"], "private_key_jwt", "what AM gave it")
         self.assertEqual(self.oauth()["tokenEndpointAuthMethod"], "client_secret_basic")
 
     def test_it_keeps_the_grants_and_response_types_its_kind_gives_it(self):
@@ -371,7 +371,7 @@ class Agent(Case):
         self.assertEqual(self.writes(), [])
         self.assertIn("OAuth settings and identity provider as the file says", self.output())
         self.assertIn("3 scopes as the file says", self.output())
-        self.assertEqual(self.am.one("users", username="dana@harbor.test")["additionalInformation"]["given_name"], "Dana")
+        self.assertEqual(self.am.one("users", username="dana@orchid.test")["additionalInformation"]["given_name"], "Dana")
 
     def test_the_order_am_keeps_the_scopes_in_is_no_difference_and_nor_are_the_fields_it_adds(self):
         self.seed()
@@ -465,15 +465,15 @@ class Agent(Case):
         self.assertEqual(len(self.oauth()["scopeSettings"]), 6)
 
     def test_a_scope_the_domain_lacks_is_refused_by_am_and_the_seed_says_so(self):
-        self.files(domain="name: harbor\n")
+        self.files(domain="name: orchid\n")
         with self.assertRaisesRegex(common.SeedError, "HTTP 400.*non valid scopes"):
             self.seed()
 
     def test_an_agent_the_seed_did_not_make_is_set_up_where_it_differs_and_never_recorded(self):
-        domain_id = self.am.add_domain("harbor", [("searchCustomers", "x", "x"), ("getCustomer", "x", "x"), ("createRefund", "x", "x")])
+        domain_id = self.am.add_domain("orchid", [("searchCustomers", "x", "x"), ("getCustomer", "x", "x"), ("createRefund", "x", "x")])
         self.am.held[(domain_id, "applications")] = {"app-0": {
-            "id": "app-0", "name": "Care copilot", "type": "agent", "kind": "HOSTED_DELEGATED", "clientId": "care-copilot",
-            "identityProviders": [], "settings": {"oauth": {"clientId": "care-copilot", "redirectUris": [CALLBACK],
+            "id": "app-0", "name": "Desk copilot", "type": "agent", "kind": "HOSTED_DELEGATED", "clientId": "desk-copilot",
+            "identityProviders": [], "settings": {"oauth": {"clientId": "desk-copilot", "redirectUris": [CALLBACK],
                                                             "tokenEndpointAuthMethod": "private_key_jwt"}, "advanced": {}}}}
         self.seed()
         self.assertEqual(self.platform.sent("POST", APPLICATIONS), [])
@@ -483,7 +483,7 @@ class Agent(Case):
     def test_it_is_recorded_as_an_agent_of_the_domain(self):
         self.seed()
         self.assertEqual([(x["kind"], x["label"], x["name"], x["domain"]) for x in common.created() if x["kind"] == "agent"],
-                         [("agent", "AM agents", "Care copilot", self.domain_id())])
+                         [("agent", "AM agents", "Desk copilot", self.domain_id())])
 
 
 class Users(Case):
@@ -494,7 +494,7 @@ class Users(Case):
         self.files()
 
     def dana(self):
-        return self.am.one("users", username="dana@harbor.test")
+        return self.am.one("users", username="dana@orchid.test")
 
     def test_the_profile_is_applied_after_the_user_is_made(self):
         self.seed()
@@ -505,14 +505,14 @@ class Users(Case):
         self.assertEqual(len(self.platform.sent("PUT", re.compile(DOMAINS + "/[^/]+/users/.*"))), 1)
 
     def test_the_flag_of_the_seed_is_not_sent_to_am_as_a_field_of_the_user(self):
-        user = ("  - {username: sam@harbor.test, email: sam@harbor.test, firstName: Sam, lastName: Lopez, password: p, optional: true}\n"
-                "  - {username: kim@harbor.test, email: kim@harbor.test, firstName: Kim, lastName: Ng, password: p, optional: true,\n"
+        user = ("  - {username: sam@orchid.test, email: sam@orchid.test, firstName: Sam, lastName: Lopez, password: p, optional: true}\n"
+                "  - {username: kim@orchid.test, email: kim@orchid.test, firstName: Kim, lastName: Ng, password: p, optional: true,\n"
                 "     additionalInformation: {team: trainee}}\n")
-        self.files(domain="name: harbor\nusers:\n" + user, agent=None)
+        self.files(domain="name: orchid\nusers:\n" + user, agent=None)
         self.seed()
         for post in self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/users")):
             self.assertNotIn("optional", post.json)
-        self.assertEqual(sorted(user["username"] for user in self.am.objects("users")), ["kim@harbor.test", "sam@harbor.test"])
+        self.assertEqual(sorted(user["username"] for user in self.am.objects("users")), ["kim@orchid.test", "sam@orchid.test"])
 
 
 if __name__ == "__main__":

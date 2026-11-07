@@ -23,28 +23,28 @@ IDENTITY = APPLICATION + "/identity"
 SUBSCRIPTIONS = AIM + "/mcp-proxies/studio-1/subscriptions"
 
 AGENT = """\
-entityId: care-copilot
-source: Harbor
-url: ${CARE_COPILOT_CARD_URL}
+entityId: desk-copilot
+source: Orchid
+url: ${DESK_COPILOT_CARD_URL}
 metadata:
   riskClassification: limited
 identity:
-  clientId: care-copilot
+  clientId: desk-copilot
 access:
-  - {studio: Customer care, plan: Agents}
+  - {studio: Customer desk, plan: Agents}
 """
 SECOND = """\
 entityId: second-agent
 identity:
   clientId: second
 access:
-  - {studio: Customer care, plan: Agents}
+  - {studio: Customer desk, plan: Agents}
 """
 LINK = """\
-domain: harbor
+domain: orchid
 serviceAccount: gamma-service-account
 """
-SETTINGS = {"CARE_COPILOT_CARD_URL": "http://harbor-copilot:8000"}
+SETTINGS = {"DESK_COPILOT_CARD_URL": "http://orchid-copilot:8000"}
 APPLICATION_ID, AM_APPLICATION_ID = "app-1", "am-app-1"
 APPLICATIONS = {"agent-1": APPLICATION_ID, "agent-2": "app-2"}
 NOT_FOUND = (404, {"code": "agent.application.not_found", "message": "No application acts for this agent"})
@@ -67,19 +67,19 @@ class World:
 
     def __init__(self, validation="AUTO"):
         self.next_id = itertools.count(1)
-        self.agents = [{"id": "agent-1", "entityId": "agent.care-copilot", "state": "ACTIVE",
-                        "definition": {"name": "Care copilot"}},
+        self.agents = [{"id": "agent-1", "entityId": "agent.desk-copilot", "state": "ACTIVE",
+                        "definition": {"name": "Desk copilot"}},
                        {"id": "agent-2", "entityId": "agent.second-agent", "state": "ACTIVE",
                         "definition": {"name": "Second agent"}}]
         self.applications = {}      # agent id -> the application that acts for it
-        self.studios = [{"id": "studio-1", "name": "Customer care", "mode": "STUDIO", "contextPath": "/mcp/customer-care"}]
+        self.studios = [{"id": "studio-1", "name": "Customer desk", "mode": "STUDIO", "contextPath": "/mcp/customer-desk"}]
         self.plans = {"studio-1": [
             {"id": "plan-registration", "apimPlanId": "apim-registration", "name": "Registration", "status": "PUBLISHED"},
             {"id": "plan-agents", "apimPlanId": "apim-agents", "name": "Agents", "status": "PUBLISHED"}]}
         self.subscriptions = []
         self.validation = validation
-        self.domains = [{"id": "dom-1", "name": "Harbor", "hrid": "harbor"}]
-        self.am_applications = {AM_APPLICATION_ID: self.identity(AM_APPLICATION_ID, "care-copilot"),
+        self.domains = [{"id": "dom-1", "name": "Orchid", "hrid": "orchid"}]
+        self.am_applications = {AM_APPLICATION_ID: self.identity(AM_APPLICATION_ID, "desk-copilot"),
                                 "am-app-2": self.identity("am-app-2", "second")}
         self.deleted_applications = []
         self.detach_answer = None   # what detaching an identity answers, in place of detaching it
@@ -128,7 +128,7 @@ class World:
     def create_application(self, call):
         agent = agent_of(call)
         if self.race:
-            self.applications[agent] = {"applicationId": "app-by-hand", "name": "Care copilot"}
+            self.applications[agent] = {"applicationId": "app-by-hand", "name": "Desk copilot"}
         if agent in self.applications:
             return 409, {"code": "agent.application.already_exists", "message": "An application already acts for this agent"}
         name = next(a["definition"]["name"] for a in self.agents if a["id"] == agent)
@@ -215,7 +215,7 @@ class Agents(Seed):
         self.env(**SETTINGS)
         self.world = World()
         self.platform.add(self.world.routes())
-        self.seed_files({"aim/agents/care-copilot.yaml": AGENT, "am/gamma-link.yaml": LINK})
+        self.seed_files({"aim/agents/desk-copilot.yaml": AGENT, "am/gamma-link.yaml": LINK})
 
     def records(self, kind=None):
         return [x for x in common.created() if x["product"] == aim_agents.SECTION and kind in (None, x["kind"])]
@@ -254,14 +254,14 @@ class FirstRun(Agents):
         self.assertNotIn("agent-0", self.world.applications)
 
     def test_the_identity_is_the_application_of_that_exact_client_id_in_the_domain_of_the_link(self):
-        self.world.am_applications["am-app-0"] = self.world.identity("am-app-0", "care-copilot-old")
+        self.world.am_applications["am-app-0"] = self.world.identity("am-app-0", "desk-copilot-old")
         aim_agents.seed()
         self.assertEqual(self.world.applications["agent-1"]["identityId"], AM_APPLICATION_ID)
         searched = self.platform.sent("GET", AM + "/domains/dom-1/applications")
-        self.assertEqual(searched[0].params["q"], "care-copilot")
+        self.assertEqual(searched[0].params["q"], "desk-copilot")
 
     def test_the_domain_may_be_named_by_its_name_or_by_its_hrid(self):
-        for name in ("Harbor", "harbor"):
+        for name in ("Orchid", "orchid"):
             with self.subTest(domain=name):
                 self.seed_files({"am/gamma-link.yaml": f"domain: {name}\n"})
                 self.world.applications.clear()
@@ -272,19 +272,19 @@ class FirstRun(Agents):
         aim_agents.seed()
         application, subscription = self.records("agent-application"), self.records("subscription")
         self.assertEqual([(x["name"], x["id"], x["label"]) for x in application],
-                         [("Care copilot", APPLICATION_ID, "agent applications")])
+                         [("Desk copilot", APPLICATION_ID, "agent applications")])
         self.assertEqual((application[0]["agent"], application[0]["identity"]), ("agent-1", AM_APPLICATION_ID))
         self.assertEqual([(x["name"], x["label"], x["api"], x["application"]) for x in subscription],
-                         [("Care copilot → Customer care (Agents)", "agent subscriptions", "studio-1", APPLICATION_ID)])
+                         [("Desk copilot → Customer desk (Agents)", "agent subscriptions", "studio-1", APPLICATION_ID)])
         self.assertEqual(subscription[0]["id"], self.world.subscriptions[0]["id"])
         self.assertEqual(len(self.records()), 2)
         self.assertEqual(len(common.created()), 2)
 
     def test_it_says_what_it_did(self):
         aim_agents.seed()
-        self.assertIn("[aim-agents] ✓ Agent application created: Care copilot", self.output())
-        self.assertIn("[aim-agents]   ✓ Identity attached: care-copilot", self.output())
-        self.assertIn("[aim-agents]   ✓ Subscribed: Care copilot → Customer care (Agents)", self.output())
+        self.assertIn("[aim-agents] ✓ Agent application created: Desk copilot", self.output())
+        self.assertIn("[aim-agents]   ✓ Identity attached: desk-copilot", self.output())
+        self.assertIn("[aim-agents]   ✓ Subscribed: Desk copilot → Customer desk (Agents)", self.output())
 
     def test_a_plan_that_asks_for_a_person_is_accepted_by_the_seed(self):
         self.world.validation = "MANUAL"
@@ -293,15 +293,15 @@ class FirstRun(Agents):
         self.assertEqual(self.world.subscriptions[0]["status"], "ACCEPTED")
 
     def test_an_agent_without_identity_gets_its_application_and_access_and_asks_nothing_of_access_management(self):
-        self.seed_files({"aim/agents/care-copilot.yaml": AGENT.replace("identity:\n  clientId: care-copilot\n", "")})
+        self.seed_files({"aim/agents/desk-copilot.yaml": AGENT.replace("identity:\n  clientId: desk-copilot\n", "")})
         (common.SEED_DIR / "am" / "gamma-link.yaml").unlink()
         aim_agents.seed()
         self.assertEqual(self.changed(), [("POST", APPLICATION), ("POST", SUBSCRIPTIONS)])
         self.assertEqual([call for call in self.platform.calls if call.url.startswith("http://am")], [])
 
     def test_an_agent_without_access_gets_its_application_and_identity(self):
-        without_access = AGENT.replace("access:\n  - {studio: Customer care, plan: Agents}\n", "")
-        self.seed_files({"aim/agents/care-copilot.yaml": without_access})
+        without_access = AGENT.replace("access:\n  - {studio: Customer desk, plan: Agents}\n", "")
+        self.seed_files({"aim/agents/desk-copilot.yaml": without_access})
         aim_agents.seed()
         self.assertEqual(self.changed(), [("POST", APPLICATION), ("PUT", IDENTITY)])
 
@@ -334,9 +334,9 @@ class SecondRun(Agents):
     def test_it_says_that_everything_is_in_place(self):
         aim_agents.seed()
         aim_agents.seed()
-        self.assertIn("[aim-agents] Agent application exists: Care copilot", self.output())
-        self.assertIn("[aim-agents]   Identity attached: care-copilot", self.output())
-        self.assertIn("[aim-agents]   Subscription exists: Care copilot → Customer care (Agents)", self.output())
+        self.assertIn("[aim-agents] Agent application exists: Desk copilot", self.output())
+        self.assertIn("[aim-agents]   Identity attached: desk-copilot", self.output())
+        self.assertIn("[aim-agents]   Subscription exists: Desk copilot → Customer desk (Agents)", self.output())
 
     def test_a_subscription_that_was_paused_by_hand_on_an_agent_in_service_stays_paused(self):
         self.made()
@@ -424,7 +424,7 @@ class KillSwitch(Agents):
         aim_agents.seed()
         self.assertEqual(self.changed(), [("POST", self.RESTORE)])
         self.assertEqual((self.world.agents[0]["state"], self.world.subscriptions[0]["status"]), ("ACTIVE", "ACCEPTED"))
-        self.assertIn("[aim-agents]   ✓ Access restored: Care copilot", self.output())
+        self.assertIn("[aim-agents]   ✓ Access restored: Desk copilot", self.output())
         self.platform.calls.clear()
         aim_agents.seed()
         self.assertEqual(self.changed(), [])
@@ -433,7 +433,7 @@ class KillSwitch(Agents):
         self.made()
         self.world.revoke()
         self.world.restore_error = "The subscription could not be resumed"
-        self.fails("The access of the agent 'Care copilot' could not be restored: The "
+        self.fails("The access of the agent 'Desk copilot' could not be restored: The "
                    "subscription could not be resumed")
         self.assertEqual(self.world.agents[0]["state"], "INACTIVE")
 
@@ -446,7 +446,7 @@ class KillSwitch(Agents):
         self.assertEqual([s["status"] for s in self.world.subscriptions], ["ACCEPTED", "ACCEPTED"])
 
     def test_a_revoked_agent_whose_application_is_not_the_seeds_is_not_restored(self):
-        self.world.applications["agent-1"] = {"applicationId": "app-by-hand", "name": "Care copilot"}
+        self.world.applications["agent-1"] = {"applicationId": "app-by-hand", "name": "Desk copilot"}
         self.world.agents[0]["state"] = "INACTIVE"
         with self.assertRaises(common.SeedError):
             aim_agents.seed()
@@ -456,8 +456,8 @@ class KillSwitch(Agents):
 
 class WhatItDidNotMake(Agents):
     def test_an_application_that_acts_for_the_agent_and_was_not_made_by_the_seed_stops_it(self):
-        self.world.applications["agent-1"] = {"applicationId": "app-by-hand", "name": "Care copilot"}
-        self.fails("An application already acts for the agent 'Care copilot' and was not created "
+        self.world.applications["agent-1"] = {"applicationId": "app-by-hand", "name": "Desk copilot"}
+        self.fails("An application already acts for the agent 'Desk copilot' and was not created "
                    "by this playground: delete it, the seed leaves it alone")
         self.assertEqual(self.changed(), [])
         self.assertEqual(self.records(), [])
@@ -476,7 +476,7 @@ class WhatItDidNotMake(Agents):
         aim_agents.seed()
         self.assertEqual(self.changed(), [("POST", APPLICATION)])   # refused, so written nowhere
         self.assertEqual(len(self.world.applications), 1)
-        self.assertIn("Agent application exists: Care copilot", self.output())
+        self.assertIn("Agent application exists: Desk copilot", self.output())
         self.assertEqual([x["id"] for x in self.records("agent-application")], [APPLICATION_ID])
 
     def test_a_conflict_with_nothing_to_read_is_reported_whole(self):
@@ -490,16 +490,16 @@ class WhatItDidNotMake(Agents):
     def test_an_identity_of_another_client_id_attached_to_the_application_stops_it(self):
         self.made()
         self.world.applications["agent-1"]["identityId"] = "am-app-9"
-        self.fails("The application of the agent 'Care copilot' presents another identity "
-                   "than the client id 'care-copilot': detach it in Agent Identity, the "
+        self.fails("The application of the agent 'Desk copilot' presents another identity "
+                   "than the client id 'desk-copilot': detach it in Agent Identity, the "
                    "seed leaves it alone")
         self.assertEqual(self.changed(), [])
 
     def test_an_identity_that_a_person_attached_is_accepted_and_not_recorded(self):
-        self.world.applications["agent-1"] = {"applicationId": "app-by-hand", "name": "Care copilot",
+        self.world.applications["agent-1"] = {"applicationId": "app-by-hand", "name": "Desk copilot",
                                               "identityId": AM_APPLICATION_ID}
         common.save_created([{"product": "aim-agents", "kind": "agent-application", "label": "agent applications",
-                              "name": "Care copilot", "id": "app-by-hand", "agent": "agent-1"}])
+                              "name": "Desk copilot", "id": "app-by-hand", "agent": "agent-1"}])
         aim_agents.seed()
         self.assertEqual(self.changed(), [("POST", SUBSCRIPTIONS)])
         self.assertNotIn("identity", self.records("agent-application")[0])
@@ -513,7 +513,7 @@ class WhatItNeeds(Agents):
         with self.assertRaises(common.SeedError) as stopped:
             aim_agents.seed()
         message = str(stopped.exception)
-        self.assertTrue(message.startswith("The agent 'Care copilot': this platform has no application for an agent of the "
+        self.assertTrue(message.startswith("The agent 'Desk copilot': this platform has no application for an agent of the "
                                            "catalog (/catalog/agents/{id}/application)"), message)
         for words in ("identity and access", "amp-demo build", "4.13.1", "client_id"):
             self.assertIn(words, message)
@@ -524,19 +524,19 @@ class WhatItNeeds(Agents):
 
     def test_an_agent_that_is_not_in_the_catalog_stops_the_seed_before_it_writes(self):
         self.world.agents.clear()
-        self.fails("The agent 'agent.care-copilot' is not in the catalog: aim_catalog registers "
+        self.fails("The agent 'agent.desk-copilot' is not in the catalog: aim_catalog registers "
                    "it from the same file")
         self.assertEqual(self.changed(), [])
 
     def test_an_identity_that_access_management_does_not_have_stops_it_naming_the_domain(self):
         self.world.am_applications.clear()
-        self.fails("No application of the AM domain 'harbor' has the client id 'care-copilot': "
+        self.fails("No application of the AM domain 'orchid' has the client id 'desk-copilot': "
                    "seed/am/applications makes it before the agent takes it as its identity")
         self.assertEqual(self.changed(), [("POST", APPLICATION)])   # the application is there for the next run
 
     def test_a_domain_that_is_not_there_stops_it(self):
         self.world.domains.clear()
-        self.fails("AM domain 'harbor' not found")
+        self.fails("AM domain 'orchid' not found")
 
     def test_an_identity_without_the_link_that_names_the_domain_stops_it_before_any_call(self):
         (common.SEED_DIR / "am" / "gamma-link.yaml").unlink()
@@ -551,50 +551,50 @@ class WhatItNeeds(Agents):
 
     def test_a_studio_that_is_not_there_stops_it(self):
         self.world.studios.clear()
-        self.fails("The MCP studio 'Customer care' is not there: aim/studios makes it before the "
+        self.fails("The MCP studio 'Customer desk' is not there: aim/studios makes it before the "
                    "agent subscribes")
 
     def test_a_proxy_of_that_name_is_not_a_studio(self):
         self.world.studios[0]["mode"] = "PROXY"
         with self.assertRaises(common.SeedError) as stopped:
             aim_agents.seed()
-        self.assertIn("The MCP studio 'Customer care' is not there", str(stopped.exception))
+        self.assertIn("The MCP studio 'Customer desk' is not there", str(stopped.exception))
 
     def test_two_studios_of_that_name_are_not_chosen_between(self):
         self.world.studios.append({**self.world.studios[0], "id": "studio-2"})
-        self.fails("2 MCP studios are named 'Customer care': the agent cannot tell which one to "
+        self.fails("2 MCP studios are named 'Customer desk': the agent cannot tell which one to "
                    "subscribe to")
 
     def test_a_plan_that_is_not_published_is_not_there(self):
         self.world.plans["studio-1"][1]["status"] = "STAGING"
-        self.fails("The MCP studio 'Customer care' has no published plan 'Agents'")
+        self.fails("The MCP studio 'Customer desk' has no published plan 'Agents'")
 
     def test_a_plan_of_another_name_is_not_there(self):
-        self.seed_files({"aim/agents/care-copilot.yaml": AGENT.replace("plan: Agents", "plan: Humans")})
+        self.seed_files({"aim/agents/desk-copilot.yaml": AGENT.replace("plan: Agents", "plan: Humans")})
         with self.assertRaises(common.SeedError) as stopped:
             aim_agents.seed()
         self.assertIn("has no published plan 'Humans'", str(stopped.exception))
 
     def test_an_agent_file_is_checked_before_any_call(self):
-        access = "care-copilot.yaml: access is a list of {studio, plan} or {api, plan, apiKey}"
-        for text, problem in ((AGENT.replace("entityId: care-copilot\n", ""), "care-copilot.yaml: entityId missing"),
-                              (AGENT.replace("clientId: care-copilot", "clientIds: x"),
-                               "care-copilot.yaml: identity needs a clientId"),
-                              (AGENT.replace("- {studio: Customer care, plan: Agents}", "- Customer care"), access),
+        access = "desk-copilot.yaml: access is a list of {studio, plan} or {api, plan, apiKey}"
+        for text, problem in ((AGENT.replace("entityId: desk-copilot\n", ""), "desk-copilot.yaml: entityId missing"),
+                              (AGENT.replace("clientId: desk-copilot", "clientIds: x"),
+                               "desk-copilot.yaml: identity needs a clientId"),
+                              (AGENT.replace("- {studio: Customer desk, plan: Agents}", "- Customer desk"), access),
                               (AGENT.replace(", plan: Agents", ""), access),
-                              (AGENT.replace("{studio: Customer care,", "{studio: Customer care, api: Harbor models,"), access),
+                              (AGENT.replace("{studio: Customer desk,", "{studio: Customer desk, api: Orchid models,"), access),
                               (AGENT.replace("plan: Agents}", "plan: Agents, apiKey: k}"), access)):
             with self.subTest(problem=problem):
-                self.seed_files({"aim/agents/care-copilot.yaml": text})
+                self.seed_files({"aim/agents/desk-copilot.yaml": text})
                 self.fails(problem)
                 self.assertEqual(self.platform.calls, [])
 
 
 MODELS_API, MODELS_PLANS = "api-models", ENV.replace("/management/", "/management/v2/") + "/apis/api-models/plans"
 MODELS_SUBSCRIPTIONS = ENV.replace("/management/", "/management/v2/") + "/apis/api-models/subscriptions"
-TO_THE_MODEL = AGENT.replace("  - {studio: Customer care, plan: Agents}\n",
-                             "  - {studio: Customer care, plan: Agents}\n"
-                             "  - {api: Harbor models, plan: Agents, apiKey: \"${HARBOR_LLM_KEY}\"}\n")
+TO_THE_MODEL = AGENT.replace("  - {studio: Customer desk, plan: Agents}\n",
+                             "  - {studio: Customer desk, plan: Agents}\n"
+                             "  - {api: Orchid models, plan: Agents, apiKey: \"${ORCHID_LLM_KEY}\"}\n")
 
 
 class AccessToAnApi(Agents):
@@ -603,9 +603,9 @@ class AccessToAnApi(Agents):
 
     def setUp(self):
         super().setUp()
-        self.env(HARBOR_LLM_KEY="harbor-llm-key")
-        self.seed_files({"aim/agents/care-copilot.yaml": TO_THE_MODEL})
-        common.record("apim", "api", "APIs", "Harbor models", MODELS_API)   # what seed/apim made before
+        self.env(ORCHID_LLM_KEY="orchid-llm-key")
+        self.seed_files({"aim/agents/desk-copilot.yaml": TO_THE_MODEL})
+        common.record("apim", "api", "APIs", "Orchid models", MODELS_API)   # what seed/apim made before
         self.api_plans = [{"id": "plan-llm-agents", "name": "Agents", "status": "PUBLISHED", "security": {"type": "API_KEY"}},
                           {"id": "plan-llm-old", "name": "Agents", "status": "CLOSED", "security": {"type": "API_KEY"}}]
         self.api_subscriptions = []
@@ -632,8 +632,8 @@ class AccessToAnApi(Agents):
     def test_the_application_of_the_agent_is_subscribed_to_the_published_plan_with_the_key_of_the_file(self):
         aim_agents.seed()
         self.assertEqual(self.api_subscriptions, [{"id": "llm-sub-1", "application": APPLICATION_ID, "plan": "plan-llm-agents",
-                                                   "status": "ACCEPTED", "key": "harbor-llm-key"}])
-        self.assertIn("[aim-agents]   ✓ Subscribed: Care copilot → Harbor models (Agents)", self.output())
+                                                   "status": "ACCEPTED", "key": "orchid-llm-key"}])
+        self.assertIn("[aim-agents]   ✓ Subscribed: Desk copilot → Orchid models (Agents)", self.output())
 
     def test_it_comes_after_the_application_is_made_and_with_the_access_to_the_studio(self):
         aim_agents.seed()
@@ -661,14 +661,14 @@ class AccessToAnApi(Agents):
         common.save_created([x for x in common.created() if x["product"] != "apim"])
         with self.assertRaises(common.SeedError) as stopped:
             aim_agents.seed()
-        self.assertIn("The API 'Harbor models' was not made by this playground", str(stopped.exception))
+        self.assertIn("The API 'Orchid models' was not made by this playground", str(stopped.exception))
         self.assertEqual(self.api_subscriptions, [])
 
     def test_a_plan_that_is_not_published_is_not_there(self):
         self.api_plans[0]["status"] = "STAGING"
         with self.assertRaises(common.SeedError) as stopped:
             aim_agents.seed()
-        self.assertIn("The API 'Harbor models' has no published plan 'Agents'", str(stopped.exception))
+        self.assertIn("The API 'Orchid models' has no published plan 'Agents'", str(stopped.exception))
 
     def test_a_key_needs_a_plan_of_api_keys(self):
         self.api_plans[0]["security"] = {"type": "JWT"}
@@ -688,7 +688,7 @@ class WhatItLeavesAlone(Agents):
     CARD_ONLY = "entityId: acme-bakery-ace\nsource: Acme Bakery\nurl: http://bakery-agent:8000\n"
 
     def test_a_file_with_neither_key_is_aim_catalogs_alone(self):
-        self.seed_files({"aim/agents/care-copilot.yaml": self.CARD_ONLY})
+        self.seed_files({"aim/agents/desk-copilot.yaml": self.CARD_ONLY})
         with mock.patch.dict(os.environ, {}, clear=True):
             aim_agents.seed()
         self.assertEqual(self.platform.calls, [])
@@ -707,7 +707,7 @@ class Removal(Agents):
 
     def remove(self, with_am_agent=True):
         """A removal as seed.py runs it: with the whole record, in which seed/am has recorded the identity it made."""
-        am_agent = {"label": "AM agents", "product": "am", "kind": "agent", "name": "Care copilot", "id": AM_APPLICATION_ID}
+        am_agent = {"label": "AM agents", "product": "am", "kind": "agent", "name": "Desk copilot", "id": AM_APPLICATION_ID}
         aim_agents.remove(common.created() + ([am_agent] if with_am_agent else []))
 
     def test_it_closes_the_subscription_detaches_the_identity_and_deletes_the_application_in_that_order(self):
@@ -716,8 +716,8 @@ class Removal(Agents):
                                           ("DELETE", ENV + f"/applications/{APPLICATION_ID}")])
         self.assertEqual(self.world.subscriptions[0]["status"], "CLOSED")
         self.assertEqual(self.world.deleted_applications, [APPLICATION_ID])
-        self.assertIn("[aim-agents] ✓ Closed subscription 'Care copilot → Customer care (Agents)'", self.output())
-        self.assertIn("[aim-agents] ✓ Deleted agent application 'Care copilot'", self.output())
+        self.assertIn("[aim-agents] ✓ Closed subscription 'Desk copilot → Customer desk (Agents)'", self.output())
+        self.assertIn("[aim-agents] ✓ Deleted agent application 'Desk copilot'", self.output())
 
     def test_an_identity_that_seed_am_did_not_make_is_not_detached_because_detaching_deletes_it(self):
         self.remove(with_am_agent=False)
@@ -737,7 +737,7 @@ class Removal(Agents):
                            ("DELETE", IDENTITY): (409, {"code": "agent.identity.not_attached", "message": "none"}),
                            ("DELETE", ENV + f"/applications/{APPLICATION_ID}"): 404})
         self.remove()
-        self.assertIn("✓ Deleted agent application 'Care copilot'", self.output())
+        self.assertIn("✓ Deleted agent application 'Desk copilot'", self.output())
 
     def test_a_subscription_that_is_closed_already_is_no_error(self):
         self.platform.add({("POST", re.compile(SUBSCRIPTIONS + "/[^/]+/_close")):
@@ -754,13 +754,13 @@ class Removal(Agents):
         self.world.detach_answer = (502, {"code": "identity.unreachable", "message": "Access Management did not answer"})
         self.remove()
         self.assertEqual(self.world.deleted_applications, [APPLICATION_ID])
-        self.assertIn("! Access Management did not answer: the identity of 'Care copilot' stays attached", self.output())
+        self.assertIn("! Access Management did not answer: the identity of 'Desk copilot' stays attached", self.output())
 
     def test_an_identity_that_stays_in_access_management_is_said(self):
         self.world.detach_answer = (200, {"applicationId": APPLICATION_ID, "identityId": AM_APPLICATION_ID, "result": "PARTIAL",
                                           "error": "The identity service refused the deletion"})
         self.remove()
-        self.assertIn("! The identity of 'Care copilot' is detached and stays in Access Management: The identity service "
+        self.assertIn("! The identity of 'Desk copilot' is detached and stays in Access Management: The identity service "
                       "refused the deletion", self.output())
 
     def test_a_refusal_that_is_not_about_what_is_gone_is_an_error(self):
