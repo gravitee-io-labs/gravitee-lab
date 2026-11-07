@@ -124,7 +124,7 @@ def _raw(path, skip=(), timeout=None):
     more = {key: value for key, value in (("skip", skip), ("timeout", timeout)) if value}
     try:
         return compose.raw(path, **more), None
-    except (compose.ComposeError, ValueError) as error:   # Compose names the file by its full path: the problem already says which
+    except (compose.ComposeError, ValueError, RecursionError) as error:   # Compose names the file by its full path: the problem already says which
         return None, {"file": path, "message": str(error).replace(f"validating {ROOT / path}: ", "")}
 
 
@@ -642,7 +642,7 @@ def _variables(path):
     """compose.variables of a file that loaded; nothing for one that cannot be read again."""
     try:
         return compose.variables(path)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return []
 
 

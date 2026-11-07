@@ -286,7 +286,7 @@ An anchor is a place in the engine that a unit may point to.
 
 | Anchor | What a unit does with it |
 |---|---|
-| `seeder` | Builds the seeder from the engine's `seeder/` folder, and runs the image that `x-gravitee.seeder.image` names in the core file. It is the only image a seed service may have |
+| `seeder` | Builds the seeder from the engine's `seeder/` folder, and runs the image that `x-gravitee.seeder.image` names in the core file. It is the only image a seed service may have. Its entry point is `python seed.py`, in its working folder, which a seed service's own command may run |
 | `plugins/apim` | Mounts the plugins of API Management, to give another service the plugins of the core's gateway |
 | `plugins/am` | Mounts the plugins of Access Management |
 | `lab-ui` | Lets the Lab UI frame it: the Lab UI is served on port 9000, at the two addresses of [Frames](#frames) |

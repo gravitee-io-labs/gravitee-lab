@@ -18,9 +18,8 @@ What `run` decides, and the rule modules do not:
 - **What it does not do.** It never writes (git is asked to leave the index alone), never links, never runs a file of the tree,
   and makes no network call: `online` only asks for the checks that compare with GitHub (IM04), from what git already holds.
 
-The modules of other packages (`standard` for SD, `workflows` for WF, `codeowners` for CO) are used when they exist, and said
-(`skipped`) when they do not. A folder catalog, which has no `.github/`, is judged on the families that need no GitHub, and
-`Result.header` says so in a second line."""
+A folder catalog, which has no `.github/`, is judged on the families that need no GitHub, and `Result.header` says so in a second
+line."""
 
 import importlib
 import os

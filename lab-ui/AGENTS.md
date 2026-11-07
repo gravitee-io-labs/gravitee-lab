@@ -188,11 +188,8 @@ make e2e ID=playground:acme-shop   # starts an item from nothing on a machine wi
 - `python3 lab-ui/server.py --no-open` does not open a browser. `--check` and `--list` are `make check` and `make urls`.
 - `python3 -m unittest discover -s lab-ui/tests -t lab-ui` runs the Lab UI's tests alone. The page's rules need Node
   ([Set up your machine](../CONTRIBUTING.md#set-up-your-machine)) and are skipped without it: a skip did not pass.
-- `make check` needs the Docker CLI with Compose 5 or later, not a running daemon. `lab_ui/library/check.py` holds what it covers:
-  each add-on, setup and playground (metadata, what a shared playground says of itself (tags, duration, first start) and its README,
-  includes, conflicts, image defaults, labels, restart policies, ports published twice, what a service takes of this machine beyond its
-  container and says why (`host_access`), what a playground requires, its guide and the API definitions of its seed),
-  then the project (catalog rows, image names, and the wiring of AI agents).
+- `make check` needs the Docker CLI with Compose 5 or later, not a running daemon. `lab_ui/library/check.py` holds what it covers: the
+  core file, the skills and their stubs, and the `CLAUDE.md` next to each `AGENTS.md`. What a catalog holds is `catalog.py check`'s.
 - A change in `lab_ui/` needs a restart of `make ui`. The page's files are read at each load.
 - Tests do not see the page. After a change to it, with the platform running, go through the checks of
   [DESIGN.md](DESIGN.md#manual-checks) that cover the change, in light and dark.

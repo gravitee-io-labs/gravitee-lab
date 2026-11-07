@@ -1897,6 +1897,13 @@ class Hostile(Case):
         self.assertTrue(built["addons"]["echo"]["services"], "the rest of the catalog loads")
         self.assertEqual(built["problems"], [])
 
+    def test_defaults_nested_past_what_python_can_read_end_that_item_and_not_the_project(self):
+        deep = "${A:-" * 600 + "x" + "}" * 600
+        text = ("x-gravitee: {kind: addon, name: Deep, category: Other, description: Nested}\n"
+                f"services:\n  deep:\n    image: busybox\n    labels:\n      a: '{deep}'\n    pull_policy: '{deep}'\n")
+        _, built = read(self, more=lambda case: case.write(".lab/catalogs/local/addons/deep/compose.yml", text))
+        self.assertTrue(built["addons"]["echo"]["services"], "the rest loads")
+
     def test_a_file_that_is_a_link_or_a_pipe_or_not_text_or_too_large_is_refused_before_it_is_read(self):
         def files(case):
             base = case.root / ".lab/catalogs/fixture/addons"

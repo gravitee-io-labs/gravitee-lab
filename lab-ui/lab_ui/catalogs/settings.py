@@ -140,6 +140,8 @@ PUBLISH_POLICY = {"protected_branches": False, "custom_branch_policies": True}
 # The deploy keys of the repository: versions.yml pushes the versions it recorded to main and tags their release with one
 DEPLOY_KEY = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
 DEPLOY_TUPLE = ("DeployKey", None, "always")
+# What a repository with one maintainer has to keep: with no bypass, the review the rules ask for is one nobody else can give
+SOLE_MAINTAINER = ("RepositoryRole", ADMIN_ROLE, "pull_request")
 ADMINS = (("RepositoryRole", ADMIN_ROLE),)       # (actor type, actor id) of who may bypass a protected path
 TAGGERS = ADMINS + (("DeployKey", None),)       # and a tag
 HIDDEN_BYPASS = "bypass_actors are returned to administrators only"
@@ -1061,6 +1063,8 @@ class _Audit:
         actors = sorted(set(actors) - {DEPLOY_TUPLE}, key=repr)   # a deploy key pushes what versions.yml recorded
         if not actors:
             return self.add("rules.bypass", OK)
+        if actors == [SOLE_MAINTAINER]:
+            return self.add("rules.bypass", WARN, now="one administrator can merge their own pull request")
         self.add("rules.bypass", FAIL, now="bypass: " + clean(actors), fix=self.ruleset_fix("main"))
 
     def tags(self):

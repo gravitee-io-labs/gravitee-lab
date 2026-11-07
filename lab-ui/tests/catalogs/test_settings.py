@@ -788,7 +788,7 @@ class Audit(Case):
         self.assertEqual(OK, Scene("public-standard").finding("rules.bypass").status)
         solo = {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
         key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
-        for actors in ([solo], [solo, key], [{"actor_id": 1, "actor_type": "Team", "bypass_mode": "always"}],
+        for actors in ([{"actor_id": 1, "actor_type": "Team", "bypass_mode": "always"}],
                        [solo, {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
                        [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]):
             scene = Scene("public-standard")
@@ -798,6 +798,14 @@ class Audit(Case):
             found = scene.finding("rules.bypass")
             self.assertEqual(FAIL, found.status, actors)
             self.assertEqual([key], requests_of(found)[0][2]["bypass_actors"])
+        # A sole maintainer keeps it: no fix takes away the one way they have to merge
+        for actors in ([solo], [solo, key]):
+            scene = Scene("public-standard")
+            detail = copy.deepcopy(scene.get("/rulesets/1001").body)
+            detail["bypass_actors"] = actors
+            scene.set("/rulesets/1001", detail)
+            found = scene.finding("rules.bypass")
+            self.assertEqual((WARN, None), (found.status, found.fix), actors)
         # The deploy key that versions.yml pushes the versions it recorded with is no one who merges a pull request
         scene = Scene("public-standard")
         detail = copy.deepcopy(scene.get("/rulesets/1001").body)

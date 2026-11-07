@@ -1096,7 +1096,8 @@ def build(project, state, containers, job, failures, license_features, docker, c
     return {"docker": _docker(docker), "wait": c["wait"], "unread": c["unread"], "blind": c["blind"], "license": _license(c, containers),
             "job": _job(job),
             "platform": _platform(c),
-            "platforms": [{key: record[key] for key in ("id", "name", "kind", "url")} for record in platforms],
+            "platforms": [{**{key: record[key] for key in ("id", "name", "kind", "url")}, "account": {"hrid": record["account"]["hrid"]}}
+                          for record in platforms],
             "products": [{"id": group["product"], "name": project["products"][group["product"]]["name"]}
                          for group in project["groups"] if group["product"]],
             "categories": project["categories"],

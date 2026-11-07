@@ -1883,13 +1883,11 @@ class Platforms(Built):
         # A state asked with the new keys left out is the state as it always was
         self.assertEqual(body, self.build(platforms=(), deployed=None))
 
-    def test_the_platforms_are_listed_by_what_the_page_needs_and_nothing_of_their_account(self):
+    def test_the_platforms_are_listed_by_what_the_page_needs(self):
         body = self.build(platforms=[self.RECORD, {**self.RECORD, "id": "client-lab", "name": "Client lab"}])
         self.assertEqual(body["platforms"], [
-            {"id": "my-account", "name": "My Account", "kind": "cloud", "url": "https://eu.cloud.gravitee.io"},
-            {"id": "client-lab", "name": "Client lab", "kind": "cloud", "url": "https://eu.cloud.gravitee.io"}])
-        self.assertFalse(any({"account", "hrid", "token"} & set(platform) for platform in body["platforms"]),
-                         "its account is in it")
+            {"id": "my-account", "name": "My Account", "kind": "cloud", "url": "https://eu.cloud.gravitee.io", "account": {"hrid": "acme"}},
+            {"id": "client-lab", "name": "Client lab", "kind": "cloud", "url": "https://eu.cloud.gravitee.io", "account": {"hrid": "acme"}}])
 
     def test_where_a_playground_can_go_is_what_the_project_derived_for_it(self):
         self.project["playgrounds"]["hotels"].update(self.HOTELS)
