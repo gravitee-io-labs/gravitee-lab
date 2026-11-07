@@ -18,7 +18,7 @@ operation does, as the page gives it. With them only those do, in the order of t
 give stops the seed, and so does a page that reports errors. An entry is an operation id, or a mapping of the id with
 what the file writes in place of what the page gave, to tailor the tool for a model:
 
-    api: Harbor Orders API
+    api: Orchid Orders API
     operations:
       - listOrders
       - id: createRefund

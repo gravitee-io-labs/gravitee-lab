@@ -13,7 +13,7 @@
 
 A policy or a schema names the MCP server and an agent without knowing their ids: `<server>` stands for the slug the
 catalog gave the server, which the seed reads back from the catalog, and `<agent:CLIENT_ID>` for the id of the agent
-entity that the gateway makes of that client id (`AgentIdentity::"<agent:care-copilot>"`).
+entity that the gateway makes of that client id (`AgentIdentity::"<agent:desk-copilot>"`).
 
 Each statement of a policy starts with an `@id`, which Decisions shows as the reason of a decision ("Forbidden by policy
 '...'"): it is written as a name a person reads, the first statement of a policy carrying the policy's own name.

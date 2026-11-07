@@ -1,4 +1,4 @@
-"""What the catalog seed takes from a file since the Harbor playgrounds: the operations of an API that become tools,
+"""What the catalog seed takes from a file: the operations of an API that become tools,
 with the words written for a model in place of the generated ones, and the metadata of an agent. Run against a memory
 that these tests define: an import that refuses a tool entry with a key it does not take."""
 
@@ -9,9 +9,9 @@ from lab_seeder import aim_catalog
 from lab_seeder import common
 from tests.test_aim_catalog import AGENT, CARD, Catalog, World
 
-ORDERS = "Harbor Orders API"
-CUSTOMERS = "Harbor Customers API"
-STUDIO = ("aim-proxies", "studio", "MCP studios", "Customer care", "studio-1")
+ORDERS = "Orchid Orders API"
+CUSTOMERS = "Orchid Customers API"
+STUDIO = ("aim-proxies", "studio", "MCP studios", "Customer desk", "studio-1")
 
 
 # --- The two APIs as the platform generates their tools ---------------------------------------
@@ -74,7 +74,7 @@ class ToolWorld(World):
 
 
 class Tools(Catalog):
-    """A seed run against it, with the two APIs of Harbor in it."""
+    """A seed run against it, with the two APIs of Orchid in it."""
 
     def setUp(self):
         super().setUp()
@@ -94,7 +94,7 @@ class Tools(Catalog):
 
 
 REFUND = """\
-api: Harbor Orders API
+api: Orchid Orders API
 operations:
   - listOrders
   - getOrder
@@ -121,20 +121,20 @@ operations:
   - cancelOrder
 """
 CUSTOMER_FILE = """\
-api: Harbor Customers API
+api: Orchid Customers API
 operations:
   - getCustomer
   - searchCustomers
 """
-PLAIN = "api: Harbor Customers API\n"
+PLAIN = "api: Orchid Customers API\n"
 
 
 def customers(*operations):
-    return "api: Harbor Customers API\noperations: [" + ", ".join(operations) + "]\n"
+    return "api: Orchid Customers API\noperations: [" + ", ".join(operations) + "]\n"
 
 
 def orders(*entries):
-    return "api: Harbor Orders API\noperations:\n" + "".join(f"  - {entry}\n" for entry in entries)
+    return "api: Orchid Orders API\noperations:\n" + "".join(f"  - {entry}\n" for entry in entries)
 
 
 class Operations(Tools):
@@ -148,7 +148,7 @@ class Operations(Tools):
         self.assertEqual(self.run_seed(), [("POST", "/catalog/mcp-tools/_importFromApis")])
         self.assertEqual(self.imported(), [["getCustomer", "searchCustomers"]])
         self.assertEqual([i["entityId"] for i in self.world.of_kind("mcp-tool")],
-                         ["mcp-tool.harbor-customers-api-getcustomer", "mcp-tool.harbor-customers-api-searchcustomers"])
+                         ["mcp-tool.orchid-customers-api-getcustomer", "mcp-tool.orchid-customers-api-searchcustomers"])
 
     def test_a_listed_operation_is_the_tool_the_page_gave_without_its_output_schema(self):
         self.run_seed()
@@ -160,7 +160,7 @@ class Operations(Tools):
             self.assertEqual(tool["definition"], {k: v for k, v in page[name]["toolDefinition"].items() if k != "outputSchema"})
 
     def test_an_operation_written_as_a_mapping_with_only_its_id_is_the_same_as_its_name(self):
-        self.seed_files({"aim/api-tools/customers.yaml": "api: Harbor Customers API\noperations:\n  - {id: getCustomer}\n"})
+        self.seed_files({"aim/api-tools/customers.yaml": "api: Orchid Customers API\noperations:\n  - {id: getCustomer}\n"})
         self.run_seed()
         self.assertEqual(self.imported(), [["getCustomer"]])
         self.seed_files({"aim/api-tools/customers.yaml": customers("getCustomer")})
@@ -195,7 +195,7 @@ class Operations(Tools):
         with self.assertRaises(common.SeedError) as stopped:
             self.run_seed()
         self.assertEqual(str(stopped.exception),
-                         "The OpenAPI page of 'Harbor Customers API' has no operation 'eraseCustomer': "
+                         "The OpenAPI page of 'Orchid Customers API' has no operation 'eraseCustomer': "
                          "it has searchCustomers, getCustomer, updateShippingAddress, deleteCustomer")
         self.assertEqual(self.writes(), [])
 
@@ -219,7 +219,7 @@ class Operations(Tools):
         with self.assertRaises(common.SeedError) as stopped:
             self.run_seed()
         self.assertEqual(str(stopped.exception),
-                         "The OpenAPI page of 'Harbor Customers API' gives errors that can concern "
+                         "The OpenAPI page of 'Orchid Customers API' gives errors that can concern "
                          "getCustomer, searchCustomers: Duplicate operationId getCustomer")
         self.assertEqual(self.writes(), [])
 
@@ -238,7 +238,7 @@ class Operations(Tools):
     def test_tools_of_the_api_that_the_seed_did_not_create_stop_the_seed_and_are_left_alone(self):
         theirs = {"id": "theirs", "sourceKind": "apim.api", "definition": {"apiId": "customers", "apiName": CUSTOMERS}}
         self.world.sources["theirs"] = theirs
-        message = "The tools of the API 'Harbor Customers API' exists and was not created"
+        message = "The tools of the API 'Orchid Customers API' exists and was not created"
         with self.assertRaisesRegex(common.SeedError, message):
             self.run_seed()
         self.assertEqual(self.writes(), [])
@@ -249,7 +249,7 @@ class Mistakes(Tools):
     """A file that asks what cannot be done is refused with one line, before the platform is asked for anything."""
 
     def refused(self, text, message):
-        self.seed_files({"aim/api-tools/orders.yaml": "api: Harbor Orders API\n" + text})
+        self.seed_files({"aim/api-tools/orders.yaml": "api: Orchid Orders API\n" + text})
         with self.assertRaises(common.SeedError) as stopped:
             self.run_seed()
         self.assertRegex(str(stopped.exception), message)
@@ -260,7 +260,7 @@ class Mistakes(Tools):
     def test_operations_is_a_list_of_something(self):
         for text in ("operations: []\n", "operations: getOrder\n", "operations: {getOrder: 1}\n", "operations:\n"):
             with self.subTest(text=text):
-                self.refused(text, "The operations of 'Harbor Orders API' are a list of operation ids, and it lists none")
+                self.refused(text, "The operations of 'Orchid Orders API' are a list of operation ids, and it lists none")
 
     def test_an_operation_is_a_name_or_a_mapping_that_has_one(self):
         for entry in ("{description: Refund}", "7", "[getOrder]", "{id: 3}", "''"):
@@ -269,11 +269,11 @@ class Mistakes(Tools):
 
     def test_an_operation_is_listed_once(self):
         self.refused("operations: [getOrder, {id: getOrder, description: Again}]\n",
-                     "The operation getOrder of 'Harbor Orders API' is listed twice")
+                     "The operation getOrder of 'Orchid Orders API' is listed twice")
 
     def test_a_word_the_file_may_not_write_is_refused_naming_it_and_what_it_may_write(self):
         self.refused("operations:\n  - {id: getOrder, name: get_order}\n",
-                     "The operation getOrder of 'Harbor Orders API' cannot say name: only id, description, inputSchema, annotations")
+                     "The operation getOrder of 'Orchid Orders API' cannot say name: only id, description, inputSchema, annotations")
         self.refused("operations:\n  - {id: getOrder, outputSchema: {type: object}, gatewayMapping: {}}\n",
                      "cannot say outputSchema, gatewayMapping")
 
@@ -283,11 +283,11 @@ class Mistakes(Tools):
         for key, value, wanted in wrong:
             with self.subTest(key=key, value=value):
                 self.refused(f"operations:\n  - {{id: getOrder, {key}: {value}}}\n",
-                             f"The operation getOrder of 'Harbor Orders API': {key} must be {wanted}")
+                             f"The operation getOrder of 'Orchid Orders API': {key} must be {wanted}")
 
     def test_a_mistake_in_the_second_file_stops_the_seed_before_the_first_is_imported(self):
         self.seed_files({"aim/api-tools/customers.yaml": CUSTOMER_FILE,
-                         "aim/api-tools/orders.yaml": "api: Harbor Orders API\noperations: [getOrder, getOrder]\n"})
+                         "aim/api-tools/orders.yaml": "api: Orchid Orders API\noperations: [getOrder, getOrder]\n"})
         with self.assertRaisesRegex(common.SeedError, "listed twice"):
             self.run_seed()
         self.assertEqual(self.writes(), [])
@@ -315,7 +315,7 @@ class Tailoring(Tools):
     def test_the_tool_is_imported_with_the_words_of_the_file_in_place_of_those_of_the_page(self):
         self.run_seed()
         tool = self.refund()
-        self.assertEqual(tool["entityId"], "mcp-tool.harbor-orders-api-createrefund")
+        self.assertEqual(tool["entityId"], "mcp-tool.orchid-orders-api-createrefund")
         definition = tool["definition"]
         self.assertEqual(sorted(definition), ["annotations", "description", "inputSchema", "name"])
         self.assertEqual(definition["name"], "createRefund")
@@ -369,7 +369,7 @@ class Tailoring(Tools):
         self.assertEqual(changes, [("DELETE", "/mcp-proxies/studio-1"), ("DELETE", f"/catalog/sources/{old}"),
                                    ("POST", "/catalog/mcp-tools/_importFromApis")])
         self.assertTrue(self.refund()["definition"]["description"].startswith("Give back part or all"))
-        self.assertIn("Studio 'Customer care' deleted: it is made again from the new tools", self.output())
+        self.assertIn("Studio 'Customer desk' deleted: it is made again from the new tools", self.output())
         self.assertEqual(self.run_seed(), [])
 
     def test_a_new_schema_and_a_new_hint_each_replace_the_tools(self):
@@ -410,7 +410,7 @@ class Studios(Tools):
                          "aim/api-tools/orders.yaml": REFUND.replace("  - cancelOrder\n", "")})
         changes = self.run_seed()
         self.assertEqual([p for _, p in changes if p.startswith("/mcp-proxies")], ["/mcp-proxies/studio-1"])
-        self.assertEqual(self.output().count("Studio 'Customer care' deleted"), 1)
+        self.assertEqual(self.output().count("Studio 'Customer desk' deleted"), 1)
         self.assertEqual([m for m, p in changes if p.startswith("/catalog/sources")], ["DELETE", "DELETE"])
         self.assertEqual(self.run_seed(), [])
 
@@ -426,17 +426,17 @@ class Studios(Tools):
 # --- Agents ---------------------------------------------------------------------------------
 
 COPILOT = f"""\
-entityId: care-copilot
-source: Harbor
+entityId: desk-copilot
+source: Orchid
 url: {AGENT}
 metadata:
   riskClassification: limited
 identity:
-  clientId: care-copilot
+  clientId: desk-copilot
 access:
-  - {{studio: Customer care, plan: Agents}}
+  - {{studio: Customer desk, plan: Agents}}
 """
-BARE = f"entityId: care-copilot\nsource: Harbor\nurl: {AGENT}\n"
+BARE = f"entityId: desk-copilot\nsource: Orchid\nurl: {AGENT}\n"
 
 
 class Metadata(Tools):
@@ -444,48 +444,48 @@ class Metadata(Tools):
 
     def setUp(self):
         super().setUp()
-        self.world.card = {**self.world.card, "name": "Care copilot"}
-        self.seed_files({"aim/agents/care-copilot.yaml": COPILOT})
+        self.world.card = {**self.world.card, "name": "Desk copilot"}
+        self.seed_files({"aim/agents/desk-copilot.yaml": COPILOT})
 
     def agent(self):
-        return self.world.named("agent", "care-copilot")
+        return self.world.named("agent", "desk-copilot")
 
     def test_the_agent_is_made_with_its_card_and_its_metadata_under_the_entity_id_the_file_gives(self):
         self.assertEqual(self.run_seed(), [("POST", "/catalog/sources"), ("POST", "/catalog/agents")])
         [call] = self.sent("POST", "/catalog/agents")
         self.assertEqual(sorted(call.json), ["definition", "entityId", "metadata", "sourceId"])
         self.assertEqual((call.json["entityId"], call.json["metadata"]),
-                         ("care-copilot", {"riskClassification": "limited"}))
-        self.assertEqual(self.agent()["entityId"], "agent.care-copilot")
+                         ("desk-copilot", {"riskClassification": "limited"}))
+        self.assertEqual(self.agent()["entityId"], "agent.desk-copilot")
         self.assertEqual(self.agent()["metadata"], {"riskClassification": "limited"})
-        self.assertEqual(self.agent()["definition"]["name"], "Care copilot")
-        self.assertEqual([x["name"] for x in self.records("agent")], ["Care copilot"])
+        self.assertEqual(self.agent()["definition"]["name"], "Desk copilot")
+        self.assertEqual([x["name"] for x in self.records("agent")], ["Desk copilot"])
 
     def test_a_second_run_writes_nothing_and_a_change_of_what_another_module_reads_does_not_write_either(self):
         self.run_seed()
         self.assertEqual(self.run_seed(), [])
-        self.seed_files({"aim/agents/care-copilot.yaml": COPILOT.replace("clientId: care-copilot", "clientId: other")})
+        self.seed_files({"aim/agents/desk-copilot.yaml": COPILOT.replace("clientId: desk-copilot", "clientId: other")})
         self.assertEqual(self.run_seed(), [])
 
     def test_every_risk_classification_the_catalog_knows_is_accepted(self):
         for risk in ("negligible", "limited", "moderate", "high"):
             with self.subTest(risk=risk):
                 self.world.__init__()
-                self.world.card = {**self.world.card, "name": "Care copilot"}
+                self.world.card = {**self.world.card, "name": "Desk copilot"}
                 common.save_created([])
-                self.seed_files({"aim/agents/care-copilot.yaml": COPILOT.replace("limited", risk)})
+                self.seed_files({"aim/agents/desk-copilot.yaml": COPILOT.replace("limited", risk)})
                 self.run_seed()
                 self.assertEqual(self.agent()["metadata"], {"riskClassification": risk})
 
     def test_a_risk_classification_the_catalog_does_not_know_stops_the_seed_before_the_card_is_read(self):
         for risk in ("critical", "Limited", "unacceptable", "''", "[high]", "3", ""):
             with self.subTest(risk=risk):
-                self.seed_files({"aim/agents/care-copilot.yaml": COPILOT.replace("limited", risk)})
+                self.seed_files({"aim/agents/desk-copilot.yaml": COPILOT.replace("limited", risk)})
                 self.platform.calls.clear()
                 with self.assertRaises(common.SeedError) as stopped:
                     aim_catalog.seed()
                 self.assertRegex(str(stopped.exception),
-                                 r"^The agent 'care-copilot': riskClassification .* is not one of "
+                                 r"^The agent 'desk-copilot': riskClassification .* is not one of "
                                  r"negligible, limited, moderate, high$")
                 self.assertEqual(self.platform.sent("GET", CARD), [])
                 self.assertEqual(self.platform.changes(), [])
@@ -494,13 +494,13 @@ class Metadata(Tools):
         for text in ("metadata: high\n", "metadata: [limited]\n"):
             with self.subTest(text=text):
                 file = COPILOT.replace("metadata:\n  riskClassification: limited\n", text)
-                self.seed_files({"aim/agents/care-copilot.yaml": file})
-                message = "The agent 'care-copilot': metadata is a mapping of keys to values"
+                self.seed_files({"aim/agents/desk-copilot.yaml": file})
+                message = "The agent 'desk-copilot': metadata is a mapping of keys to values"
                 with self.assertRaisesRegex(common.SeedError, message):
                     self.run_seed()
 
     def test_an_agent_without_metadata_is_registered_as_before(self):
-        self.seed_files({"aim/agents/care-copilot.yaml": BARE})
+        self.seed_files({"aim/agents/desk-copilot.yaml": BARE})
         self.run_seed()
         [call] = self.sent("POST", "/catalog/agents")
         self.assertEqual(sorted(call.json), ["definition", "entityId", "sourceId"])
@@ -508,18 +508,18 @@ class Metadata(Tools):
 
     def test_the_metadata_of_a_registered_agent_that_changed_is_replaced_with_the_card(self):
         self.run_seed()
-        self.seed_files({"aim/agents/care-copilot.yaml": COPILOT.replace("limited", "moderate")})
+        self.seed_files({"aim/agents/desk-copilot.yaml": COPILOT.replace("limited", "moderate")})
         self.assertEqual(self.run_seed(), [("PUT", f"/catalog/agents/{self.agent()['id']}")])
         self.assertEqual(self.agent()["metadata"], {"riskClassification": "moderate"})
         self.assertEqual(self.run_seed(), [])
 
     def test_a_replace_keeps_what_compliance_wrote_in_the_metadata_of_the_agent(self):
         self.run_seed()
-        answers = {"compliance.intendedPurpose": "Helps the care team", "compliance.riskAssessment": "RA-14"}
+        answers = {"compliance.intendedPurpose": "Helps the desk team", "compliance.riskAssessment": "RA-14"}
         self.agent()["metadata"].update(answers)
         self.assertEqual(self.run_seed(), [])   # what another module wrote is no change of the file
         self.world.card = {**self.world.card, "description": "Another description"}
-        self.seed_files({"aim/agents/care-copilot.yaml": COPILOT.replace("limited", "high")})
+        self.seed_files({"aim/agents/desk-copilot.yaml": COPILOT.replace("limited", "high")})
         self.run_seed()
         [call] = self.sent("PUT", "/catalog/agents/*")
         self.assertEqual(call.json["metadata"], {"riskClassification": "high", **answers})
@@ -530,7 +530,7 @@ class Metadata(Tools):
         self.run_seed()
         self.agent()["metadata"]["compliance.riskAssessment"] = "RA-14"
         self.world.card = {**self.world.card, "description": "Another description"}
-        self.seed_files({"aim/agents/care-copilot.yaml": BARE})
+        self.seed_files({"aim/agents/desk-copilot.yaml": BARE})
         self.run_seed()
         [call] = self.sent("PUT", "/catalog/agents/*")
         self.assertEqual(call.json["metadata"], {"riskClassification": "limited", "compliance.riskAssessment": "RA-14"})

@@ -18,22 +18,22 @@ from lab_seeder.testkit import Seed
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
 V1 = "/management/organizations/DEFAULT/environments/DEFAULT"
 V2 = "/management/v2/organizations/DEFAULT/environments/DEFAULT"
-SETTINGS = {"AM_GATEWAY_URL": "http://am-gateway:8092", "HARBOR_TOOLS_KEY": "harbor-key-123"}
-PATH = "/mcp/customer-care"
+SETTINGS = {"AM_GATEWAY_URL": "http://am-gateway:8092", "ORCHID_TOOLS_KEY": "orchid-key-123"}
+PATH = "/mcp/customer-desk"
 READ_ONLY = ("id", "apiId", "createdAt", "updatedAt", "publishedAt", "closedAt", "status", "type", "referenceId", "referenceType")
 
 STUDIO = """\
-name: Customer care
-description: The tools of Harbor's customer care team, made of three REST APIs
-contextPath: /mcp/customer-care
+name: Customer desk
+description: The tools of Orchid's customer desk team, made of three REST APIs
+contextPath: /mcp/customer-desk
 protocolVersion: "2025-11-25"
 tools:
-  - {api: Harbor Customers API, tool: searchCustomers, alias: search_customers}
-  - {api: Harbor Customers API, tool: getCustomer, alias: get_customer}
-  - {api: Harbor Orders API, tool: createRefund, alias: create_refund}
+  - {api: Orchid Customers API, tool: searchCustomers, alias: search_customers}
+  - {api: Orchid Customers API, tool: getCustomer, alias: get_customer}
+  - {api: Orchid Orders API, tool: createRefund, alias: create_refund}
 upstreamAuth:
-  - {api: Harbor Customers API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: "${HARBOR_TOOLS_KEY}"}
-  - {api: Harbor Orders API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: "${HARBOR_TOOLS_KEY}"}
+  - {api: Orchid Customers API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: "${ORCHID_TOOLS_KEY}"}
+  - {api: Orchid Orders API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: "${ORCHID_TOOLS_KEY}"}
 access:
   registration:
     name: Registration
@@ -41,7 +41,7 @@ access:
   agents:
     name: Agents
     type: JWT
-    jwksUrl: ${AM_GATEWAY_URL}/harbor/oidc/.well-known/jwks.json
+    jwksUrl: ${AM_GATEWAY_URL}/orchid/oidc/.well-known/jwks.json
     clientIdClaim: client_id
 authorization:
   enabled: true
@@ -65,7 +65,7 @@ supportedProtocolVersions: ["2025-11-25"]
 plan: {name: Agents, security: {type: OAUTH2_AM, configuration: {scopes: []}}}
 fga: true
 tools:
-  - {api: Harbor Customers API, tool: getCustomer}
+  - {api: Orchid Customers API, tool: getCustomer}
 """
 
 WANTED_ATTRIBUTES = [{"name": "customer_ref", "value": 'Customer::"{#request.jsonContent.params.arguments.customerId}"'},
@@ -85,12 +85,12 @@ class World:
 
     def __init__(self, operations):
         self.studio_ids, self.plan_ids = itertools.count(1), itertools.count(1)
-        self.apim = {"Harbor Customers API": "apim-customers", "Harbor Orders API": "apim-orders", "Harbor Catalog API": "apim-catalog"}
+        self.apim = {"Orchid Customers API": "apim-customers", "Orchid Orders API": "apim-orders", "Orchid Catalog API": "apim-catalog"}
         self.tools = {f"mcp-tool.{re.sub(r'[^a-z0-9_-]+', '-', api.lower())}-{op.lower()}": f"tool-{op}" for api, op in operations}
         self.studios, self.apis, self.plans = {}, {}, {}
         self.all_statuses = False   # a platform that lists the closed plans too
         self.gateway_calls, self.gateway_serves_after, self.gateway_status = [], 0, 401
-        self.applications = [{"id": "app-copilot", "name": "Copilot on 13 tools"}, {"id": "app-desk", "name": "Copilot on 6 tools"}]
+        self.applications = [{"id": "app-copilot", "name": "Steward on 13 tools"}, {"id": "app-desk", "name": "Steward on 6 tools"}]
         self.subscriptions, self.subscription_ids = {}, itertools.count(1)
         self.subscriptions_wait = False   # a plan that leaves a subscription pending for someone to accept
         self.specification_status = 200  # what a write of the tools of a studio answers: 405 on a platform without it
@@ -146,7 +146,7 @@ class World:
         catalog id, its entity id and its alias."""
         studio = self.studios[ids(call)[0]]
         groups = [{"name": "tools", "type": "tools-http", "endpoints": [{"name": "tools", "configuration": {
-            "groupName": "Harbor", "specification": {"tools": copy.deepcopy(studio.get("tools", []))}}}]}]
+            "groupName": "Orchid", "specification": {"tools": copy.deepcopy(studio.get("tools", []))}}}]}]
         return 200, {"id": ids(call)[0], "fgaEnabled": studio["fga"], "humanApprovalEnabled": studio["approval"],
                      "mode": "STUDIO", "endpointGroups": groups}
 
@@ -291,8 +291,8 @@ class World:
 
 
 class Studios(Seed):
-    OPERATIONS = [("Harbor Customers API", "searchCustomers"), ("Harbor Customers API", "getCustomer"),
-                  ("Harbor Customers API", "deleteCustomer"), ("Harbor Orders API", "createRefund"), ("Harbor Orders API", "cancelOrder")]
+    OPERATIONS = [("Orchid Customers API", "searchCustomers"), ("Orchid Customers API", "getCustomer"),
+                  ("Orchid Customers API", "deleteCustomer"), ("Orchid Orders API", "createRefund"), ("Orchid Orders API", "cancelOrder")]
 
     def setUp(self):
         super().setUp()
@@ -301,7 +301,7 @@ class Studios(Seed):
         self.env(**SETTINGS, GATEWAY_INTERNAL_URL="http://gateway", GATEWAY_READY_TIMEOUT="30")
         self.file(STUDIO)
 
-    def file(self, text, name="customer-care"):
+    def file(self, text, name="customer-desk"):
         self.seed_files({f"aim/studios/{name}.yaml": text})
 
     def seed(self):
@@ -347,16 +347,16 @@ class Creation(Studios):
         self.seed()
         [call] = self.platform.sent("POST", AIM + "/mcp-studios")
         self.assertEqual(call.json, {
-            "name": "Customer care", "description": "The tools of Harbor's customer care team, made of three REST APIs",
-            "contextPath": "/mcp/customer-care", "protocolVersion": "2025-11-25",
+            "name": "Customer desk", "description": "The tools of Orchid's customer desk team, made of three REST APIs",
+            "contextPath": "/mcp/customer-desk", "protocolVersion": "2025-11-25",
             "specification": {"tools": [{"id": "tool-searchCustomers", "alias": "search_customers"},
                                         {"id": "tool-getCustomer", "alias": "get_customer"},
                                         {"id": "tool-createRefund", "alias": "create_refund"}]},
             "plans": [{"name": "Registration", "security": {"type": "OAUTH2_AM", "configuration": {"scopes": []}}}],
             "fgaEnabled": False,
             "upstreamAuth": [
-                {"catalogSourceId": "source-apim-customers", "upstreamAuth": {"type": "api-key", "apiKeyHeader": "X-Gravitee-Api-Key", "apiKey": "harbor-key-123"}},
-                {"catalogSourceId": "source-apim-orders", "upstreamAuth": {"type": "api-key", "apiKeyHeader": "X-Gravitee-Api-Key", "apiKey": "harbor-key-123"}}]})
+                {"catalogSourceId": "source-apim-customers", "upstreamAuth": {"type": "api-key", "apiKeyHeader": "X-Gravitee-Api-Key", "apiKey": "orchid-key-123"}},
+                {"catalogSourceId": "source-apim-orders", "upstreamAuth": {"type": "api-key", "apiKeyHeader": "X-Gravitee-Api-Key", "apiKey": "orchid-key-123"}}]})
 
     def test_a_file_with_the_list_of_versions_is_created_with_it_as_api_management_4_13_1_asks(self):
         self.env(SEED_WAIT_GATEWAY="1")   # the wait for the gateway, which says the first of the versions
@@ -374,7 +374,7 @@ class Creation(Studios):
         self.assertEqual(call.json["specification"]["tools"][0], {"id": "tool-searchCustomers"})
 
     def test_a_studio_without_a_description_is_made_without_one(self):
-        self.file(STUDIO.replace("description: The tools of Harbor's customer care team, made of three REST APIs\n", ""))
+        self.file(STUDIO.replace("description: The tools of Orchid's customer desk team, made of three REST APIs\n", ""))
         self.seed()
         [call] = self.platform.sent("POST", AIM + "/mcp-studios")
         self.assertNotIn("description", call.json)
@@ -400,7 +400,7 @@ class Creation(Studios):
             "characteristics": [], "tags": [], "excludedGroups": [], "commentRequired": False, "flows": [],
             "security": {"type": "JWT", "configuration": {
                 "signature": "RSA_RS256", "publicKeyResolver": "JWKS_URL",
-                "resolverParameter": "http://am-gateway:8092/harbor/oidc/.well-known/jwks.json",
+                "resolverParameter": "http://am-gateway:8092/orchid/oidc/.well-known/jwks.json",
                 "connectTimeout": 2000, "requestTimeout": 2000, "followRedirects": False, "useSystemProxy": False,
                 "extractClaims": True, "propagateAuthHeader": True, "userClaim": "sub", "clientIdClaim": "client_id",
                 "checkRequiredScopes": False, "modeStrict": True}}})
@@ -416,12 +416,12 @@ class Creation(Studios):
         self.seed()
         [studio] = [x for x in common.created() if x["kind"] == "studio"]
         self.assertEqual((studio["product"], studio["label"], studio["name"], studio["id"]),
-                         ("aim-proxies", "MCP studios", "Customer care", "studio-1"))
+                         ("aim-proxies", "MCP studios", "Customer desk", "studio-1"))
         self.assertEqual(len(studio["digest"]), 64)
 
     def test_the_api_key_never_reaches_the_log(self):
         self.seed()
-        self.assertNotIn("harbor-key-123", self.output())
+        self.assertNotIn("orchid-key-123", self.output())
 
 
 class Flows(Studios):
@@ -467,7 +467,7 @@ class Flows(Studios):
         [call] = self.platform.sent("PUT", V2 + "/apis/studio-1")
         for key in ("id", "deploymentState", "createdAt", "updatedAt", "state", "definitionContext", "_links", "primaryOwner"):
             self.assertNotIn(key, call.json)
-        self.assertEqual((call.json["name"], call.json["definitionVersion"]), ("Customer care", "V4"))
+        self.assertEqual((call.json["name"], call.json["definitionVersion"]), ("Customer desk", "V4"))
 
     def test_an_authorization_check_without_attributes_adds_no_step(self):
         text = re.sub(r"  attributes:\n(    - .*\n)+", "", STUDIO)
@@ -588,13 +588,13 @@ class Replacement(Studios):
 
     def test_a_changed_key_replaces_the_studio(self):
         self.seed()
-        self.env(HARBOR_TOOLS_KEY="another-key")
+        self.env(ORCHID_TOOLS_KEY="another-key")
         self.seed()
         self.assertEqual(list(self.world.studios), ["studio-2"])
 
     def test_a_changed_catalog_source_replaces_the_studio(self):
         self.seed()
-        self.world.apim["Harbor Orders API"] = "apim-orders-again"
+        self.world.apim["Orchid Orders API"] = "apim-orders-again"
         self.seed()
         self.assertEqual(list(self.world.studios), ["studio-2"])
 
@@ -679,7 +679,7 @@ class Gateway(Studios):
         self.seed()
         self.assertEqual(len(self.world.gateway_calls), 3)
         self.assertEqual(self.clock.sleeps, [0.5, 1])
-        self.assertIn("✓ Customer care on the gateway (/mcp/customer-care) ready", self.output())
+        self.assertIn("✓ Customer desk on the gateway (/mcp/customer-desk) ready", self.output())
 
     def test_the_call_is_an_unauthenticated_initialize_of_the_protocol_version_of_the_file(self):
         self.seed()
@@ -693,7 +693,7 @@ class Gateway(Studios):
         with self.assertRaises(common.SeedError) as raised:
             self.seed()
         message = str(raised.exception)
-        self.assertEqual(message, "Customer care on the gateway (/mcp/customer-care) not ready after 30 s: "
+        self.assertEqual(message, "Customer desk on the gateway (/mcp/customer-desk) not ready after 30 s: "
                                   "HTTP 404 without a token, 401 expected")
         self.assertNotIn("\n", message)
 
@@ -729,26 +729,26 @@ class Errors(Studios):
         self.assertNotIn("\n", str(raised.exception))
 
     def test_a_tool_the_catalog_does_not_have_stops_the_seed_naming_it(self):
-        del self.world.tools["mcp-tool.harbor-orders-api-createrefund"]
-        self.failing("MCP studio: the tool mcp-tool.harbor-orders-api-createrefund is not in the catalog")
+        del self.world.tools["mcp-tool.orchid-orders-api-createrefund"]
+        self.failing("MCP studio: the tool mcp-tool.orchid-orders-api-createrefund is not in the catalog")
         self.assertEqual(self.world.studios, {})
 
     def test_an_api_without_tools_in_the_catalog_stops_the_seed_naming_it(self):
-        del self.world.apim["Harbor Orders API"]
-        self.failing("the API 'Harbor Orders API' has no tools in the catalog")
+        del self.world.apim["Orchid Orders API"]
+        self.failing("the API 'Orchid Orders API' has no tools in the catalog")
         self.assertEqual(self.world.studios, {})
 
     def test_an_api_that_has_a_namesake_is_not_mistaken_for_it(self):
-        self.world.apim = {"Harbor Orders API v2": "apim-orders-2", "Harbor Customers API": "apim-customers"}
-        self.failing("the API 'Harbor Orders API' has no tools in the catalog")
+        self.world.apim = {"Orchid Orders API v2": "apim-orders-2", "Orchid Customers API": "apim-customers"}
+        self.failing("the API 'Orchid Orders API' has no tools in the catalog")
 
     def test_a_missing_key_of_the_access_is_named(self):
         self.file(STUDIO.replace("    clientIdClaim: client_id\n", ""))
-        self.failing(r"MCP studio Customer care: access\.agents\.clientIdClaim is missing")
+        self.failing(r"MCP studio Customer desk: access\.agents\.clientIdClaim is missing")
 
     def test_a_missing_registration_plan_is_named(self):
         self.file(STUDIO.replace("  registration:\n    name: Registration\n    type: OAUTH2_AM\n", ""))
-        self.failing(r"MCP studio Customer care: access\.registration is missing")
+        self.failing(r"MCP studio Customer desk: access\.registration is missing")
 
     def test_a_plan_of_the_agents_that_is_not_jwt_is_refused(self):
         self.file(STUDIO.replace("    type: JWT", "    type: OAUTH2_AM"))
@@ -776,7 +776,7 @@ class OldShape(Studios):
 
     def setUp(self):
         super().setUp()
-        self.file(OLD_STUDIO, "customer-care")
+        self.file(OLD_STUDIO, "customer-desk")
 
     def test_a_file_without_access_is_made_the_way_it_always_was(self):
         self.env(GATEWAY_INTERNAL_URL=None)
@@ -789,7 +789,7 @@ class OldShape(Studios):
         self.assertEqual(self.world.gateway_calls, [])
 
     def test_a_file_with_one_version_is_created_with_it_as_the_amp_demo_build_asks(self):
-        self.file(OLD_STUDIO.replace('supportedProtocolVersions: ["2025-11-25"]', 'protocolVersion: "2025-11-25"'), "customer-care")
+        self.file(OLD_STUDIO.replace('supportedProtocolVersions: ["2025-11-25"]', 'protocolVersion: "2025-11-25"'), "customer-desk")
         self.seed()
         [call] = self.platform.sent("POST", AIM + "/mcp-studios")
         self.assertEqual(call.json["protocolVersion"], "2025-11-25")
@@ -842,7 +842,7 @@ class AgentIdentity(Studios):
 
     def test_a_value_that_is_not_true_or_false_stops_the_seed_before_anything_is_made(self):
         self.with_resolution("'yes'")
-        with self.assertRaisesRegex(common.SeedError, "^MCP studio Customer care: authorization.agentIdentityResolution is true or false$"):
+        with self.assertRaisesRegex(common.SeedError, "^MCP studio Customer desk: authorization.agentIdentityResolution is true or false$"):
             self.seed()
         self.assertEqual(self.world.studios, {})
 
@@ -878,7 +878,7 @@ class EditedTools(Studios):
         self.assertEqual([s["policy"] for s in steps], ["policy-assign-attributes", "authz-pep"])
         self.assertEqual(steps[1]["configuration"]["subjectPropertiesExpr"], WANTED_SUBJECT)
         self.assertEqual(list(self.world.studios), ["studio-1"], "edited in place, not made again")
-        self.assertIn("✓ Tools brought back to the file: 3 in Customer care", self.output())
+        self.assertIn("✓ Tools brought back to the file: 3 in Customer desk", self.output())
 
     def test_the_next_run_writes_nothing(self):
         self.edited()
@@ -958,9 +958,9 @@ class EditedTools(Studios):
 
 
 PLAIN = """\
-name: Havenbank operations
+name: Lumenbank operations
 description: Every operation of the APIs, one tool each
-contextPath: /mcp/customer-care
+contextPath: /mcp/customer-desk
 supportedProtocolVersions: ["2025-11-25", "2026-07-28"]
 fga: false
 plan:
@@ -969,10 +969,10 @@ plan:
     type: API_KEY
     configuration: {source: BEARER, enableCustomApiKeyHeader: false, propagateApiKey: false}
 tools:
-  - {api: Harbor Customers API, tool: searchCustomers}
-  - {api: Harbor Customers API, tool: getCustomer}
+  - {api: Orchid Customers API, tool: searchCustomers}
+  - {api: Orchid Customers API, tool: getCustomer}
 subscriptions:
-  - {application: Copilot on 13 tools, apiKey: '${OPERATIONS_KEY}'}
+  - {application: Steward on 13 tools, apiKey: '${OPERATIONS_KEY}'}
 """
 
 
@@ -996,15 +996,15 @@ class Subscriptions(Studios):
         self.assertEqual(self.changes()[0], ("POST", "/mcp-studios"))
         [record] = [x for x in common.created() if x["kind"] == "subscription"]
         self.assertEqual((record["product"], record["label"], record["name"], record["id"], record["api"]),
-                         ("aim-proxies", "subscriptions to MCP studios", "Copilot on 13 tools → Havenbank operations (Copilots)",
+                         ("aim-proxies", "subscriptions to MCP studios", "Steward on 13 tools → Lumenbank operations (Copilots)",
                           "sub-1", "studio-1"))
-        self.assertIn("✓ Subscribed: Copilot on 13 tools → Havenbank operations (Copilots)", self.output())
+        self.assertIn("✓ Subscribed: Steward on 13 tools → Lumenbank operations (Copilots)", self.output())
         self.assertNotIn("operations-key-0013", self.output())
 
     def test_a_second_run_writes_nothing(self):
         self.run_twice()
         self.assertEqual(self.changes(), [])
-        self.assertIn("Subscription exists: Copilot on 13 tools", self.output())
+        self.assertIn("Subscription exists: Steward on 13 tools", self.output())
 
     def test_a_paused_subscription_holds_the_access_and_is_left_as_it_is(self):
         self.seed()
@@ -1032,7 +1032,7 @@ class Subscriptions(Studios):
     def test_a_subscription_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
         self.answer_lost(("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")), self.world.subscribe)
         self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
-                         ["Copilot on 13 tools → Havenbank operations (Copilots)"])
+                         ["Steward on 13 tools → Lumenbank operations (Copilots)"])
         self.seed()
         self.assertEqual(common.notes("aim-proxies", "subscription"), [])
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "subscription"], [s["id"] for s in self.subs()])
@@ -1047,15 +1047,15 @@ class Subscriptions(Studios):
         self.assertEqual([x for x in common.created() if x["kind"] == "subscription"], [])
 
     def test_the_plan_is_found_by_its_name(self):
-        self.file(PLAIN.replace("{application: Copilot on 13 tools,", "{application: Copilot on 13 tools, plan: Copilots,"))
+        self.file(PLAIN.replace("{application: Steward on 13 tools,", "{application: Steward on 13 tools, plan: Copilots,"))
         self.seed()
         self.assertEqual(len(self.subs("ACCEPTED")), 1)
-        self.file(PLAIN.replace("{application: Copilot on 13 tools,", "{application: Copilot on 13 tools, plan: Agents,"))
-        with self.assertRaisesRegex(common.SeedError, "^MCP studio Havenbank operations: no published plan is named 'Agents'$"):
+        self.file(PLAIN.replace("{application: Steward on 13 tools,", "{application: Steward on 13 tools, plan: Agents,"))
+        with self.assertRaisesRegex(common.SeedError, "^MCP studio Lumenbank operations: no published plan is named 'Agents'$"):
             self.seed()
 
     def test_a_studio_built_in_steps_subscribes_to_the_plan_of_the_agents(self):
-        self.file(STUDIO + "subscriptions:\n  - {application: Copilot on 6 tools}\n")
+        self.file(STUDIO + "subscriptions:\n  - {application: Steward on 6 tools}\n")
         self.seed()
         [sub] = self.subs()
         self.assertEqual((sub["applicationId"], sub["planId"]), ("app-desk", self.plan_named("Agents")["id"]))
@@ -1063,7 +1063,7 @@ class Subscriptions(Studios):
 
     def test_what_the_platform_would_refuse_stops_the_seed_naming_it(self):
         for text, message in (
-                (PLAIN.replace("application: Copilot on 13 tools", "application: Nobody"),
+                (PLAIN.replace("application: Steward on 13 tools", "application: Nobody"),
                  "no application is named 'Nobody': seed/apim/applications makes it"),
                 (PLAIN.replace("type: API_KEY", "type: KEY_LESS"), "the plan Copilots is keyless, which takes no subscription"),
                 (PLAIN + 'protocolVersion: "2025-11-25"\n', "supportedProtocolVersions or protocolVersion, one of the two"),
@@ -1083,7 +1083,7 @@ class Subscriptions(Studios):
                 ("subscriptions: [{application: A, apiKey: ''}]", "the apiKey of A is empty"),
                 ("subscriptions: [{application: A, plan: 3}]", "the plan of A is the name of a plan"),
                 ("authorization: {agentIdentityResolution: true}",
-                 "^MCP studio Havenbank operations: authorization is read for a studio built in steps")):
+                 "^MCP studio Lumenbank operations: authorization is read for a studio built in steps")):
             with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, message):
                 self.file(PLAIN[:PLAIN.index("subscriptions:")] + text + "\n")
                 self.seed()
@@ -1094,7 +1094,7 @@ class Subscriptions(Studios):
         self.platform.calls.clear()
         aim_proxies.remove(common.created())
         self.assertEqual(self.changes(), [("POST", "/apis/studio-1/subscriptions/sub-1/_close"), ("DELETE", "/mcp-proxies/studio-1")])
-        self.assertIn("✓ Closed subscription 'Copilot on 13 tools → Havenbank operations (Copilots)'", self.output())
+        self.assertIn("✓ Closed subscription 'Steward on 13 tools → Lumenbank operations (Copilots)'", self.output())
         self.assertEqual(common.created(), [], "a subscription closed is forgotten as soon as it is")
 
     def test_a_subscription_whose_studio_is_gone_is_no_error_to_remove(self):
@@ -1111,7 +1111,7 @@ class Subscriptions(Studios):
         self.changed()
         self.answer_lost(("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")), self.world.subscribe)
         self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
-                         ["Copilot on 13 tools → Havenbank operations (Copilots)"], "a note before the request")
+                         ["Steward on 13 tools → Lumenbank operations (Copilots)"], "a note before the request")
         self.seed()
         live = [s["id"] for s in self.world.subscriptions.values() if s["status"] == "ACCEPTED"]
         self.assertEqual([(x["id"], x["api"]) for x in common.created() if x["kind"] == "subscription"], [(live[0], "studio-2")])
@@ -1136,7 +1136,7 @@ class Subscriptions(Studios):
         self.seed()
         [sub] = self.world.subscriptions.values()
         self.assertEqual(sub["status"], "ACCEPTED", "the key of the file works")
-        self.assertIn("✓ Subscription accepted: Copilot on 13 tools → Havenbank operations (Copilots)", self.output())
+        self.assertIn("✓ Subscription accepted: Steward on 13 tools → Lumenbank operations (Copilots)", self.output())
 
 
 if __name__ == "__main__":

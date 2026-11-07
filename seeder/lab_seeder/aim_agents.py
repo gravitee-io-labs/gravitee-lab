@@ -3,10 +3,10 @@ seed/aim/agents/*.yaml. The card and the `metadata` of the same file are aim_cat
 before; a file with neither key is left to it.
 
     identity:
-      clientId: care-copilot                       # the AM application the agent signs in with
+      clientId: desk-copilot                       # the AM application the agent signs in with
     access:
-      - {studio: Customer care, plan: Agents}      # a subscription to a plan of an MCP studio (aim/studios)
-      - {api: Harbor models, plan: Agents, apiKey: "${HARBOR_LLM_KEY}"}   # to a plan of an API of seed/apim/apis
+      - {studio: Customer desk, plan: Agents}      # a subscription to a plan of an MCP studio (aim/studios)
+      - {api: Orchid models, plan: Agents, apiKey: "${ORCHID_LLM_KEY}"}   # to a plan of an API of seed/apim/apis
 
 Three steps for each agent, each writing only what is missing:
 

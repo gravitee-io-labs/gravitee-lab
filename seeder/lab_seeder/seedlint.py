@@ -14,9 +14,8 @@ annotation for each problem, on the file as the diff of the repository names it,
 (report.py of the Lab UI): `%`, CR and LF in the message, also `:` and `,` in a property, so that a file name cannot start a
 command of its own.
 
-`problems(playground_folder)` is the same check for one playground, and the functions the seeder's tests use on their own
-(`unset_variables`, `literal_addresses`, `environment_problems`) live here, so that the engine's tests and a
-catalog's CI run one set of checks.
+`problems(playground_folder)` is the same check for one playground, so that the engine's tests and a catalog's CI run one
+set of checks.
 
 What is read is a stranger's pull request. Nothing of it runs: a file is parsed, never imported or executed. A link is
 never followed, whether it is a file or folder of the tree or the folder the command is given, so a seed that links to a file
@@ -261,12 +260,6 @@ def _first_uses(matches, environment, provided=()):
     return found
 
 
-def unset_variables(text, environment, provided=()):
-    """The ${VAR} of a file that has no default in the file and no value from the seed service. `$${VAR}` is a literal. The
-    names in `provided` are the engine's own (the files of an environment have common.PROVIDED): they need no value."""
-    return {name for name, _ in _first_uses(_variables(text), environment, provided)}
-
-
 def provided_to(path, folder):
     """The names the engine gives a file of the seed: those of an environment for the files under seed/environments, none for
     the others."""
@@ -281,11 +274,6 @@ def _addresses(text):
             seen.add(m.group(0))
             found.append((m.group(0), m.start()))
     return found
-
-
-def literal_addresses(text):
-    """The addresses of a file that are not a variable, public hosts apart."""
-    return {address for address, _ in _addresses(text)}
 
 
 # --- The seed service of a playground ---------------------------------------------------
@@ -550,12 +538,6 @@ def _environment_findings(folder, variables, found=None):
             if item.get("apiHrid") not in cross_ids:
                 says(path, f"apiHrid {_brief(item.get('apiHrid'))} is the crossId of no API of the folder")
     return found
-
-
-def environment_problems(folder, variables):
-    """What is wrong in one folder of seed/environments, read as the seed reads it (its variables replaced, ENV_ID and ENV_NAME
-    given): the problems the files have with one another, one text each."""
-    return [f"{path}: {text}" for path, text in _environment_findings(folder, variables)]
 
 
 def says_about_subscription(path, where, sub, plan, says):

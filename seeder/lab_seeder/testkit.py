@@ -1,8 +1,6 @@
 """What the seeder's tests share: a platform that answers from a table of routes, and a seed to run against it. A module is
 tested in its own file, `tests/test_<module>.py`:
 
-    from .testkit import Seed
-
     class Providers(Seed):
         def test_a_missing_provider_is_created(self):
             providers = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim/providers"

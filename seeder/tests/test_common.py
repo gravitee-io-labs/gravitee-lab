@@ -227,16 +227,16 @@ class Parallel(unittest.TestCase):
 class Provided(Seed):
     """The names the engine gives the files of an environment: the id of its folder and the name its file says."""
 
-    GIVEN = {"ENV_ID": "novo-nordisk", "ENV_NAME": "Novo Nordisk"}
+    GIVEN = {"ENV_ID": "newt-biotech", "ENV_NAME": "Newt Biotech"}
 
     def test_a_provided_name_wins_over_the_environment_of_the_seed(self):
         self.env(ENV_ID="from-the-service")
-        self.assertEqual(common.render("${ENV_ID}", "page.md", provided=self.GIVEN), "novo-nordisk")
+        self.assertEqual(common.render("${ENV_ID}", "page.md", provided=self.GIVEN), "newt-biotech")
         self.assertEqual(common.render("${ENV_ID}", "page.md"), "from-the-service")
 
     def test_a_name_that_is_not_provided_comes_from_the_environment_of_the_seed(self):
         self.env(APIM_GATEWAY_URL="http://gateway")
-        self.assertEqual(common.render("${APIM_GATEWAY_URL}/${ENV_ID}", "page.md", provided=self.GIVEN), "http://gateway/novo-nordisk")
+        self.assertEqual(common.render("${APIM_GATEWAY_URL}/${ENV_ID}", "page.md", provided=self.GIVEN), "http://gateway/newt-biotech")
 
     def test_a_provided_name_with_no_value_has_the_default_of_the_file_or_is_not_set(self):
         self.assertEqual(common.render("${ENV_NAME:-nobody}", "page.md", provided={"ENV_NAME": ""}), "nobody")
@@ -248,7 +248,7 @@ class Provided(Seed):
             common.render("${ENV_NAME} ${ENV_ID}", "page.md")
 
     def test_a_dollar_that_is_escaped_stays_a_variable_of_the_page_whether_or_not_the_name_is_provided(self):
-        self.assertEqual(common.render("$${ENV_ID} and ${ENV_ID}", "page.md", provided=self.GIVEN), "${ENV_ID} and novo-nordisk")
+        self.assertEqual(common.render("$${ENV_ID} and ${ENV_ID}", "page.md", provided=self.GIVEN), "${ENV_ID} and newt-biotech")
         self.assertEqual(common.render("$${api.name}", "page.md", provided=self.GIVEN), "${api.name}")
 
     def test_an_expression_of_a_page_keeps_what_follows_its_escaped_dollar_and_a_value_is_not_unescaped(self):
@@ -258,24 +258,24 @@ class Provided(Seed):
 
     def test_a_json_file_has_its_provided_value_escaped(self):
         self.seed_files({"api.json": '{"name": "${ENV_NAME}", "path": "/${ENV_ID}/"}'})
-        loaded = common.load(common.SEED_DIR / "api.json", provided={"ENV_ID": "bch", "ENV_NAME": "Boston \"Children's\" Hospital"})
-        self.assertEqual(loaded, {"name": "Boston \"Children's\" Hospital", "path": "/bch/"})
+        loaded = common.load(common.SEED_DIR / "api.json", provided={"ENV_ID": "wch", "ENV_NAME": "Willow \"Children's\" Hospital"})
+        self.assertEqual(loaded, {"name": "Willow \"Children's\" Hospital", "path": "/wch/"})
 
     def test_a_yaml_file_and_a_text_file_have_theirs_replaced_too(self):
         self.seed_files({"site.yaml": "title: ${ENV_NAME}\nid: ${ENV_ID}\n", "page.md": "# ${ENV_NAME}\n$${expression}\n"})
-        self.assertEqual(common.load(common.SEED_DIR / "site.yaml", provided=self.GIVEN), {"title": "Novo Nordisk", "id": "novo-nordisk"})
-        self.assertEqual(common.text(common.SEED_DIR / "page.md", provided=self.GIVEN), "# Novo Nordisk\n${expression}\n")
+        self.assertEqual(common.load(common.SEED_DIR / "site.yaml", provided=self.GIVEN), {"title": "Newt Biotech", "id": "newt-biotech"})
+        self.assertEqual(common.text(common.SEED_DIR / "page.md", provided=self.GIVEN), "# Newt Biotech\n${expression}\n")
 
 
 class JsonInJson(Seed):
     """A string of a JSON file that is itself JSON text (an endpoint's `sharedConfiguration`) gets a variable's value escaped for
     that text: a password with a quote or a backslash arrives as it was set."""
 
-    SHARED = '{"url": "${SMF_URL}", "vpn": "apelor", "password": "${PASSWORD}"}'
+    SHARED = '{"url": "${SMF_URL}", "vpn": "walnut", "password": "${PASSWORD}"}'
 
     def api(self, **values):
         """The file of an API with a plain string and a JSON text that name the password, loaded with these settings."""
-        self.env(SMF_URL="tcp://solace:55555", **values)
+        self.env(SMF_URL="tcp://broker:55555", **values)
         template = {"api": {"name": "${NAME}", "endpointGroups": [{"sharedConfiguration": self.SHARED}]}}
         self.seed_files({"api.json": json.dumps(template)})
         return common.load(common.SEED_DIR / "api.json", provided={"NAME": 'Say "hi" \\ now'})
@@ -284,14 +284,14 @@ class JsonInJson(Seed):
         return json.loads(loaded["api"]["endpointGroups"][0]["sharedConfiguration"])
 
     def test_a_password_with_a_quote_or_a_backslash_arrives_as_it_was_set(self):
-        for password in ('apelor-demo', 'p"w', "back\\slash", "a\\bc", 'a\\"b', "line\nbreak", "tab\t", "ünï \u00e9 \u2713", "$${x}", "'single'"):
+        for password in ('walnut-demo', 'p"w', "back\\slash", "a\\bc", 'a\\"b', "line\nbreak", "tab\t", "ünï \u00e9 \u2713", "$${x}", "'single'"):
             with self.subTest(password=password):
                 self.assertEqual(self.inner(self.api(PASSWORD=password))["password"], password)
 
     def test_a_plain_string_gets_the_value_as_it_is_and_the_text_around_it_stays(self):
         loaded = self.api(PASSWORD='p"w')
         self.assertEqual(loaded["api"]["name"], 'Say "hi" \\ now')
-        self.assertEqual(self.inner(loaded), {"url": "tcp://solace:55555", "vpn": "apelor", "password": 'p"w'})
+        self.assertEqual(self.inner(loaded), {"url": "tcp://broker:55555", "vpn": "walnut", "password": 'p"w'})
 
     def test_a_plain_string_is_the_same_whether_the_file_is_read_as_a_document_or_as_text(self):
         self.env(NOTE='a "quoted" \\ value')
@@ -514,9 +514,9 @@ class Bombs(Seed):
 class Folders(Seed):
 
     def test_the_folders_of_a_folder_are_listed_in_name_order_without_files_or_hidden_ones(self):
-        self.seed_files({"environments/moderna/environment.yaml": "", "environments/beam/environment.yaml": "",
+        self.seed_files({"environments/mallard/environment.yaml": "", "environments/fern/environment.yaml": "",
                          "environments/.hidden/x.yaml": "", "environments/readme.md": ""})
-        self.assertEqual(common.folders("environments"), ["beam", "moderna"])
+        self.assertEqual(common.folders("environments"), ["fern", "mallard"])
 
     def test_a_folder_that_is_not_there_has_none(self):
         self.assertEqual(common.folders("environments"), [])

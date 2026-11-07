@@ -81,11 +81,11 @@ class Failover(Seed):
         return controls.declared()
 
     def test_the_failover_of_an_api_is_a_control_without_flow_or_steps(self):
-        [control] = self.declare("outage: {api: Havenbank LLM, failover: true}\n")
+        [control] = self.declare("outage: {api: Lumenbank LLM, failover: true}\n")
         self.assertEqual((control.id, control.kind, control.target, control.failover, control.flow, control.steps),
-                         ("outage", "api", "Havenbank LLM", True, None, {}))
-        self.assertEqual(control.describe(), "the failover of api 'Havenbank LLM'")
-        self.assertEqual([c.id for c in controls.of("api", "Havenbank LLM")], ["outage"])
+                         ("outage", "api", "Lumenbank LLM", True, None, {}))
+        self.assertEqual(control.describe(), "the failover of api 'Lumenbank LLM'")
+        self.assertEqual([c.id for c in controls.of("api", "Lumenbank LLM")], ["outage"])
 
     def test_a_failover_declared_wrongly_is_an_error_that_names_the_control(self):
         for text, message in (
