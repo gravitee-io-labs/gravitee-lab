@@ -1,5 +1,5 @@
 # Run with `make lint` (`make setup` installs ruff).
-# Ruff already skips .venv, node_modules and what .gitignore lists.
+# Ruff already skips .venv and what .gitignore lists.
 line-length = 120
 target-version = "py39"
 

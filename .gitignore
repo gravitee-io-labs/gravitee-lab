@@ -26,44 +26,11 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
 .venv/
-venv/
-.pytest_cache/
 .ruff_cache/
-.mypy_cache/
-.coverage
-htmlcov/
-
-# Node
-node_modules/
 
 # macOS
 .DS_Store
-.AppleDouble
-.LSOverride
-._*
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Linux
-*~
-.directory
-.fuse_hidden*
-.nfs*
-
-# Editors
-.idea/
-.vscode/
-*.iml
-*.swp
-*.swo
-*.sublime-workspace
-.fleet/
 
 # Personal files of AI agents
 CLAUDE.local.md
