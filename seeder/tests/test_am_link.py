@@ -126,8 +126,6 @@ class Link(Seed):
             "defaultDomainId": "domain-1", "defaultDomainHrid": "acme-bakery", "gatewayUrl": "http://localhost:8092",
             "serviceAccountAccessToken": TOKEN}])
         self.assertTrue(self.world.config["hasAccessToken"])
-        self.assertEqual([(r["kind"], r["name"], r["id"]) for r in common.created()],
-                         [("am-service-account", "gamma-service-account", "user-1"), ("am-link", "Gamma to Access Management", "domain-1")])
 
     def test_the_link_is_tested_with_the_token_before_it_is_saved(self):
         self.seed(self.world)

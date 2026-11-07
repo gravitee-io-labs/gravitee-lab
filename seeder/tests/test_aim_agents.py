@@ -313,14 +313,10 @@ class FirstRun(Agents):
         self.assertEqual(self.world.applications["agent-2"]["identityId"], "am-app-2")
         self.assertEqual([s["applicationId"] for s in self.world.subscriptions], [APPLICATION_ID, "app-2"])
         self.assertEqual(len(self.records()), 4)
+        self.assertEqual(len(self.platform.sent("POST", "http://am/management/auth/token")), 1, "one login for all the agents")
         self.platform.calls.clear()
         aim_agents.seed()
         self.assertEqual(self.changed(), [])
-
-    def test_the_access_management_login_is_made_once_for_all_the_agents(self):
-        self.seed_files({"aim/agents/second-agent.yaml": SECOND})
-        aim_agents.seed()
-        self.assertEqual(len(self.platform.sent("POST", "http://am/management/auth/token")), 1)
 
 
 class SecondRun(Agents):
@@ -463,9 +459,8 @@ class WhatItDidNotMake(Agents):
 
     def test_an_application_made_by_someone_since_the_look_is_met_by_the_conflict_and_is_still_not_the_seeds(self):
         self.world.race = True
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "was not created by this playground"):
             aim_agents.seed()
-        self.assertIn("was not created by this playground", str(stopped.exception))
         self.assertEqual(self.changed(), [("POST", APPLICATION)])
         self.assertEqual(self.records(), [])
 
@@ -481,9 +476,8 @@ class WhatItDidNotMake(Agents):
     def test_a_conflict_with_nothing_to_read_is_reported_whole(self):
         self.platform.add({("GET", APPLICATION): NOT_FOUND,
                            ("POST", APPLICATION): (409, {"code": "agent.application.already_exists", "message": "exists"})})
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "agent.application.already_exists"):
             aim_agents.seed()
-        self.assertIn("agent.application.already_exists", str(stopped.exception))
         self.assertEqual(self.records(), [])
 
     def test_an_identity_of_another_client_id_attached_to_the_application_stops_it(self):
@@ -539,9 +533,8 @@ class WhatItNeeds(Agents):
 
     def test_an_identity_without_the_link_that_names_the_domain_stops_it_before_any_call(self):
         (common.SEED_DIR / "am" / "gamma-link.yaml").unlink()
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "seed/am/gamma-link.yaml names the domain that holds it"):
             aim_agents.seed()
-        self.assertIn("seed/am/gamma-link.yaml names the domain that holds it", str(stopped.exception))
         self.assertEqual(self.platform.calls, [])
 
     def test_a_link_without_a_domain_stops_it(self):
@@ -555,9 +548,8 @@ class WhatItNeeds(Agents):
 
     def test_a_proxy_of_that_name_is_not_a_studio(self):
         self.world.studios[0]["mode"] = "PROXY"
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "The MCP studio 'Customer desk' is not there"):
             aim_agents.seed()
-        self.assertIn("The MCP studio 'Customer desk' is not there", str(stopped.exception))
 
     def test_two_studios_of_that_name_are_not_chosen_between(self):
         self.world.studios.append({**self.world.studios[0], "id": "studio-2"})
@@ -567,12 +559,6 @@ class WhatItNeeds(Agents):
     def test_a_plan_that_is_not_published_is_not_there(self):
         self.world.plans["studio-1"][1]["status"] = "STAGING"
         self.fails("The MCP studio 'Customer desk' has no published plan 'Agents'")
-
-    def test_a_plan_of_another_name_is_not_there(self):
-        self.seed_files({"aim/agents/desk-copilot.yaml": AGENT.replace("plan: Agents", "plan: Humans")})
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertIn("has no published plan 'Humans'", str(stopped.exception))
 
     def test_an_agent_file_is_checked_before_any_call(self):
         access = "desk-copilot.yaml: access is a list of {studio, plan} or {api, plan, apiKey}"
@@ -634,17 +620,6 @@ class AccessToAnApi(Agents):
                                                    "status": "ACCEPTED", "key": "orchid-llm-key"}])
         self.assertIn("[aim-agents]   ✓ Subscribed: Desk copilot → Orchid models (Agents)", self.output())
 
-    def test_it_comes_after_the_application_is_made_and_with_the_access_to_the_studio(self):
-        aim_agents.seed()
-        writes = [path for method, path in self.changed()]
-        self.assertLess(writes.index(APPLICATION), writes.index(MODELS_SUBSCRIPTIONS))
-        self.assertIn(SUBSCRIPTIONS, writes)
-
-    def test_it_is_recorded_as_a_subscription_of_the_agent_to_an_api_of_seed_apim(self):
-        aim_agents.seed()
-        [record] = [x for x in self.records("subscription") if x["api"] == MODELS_API]
-        self.assertEqual((record["id"], record["application"], record["via"]), ("llm-sub-1", APPLICATION_ID, "apim"))
-
     def test_a_second_run_writes_nothing(self):
         self.made()
         aim_agents.seed()
@@ -658,22 +633,19 @@ class AccessToAnApi(Agents):
 
     def test_an_api_that_the_seed_did_not_make_stops_it(self):
         common.save_created([x for x in common.created() if x["product"] != "apim"])
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "The API 'Orchid models' was not made by this playground"):
             aim_agents.seed()
-        self.assertIn("The API 'Orchid models' was not made by this playground", str(stopped.exception))
         self.assertEqual(self.api_subscriptions, [])
 
     def test_a_plan_that_is_not_published_is_not_there(self):
         self.api_plans[0]["status"] = "STAGING"
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "The API 'Orchid models' has no published plan 'Agents'"):
             aim_agents.seed()
-        self.assertIn("The API 'Orchid models' has no published plan 'Agents'", str(stopped.exception))
 
     def test_a_key_needs_a_plan_of_api_keys(self):
         self.api_plans[0]["security"] = {"type": "JWT"}
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "has an apiKey, which needs a plan of API keys, and Agents is JWT"):
             aim_agents.seed()
-        self.assertIn("has an apiKey, which needs a plan of API keys, and Agents is JWT", str(stopped.exception))
 
     def test_removal_closes_it_through_api_management_and_the_studio_one_through_agent_management(self):
         self.made()

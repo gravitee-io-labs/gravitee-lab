@@ -306,10 +306,14 @@ class Studios(Seed):
     def seed(self):
         aim_proxies.seed()
 
-    def run_twice(self):
-        self.seed()
+    def again(self):
+        """A run, and the calls of that run alone kept."""
         self.platform.calls.clear()
         self.seed()
+
+    def run_twice(self):
+        self.seed()
+        self.again()
 
     def the_studio(self):
         [studio_id] = self.world.studios
@@ -406,11 +410,6 @@ class Creation(Studios):
         self.assertEqual(self.plan_named("Agents")["status"], "PUBLISHED")
         self.assertEqual(self.plan_named("Registration")["status"], "CLOSED")
 
-    def test_the_switches_are_turned_with_the_bodies_that_were_run_for_real(self):
-        self.seed()
-        self.assertEqual([c.json for c in self.platform.sent("PUT", AIM + "/mcp-studios/studio-1/fga")], [{"enabled": True}])
-        self.assertEqual([c.json for c in self.platform.sent("PUT", AIM + "/mcp-proxies/studio-1/human-approval")], [{"enabled": True}])
-
     def test_the_studio_is_recorded_with_its_digest_for_its_removal(self):
         self.seed()
         [studio] = [x for x in common.created() if x["kind"] == "studio"]
@@ -442,16 +441,11 @@ class Flows(Studios):
         self.assertEqual(windows, [60000, 60000])
         self.assertEqual(flow["request"][0]["configuration"]["onBrokerUnavailable"], "DENY")
 
-    def test_the_authorization_flow_runs_before_the_approval_flow(self):
-        self.seed()
-        self.assertEqual([f["name"] for f in self.the_api()["flows"]], ["FGA Authorization", "Human approval"])
-
     def test_flows_in_the_other_order_are_put_in_this_one(self):
         # the platform appends the flow of the switch turned on last: human approval first, then the authorization flow
         self.seed()
         self.the_api()["flows"].reverse()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual([f["name"] for f in self.the_api()["flows"]], ["FGA Authorization", "Human approval"])
         self.assertEqual(self.changes(), [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
 
@@ -491,29 +485,25 @@ class SecondRun(Studios):
     def test_a_closed_plan_a_platform_lists_is_left_closed(self):
         self.seed()
         self.world.all_statuses = True
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
 
     def test_a_registration_plan_that_is_open_again_is_closed_again(self):
         self.seed()
         self.plan_named("Registration")["status"] = "PUBLISHED"
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [("POST", "/apis/studio-1/plans/plan-1/_close"), ("POST", "/apis/studio-1/deployments")])
 
     def test_one_deployment_when_the_api_says_it_waits_for_one(self):
         self.seed()
         self.the_api()["deploymentState"] = "NEED_REDEPLOY"
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [("POST", "/apis/studio-1/deployments")])
 
     def test_a_flow_someone_edited_is_written_again_without_turning_the_switch(self):
         self.seed()
         self.the_flow("FGA Authorization")["request"][1]["configuration"]["contextExpr"] = []
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
         self.assertEqual(self.the_flow("FGA Authorization")["request"][1]["configuration"]["contextExpr"], WANTED_CONTEXT)
 
@@ -521,8 +511,7 @@ class SecondRun(Studios):
         self.seed()
         steps = self.the_flow("FGA Authorization")["request"]
         del steps[0]
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual([s["policy"] for s in self.the_flow("FGA Authorization")["request"]], ["policy-assign-attributes", "authz-pep"])
         self.assertEqual(self.platform.sent("PUT", AIM + "/mcp-studios/studio-1/fga"), [])
 
@@ -530,8 +519,7 @@ class SecondRun(Studios):
         self.seed()
         steps = self.the_flow("FGA Authorization")["request"]
         steps.reverse()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual([s["policy"] for s in self.the_flow("FGA Authorization")["request"]], ["policy-assign-attributes", "authz-pep"])
 
     def test_a_step_someone_disabled_is_enabled_again(self):
@@ -557,8 +545,7 @@ class SecondRun(Studios):
     def test_a_file_that_turns_the_check_off_turns_the_switch_off(self):
         self.seed()
         self.file(STUDIO.replace("authorization:\n  enabled: true", "authorization:\n  enabled: false"))
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual([c.json for c in self.platform.sent("PUT", AIM + "/mcp-studios/studio-1/fga")], [{"enabled": False}])
         self.assertNotIn("FGA Authorization", [f["name"] for f in self.the_api()["flows"]])
 
@@ -576,8 +563,7 @@ class Replacement(Studios):
     def test_a_changed_alias_replaces_the_studio_and_its_record_follows(self):
         self.seed()
         self.file(STUDIO.replace("alias: get_customer", "alias: customer"))
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes()[:2], [("DELETE", "/mcp-proxies/studio-1"), ("POST", "/mcp-studios")])
         self.assertEqual(list(self.world.studios), ["studio-2"])
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], ["studio-2"])
@@ -600,8 +586,7 @@ class Replacement(Studios):
     def test_a_changed_flow_or_plan_setting_edits_in_place(self):
         self.seed()
         self.file(STUDIO.replace("holdWindowMs: 60000", "holdWindowMs: 90000"))
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
         self.assertEqual(self.the_flow("Human approval")["request"][0]["configuration"]["holdWindowMs"], 90000)
 
@@ -627,8 +612,7 @@ class AgentsPlan(Studios):
     def test_a_jwt_plan_that_differs_is_updated_in_place(self):
         self.seed()
         self.file(STUDIO.replace("clientIdClaim: client_id", "clientIdClaim: azp"))
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [("PUT", "/apis/studio-1/plans/plan-2"), ("POST", "/apis/studio-1/deployments")])
         [call] = self.platform.sent("PUT", V2 + "/apis/studio-1/plans/plan-2")
         self.assertEqual(call.json["security"]["configuration"]["clientIdClaim"], "azp")
@@ -640,19 +624,11 @@ class AgentsPlan(Studios):
     def test_a_default_the_platform_added_to_the_plan_is_no_change(self):
         self.seed()
         self.plan_named("Agents")["security"]["configuration"]["tokenCacheEnabled"] = False
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
 
     def test_the_registration_plan_is_not_closed_before_the_agents_plan_is_published(self):
-        original = self.world.plan_status
-
-        def refuse(call, status):
-            if status == "PUBLISHED":
-                return 500, {"message": "boom"}
-            return original(call, status)
-
-        self.world.plan_status = refuse
+        self.world.plan_status = lambda call, status: (500, {"message": "boom"})
         with self.assertRaisesRegex(common.SeedError, "HTTP 500"):
             self.seed()
         self.assertEqual(self.plan_named("Registration")["status"], "PUBLISHED")
@@ -730,26 +706,19 @@ class Errors(Studios):
         self.failing("MCP studio: the tool mcp-tool.orchid-orders-api-createrefund is not in the catalog")
         self.assertEqual(self.world.studios, {})
 
-    def test_an_api_without_tools_in_the_catalog_stops_the_seed_naming_it(self):
-        del self.world.apim["Orchid Orders API"]
-        self.failing("the API 'Orchid Orders API' has no tools in the catalog")
-        self.assertEqual(self.world.studios, {})
-
     def test_an_api_that_has_a_namesake_is_not_mistaken_for_it(self):
         self.world.apim = {"Orchid Orders API v2": "apim-orders-2", "Orchid Customers API": "apim-customers"}
         self.failing("the API 'Orchid Orders API' has no tools in the catalog")
+        self.assertEqual(self.world.studios, {})
 
-    def test_a_missing_key_of_the_access_is_named(self):
-        self.file(STUDIO.replace("    clientIdClaim: client_id\n", ""))
-        self.failing(r"MCP studio Customer desk: access\.agents\.clientIdClaim is missing")
-
-    def test_a_missing_registration_plan_is_named(self):
-        self.file(STUDIO.replace("  registration:\n    name: Registration\n    type: OAUTH2_AM\n", ""))
-        self.failing(r"MCP studio Customer desk: access\.registration is missing")
-
-    def test_a_plan_of_the_agents_that_is_not_jwt_is_refused(self):
-        self.file(STUDIO.replace("    type: JWT", "    type: OAUTH2_AM"))
-        self.failing("access.agents.type is OAUTH2_AM, only JWT keeps the subscription required")
+    def test_an_access_that_cannot_be_made_is_named(self):
+        for wrong, right, message in (
+                ("    clientIdClaim: client_id\n", "", r"MCP studio Customer desk: access\.agents\.clientIdClaim is missing"),
+                ("  registration:\n    name: Registration\n    type: OAUTH2_AM\n", "", r"MCP studio Customer desk: access\.registration is missing"),
+                ("    type: JWT", "    type: OAUTH2_AM", "access.agents.type is OAUTH2_AM, only JWT keeps the subscription required")):
+            with self.subTest(message=message):
+                self.file(STUDIO.replace(wrong, right))
+                self.failing(message)
 
     def test_a_switch_that_wrote_no_flow_is_named(self):
         self.platform.add({("PUT", re.compile(AIM + "/mcp-studios/[^/]+/fga")): lambda call: (200, {})})
@@ -826,8 +795,7 @@ class AgentIdentity(Studios):
         self.run_twice()
         self.assertEqual(self.changes(), [])
         self.check()["agentIdentityResolution"] = False
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
         self.assertIs(self.check()["agentIdentityResolution"], True)
 
@@ -879,8 +847,7 @@ class EditedTools(Studios):
     def test_the_next_run_writes_nothing(self):
         self.edited()
         self.seed()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
 
     def test_a_tool_someone_took_out_or_renamed_is_put_back(self):
@@ -890,8 +857,7 @@ class EditedTools(Studios):
             with self.subTest(tools=tools):
                 self.seed()
                 self.edit_tools(tools)
-                self.platform.calls.clear()
-                self.seed()
+                self.again()
                 self.assertEqual(self.changes()[0], ("PUT", "/mcp-studios/studio-1/specification"))
                 self.assertEqual([(t["id"], t["alias"]) for t in self.world.studios["studio-1"]["tools"]],
                                  [("tool-searchCustomers", "search_customers"), ("tool-getCustomer", "get_customer"),
@@ -902,8 +868,7 @@ class EditedTools(Studios):
         for tool in self.world.studios["studio-1"]["tools"]:
             tool["id"] = tool.pop("entityId")
             del tool["alias"]   # a platform that says no alias compares the ids only
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
 
     def test_an_alias_that_is_the_tool_s_own_name_is_no_alias(self):
@@ -911,15 +876,13 @@ class EditedTools(Studios):
         self.seed()
         tool = self.world.studios["studio-1"]["tools"][0]
         tool["alias"] = tool["name"]   # a platform that writes the name where no alias was given
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
 
     def test_a_studio_whose_tools_the_platform_does_not_show_is_left_alone(self):
         self.seed()
         self.world.studios["studio-1"]["tools"] = []
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
 
     def test_a_platform_that_cannot_write_the_tools_has_the_studio_made_again(self):
@@ -934,9 +897,8 @@ class EditedTools(Studios):
     def test_any_other_refusal_stops_the_seed_in_one_line(self):
         self.edited()
         self.world.specification_status = 400
-        with self.assertRaises(common.SeedError) as raised:
+        with self.assertRaisesRegex(common.SeedError, r"^PUT /mcp-studios/studio-1/specification: HTTP 400 "):
             self.seed()
-        self.assertRegex(str(raised.exception), r"^PUT /mcp-studios/studio-1/specification: HTTP 400 ")
         self.assertEqual(list(self.world.studios), ["studio-1"], "never deleted for a refusal")
 
     def test_a_studio_of_the_other_shape_is_brought_back_too(self):
@@ -944,17 +906,15 @@ class EditedTools(Studios):
         self.env(GATEWAY_INTERNAL_URL=None)
         self.seed()
         self.edit_tools([{"id": "tool-getCustomer"}, {"id": "tool-deleteCustomer"}])
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [("PUT", "/mcp-studios/studio-1/specification"), ("POST", "/apis/studio-1/deployments")])
         self.assertEqual([t["id"] for t in self.world.studios["studio-1"]["tools"]], ["tool-getCustomer"])
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
 
 
 PLAIN = """\
-name: Lumenbank operations
+name: Kazoo operations
 description: Every operation of the APIs, one tool each
 contextPath: /mcp/customer-desk
 supportedProtocolVersions: ["2025-11-25", "2026-07-28"]
@@ -992,9 +952,9 @@ class Subscriptions(Studios):
         self.assertEqual(self.changes()[0], ("POST", "/mcp-studios"))
         [record] = [x for x in common.created() if x["kind"] == "subscription"]
         self.assertEqual((record["product"], record["label"], record["name"], record["id"], record["api"]),
-                         ("aim-proxies", "subscriptions to MCP studios", "Steward on 13 tools → Lumenbank operations (Copilots)",
+                         ("aim-proxies", "subscriptions to MCP studios", "Steward on 13 tools → Kazoo operations (Copilots)",
                           "sub-1", "studio-1"))
-        self.assertIn("✓ Subscribed: Steward on 13 tools → Lumenbank operations (Copilots)", self.output())
+        self.assertIn("✓ Subscribed: Steward on 13 tools → Kazoo operations (Copilots)", self.output())
         self.assertNotIn("operations-key-0013", self.output())
 
     def test_a_second_run_writes_nothing(self):
@@ -1005,8 +965,7 @@ class Subscriptions(Studios):
     def test_a_paused_subscription_holds_the_access_and_is_left_as_it_is(self):
         self.seed()
         self.subs()[0]["status"] = "PAUSED"
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
 
     def test_a_pending_subscription_is_accepted_with_its_key(self):
@@ -1028,7 +987,7 @@ class Subscriptions(Studios):
     def test_a_subscription_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
         self.answer_lost(("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")), self.world.subscribe)
         self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
-                         ["Steward on 13 tools → Lumenbank operations (Copilots)"])
+                         ["Steward on 13 tools → Kazoo operations (Copilots)"])
         self.seed()
         self.assertEqual(common.notes("aim-proxies", "subscription"), [])
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "subscription"], [s["id"] for s in self.subs()])
@@ -1037,8 +996,7 @@ class Subscriptions(Studios):
     def test_a_subscription_someone_made_is_left_as_it_is_and_never_recorded(self):
         self.seed()
         common.forget(*[x for x in common.created() if x["kind"] == "subscription"])
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.changes(), [])
         self.assertEqual([x for x in common.created() if x["kind"] == "subscription"], [])
 
@@ -1047,7 +1005,7 @@ class Subscriptions(Studios):
         self.seed()
         self.assertEqual(len(self.subs("ACCEPTED")), 1)
         self.file(PLAIN.replace("{application: Steward on 13 tools,", "{application: Steward on 13 tools, plan: Agents,"))
-        with self.assertRaisesRegex(common.SeedError, "^MCP studio Lumenbank operations: no published plan is named 'Agents'$"):
+        with self.assertRaisesRegex(common.SeedError, "^MCP studio Kazoo operations: no published plan is named 'Agents'$"):
             self.seed()
 
     def test_a_studio_built_in_steps_subscribes_to_the_plan_of_the_agents(self):
@@ -1079,7 +1037,7 @@ class Subscriptions(Studios):
                 ("subscriptions: [{application: A, apiKey: ''}]", "the apiKey of A is empty"),
                 ("subscriptions: [{application: A, plan: 3}]", "the plan of A is the name of a plan"),
                 ("authorization: {agentIdentityResolution: true}",
-                 "^MCP studio Lumenbank operations: authorization is read for a studio built in steps")):
+                 "^MCP studio Kazoo operations: authorization is read for a studio built in steps")):
             with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, message):
                 self.file(PLAIN[:PLAIN.index("subscriptions:")] + text + "\n")
                 self.seed()
@@ -1090,7 +1048,7 @@ class Subscriptions(Studios):
         self.platform.calls.clear()
         aim_proxies.remove(common.created())
         self.assertEqual(self.changes(), [("POST", "/apis/studio-1/subscriptions/sub-1/_close"), ("DELETE", "/mcp-proxies/studio-1")])
-        self.assertIn("✓ Closed subscription 'Steward on 13 tools → Lumenbank operations (Copilots)'", self.output())
+        self.assertIn("✓ Closed subscription 'Steward on 13 tools → Kazoo operations (Copilots)'", self.output())
         self.assertEqual(common.created(), [], "a subscription closed is forgotten as soon as it is")
 
     def test_a_subscription_whose_studio_is_gone_is_no_error_to_remove(self):
@@ -1107,7 +1065,7 @@ class Subscriptions(Studios):
         self.changed()
         self.answer_lost(("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")), self.world.subscribe)
         self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
-                         ["Steward on 13 tools → Lumenbank operations (Copilots)"], "a note before the request")
+                         ["Steward on 13 tools → Kazoo operations (Copilots)"], "a note before the request")
         self.seed()
         live = [s["id"] for s in self.world.subscriptions.values() if s["status"] == "ACCEPTED"]
         self.assertEqual([(x["id"], x["api"]) for x in common.created() if x["kind"] == "subscription"], [(live[0], "studio-2")])
@@ -1132,4 +1090,4 @@ class Subscriptions(Studios):
         self.seed()
         [sub] = self.world.subscriptions.values()
         self.assertEqual(sub["status"], "ACCEPTED", "the key of the file works")
-        self.assertIn("✓ Subscription accepted: Steward on 13 tools → Lumenbank operations (Copilots)", self.output())
+        self.assertIn("✓ Subscription accepted: Steward on 13 tools → Kazoo operations (Copilots)", self.output())

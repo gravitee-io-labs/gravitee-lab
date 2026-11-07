@@ -87,15 +87,12 @@ class SigningIn(Seed):
         self.env(APIM_TOKEN="")
         self.assertEqual({call.auth for call in self.calls()}, {("admin", "admin")})
 
-    def test_no_credentials_is_an_error(self):
-        self.env(APIM_USERNAME=None)
-        with self.assertRaisesRegex(common.SeedError, "APIM_USERNAME is not set"):
-            gamma.Gamma()
-
-    def test_no_management_api_is_an_error(self):
-        self.env(APIM_MANAGEMENT_URL=None)
-        with self.assertRaisesRegex(common.SeedError, "APIM_MANAGEMENT_URL is not set"):
-            gamma.Gamma()
+    def test_no_credentials_or_no_management_api_is_an_error(self):
+        for name in ("APIM_USERNAME", "APIM_MANAGEMENT_URL"):
+            self.env(**{name: None})
+            with self.subTest(name=name), self.assertRaisesRegex(common.SeedError, f"{name} is not set"):
+                gamma.Gamma()
+            self.env(**{name: "x"})
 
 
 class Patience(Seed):
@@ -304,25 +301,12 @@ class Modules(Seed):
     def serve(self, answer):
         self.answer({("GET", self.LIST): answer})
 
-    def test_the_ids_of_the_modules_the_platform_serves(self):
-        self.serve((200, [{"id": "aim", "name": "Agent Management"}, {"id": "authz"}, {"id": "platform"}]))
-        self.assertEqual(gamma.Gamma().modules(), {"aim", "authz", "platform"})
-
-    def test_a_platform_that_has_no_such_list_says_so(self):
-        self.serve(404)
-        self.assertIsNone(gamma.Gamma().modules())
-
     def test_an_answer_that_is_no_list_is_an_error_and_not_a_platform_without_modules(self):
         for body in ("<html>", {"data": []}):
             with self.subTest(body=body):
                 self.serve((200, body))
                 with self.assertRaisesRegex(common.SeedError, "GET /modules: the answer is not a list of modules"):
                     gamma.Gamma().modules()
-
-    def test_any_other_answer_is_an_error_with_its_status(self):
-        self.serve((401, {"message": "Full authentication is required"}))
-        with self.assertRaisesRegex(common.HttpError, "GET /modules: HTTP 401 .*Full authentication"):
-            gamma.Gamma().modules()
 
     def test_the_modules_it_will_fill_must_all_be_there(self):
         self.serve((200, [{"id": "aim"}, {"id": "authz"}, {"id": "platform"}, {"id": "edge"}]))

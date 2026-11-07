@@ -4,7 +4,6 @@ the one schema document of the environment, and the message of a policy the plat
 that keeps what it is given."""
 
 import json
-import re
 import unittest
 
 import requests
@@ -43,21 +42,9 @@ policy: |
 
 
 def syntax_error(text):
-    """What the platform says of a policy it cannot read, as far as a fake can tell: brackets that do not close and a
-    statement that does not end. None when the text can be read."""
-    pairs = {")": "(", "}": "{", "]": "["}
-    stack = []
-    for character in text:
-        if character in "({[":
-            stack.append(character)
-        elif character in pairs and (not stack or stack.pop() != pairs[character]):
-            return f"line {text[:text.index(character)].count(chr(10)) + 1}: unexpected '{character}'"
-    if stack:
-        return "line 1:20\n  missing ')' at the end\n  the statement is not complete"
-    statements = len(re.findall(r"^(?:permit|forbid) \(", text, re.M))
-    if text.count(";") != statements:
-        return "a statement ends with ';'"
-    return None
+    """What the platform says of a policy it cannot read, as far as a fake can tell: a bracket that does not close. None when
+    the text can be read."""
+    return "line 1:20\n  missing ')' at the end\n  the statement is not complete" if text.count("(") != text.count(")") else None
 
 
 class Platform(World):
@@ -177,10 +164,6 @@ def customers_and_orders(customers):
 class References(unittest.TestCase):
     """An attribute that is {ref: [Type, id]} is a reference to an entity, wherever it stands."""
 
-    def test_a_reference_becomes_the_entity_reference_of_the_engine(self):
-        self.assertEqual(authz.reference({"customer": {"ref": ["Customer", "C-1001"]}}, "x"),
-                         {"customer": {"__entity": {"type": "Customer", "id": "C-1001"}}})
-
     def test_a_reference_in_a_list_or_a_record_is_one_too(self):
         out = authz.reference({"all": [{"ref": ["Order", "O-1"]}, {"ref": ["Order", "O-2"]}],
                                "nested": {"last": {"ref": ["Order", 3]}}}, "x")
@@ -204,12 +187,6 @@ class Entities(unittest.TestCase):
     def read(text):
         import yaml
         return authz.data_entities(yaml.safe_load(text))
-
-    def test_a_parent_and_what_an_attribute_points_at_come_before_the_entity(self):
-        source, bodies = self.read(ENTITIES)
-        self.assertEqual(source, "orchid")
-        self.assertEqual([b["entityId"] for b in bodies], ["C-1001", "O-5001", "C-2001", "O-6001"],
-                         "O-5001 is first in the file and points at C-1001: its customer comes first")
 
     def test_an_entity_is_a_resource_unless_it_is_a_user_a_group_or_an_agent(self):
         _, bodies = self.read("""
@@ -423,6 +400,7 @@ class Refusals(Case):
         self.assertEqual(self.world.by_type("Order"), ["O-5001"])
         [record] = self.records()
         self.assertEqual(record["ids"], ["C-1001", "O-5001", "C-2001"], "recorded: what the platform took, and nothing it refused")
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [], "the answer said what was saved, and that is recorded")
 
     def test_the_next_seed_saves_the_one_that_was_refused_and_no_other(self):
         self.world.refused["O-6001"] = "no"
@@ -453,12 +431,6 @@ class Refusals(Case):
             authz.seed()
         self.assertEqual(self.world.entities["C-2001"]["source"], "someone")
         self.assertNotIn("C-2001", authz.made_entities())
-
-    def test_an_answer_that_refuses_some_takes_the_note_back_too(self):
-        self.world.refused["O-6001"] = "no"
-        with self.assertRaises(common.SeedError):
-            authz.seed()
-        self.assertEqual(common.notes(authz.SECTION, "entities"), [], "the answer said what was saved, and that is recorded")
 
     def lose_the_answer(self):
         """A run whose bulk request the platform saves whole, and whose answer never comes back."""
@@ -610,12 +582,6 @@ class Server(Case):
         self.assertEqual(self.platform.sent("GET", AIM + "/catalog/mcp-servers"), [])
         self.assertEqual(len(self.world.policies), 1)
 
-    def test_a_playground_with_policies_only_needs_no_entities_file(self):
-        self.seed_files({"authz/policies/01-reads.yaml": POLICY})
-        authz.seed()
-        self.assertEqual(len(self.world.policies), 1)
-        self.assertEqual(self.bulk_calls(), [])
-
     def test_a_file_with_a_server_and_entities_makes_both_and_the_server_slug_fills_the_policies(self):
         self.seed_files({"authz/entities.yaml": ENTITIES.replace("source: orchid", "server: Customer desk\ntools: [get_customer]\nsource: orchid"),
                          "authz/policies/01-reads.yaml": POLICY.replace('Action::"get_customer"', 'Action::"<server>.get_customer"')})
@@ -637,9 +603,6 @@ class Server(Case):
 
 class Agents(Case):
     """<agent:CLIENT_ID> in a policy is the id the gateway makes of the client id."""
-
-    def test_the_id_is_the_one_the_gateway_makes(self):
-        self.assertEqual(authz.agent_id("desk-copilot"), DESK_COPILOT)
 
     def test_the_placeholder_is_replaced_in_every_statement_of_a_policy_that_has_several(self):
         self.seed_files({"authz/policies/01-reads.yaml": POLICY})

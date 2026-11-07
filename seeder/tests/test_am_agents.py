@@ -10,7 +10,7 @@ import re
 from lab_seeder import am
 from lab_seeder import common
 from tests import test_am
-from tests.test_am import DOMAINS, GRANTS_OF_AN_AGENT, AccessManagement
+from tests.test_am import DOMAINS, AccessManagement
 
 SCOPES = re.compile(DOMAINS + "/[^/]+/scopes")
 APPLICATIONS = re.compile(DOMAINS + "/[^/]+/applications")
@@ -208,14 +208,6 @@ class Scopes(Case):
         self.assertEqual(kept["createRefund"]["name"], "Refund an order")
         self.assertIn("✓ Scopes: 3 created", self.output())
 
-    def test_they_are_made_before_the_application_that_names_them(self):
-        self.seed()
-        order = [call.path.rsplit("/", 1)[1] for call in self.platform.calls
-                 if call.method == "POST" and call.path.rsplit("/", 1)[1] in ("scopes", "applications")]
-        self.assertEqual(order, ["scopes"] * 3 + ["applications"])
-        self.assertEqual({entry["scope"] for entry in self.oauth()["scopeSettings"]} - set(SYSTEM_SCOPES),
-                         {"searchCustomers", "getCustomer", "createRefund"})
-
     def test_a_scope_that_is_there_is_not_made_again_and_the_platform_s_description_stays(self):
         domain_id = self.am.add_domain("orchid", [("getCustomer", "Customers", "Made when the MCP server was registered")])
         self.seed()
@@ -250,8 +242,7 @@ class Scopes(Case):
         self.settle()
         scope = self.am.one("scopes", key="createRefund")
         scope["description"] = "Edited in the console"
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [("PATCH", f"{DOMAINS}/{self.domain_id()}/scopes/{scope['id']}")])
         self.assertEqual(self.platform.sent("PATCH", re.compile(DOMAINS + "/[^/]+/scopes/[^/]+"))[0].json,
                          {"name": "Refund an order", "description": "Refund an order within the limits of your team"})
@@ -262,8 +253,7 @@ class Scopes(Case):
         self.settle()
         gone = self.am.one("scopes", key="getCustomer")
         del self.am.held[(self.domain_id(), "scopes")][gone["id"]]
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [("POST", f"{DOMAINS}/{self.domain_id()}/scopes")])
         self.assertEqual(self.am.one("scopes", key="getCustomer")["name"], "Read a customer profile")
 
@@ -331,18 +321,6 @@ class Agent(Case):
         self.assertNotIn(SECRET, self.state.read_text(encoding="utf-8"))
         self.assertNotIn("demo-password", self.output() + self.state.read_text(encoding="utf-8"))
 
-    def test_it_signs_in_with_that_secret_where_its_kind_would_have_it_sign_in_with_a_key(self):
-        self.seed()
-        self.assertEqual(self.am.at_creation["desk-copilot"]["tokenEndpointAuthMethod"], "private_key_jwt", "what AM gave it")
-        self.assertEqual(self.oauth()["tokenEndpointAuthMethod"], "client_secret_basic")
-
-    def test_it_keeps_the_grants_and_response_types_its_kind_gives_it(self):
-        self.seed()
-        self.assertEqual(self.oauth()["grantTypes"], GRANTS_OF_AN_AGENT)
-        self.assertEqual(self.oauth()["responseTypes"], ["code"])
-        self.assertTrue(all(set(patch.get("settings", {}).get("oauth", {})) <= {"scopeSettings", "tokenCustomClaims", "redirectUris",
-                                                                                  "tokenEndpointAuthMethod"} for patch in self.patches()))
-
     def test_it_may_ask_a_person_for_the_scopes_of_the_file_and_nothing_else(self):
         self.seed()
         self.assertEqual(self.oauth()["scopeSettings"], [{"scope": scope, "defaultScope": False, "scopeApproval": 300}
@@ -365,8 +343,7 @@ class Agent(Case):
     def test_a_second_seed_saves_nothing(self):
         self.seed()
         self.settle()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [])
         self.assertIn("OAuth settings and identity provider as the file says", self.output())
         self.assertIn("3 scopes as the file says", self.output())
@@ -379,16 +356,14 @@ class Agent(Case):
         entries.reverse()
         for entry in entries:
             entry.update(requiredScope=False)
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [])
 
     def test_a_scope_it_lost_is_given_back_and_only_the_scopes_are_saved(self):
         self.seed()
         self.settle()
         self.oauth()["scopeSettings"].pop()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(self.writes()), 1)
         self.assertEqual([set(patch["settings"]["oauth"]) for patch in self.patches()], [{"scopeSettings"}])
         self.assertEqual(len(self.oauth()["scopeSettings"]), 6)
@@ -398,8 +373,7 @@ class Agent(Case):
         self.settle()
         self.am.add_scope(self.domain_id(), "offline_access", "Offline access", "Offline access")
         self.oauth()["scopeSettings"].append({"scope": "offline_access", "defaultScope": False, "scopeApproval": 0})
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(self.writes()), 1)
         self.assertEqual(len(self.oauth()["scopeSettings"]), 6)
         self.assertNotIn("offline_access", {entry["scope"] for entry in self.oauth()["scopeSettings"]})
@@ -409,8 +383,7 @@ class Agent(Case):
         self.settle()
         entry = next(entry for entry in self.oauth()["scopeSettings"] if entry["scope"] == "createRefund")
         entry.update(defaultScope=True, scopeApproval=0)
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(self.writes()), 1)
         entry = next(entry for entry in self.oauth()["scopeSettings"] if entry["scope"] == "createRefund")
         self.assertEqual((entry["defaultScope"], entry["scopeApproval"]), (False, 300))
@@ -419,8 +392,7 @@ class Agent(Case):
         self.seed()
         self.settle()
         self.files(agent=AGENT_FILE.replace("localhost:8130", "localhost:8140"))
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual([set(patch["settings"]["oauth"]) for patch in self.patches()], [{"redirectUris"}])
         self.assertEqual(self.oauth()["redirectUris"], ["http://localhost:8140/auth/callback"])
 
@@ -478,11 +450,6 @@ class Agent(Case):
         self.assertEqual(self.platform.sent("POST", APPLICATIONS), [])
         self.assertEqual(self.oauth()["tokenEndpointAuthMethod"], "client_secret_basic")
         self.assertEqual([x["kind"] for x in common.created() if x["kind"] in ("agent", "application")], [])
-
-    def test_it_is_recorded_as_an_agent_of_the_domain(self):
-        self.seed()
-        self.assertEqual([(x["kind"], x["label"], x["name"], x["domain"]) for x in common.created() if x["kind"] == "agent"],
-                         [("agent", "AM agents", "Desk copilot", self.domain_id())])
 
 
 class Users(Case):

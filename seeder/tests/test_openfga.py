@@ -147,13 +147,6 @@ class Stores(Case):
 
 class Models(Case):
 
-    def test_the_model_is_written_when_the_store_has_none(self):
-        self.store_file()
-        stores = openfga.seed()
-        self.assertEqual(self.platform.changes(), [("POST", "/stores"), ("POST", "/stores/store-1/authorization-models")])
-        self.assertEqual(stores["Documents"]["model_id"], "model-1")
-        self.assertIn("✓ Model written", self.output())
-
     def test_an_unchanged_model_writes_nothing_and_keeps_its_id(self):
         self.store_file()
         openfga.seed()

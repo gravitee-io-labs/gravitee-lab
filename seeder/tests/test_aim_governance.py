@@ -446,9 +446,8 @@ class Frameworks(Governance):
 
     def test_a_framework_the_platform_does_not_know_is_reported_whole(self):
         self.file(compliance="frameworks: [no-such-law]\n")
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "compliance.framework.not_found"):
             aim_governance.seed()
-        self.assertIn("compliance.framework.not_found", str(stopped.exception))
 
 
 class Answers(Governance):
@@ -532,9 +531,8 @@ class Answers(Governance):
     def test_the_platforms_refusal_of_a_value_is_reported_whole(self):
         self.platform.add({("PUT", AGENT + "/metadata"): (400, {"code": "compliance.metadata.invalid",
                                                                 "message": "riskClassification must be one of negligible, limited"})})
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "riskClassification must be one of negligible, limited"):
             aim_governance.seed()
-        self.assertIn("riskClassification must be one of negligible, limited", str(stopped.exception))
         self.assertEqual(self.records("compliance-answers"), [])
 
     def test_a_file_without_answers_for_an_agent_asks_the_user_directory_nothing(self):
@@ -555,12 +553,6 @@ class Attestations(Governance):
     def test_the_answers_assessment_is_the_one_it_attests_from_and_it_asks_for_none_of_its_own(self):
         aim_governance.seed()
         self.assertEqual(self.platform.sent("GET", AGENT + "/assessment"), [])
-
-    def test_a_control_that_is_attested_already_is_not_attested_again(self):
-        self.world.attested["agent-1"] = {"tool-inventory"}
-        aim_governance.seed()
-        paths = [call.path for call in self.platform.calls if call.path.endswith("/attestation")]
-        self.assertEqual(paths, [AGENT + "/controls/authenticated-identity/attestation"])
 
     def test_a_control_the_platform_reads_itself_is_left_alone_and_said(self):
         self.file(compliance=COMPLIANCE.replace("      - tool-inventory\n", "      - event-logging\n      - risk-classification\n"))

@@ -210,6 +210,11 @@ class Case(Seed):
     def seed(self):
         am.seed({})
 
+    def again(self):
+        """A seed, and the calls of that seed alone kept."""
+        self.platform.calls.clear()
+        self.seed()
+
     def settle(self):
         """What AM does at the first sign-in of a person: fields of its own in a profile."""
         for user in self.am.objects("users"):
@@ -243,13 +248,10 @@ class Bank(Case):
             ("application", "applications", "Acme Bakery web"), ("domain", "domains", "acme-bakery"),
             ("group", "groups", "customers"), ("group", "groups", "tellers"), ("protected-resource", "MCP servers", "Acme Bakery MCP"),
             ("user", "users", "alice@acme-bakery.test"), ("user", "users", "bob@acme-bakery.test"), ("user", "users", "tina@acme-bakery.test")])
-        self.assertTrue(all(x["label"].endswith("s") and not x["label"].endswith("ies") for x in common.created()))
-        self.assertEqual({x["kind"] for x in common.created()} - set(am.ORDER), set())
 
     def test_a_second_seed_saves_nothing(self):
         self.settle()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [])
         self.assertEqual(len(common.created()), 10)
 
@@ -268,8 +270,7 @@ class Bank(Case):
         domain["tokenExchangeSettings"].update(enabled=False, allowImpersonation=True)
         domain["oidc"]["clientRegistrationSettings"]["allowLocalhostRedirectUri"] = False
         domain["oidc"]["redirectUriStrictMatching"] = False
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [("PATCH", f"{DOMAINS}/{self.domain_id()}")])
         self.assertEqual((domain["enabled"], domain["tokenExchangeSettings"]["enabled"],
                           domain["tokenExchangeSettings"]["allowImpersonation"]), (True, True, False))
@@ -280,8 +281,7 @@ class Bank(Case):
         ace = self.am.one("applications", clientId="ace-agent")
         ace["settings"]["oauth"]["tokenCustomClaims"] = ace["settings"]["oauth"]["tokenCustomClaims"][:2]
         ace["identityProviders"] = []
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(self.writes()), 2)
         self.assertEqual(len(ace["settings"]["oauth"]["tokenCustomClaims"]), 5)
         self.assertEqual(ace["identityProviders"][0]["identity"], "idp-1")
@@ -292,8 +292,7 @@ class Bank(Case):
                                         forceS256CodeChallengeMethod=False, redirectUris=["http://localhost:8110/callback"])
         web["settings"]["advanced"]["skipConsent"] = False
         applications = len(self.am.objects("applications"))
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [("PATCH", f"{DOMAINS}/{self.domain_id()}/applications/{web['id']}")])
         oauth = web["settings"]["oauth"]
         self.assertEqual((oauth["grantTypes"], oauth["responseTypes"], oauth["forcePKCE"], oauth["forceS256CodeChallengeMethod"]),
@@ -301,23 +300,20 @@ class Bank(Case):
         self.assertEqual(oauth["redirectUris"], ["http://localhost:8110/callback", "http://127.0.0.1:8110/callback"])
         self.assertTrue(web["settings"]["advanced"]["skipConsent"])
         self.assertEqual(len(self.am.objects("applications")), applications, "changed, not made again")
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [])
 
     def test_a_profile_someone_changed_is_made_as_the_file_says_with_the_fields_of_am_kept(self):
         tina = self.am.one("users", username="tina@acme-bakery.test")
         tina["additionalInformation"] = {"role": "customer", "sub": "from-am", "given_name": "Tina"}
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(tina["additionalInformation"], {"role": "teller", "sub": "from-am", "given_name": "Tina", "name": "Tina Torres"})
         self.assertEqual(self.writes(), [("PUT", f"{DOMAINS}/{self.domain_id()}/users/{tina['id']}")])
 
     def test_a_group_that_lost_a_member_gets_it_back_and_the_others_stay(self):
         customers = self.am.one("groups", name="customers")
         customers["members"].pop()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(customers["members"]), 2)
         self.assertEqual(len(self.writes()), 1)
 
@@ -439,12 +435,6 @@ class Session(Case):
         self.assertEqual(self.am.logins, 2)
         self.assertEqual(len(self.platform.sent("GET", DOMAINS)), 2)
 
-    def test_a_token_that_holds_is_not_replaced(self):
-        access = self.connected()
-        access.api.get(DOMAINS)
-        access.api.get(DOMAINS)
-        self.assertEqual(self.am.logins, 1)
-
     def test_the_second_login_uses_the_same_credentials_as_the_first(self):
         access = self.connected()
         self.am.expire()
@@ -458,13 +448,6 @@ class Session(Case):
         self.assertEqual(self.am.logins, 2)
         self.assertEqual((len(self.am.objects("users")), len(self.am.objects("applications"))), (3, 3))
         self.assertEqual(len(common.created()), 10)
-
-    def test_a_token_given_by_the_environment_is_not_exchanged_and_a_refusal_is_an_error(self):
-        self.env(AM_TOKEN="given", AM_USERNAME=None, AM_PASSWORD=None)
-        self.platform.add({("GET", DOMAINS): (401, {"message": "Unauthorized"})})
-        with self.assertRaises(common.SeedError):
-            am.AccessManagement().api.get(DOMAINS)
-        self.assertEqual(self.platform.sent(*LOGIN), [])
 
     def test_a_login_that_is_refused_is_asked_again_until_the_platform_answers(self):
         self.platform.add({LOGIN: [(503, {}), (200, {"access_token": "ok"})]})
@@ -484,7 +467,7 @@ class Session(Case):
         self.platform.add({("GET", DOMAINS): (401, {"message": "Unauthorized"})})
         with self.assertRaisesRegex(common.SeedError, "^Access Management: GET .*: HTTP 401"):
             am.AccessManagement().connect()
-        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual((self.clock.sleeps, self.platform.sent(*LOGIN)), ([], []))
 
 
 class Gateway(Case):

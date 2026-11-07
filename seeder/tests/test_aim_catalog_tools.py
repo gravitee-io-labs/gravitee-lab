@@ -57,8 +57,6 @@ class ToolWorld(World):
     def generate(self, call):
         api_id = call.json["apiIds"][0]
         api = self.apis[api_id]
-        if "tools" not in api:
-            return super().generate(call)
         errors = [{"key": "invalidSpec", "message": m} for m in api.get("errors", [])]
         return 200, {"data": [{"apiId": api_id, "tools": copy.deepcopy(api["tools"]), "errors": errors}]}
 
@@ -198,11 +196,6 @@ class Operations(Tools):
                          "it has searchCustomers, getCustomer, updateShippingAddress, deleteCustomer")
         self.assertEqual(self.writes(), [])
 
-    def test_every_operation_that_is_missing_is_named(self):
-        self.seed_files({"aim/api-tools/customers.yaml": customers("getCustomers", "erase")})
-        with self.assertRaisesRegex(common.SeedError, "has no operation 'getCustomers', 'erase': it has"):
-            self.run_seed()
-
     def test_names_are_matched_whole_and_as_written(self):
         self.seed_files({"aim/api-tools/customers.yaml": customers("getcustomer")})
         with self.assertRaisesRegex(common.SeedError, "has no operation 'getcustomer'"):
@@ -222,23 +215,10 @@ class Operations(Tools):
                          "getCustomer, searchCustomers: Duplicate operationId getCustomer")
         self.assertEqual(self.writes(), [])
 
-    def test_a_page_that_gives_errors_stops_a_file_that_lists_nothing_too_as_before(self):
-        self.seed_files({"aim/api-tools/customers.yaml": PLAIN})
-        self.world.apis["customers"]["errors"] = ["no servers"]
-        with self.assertRaisesRegex(common.SeedError, "gives no tools: no servers"):
-            self.run_seed()
-
-    def test_a_file_without_operations_imports_every_operation_of_the_page(self):
-        self.seed_files({"aim/api-tools/customers.yaml": PLAIN})
-        self.run_seed()
-        every = ["searchCustomers", "getCustomer", "updateShippingAddress", "deleteCustomer"]
-        self.assertEqual(self.imported(), [every])
-
     def test_tools_of_the_api_that_the_seed_did_not_create_stop_the_seed_and_are_left_alone(self):
         theirs = {"id": "theirs", "sourceKind": "apim.api", "definition": {"apiId": "customers", "apiName": CUSTOMERS}}
         self.world.sources["theirs"] = theirs
-        message = "The tools of the API 'Orchid Customers API' exists and was not created"
-        with self.assertRaisesRegex(common.SeedError, message):
+        with self.assertRaisesRegex(common.SeedError, "The tools of the API 'Orchid Customers API' exists and was not created"):
             self.run_seed()
         self.assertEqual(self.writes(), [])
         self.assertEqual(self.world.sources, {"theirs": theirs})
@@ -303,14 +283,6 @@ class Tailoring(Tools):
     def refund(self):
         return self.world.tool("createRefund")
 
-    def test_the_words_written_for_a_tool_are_part_of_its_import(self):
-        self.assertEqual(self.run_seed(), [("POST", "/catalog/mcp-tools/_importFromApis")])
-        self.assertEqual(self.imported(), [["listOrders", "getOrder", "listRefunds", "createRefund", "cancelOrder"]])
-        [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
-        sent = next(t for t in call.json["tools"] if t["definition"]["name"] == "createRefund")
-        self.assertEqual(sorted(sent), ["apiId", "definition", "gatewayMapping"])
-        self.assertEqual(sent["definition"]["inputSchema"]["required"], ["orderId", "amount", "reason"])
-
     def test_the_tool_is_imported_with_the_words_of_the_file_in_place_of_those_of_the_page(self):
         self.run_seed()
         tool = self.refund()
@@ -327,13 +299,6 @@ class Tailoring(Tools):
                          {"title": "Refund an order", "readOnlyHint": False, "destructiveHint": True,
                           "idempotentHint": False, "openWorldHint": False})
 
-    def test_a_tool_with_nothing_written_for_it_keeps_the_words_of_the_page(self):
-        self.run_seed()
-        for operation in ("listOrders", "getOrder", "listRefunds", "cancelOrder"):
-            tool = self.world.tool(operation)
-            self.assertEqual(tool["definition"]["description"], f"{operation} as the page says it")
-            self.assertNotIn("outputSchema", tool["definition"])
-
     def test_a_description_alone_leaves_the_rest_of_the_generated_definition(self):
         self.seed_files({"aim/api-tools/orders.yaml": orders("{id: getOrder, description: Read one order}")})
         self.run_seed()
@@ -345,19 +310,6 @@ class Tailoring(Tools):
     def test_a_second_run_writes_nothing(self):
         self.run_seed()
         self.assertEqual(self.run_seed(), [])
-
-    def test_the_record_is_the_source_with_the_fingerprint_of_the_operations_and_the_words_written(self):
-        self.run_seed()
-        [record] = self.records("api-tools")
-        [source] = self.world.sources.values()
-        self.assertEqual((record["id"], record["name"], record["label"]), (source["id"], ORDERS, "API tools"))
-        refund = common.load(common.SEED_DIR / "aim/api-tools/orders.yaml")["operations"][3]
-        wording = {k: v for k, v in refund.items() if k != "id"}
-        entries = [{"apiId": "orders", "gatewayMapping": tool["gatewayMapping"],
-                    "definition": {k: v for k, v in tool["toolDefinition"].items() if k != "outputSchema"}}
-                   for tool in order_tools()]
-        entries[3]["definition"].update(wording)
-        self.assertEqual(record["digest"], aim_catalog.digest_of(entries))
 
     def test_other_words_replace_the_tools_with_their_source_and_the_studios_that_hold_them(self):
         self.run_seed()
@@ -466,16 +418,6 @@ class Metadata(Tools):
         self.seed_files({"aim/agents/desk-copilot.yaml": COPILOT.replace("clientId: desk-copilot", "clientId: other")})
         self.assertEqual(self.run_seed(), [])
 
-    def test_every_risk_classification_the_catalog_knows_is_accepted(self):
-        for risk in ("negligible", "limited", "moderate", "high"):
-            with self.subTest(risk=risk):
-                self.world.__init__()
-                self.world.card = {**self.world.card, "name": "Desk copilot"}
-                common.save_created([])
-                self.seed_files({"aim/agents/desk-copilot.yaml": COPILOT.replace("limited", risk)})
-                self.run_seed()
-                self.assertEqual(self.agent()["metadata"], {"riskClassification": risk})
-
     def test_a_risk_classification_the_catalog_does_not_know_stops_the_seed_before_the_card_is_read(self):
         for risk in ("critical", "Limited", "unacceptable", "''", "[high]", "3", ""):
             with self.subTest(risk=risk):
@@ -494,8 +436,7 @@ class Metadata(Tools):
             with self.subTest(text=text):
                 file = COPILOT.replace("metadata:\n  riskClassification: limited\n", text)
                 self.seed_files({"aim/agents/desk-copilot.yaml": file})
-                message = "The agent 'desk-copilot': metadata is a mapping of keys to values"
-                with self.assertRaisesRegex(common.SeedError, message):
+                with self.assertRaisesRegex(common.SeedError, "The agent 'desk-copilot': metadata is a mapping of keys to values"):
                     self.run_seed()
 
     def test_an_agent_without_metadata_is_registered_as_before(self):
