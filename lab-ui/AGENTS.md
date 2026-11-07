@@ -13,8 +13,8 @@ small helper tool: when in doubt, do less.
 ## Layout
 
 The module docstring (Python) or the header comment (JavaScript) of a file is the detail. `server.py` is the entry point,
-`catalog.py` the command of the catalogs, `frames/` the script a framed console runs to tell the page which address it is on, and
-`templates/` what a new catalog is made from.
+`catalog.py` the command of the catalogs, `frames/` what the core's consoles load to tell the page which address they are on and
+to sign in as a persona, and `templates/` what a new catalog is made from.
 
 - `lab_ui/` holds `paths.py` (the project's layout), `products.py` (what the engine knows itself of Gravitee's products), `e2e.py`
   (`make e2e`), `compat.py` (the versions of Gravitee a playground is tried on) and a package for each domain:
