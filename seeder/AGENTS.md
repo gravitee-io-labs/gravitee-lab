@@ -92,7 +92,10 @@ service sets.
 
 ## Behavior to keep
 
-- **Builds differ, versions are not read.** No module compares a version. A difference between builds is handled, in this
+- **Releases are read, builds are asked.** `versions.py` reads the versions at the start of a seed. A module never compares a
+  version itself: for a change between releases it asks `versions.since(name)` of a row of `CHANGES` (True, False, or None for
+  a build that is no release), and each row is one of [Versions of Gravitee](../docs/playgrounds.md#versions-of-gravitee),
+  with a test of both sides. A difference between builds that are no release is handled, in this
   order of preference: the seed file writes what its build takes and the module sends it on; the module adapts to what the
   platform answers (a status, a field, a code, what it serves), never to a sentence meant for a person; when neither can
   work, the seed stops with a line that says what to write instead. Each difference is a row of

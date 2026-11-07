@@ -20,6 +20,7 @@ Settings, from the environment of the seed:
 import os
 import time
 
+from . import versions
 from .common import REFUSED, Api, Gone, HttpError, SeedError, setting, wait_until
 
 SECTION = "gamma"
@@ -161,6 +162,8 @@ def require_modules(names):
     ready yet."""
     if not names:
         return
+    if versions.since("gamma") is False:
+        raise SeedError(f"This platform does not serve the Gamma modules: {NEEDS}")
     served, patience = [], time.time() + UNSERVED
 
     def look():
