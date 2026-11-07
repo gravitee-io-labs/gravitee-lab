@@ -530,6 +530,13 @@ test("the consoles of a product are those of its own services that run: a button
   dashboardPage.hide();
 });
 
+test("a console is where its link says, wherever that is: the one of a service of another product goes on that product's row", async () => {
+  const gamma = link("Gamma Console", 8086, "apim-ui", "API Management");
+  await open({ state: lab({ links: [...LINKS.slice(0, 2), gamma, ...LINKS.slice(2)] }) });
+  assert.deepEqual(products()[0].querySelectorAll(".dash-full .btn").map(text), ["APIM Console", "Gamma Console", "Developer Portal", "More"]);
+  dashboardPage.hide();
+});
+
 test("a product that does not run has a ring and the version configured, muted, and one never created is not warned about", async () => {
   await open({ state: lab({ core: "stopped" }), body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.12.1", deployed_state: "configured" })] }) });
   const row = products()[0];
