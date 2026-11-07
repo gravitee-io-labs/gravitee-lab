@@ -121,21 +121,6 @@ class AnyId(Case):
             self.assertTrue(said.startswith("Name the item as kind:id, kind being addon, setup, playground"), said)
             self.assertNotIn("error", said, "what was typed is not said back")
 
-    def test_the_example_of_the_message_is_an_item_of_the_project(self):
-        with self.assertRaises(ValueError) as caught:
-            e2e.target("shop", self.BUILT)
-        self.assertEqual(str(caught.exception),
-                         "Name the item as kind:id, kind being addon, setup, playground, for example playground:@hub/bank")
-
-    def test_the_example_leaves_out_what_belongs_to_a_machine_and_a_project_with_nothing_shared_has_none(self):
-        self.assertEqual(e2e.example({"playgrounds": {"local/a": {}}, "addons": {}, "setups": {"pair": {}}}), "setup:pair")
-        self.assertIsNone(e2e.example({"playgrounds": {"local/a": {}}, "addons": {}, "setups": {}}))
-        self.assertIsNone(e2e.example(None))
-        self.assertEqual(e2e.example(self.BUILT, "hub"), "playground:@hub/bank")
-        with self.assertRaises(ValueError) as caught:
-            e2e.parse("nonsense")
-        self.assertEqual(str(caught.exception), "Name the item as kind:id, kind being addon, setup, playground")
-
     def test_the_form_alone_is_judged_by_parse(self):
         self.assertEqual(e2e.parse("addon:@hub/ghost"), ("addon", "@hub/ghost"))
         self.assertEqual(e2e.parse("addon:local/mine"), ("addon", "local/mine"))
@@ -207,7 +192,6 @@ class Versions(Case):
         built = {"services": {"gateway": {"raw_image": "registry/${APIM_REGISTRY:-graviteeio}/gateway:${APIM_VERSION:-4.13}"},
                               "db": {"raw_image": "mongo:8"}, "odd": {}}}
         self.assertEqual(e2e.image_variables(built), {"APIM_REGISTRY", "APIM_VERSION"})
-        self.assertIsNone(e2e.image_variables({"playgrounds": {}}), "a project that lists no services is not one the Lab UI builds")
 
     def test_a_set_that_is_not_there_says_how_many_are(self):
         with self.assertRaisesRegex(ValueError, "was tested with 2 sets of versions: choose from 0 to 1"):
@@ -606,7 +590,8 @@ class Running(Case):
     def setUp(self):
         self.folder(paths, files={paths.DEFAULT_FILE: json.dumps({"schema": 1, "catalogs": [{"id": "base"}]})})
         self.said = []
-        self.built = {"playgrounds": {"shop": {"name": "Shop", "tested": [{"APIM_VERSION": "4.13.0"}]}}, "addons": {}, "setups": {}}
+        self.built = {"playgrounds": {"shop": {"name": "Shop", "tested": [{"APIM_VERSION": "4.13.0"}]}}, "addons": {}, "setups": {},
+                      "services": {"gateway": {"raw_image": "gateway:${APIM_VERSION:-4.13.0}"}}}
         self.patch(project, "load", lambda: self.built)
         self.patch(project, "forget")
         self.removed = []
@@ -771,7 +756,7 @@ class Selecting(Case):
             with self.subTest(word=word), self.assertRaises(e2e.PlanError) as caught:
                 e2e.named([word], PROJECT, "base")
             said = str(caught.exception)
-            self.assertIn("is not a shared item of base: name it kind:id, for example playground:shop", said)
+            self.assertIn("is not a shared item of base: name it kind:id", said)
             self.assertTrue(said.startswith("'"), "what was typed is quoted, so that no line of the log starts with it")
 
     def test_what_was_typed_is_cut_and_on_one_line(self):
@@ -977,9 +962,6 @@ class FixtureCatalogs(Case):
         self.assertEqual(e2e.target("addon:@partner/ledger", self.built), ("addon", "@partner/ledger"))
         with self.assertRaisesRegex(ValueError, "No add-on named @partner/echo"):
             e2e.target("addon:@partner/echo", self.built)
-        with self.assertRaises(ValueError) as caught:
-            e2e.target("tour", self.built)
-        self.assertRegex(str(caught.exception), r"for example playground:[a-z-]+$")
 
     def test_the_canary_is_read_from_catalog_yml_of_the_linked_catalog(self):
         found = e2e.plan(self.built)

@@ -107,7 +107,7 @@ def record_main(argv, out, err, **seams) -> int:
     written, said, meant, left_out = {}, [], {}, 0
     try:
         for item, sets in sorted(passed(planned, results, err).items()):
-            kind, uid = e2e.parse(item, built)
+            kind, uid = e2e.parse(item)
             unit = built["playgrounds"].get(uid)
             if kind != "playground" or unit is None or unit.get("catalog") != ns:
                 continue
