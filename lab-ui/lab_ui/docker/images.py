@@ -316,9 +316,8 @@ def web_error(error, host):
     return f"Cannot reach {host}"
 
 
-def _json(url, token=None):
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
-    with urllib.request.urlopen(request, timeout=15) as response:
+def _json(url):
+    with urllib.request.urlopen(urllib.request.Request(url), timeout=15) as response:
         return json.load(response)
 
 

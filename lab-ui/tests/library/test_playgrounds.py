@@ -1491,7 +1491,7 @@ class Deploys(test_places.Places):
                 seen(cmd, options)
             lines, code = next((said for word, said in (outputs or {}).items() if word in cmd), ([], 0))
             return mock.Mock(stdout=iter(line + "\n" for line in lines), wait=lambda: code, returncode=code)
-        with mock.patch.object(jobs.subprocess, "Popen", command):
+        with mock.patch.object(jobs.compose.subprocess, "Popen", command):
             job.run()
         return job, calls
 

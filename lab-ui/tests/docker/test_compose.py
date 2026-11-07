@@ -1287,7 +1287,7 @@ class Spawn(Commands):
     Lab UI ends as it exits, and ends when asked, with what it started."""
 
     def spawned(self, script):
-        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT)
+        process = compose.spawn(["sh", "-c", script])
         self.addCleanup(lambda: (process.poll() is None and os.killpg(process.pid, signal.SIGKILL), process.wait(),
                                  process.stdout.close(), compose.release(process)))
         return process
@@ -1323,7 +1323,7 @@ class Spawn(Commands):
         self.assertEqual(process.wait(10), -signal.SIGKILL)
         self.assertTrue(settled(lambda: not alive(pid)))
         self.patch(compose, "_ending", True)
-        self.assertIsNone(compose.spawn(["true"], subprocess.STDOUT))
+        self.assertIsNone(compose.spawn(["true"]))
 
 
 # A Lab UI, as a program: the commands of a project read, six of them asked of a pool of two threads, which is how the

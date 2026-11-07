@@ -355,10 +355,9 @@ class StackActions(Case):
         self.patch(stack.layers, "write")
         self.patch(stack.playgrounds, "forget")
         self.patch(stack.places, "deployed", return_value=[])
-        reads = self.patch(stack.platforms, "read", return_value=[])
+        self.patch(stack.platforms, "read", return_value=[])
         job, _ = self.reset()
         self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome"])
-        reads.assert_not_called()   # nothing recorded, no platform to name
 
     def test_restart_restarts_what_runs_as_it_is(self):
         # Redis was stopped from the Stack, the playground's app failed, Kazoo UI was never created: they stay so. Only

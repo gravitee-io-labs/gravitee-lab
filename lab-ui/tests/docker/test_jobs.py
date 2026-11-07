@@ -50,7 +50,7 @@ def replay(job, *outputs, code=0, refresh=None):
                     refresh(job, line)
                 summaries.append(job.summary())
         return mock.Mock(stdout=lines(), wait=lambda: code, returncode=code)
-    with mock.patch.object(jobs.subprocess, "Popen", command):
+    with mock.patch.object(jobs.compose.subprocess, "Popen", command):
         job.run()
     return summaries
 
@@ -148,7 +148,7 @@ class Running(Case):
             asked.append(options)
             return mock.Mock(stdout=iter(["✓ Démo\n"]), wait=lambda: 0, returncode=0)
         job = Job("Start Kazoo", [["docker", "compose", "up"]], key="addon:kazoo", verb="start")
-        with mock.patch.object(jobs.subprocess, "Popen", command):
+        with mock.patch.object(jobs.compose.subprocess, "Popen", command):
             job.run()
         self.assertEqual((job.ok, job.lines[-1]), (True, "✓ Démo"))
         self.assertEqual((asked[0]["encoding"], asked[0]["errors"]), ("utf-8", "replace"))
