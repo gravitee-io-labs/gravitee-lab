@@ -697,9 +697,11 @@ class Selecting(Case):
         self.assertEqual(e2e.shortened("a\n b"), "'a b'")
 
     def test_the_matrix_is_a_job_for_each_set_of_versions_or_one_on_the_defaults_of_the_core(self):
-        self.assertEqual(e2e.matrix(["playground:shop", "addon:@hub/ledger"], PROJECT), {"count": 3, "matrix": {"include": [
+        items = ["playground:shop", "playground:@hub/bank", "addon:@hub/ledger"]
+        self.assertEqual(e2e.matrix(items, PROJECT), {"count": 4, "matrix": {"include": [
             {"item": "playground:shop", "tested": "0", "name": "playground:shop (versions 0)"},
             {"item": "playground:shop", "tested": "1", "name": "playground:shop (versions 1)"},
+            {"item": "playground:@hub/bank", "tested": "0", "name": "playground:@hub/bank (versions 0)"},   # one set is a set
             {"item": "addon:@hub/ledger", "tested": "", "name": "addon:@hub/ledger (core defaults)"}]}})
 
     def test_a_matrix_of_more_jobs_than_github_runs_is_refused_and_says_so(self):
