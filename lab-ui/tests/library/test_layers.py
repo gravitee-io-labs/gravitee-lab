@@ -45,7 +45,7 @@ def _setup(uid, name, includes, members):
 
 
 def lab():
-    """A small project: Kazoo Desk needs Kazoo, AI Agent Lens conflicts with Jade, Redpanda with Kazoo,
+    """A small project: Kazoo Desk needs Kazoo, AI Agent Lens conflicts with Jade, Redstart with Kazoo,
     Hybrid gateway has a required setting, the welcome brings AI Agent Lens."""
     addons = [_addon("kazoo", "Kazoo", ["kazoo", "kazoo-ui"], restarts=["apim-gateway"]),
               _addon("kazoo-desk", "Kazoo Desk", ["kazoo-desk"], ["kazoo"], restarts=["apim-management-api"]),
@@ -53,7 +53,7 @@ def lab():
               _addon("kiosk", "Kiosk", ["kiosk"]),
               _addon("agent-lens", "AI Agent Lens", ["agent-lens"], conflicts={"jade": EXPORTER},
                      restarts=["apim-gateway"]),
-              _addon("redpanda", "Redpanda", ["redpanda"], conflicts={"kazoo": "same ports"}),
+              _addon("redstart", "Redstart", ["redstart"], conflicts={"kazoo": "same ports"}),
               _addon("orchard", "Orchard", ["orchard", "orchard-migrate"]),
               _addon("hyssop", "Hybrid gateway", ["hyssop-gateway"], required=["HYSSOP_CLOUD_TOKEN"])]
     welcome = {"id": "welcome", "kind": "playground", "name": "Welcome", "personal": False, "category": "AI",
@@ -184,7 +184,7 @@ def row(kind, uid, name):
 
 KAZOO, CONSOLE = row("addon", "kazoo", "Kazoo"), row("addon", "kazoo-desk", "Kazoo Desk")
 JADE, KIOSK = row("addon", "jade", "Jade"), row("addon", "kiosk", "Kiosk")
-INSPECTOR, REDPANDA = row("addon", "agent-lens", "AI Agent Lens"), row("addon", "redpanda", "Redpanda")
+INSPECTOR, REDSTART = row("addon", "agent-lens", "AI Agent Lens"), row("addon", "redstart", "Redstart")
 PLATFORM, APPS = row("platform", "platform", "Gravitee platform"), row("playground", "welcome", "Welcome apps")
 DATA = row("data", "welcome", "What Welcome created in Gravitee")
 DATABASES, MANAGEMENT = row("group", "databases", "Databases"), row("group", "api-management", "API Management")
@@ -207,8 +207,8 @@ class Sets(Case):
         clash = [{"a": "agent-lens", "b": "jade", "reason": EXPORTER}]
         self.assertEqual(layers.conflicts(self.project, ["jade", "agent-lens", "kiosk"]), clash)
         self.assertEqual(layers.conflicts(self.project, ["agent-lens", "jade"]), clash)
-        self.assertEqual(layers.conflicts(self.project, ["kazoo", "redpanda"]),   # said by the second of the two
-                         [{"a": "kazoo", "b": "redpanda", "reason": "same ports"}])
+        self.assertEqual(layers.conflicts(self.project, ["kazoo", "redstart"]),   # said by the second of the two
+                         [{"a": "kazoo", "b": "redstart", "reason": "same ports"}])
         self.assertEqual(layers.conflicts(self.project, ["jade", "kazoo"]), [])
 
 
@@ -386,8 +386,8 @@ class Plans(Case):
         second(self.project)
         for why, state, running, kind, uid, do, expected in (
                 ("a start stops what needs the add-on in conflict", on(self.project, ["kazoo-desk"]), up("kazoo", "kazoo-desk"),
-                 "addon", "redpanda", "start",
-                 {"starts": [REDPANDA], "stops": [KAZOO, CONSOLE], "restarts": [GATEWAY, API], "explicit": ["redpanda"]}),
+                 "addon", "redstart", "start",
+                 {"starts": [REDSTART], "stops": [KAZOO, CONSOLE], "restarts": [GATEWAY, API], "explicit": ["redstart"]}),
                 ("a start leaves the running playground alone", on(self.project, playground="welcome"),
                  up("agent-lens", playgrounds=["welcome"]), "addon", "kazoo", "start",
                  {"starts": [KAZOO], "restarts": [GATEWAY], "playground": "welcome", "explicit": ["kazoo"]}),
@@ -1073,10 +1073,10 @@ class Plans(Case):
             "apim-gateway", "apim-management-api", "kazoo", "kazoo-desk", "kazoo-ui"])])
         # A start that stops what is in conflict: what goes is removed by name first, then what starts
         state = on(self.project, ["kazoo-desk"])
-        plan = self.plan(state, up("kazoo", "kazoo-desk"), "addon", "redpanda", "start")
+        plan = self.plan(state, up("kazoo", "kazoo-desk"), "addon", "redstart", "start")
         self.assertEqual(layers.waits(self.project, plan), [
             awaited(services, stop=["kazoo", "kazoo-desk", "kazoo-ui"]),
-            awaited(services, start=["apim-gateway", "apim-management-api", "redpanda"])])
+            awaited(services, start=["apim-gateway", "apim-management-api", "redstart"])])
         # A stop while the platform is not up removes by name; with nothing to remove there is no command
         plan = self.plan(on(self.project, ["kiosk"]), up("kiosk", platform=False), "addon", "kiosk", "stop")
         self.assertEqual(layers.waits(self.project, plan), [{("Container", "lab-kiosk"): "stop"}])
@@ -1795,20 +1795,20 @@ class Files(Case):
         self.assertEqual(layers.current(self.project)["explicit"], [])
 
     def test_a_job_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
-        # Kiosk and Redpanda are on; two plans are made from that, then the first job turns Kiosk off: the second, made
+        # Kiosk and Redstart are on; two plans are made from that, then the first job turns Kiosk off: the second, made
         # before, would turn Kiosk on again by writing what it read
-        self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
+        self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")
         state = layers.current(self.project)
-        first, second = (layers.plan(self.project, state, up(), "addon", uid, "stop") for uid in ("kiosk", "redpanda"))
+        first, second = (layers.plan(self.project, state, up(), "addon", uid, "stop") for uid in ("kiosk", "redstart"))
         for plan in (first, second):
             title, steps, more = self.applied(plan)
             job = Job(title, steps, **more)
             job.exec = lambda cmd, quiet=False: None
             job.run()
         self.assertEqual(job.error(), layers.CHANGED)
-        self.assertEqual(layers.current(self.project)["explicit"], ["redpanda"], "what the first job wrote stays")
+        self.assertEqual(layers.current(self.project)["explicit"], ["redstart"], "what the first job wrote stays")
         # Made again from what is on now, it runs
-        title, steps, more = self.applied(layers.plan(self.project, layers.current(self.project), up(), "addon", "redpanda",
+        title, steps, more = self.applied(layers.plan(self.project, layers.current(self.project), up(), "addon", "redstart",
                                                       "stop"))
         job = Job(title, steps, **more)
         job.run()

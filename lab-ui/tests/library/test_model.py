@@ -12,7 +12,7 @@ from lab_ui.gravitee import license
 from lab_ui import paths
 
 from .. import Case
-from .test_layers import (API, APPS, CONSOLE, DATA, GATEWAY, INSPECTOR, JADE, KAZOO, PLATFORM, REDPANDA,
+from .test_layers import (API, APPS, CONSOLE, DATA, GATEWAY, INSPECTOR, JADE, KAZOO, PLATFORM, REDSTART,
                           _service, cloud, lab, licensed, on, own, row, up)
 
 
@@ -111,12 +111,12 @@ class Services(Case):
                       "mongodb": container(health="unhealthy"), "kazoo": container(health=""),
                       "kazoo-ui": container(health="", restarts=3), "kazoo-desk": container("created", ""),
                       "jade": exited(143), "orchard-migrate": exited(0), "seed": container(health=""),
-                      "hello-app": exited(1), "redpanda": container("restarting", "")}
+                      "hello-app": exited(1), "redstart": container("restarting", "")}
         steps = model.container_steps(project, containers)
         self.assertEqual({name: steps[f"lab-{name}"] for name in containers}, {
             "apim-gateway": "ready", "apim-management-api": "running", "mongodb": "issue", "kazoo": "ready",
             "kazoo-ui": "issue", "kazoo-desk": "created", "jade": "stopped", "orchard-migrate": "ready",
-            "seed": "running", "hello-app": "stopped", "redpanda": "issue"})
+            "seed": "running", "hello-app": "stopped", "redstart": "issue"})
         self.assertEqual((steps["lab-kiosk"], len(steps)), ("absent", len(project["services"])))
 
     def test_up(self):
@@ -506,9 +506,9 @@ class State(Built):
     def test_a_row_does_not_say_what_its_start_would_stop(self):
         # The dialog of its start says it, once, before anything stops: a row that said it too would say it on every
         # other item of the list
-        self.project["addons"]["redpanda"]["conflicts"] = {"kazoo": "same ports", "jade": "", "kiosk": ""}
+        self.project["addons"]["redstart"]["conflicts"] = {"kazoo": "same ports", "jade": "", "kiosk": ""}
         running = {**CORE, **healthy("jade", "kazoo", "kazoo-ui", "kazoo-desk", "kiosk")}
-        item = self.item("addon", "redpanda", explicit=["jade", "kazoo-desk", "kiosk"], containers=running)
+        item = self.item("addon", "redstart", explicit=["jade", "kazoo-desk", "kiosk"], containers=running)
         self.assertEqual((item["note"], item["note_tone"], item["note_title"]), ("", "", ""))
         self.assertTrue(item["action"]["dialog"], "the start still asks, and says what it stops")
         running = {**CORE, **healthy("jade", "kiosk")}   # what the license lacks is still said
@@ -597,8 +597,8 @@ class State(Built):
              "stop", "Stop", True, None, (both, [])),
             ("stop takes what only it needed", "addon", "kazoo-desk",
              {"explicit": ["kazoo-desk"], "containers": console_on}, "stop", "Stop", True, None, (both, [])),
-            ("start stops a conflict", "addon", "redpanda", {"explicit": ["kazoo"], "containers": kazoo_on},
-             "start", "Start", True, None, ([KAZOO], [REDPANDA])),
+            ("start stops a conflict", "addon", "redstart", {"explicit": ["kazoo"], "containers": kazoo_on},
+             "start", "Start", True, None, ([KAZOO], [REDSTART])),
             # Only what it needs starts: the platform stays as it is
             ("start leaves the platform as it is", "addon", "kazoo", {"containers": {}}, "start", "Start", True, None,
              None),
@@ -1069,7 +1069,7 @@ class State(Built):
         body = self.build(explicit=["kazoo", "jade"], containers=running)
         self.assertEqual([item["name"] for item in body["addons"]],
                          ["AI Agent Lens", "Hybrid gateway", "Jade", "Kazoo", "Kazoo Desk", "Kiosk",
-                          "Orchard", "Redpanda"])
+                          "Orchard", "Redstart"])
         addons = {item["id"]: item for item in body["addons"]}
         self.assertEqual(addons["kazoo-desk"]["needs"], [{"id": "kazoo", "name": "Kazoo"}])
         self.assertEqual(addons["jade"]["conflicts"], {"agent-lens": "both take the gateway's exporter"})

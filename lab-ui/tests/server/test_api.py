@@ -1568,39 +1568,39 @@ class GatewayOnFile(GatewayCase):
         self.assertEqual(job.error(), layers.CHANGED)
 
     def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
-        # The add-on holds the token of the gateway of Test (here false) and is off; Redpanda, on and running, cannot run
+        # The add-on holds the token of the gateway of Test (here false) and is off; Redstart, on and running, cannot run
         # with it: the start stops it, and the removal fails, before anything changed
-        self.project["addons"]["redpanda"]["conflicts"]["hyssop"] = "same ports"
-        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
-        self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
-        self.running = test_layers.up("redpanda", project=self.project)
+        self.project["addons"]["redstart"]["conflicts"]["hyssop"] = "same ports"
+        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")
+        self.state = {**test_layers.on(self.project, ["redstart"]), "stamp": layers.stamp()}
+        self.running = test_layers.up("redstart", project=self.project)
         self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
-        accept = [layers.key("addon", "redpanda")]
+        accept = [layers.key("addon", "redstart")]
         status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": accept})
         self.assertEqual(status, 200, body)
         job, ran = self.job(fails="rm")
-        self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redpanda"]))
-        self.assertIn(".lab/catalogs/fixture/addons/redpanda/compose.yml", (self.root / paths.ON_FILE).read_text())
+        self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redstart"]))
+        self.assertIn(".lab/catalogs/fixture/addons/redstart/compose.yml", (self.root / paths.ON_FILE).read_text())
         self.swap.assert_not_called()   # the job changed nothing: the add-on still holds the token of Test
 
     def test_a_gateway_s_job_swaps_the_token_once_what_goes_is_removed_and_before_the_on_file_is_written(self):
-        self.project["addons"]["redpanda"]["conflicts"]["hyssop"] = "same ports"
-        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
-        self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
-        self.running = test_layers.up("redpanda", project=self.project)
+        self.project["addons"]["redstart"]["conflicts"]["hyssop"] = "same ports"
+        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")
+        self.state = {**test_layers.on(self.project, ["redstart"]), "stamp": layers.stamp()}
+        self.running = test_layers.up("redstart", project=self.project)
         self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
         order = []
         self.swap.side_effect = lambda *args: order.append(("swap", (self.root / paths.ON_FILE).read_text()))
-        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": [layers.key("addon", "redpanda")]})
+        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": [layers.key("addon", "redstart")]})
         self.assertEqual(status, 200, body)
         title, steps, more = self.started(self.jobs)
         job = Job(title, steps, **more)
         job.exec = lambda cmd, quiet=False: order.append(("run", cmd[-5:]))
         job.run()
         self.assertTrue(job.ok, job.error())
-        self.assertEqual(order[:2], [("run", ["rm", "--stop", "--force", "-v", "redpanda"]),
-                                     ("swap", "include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")])
-        self.assertNotIn("redpanda", (self.root / paths.ON_FILE).read_text())
+        self.assertEqual(order[:2], [("run", ["rm", "--stop", "--force", "-v", "redstart"]),
+                                     ("swap", "include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")])
+        self.assertNotIn("redstart", (self.root / paths.ON_FILE).read_text())
 
 
 class GatewayDeletes(GatewayCase):

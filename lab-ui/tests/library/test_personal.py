@@ -175,7 +175,7 @@ class Setups(Folder):
                 ("Demo", "kiosk", None, "The add-ons must be a list of ids"),
                 ("Demo", [5], None, "The add-ons must be a list of ids"),
                 ("Demo", ["jade", "agent-lens"], None, f"AI Agent Lens and Jade cannot .*: {EXPORTER}"),
-                ("Demo", ["kazoo-desk", "redpanda"], None, "Kazoo and Redpanda cannot run together"),
+                ("Demo", ["kazoo-desk", "redstart"], None, "Kazoo and Redstart cannot run together"),
                 ("Demo", ["kiosk"], "overlook", "Only your own setups can be changed here"),
                 ("Mine", ["kiosk"], None, "Another setup has this name"),
                 ("Overlook", ["kiosk"], None, "Another setup has this name"),
