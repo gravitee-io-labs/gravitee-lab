@@ -27,7 +27,7 @@ Keep port 9000. The platform's consoles and the playground apps let only that ad
 
 The core is the Gravitee platform under everything else: API Management, Access Management, Alert Engine, Gamma and their
 databases. Of its products, only API Management can run in Gravitee Cloud; the rest always runs on this machine. Choose where
-API Management runs in *How Gravitee Lab works*, on API Management's row of the Dashboard (two icons after its name, *This
+API Management runs on the *API Management* step of *Welcome to Gravitee Lab*, on API Management's row of the Dashboard (two icons after its name, *This
 machine* and *Gravitee Cloud*) or in the head of the [Gravitee Cloud page](#gravitee-cloud) (*Where API Management runs*): one
 setting of this machine, kept in `.lab/core.json`, out of git.
 

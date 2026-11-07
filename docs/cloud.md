@@ -237,7 +237,7 @@ and its dialog says so.
 
 Of the platform, only API Management can run in Gravitee Cloud: Access Management, the Alert Engine, Gamma and the databases
 stay on this machine. API Management runs on *This machine* by default, or in one environment of your account. Choose it once
-in *How Gravitee Lab works* (*Where does API Management run?*), and change it later with the two icons after API Management's
+in *Welcome to Gravitee Lab* (*Where does API Management run?*), and change it later with the two icons after API Management's
 name on the Dashboard or with *Where API Management runs* in the head of the Gravitee Cloud page
 ([Where API Management runs](lab-ui.md#where-api-management-runs)). It is kept in `.lab/core.json`, with no secret.
 
