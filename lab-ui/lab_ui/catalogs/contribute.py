@@ -512,7 +512,7 @@ def _named_private(copy, ns, kind, slug, rows):
     return None
 
 
-def _rules(copy, kind, slug, ns, row):
+def _rules(copy, ns, row):
     """The errors of the rules of the catalog standard (ST, SE, DF, GD, IM) over the files that would be copied, as the
     catalog's CI reads them (`ListTree`): [Problem]. A part of a catalog: the files a whole one has are not asked for."""
     from . import audit, rules, tree   # here and not above: the rules are read only for a share
@@ -608,7 +608,7 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None
     seeds = [data.decode("utf-8", "replace") for path, (_, data) in sorted(copy.files.items())
              if path.startswith(f"{kind}s/{slug}/seed/") and not any(part.startswith(".") for part in path.split("/"))]
     view = {"kind": kind, "id": uid, "name": meta.get("name") or slug, "meta": meta,
-            "includes": [(aliases or {}).get(one, one) for one in direct], "seed": None,
+            "includes": [(aliases or {}).get(one, one) for one in direct],
             "references": trust.reads([(paths.ROOT / stage).read_text(encoding="utf-8")], raw, []),
             "seed_references": trust.seed_reads(seeds)}
     verdict = trust.judge(view, config, core_config, own, trust.overlays(raw, names, others), roots,
@@ -726,7 +726,7 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
     merged = dict(copy.files)   # the rules of the standard read the files together, as the catalog will hold them: a link of one to another resolves
     for _, _, _, other in along:
         merged.update(other.files)
-    found = _rules(copy._replace(files=merged), kind, slug, ns, row)
+    found = _rules(copy._replace(files=merged), ns, row)
     for each in found:
         if each.code in SECRETS:
             raise _refusal("share_secret", file=_shown(each.path, kind, slug))
@@ -1183,7 +1183,7 @@ def _unmarked(copy, kind, slug, found=(), name=None):
     return copy._replace(files=files, text=text)
 
 
-def _origins_or_said(copy, kind, slug, uid, name):
+def _origins_or_said(copy, uid, name):
     """origins() for a share: a file Compose cannot read is a problem of the copy, said with the others, which stops the share as
     they do; None then, what it holds taken for private content meanwhile."""
     try:
@@ -1225,7 +1225,7 @@ def _maybe_public(row, audience):
     return _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
 
 
-def _holds_private(units, items):
+def _holds_private(items):
     """Whether any of the items of Personal (or of a catalog) `items` ([(kind, id)]) holds private content, as origins() says of its
     file where it is; one Compose cannot read is taken to."""
     for kind, uid in items:
@@ -1470,7 +1470,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     # is taken off a label (a Public fork has the history of the private catalog it was forked from)
     # A Public catalog is not asked: what it would refuse it refuses below, naming the item and its origin
     audience, probed = None, None
-    if address is not None and row["audience"] != "public" and _holds_private(units, [(kind, uid), *[(k, one) for k, one, _, _ in members]]):
+    if address is not None and row["audience"] != "public" and _holds_private([(kind, uid), *[(k, one) for k, one, _, _ in members]]):
         audience, probed = _audience_now(address), (dict(entry), _history(to))
         if audience != "private":
             raise _maybe_public(row, audience)
@@ -1479,7 +1479,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
         # What is private content says so in the catalog it goes to, which takes away only its own origin (without); a Public one
         # takes none, so it takes no private content
-        found = {(k, s): _origins_or_said(other, k, s, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        found = {(k, s): _origins_or_said(other, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
         found = {key: [("", UNKNOWN)] if said is None and row["audience"] != "public" else said or [] for key, said in found.items()}
         # What was asked out of the lock holds for what is shared now, to the catalog it was asked of; else nothing goes
         if address is not None and any(found.values()) and row["audience"] != "public":
