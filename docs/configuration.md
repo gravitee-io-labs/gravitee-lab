@@ -151,8 +151,8 @@ which of its images are built from another project's source:
 
 The Lab UI never forces a build.
 
-The CI of a catalog builds each image its add-ons and playgrounds build, for `linux/amd64` and `linux/arm64`, after a change
-on `main`, and pushes them to the registry prefix its `catalog.yml` names (`images`) as `latest` and `sha-<commit>`. The
+The CI of a catalog builds each image its add-ons and playgrounds build, for the architectures it lists (`linux/amd64`, `linux/arm64`
+or both), after a change on `main`, and pushes them to the registry prefix its `catalog.yml` names (`images`) as `latest` and `sha-<commit>`. The
 Lab's own CI does the same for the seeder. If a pull is refused, the lab builds the image here.
 
 ### Gravitee's private registry

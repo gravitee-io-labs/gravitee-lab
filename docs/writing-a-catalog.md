@@ -174,7 +174,7 @@ The managed workflows run on every pull request and every push to `main`:
 |---|---|
 | Checks | The rules of the standard and the Lab's policy (`catalog.py check`), the secrets in every commit, what the change touches, and that every image it pulls exists. On a push to `main`, it also says what is merged and not released yet ([Releases](#releases)) |
 | Seed files | The seed files of the playgrounds, and the catalog's own tests |
-| Apps | The images a unit builds, built for the architectures listed in `catalog.yml`, the tests of its apps, the units that do not need the platform, which start and answer their health check, and the scan of the images it built ([The scan of the images](#the-scan-of-the-images)) |
+| Apps | The images a unit builds, built for the architectures listed in `.github/standard.json` (`platforms`), the tests of its apps, the units that do not need the platform, which start and answer their health check, and the scan of the images it built ([The scan of the images](#the-scan-of-the-images)) |
 | Catalog CI result | The one check a merge waits for: it fails when any job it needs failed or was skipped |
 
 A pull request runs with no secret and a read-only token, from the contributor's own copy of the workflows being refused if
