@@ -114,17 +114,15 @@ class Manifests(Cluster):
         refused = {"status": {"conditions": [{"type": "Accepted", "status": "False", "reason": "ControlPlaneError",
                                               "message": "401 unauthorized"}]}}
         self.answer({**self.cluster, ("GET", CONTEXT): [(404, {}), (200, refused)]})
-        with self.assertRaises(common.SeedError) as e:
+        with self.assertRaisesRegex(common.SeedError, "ControlPlaneError: 401 unauthorized"):
             k8s.seed()
-        self.assertIn("ControlPlaneError: 401 unauthorized", str(e.exception))
         self.assertIn("ManagementContext acme/lab", [x["name"] for x in common.created()], "the next run finds it there, so it is recorded now")
 
     def test_a_webhook_refusal_stops_the_seed_at_once(self):
         self.seed_files(FILES)
         self.answer({**self.cluster, ("PATCH", CONTEXT): (403, {"message": "denied the request: Path [/x] already exists"})})
-        with self.assertRaises(common.SeedError) as e:
+        with self.assertRaisesRegex(common.SeedError, "denied the request"):
             k8s.seed()
-        self.assertIn("denied the request", str(e.exception))
         self.assertEqual(len(self.platform.sent("PATCH", CONTEXT)), 1)
 
     def test_a_webhook_that_is_not_up_yet_is_asked_again(self):
@@ -136,16 +134,14 @@ class Manifests(Cluster):
     def test_a_cluster_without_the_operator_is_an_error_that_says_so(self):
         self.seed_files(FILES)
         self.answer({**self.cluster, ("GET", SERVER + "/apis/gravitee.io/v1alpha1"): (404, {})})
-        with self.assertRaises(common.SeedError) as e:
+        with self.assertRaisesRegex(common.SeedError, "is the operator installed"):
             k8s.seed()
-        self.assertIn("is the operator installed", str(e.exception))
 
     def test_a_namespaced_manifest_needs_its_namespace(self):
         self.seed_files({"k8s/01.yaml": "apiVersion: v1\nkind: Secret\nmetadata: {name: lab-credentials}\n"})
         self.answer(self.cluster)
-        with self.assertRaises(common.SeedError) as e:
+        with self.assertRaisesRegex(common.SeedError, "needs metadata.namespace"):
             k8s.seed()
-        self.assertIn("needs metadata.namespace", str(e.exception))
 
 
 class Removal(Cluster):

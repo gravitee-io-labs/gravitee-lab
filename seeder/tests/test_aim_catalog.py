@@ -446,8 +446,7 @@ class Credentials(Catalog):
     def test_a_credential_of_that_name_that_the_seed_did_not_create_stops_the_seed_and_is_left_alone(self):
         theirs = {"id": "theirs", "name": "Gemini key", "strategy": "BEARER"}
         self.world.credentials["theirs"] = dict(theirs)
-        message = "The credential 'Gemini key' exists and was not created by this playground"
-        with self.assertRaisesRegex(common.SeedError, message):
+        with self.assertRaisesRegex(common.SeedError, "The credential 'Gemini key' exists and was not created by this playground"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
         self.assertEqual(self.world.credentials, {"theirs": theirs})
@@ -582,8 +581,7 @@ class Providers(Catalog):
 
     def test_a_provider_with_the_slug_of_another_stops_the_seed_and_is_left_alone(self):
         self.world.providers["theirs"] = {"id": "theirs", "name": "My Ollama", "slug": "ollama", "models": []}
-        message = r"The provider 'Ollama' \(ollama\) exists and was not created by this playground"
-        with self.assertRaisesRegex(common.SeedError, message):
+        with self.assertRaisesRegex(common.SeedError, r"The provider 'Ollama' \(ollama\) exists and was not created by this playground"):
             self.run_seed()
         self.assertEqual([method for method, _ in self.platform.changes() if method in ("PUT", "DELETE")], [])
         self.assertEqual(self.world.providers["theirs"]["name"], "My Ollama")
@@ -677,8 +675,7 @@ class Items(Catalog):
                 common.save_created([])
                 theirs = self.world.add_item(kind, f"{kind}.{entity_id}", "s", {"name": "Theirs"})
                 self.platform.calls.clear()
-                message = f"The {aim_catalog.noun(kind)} '{kind}.{entity_id}' exists and was not created by this playground"
-                with self.assertRaisesRegex(common.SeedError, message):
+                with self.assertRaisesRegex(common.SeedError, f"The {aim_catalog.noun(kind)} '{kind}.{entity_id}' exists and was not created by this playground"):
                     aim_catalog.seed()
                 self.assertEqual(theirs["definition"], {"name": "Theirs"})
                 self.assertEqual([m for m, _ in self.platform.changes() if m in ("PUT", "DELETE")], [])
@@ -828,8 +825,7 @@ class McpServers(Catalog):
 
     def test_a_server_that_gives_itself_another_name_stops_the_seed_naming_both_entity_ids(self):
         self.world.mcp["name"] = "Acme Bakery"
-        message = "calls itself 'Acme Bakery', so its entity id is mcp-server.acme-bakery and not mcp-server.acme-bakery-mcp"
-        with self.assertRaisesRegex(common.SeedError, message):
+        with self.assertRaisesRegex(common.SeedError, "calls itself 'Acme Bakery', so its entity id is mcp-server.acme-bakery and not mcp-server.acme-bakery-mcp"):
             self.run_seed()
         self.assertEqual(len(self.records("mcp-server")), 1)   # it was imported: removing the playground deletes it
 
@@ -926,8 +922,7 @@ class Skills(Catalog):
 
     def test_a_skill_of_that_name_that_the_seed_did_not_create_stops_the_seed_and_is_left_alone(self):
         theirs = self.world.add_item("skill", "skill.complaints", "builtin", {})
-        message = "The skill 'complaints' exists and was not created by this playground"
-        with self.assertRaisesRegex(common.SeedError, message):
+        with self.assertRaisesRegex(common.SeedError, "The skill 'complaints' exists and was not created by this playground"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
         self.assertIn(theirs["id"], self.world.items)
@@ -1001,8 +996,7 @@ class ApiTools(Catalog):
 
     def test_an_api_that_cannot_give_tools_stops_the_seed_saying_what_it_needs(self):
         self.world.apis.clear()
-        message = "No API named 'Acme Bakery Open API' can give tools: it must be a v4 HTTP proxy API"
-        with self.assertRaisesRegex(common.SeedError, message):
+        with self.assertRaisesRegex(common.SeedError, "No API named 'Acme Bakery Open API' can give tools: it must be a v4 HTTP proxy API"):
             self.run_seed()
 
     def test_an_api_that_the_catalog_lists_a_moment_after_it_was_made_is_waited_for(self):

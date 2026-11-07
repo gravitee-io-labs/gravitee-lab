@@ -910,9 +910,8 @@ class EditedTools(Studios):
     def test_any_other_refusal_stops_the_seed_in_one_line(self):
         self.edited()
         self.world.specification_status = 400
-        with self.assertRaises(common.SeedError) as raised:
+        with self.assertRaisesRegex(common.SeedError, r"^PUT /mcp-studios/studio-1/specification: HTTP 400 "):
             self.seed()
-        self.assertRegex(str(raised.exception), r"^PUT /mcp-studios/studio-1/specification: HTTP 400 ")
         self.assertEqual(list(self.world.studios), ["studio-1"], "never deleted for a refusal")
 
     def test_a_studio_of_the_other_shape_is_brought_back_too(self):

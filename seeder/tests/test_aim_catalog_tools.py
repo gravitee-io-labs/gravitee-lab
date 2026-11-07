@@ -220,8 +220,7 @@ class Operations(Tools):
     def test_tools_of_the_api_that_the_seed_did_not_create_stop_the_seed_and_are_left_alone(self):
         theirs = {"id": "theirs", "sourceKind": "apim.api", "definition": {"apiId": "customers", "apiName": CUSTOMERS}}
         self.world.sources["theirs"] = theirs
-        message = "The tools of the API 'Orchid Customers API' exists and was not created"
-        with self.assertRaisesRegex(common.SeedError, message):
+        with self.assertRaisesRegex(common.SeedError, "The tools of the API 'Orchid Customers API' exists and was not created"):
             self.run_seed()
         self.assertEqual(self.writes(), [])
         self.assertEqual(self.world.sources, {"theirs": theirs})
@@ -429,8 +428,7 @@ class Metadata(Tools):
             with self.subTest(text=text):
                 file = COPILOT.replace("metadata:\n  riskClassification: limited\n", text)
                 self.seed_files({"aim/agents/desk-copilot.yaml": file})
-                message = "The agent 'desk-copilot': metadata is a mapping of keys to values"
-                with self.assertRaisesRegex(common.SeedError, message):
+                with self.assertRaisesRegex(common.SeedError, "The agent 'desk-copilot': metadata is a mapping of keys to values"):
                     self.run_seed()
 
     def test_an_agent_without_metadata_is_registered_as_before(self):

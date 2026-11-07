@@ -446,9 +446,8 @@ class Frameworks(Governance):
 
     def test_a_framework_the_platform_does_not_know_is_reported_whole(self):
         self.file(compliance="frameworks: [no-such-law]\n")
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "compliance.framework.not_found"):
             aim_governance.seed()
-        self.assertIn("compliance.framework.not_found", str(stopped.exception))
 
 
 class Answers(Governance):
@@ -532,9 +531,8 @@ class Answers(Governance):
     def test_the_platforms_refusal_of_a_value_is_reported_whole(self):
         self.platform.add({("PUT", AGENT + "/metadata"): (400, {"code": "compliance.metadata.invalid",
                                                                 "message": "riskClassification must be one of negligible, limited"})})
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "riskClassification must be one of negligible, limited"):
             aim_governance.seed()
-        self.assertIn("riskClassification must be one of negligible, limited", str(stopped.exception))
         self.assertEqual(self.records("compliance-answers"), [])
 
     def test_a_file_without_answers_for_an_agent_asks_the_user_directory_nothing(self):
