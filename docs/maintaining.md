@@ -32,7 +32,7 @@ Then do these one-time steps on GitHub:
 5. Require full-SHA pinning of actions, and approval of workflow runs from outside collaborators (Settings > Actions >
    General).
 6. Delete the `ghcr.io` packages, Actions runs and caches that the repository does not use.
-7. Decide on a `CODEOWNERS` file and a code of conduct. Both are the owner's choice.
+7. Name your maintainers in `.github/CODEOWNERS`, which the sweep leaves as it is, and decide on a code of conduct.
 8. Check that the `REPOSITORY` constant in `lab-ui/web/js/dialogs/welcome.js` has the new address. The sweep rewrites it.
 
 A fork builds the seeder's image only when you run its *Lab images* workflow by hand, from `main`.
