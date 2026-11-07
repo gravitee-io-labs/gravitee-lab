@@ -8,8 +8,6 @@ import atexit
 import calendar
 import concurrent.futures.thread   # noqa: F401  (see _end: its exit hook has to be registered before ours)
 import contextlib
-import copy
-import functools
 import hashlib
 import json
 import os
@@ -72,16 +70,12 @@ class Cache:
         # raises
         self._items, self._lock, self._asking = {}, threading.Lock(), {}
 
-    def _hit(self, key, ttl):
-        with self._lock:
-            hit = self._items.get(key)
-        return hit if hit and time.monotonic() - hit[0] < ttl else None
-
     def kept(self, key, ttl):
         """The answer kept under `key` while younger than `ttl` seconds, None otherwise. Nothing is asked, nor waited
         for: a read under way for that key is not."""
-        hit = self._hit(key, ttl)
-        return hit[1] if hit else None
+        with self._lock:
+            hit = self._items.get(key)
+        return hit[1] if hit and time.monotonic() - hit[0] < ttl else None
 
     def get(self, key, ttl, fn):
         """The answer kept under `key` while younger than `ttl` seconds, else what fn() answers, kept whatever it is. What
@@ -119,15 +113,7 @@ class Cache:
 CACHE = Cache()
 
 
-@functools.lru_cache(maxsize=None)
-def _scratch_folder():
-    folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-"))
-    atexit.register(shutil.rmtree, folder, True)
-    return folder
-
-
-# lru_cache does not keep two threads that ask at the same time from both running the function: each would make a folder
-_scratch_lock = threading.Lock()
+_scratch_folder, _scratch_lock = None, threading.Lock()
 
 
 def scratch():
@@ -135,10 +121,12 @@ def scratch():
     generated include files, and a folder without compose files to ask Docker by project name. Private, so that
     no other user of the machine writes what Compose reads there. Made again when the system clears its temp
     folder while the Lab UI runs. One folder for the threads that ask at the same time, the first time as well."""
+    global _scratch_folder
     with _scratch_lock:
-        if not _scratch_folder().is_dir():
-            _scratch_folder.cache_clear()
-        return _scratch_folder()
+        if _scratch_folder is None or not _scratch_folder.is_dir():
+            _scratch_folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-"))
+            atexit.register(shutil.rmtree, _scratch_folder, True)
+        return _scratch_folder
 
 
 # Compose fetches a remote include (a Git repository, an OCI artifact) by itself when a file it reads names one, with
@@ -340,8 +328,7 @@ def _end():
 
 
 atexit.register(_end)
-if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later
-    threading._register_atexit(_end)
+threading._register_atexit(_end)
 
 
 def stop_on_signals(*others):
@@ -356,9 +343,8 @@ def stop_on_signals(*others):
             stop()
         signal.signal(number, signal.SIG_DFL)
         signal.raise_signal(number)
-    for name in ("SIGHUP", "SIGTERM"):
-        number = getattr(signal, name, None)
-        if number is not None and signal.getsignal(number) == signal.SIG_DFL:
+    for number in (signal.SIGHUP, signal.SIGTERM):
+        if signal.getsignal(number) == signal.SIG_DFL:
             signal.signal(number, ending)
 
 
@@ -402,7 +388,7 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None, given=None):
 GRACE = 10
 
 
-def spawn(cmd, errors, cwd=None, env=None):
+def spawn(cmd, errors, env=None):
     """A command started as run() starts one, for a caller that reads its output as it comes (a job, a log followed):
     from the project root, with no input, in a session of its own that the Lab UI ends as it exits (_end), its output
     as text. `errors`: where its errors go, subprocess.STDOUT with its output or subprocess.DEVNULL. `env`: variables
@@ -410,7 +396,7 @@ def spawn(cmd, errors, cwd=None, env=None):
     release()."""
     if _ending:
         return None
-    process = subprocess.Popen(cmd, cwd=cwd or ROOT, env={**environment(), "PWD": str(cwd or ROOT), **(env or {})},
+    process = subprocess.Popen(cmd, cwd=ROOT, env={**environment(), "PWD": str(ROOT), **(env or {})},
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, encoding="utf-8",
                                errors="replace", bufsize=1, start_new_session=True)
     _running.add(process)
@@ -439,9 +425,9 @@ def end(process):
     timer.start()
 
 
-def _last_line(err):
+def _last_line(err, empty="docker compose failed"):
     lines = [line.strip() for line in err.splitlines() if line.strip()]
-    return lines[-1] if lines else "docker compose failed"
+    return lines[-1] if lines else empty
 
 
 def _read(asked, **how):
@@ -460,8 +446,7 @@ def _read(asked, **how):
 
 
 def _config(file_args, *options, timeout=120, environ=None):
-    more = {} if environ is None else {"environ": environ}
-    rc, out, err = _read([*file_args, "config", "--format", "json", *options], timeout=timeout, **more)
+    rc, out, err = _read([*file_args, "config", "--format", "json", *options], timeout=timeout, environ=environ)
     if rc != 0:
         if environ is not None and missing(err):
             # A Docker without the plugin answers the Lab's own command line with a usage text whose last line says
@@ -499,21 +484,17 @@ def _port(port):
     return found
 
 
-# A pull_policy line: what leads to its value, the value, then the comment that may follow
-POLICY = re.compile(r"(\s*pull_policy:[ \t]*)([^#]*?)([ \t]*(?:#.*)?)")
-
-
 def _policies_written(text):
     """A compose file's text with each `pull_policy` that names a variable written as the default of that variable
     (`missing`, Compose's own, when it has none). Compose 5.5.1 and later refuse `${VAR:-never}` there when they do not
     interpolate, which is how raw() reads a file."""
     def written(line):
-        found = POLICY.fullmatch(line)
-        if not (found and "$" in found.group(2)):
+        lead, key, rest = line.partition("pull_policy:")
+        value = rest.partition("#")[0].strip(" \t")
+        if lead.strip() or not key or "$" not in value:
             return line
-        defaults = [default.strip("\"' ") for _, default, _ in references(found.group(2))
-                    if default and "$" not in default]
-        return f"{found.group(1)}{defaults[-1] if defaults else 'missing'}{found.group(3)}"
+        defaults = [default.strip("\"' ") for _, default, _ in references(value) if default and "$" not in default]
+        return lead + key + rest.replace(value, defaults[-1] if defaults else "missing", 1)
     return "\n".join(written(line) for line in text.split("\n"))
 
 
@@ -535,7 +516,7 @@ def _closure(path, skip=(), text=None):
 
 def _targets(path, text):
     """The project files the include list of `text`, the compose file at `path`, names itself (includes())."""
-    return [target for _, _, target in _include_items(text, ROOT / path, ROOT if path == ON_FILE else None) if target]
+    return [target for _, _, target in _include_items(text, path) if target]
 
 
 def left_out(text, path):
@@ -551,11 +532,6 @@ def _there(file):
         return (ROOT / file).is_file()
     except (OSError, ValueError):
         return False
-
-
-def _items(file, text):
-    """The items of the `include` list in the text of a project file that a copy writes again (_include_items, `copied`)."""
-    return _include_items(text, ROOT / file, ROOT if file == ON_FILE else None, copied=True)
 
 
 def _extent(lines, number):
@@ -596,7 +572,7 @@ def _readable(path, skip=(), text=None):
         texts = {path: text, **{file: one for file, one in texts.items() if file != path}}
     changed = {file: _policies_written(one) for file, one in texts.items()}
     if changed == texts and not (skip and any(target in skip for file, one in texts.items()
-                                              for _, _, target in _items(file, one))):
+                                              for _, _, target in _include_items(one, file, copied=True))):
         if text is None:
             yield ["-f", path], {}
             return
@@ -610,7 +586,7 @@ def _readable(path, skip=(), text=None):
         for file, text in changed.items():
             written = text.split("\n")
             lines = list(written)
-            for number, _, target in _items(file, text):
+            for number, _, target in _include_items(text, file, copied=True):
                 if lines[number] is None:   # a line of an item left out
                     continue
                 if target in skip:   # left out whole, so that the line numbers of the others hold
@@ -627,24 +603,12 @@ def _readable(path, skip=(), text=None):
                {str(copy): str(ROOT / file) for file, copy in copies.items()})
 
 
-def _text_of(file):
-    try:
-        return Path(file).read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return None
-
-
-def _key_of(text, folder):
-    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest(), str(folder)
-
-
 def raw(path, skip=(), timeout=120):
     """A compose file as written, with what it includes merged in. Not interpolated: ${VAR} references are kept,
     except in a `pull_policy`, which Compose 5.5.1 and later refuse (_policies_written). Not checked for consistency:
     a file read alone may refer to services of the core. Labels, environment and ports come in one shape, whichever
     way the file writes them. `skip`: project files that it includes and that are not there, which are left out so
     that it still loads and says what it is. `timeout`: seconds Compose has to answer, else ComposeError."""
-    before = _text_of(ROOT / path)
     with _readable(path, skip) as (arguments, originals):
         try:
             config = _config(arguments, "--no-interpolate", "--no-consistency", timeout=timeout)
@@ -653,8 +617,6 @@ def raw(path, skip=(), timeout=120):
             for copy, original in originals.items():
                 message = message.replace(copy, original)
             raise ComposeError(message) from None
-    if before is not None and _text_of(ROOT / path) == before:   # what x_gravitee() answers of that text there: not asked again
-        _remember(_key_of(before, (ROOT / path).parent), config.get("x-gravitee"))
     for service in (config.get("services") or {}).values():
         for key in ("labels", "environment"):
             if key in service:
@@ -666,9 +628,6 @@ def raw(path, skip=(), timeout=120):
 
 ALONE_TIMEOUT = 15   # seconds Compose has to read one item's text: a file that takes longer is one that cannot be read
 ALONE_OUTPUT = 4 << 20   # the most its answer may hold: more is no item, but a file that makes Compose write without end
-READ_KEPT = 512   # readings of an x-gravitee block remembered (_said_by_compose): more than the items of a large Lab
-_said_by_compose = {}   # {(sha-256 of a compose text, its folder): its x-gravitee as Compose read it there}, oldest first
-_said_lock = threading.Lock()
 
 
 def _empty_env():
@@ -689,22 +648,15 @@ def alike(value):
     return value
 
 
-def x_gravitee(text, folder, fresh=False, name="compose.yml"):
+def x_gravitee(text, folder, name="compose.yml"):
     """The x-gravitee block of a compose text as Compose reads it in `folder`, where the item is, the way raw() reads the item for
     gather: what it includes is found from there, and what it includes under the catalogs' folder that is not there is left out
     by the same rule and the same code (left_out, _readable), so that the readings agree; an included file never brings an x- key
     of its own (Compose keeps those of the file it reads). The scrubbed environment, no interpolation, no remote include, no
-    .env and no env_file read. Nothing of the project is written: the text is read as a copy in a folder of this run. A copy of
-    what it answered, None for no block. ComposeError when Compose cannot read it, takes more than ALONE_TIMEOUT seconds, or
-    answers more than ALONE_OUTPUT: never a wait without end. The same text in the same folder is answered from what was read of
-    it before, here or by raw(), unless `fresh`: a reading remembered says the text was readable then, not that it is now.
-    `name`: the file's name in `folder`, by which Compose's words name it."""
+    .env and no env_file read. Nothing of the project is written: the text is read as a copy in a folder of this run. What it
+    answered, None for no block. ComposeError when Compose cannot read it, takes more than ALONE_TIMEOUT seconds, or answers more
+    than ALONE_OUTPUT: never a wait without end. `name`: the file's name in `folder`, by which Compose's words name it."""
     folder = Path(folder)
-    key = _key_of(text, folder)
-    if not fresh:
-        with _said_lock:
-            if key in _said_by_compose:
-                return copy.deepcopy(_said_by_compose[key])
     try:
         rel = folder.relative_to(ROOT).as_posix() if folder.is_absolute() else None
     except ValueError:
@@ -725,11 +677,9 @@ def x_gravitee(text, folder, fresh=False, name="compose.yml"):
     if len(out) > ALONE_OUTPUT:
         raise ComposeError("Compose answered more than an item can hold")
     try:
-        found = alike(json.loads(out).get("x-gravitee"))
+        return alike(json.loads(out).get("x-gravitee"))
     except (ValueError, AttributeError, RecursionError):
         raise ComposeError("Compose answered what is not a compose file") from None
-    _remember(key, found)
-    return copy.deepcopy(found)
 
 
 def cause(error, known=()):
@@ -820,14 +770,6 @@ def named_by(text, folder, name="compose.yml"):
         return []
     path = f"{rel}/{name}" if rel != "." else name
     return [path, f"{posixpath.dirname(path)}/.env" if "/" in path else ".env", *_closure(path, (), text)[1:]]
-
-
-def _remember(key, found):
-    with _said_lock:
-        _said_by_compose.pop(key, None)
-        _said_by_compose[key] = copy.deepcopy(found)
-        while len(_said_by_compose) > READ_KEPT:
-            del _said_by_compose[next(iter(_said_by_compose))]
 
 
 def config_json(file_args, timeout=15, environ=None):
@@ -956,12 +898,15 @@ def top_keys(text, block):
 FLOW_INCLUDE = re.compile(r"include:\s*\[([^\]]*)\]\s*(?:#.*)?$")
 
 
-def _include_items(text, file, base=None, copied=False):
-    """The items of a compose file's `include` list: (line number, the path as written, the project file it names, or
-    None outside the project). A list on one line gives its plain items. The next top-level key ends the list. An item in
-    long form holds keys below its dash, and a list under one of them (`env_file`) is not a list of items; but the files of
-    its `path:`, when it lists them, are. With `copied`, only the items a copy writes again in its place, each a line of
-    the list: not those of a list on one line nor the files an item lists under its `path:`, which are read where they are."""
+def _include_items(text, file, copied=False):
+    """The items of the `include` list in `text`, the compose file at the project path `file`: (line number, the path as
+    written, the project file it names, or None outside the project), each written relative to the file that includes it;
+    those of the on file relative to the project, as Compose reads a file it is given. A list on one line gives its plain
+    items. The next top-level key ends the list. An item in long form holds keys below its dash, and a list under one of them
+    (`env_file`) is not a list of items; but the files of its `path:`, when it lists them, are. With `copied`, only the items a
+    copy writes again in its place, each a line of the list: not those of a list on one line nor the files an item lists under
+    its `path:`, which are read where they are."""
+    base = ROOT if file == ON_FILE else (ROOT / file).parent
     inside, column, key = False, None, None   # the column of the dashes of the items, the last key opened without a value
     for number, line in enumerate(text.split("\n")):
         indent = len(line) - len(line.lstrip())
@@ -969,7 +914,7 @@ def _include_items(text, file, base=None, copied=False):
         if one_line:   # the list on one line: its plain items
             for written in (item.strip().strip("\"'") for item in one_line.group(1).split(",")):
                 if written and not re.search(r"[{}:#\s]", written):
-                    path = Path(os.path.normpath((base or file.parent) / written))
+                    path = Path(os.path.normpath(base / written))
                     yield number, written, path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
             inside = False
             continue
@@ -999,38 +944,37 @@ def _include_items(text, file, base=None, copied=False):
             yield number, target.group(1), _original(target.group(1))
         else:
             written = next(filter(None, item.groups()))
-            path = Path(os.path.normpath((base or file.parent) / written))
+            path = Path(os.path.normpath(base / written))
             yield number, written, path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else None
 
 
 def includes(path):
-    """The project files a compose file includes itself (_include_items), each written relative to the file that includes
-    it; those of the on file relative to the project, as Compose reads a file it is given."""
+    """The project files a compose file includes itself (_include_items)."""
     file = ROOT / path
-    text = file.read_text(encoding="utf-8") if file.is_file() else ""
-    base = ROOT if path == ON_FILE else None
-    return [target for _, _, target in _include_items(text, file, base) if target]
+    return _targets(path, file.read_text(encoding="utf-8") if file.is_file() else "")
 
 
 def retargeted(path, text, targets):
     """A compose file's text with the items of its `include` list that name one of `targets` ({project file: the file
     to include instead}) written again, relative to its folder: a copy next to it includes copies in their place."""
     file, lines = ROOT / path, text.split("\n")
-    for number, written, target in list(_include_items(text, file)):
+    for number, written, target in list(_include_items(text, path)):
         if target in targets:
             relative = Path(os.path.relpath(ROOT / targets[target], file.parent)).as_posix()
             lines[number] = lines[number].replace(written, relative, 1)
     return "\n".join(lines)
 
 
-def _closing(text, start):
-    """Where the brace opened at `start` closes; the end of the text when it never does."""
-    depth = 0
-    for i in range(start, len(text)):
-        depth += (text[i] == "{") - (text[i] == "}")
-        if depth == 0:
-            return i
-    return len(text)
+def _closings(text):
+    """Where each brace of a text closes: {where it opens: where it closes}, without the ones that never close. One pass:
+    the text may be a stranger's."""
+    closes, opened = {}, []
+    for brace in re.finditer("[{}]", text):
+        if brace.group() == "{":
+            opened.append(brace.start())
+        elif opened:
+            closes[opened.pop()] = brace.start()
+    return closes
 
 
 def _braced(body):
@@ -1049,12 +993,12 @@ def _braced(body):
 def references(text):
     """The variables a text refers to, in order: (key, default or None, required). A default may refer to variables
     too (${A:-${B:-1}}): they follow. `$$` is a dollar sign, not a reference."""
-    found, i = [], text.find("$")
+    found, i, closes = [], text.find("$"), _closings(text)
     while 0 <= i < len(text) - 1:
         if text[i + 1] == "$":
             i += 1
         elif text[i + 1] == "{":
-            end = _closing(text, i + 1)
+            end = closes.get(i + 1, len(text))
             found += _braced(text[i + 2:end])
             i = end
         else:
@@ -1069,9 +1013,9 @@ def interpolated(text, lookup):
     value is empty) and ${VAR-default} (only when it is not set), a default that refers to variables too, `$$` a dollar
     sign. `lookup(name)` gives a value, None when the variable is set nowhere. A ${VAR} set nowhere stays as it is
     written, so that what shows is the name of the setting, not an empty value; so does any other form."""
-    found, i = [], 0
+    found, i, closes = [], 0, _closings(text)
     while i < len(text):
-        end = _closing(text, i + 1) if text.startswith("${", i) else len(text)   # a brace never closed is plain text
+        end = closes.get(i + 1, len(text)) if text.startswith("${", i) else len(text)   # a brace never closed is plain text
         if text.startswith("$$", i):
             found.append("$")
             i += 2
@@ -1108,9 +1052,10 @@ def outside(text, char):
 
 
 def _heading(lines, number):
-    """The comment line heading the block a line is in: the nearest above, as deep or deeper, before a blank line."""
+    """The comment line heading the block a line is in: the nearest above, as deep or deeper, before a blank line, at most 64
+    lines up: a stranger's file costs no pass over it for each of its variables."""
     indent = len(lines[number]) - len(lines[number].lstrip())
-    for above in reversed(lines[:number]):
+    for above in reversed(lines[max(0, number - 64):number]):
         text = above.strip()
         if not text or len(above) - len(above.lstrip()) < indent:
             return ""
@@ -1231,7 +1176,7 @@ def containers(variable=None):
     except ComposeError:
         return {}, None
     try:
-        return ps(variable) if variable else ps(), None
+        return ps(variable), None
     except ComposeError as error:
         CACHE.drop("docker:")   # what Docker says of itself, read again once it answers: it may start again otherwise
         return {}, str(error)
@@ -1261,7 +1206,8 @@ def reference(image):
     """An image as Docker lists the ones it holds: repository:tag, without Docker Hub's own prefixes, `latest` when it
     names no tag."""
     name = re.sub(r"^(docker\.io/)?(library/)?", "", image)
-    return name if re.search(r"[:@][^/]*$", name) else f"{name}:latest"
+    last = name.rpartition("/")[2]
+    return name if ":" in last or "@" in last else f"{name}:latest"
 
 
 def image_ids():
@@ -1340,8 +1286,8 @@ _SIGNS = (
     "docker: 'compose' is not a docker command",        # the CLI of an older Docker
     "[Errno 2] No such file or directory: 'docker'",    # no `docker` to run
 )
-# A few blanks may come before them
-INDENT = 64
+# At the start of a line of the CLI's, where a few blanks may come before them
+SAYS_MISSING = re.compile(r"^[ \t]{0,64}(?:" + "|".join(map(re.escape, _SIGNS)) + ")", re.M)
 
 
 def missing(error):
@@ -1349,18 +1295,8 @@ def missing(error):
     Compose plugin, which says `docker: unknown command: docker compose` to `docker compose version`, `unknown flag:
     --progress` to the Lab's own command line (COMPOSE), and `'compose' is not a docker command` if it is an older one.
     What "Docker Compose not found" is reported from, apart from plugin() (None: there is no plugin to link) and a
-    run with the scrubbed environment (config_json raises NO_COMPOSE for it); a file that Compose refuses is not that.
-    Reads at the start of a line: each place a phrase is found is looked at for the characters just before it (INDENT
-    and one more, for the line break), so a text of any size is read in one pass."""
-    text = error or ""
-    for sign in _SIGNS:
-        at = text.find(sign)
-        while at != -1:
-            _, newline, before = text[max(0, at - INDENT - 1):at].rpartition("\n")
-            if (newline or at <= INDENT) and not before.strip(" \t"):
-                return True
-            at = text.find(sign, at + 1)
-    return False
+    run with the scrubbed environment (config_json raises NO_COMPOSE for it); a file that Compose refuses is not that."""
+    return bool(SAYS_MISSING.search(error or ""))
 
 
 def unread(image, said):

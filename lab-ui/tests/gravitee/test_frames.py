@@ -10,7 +10,6 @@ from lab_ui.server import personas
 
 from .. import Case
 
-PAGE = "http://localhost:9000"
 GAMMA = "http://localhost:8086"
 
 
@@ -27,15 +26,11 @@ class Declared(Case):
              link("AM Console", "http://localhost:8081", "am-ui")]
 
     def test_each_service_listed_is_a_tab_by_the_name_of_its_console_in_the_order_listed(self):
-        found = frames.tabs(self.LINKS, ["bakery-web", "gamma-ui", "am-ui"])
+        found = frames.tabs(self.LINKS, ["am-ui", "gamma-ui", "bakery-web"])   # not the order of the links
         self.assertEqual(found, [
-            {"id": "bakery-web", "label": "Acme Bakery", "url": "http://localhost:8110", "service": "bakery-web"},
+            {"id": "am-ui", "label": "AM Console", "url": "http://localhost:8081", "service": "am-ui"},
             {"id": "gamma-ui", "label": "Gamma Console", "url": GAMMA, "service": "gamma-ui"},
-            {"id": "am-ui", "label": "AM Console", "url": "http://localhost:8081", "service": "am-ui"}])
-
-    def test_the_order_is_the_one_the_playground_names(self):
-        found = frames.tabs(self.LINKS, ["am-ui", "gamma-ui", "bakery-web"])
-        self.assertEqual([tab["id"] for tab in found], ["am-ui", "gamma-ui", "bakery-web"])
+            {"id": "bakery-web", "label": "Acme Bakery", "url": "http://localhost:8110", "service": "bakery-web"}])
 
     def test_a_service_with_several_consoles_gives_its_first(self):
         # The links come with the current ones first

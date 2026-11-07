@@ -45,9 +45,6 @@ class Unknown(Case):
         self.assertEqual(self.unknown(unit(meta={"badge": "gold"})), [("unit.key", "x-gravitee.badge")])
         self.assertEqual(self.unknown(unit(meta={"requires": {"gpu": True}})), [("unit.key", "x-gravitee.requires.gpu")])
 
-    def test_a_key_no_lab_reads_any_more_is_no_sign_of_a_newer_lab(self):
-        self.assertEqual(self.unknown(unit(meta={"deploys_to": ["cloud"]})), [], "the check says it is gone")
-
     def test_a_label_this_lab_does_not_read_and_a_console_attribute_it_does_not_know(self):
         config = unit()
         config["services"]["echo"]["labels"].update({"io.gravitee.badge": "gold", "io.gravitee.console.web.icon": "x",

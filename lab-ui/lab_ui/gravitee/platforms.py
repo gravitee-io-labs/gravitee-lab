@@ -14,7 +14,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from . import cloud, license
+from . import cloud
 from ..docker import envfiles
 from .. import paths
 from ..catalogs import resolve
@@ -146,16 +146,10 @@ def _unique(name, records):
     return uid
 
 
-def add(name, kind, url, token, account):
-    """Registers a platform once it accepts the token for this account: answers its record. `name` is the account's
-    name when empty. `account` is the Account ID, the UUID that Gravitee Cloud shows next to its Account Tokens. The
-    token is kept as a setting, never answered."""
-    name = name.strip() if isinstance(name, str) else name
-    if name is not None and (not isinstance(name, str) or len(name) > NAME_LIMIT):
-        raise ValueError(f"The name is 1 to {NAME_LIMIT} characters")
-    kind = kind or "cloud"
-    if not isinstance(kind, str) or kind not in KINDS:
-        raise ValueError("Only Gravitee Cloud can be registered")
+def add(url, token, account):
+    """Registers a platform once it accepts the token for this account: answers its record, named as the account is.
+    `account` is the Account ID, the UUID that Gravitee Cloud shows next to its Account Tokens. The token is kept as a
+    setting, never answered."""
     account = account.strip() if isinstance(account, str) else ""
     if not account:
         raise ValueError("Enter the Account ID")
@@ -165,14 +159,14 @@ def add(name, kind, url, token, account):
     known = next((record for record in read() if record["account"]["id"].casefold() == account.casefold()), None)
     if known:
         raise ValueError(f"This account is already connected as {known['name']}")
-    client = cloud.Cloud(url or KINDS[kind], token)
+    client = cloud.Cloud(url or KINDS["cloud"], token)
     mine = _account(client, account)
-    name = name or mine["name"][:NAME_LIMIT].strip()
+    name = mine["name"][:NAME_LIMIT].strip()
     with _lock:
         records = read()
         if any(record["name"].casefold() == name.casefold() for record in records):
             raise ValueError(f"An account named {name} is already connected")
-        record = {"id": _unique(name, records), "name": name, "kind": kind, "url": client.url, "account": mine}
+        record = {"id": _unique(name, records), "name": name, "kind": "cloud", "url": client.url, "account": mine}
         key = _key(record["id"])
         envfiles.write(paths.ENV_FILE, {key: envfiles.quote(token.strip())})
         try:
@@ -277,8 +271,7 @@ def remove(uid, project=None):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _environment(found):
-    return {"id": found["id"], "hrid": str(found.get("hrid") or ""), "name": str(found.get("name") or ""),
-            "organizationId": str(found.get("organizationId") or "")}
+    return {"id": found["id"], "name": str(found.get("name") or ""), "organizationId": str(found.get("organizationId") or "")}
 
 
 def _gateway(found):
@@ -317,23 +310,13 @@ def _scopes(organization):
 
 
 def _entitled(record, client):
-    """What the account's plan and its organizations' licenses say it can do: {plan: {gamma}, organizations: {id: {scopes,
-    tier, expires}}}. The license is the signed text, which license.decode reads here, never kept nor sent."""
+    """What the account's plan and its organizations say it can do: {plan: {gamma}, organizations: {id: {scopes}}}."""
     uid, account = record["id"], record["account"]["id"]
     plan = _remembered((uid, "plan"), lambda: client.subscription(account))
     organizations = _remembered((uid, "organizations"), lambda: client.organizations(account)) or []
-    found = {}
-    for organization in organizations:
-        if not isinstance(organization, dict) or not _listed(organization):
-            continue
-        def read(organization=organization):
-            features, _ = license.decode(client.license(account, organization["id"]))
-            expires = features.get("expiryDate")
-            return {"tier": features.get("tier"), "expires": expires.isoformat() if hasattr(expires, "isoformat") else None}
-        found[organization["id"]] = {"scopes": _scopes(organization),
-                                     "license": _remembered((uid, "license", organization["id"]), read)}
     return {"plan": {"gamma": bool(plan.get("gammaEnabled"))} if isinstance(plan, dict) else None,
-            "organizations": found}
+            "organizations": {organization["id"]: {"scopes": _scopes(organization)} for organization in organizations
+                              if isinstance(organization, dict) and _listed(organization)}}
 
 
 def _installed(record, environment, env):
@@ -343,10 +326,7 @@ def _installed(record, environment, env):
     token = env.get(_key(record["id"], "ENV", environment["id"]), "")
     if not token:
         return None
-    try:
-        claims = cloud.claims(token)
-    except (cloud.CloudError, ValueError):
-        return None
+    claims = cloud.claims(token)
     if claims["expiry"] is not None and claims["expiry"] <= time.time() or (record["id"], environment["id"]) in _refused:
         return None
     organization = environment.get("organizationId") or claims["organization"]
@@ -362,7 +342,7 @@ def fetch(record):
     """A live read of a platform: {state, message, environments, gateways, entitled}. `state` is ok, invalid when the
     platform refuses the token or the rights, unreachable when it gives no usable answer; then `message` says it. An
     environment or a gateway with an id that is no segment of letters, digits and dashes is left out. `entitled` is
-    what the account's plan and licenses say (_entitled); an environment with a valid Cloud Token also has `installed`,
+    what the account's plan and organizations say (_entitled); an environment with a valid Cloud Token also has `installed`,
     what its Management API has (_installed)."""
     try:
         client = _client(record)
@@ -508,15 +488,12 @@ def _extra_products(project, found, organization):
 
 def capabilities(project, found, environment, kind="cloud"):
     """What an environment of a platform runs, from a read of the platform (fetch or annotate), which is all the Lab
-    knows of it: {products: {name: version}, plugins, installed, license, detail}. A product is the scope of the
+    knows of it: {products: {name: version}, plugins, installed, license}. A product is the scope of the
     environment's gateways, named as the project names it, at the oldest version they run, or one the account is
-    entitled to without a gateway (Gamma, Access Management); `detail` says when they run several. `plugins`: whether the
+    entitled to without a gateway (Gamma, Access Management). `plugins`: whether the
     gateway that runs here mounts a plugins folder. `installed`: the plugins the environment's Management API has, by kind,
     each with whether the license of the organization deploys it, None while no Cloud Token of the environment tells;
-    `license`: that license, {tier, packs, features}. None when nothing can be said: the read failed (its `state` says
-    why), or the environment has no gateway, which is not set up."""
-    if found.get("state") != "ok":
-        return None
+    `license`: that license, {tier, packs, features}. None when the environment has no gateway, which is not set up."""
     mine = [gateway for gateway in found.get("gateways") or [] if gateway.get("environmentId") == environment]
     if not mine:
         return None
@@ -524,18 +501,16 @@ def capabilities(project, found, environment, kind="cloud"):
     for gateway in mine:
         if gateway.get("scope"):
             versions.setdefault(product_name(project, gateway["scope"]), set()).add(gateway.get("version") or "")
-    products, detail = {}, []
+    products = {}
     for name, said in versions.items():
         known = sorted((version for version in said if _release(version)), key=_release)
         products[name] = known[0] if known else ""
-        if len(known) > 1:
-            detail.append(f"{name}: the gateways run {', '.join(known)}, the oldest counts")
     here = next((item for item in found.get("environments") or [] if item["id"] == environment), {})
     for name, version in _extra_products(project, found, here.get("organizationId")).items():
         products.setdefault(name, version)
     live = here.get("installed") or {}
-    return {"products": products, "plugins": plugins(project, kind), "detail": "; ".join(detail),
-            "installed": live.get("plugins"), "license": live.get("license")}
+    return {"products": products, "plugins": plugins(project, kind), "installed": live.get("plugins"),
+            "license": live.get("license")}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -637,7 +612,7 @@ def delete_cloud_token(uid, environment):
 
 def create_gateway(project, uid, environment, name):
     """Creates a hybrid gateway of API Management in an environment of a platform and keeps its token, which the Cloud
-    shows once: {gateway, tokenSaved}. The token is kept as the setting of the gateway, and also as the add-on's when
+    shows once: {gateway}. The token is kept as the setting of the gateway, and also as the add-on's when
     the add-on holds none, so that the first gateway is the one that runs here; a gateway made while another runs does
     not take its place (swap_gateway does). The domains and the setting come from the add-on that runs the gateway. A
     gateway whose token could not be kept is removed again."""
@@ -672,7 +647,7 @@ def create_gateway(project, uid, environment, name):
         except Exception:  # noqa: BLE001 - a setting nobody reads is all that is left
             pass
         raise RuntimeError(f"The gateway's token could not be saved ({_why(error)}): {left}") from None
-    return {"gateway": {**_gateway(gateway), "here": here, "kept": True}, "tokenSaved": True}
+    return {"gateway": {**_gateway(gateway), "here": here, "kept": True}}
 
 
 def swap_gateway(project, uid, gateway):

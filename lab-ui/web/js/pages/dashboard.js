@@ -30,7 +30,7 @@ const SPAN = 60;      // seconds of load a chart shows, from the first to the la
 const FLOOR = 10;     // the percentage a quiet CPU is drawn against, so that its line is seen
 const GAP = 5;        // seconds without a sample after which its line breaks: nothing was listening
 const SILENT = 8;     // and after which its figure is a dash: the stream is not saying anything
-const LAG = 1.5;      // seconds a chart runs behind the clock, so that its right edge is between two samples it knows
+const LAG = 3.5;      // seconds a chart runs behind the clock, so that its right edge is between two samples it knows
 const EASE = 0.8;     // seconds a chart takes to follow its top edge down, when a high point leaves the window
 const WIDTH = 240;    // a chart's width and height in its own units: it is drawn at 24 px high and as wide as its cell
 const HEIGHT = 48;
@@ -112,8 +112,6 @@ function size(bytes, binary = false) {
   if (bytes >= giga) return `${gb(bytes, binary)} GB`;
   return bytes >= mega ? `${Math.round(bytes / mega)} MB` : bytes >= kilo ? `${Math.round(bytes / kilo)} kB` : `${bytes} B`;
 }
-// What a machine has in all, as a round number: "36 GB"
-const whole = (bytes, binary = false) => (known(bytes) ? `${Math.round(bytes / (binary ? 2 ** 30 : 1e9))} GB` : "—");
 
 const percent = (value) => (known(value) ? `${value < 10 ? value.toFixed(1) : Math.round(value)}%` : "—");
 
@@ -467,14 +465,14 @@ const meter = (label, id, of) => {
 // The load of the containers as a share of the cores Docker has, against the larger of FLOOR percent and its highest point.
 // Without Docker there is no load to say.
 function cpuBody() {
-  const cores = data ? data.docker.cpus ?? data.machine.cpus : 0;
+  const cores = data ? data.docker.cpus : 0;
   return meter("CPU", "cpu", `${cores} ${cores === 1 ? "core" : "cores"}`);
 }
 
 // The memory the containers use, against the memory Docker has
 function memoryBody() {
   const docker = data?.docker;
-  return meter("Memory", "memory", docker && known(docker.memory) ? `${gb(docker.memory, true)} GB` : whole(data?.machine.memory_total, true));
+  return meter("Memory", "memory", docker && known(docker.memory) ? `${gb(docker.memory, true)} GB` : "—");
 }
 
 // Storage's button counts what Docker stores again (`docker system df`, and Docker's versions with it); its tooltip says how old the count is

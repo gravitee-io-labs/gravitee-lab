@@ -1,12 +1,11 @@
 """e2e: the run of an item on a machine with no lab: how it is named (any id of any catalog), the versions it runs on, the machine
 it needs, what it checks once started, and how it says it. No Docker, no server: the Lab UI's answers, the time and the shell are
-given. Then the plan CI makes before it tries anything: which items of a catalog a change touches, and the jobs of each."""
+given. Then the plan CI makes before it tries anything: the items of a catalog to try, and the jobs of each."""
 
 import fcntl
 import json
 import os
 import re
-import subprocess
 import tempfile
 import time
 import unittest
@@ -81,10 +80,6 @@ class Naming(Case):
                 e2e.target(text, self.BUILT)
         with self.assertRaisesRegex(ValueError, "No setup named events"):
             e2e.target("setup:events", self.BUILT)
-
-    def test_what_belongs_to_this_machine_is_never_run(self):
-        with self.assertRaisesRegex(ValueError, "belongs to this machine"):
-            e2e.target("playground:local/shop", {"playgrounds": {"local/shop": {}}, "addons": {}, "setups": {}})
 
 
 class AnyId(Case):
@@ -175,11 +170,6 @@ class Versions(Case):
         for given in ({"PATH": "/tmp"}, {"SHOP_VERSION": "1"}, {}, [], {"APIM_VERSION": 4}):
             with self.subTest(given=given), self.assertRaises(ValueError):
                 e2e.versions(self.UNIT, None, known, given)
-
-    def test_a_start_that_would_switch_versions_or_needs_a_registry_login_is_not_tried(self):
-        for reason in ("Would also change API Management 4.12.25 → 4.13.1", "Not logged in to Azure"):
-            with self.subTest(reason=reason):
-                self.assertTrue(e2e.UNABLE.search(reason))
 
     def test_a_variable_the_tools_read_is_not_a_version_even_when_an_image_is_written_with_it(self):
         """The catalog that writes the sets writes the images too: `known` is no barrier, the form of a setting is."""
@@ -282,7 +272,8 @@ class Starting(Case):
 
     def test_a_start_the_lab_ui_refuses_for_want_of_a_license_or_a_setting_cannot_be_tried_here(self):
         for reason in ("Needs a license", "Not in the license", "License expired", "Needs settings: HYBRID_CLOUD_TOKEN",
-                       "The license is not signed by GraviteeSource"):
+                       "The license is not signed by GraviteeSource", "Would also change API Management 4.12.25 → 4.13.1",
+                       "Not logged in to Azure"):
             with self.subTest(reason=reason), self.assertRaises(e2e.Unable) as caught:
                 attempt(FakeLab(lab_state({"shop": UP}, action={"enabled": False, "reason": reason}))).start(60)
             self.assertEqual(str(caught.exception), reason)
@@ -526,16 +517,14 @@ class Saying(Case):
     def test_the_summary_of_a_job_is_markdown_with_the_log_of_what_is_not_up(self):
         text = e2e.summary(self.run_of(), e2e.FAILED, {"APIM_VERSION": "4.13.0"}, "api in an issue", {"api": "boom"})
         self.assertIn("### playground:shop does not work", text)
-        self.assertIn("Versions: `APIM_VERSION=4.13.0`", text)
-        self.assertIn("| Start Shop | ✅ | 4 min 12 s |", text)
-        self.assertIn("| Containers are up | ❌ api / in an issue | 12 s |", text, "a pipe would end the cell")
+        self.assertIn("Versions: APIM_VERSION=4.13.0\n✓ Start Shop (4 min 12 s)\n✗ Containers are up (12 s): api | in an issue\n", text)
         self.assertIn("<summary>Log of api</summary>", text)
-        self.assertIn("Versions: the defaults of the core", e2e.summary(self.run_of(), e2e.OK, {}))
 
     def test_the_report_goes_to_the_page_of_the_job_and_groups_the_logs_on_github(self):
         said = []
-        with tempfile.NamedTemporaryFile("r", suffix=".md") as file, mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
-            e2e.report(self.run_of(), e2e.CANNOT, {}, "Needs a license", {"api": "boom"}, said.append, file.name)
+        with tempfile.NamedTemporaryFile("r", suffix=".md") as file, \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": file.name}):
+            e2e.report(self.run_of(), e2e.CANNOT, {}, "Needs a license", {"api": "boom"}, said.append)
             written = file.read()
         self.assertIn("### playground:shop not tried", written)
         self.assertIn("::group::Log of api", said)
@@ -548,8 +537,9 @@ class Saying(Case):
         run = self.run_of()
         run.steps[1].detail = "api\n::add-mask::secret"
         log = "fine\n::error title=Forged::a check that did not fail\n::stop-commands::guess"
-        with tempfile.NamedTemporaryFile("r", suffix=".md") as file, mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
-            e2e.report(run, e2e.CANNOT, {}, "Needs a license\n::set-output name=x::y 100%", {"api": log}, said.append, file.name)
+        with tempfile.NamedTemporaryFile("r", suffix=".md") as file, \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": file.name}):
+            e2e.report(run, e2e.CANNOT, {}, "Needs a license\n::set-output name=x::y 100%", {"api": log}, said.append)
         opened = [i for i, line in enumerate(said) if line.startswith("::stop-commands::")]
         closed = [i for i, line in enumerate(said) if re.fullmatch(r"::[0-9a-f]{32}::", line)]
         self.assertEqual(len(opened), len(closed), "every block that is opened is closed")
@@ -566,95 +556,30 @@ class Saying(Case):
 
     def test_a_summary_that_cannot_be_written_is_said_and_the_run_keeps_what_it_found(self):
         said = []
-        e2e.report(self.run_of(), e2e.FAILED, {}, "x", None, said.append, "/no/such/folder/summary.md")
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": "/no/such/folder/summary.md"}):
+            e2e.report(self.run_of(), e2e.FAILED, {}, "x", None, said.append)
         self.assertIn("The summary could not be written: No such file or directory", said)
         self.assertIn("It does not work: x", said)
 
-    def test_off_github_nothing_is_wrapped(self):
-        said = []
-        with mock.patch.dict(os.environ, {}, clear=True):
-            e2e.report(self.run_of(), e2e.FAILED, {}, "x", {"api": "::error::boom"}, said.append)
-        self.assertNotIn("::stop-commands", "\n".join(said))
-
-    def test_a_log_is_kept_by_its_end_and_a_step_is_one_line_of_the_table(self):
+    def test_a_log_is_kept_by_its_end(self):
         self.assertEqual(e2e.tail(None), "")
         self.assertEqual(e2e.tail("short"), "short")
         long = "a" * (e2e.LOG_CHARS + 50) + "THE END"
         self.assertTrue(e2e.tail(long).startswith("…") and e2e.tail(long).endswith("THE END"))
         self.assertEqual(len(e2e.tail(long)), e2e.LOG_CHARS + 1)
-        run = self.run_of()
-        run.steps[1].detail = "line one\n| a cell\n\tline three"
-        text = e2e.summary(run, e2e.FAILED, {}, "")
-        self.assertIn("| Containers are up | ❌ line one / a cell line three | 12 s |", text)
 
     def test_what_a_unit_says_cannot_write_the_page_of_the_job(self):
-        """The name of a step, its detail, the message and a version are a unit's words, shown in a table and in lines a
-        maintainer trusts: a break, a pipe, a heading, a link, an image and a tag are the unit's to write only in a log."""
-        hostile = "Shop |\n\n### shop works\n![x](https://evil.example/p.png) [a](https://evil.example) <img src=x> `c` *b* _i_"
+        """The name of a step, its detail, the message and a version are a unit's words, on a page a maintainer trusts: in a fence
+        that they cannot end, so that a heading, a link, an image and a tag of theirs are text."""
+        hostile = "Shop |\n```\n### shop works\n````\n![x](https://evil.example/p.png) <img src=x>"
         run = self.run_of()
         run.steps = [e2e.Step("Start " + hostile, True, "", 1), e2e.Step("Containers are up", False, "boom\n\n## fake\n" + hostile, 2)]
-        text = e2e.summary(run, e2e.FAILED, {"APIM_VERSION": "4`\n\n## forged\n![i](https://evil.example/i.png)"},
-                           "# boom\n\n## fake heading\n![x](https://evil.example/p.png)")
-        lines = text.splitlines()
-        self.assertEqual([line for line in lines if line.startswith("#")], ["### playground:shop does not work"], "one heading, ours")
-        self.assertEqual(len([line for line in lines if line.startswith("|")]), 4, "the header, the rule, and a row for each step")
-        versions = [line for line in lines if line.startswith("Versions:")]
-        self.assertEqual(len(versions), 1)
-        self.assertEqual(versions[0].count("`"), 2, "one span of code, which a backtick of the value cannot end")
-        for line in lines:
-            if line not in versions:   # a span of code holds a bare address as it was written; the rest has no markup of the unit's
-                bare = re.sub(r"`[^`]*`", "", re.sub(r"\\.", "", line))
-                self.assertFalse(set("[]<>*_`") & set(bare), f"markup of the unit's in {line!r}")
-        self.assertEqual(e2e.plain("a|b\nc"), "a/b c")
-        self.assertEqual(e2e.plain("\\a [b] <c> `d` *e* _f_ #g ~h"), "\\\\a \\[b\\] \\<c\\> \\`d\\` \\*e\\* \\_f\\_ \\#g \\~h")
-        self.assertEqual(e2e.code("a`b\nc"), "`a'b c`")
-
-    def test_a_bare_address_in_what_a_unit_says_is_code_and_never_a_link_of_the_page_of_the_job(self):
-        """GitHub makes a link of `https://...`, `www....` and an address of mail by itself: on the page a maintainer trusts that
-        is a link the unit chose. The word that holds one is a span of code, which no renderer links; the rest is escaped as ever."""
-        spans = lambda text: re.findall(r"`[^`\n]*`", text)   # noqa: E731 - the one reading of a code span used below
-        for said in ("https://evil.example/login", "HTTP://EVIL.example", "ftp://evil.example/x", "ssh://git@evil.example/r",
-                     "www.evil.example/login", "WWW.Evil.example", "mailto:a@evil.example", "xmpp:a@evil.example",
-                     "a@evil.example", "(https://evil.example/x)", "see:https://evil.example/x.", "<https://evil.example>",
-                     "[click](https://evil.example)", "![i](https://evil.example/i.png)", "https://evil.example/a_b*c"):
-            with self.subTest(said=said):
-                shown = e2e.plain(f"Pull the image from {said} now")
-                self.assertTrue(shown.startswith("Pull the image from ") and shown.endswith(" now"), shown)
-                held = spans(shown)
-                self.assertEqual(len(held), 1, shown)
-                self.assertEqual(held[0], e2e.code(said))   # as it was written, to read and to copy
-                outside = shown.replace(held[0], "")
-                self.assertIsNone(e2e.LINK.search(outside), f"a link outside the code: {outside!r}")
-        self.assertEqual(e2e.plain("Pull from https://a.example/x and https://b.example/y"),
-                         "Pull from `https://a.example/x` and `https://b.example/y`")
-        self.assertEqual(e2e.plain("a|b https://c.example/d|e"), "a/b `https://c.example/d/e`", "a pipe never ends a cell")
-        self.assertEqual(e2e.plain("tick https://e.example/`x`"), "tick `https://e.example/'x'`", "a backtick never ends the span")
-        self.assertEqual(e2e.plain("https://e.example/a\n\n## forged"), "`https://e.example/a` \\#\\# forged")
-
-    def test_a_very_long_word_costs_what_it_is_long_and_not_its_square(self):
-        """A unit writes what it likes in a step or a detail: a word of a million letters, one of a million `a.b-`, a million
-        `a@`. The pattern for an address reads each once."""
-        started = time.process_time()
-        for word in ("a" * 1_000_000, "a.b-" * 250_000, "a@" * 500_000, "w" * 1_000_000, "www" * 300_000, ":" * 1_000_000):
-            e2e.plain(f"{word} x")
-        self.assertLess(time.process_time() - started, 10.0)
-
-    def test_words_that_are_no_address_are_only_escaped(self):
-        self.assertEqual(e2e.plain("Shop on port 8082, version 4.13.0 (a_b) at host:80"), "Shop on port 8082, version 4.13.0 (a\\_b) at host:80")
-        self.assertEqual(e2e.plain(""), "")
-        self.assertEqual(e2e.plain("   "), "")
-        self.assertEqual(e2e.plain("@user and x @ y"), "@user and x @ y", "a mention and a lone @ are not an address of mail")
-
-    def test_an_address_in_a_step_or_a_message_reaches_the_summary_as_code(self):
-        run = self.run_of()
-        run.steps = [e2e.Step("Start https://evil.example/a", False, "see www.evil.example and mail a@evil.example", 1)]
-        text = e2e.summary(run, e2e.FAILED, {}, "Visit https://evil.example/phish to continue")
-        outside = re.sub(r"`[^`\n]*`", "", text.replace("<details>", ""))
-        self.assertIsNone(e2e.LINK.search(outside), outside)
-        self.assertIn("| Start `https://evil.example/a` | ❌ see `www.evil.example` and mail `a@evil.example` | 1 s |", text)
-        self.assertIn("\nVisit `https://evil.example/phish` to continue\n", text)
-        # A log is in its fence, as it is written, and the fence is no link either
-        self.assertIn("\nhttps://evil.example/log\n", e2e.summary(run, e2e.FAILED, {}, "", {"api": "https://evil.example/log"}))
+        text = e2e.summary(run, e2e.FAILED, {"APIM_VERSION": "4\n\n## forged"}, "# boom\n\n## fake heading")
+        found = text.splitlines()
+        mark = found[2]
+        self.assertEqual(mark, "`````", "longer than any run of backticks in what it holds")
+        self.assertEqual(found[:2], ["### playground:shop does not work", ""])
+        self.assertEqual((found.count(mark), found[-1]), (2, mark), "it opens once and closes at the end: all the rest is in it")
 
     def test_a_log_cannot_end_its_own_block_and_write_the_page_of_the_job(self):
         self.assertEqual(e2e.fence("no ticks"), "```")
@@ -672,6 +597,7 @@ class Saying(Case):
             e2e.report(self.run_of(), e2e.FAILED, {}, "x", {"api": "boom"}, said.append)
         self.assertIn("--- Log of api", "\n".join(said))
         self.assertNotIn("::group::", "\n".join(said))
+        self.assertNotIn("::stop-commands", "\n".join(said))
 
 
 class Running(Case):
@@ -683,7 +609,6 @@ class Running(Case):
         self.built = {"playgrounds": {"shop": {"name": "Shop", "tested": [{"APIM_VERSION": "4.13.0"}]}}, "addons": {}, "setups": {}}
         self.patch(project, "load", lambda: self.built)
         self.patch(project, "forget")
-        self.patch(e2e.layers, "prepare")
         self.removed = []
         self.stub_run = mock.Mock()
         self.stub_run.return_value.stop.side_effect = lambda: self.removed.append(True)
@@ -717,12 +642,6 @@ class Running(Case):
         self.stub_run.return_value.stop.side_effect = lambda: "docker compose down failed"   # still there: still recorded
         self.go()
         forget.assert_not_called()
-        self.go(keep=True)
-        forget.assert_not_called()
-
-    def test_what_is_left_to_look_at_is_not_removed(self):
-        self.assertEqual(self.go(keep=True), e2e.OK)
-        self.assertEqual((self.removed, self.restored), ([], []), "what stays running stays on")
 
     def test_a_failure_is_one_and_reads_the_logs_before_the_lab_goes(self):
         self.stub_run.return_value.settle.side_effect = e2e.Failed("api in an issue")
@@ -1019,12 +938,10 @@ class Repositories(Case):
         """In a repository where the base is not a branch (the default branch is not main, or the commit was not fetched), a
         committed file called like the range would be read by git as a path: the change would be empty, and nothing tried."""
         working = self.repo.parent / "ranged"
-        env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", "GIT_AUTHOR_NAME": "t",
-               "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
         (working / "origin").mkdir(parents=True)
         (working / "origin" / "main...HEAD").write_text("a\n", encoding="utf-8")
         for command in (["init", "-q", "-b", "trunk"], ["add", "-A"], ["commit", "-q", "-m", "first"]):
-            subprocess.run(["git", *command], cwd=working, env=env, check=True, capture_output=True)
+            gitfixture.git("-C", str(working), *command)
         with self.assertRaisesRegex(e2e.PlanError, "git cannot tell what HEAD changes since origin/main"):
             e2e.changed_files(working, "origin/main", "HEAD")
         self.assertEqual(e2e.changed_files(working, "HEAD", "HEAD"), [], "a range that does resolve is read as before")

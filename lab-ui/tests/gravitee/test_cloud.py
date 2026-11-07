@@ -10,7 +10,6 @@ import threading
 import time
 import unittest
 import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from lab_ui.gravitee import cloud
@@ -82,6 +81,11 @@ class Client(Case):
         """A call that asks the Cloud at this address for an account."""
         return lambda: cloud.Cloud(address, token).account(account)
 
+    @staticmethod
+    def reads(address, token=fake_cloud.CLOUD_TOKEN):
+        """A call that asks Cloud Gate at this address for the first API of an environment."""
+        return lambda: cloud.Gate(address, token).read(ORGANIZATION, DEVELOPMENT)
+
     def assertHidden(self, *things, more=()):
         """No token (those of the tests, and `more`) is in these answers or messages. It does not say which one is."""
         text = json.dumps(things, default=str)
@@ -137,19 +141,7 @@ class Token(Case):
 
     def test_it_is_not_in_the_representation(self):
         client = cloud.Cloud("https://eu.cloud.gravitee.io/management/", f"  {SECRET}\n")
-        self.assertEqual(repr(client), "Cloud('https://eu.cloud.gravitee.io')")
         self.assertFalse(SECRET in repr(client), "the token is in it")
-
-    def test_the_gate_keeps_a_token_as_quietly(self):
-        gate = cloud.Gate("https://eu.cloudgate.gravitee.io/", f" {SECRET}\n")
-        self.assertEqual(repr(gate), "Gate('https://eu.cloudgate.gravitee.io')")
-        self.assertFalse(SECRET in repr(gate), "the token is in it")
-        for token in ("", "   ", None, 7, f"two words {SECRET}", f"café{SECRET}"):
-            with self.subTest(token=bool(token)), self.assertRaises(ValueError) as caught:
-                cloud.Gate("https://eu.cloudgate.gravitee.io", token)
-            self.assertFalse(SECRET in str(caught.exception), "the token is in the message")
-        with self.assertRaisesRegex(ValueError, "must be https"):
-            cloud.Gate("http://eu.cloudgate.gravitee.io", SECRET)   # a Cloud Token does not travel in clear
 
 
 class Claims(Case):
@@ -187,10 +179,10 @@ class Claims(Case):
             with self.subTest(region=region):
                 self.assertIsNone(cloud.claims(fake_cloud.jwt({"scopes": ["automation"], "cpg": region}))["cpg"])
 
-    def test_a_token_for_another_audience_than_cloud_gate_is_an_account_token(self):
+    def test_a_jwt_that_is_neither_a_cloud_token_nor_a_gateway_s_is_unknown(self):
         found = cloud.claims(fake_cloud.ACCOUNT_JWT)
         self.assertEqual((found["kind"], found["organization"], found["environment"], found["gateway"]),
-                         ("account", None, None, None))
+                         ("unknown", None, None, None))
         self.assertIsInstance(found["expiry"], int)
 
     def test_what_is_no_jwt_is_unknown(self):
@@ -253,20 +245,6 @@ class Fake(Client):
                          ["Development", "Test", "Production"])
         self.assertEqual(self.client.gateways(ACCOUNT), [])
 
-    def test_an_account_token_opens_the_paths_of_its_account_and_nothing_else(self):
-        """As the real Cloud: the list of accounts, /me and an account's hrid answer 401 to an Account Token."""
-        for path in ("/accounts", "/me", "/accounts/my-account", "/accounts/my-account/environments",
-                     f"/cloud/accounts/{ACCOUNT}/environments", "/cloud/accounts/my-account/environments"):
-            with self.subTest(path=path):
-                self.raises("invalid", "refuses this token", lambda: self.client._call("GET", path))
-        self.raises("invalid", "refuses this token", lambda: self.client.account("my-account"))
-        self.assertEqual(self.client._call("GET", f"/accounts/{ACCOUNT}")["hrid"], "my-account")
-
-    def test_an_environment_has_neither_an_hrid_nor_a_status(self):
-        for found in self.client.environments(ACCOUNT):
-            self.assertTrue(isinstance(found["id"], str) and found["name"] and found["organizationId"])
-            self.assertTrue("hrid" not in found and "status" not in found, "the Cloud gives neither")
-
     def test_a_hybrid_gateway_is_created_listed_and_deleted(self):
         gateway, token = self.client.create_gateway(ACCOUNT, "fake-env-dev", "lab", ["localhost:8090"])
         self.assertEqual((gateway["name"], gateway["type"], gateway["scope"], gateway["environmentId"]),
@@ -278,54 +256,13 @@ class Fake(Client):
         self.assertIsNone(self.client.delete_gateway(ACCOUNT, gateway["id"]))   # an empty answer
         self.assertEqual(self.client.gateways(ACCOUNT), [])
 
-    def test_a_gateway_connects_some_time_after_it_was_created(self):
-        self.fake.state.connect_after = 3600
-        self.client.create_gateway(ACCOUNT, "fake-env-dev", "lab", [])
-        self.assertEqual([g["connectionStatus"] for g in self.client.gateways(ACCOUNT)], ["NOT_CONNECTED"])
-
-    def test_a_gateway_is_created_with_two_domains_and_a_token_that_names_it(self):
-        gateway, token = self.client.create_gateway(ACCOUNT, DEVELOPMENT, "lab", ["localhost:8090", "hybrid:8082"])
-        self.assertEqual([found["domain"] for found in self.client.gateways(ACCOUNT)[0]["domains"]],
-                         ["localhost:8090", "hybrid:8082"])
-        found = cloud.claims(token)
-        self.assertEqual((found["kind"], found["gateway"], found["environment"]), ("gateway", gateway["id"],
-                                                                                   DEVELOPMENT))
-        self.assertHidden(gateway, self.client.gateways(ACCOUNT), more=self.fake.state.tokens.values())
-
-    def test_a_second_account_has_its_own_environments_and_gateways(self):
-        second = cloud.Cloud(self.url, fake_cloud.SECOND_TOKEN)
-        other = fake_cloud.SECOND_ACCOUNT["id"]
-        self.assertEqual(second.account(other)["hrid"], "client-lab")
-        self.assertEqual([found["name"] for found in second.environments(other)], ["Development", "Test"])
-        self.assertEqual({found["organizationId"] for found in second.environments(other)},
-                         {"fake-second-organization"})
-        mine, _ = self.client.create_gateway(ACCOUNT, DEVELOPMENT, "mine", [])
-        theirs, _ = second.create_gateway(other, "fake-client-test", "theirs", [])
-        self.assertEqual([found["id"] for found in self.client.gateways(ACCOUNT)], [mine["id"]])
-        self.assertEqual([found["id"] for found in second.gateways(other)], [theirs["id"]])
-        self.raises("invalid", "Not found", lambda: second.delete_gateway(other, mine["id"]))
-        self.raises("invalid", "refuses this token", lambda: second.account(ACCOUNT))   # not its account
-        self.raises("invalid", "refuses this token", lambda: self.client.environments(other))
-        self.raises("invalid", "refuses it: Bad request: environmentId", lambda: self.client.create_gateway(
-            ACCOUNT, "fake-client-test", "lab", []))   # an environment of the other account
-
-    def test_an_account_token_that_carries_claims_opens_its_account_too(self):
-        found = cloud.Cloud(self.url, fake_cloud.ACCOUNT_JWT).account(ACCOUNT)
-        self.assertEqual(found["id"], ACCOUNT)
-
     def test_the_token_goes_in_the_authorization_header(self):
         address, server = self.scripted(lambda *asked: (200, '{"id": "acc"}', None))
         self.assertEqual(self.account(address)(), {"id": "acc"})
         method, path, headers, _ = server.asked[0]
         self.assertEqual((method, path, headers["Authorization"]), ("GET", "/management/accounts/acc",
-                                                                    f"{cloud.AUTH} {SECRET}"))
+                                                                    f"Bearer {SECRET}"))
         self.assertEqual(headers["Accept"], "application/json")
-
-    def test_the_scheme_is_one_constant(self):
-        address, server = self.scripted(lambda *asked: (200, '{"id": "acc"}', None))
-        self.patch(cloud, "AUTH", "Basic")
-        self.account(address)()
-        self.assertEqual(server.asked[0][2]["Authorization"], f"Basic {SECRET}")
 
     def test_a_token_the_cloud_refuses(self):
         self.raises("invalid", "refuses this token", self.account(self.url, account=ACCOUNT))
@@ -338,13 +275,6 @@ class Fake(Client):
                 self.account(address)()
             self.assertEqual(caught.exception.status, code)
             self.assertIn(words, str(caught.exception))
-
-    def test_a_token_that_may_not_write(self):
-        member = cloud.Cloud(self.url, fake_cloud.MEMBER_TOKEN)
-        self.assertEqual(member.account(ACCOUNT)["id"], ACCOUNT)   # it reads
-        self.raises("invalid", "not allowed", lambda: member.create_gateway(ACCOUNT, "fake-env-dev", "lab", []))
-        self.raises("invalid", "not allowed", lambda: member.delete_gateway(ACCOUNT, "anything"))
-        self.assertEqual(self.fake.state.gateways, {})
 
     def test_what_the_cloud_refuses_it_says(self):
         self.raises("invalid", "refuses it: Bad request: name must have 2 to 128 characters",
@@ -372,103 +302,32 @@ class Fake(Client):
 
 
 class GateFake(Client):
-    """Cloud Gate of the fake Cloud, and the client that proves a Cloud Token against it."""
+    """Cloud Gate of the fake Cloud, and the client that reads it with a Cloud Token."""
 
     def setUp(self):
         self.fake = fake_cloud.serve(connect_after=0)
         self.url = self.served(self.fake)
-        self.gate = cloud.Gate(self.url, fake_cloud.CLOUD_TOKEN)
         self.read = f"/apim/rest/v2/organizations/{ORGANIZATION}/environments/{DEVELOPMENT}/apis"
-
-    def asked(self):
-        return self.fake.state.asked
-
-    def call(self, token, method, path, body=None):
-        """What a seed does: a request with the token, answered (status, JSON), whatever the status."""
-        data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request(self.url + path, data, method=method, headers={
-            "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-        try:
-            with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=5) as response:
-                text = response.read()
-                return response.status, json.loads(text) if text else None
-        except urllib.error.HTTPError as error:
-            with error:
-                return error.code, json.loads(error.read() or b"null")
-
-    def test_a_cloud_token_is_proven_by_one_read_and_names_its_environment(self):
-        found = self.gate.check()
-        self.assertEqual((found["kind"], found["organization"], found["environment"]),
-                         ("cloud", ORGANIZATION, DEVELOPMENT))
-        self.assertEqual(self.asked(), [("GET", self.read)])   # one question
-        self.assertHidden(found, self.asked())
 
     def test_the_read_is_the_first_api_of_the_environment_with_the_token_as_bearer(self):
         address, server = self.scripted(lambda *asked: (200, '{"data": [], "pagination": {}}', None))
-        self.patch(cloud, "AUTH", "Basic")   # the scheme of the Cloud's own API is not the Gate's
-        cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check()
+        self.reads(address)()
         method, path, headers, _ = server.asked[0]
         self.assertEqual((method, path), ("GET", self.read + "?perPage=1"))
         self.assertEqual(headers["Authorization"], f"Bearer {fake_cloud.CLOUD_TOKEN}")
         self.assertEqual(headers["Accept"], "application/json")
 
-    def test_a_token_the_gate_refuses_is_a_refused_token(self):
-        revoked = fake_cloud.cloud_token(DEVELOPMENT)
-        self.fake.state.revoked.add(revoked)
-        for name, token in [("revoked", revoked), ("expired", fake_cloud.CLOUD_TOKEN_EXPIRED),
-                            ("a gateway's", fake_cloud.GATEWAY_TOKEN), ("an account's", fake_cloud.ACCOUNT_JWT),
-                            ("not one of the fake", fake_cloud.TOKEN),
-                            ("for another organization", fake_cloud.SECOND_CLOUD_TOKEN)]:
-            with self.subTest(token=name):
-                error = self.raises("invalid", "Gravitee Cloud refuses this token",
-                                    lambda: cloud.Gate(self.url, token).read(ORGANIZATION, DEVELOPMENT))
-                self.assertEqual(error.status, 401)
-
     def test_a_revoked_token_is_found_out_by_the_read(self):
         token = fake_cloud.cloud_token(DEVELOPMENT)
-        gate = cloud.Gate(self.url, token)
-        self.assertEqual(gate.check()["environment"], DEVELOPMENT)
+        self.assertIsNone(self.reads(self.url, token)())
         self.fake.state.revoked.add(token)
-        error = self.raises("invalid", "Gravitee Cloud refuses this token", gate.check)
+        error = self.raises("invalid", "Gravitee Cloud refuses this token", self.reads(self.url, token))
         self.assertEqual(error.status, 401)
-        self.assertEqual(self.gate.check()["environment"], DEVELOPMENT)   # not the other tokens of the environment
-
-    def test_an_expired_token_is_refused_before_anything_is_asked(self):
-        gate = cloud.Gate(self.url, fake_cloud.CLOUD_TOKEN_EXPIRED)
-        error = self.raises("invalid", "This Cloud Token has expired", gate.check)
-        self.assertIsNone(error.status)   # known here, not told by the Cloud
-        self.assertEqual(self.asked(), [])
-
-    def test_a_token_that_expires_now_has_expired(self):
-        gate = cloud.Gate(self.url, fake_cloud.cloud_token(DEVELOPMENT, expires=0))
-        self.raises("invalid", "has expired", gate.check)
-        self.assertEqual(self.asked(), [])
-
-    def test_a_token_of_another_environment_names_it_and_opens_no_other(self):
-        gate = cloud.Gate(self.url, fake_cloud.CLOUD_TOKEN_TEST)
-        self.assertEqual(gate.check()["environment"], TEST)   # the match with the one chosen is for the caller
-        error = self.raises("invalid", "refuses this token", lambda: gate.read(ORGANIZATION, DEVELOPMENT))
-        self.assertEqual(error.status, 401)
-        other = cloud.Gate(self.url, fake_cloud.SECOND_CLOUD_TOKEN)
-        self.assertEqual(other.check()["organization"], "fake-second-organization")
-        self.raises("invalid", "refuses this token", lambda: other.read(ORGANIZATION, "fake-client-test"))
-
-    def test_what_is_no_cloud_token_is_refused_without_asking(self):
-        no_envs = fake_cloud.jwt({"org": ORGANIZATION, "scopes": ["automation"], "aud": "CloudGate"})
-        no_org = fake_cloud.jwt({"envs": [DEVELOPMENT], "scopes": ["automation"], "aud": "CloudGate"})
-        nothing = "This is not a Cloud Token"
-        for token, words in [(fake_cloud.GATEWAY_TOKEN, "This is a gateway token, not a Cloud Token"),
-                             (fake_cloud.ACCOUNT_JWT, "This is an Account Token, not a Cloud Token"),
-                             (fake_cloud.TOKEN, nothing), ("e30.e30.e30", nothing), (no_envs, nothing),
-                             (no_org, nothing)]:
-            with self.subTest(words=words):
-                self.raises("invalid", words, cloud.Gate(self.url, token).check)
-        self.assertEqual(self.asked(), [])
+        self.assertIsNone(self.reads(self.url)())   # not the other tokens of the environment
 
     def test_a_forbidden_read_is_a_token_that_cannot_read_api_management(self):
         address, _ = self.scripted(lambda *asked: (403, '{"message": "Forbidden"}', None))
-        error = self.raises("invalid", "This Cloud Token cannot read API Management",
-                            cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check)
+        error = self.raises("invalid", "This Cloud Token cannot read API Management", self.reads(address))
         self.assertEqual(error.status, 403)
 
     def test_an_id_is_one_segment_of_the_path(self):
@@ -481,76 +340,7 @@ class GateFake(Client):
                 gate.read(bad, "env")
             with self.subTest(env=bad), self.assertRaisesRegex(ValueError, "Not an id"):
                 gate.read("org", bad)
-        walking = fake_cloud.jwt({"org": "..", "envs": ["e"], "scopes": ["automation"], "aud": "CloudGate"})
-        self.raises("invalid", "Not an id of Gravitee Cloud", cloud.Gate(address, walking).check)
         self.assertEqual(len(server.asked), 1)   # nothing else was sent
-
-    def test_a_seed_puts_an_api_in_the_environment_and_nobody_else_sees_it(self):
-        token, v2 = fake_cloud.CLOUD_TOKEN, self.read.rsplit("/apis", 1)[0]
-        self.assertEqual(self.call(token, "GET", self.read + "?perPage=1")[1]["data"], [])
-        status, made = self.call(token, "POST", f"{v2}/apis/_import/definition",
-                                 {"api": {"name": "Acme Hostels API", "type": "PROXY"}, "plans": []})
-        self.assertEqual((status, made["name"], made["state"]), (201, "Acme Hostels API", "STOPPED"))
-        api = f"{v2}/apis/{made['id']}"
-        self.assertEqual(self.call(token, "PUT", api, {**made, "lifecycleState": "PUBLISHED"})[1]["lifecycleState"],
-                         "PUBLISHED")
-        self.assertEqual(self.call(token, "POST", f"{api}/deployments", {"deploymentLabel": "x"})[0], 202)
-        self.assertEqual(self.call(token, "POST", f"{api}/_start")[0], 204)
-        status, live = self.call(token, "GET", api)
-        self.assertEqual((status, live["state"], live["deploymentState"], live["lifecycleState"]),
-                         (200, "STARTED", "DEPLOYED", "PUBLISHED"))
-        self.assertEqual([found["id"] for found in self.call(token, "GET", self.read + "?perPage=1")[1]["data"]],
-                         [made["id"]])
-        # Another environment of the same organization sees nothing of it, and cannot be read with this token
-        test = f"/apim/rest/v2/organizations/{ORGANIZATION}/environments/{TEST}/apis"
-        self.assertEqual(self.call(token, "GET", test)[0], 401)
-        self.assertEqual(self.call(fake_cloud.CLOUD_TOKEN_TEST, "GET", test)[1]["data"], [])
-        self.assertEqual(self.call(fake_cloud.CLOUD_TOKEN_TEST, "GET", f"{test}/{made['id']}")[0], 404)
-        self.assertEqual(self.call(fake_cloud.CLOUD_TOKEN_TEST, "DELETE", f"{test}/{made['id']}")[0], 404)
-        # What the seed removes is gone
-        self.assertEqual(self.call(token, "POST", f"{api}/_stop")[0], 204)
-        self.assertEqual(self.call(token, "GET", api)[1]["state"], "STOPPED")
-        self.assertEqual(self.call(token, "DELETE", api)[0], 204)
-        self.assertEqual(self.call(token, "GET", api)[0], 404)
-        self.assertEqual(self.call(token, "GET", self.read)[1]["data"], [])
-
-    def test_a_seed_that_asks_wrongly_is_told_so(self):
-        token, v2 = fake_cloud.CLOUD_TOKEN, self.read.rsplit("/apis", 1)[0]
-        self.assertEqual(self.call(token, "GET", f"{v2}/apis/nope")[0], 404)
-        self.assertEqual(self.call(token, "POST", f"{v2}/apis/nope/deployments")[0], 404)
-        self.assertEqual(self.call(token, "POST", f"{v2}/apis/nope/_start")[0], 404)
-        self.assertEqual(self.call(token, "POST", f"{v2}/apis/nope/_stop")[0], 404)
-        self.assertEqual(self.call(token, "DELETE", f"{v2}/apis/nope")[0], 404)
-        self.assertEqual(self.call(token, "PUT", f"{v2}/apis/nope", {})[0], 404)
-        self.assertEqual(self.call(token, "POST", f"{v2}/apis/_import/definition", {"api": {}})[0], 400)
-        self.assertEqual(self.call(token, "POST", f"{v2}/apis/_import/definition", [1])[0], 400)
-        self.assertEqual(self.call(token, "GET", f"{v2}/settings")[0], 404)
-        self.assertEqual(self.call(token, "GET", "/apim/rest/v2/nope")[0], 404)
-        self.assertEqual(self.call(None, "GET", self.read)[0], 401)
-
-    def test_deploying_what_the_license_lacks_is_forbidden_as_the_cloud_does(self):
-        definition = {"api": {"name": "Acme Hostels MCP", "type": "MCP_PROXY"}}
-        v2 = self.read.rsplit("/apis", 1)[0]
-        status, made = self.call(fake_cloud.CLOUD_TOKEN, "POST", f"{v2}/apis/_import/definition", definition)
-        self.assertEqual(status, 201)   # the import works
-        status, said = self.call(fake_cloud.CLOUD_TOKEN, "POST", f"{v2}/apis/{made['id']}/deployments")
-        self.assertEqual((status, said["message"]), (403, "Feature 'mcp' is not available with your license tier"))
-        # The license of the second organization has the feature
-        second = "/apim/rest/v2/organizations/fake-second-organization/environments/fake-client-test"
-        made = self.call(fake_cloud.SECOND_CLOUD_TOKEN, "POST", f"{second}/apis/_import/definition", definition)[1]
-        self.assertEqual(self.call(fake_cloud.SECOND_CLOUD_TOKEN, "POST", f"{second}/apis/{made['id']}/deployments")[0],
-                         202)
-
-    def test_nothing_in_the_requests_holds_a_token(self):
-        self.gate.check()
-        self.assertHidden(self.asked())
-
-    def test_a_gate_that_is_not_there(self):
-        with socket.socket() as free:
-            free.bind(("127.0.0.1", 0))
-            port = free.getsockname()[1]
-        self.raises("unreachable", "refuses the connection", cloud.Gate(f"http://127.0.0.1:{port}",
-                                                                        fake_cloud.CLOUD_TOKEN).check)
 
 
 class Wrong(Client):
@@ -653,38 +443,16 @@ class Wrong(Client):
                 self.assertEqual(len(server.asked), 1)
 
     def test_the_gate_says_no_in_its_own_words(self):
-        def gate(address):
-            return cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check
         for code, kind, words in [(401, "invalid", "refuses this token"),
                                   (403, "invalid", "cannot read API Management"), (404, "invalid", "Not found"),
                                   (500, "unreachable", "answered an error (HTTP 500)")]:
             address, _ = self.scripted(lambda *asked, code=code: (code, "{}", None))
             with self.subTest(code=code):
-                self.raises(kind, words, gate(address))
+                self.raises(kind, words, self.reads(address))
         for text in ("<html><body>Welcome</body></html>", "[]", "null", "", "[1]", '"text"'):
             address, _ = self.scripted(lambda *asked, text=text: (200, text, None))
             with self.subTest(text=text):
-                self.raises("unreachable", "does not answer like Gravitee Cloud", gate(address))
-
-    def test_a_gate_that_is_too_slow(self):
-        def slow(*asked):
-            time.sleep(1)
-            return 200, "{}", None
-        self.patch(cloud, "TIMEOUT", 0.2)
-        address, _ = self.scripted(slow)
-        self.raises("unreachable", "does not answer in time", cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check)
-
-    def test_a_gate_that_redirects_does_not_get_the_cloud_token_elsewhere(self):
-        elsewhere, other = self.scripted(lambda *asked: (200, "{}", None))
-        address, _ = self.scripted(lambda *asked: (302, "", {"Location": f"{elsewhere}/apim/rest"}))
-        self.raises("unreachable", "to another address", cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check)
-        self.assertEqual(other.asked, [])
-
-    def test_what_the_gate_says_never_carries_the_cloud_token(self):
-        address, _ = self.scripted(lambda *asked: (400, f'{{"message": "bad {fake_cloud.CLOUD_TOKEN} here"}}', None))
-        with self.assertRaises(cloud.CloudError) as caught:
-            cloud.Gate(address, fake_cloud.CLOUD_TOKEN).check()
-        self.assertEqual(str(caught.exception), "Gravitee Cloud refuses it: bad … here")
+                self.raises("unreachable", "does not answer like Gravitee Cloud", self.reads(address))
 
 
 class Reasons(Case):

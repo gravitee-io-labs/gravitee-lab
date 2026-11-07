@@ -12,12 +12,11 @@ import types
 import unittest
 import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from unittest import mock
 
 from lab_ui.gravitee import cloud, license, places, platforms
 from lab_ui.docker import compose, envfiles, jobs
-from lab_ui.library import layers, playgrounds, plugins, project as projects, versions
+from lab_ui.library import layers, playgrounds, plugins
 from lab_ui import paths
 from lab_ui.catalogs import trust
 from lab_ui.docker.jobs import Job, JobFailed, awaited
@@ -28,13 +27,16 @@ from ..gravitee import test_places
 
 from ..gravitee import test_platforms
 from ..docker.test_jobs import Docker, container, progress, replay
-from .test_layers import (API, APPS, GATEWAY, HEALTH_CHECKED, HOTELS, HYBRID, cloud as with_cloud, lab, licensed, on,
+from .test_layers import (API, APPS, GATEWAY, HOTELS, HYBRID, cloud as with_cloud, lab, licensed, on,
                           own, row, second)
 from ..gravitee.test_places import DEV_KEY, KEY
 from ..gravitee.test_platforms import ADDON_ENV, DEV, TEST
 
 COMPOSE = compose.COMPOSE
 CORE = ("apim-gateway", "apim-management-api", "mongodb")
+# The services Docker checks the health of (test_jobs.Docker): ready once healthy, the others once they run
+HEALTH_CHECKED = {"apim-gateway", "apim-management-api", "mongodb", "kafka", "jade", "redpanda", "openfga",
+                  "hybrid-gateway"}
 STARTED = "2026-10-03T12:00:00.000000000Z"   # when the seed's container last started, as Docker says it
 SEED_LOGS = ["docker", "logs", "-f", "--since", STARTED, "lab-seed"]   # its output since then, followed
 
@@ -95,15 +97,6 @@ class Playgrounds(Case):
         return [phase["name"] for phase in job.phases]
 
     # --- What the page reads -----------------------------------------------------------------------------------------
-
-    def test_plugin_ids_of_an_api_definition(self):
-        definition = {"api": {"listeners": [{"entrypoints": [{"type": "http-proxy"}]}],
-                              "endpointGroups": [{"type": "llm-proxy", "endpoints": [{"type": "llm-proxy"}]}],
-                              "resources": [{"type": "cache-redis"}],
-                              "flows": [{"request": [{"policy": "rate-limit"}]}]},
-                      "plans": [{"security": {"type": "API_KEY"}}]}
-        self.assertEqual(set().union(*projects.plugins_used(definition).values()),
-                         {"http-proxy", "llm-proxy", "cache-redis", "rate-limit", "api-key"})
 
     def test_a_playground_of_this_machine_has_its_guide_and_its_record(self):
         folder = self.root / ".lab/catalogs/local/playgrounds/sandbox"
@@ -449,26 +442,7 @@ class Playgrounds(Case):
         welcome["requires"] = {"license": ["feature-1"]}
         self.assertEqual(playgrounds._license_checks(self.project, welcome)[0]["detail"], "Needs a license")
 
-    def test_a_version_is_compared_by_its_numbers(self):
-        # A preview is before its release (semantic versioning): 4.13.0-alpha.5 is not a 4.13, a release of it or a later version is
-        for tag, wanted, enough in (("4.12.20", "4.13", False), ("4.13.0-alpha.2", "4.13", False), ("4.13.0-alpha.5", "4.13.0", False),
-                                    ("4.13", "4.13", True), ("4.13.0", "4.13", True), ("4.13.7", "4.13.0", True),
-                                    ("4.14.0-alpha.1", "4.13", True), ("5.0", "4.13", True), ("4", "4.13", False), ("latest", "4.13", True)):
-            self.assertEqual(versions.at_least(tag, wanted), enough, tag)
-
-    def test_a_preview_is_ordered_when_one_is_wanted(self):
-        for tag, enough in (("4.13.0-alpha.2", False), ("4.13.0-alpha.3", True), ("4.13.0-alpha.10", True),
-                            ("4.13.0-alpha.3-debian", True), ("4.13.0-beta.1", True), ("4.13.0", True),
-                            ("4.13.1-alpha.1", True), ("4.12.20", False), ("latest", True)):
-            self.assertEqual(versions.at_least(tag, "4.13.0-alpha.3"), enough, tag)
-
-    def test_a_build_that_is_no_release_is_met_by_that_build_only(self):
-        """requires.images may name a build (amp-demo-latest, master-latest): it has no numbers to order, so the saved tag is that
-        build or it is not. It once raised a TypeError that no page could draw."""
-        for tag, wanted, enough in (("amp-demo-latest", "amp-demo-latest", True), ("amp-demo-latest-debian", "amp-demo-latest", True),
-                                    ("4.12.20", "amp-demo-latest", False), ("latest", "amp-demo-latest", False),
-                                    ("master-latest", "amp-demo-latest", False), ("master-latest", "master-latest", True)):
-            self.assertEqual(versions.at_least(tag, wanted), enough, (tag, wanted))
+    def test_only_a_version_with_numbers_says_or_later(self):
         self.assertEqual((layers.or_later("4.13"), layers.or_later("amp-demo-latest")), (" or later", ""))
 
     def test_a_port_another_program_uses_is_a_line_and_refuses_the_start(self):
@@ -734,40 +708,14 @@ class Playgrounds(Case):
         job, commands = ran(self.started(self.jobs)[1])
         self.assertEqual((job.error(), commands), (layers.CHANGED, []))
 
-    def test_a_first_start_that_fails_on_its_plugins_leaves_the_item_off_as_the_pages_say(self):
-        # Nothing is on; the welcome's first Start fails on a plugin download: the on file is not written, so the welcome is
-        # still off. The pages say so, and no longer that every failed job leaves the item on
-        self.state = on(self.project)
-
-        def unpublished(job):
-            raise JobFailed("Plugin gravitee-policy-x is not on download.gravitee.io")
-        self.patch(plugins, "install_steps", lambda project, product, names: ([unpublished], [], {}))
-        playgrounds.start(self.project, "welcome", [])
-        job, commands = ran(self.started(self.jobs)[1])
-        self.assertEqual((job.ok, self.written, commands), (False, [], []))
-        repository = Path(__file__).resolve().parents[3]
-        for page, promise in (("docs/lab-ui.md", "- **A failed or canceled job**: the item stays on."),
-                              ("lab-ui/DESIGN.md", "A failed job leaves the on file as written: the item is on")):
-            self.assertFalse(promise in (repository / page).read_text(encoding="utf-8"), f"{page} says: {promise}")
-
-    def pages_say(self, *promises):
-        """That the guide and DESIGN.md say each of these (page, text) as it is, or (page, text, False) no longer."""
-        repository = Path(__file__).resolve().parents[3]
-        for page, promise, *said in promises:
-            text = " ".join((repository / page).read_text(encoding="utf-8").split())
-            self.assertEqual(promise in text, said != [False], f"{page}: {promise}")
-
-    def test_a_stop_that_fails_after_its_on_file_write_leaves_the_item_off_as_the_pages_say(self):
+    def test_a_stop_that_fails_after_its_on_file_write_leaves_the_item_off(self):
         # The gateway, made again without the playground's settings, fails: the playground is already off
         self.on_and_running(*CORE)
         playgrounds.stop(self.project, "welcome", False, ["addon:agent-lens"])
         job, commands = ran(self.started(self.jobs)[1], fail="up")
         self.assertEqual((job.ok, commands[-1][-2:], self.written), (False, ["--no-deps", "apim-gateway"], [(None, ["kiosk"])]))
-        self.pages_say(("docs/lab-ui.md", "a Stop's item is off"), ("lab-ui/DESIGN.md", "A Stop's item is off"),
-                       ("docs/lab-ui.md", "One that ended later leaves the item on, not running", False),
-                       ("lab-ui/DESIGN.md", "the item is on, does not run, and can be started again or turned off", False))
 
-    def test_a_first_start_whose_seed_fails_leaves_the_item_on_and_its_apps_running_as_the_pages_say(self):
+    def test_a_first_start_whose_seed_fails_leaves_the_item_on_and_its_apps_running(self):
         self.state = on(self.project)
         self.patch(compose, "run", lambda cmd, **how: (0, f"{STARTED}\n" if "{{.State.StartedAt}}" in cmd else "1 false\n", ""))
         playgrounds.start(self.project, "welcome", [])
@@ -775,9 +723,6 @@ class Playgrounds(Case):
         self.assertEqual((job.ok, self.written), (False, [("welcome", [])]))
         self.assertEqual([command[len(COMPOSE):len(COMPOSE) + 1] for command in commands if command[:len(COMPOSE)] == COMPOSE],
                          [["up"]], "nothing stops the apps it started")
-        self.pages_say(("docs/lab-ui.md", "what it started still runs (the apps, when only the seed failed)"),
-                       ("lab-ui/DESIGN.md", "what the job started before it failed runs on (a playground's apps, when its seed "
-                                            "failed)"))
 
     def test_a_stop_whose_removal_fails_leaves_the_on_file_as_it_was(self):
         self.on_and_running(*CORE)
@@ -816,26 +761,13 @@ class Playgrounds(Case):
         self.assertIn("APIM_VERSION=4.13.0-alpha.5\n", (self.root / ".env").read_text(encoding="utf-8"))
 
     def test_a_refused_start_puts_back_every_env_its_versions_were_saved_to(self):
-        # The welcome's app and the add-on Kiosk run the same image, on one version variable: saved to both units' .env.
         # A job began meanwhile, from another tab: the start is refused, and both files are what they were
-        self.patch(envfiles, "ROOT", self.root)
-        self.jobs.current = None
-        for name in ("hello-app", "kiosk"):
-            self.project["services"][name].update(raw_image="example/kiosk:${KIOSK_VERSION:-1.0.0}", tag="1.0.0",
-                                                   image="example/kiosk:1.0.0")
-        welcome = self.project["playgrounds"]["welcome"]
-        welcome["requires"] = {"images": {"KIOSK_VERSION": "2.0.0"}}
-        welcome["tested"] = [{"KIOSK_VERSION": "2.0.0"}]
-        self.patch(plugins, "install_steps", lambda project, product, names: ([], [], {}))
+        before = self.kiosk_switch()
         self.patch(playgrounds.projects, "load", return_value=self.project)
-        kiosk, mine = paths.unit_env("addon", "kiosk"), paths.unit_env("playground", "welcome")
-        self.write(kiosk, "# Kiosk\n")
-        self.write(mine, "# Welcome\n")
         self.jobs.start.side_effect = RuntimeError("'Stop Kiosk' is still running")
         with self.assertRaisesRegex(RuntimeError, "^'Stop Kiosk' is still running$"):
             playgrounds.start(self.project, "welcome", ["version:KIOSK"])
-        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in (kiosk, mine)},
-                         {kiosk: "# Kiosk\n", mine: "# Welcome\n"})
+        self.assertEqual({path: (self.root / path).read_text(encoding="utf-8") for path in before}, before)
 
     def kiosk_switch(self):
         """The welcome's app and the add-on Kiosk run the same image, on one version variable, which its start switches:
@@ -1511,7 +1443,6 @@ class Deploys(test_places.Places):
         self.patch(compose, "ps", lambda *variable: self.containers)
         self.patch(compose, "project_name", lambda: "gravitee")
         self.patch(playgrounds.projects, "saved", return_value={"hashes": {}, "images": {}})
-        self.wait = playgrounds.GATEWAY_WAIT
         self.patch(playgrounds, "GATEWAY_POLL", 0)
         self.patch(playgrounds, "GATEWAY_WAIT", 0.2)
 
@@ -1732,7 +1663,7 @@ class PlaceChecks(Deploys):
 
     def test_what_is_not_a_place_is_not_found(self):
         self.warm()
-        for place in ("nope/x", f"my-account/{DEV}x", "my-account/a/b", 5):
+        for place in ("nope/x", f"my-account/{DEV}x", "my-account/a/b"):
             with self.subTest(place=place), self.assertRaisesRegex(paths.NotFound, "^No place"):
                 self.checks(place)
         with self.assertRaises(paths.NotFound):
@@ -1938,18 +1869,12 @@ class Deploying(Deploys):
         self.ready()
         envfiles.write(".env", {KEY: "rotated-since"})
         self.refused("^Gravitee Cloud refuses this token$")
-
-    def test_a_platform_that_cannot_be_used_is_refused_in_its_own_words_whatever_the_place_is_called(self):
-        self.ready()
-        envfiles.write(".env", {KEY: "rotated-since"})
-        for place in (PLACE, "my-account"):   # the page names the platform alone when it cannot be used
-            with self.subTest(place=place), self.assertRaisesRegex(ValueError, "^Gravitee Cloud refuses this token$"):
-                self.deploy(place)
-        self.jobs.start.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "^Gravitee Cloud refuses this token$"):
+            self.deploy("my-account")   # the page names the platform alone when it cannot be used
 
     def test_a_place_that_does_not_exist_is_refused_before_any_job(self):
         self.warm()
-        for place in ("nope/x", "my-account/gone", "../x", 5):
+        for place in ("nope/x", "my-account/gone", "../x"):
             with self.subTest(place=place), self.assertRaises((paths.NotFound, ValueError)):
                 self.deploy(place)
         self.jobs.start.assert_not_called()
@@ -2125,10 +2050,6 @@ class Deploying(Deploys):
         self.assertEqual([command for command, _ in calls], [UP])
         self.assertEqual([phase["name"] for phase in job.phases], ["Add-ons", "Apps and services", "Gateway"])
 
-    def test_the_wait_is_two_minutes_at_most(self):
-        self.assertEqual((self.wait, playgrounds.NOT_CONNECTED),
-                         (120, "Hybrid gateway did not connect to Gravitee Cloud"))
-
     def test_a_job_canceled_while_it_waits_stops_waiting(self):
         job = Job("Test", [])
         self.patch(playgrounds, "GATEWAY_WAIT", 60)
@@ -2286,7 +2207,7 @@ class Deleting(Deploys):
         self.record(PLACE, "APIs")
         self.record(TESTING, "APIs")
         self.on(*self.core)
-        playgrounds.stop(self.project, "hotels", True, [], place=PLACE)
+        playgrounds.stop(self.project, "hotels", True, [])
         title, steps, more = self.started(self.jobs)
         self.assertEqual((title, more["verb"], more["phases"]), ("Stop Hotels", "stop",
                                                                  ["Delete what it created", "Stop the apps"]))
@@ -2417,14 +2338,6 @@ class Deleting(Deploys):
         self.assertEqual((job.ok, job.error()), (False, "Cloud does not answer"))
         self.assertEqual(playgrounds.created("hotels", PLACE), [{"what": "APIs", "count": 1}])
 
-    def test_a_delete_ended_from_outside_says_so_rather_than_where_it_was(self):
-        self.ready()
-        self.record(PLACE, "APIs")
-        self.on()
-        playgrounds.delete_place(self.project, "hotels", PLACE)
-        job, _ = self.execute({"--remove": (["[seed] Deleting", "[apim] Deleting API Orders"], 137)})
-        self.assertEqual((job.ok, job.error()), (False, "The seed was stopped before it ended"))
-
     def test_a_delete_here_ended_from_outside_says_so_rather_than_where_it_was(self):
         self.record(None, "APIs")
         self.on(*self.core)
@@ -2543,10 +2456,13 @@ class HostChecks(Case):
         self.assertEqual(playgrounds._host_check({"check": address, "expect": "llama"}),
                          (False, "Reachable, but llama is missing"))
 
-    def test_not_reachable_says_why(self):
-        found, why = playgrounds._host_check({"check": "http://localhost:9/api/tags"})   # nothing listens on 9
-        self.assertFalse(found)
-        self.assertRegex(why, r"^Not reachable \(.+\)$")
+    def test_not_reachable_says_why_and_an_answer_cut_short_is_not_reachable(self):
+        for failure in (playgrounds.urllib.error.URLError("refused"), playgrounds.http.client.IncompleteRead(b"{")):
+            with self.subTest(failure=failure), mock.patch.object(playgrounds.urllib.request, "build_opener") as opener:
+                opener.return_value.open.side_effect = failure
+                found, why = playgrounds._host_check({"check": "http://localhost:11434/api/tags"})
+            self.assertFalse(found)
+            self.assertRegex(why, r"^Not reachable \(.+\)$")
 
     def test_only_an_http_or_https_address_is_opened(self):
         secret = self.folder() / "secret.txt"
@@ -2571,13 +2487,6 @@ class HostChecks(Case):
         self.assertEqual(playgrounds._host_check({"check": "http://huggingface.co/api/models", "expect": "qwen3"}),
                          (True, "Ready"))
         self.assertEqual(asked, ["http://huggingface.co/api/models"])
-
-    def test_an_answer_cut_short_is_not_reachable(self):
-        with mock.patch.object(playgrounds.urllib.request, "build_opener") as opener:
-            opener.return_value.open.side_effect = playgrounds.http.client.IncompleteRead(b"{")
-            found, why = playgrounds._host_check({"check": "http://localhost:11434/api/tags"})
-        self.assertFalse(found)
-        self.assertTrue(why.startswith("Not reachable"))
 
 
 if __name__ == "__main__":

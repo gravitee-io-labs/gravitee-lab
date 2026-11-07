@@ -2,7 +2,6 @@
 from it and from what Docker says of their containers. The last failure on an item is remembered until the next job
 that starts or stops it."""
 
-import atexit
 import json
 import re
 import subprocess
@@ -53,9 +52,6 @@ SILENT, WATCH = 15 * 60, 5
 # Compose would wait on. Longer than compose.RESTART_WINDOW: one that restarted while what it needs warmed up, and runs
 # since, is out of its issue before
 STUCK = 120
-# What the catalog turns on and off, as a job's key names it ("addon:kafka"): a stop of one that failed is a failure of
-# what it stopped with it too (Jobs.failed_job). The Stack's stop leaves what is on as it is
-ITEMS = ("addon", "setup", "playground")
 # A registry the Lab UI logs Docker in to (an Azure one, GitHub's) refusing a pull for want of a login, as Docker says it
 # in the last lines of a job: the registry and the refusal on one line, in either order ("pull access denied for
 # x.azurecr.io/…", "…azurecr.io…: unauthorized", "Image ghcr.io/… Error unauthorized")
@@ -102,7 +98,7 @@ def _pull_before(cmd):
 
 def _json(cmd):
     """A pull as Compose writes it in JSON."""
-    return cmd[:2] + ["--progress", "json"] + cmd[4:] if cmd[2:4] == ["--progress", "plain"] else cmd
+    return cmd[:2] + ["--progress", "json"] + cmd[4:]
 
 
 def _event(line):
@@ -116,17 +112,12 @@ def _event(line):
     return found if isinstance(found, dict) else None
 
 
-def _image(name):
-    """An image as Compose prints it and as a file writes it, alike: without Docker Hub's own prefixes."""
-    return re.sub(r"^(docker\.io/)?(library/)?", "", name)
-
-
 def awaited(services, start=(), stop=(), images=()):
     """What a command waits for, the units its stage counts: {unit: how}, a unit being ("Container", name) or
     ("Image", name). A container that starts ("start") is there once ready as the Lab UI judges it: healthy, or
     running when Docker checks no health; a one-shot ("once") once it ended well. One that stops ("stop") once stopped
     or removed; an image ("image") once pulled or built. A service both stopped and started is started: a restart."""
-    found = {("Image", _image(name)): "image" for name in images if name}
+    found = {("Image", compose.reference(name)): "image" for name in images if name}
     found.update({("Container", services[name]["container"]): "stop" for name in stop})
     found.update({("Container", services[name]["container"]): "once" if services[name]["oneshot"] else "start"
                   for name in start})
@@ -134,13 +125,11 @@ def awaited(services, start=(), stop=(), images=()):
 
 
 def _share(how, status):
-    """How far a line of Compose says a unit is; None when it says nothing of it. A download says it itself."""
+    """How far a line of Compose says a unit is; None when it says nothing of it."""
     if how == "stop":
         return STOPS.get(status)
     if how == "image":
         return IMAGES.get(status)
-    if how == "download":
-        return None
     if (how, status) == ("once", "Exited"):
         return READY
     return STARTS.get(status)
@@ -265,7 +254,7 @@ class Job:
         if not found:
             return
         kind, name, status = found.groups()
-        unit = (kind, _image(name) if kind == "Image" else name)
+        unit = (kind, compose.reference(name) if kind == "Image" else name)
         with self._lock:
             if kind == "Container":   # waited for until Compose says something else of it ("Healthy", "Error")
                 (self._waiting.add if status == "Waiting" else self._waiting.discard)(name)
@@ -387,7 +376,7 @@ class Job:
         for line in reversed(self.lines[-10:]):
             found = BASE_IMAGE.search(line.strip())
             if found:
-                return _image(found.group(1))
+                return compose.reference(found.group(1))
         return None
 
     def error(self):
@@ -447,7 +436,7 @@ class Job:
 
     def _watch(self, process, over):
         """Ends a command that printed nothing for SILENT seconds: a pull that stalls, a wait that has no end."""
-        while not over.wait(min(WATCH, SILENT)):
+        while not over.wait(WATCH):
             if time.monotonic() - self._heard >= SILENT:
                 self._cut(process, f"Stopped: nothing happened for {SILENT // 60} min")
                 return
@@ -479,7 +468,7 @@ class Job:
         start = len(self.lines)
         try:
             # In the project's folder, its errors with its output: what it printed last is why it failed
-            process = compose.spawn(_json(cmd) if pull else cmd, subprocess.STDOUT, cwd=paths.ROOT, env=env)
+            process = compose.spawn(_json(cmd) if pull else cmd, subprocess.STDOUT, env=env)
         except OSError:
             raise JobFailed(f"{cmd[0]} could not be run") from None
         if process is None:
@@ -516,7 +505,7 @@ class Job:
         if code != 0 and not lenient:
             raise JobFailed(self.last_line(start) or f"Failed with exit code {process.returncode}", code)
 
-    def _pulled(self, event, lenient, refused, buildable=None):
+    def _pulled(self, event, lenient, refused, buildable):
         """A line of a pull's progress: what a plain one would print, and how far the image is; an image it could not
         pull goes to `refused`, one it skipped because a service builds it to `buildable`. Compose's own last word when
         the command fails ({"error": true, "message"}), which names no image, is a line of the output too, but of a
@@ -532,7 +521,7 @@ class Job:
             if event.get("text") == "Error" and (event.get("id") or "").startswith("Image "):
                 refused.append(event["id"][6:])
             built = event.get("text") == "Skipped" and "can be built" in str(event.get("details"))
-            if buildable is not None and built and (event.get("id") or "").startswith("Image "):
+            if built and (event.get("id") or "").startswith("Image "):
                 buildable.add(event["id"][6:])
             if line:
                 self.lines.append(line)
@@ -541,7 +530,7 @@ class Job:
                 (event.get("parent_id") or "")[6:]
             fraction = self.pulls.fraction(name)
             if fraction is not None and event.get("text") != "Pulled":
-                self.unit(("Image", _image(name)), fraction * DOWNLOAD_SHARE)
+                self.unit(("Image", compose.reference(name)), fraction * DOWNLOAD_SHARE)
 
     def pull_view(self):
         """How far the images the job pulls are, and how fast: pulls.Pulls.view(); None when it pulls none."""
@@ -637,7 +626,7 @@ class Jobs:
                     return None
                 login = None if job._canceled else job.login()
                 return {"id": job.id, "verb": job.verb, "error": job.error(), "login": login}
-            if job.done and job.ok is False and job.verb == "stop" and (job.key or "").split(":")[0] in ITEMS \
+            if job.done and job.ok is False and job.verb == "stop" and (job.key or "").split(":")[0] in paths.KINDS \
                     and [kind, uid] in job.changes["stop"]:
                 return {"id": job.id, "verb": "stop", "error": job.error(), "login": None}
             if job.ok and [kind, uid] in job.changes["start"] + job.changes["stop"]:
@@ -656,7 +645,4 @@ def _cut_short():
         print(f"Stopped with the Lab UI: {job.title}", flush=True)
 
 
-if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later: before compose._end, registered first
-    threading._register_atexit(_cut_short)
-else:
-    atexit.register(_cut_short)
+threading._register_atexit(_cut_short)   # before compose._end, registered first

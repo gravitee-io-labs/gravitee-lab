@@ -235,10 +235,10 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### ST14
 
-*Error.* A unit folder or setup file name outside [a-z0-9-]+.
+*Error.* A unit folder or setup file name outside [a-z0-9-]+, or `local`.
 
-- **Message**: {path}: a unit is named with lowercase letters, digits and dashes.
-- **Why**: An item is found by the name of its folder, and the names of items are lowercase letters, digits and dashes.
+- **Message**: {path}: a unit is named with lowercase letters, digits and dashes, and not `local`.
+- **Why**: An item is found by the name of its folder, and the names of items are lowercase letters, digits and dashes. `local` would read as the items of this machine.
 - **At Add**: The Lab does not install it and counts it as dropped, so a person would lose it without a word.
 
 ### ST15

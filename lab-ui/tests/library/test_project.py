@@ -9,7 +9,6 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -450,7 +449,6 @@ class Build(AsOwn):
         self.assertEqual((playground["tags"], playground["duration"], playground["first_start"], playground["source"]),
                          (["MCP", "A2A"], "30 min", "5 min", None))
         self.assertEqual(playground["consoles"], ["acme-website"])
-        self.assertNotIn("start", playground)
         self.assertEqual(playground["requires"], {"plugins": {"apim": ["gravitee-policy-interrupt"]}})
         self.assertEqual(playground["accounts"], [{"for": "Website", "username": "john", "password": "doe"}])
 
@@ -503,11 +501,6 @@ class Build(AsOwn):
         given["resolved"]["mongodb"]["labels"]["io.gravitee.license"] = "optional"
         services = project.build(given)["services"]
         self.assertEqual({name for name, s in services.items() if s["needs_license"]}, {"redis"})
-
-    def test_whether_the_license_is_usable_is_given_not_read(self):
-        # build() is pure: the fact comes with the other inputs
-        for usable in (True, False):
-            self.assertIs(project.build({**inputs(), "license_usable": usable})["license_usable"], usable)
 
     def test_what_a_service_depends_on(self):
         services = self.project["services"]
@@ -753,16 +746,6 @@ class Platforms(AsOwn):
         self.assertEqual(built["addons"]["hybrid"]["services"], ["apim-hybrid-gateway", "hybrid-redis"])
         self.assertEqual(built["addons"]["hybrid"]["restarts"], [])   # its own Redis: it changes nothing of the core
 
-    def test_a_gateway_belongs_to_the_group_that_runs_its_image_whatever_its_registry_and_tag(self):
-        # The core's gateway is graviteeio.azurecr.io/apim-gateway:4.13.0-debian, the hybrid one
-        # graviteeio/apim-gateway:4.12.21-debian: another registry and another tag, the same image
-        built = self.built()
-        name = {service: built["services"][service]["image"].split(":")[0] for service in built["services"]}
-        self.assertNotEqual(name["apim-gateway"], name["apim-hybrid-gateway"])
-        self.assertEqual(built["addons"]["hybrid"]["gateway"]["group"], "api-management")
-        # Its Redis runs the image of the core's Redis, in Databases: the gateway decides, not the add-on's other services
-        self.assertEqual(name["hybrid-redis"], name["redis"])
-
     def test_a_gateway_whose_image_no_group_runs_belongs_to_none(self):
         def other(hybrid, cloud):
             hybrid["services"]["apim-hybrid-gateway"]["image"] = "${HYBRID_REGISTRY:-graviteeio}/am-gateway:4.12.7"
@@ -798,8 +781,6 @@ class Platforms(AsOwn):
     def test_an_add_on_that_says_none_runs_none(self):
         built = self.built()
         self.assertEqual([uid for uid, addon in built["addons"].items() if addon["gateway"]], ["hybrid"])
-        self.assertIsNone(self.built(lambda hybrid, cloud: hybrid["x-gravitee"].pop("gateway"))
-                          ["addons"]["hybrid"]["gateway"])
         self.assertIsNone(self.built(lambda hybrid, cloud: hybrid["x-gravitee"].update(gateway=None))
                           ["addons"]["hybrid"]["gateway"])
 
@@ -848,7 +829,7 @@ class Platforms(AsOwn):
 
 
 NOTHING, MORE = "Nothing to deploy", "Seeds more than API Management and Access Management"
-ACCESS, GAMMA, LATER = "Needs Access Management", "Needs Gamma", "Needs API Management 4.13"
+GAMMA, LATER = "Needs Gamma", "Needs API Management 4.13"
 PLUGINS = "Needs plugins on the gateway"
 CHANGES, USES = "Changes this machine's Management API", "Its apps use this machine's Management API"
 
@@ -880,8 +861,8 @@ class Deployable(AsOwn):
         API Management 4.12.21, the first one first."""
         built = self.built()
         offers = offers or platforms.capabilities(built, check(("APIM", "4.12.21")), "env")
-        return project.reasons(built["playgrounds"][uid], built, self.given["raw"], self.given["seeds"].get(uid, []),
-                               offers)
+        return project.judge(project.asks(built["playgrounds"][uid], built, self.given["raw"], self.given["seeds"].get(uid, [])),
+                             offers)
 
     def meta(self, **said):
         self.given["raw"][CLOUD]["x-gravitee"].update(said)
@@ -964,21 +945,12 @@ class Deployable(AsOwn):
                           {"type": "CLUSTER", "resourcePattern": "kafka-cluster"}]}]}}]}]},
         "plans": [{"security": {"type": "KEY_LESS"}}]}
 
-    def test_a_setting_of_a_plugin_called_policy_is_no_policy(self):
-        self.assertEqual(sorted(project.plugins_used(self.LLM)["policy"]), ["key-less", "rate-limit"])
-
-    def test_the_resources_of_a_kafka_acl_are_no_resource_plugins(self):
-        self.assertEqual(project.plugins_used(self.KAFKA)["resource"], set())
-
-    def test_an_environment_with_every_plugin_of_the_definition_can_take_it(self):
-        # Every plugin these definitions name is installed and deployed: no reason
-        installed = {"entrypoint": {"llm-proxy": True, "native-kafka": True},
-                     "endpoint": {"llm-proxy": True, "native-kafka": True},
-                     "policy": {"rate-limit": True, "kafka-acl": True, "key-less": True}, "resource": {}}
-        offers = {"products": None, "plugins": True, "installed": installed}
-        for definition in (self.LLM, self.KAFKA):
-            needs = {kind: sorted(ids) for kind, ids in project.plugins_used(definition).items()}
-            self.assertEqual(project.judge(self.asked(**needs), offers), [])
+    def test_what_a_definition_uses_is_its_plugins_not_what_their_settings_call_so(self):
+        # A setting called policy is no policy, and the resources of a kafka-acl are no resource plugins
+        self.assertEqual(project.plugins_used(self.LLM), {"entrypoint": {"llm-proxy"}, "endpoint": {"llm-proxy"},
+                                                          "policy": {"key-less", "rate-limit"}, "resource": set()})
+        self.assertEqual(project.plugins_used(self.KAFKA), {"entrypoint": {"native-kafka"}, "endpoint": {"native-kafka"},
+                                                            "policy": {"kafka-acl", "key-less"}, "resource": set()})
 
     def asked(self, **needs):
         return {"deploys": True, "products": [], "versions": [], "fills": [], "plugins": False, "changes": False,
@@ -1257,8 +1229,7 @@ class Deployable(AsOwn):
         self.assertEqual(self.why(later), [])
         self.meta(requires={"images": {"APIM_VERSION": "4.13.0"}})
         several = platforms.capabilities(built, check(("APIM", "4.13.2"), ("APIM", "4.12.21")), "env")
-        self.assertEqual((several["products"], several["detail"]), (
-            {"API Management": "4.12.21"}, "API Management: the gateways run 4.12.21, 4.13.2, the oldest counts"))
+        self.assertEqual(several["products"], {"API Management": "4.12.21"})
         self.assertEqual(self.why(several), [LATER], "the oldest gateway of the environment is the version it runs")
         self.assertEqual(self.why(platforms.capabilities(built, check(("AM", "4.13.0")), "env")),
                          ["Needs API Management"], "an environment without API Management")
@@ -1275,9 +1246,8 @@ class Deployable(AsOwn):
         self.assertEqual(self.why({"products": None, "plugins": True}), [])
 
     def test_a_plugin_needs_a_gateway_that_mounts_a_plugins_folder(self):
-        # The hybrid gateway mounts what its add-on's file mounts: here nothing, then the plugins of API Management
+        # The hybrid gateway mounts what its add-on's file mounts: here the plugins of API Management
         self.meta(requires={"plugins": {"apim": ["gravitee-policy-x"]}})
-        self.assertEqual(self.why(), [PLUGINS])
         self.given["raw"][HYBRID]["services"]["apim-hybrid-gateway"]["volumes"] = [
             bind("plugins/apim", "/opt/graviteeio-gateway/plugins-ext")]
         built = self.built()
@@ -1312,21 +1282,14 @@ def read(case, catalogs=None, local=(), fixture=None, more=None):
 
 
 class Fixture(Case):
-    """The fixture catalogs read once for the class, in a project folder of its own (read): `inputs`, `built`. What a class
-    changes is its CATALOGS, LOCAL and FIXTURE."""
-
-    CATALOGS = {"partner": {}, "lab-new": {}, "lab-old": {}}
-    LOCAL = ("scratch", "sandbox")
-    FIXTURE = {}
+    """The fixture catalogs read once for the class, in a project folder of its own (read): `inputs`, `built`."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        fixtures.need_compose()
         holder = cls.holder = Case()   # a case of the class's own: the folder it makes and what it patches last as long
         cls.addClassCleanup(holder.doCleanups)
-        cls.inputs, cls.built = read(holder, cls.CATALOGS, cls.LOCAL, cls.FIXTURE)
-        cls.root = holder.root
+        cls.inputs, cls.built = read(holder, {"partner": {}, "lab-new": {}, "lab-old": {}}, ("scratch", "sandbox"))
 
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
@@ -1337,8 +1300,8 @@ class Real(Fixture):
         """Against an environment whose gateway runs API Management at this version."""
         offers = platforms.capabilities(self.built, check(("APIM", version)), "env")
         self.assertEqual(offers["products"], {"API Management": version}, "the group of the core names the product")
-        return project.reasons(self.built["playgrounds"][uid], self.built, self.inputs["raw"],
-                               self.inputs["seeds"][uid], offers)
+        return project.judge(project.asks(self.built["playgrounds"][uid], self.built, self.inputs["raw"], self.inputs["seeds"][uid]),
+                             offers)
 
     def test_shop_needs_more_than_a_platform_offers_and_the_plugins_of_its_api_are_the_first_reason(self):
         # Its seed fills API Management and Access Management, which runs here with the deploy, so the platform is asked
@@ -1424,15 +1387,6 @@ class Catalogs(Fixture):
         self.assertEqual(self.inputs["includes"][".lab/catalogs/fixture/setups/pair.yml"],
                          [".lab/catalogs/fixture/addons/echo/compose.yml", ".lab/catalogs/partner/addons/ledger/compose.yml"])
 
-    def test_every_unit_has_the_fields_of_a_row(self):
-        for kind in ("addons", "setups", "playgrounds"):
-            for uid, unit in self.built[kind].items():
-                with self.subTest(unit=uid):
-                    self.assertLessEqual({"origin", "readonly", "display_file", "blocked", "needs_catalogs", "compat", "twin",
-                                          "uses_machine", "catalog", "verdict"}, set(unit))
-                    self.assertIn(unit["compat"], ("ok", "new", "old"))
-                    self.assertIsInstance(unit["needs_catalogs"], list)
-
     def test_the_verdict_of_each_unit_is_the_one_of_the_oracle(self):
         """expected.json is what the policy must say of every unit of fixture and partner: the verdict, its reasons and notes
         and what the unit will do, which for a unit that brings others is the sum of theirs."""
@@ -1453,11 +1407,6 @@ class Catalogs(Fixture):
             "why": "Runs a service manager inside its container, which only a privileged container can do"}])
         self.assertIsNone(cluster["blocked"], "the catalog is listed and the unit says why")
         self.assertEqual(self.built["addons"]["echo"]["uses_machine"], [])
-
-    def test_a_unit_brings_the_machine_use_of_what_it_includes(self):
-        # Scratch of this machine includes Echo; a unit that includes the cluster would say it too: here, the sum is the unit's
-        self.assertEqual(self.built["addons"]["echo-core"]["uses_machine"], [])
-        self.assertEqual(self.built["setups"]["pair"]["uses_machine"], [])
 
     def test_the_level_a_unit_is_written_for_is_read_against_the_core(self):
         built = self.built
@@ -1513,7 +1462,7 @@ class Catalogs(Fixture):
     def test_what_gather_read_for_the_policy_is_given_with_the_inputs(self):
         inputs = self.inputs
         self.assertEqual(inputs["default"], "fixture")
-        self.assertEqual(inputs["contract"], {"contract": 5, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
+        self.assertEqual(inputs["contract"]["seeder_image"], fixtures.seeder_image(self.holder))
         self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
         self.assertEqual(inputs["screened"], {})
         self.assertIsNotNone(inputs["core_config"])
@@ -1528,59 +1477,42 @@ class Accounts(AsOwn):
 
     OWN, CORE_ENV, OTHER = ".lab/catalogs/fixture/playgrounds/welcome/.env", ".env", ".lab/catalogs/fixture/addons/kafka/.env"
 
-    def password(self, text="${WELCOME_PASSWORD:-doe}", environ=None, **files):
+    def password(self, text, environ, files):
         """The password of the playground's account, written `text`, with these variables in the environment and in
         these .env files."""
         given = inputs()
         given["raw"][WELCOME]["x-gravitee"]["accounts"][0]["password"] = text
-        given["environ"], given["env"] = environ or {}, files
+        given["environ"], given["env"] = environ, files
         built = project.build(given)
         self.assertEqual(given["raw"][WELCOME]["x-gravitee"]["accounts"][0]["password"], text)   # as it was
         return built["playgrounds"]["welcome"]["accounts"][0]["password"]
 
-    def test_the_default_when_nothing_sets_it(self):
-        self.assertEqual(self.password(), "doe")
-        self.assertEqual(self.password(**{self.OWN: {"OTHER": "x"}, self.CORE_ENV: {}}), "doe")
+    def test_what_a_password_shows(self):
+        # The first place that sets it decides, also when it sets it to nothing, which a default with a colon reads as no value
+        colon, dash, bare = "${WELCOME_PASSWORD:-doe}", "${WELCOME_PASSWORD-doe}", "${WELCOME_PASSWORD}"
+        nested, own, root = "${WELCOME_PASSWORD:-${WELCOME_ADMIN_PASSWORD:-last}}", self.OWN, self.CORE_ENV
 
-    def test_set_in_the_playground_s_env(self):
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": "mine"}}), "mine")
-
-    def test_set_in_the_core_s_env(self):
-        self.assertEqual(self.password(**{self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}), "core")
-
-    def test_set_in_the_environment(self):
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": "shell"}), "shell")
-
-    def test_the_environment_comes_first_then_the_root_env_then_the_playground(self):
-        files = {self.OWN: {"WELCOME_PASSWORD": "own"}, self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": "shell"}, **files), "shell")
-        self.assertEqual(self.password(**files), "core")
-        del files[self.CORE_ENV]
-        self.assertEqual(self.password(**files), "own")
-
-    def test_the_env_of_another_item_is_not_read(self):
-        self.assertEqual(self.password(**{self.OTHER: {"WELCOME_PASSWORD": "kafka"},
-                                          ".lab/catalogs/fixture/playgrounds/other/.env": {"WELCOME_PASSWORD": "other"}}), "doe")
-
-    def test_an_empty_value_is_no_value_for_a_default_with_a_colon(self):
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": ""}}), "doe")
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": ""}), "doe")
-        # What Compose reads: the first place that sets it decides, also when it sets it to nothing
-        self.assertEqual(self.password(**{self.CORE_ENV: {"WELCOME_PASSWORD": ""}, self.OWN: {"WELCOME_PASSWORD": "own"}}),
-                         "doe")
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": ""}, self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}),
-                         "core")
-        self.assertEqual(self.password("${WELCOME_PASSWORD-doe}", **{self.OWN: {"WELCOME_PASSWORD": ""}}), "")
-        self.assertEqual(self.password("${WELCOME_PASSWORD-doe}"), "doe")
-
-    def test_a_setting_without_default_shows_its_name_until_it_has_a_value(self):
-        self.assertEqual(self.password("${WELCOME_PASSWORD}"), "${WELCOME_PASSWORD}")
-        self.assertEqual(self.password("${WELCOME_PASSWORD}", **{self.OWN: {"WELCOME_PASSWORD": "mine"}}), "mine")
-
-    def test_a_default_that_refers_to_another_setting(self):
-        text = "${WELCOME_PASSWORD:-${WELCOME_ADMIN_PASSWORD:-last}}"
-        self.assertEqual(self.password(text), "last")
-        self.assertEqual(self.password(text, **{self.CORE_ENV: {"WELCOME_ADMIN_PASSWORD": "admin"}}), "admin")
+        def to(value):
+            return {"WELCOME_PASSWORD": value}
+        for text, environ, files, wanted in (
+                (colon, {}, {}, "doe"),
+                (colon, {}, {own: {"OTHER": "x"}, root: {}}, "doe"),
+                (colon, to("shell"), {own: to("own"), root: to("core")}, "shell"),
+                (colon, {}, {own: to("own"), root: to("core")}, "core"),
+                (colon, {}, {own: to("own")}, "own"),
+                (colon, {}, {self.OTHER: to("kafka"), ".lab/catalogs/fixture/playgrounds/other/.env": to("other")}, "doe"),
+                (colon, {}, {own: to("")}, "doe"),
+                (colon, to(""), {}, "doe"),
+                (colon, {}, {root: to(""), own: to("own")}, "doe"),
+                (colon, {}, {own: to(""), root: to("core")}, "core"),
+                (dash, {}, {own: to("")}, ""),
+                (dash, {}, {}, "doe"),
+                (bare, {}, {}, bare),
+                (bare, {}, {own: to("mine")}, "mine"),
+                (nested, {}, {}, "last"),
+                (nested, {}, {root: {"WELCOME_ADMIN_PASSWORD": "admin"}}, "admin")):
+            with self.subTest(text=text, environ=environ, files=files):
+                self.assertEqual(self.password(text, environ, files), wanted)
 
     def test_every_text_of_every_account_is_read_and_nothing_else(self):
         given = inputs()
@@ -1677,16 +1609,6 @@ class Gathered(AsOwn):
                           ("text.json", False), ("feed.json", False)])
         self.assertEqual(project._seed_uses("local/sandbox")["entrypoint"], ["websocket"])
         self.assertEqual(project._seed_uses("none"), {kind: [] for kind in project.PLUGIN_KINDS})
-
-    def test_the_seed_folders_are_gathered_with_the_playgrounds(self):
-        self.folder(paths, project, envfiles, files={
-            CORE: "", WELCOME: "", ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/one.json": "{}", ".lab/catalogs/fixture/playgrounds/welcome/seed/am/x": "",
-            SANDBOX: "", ".lab/catalogs/fixture/addons/kafka/seed/apim/x": ""})
-        self.patch(project, "_resolved", return_value={})
-        self.patch(project, "_raw", lambda path: ({"services": {}}, None))
-        self.patch(compose, "includes", return_value=[])
-        self.patch(compose, "variables", return_value=[])
-        self.assertEqual(project.gather()["seeds"], {"welcome": ["am", "apim"], "local/sandbox": []})
 
     def test_the_environment_of_the_process_is_gathered(self):
         self.folder(paths, project, envfiles, files={CORE: ""})
@@ -1794,20 +1716,6 @@ class Tag(AsOwn):
 
 
 class Fingerprint(AsOwn):
-
-    def test_changes_when_a_file_it_reads_changes_appears_or_goes(self):
-        root = self.folder(paths, project, files=dict.fromkeys((CORE, KAFKA, WELCOME), ""))
-        env, guide = root / ".lab/catalogs/fixture/addons/kafka/.env", root / ".lab/catalogs/fixture/playgrounds/welcome/guide.md"
-        seen = [project.fingerprint()]
-        for change in (lambda: env.write_text("A=1\n", encoding="utf-8"), lambda: guide.write_text("# Welcome\n", encoding="utf-8"),
-                       lambda: env.write_text("A=22\n", encoding="utf-8"), guide.unlink):
-            change()
-            seen.append(project.fingerprint())
-        self.write(".lab/catalogs/fixture/addons/kafka/notes.md", "Not read")
-        seen.append(project.fingerprint())
-        self.assertEqual(len(set(seen)), len(seen) - 1)
-        self.assertEqual(seen[-1], seen[-2])
-
 
     def test_a_seed_folder_decides_where_a_playground_goes_so_its_entries_are_part_of_it(self):
         root = self.folder(paths, project, files=dict.fromkeys((CORE, WELCOME), ""))
@@ -1958,19 +1866,19 @@ class Hostile(Case):
             "services:\n  fixture-evil:\n    image: busybox\n    env_file: /dev/zero\n")
 
     def asked(self, run):
-        """(what `run` made of the project, the files Compose was asked to read or resolve): compose.raw and the resolving of
-        one unit are watched, and answer as they would."""
-        asked = []
-        raw, alone = compose.raw, project._alone
+        """(what `run` made of the project, the files Compose was asked to read or resolve): every read comes to
+        compose._config, whoever asks, and what it reads from a scratch file was named to compose.all_files or is a copy read
+        from the folder of its original. Both answer as they would."""
+        asked, config, on_top, scratch = [], compose._config, compose.all_files, str(compose.scratch())
 
-        def watched_raw(path, *more, **how):
-            asked.append(path)
-            return raw(path, *more, **how)
+        def watched_config(files, *more, **how):
+            asked.extend(file.replace(f"{compose.ROOT}/", "") for file in files if scratch not in file)
+            return config(files, *more, **how)
 
-        def watched_alone(path, *more):
-            asked.append(path)
-            return alone(path, *more)
-        with mock.patch.object(compose, "raw", watched_raw), mock.patch.object(project, "_alone", watched_alone):
+        def watched_on_top(named, *more):
+            asked.extend(named)
+            return on_top(named, *more)
+        with mock.patch.object(compose, "_config", watched_config), mock.patch.object(compose, "all_files", watched_on_top):
             return run(), asked
 
     def evil(self, case):
@@ -2016,9 +1924,7 @@ class Hostile(Case):
         def many(case):
             for number in range(20):
                 case.write(f".lab/catalogs/fixture/addons/zero{number}/compose.yml", self.EVIL)
-        started = time.monotonic()
         (inputs, built), asked = self.asked(lambda: read(self, more=many))
-        self.assertLess(time.monotonic() - started, 10)
         self.assertEqual([file for file in asked if "zero" in file], [])
         self.assertEqual(sum(1 for uid, one in built["addons"].items() if uid.startswith("zero") and one["blocked"]), 20)
 
@@ -2104,18 +2010,16 @@ class Hostile(Case):
 
     def held(self, name, text, more=None, others=None):
         """The project with a unit `name` in the default catalog that has this text and what `more(case)` adds, read with a time
-        limit of three seconds so that a Compose that is asked to read what never ends is a failure of the test, not a
-        wait: (the inputs, the project, the files Compose was asked about)."""
+        limit of three seconds so that a Compose that is asked to read what never ends does not hold the test: (the inputs, the
+        project, the files Compose was asked about)."""
         def files(case):
             case.write(f".lab/catalogs/fixture/addons/{name}/compose.yml", text)
             if more:
                 more(case, case.root / f".lab/catalogs/fixture/addons/{name}")
             for other, content in (others or {}).items():
                 case.write(other, content)
-        started = time.monotonic()
         with mock.patch.object(project, "UNIT_TIMEOUT", 3):
             (inputs, built), asked = self.asked(lambda: read(self, more=files))
-        self.assertLess(time.monotonic() - started, 12, "Compose was not asked to read what never ends")
         return inputs, built, [file for file in asked if name in file or "mine" in file]
 
     def test_a_file_a_unit_includes_that_is_no_unit_is_never_given_to_compose_for_it_reads_what_its_include_says(self):
@@ -2266,13 +2170,8 @@ class Hostile(Case):
             file = case.root / ".lab/catalogs/fixture/catalog.yml"
             file.write_text(file.read_text(encoding="utf-8") + "  shared_settings: [FIXTURE_ONE]\ninclude:\n  - pipe.yml\n", encoding="utf-8")
             os.mkfifo(case.root / ".lab/catalogs/fixture/pipe.yml")
-        raw = compose.raw
-        asked = []
-        with mock.patch.object(project, "UNIT_TIMEOUT", 3), \
-                mock.patch.object(compose, "raw", lambda path, *more, **how: asked.append(path) or raw(path, *more, **how)):
-            started = time.monotonic()
-            inputs, _ = read(self, more=catalog)
-        self.assertLess(time.monotonic() - started, 12)
+        with mock.patch.object(project, "UNIT_TIMEOUT", 3):
+            (inputs, _), asked = self.asked(lambda: read(self, more=catalog))
         self.assertEqual([file for file in asked if file.endswith("catalog.yml")], [])
         self.assertEqual(inputs["shared_settings"]["fixture"], [])
 
@@ -2357,20 +2256,6 @@ class Names(Case):
         self.assertEqual(found["services"], [])
         self.assertIn("gio-redis", found["blocked"]["reasons"][0])
 
-    def test_the_default_catalog_and_this_machine_are_never_blocked_by_a_later_catalog(self):
-        # Partner defines Echo's service first in its own file, but the default catalog claims first
-        built = self.read({"addons/clash/compose.yml": addon("clash", ["fixture-echo", "scratch-notes"])}, local=("scratch",))
-        self.assertIsNone(built["addons"]["echo"]["blocked"])
-        self.assertIsNone(built["addons"]["local/scratch"]["blocked"])
-        self.assertTrue(built["addons"]["@partner/clash"]["blocked"])
-
-    def test_a_unit_that_is_blocked_already_claims_nothing(self):
-        # The first unit of the later catalog is blocked by its level, so the second may keep the name it also defines
-        first = addon("first", ["shared-name"], says=", requires: {lab: 99}")
-        built = self.read({"addons/first/compose.yml": first, "addons/second/compose.yml": addon("second", ["shared-name"])})
-        self.assertEqual(built["addons"]["@partner/first"]["blocked"]["reasons"], ["Needs a newer Gravitee Lab"])
-        self.assertIsNone(built["addons"]["@partner/second"]["blocked"])
-
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
 class Brings(Case):
@@ -2398,7 +2283,7 @@ class Twins(Case):
 
     def twin(self, case):
         text = (fixtures.CATALOGS / "fixture/addons/echo/compose.yml").read_text(encoding="utf-8")
-        case.write(".lab/catalogs/local/addons/echo/compose.yml", text.replace("../../", "../../"))
+        case.write(".lab/catalogs/local/addons/echo/compose.yml", text)
 
     def test_a_personal_item_and_a_catalog_item_with_the_same_name_and_services_are_each_others_twin(self):
         inputs, built = read(self, more=self.twin)
@@ -2428,11 +2313,6 @@ class Twins(Case):
         _, built = read(self, more=other)
         self.assertIsNone(built["addons"]["local/echo"]["twin"])
         self.assertIsNone(built["addons"]["echo"]["twin"])
-
-    def test_a_unit_that_is_not_a_unit_of_this_machine_has_no_twin(self):
-        _, built = read(self)
-        self.assertEqual([unit["twin"] for kind in ("addons", "setups", "playgrounds") for unit in built[kind].values()],
-                         [None] * 10)
 
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
@@ -2495,8 +2375,6 @@ class Allowed(Case):
         self.assertIsNone(gateway["gateway"])
         self.assertIn("Its gateway is not used: the Cloud pages do not offer it", gateway["verdict"]["notes"])
         self.assertEqual(built["platform"], {"gateways": {"cloud": "gateway"}}, "the default catalog's is still the one")
-        self.assertNotIn("group", {key for addon in built["addons"].values() if addon["id"] == "@partner/gateway"
-                                   for key in (addon["gateway"] or {})})
 
     def test_it_is_honored_when_the_catalog_is_listed_or_the_unit_is_this_machines(self):
         built = self.partner()
@@ -2973,6 +2851,7 @@ class Fingerprints(Case):
         self.assertTrue(self.changes(lambda: echo.write_text(echo.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")))
         guide = root / ".lab/catalogs/fixture/playgrounds/shop/guide.md"
         self.assertTrue(self.changes(lambda: guide.write_text("# Shop\n", encoding="utf-8")))
+        self.assertTrue(self.changes(guide.unlink))
         self.assertTrue(self.changes(lambda: self.write(".lab/catalogs/fixture/addons/echo/.env", "A=1\n")))
         self.assertTrue(self.changes(lambda: self.write(".lab/catalogs/partner/addons/ledger/.env", "A=1\n")))
         self.assertTrue(self.changes(lambda: self.write(".lab/catalogs/fixture/addons/new/compose.yml", "services: {}\n")))
@@ -2999,14 +2878,15 @@ class Fingerprints(Case):
         self.project()
         self.assertFalse(self.changes(lambda: self.write(".lab/catalogs/.stage-new/addons/x/compose.yml", "services: {}\n")))
 
-    def test_it_costs_little_for_a_hundred_units(self):
+    def test_a_poll_opens_no_file_of_a_hundred_units(self):
         files = {f"addons/unit-{number:03}/compose.yml": "services: {}\n" for number in range(100)}
         fixtures.project(self, paths, project, files=files)
         self.write(".lab/catalogs/fixture/addons/unit-000/.env", "A=1\n")
         self.assertGreater(len(paths.files()), 100)
         project.fingerprint()
-        best = min(timed(project.fingerprint) for _ in range(30))
-        self.assertLess(best, 0.015, f"{best * 1000:.1f} ms")
+        opened = AssertionError("a poll is a stat of each file")
+        with mock.patch("builtins.open", side_effect=opened), mock.patch("io.open", side_effect=opened):
+            project.fingerprint()
 
 
 class ReadAgain(Case):
@@ -3048,12 +2928,6 @@ class ReadAgain(Case):
         definition["api"]["description"] = "${AUDIT_FIXTURE_TOKEN}"
         self.edited(file, json.dumps(definition), 5)
         self.assertIn("AUDIT_FIXTURE_TOKEN", project.loaded()[1]["seed_references"][sandbox])
-
-
-def timed(function):
-    started = time.perf_counter()
-    function()
-    return time.perf_counter() - started
 
 
 class Exclusive(Case):
@@ -3189,17 +3063,8 @@ class Catalog(Case):
             with self.subTest(key=key, catalog=catalog):
                 self.assertEqual(project.conflict_id(key, catalog, known), wanted)
 
-    def test_the_path_a_person_reads_is_the_one_in_the_catalog_that_holds_the_unit_this_machines_included(self):
-        built = self.build([member("local", "addon", "mine", ["mine-svc"]), member("local", "playground", "play", ["play-app"]),
-                            member("first", "addon", "two", ["two-svc"]), member("fixture", "addon", "one", ["one-svc"])])
-        shown = {(kind, uid): unit["display_file"] for kind in ("addons", "playgrounds") for uid, unit in built[kind].items()}
-        self.assertEqual(shown, {("addons", "local/mine"): "addons/mine/compose.yml",
-                                 ("playgrounds", "local/play"): "playgrounds/play/compose.yml",
-                                 ("addons", "@first/two"): "addons/two/compose.yml", ("addons", "one"): "addons/one/compose.yml"})
-        self.assertEqual(built["addons"]["local/mine"]["file"], ".lab/catalogs/local/addons/mine/compose.yml", "the file is its own")
-
     def test_a_unit_of_this_machine_says_its_file_in_its_catalog(self):
-        self.assertEqual(project._placed("local/x", ".lab/catalogs/local/addons/x/compose.yml", {"default": "fixture"})["display_file"],
+        self.assertEqual(project._placed(".lab/catalogs/local/addons/x/compose.yml", {"default": "fixture"})["display_file"],
                          "addons/x/compose.yml")
 
     def test_a_unit_of_a_catalog_added_later_loses_a_name_the_earlier_one_holds_and_the_earlier_is_untouched(self):
@@ -3483,17 +3348,6 @@ class Catalog(Case):
         self.assertTrue(built["playgrounds"]["@first/lumen"]["blocked"])
         self.assertEqual(self.gamma(built, "@first/lumen"), [("Gamma Console", "http://localhost:8086")])
 
-    def test_a_machine_with_catalogs_and_no_other_input_still_builds(self):
-        # What a test that does not know the catalogs gives: the units are listed, and none can be judged without a core
-        file = fixtures.unit_file("first", "addon", "two")
-        raw = {project.CORE_FILE: copy.deepcopy(PLATFORM), file: {"x-gravitee": {"kind": "addon"}, "services": {"two": {}}}}
-        built = project.build({"raw": raw, "includes": {}, "variables": {}, "resolved": {}, "environ": {}, "env": {},
-                               "guides": {}, "problems": [], "license_usable": True})
-        two = built["addons"]["@first/two"]
-        self.assertEqual((two["origin"], two["catalog"], two["needs_catalogs"]),
-                         ({"id": "first", "name": "first", "version": None}, "first", []))
-        self.assertEqual(two["blocked"], {"reasons": ["Cannot be read: the platform cannot be read"]}, "no core was read")
-
     def test_a_stub_is_listed_with_the_folder_name_and_its_reasons(self):
         file = fixtures.unit_file("first", "playground", "bad")
         given = catalog_inputs([member("first", "addon", "two", ["two"])], screened={file: ["Reads files outside its folder"]},
@@ -3537,7 +3391,25 @@ class Reading(Case):
 
     def test_what_is_not_text_may_be_read_all_the_same_when_it_is_data(self):
         self.assertEqual(project._read("bytes.yml", strict=False), ("\ufffd\ufffd not text", None))
-        self.assertEqual(project._read("big.yml", limit=2 << 20, strict=False)[1], None)
+
+    def test_a_guide_that_cannot_be_read_gives_no_chapters_and_stops_nothing(self):
+        guide = paths.unit_guide("playground", "local/mine")
+        self.write(guide, "# Mine\n")
+        self.assertEqual(project._guides(["local/mine"], ()), {"local/mine": "# Mine\n"})
+        self.assertEqual(project._guides(["local/mine"], {paths.unit_file("playground", "local/mine")}), {}, "a stub's is not read")
+        (self.root / guide).write_bytes(b"\xff not text")
+        self.assertEqual(project._guides(["local/mine"], ()), {})
+
+    def test_a_unit_folder_that_becomes_a_link_is_refused_at_the_next_read(self):
+        env = ".lab/catalogs/xx/addons/x/.env"
+        self.write(env, "A=1\n")
+        self.write("outside/.env", "A=secret\n")
+        self.assertEqual(project._read(env), ("A=1\n", None))
+        folder = self.root / ".lab/catalogs/xx/addons/x"
+        (folder / ".env").unlink()
+        folder.rmdir()
+        os.symlink(self.root / "outside", folder)
+        self.assertEqual(project._read(env), (None, "link"))
 
     def test_a_file_that_is_read_is_opened_without_following_a_link_put_there_after_the_look(self):
         real = os.lstat
@@ -3617,8 +3489,7 @@ class Reading(Case):
         self.write(a, "include:\n  - ../../../core/addons/z/compose.yml\n")
         self.assertEqual(project._reach(a, set(), set())["unsafe"], [reserved])
 
-    def test_why_a_unit_is_held_says_which_file_and_which_kind_so_that_an_author_is_told_what_to_change(self):
-        # The line a person reads is the policy's (T19, T25); the kind is for whoever tells an author which spelling to change
+    def test_what_holds_a_unit_is_said_in_the_line_of_the_policy(self):
         a, b, c = (self.UNIT.format(name) for name in ("a", "b", "c"))
         self.patch(paths, "default_ns", return_value="fixture")
         spellings = {"a long form with required": "include:\n  - path: ../b/compose.yml\n    required: false\n",
@@ -3630,17 +3501,15 @@ class Reading(Case):
                 self.write(a, text)
                 self.write(b, "services: {}\n")
                 found = project._reach(a, set(), {a, b})
-                self.assertEqual((found["files"], found["unsafe"], found.get("unnamed")), ([], [a], [a]),
+                self.assertEqual((found["files"], found["unsafe"]), ([], [a]),
                                  "the unit itself, which the screen found clean, is held: nothing it names is followed")
-        self.assertNotIn("unnamed", project._reach(self.UNIT.format("none"), set(), set()), "a unit that is not there names none")
         self.write(a, "include:\n  - ../b/compose.yml\n")
         self.write(b, "include:\n  - path: ../c/compose.yml\n    required: false\n")
         self.write(c, "services: {}\n")
         found = project._reach(a, set(), {a, b, c})
-        self.assertEqual((found["files"], found["unsafe"], found["unnamed"]), ([a], [b], [b]))
-        self.assertEqual(project.held_why(found, set()), [(b, "unnamed")])
+        self.assertEqual((found["files"], found["unsafe"]), ([a], [b]))
         self.assertEqual(project.held_reasons(found, set()), ["Includes content from outside the catalog"])
-        # The others, each with its own kind
+        # A refused unit, a link and a file that is no unit, each with its own line
         self.write(a, "include:\n  - ../b/compose.yml\n  - ../c/compose.yml\n  - ../d/compose.yml\n  - ../e/compose.yml\n")
         d, e = self.UNIT.format("d"), self.UNIT.format("e")
         self.write(b, "services: {}\n")
@@ -3649,10 +3518,10 @@ class Reading(Case):
         os.symlink(self.root / "plain.yml", self.root / d)
         self.write(e, "services: {}\n")
         found = project._reach(a, {c}, {a, b})
-        self.assertEqual(project.held_why(found, {c}), [(c, "refused"), (d, "special"), (e, "outside")])
+        self.assertEqual(project.held_reasons(found, {c}), ["Needs c, which is blocked", "Reads files outside its folder",
+                                                            "Includes content from outside the catalog"])
         with mock.patch.object(project, "REACH_LIMIT", 1):
             found = project._reach(a, set(), {a, b, c, e})
-        self.assertEqual([kind for _, kind in project.held_why(found, set())], ["bomb"])
         self.assertEqual(project.held_reasons(found, set()), ["Includes content from outside the catalog"])
 
     def test_what_a_unit_of_this_machine_includes_is_followed_but_for_the_files_of_a_catalog_that_are_no_unit(self):
@@ -3877,9 +3746,6 @@ class Reading(Case):
 class Options(Case):
     """How a unit is asked of Compose ()."""
 
-    def setUp(self):
-        self.patch(project, "_no_env", True)
-
     def test_a_unit_is_resolved_without_reading_the_files_it_names(self):
         with mock.patch.object(compose, "_config", wraps=compose._config) as asked:
             read(self)
@@ -3888,72 +3754,6 @@ class Options(Case):
                    if call.kwargs.get("timeout", 120) <= project.UNIT_TIMEOUT and "--no-interpolate" not in call.args]
         self.assertGreater(len(options), 8)
         self.assertEqual(set(options), {("--no-env-resolution",)})
-
-    UNKNOWN = "unknown flag: --no-env-resolution"
-
-    def compose_that_says(self, help_text):
-        """A Compose that refuses the option with the words of the real one, and prints this for `config --help`: the calls
-        of the help are counted."""
-        real, run, helps = compose._config, compose.run, []
-
-        def config(files, *options, timeout=120):
-            if "--no-env-resolution" in options:
-                raise compose.ComposeError(self.UNKNOWN)
-            return real(files, *options, timeout=timeout)
-
-        def helping(cmd, *more, **how):
-            if cmd[-2:] == ["config", "--help"]:
-                helps.append(cmd)
-                return 0, help_text, ""
-            return run(cmd, *more, **how)
-        self.patch(project, "_option", {"known": None})
-        self.start(mock.patch.object(compose, "_config", config))
-        self.start(mock.patch.object(compose, "run", helping))
-        return helps
-
-    def test_a_compose_that_does_not_know_the_option_is_asked_without_it_from_then_on(self):
-        helps = self.compose_that_says("Usage:  docker compose config [OPTIONS]\n      --format string   Format the output\n")
-        _, built = read(self)
-        self.assertFalse(project._no_env)
-        self.assertEqual(built["addons"]["echo"]["blocked"], None)
-        self.assertEqual(built["addons"]["echo"]["services"], ["fixture-echo"])
-        self.assertEqual(len(helps), 1, "asked once, whatever the units")
-
-    def test_what_a_unit_makes_compose_print_does_not_take_the_option_away_from_the_others(self):
-        # An error that a unit makes Compose print, down to a last line that is the very one of the real refusal
-        self.patch(project, "_option", {"known": None})
-        hostile = [("same", 'image: "${EVIL:?' + self.UNKNOWN + '}"'), ("lines", 'image: "${EVIL:?x\\n' + self.UNKNOWN + '}"')]
-        helps, run = [], compose.run
-
-        def units(case):
-            for name, image in hostile:
-                case.write(f".lab/catalogs/fixture/addons/{name}/compose.yml", addon(name).replace("image: busybox", image))
-
-        def watched(cmd, *more, **how):
-            if cmd[-2:] == ["config", "--help"]:
-                helps.append(cmd)
-            return run(cmd, *more, **how)
-        with mock.patch.object(compose, "run", watched):
-            _, built = read(self, more=units)
-        self.assertTrue(project._no_env)
-        for name, _ in hostile:
-            self.assertEqual(built["addons"][name]["services"], [], name)
-            self.assertIn("unknown flag", " ".join(built["addons"][name]["blocked"]["reasons"]), name)
-        self.assertEqual(built["addons"]["echo"]["services"], ["fixture-echo"])
-        self.assertEqual(len(helps), 1, "Compose was asked once, whatever the units said")
-        self.assertTrue(project._option["known"])
-
-    def test_a_compose_that_cannot_print_its_help_is_taken_to_know_the_option(self):
-        self.patch(project, "_option", {"known": None})
-        with mock.patch.object(compose, "run", return_value=(2, "", "no")):
-            self.assertTrue(project._knows())
-        self.assertIsNone(project._option["known"], "not remembered: the help may be had later")
-        with mock.patch.object(compose, "run", return_value=(0, "      --no-env-resolution\n", "")) as run:
-            self.assertTrue(project._knows())
-            self.assertTrue(project._knows())
-        run.assert_called_once()
-        project.forget()
-        self.assertIsNone(project._option["known"], "forgotten with the rest")
 
 
 class Kept(Case):

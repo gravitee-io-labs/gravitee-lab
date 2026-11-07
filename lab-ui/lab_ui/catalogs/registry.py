@@ -20,6 +20,7 @@ under way names."""
 
 import contextlib
 import copy
+import fcntl
 import json
 import math
 import os
@@ -31,11 +32,6 @@ import time
 import unicodedata
 from pathlib import Path
 from typing import Iterable, Optional
-
-try:
-    import fcntl
-except ImportError:   # no advisory locks on this system: the lock of this process is all there is
-    fcntl = None
 
 from .. import paths
 
@@ -115,9 +111,7 @@ def busy() -> CatalogError:
 
 def _acquire(path, wait):
     """The descriptor that holds the advisory lock of `path`, taken within `wait` seconds (the change is `busy` after);
-    None where there is nothing to lock with (no fcntl, a file that cannot be made, a file system that cannot lock)."""
-    if fcntl is None:
-        return None
+    None where there is nothing to lock with (a file that cannot be made, a file system that cannot lock)."""
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -149,7 +143,7 @@ def flock(wait: Optional[float] = None):
     `busy`. LOCK is taken here, first: a thread that holds the advisory lock holds LOCK too, so it can go on to call a
     writer while another thread of this process waits for the lock, and neither waits for the other. A thread that
     holds it takes it again at no cost, so a function may take it whether its caller did or not (`with LOCK, flock()`
-    works as well). Without fcntl, and where the lock file cannot be made, LOCK is all there is."""
+    works as well). Where the lock file cannot be made, LOCK is all there is."""
     path = str(Path(paths.ROOT) / FLOCK_FILE)
     held = _held.__dict__.setdefault("held", {})
     if path in held:

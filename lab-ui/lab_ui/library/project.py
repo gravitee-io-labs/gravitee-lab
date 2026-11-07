@@ -256,17 +256,6 @@ def _catalog_path(path):
     return len(parts) > 3 and f"{parts[0]}/{parts[1]}" == paths.CATALOGS_DIR and parts[2] != paths.LOCAL
 
 
-_REAL = {}   # the real place of a folder, for the length of one gather: the same few are asked for by every file of a catalog
-
-
-def _real(folder):
-    """The folder of the project with every link followed, remembered until the next gather."""
-    key = (ROOT, folder)
-    if key not in _REAL:
-        _REAL[key] = os.path.realpath(os.path.join(ROOT, folder))
-    return _REAL[key]
-
-
 def _outside(path):
     """Whether a file of a catalog that is not this machine's leads out of the catalog's folder once the links on the way
     are followed: a link in place of a unit's folder, which the look at the last name of a file does not see. A catalog
@@ -276,15 +265,15 @@ def _outside(path):
         return False
     parts = path.split("/")
     try:
-        top = _real("/".join(parts[:3]))
-        where = os.path.join(_real("/".join(parts[:-1])), parts[-1])
+        top = os.path.realpath(os.path.join(ROOT, *parts[:3]))
+        where = os.path.join(os.path.realpath(os.path.join(ROOT, *parts[:-1])), parts[-1])
         return os.path.commonpath([where, top]) != top
     except (OSError, ValueError):
         return True   # a doubt refuses
 
 
-def _read(path, limit=TEXT_LIMIT, strict=True):
-    """The text of a project file that is a plain file, at most `limit` bytes of it: (text, None), or (None, why): `link`
+def _read(path, strict=True):
+    """The text of a project file that is a plain file, of at most TEXT_LIMIT bytes: (text, None), or (None, why): `link`
     for a link, a pipe, a device or a folder, which could lead anywhere or never end (also a file of a catalog whose folder
     is a link out of it), `large`, `missing`, `refused` or `unreadable` (not UTF-8; unless `strict` is false, then what
     is not is replaced). Opened without following a link, so one put in place after the look is not followed either."""
@@ -302,8 +291,8 @@ def _read(path, limit=TEXT_LIMIT, strict=True):
     with os.fdopen(descriptor, "rb") as handle:
         if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
             return None, "link"
-        data = handle.read(limit + 1)
-    if len(data) > limit:
+        data = handle.read(TEXT_LIMIT + 1)
+    if len(data) > TEXT_LIMIT:
         return None, "large"
     try:
         return data.decode("utf-8", "strict" if strict else "replace"), None
@@ -448,8 +437,6 @@ def _reach(start, bad, clean=()):
             targets = None if why else trust.include_targets(text, file)
             if targets is None:
                 found["unsafe"].append(file)
-                if not why:   # read, and the screen cannot say what it includes: a spelling it does not read (see trust.include_targets)
-                    found.setdefault("unnamed", []).append(file)
                 continue
         found["files"].append(file)
         targets = _includes(file) if targets is None else targets
@@ -461,43 +448,23 @@ def _reach(start, bad, clean=()):
     return found
 
 
-def held_why(found, bad):
-    """[(file, kind)] for each file the closure of a unit reached that must not be given to Compose (`_reach`'s `unsafe`), with
-    what keeps it from being read: `refused` (a unit the screen refused), `special` (a link or a special file), `unnamed`
-    (a file whose includes the screen cannot name: it is written in a spelling the Lab does not read, see trust.include_targets),
-    `bomb` (a closure too big), `outside` (a file that is no unit of the catalog)."""
-    why = []
-    for file in found["unsafe"]:
-        if file in bad and paths.unit_of(file):
-            kind = "refused"
-        elif file != found.get("bomb") and _plain_file(file) is False:
-            kind = "special"
-        elif file in found.get("unnamed", ()):
-            kind = "unnamed"
-        else:
-            kind = "bomb" if file == found.get("bomb") else "outside"
-        why.append((file, kind))
-    return why
-
-
 def held_reasons(found, bad):
-    """The lines that keep a unit from being read at all, when its closure reaches what must not be given to Compose (`held_why`
-    says which kind): "Needs {name}, which is blocked" for a unit that was refused, the line of T19 for a link or a special file
-    (it reads files outside its folder), and for anything else, a file that is no unit, one that hides an include or a closure
+    """The lines that keep a unit from being read at all, when its closure reaches what must not be given to Compose (`_reach`'s
+    `unsafe`): "Needs {name}, which is blocked" for a unit that was refused, the line of T19 for a link or a special file (it
+    reads files outside its folder), and for anything else, a file that is no unit, one that hides an include or a closure
     too big (it includes content from outside the catalog)."""
     lines = []
-    for file, kind in held_why(found, bad):
-        if kind == "refused":
+    for file in found["unsafe"]:
+        if file in bad and paths.unit_of(file):
             lines.append(trust.line("T25", name=paths.unit_of(file)[1].rsplit("/", 1)[-1]))
         else:
-            lines.append(trust.line("T19", 1 if kind == "special" else 0))
+            lines.append(trust.line("T19", 1 if file != found.get("bomb") and _plain_file(file) is False else 0))
     return list(dict.fromkeys(lines))
 
 
 # -- What the pool reads of a unit, and what it remembers --------------------------------------------------------------
 
 _memo, _memo_lock = {}, threading.Lock()   # what was read of each unit of a catalog, by the stamp of what it was read from
-_no_env = True   # Compose is asked `config --no-env-resolution` () until one that does not know it answers
 
 
 def _stamp(files, skip, core=False):
@@ -517,7 +484,7 @@ def _stamp(files, skip, core=False):
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()
 
 
-def _remembered(key, stamp, make, keep=None):
+def _remembered(key, stamp, make, keep):
     """What `make` gives for `key`, kept while `stamp` is the same, as a copy that nobody else holds. `keep`: whether an
     answer is worth keeping: a read that failed for a reason that is not in the files (a time limit, a Compose that did not
     answer) is made again at the next gather, not held until a file changes."""
@@ -526,7 +493,7 @@ def _remembered(key, stamp, make, keep=None):
         hit = _memo.get(key)
     if hit is None or hit[0] != stamp:
         value = make()
-        if keep and not keep(value):
+        if not keep(value):
             with _memo_lock:
                 _memo.pop(key, None)
             return value
@@ -536,35 +503,10 @@ def _remembered(key, stamp, make, keep=None):
     return copy.deepcopy(hit[1])
 
 
-_option, _asking = {"known": None}, threading.Lock()   # whether Compose knows `config --no-env-resolution`, once it was asked (_knows)
-
-
-def _knows():
-    """Whether this Compose knows `config --no-env-resolution`, asked of its own help: an answer that comes from Compose and
-    not from the text of an error, which a unit's author can write. Asked once, for the pool asks together. True while the
-    help cannot be had."""
-    with _asking:
-        if _option["known"] is None:
-            code, out, _ = compose.run([*compose.COMPOSE, "config", "--help"], timeout=UNIT_TIMEOUT)
-            if code != 0:
-                return True
-            _option["known"] = "--no-env-resolution" in out
-        return _option["known"]
-
-
 def _config(files, timeout=UNIT_TIMEOUT):
     """compose._config, whole and with `--no-env-resolution`: `env_file` and `label_file` stay in the answer, where the
-    policy reads their real places (). A Compose that does not know the option is asked without it from then on: the
-    text screen refuses an env_file whatever the answer says. An error that says so is only a reason to ask the help of
-    Compose (_knows): a unit can make Compose print anything."""
-    global _no_env
-    try:
-        return compose._config(files, *(["--no-env-resolution"] if _no_env else []), timeout=timeout)
-    except compose.ComposeError as error:
-        if _no_env and "unknown flag" in str(error) and not _knows():
-            _no_env = False
-            return _config(files, timeout)
-        raise
+    policy reads their real places."""
+    return compose._config(files, "--no-env-resolution", timeout=timeout)
 
 
 def _alone(path, timeout=UNIT_TIMEOUT):
@@ -644,15 +586,6 @@ def _read_raw(file, reach):
 OWN_KINDS = re.compile(r"/(?:addons|playgrounds)/")   # the units of this machine that are judged for their notes: not a setup
 
 
-def _read_own(file, reach):
-    """What the pool reads of a unit of this machine besides its file: {own_config}, the unit with the core as Compose runs it
-    (None when Compose cannot), for the notes of the policy (N01 to N03, N05: what it restricts), which it judges and never
-    blocks. It is not the unit's `config`, which is what a catalog's unit is run as: the person's own are run as the aggregate
-    (`resolved`) says. Kept as long as the files it was read from stay as they are, and not when Compose did not answer
-    (`_answered`)."""
-    return {"own_config": _with_core(file, {"files": reach["files"], "missing": reach.get("missing") or ()})["config"]}
-
-
 def _own_seeds(files):
     """{file: the settings its seed reads} for the playgrounds of this machine among these unit files, for N02: a seed that reads
     a token is not handed the Cloud Token of a place, whoever wrote it. The folder is read as a catalog's is (`_seed_scan`) and
@@ -713,20 +646,16 @@ def _variables(path):
         return []
 
 
-def _guides(ids, tiers, stubs):
-    """The guide of each playground that has one: the text of its guide.md. A catalog's is read as a plain file of at most
-    1 MB, and a stub's is not read."""
+def _guides(ids, stubs):
+    """The guide of each playground that has one: the text of its guide.md, read as a plain file of at most 1 MB. A stub's
+    is not read."""
     found = {}
     for pid in ids:
         file, guide = paths.unit_file("playground", pid), paths.unit_guide("playground", pid)
-        if file in stubs:
-            continue
-        if tiers.get(file) in JUDGED:
+        if file not in stubs:
             text, why = _read(guide)
             if why is None:
                 found[pid] = text
-        elif (ROOT / guide).is_file():
-            found[pid] = (ROOT / guide).read_text(encoding="utf-8")
     return found
 
 
@@ -774,19 +703,11 @@ def gather():
     banner's. The units of this machine are read together (each file as written is kept as a catalog's unit is, the core's
     too); an add-on or a playground of this machine is also resolved alone with the core (`own_configs`) and its seed read
     (`seed_references`), for the notes of the policy, which judges them and blocks none."""
-    _REAL.clear()
     default = paths.default_ns()
     unit_files = paths.files()
     tiers = {file: _tier(file, default) for file in unit_files}
     judged = [file for file in unit_files if tiers[file] in JUDGED]
-    screen = {file: _screen(file) for file in judged}
-    seeds = {}
-    for file in judged:   # a playground's seed is read for the settings it reads (N02), and held to the size too
-        found = paths.unit_of(file)
-        if found and found[0] == "playground" and not screen[file][1] and not screen[file][2]:
-            seeds[file] = _seed_scan(_seed_folder(*found))
-    screened = {file: [*screen[file][1], *seeds.get(file, ((), ()))[1]] for file in judged}
-    unreadable = {file: screen[file][2] for file in judged if screen[file][2]}
+    screen, seeds, screened, unreadable = _screen_units([(*(paths.unit_of(file) or (None, None)), file) for file in judged])
     bad = {file for file in judged if screened[file] or file in unreadable}
     clean = set(judged) - bad   # the files of a catalog that the closure of a unit may follow: units the screen read, and found clean
     own_seeds = _own_seeds([file for file in unit_files if tiers[file] == "local"])
@@ -800,7 +721,7 @@ def gather():
             return file, _read_unit(file, screen[file][0], reach[file])
         found = _read_raw(file, reach[file])
         if found["raw"] is not None and not reach[file]["missing"] and tiers.get(file) == "local" and OWN_KINDS.search(file):
-            found.update(_read_own(file, reach[file]))
+            found["own_config"] = _with_core(file, reach[file])["config"]
         return file, found
 
     with ThreadPoolExecutor(max_workers=8) as pool:
@@ -824,7 +745,7 @@ def gather():
             "variables": {path: _variables(path) for path in raw},
             "resolved": _resolved(raw, problems, plain),
             "environ": dict(os.environ), "env": _env_values(),
-            "guides": _guides(by_kind["playground"], tiers, stubs),
+            "guides": _guides(by_kind["playground"], stubs),
             "seeds": {pid: _seed_names(pid, tiers.get(paths.unit_file("playground", pid)) in JUDGED)
                       for pid in by_kind["playground"]},
             "uses": {pid: _seed_uses(pid, tiers.get(paths.unit_file("playground", pid)) in JUDGED)
@@ -1082,7 +1003,7 @@ def _unit(kind, uid, inputs, problems):
     meta = _meta(config, path, problems)
     return config, meta, {"id": uid, "kind": kind, "name": str(meta.get("name") or uid), "file": path,
                           "personal": paths.personal(uid), "category": meta.get("category") or "",
-                          "description": meta.get("description") or "", **_placed(uid, path, inputs),
+                          "description": meta.get("description") or "", **_placed(path, inputs),
                           # What the judgement settles (_judge_units): nothing is against a unit that is not judged
                           "blocked": None, "needs_catalogs": [], "compat": "ok", "unknown": [], "twin": None, "uses_machine": [],
                           "verdict": None}
@@ -1570,11 +1491,6 @@ def judge(asked, offers):
     return found
 
 
-def reasons(playground, project, raw, seed, offers, uses=None):
-    """Why a playground cannot be deployed to an environment that offers this (judge), from its files."""
-    return judge(asks(playground, project, raw, seed, uses), offers)
-
-
 def _deployable(playgrounds, project, inputs):
     """What each playground, add-on and setup asks of a platform (`asks`, `unit_asks`, which places.py judges against
     what each environment runs), and where it can be deployed besides this machine, judged on what does not depend on the
@@ -1649,7 +1565,7 @@ def _with_stubs(inputs, default):
 IMPORTED = "imported"   # the origin the items of every imported playground say: one place, whichever file they came from
 
 
-def _placed(uid, path, inputs):
+def _placed(path, inputs):
     """Where a unit comes from: its catalog, `origin` (the catalog's name and version, for a unit of a catalog that is not
     the first, and for one of the first once there is another catalog to tell it from; the units of this machine say none),
     whether it is `readonly` (a git catalog's), and the
@@ -1817,14 +1733,14 @@ def _settle(unit, closure):
             unit["seed"] = None
 
 
-def _twins(units, tiers, own_of, names, order, catalogs, owned=None):
+def _twins(units, tiers, own_of, names, order, catalogs, owned):
     """The unit of this machine and the unit of a catalog that are the same item: each says the other as `twin`, {id, name}. The
     person's copy of a catalog unit (`copy_of`: resolve.copy_of) is the twin of that unit, and says so (`copy`: true); else a
     personal unit takes the first unit of a catalog, in the order of precedence, that is the same item (resolve.same_item). Nothing
     is stored."""
     def seen(key):
         return {"id": key[1], "kind": key[0], "name": names[key], "services": own_of[key],
-                "copy_of": ((owned or {}).get(key) or {}).get("copy_of")}
+                "copy_of": (owned.get(key) or {}).get("copy_of")}
     for key in order:
         if tiers[key] != "local":
             continue
@@ -2085,17 +2001,15 @@ def staged_units(ns):
             for kind in KINDS for name in paths.names(folder, kind)]
 
 
-def _read_staged(ns, units):
-    """The first half of what `gather` reads of units, read of the staged ones: the screen of each text, and of a
-    playground's seed folder. Answers (the screen of each file, the seed scans, the lines of T19 for each file that failed,
-    why a file cannot be read at all). The same functions as `gather`'s, so that a catalog is read the same before it is
-    added and after."""
+def _screen_units(units):
+    """The first half of what is read of units of a catalog, [(kind, name, file)], installed or staged, so that a catalog is
+    read the same before it is added and after: the screen of each text, and of a playground's seed folder, read for the
+    settings it reads (N02) and held to the size too. Answers (the screen of each file, the seed scans, the lines of T19 for
+    each file that failed, why a file cannot be read at all)."""
     files = [file for _, _, file in units]
     screen = {file: _screen(file) for file in files}
-    seeds = {}
-    for kind, name, file in units:
-        if kind == "playground" and not screen[file][1] and not screen[file][2]:
-            seeds[file] = _seed_scan(f"{paths.CATALOGS_DIR}/.stage-{ns}/playgrounds/{name}/seed")
+    seeds = {file: _seed_scan(f"{file.rsplit('/', 1)[0]}/seed") for kind, _, file in units
+             if kind == "playground" and not screen[file][1] and not screen[file][2]}
     screened = {file: [*screen[file][1], *seeds.get(file, ((), ()))[1]] for file in files}
     unreadable = {file: screen[file][2] for file in files if screen[file][2]}
     return screen, seeds, screened, unreadable
@@ -2111,7 +2025,7 @@ def _staged_inputs(ns, meta, row, replacing, renamed=None):
     live = loaded()[1]
     swap, units = _alias(ns), staged_units(ns)
     final = f"{paths.CATALOGS_DIR}/{ns}/"
-    screen, seeds, screened, unreadable = _read_staged(ns, units)
+    screen, seeds, screened, unreadable = _screen_units(units)
     own_bad = {file for _, _, file in units if screened[file] or file in unreadable}
     world = {file for file in live["raw"] if _catalog_path(file) and not (replacing and file.startswith(final))}
     world_bad = {file for file in {*(live.get("screened") or ()), *(live.get("unreadable") or ())}
@@ -2181,7 +2095,7 @@ def staged_unknown(ns):
     if held is None:
         return []
     units = staged_units(ns)
-    screen, _, screened, unreadable = _read_staged(ns, units)
+    screen, _, screened, unreadable = _screen_units(units)
     live = loaded()[1]
     bad = {file for _, _, file in units if screened[file] or file in unreadable}
     world = {file for file in live["raw"] if _catalog_path(file)}
@@ -2276,7 +2190,6 @@ def forget():
     What was learned of each unit is forgotten too, as it was read with that variable."""
     with _lock:
         _cache["key"] = None
-        _option["known"] = None
         with _memo_lock:
             _memo.clear()
 

@@ -141,7 +141,7 @@ class State:
         # What the Cloud says of what it offers: the plan of the account (gammaEnabled), the scopes of the access points
         # of its organizations, the license text, and what the Management API has installed, by kind, {id: deployed}
         self.subscription = {"maxNumberOrgs": 10, "maxNumberEnvs": 10, "gammaEnabled": False, "maxNumberSaasGateways": 10}
-        self.scopes, self.license_text = ["APIM"], "fake-license"
+        self.scopes = ["APIM"]
         self.plugins = {"policy": {"rate-limit": True, "policy-interrupt": True, "ai-prompt-guard-rails": False},
                         "endpoint": {"http-proxy": True, "llm-proxy": False},
                         "entrypoint": {"http-proxy": True, "llm-proxy": False, "mcp": False},
@@ -217,7 +217,6 @@ class Handler(BaseHTTPRequestHandler):
             ("GET", f"/accounts/{ID}/environments", self.list_environments),
             ("GET", f"/accounts/{ID}/subscription", lambda account: self.send(200, self.server.state.subscription)),
             ("GET", f"/accounts/{ID}/organizations", self.list_organizations),
-            ("GET", f"/accounts/{ID}/organizations/{ID}/license", self.organization_license),
             ("GET", f"/accounts/{ID}/gateways", lambda account: self.gateways(url.query)),
             ("POST", f"/accounts/{ID}/gateways", self.create),
             ("DELETE", f"/accounts/{ID}/gateways/{ID}", self.delete),
@@ -236,15 +235,6 @@ class Handler(BaseHTTPRequestHandler):
                          "accessPoints": [{"target": target, "scope": scope, "host": f"{target.lower()}.fake"}
                                           for scope in self.server.state.scopes for target in ("CONSOLE", "CONSOLE_API")]}
                         for organization, name in seen.items()])
-
-    def organization_license(self, account, organization):
-        """The license of an organization, as the signed text the real Cloud answers (the fake's cannot be decoded)."""
-        body = self.server.state.license_text.encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
     def list_environments(self, account):
         self.send(200, self.environments)

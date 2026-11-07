@@ -268,24 +268,17 @@ class License(Case):
         self.assertIs(license.usable(None), False)   # nothing reads a license
         self.assertIs(license.usable(license.status_of(None)), False)
 
-    def test_applied_when_what_runs_reads_the_license_saved(self):
-        # Each container that reads the license says which one it runs, as a digest (compose.ps(LICENSE_KEY))
-        saved, other = compose.digest("new"), compose.digest("old")
-        running = {"state": "running", "variable": saved}
-        self.assertTrue(license.applied(PROJECT, {"gateway": running, "management": running}, saved))
-        self.assertFalse(license.applied(PROJECT, {"gateway": running, "management": {**running, "variable": other}},
-                                         saved))
-        # What does not run takes it at its start; a container read without it tells nothing
-        self.assertTrue(license.applied(PROJECT, {"gateway": running, "management": {"state": "exited",
-                                                                                     "variable": other}}, saved))
-        self.assertTrue(license.applied(PROJECT, {"gateway": {"state": "running"}}, saved))
-
     def test_the_services_that_run_another_license_are_named(self):
+        # Each container that reads the license says which one it runs, as a digest (compose.ps(LICENSE_KEY))
         saved, other = compose.digest("new"), compose.digest("old")
         running = {"state": "running", "variable": saved}
         self.assertEqual(license.unapplied(PROJECT, {"gateway": running, "management": {**running, "variable": other}},
                                            saved), ["management"])
         self.assertEqual(license.unapplied(PROJECT, {"gateway": running, "management": running}, saved), [])
+        # What does not run takes it at its start; a container read without it tells nothing
+        self.assertEqual(license.unapplied(PROJECT, {"gateway": running, "management": {"state": "exited", "variable": other}},
+                                           saved), [])
+        self.assertEqual(license.unapplied(PROJECT, {"gateway": {"state": "running"}}, saved), [])
 
     def test_the_state_reads_what_the_license_saved_allows_once_for_each_license(self):
         # The Lab UI just started, no page asked for the license: the state reads it itself. Then not again until another

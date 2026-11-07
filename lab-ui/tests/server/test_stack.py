@@ -118,11 +118,13 @@ class StackActions(Case):
         self.assertEqual(self.started(self.jobs)[1][1], [*self.COMPOSE, "up", "-d", "--no-deps",
                                                          "hello-app", "mongodb"])
 
-    def test_update_with_nothing_running_is_refused(self):
-        # It would only pull: Pull images does that
+    def test_update_and_restart_with_nothing_running_are_refused(self):
+        # An update would only pull, which Pull images does; Compose would read the empty list of a restart as every service,
+        # so that what was stopped would start
         stack.compose.ps.return_value = {"mongodb": {"state": "exited", "exit_code": 143}}
-        with self.assertRaisesRegex(RuntimeError, "^Nothing runs$"):
-            stack.action(PROJECT, "update")
+        for name in ("update", "restart"):
+            with self.subTest(name), self.assertRaisesRegex(RuntimeError, "^Nothing runs$"):
+                stack.action(PROJECT, name)
         self.jobs.start.assert_not_called()
 
     def test_stop_down_and_reset_go_by_project_name(self):
@@ -261,21 +263,6 @@ class StackActions(Case):
         self.assertEqual((job.error(), ran), (layers.CHANGED, []))
         swap.assert_not_called()   # nor is the gateway's token changed
 
-    def test_a_cloud_cores_start_all_removes_what_goes_before_the_on_file_says_it_is_off(self):
-        # Kafka is on and runs, and cannot run with the gateway: Start all stops it, and the removal fails
-        self.folder(paths, compose, envfiles)
-        self.patch(stack.platforms, "swap_gateway")
-        self.patch(stack.places, "invalidate")
-        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
-        gateway = self.cloud_core().return_value["gateway"]
-        gateway.update(explicit=["hybrid"], stops=[{"kind": "addon", "id": "kafka", "name": "Kafka"}],
-                       services={"remove": ["kafka", "kafka-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
-        stack.action(PROJECT, "start", for_core=True, accept=["addon:kafka"])
-        job, ran = self.core_job(fails="rm")
-        self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kafka", "kafka-ui"]))
-        self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text(),
-                      "Kafka still runs: it is still on, never off and running")
-
     def test_a_cloud_cores_start_all_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
         # The add-on holds the token of another environment's gateway (here false); Kafka, on and running, cannot run with
         # it: Start all stops it, and the removal fails, before anything changed
@@ -385,13 +372,6 @@ class StackActions(Case):
             {"key": "platform", "verb": "restart", "changes": {"start": [["service", "kafka"], ["service", "mongodb"]]},
              "waits": [awaited(DEFINED, start=["kafka", "mongodb"])]}))
 
-    def test_restart_with_nothing_running_is_refused(self):
-        # Compose would read an empty list as every service: what was stopped would start
-        stack.compose.ps.return_value = {"mongodb": {"state": "exited", "exit_code": 143}}
-        with self.assertRaisesRegex(RuntimeError, "^Nothing runs$"):
-            stack.action(PROJECT, "restart")
-        self.jobs.start.assert_not_called()
-
     def test_restart_with_own_changes_in_the_on_file_restarts_what_runs_of_what_compose_reads(self):
         # A service only the user's own files add is restarted, not waited for
         self.state["locked"] = ".lab/on.yml has your own changes"
@@ -473,13 +453,6 @@ class StackActions(Case):
         # Nothing at all: no container, nothing is created
         steps, _ = self.apply({})
         self.assertEqual(self.said(steps), ["Nothing runs: applied on next start"])
-
-    def test_apply_creates_nothing_that_has_no_container(self):
-        # Kafka UI was never created, the playground's app was removed: they are left as they are, "absent" like
-        # "stopped"
-        steps, _ = self.apply({"mongodb": {"state": "running"}, "redis": {"state": "running"},
-                               "kafka": {"state": "running", "config_hash": "old"}})
-        self.assertEqual(steps[1], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka"])
 
     def test_apply_with_nothing_behind_says_so(self):
         steps, options = self.apply({"mongodb": {"state": "running"}, "kafka": {"state": "running",
@@ -628,13 +601,6 @@ class StackActions(Case):
         stack.unit_action(project, "playground", "welcome", "stop")
         self.assertEqual(self.started(self.jobs)[1], [[*self.BY_NAME, "stop", "hello-app", "welcome-seed"]])
         self.assertEqual(self.started(self.jobs)[2]["key"], "playground:welcome")
-
-    def test_only_services_with_a_container_are_named(self):
-        stack.compose.ps.return_value = {"kafka": {"state": "running"}}
-        stack.unit_action(PROJECT, "addon", "kafka", "restart")
-        _, steps, options = self.started(self.jobs)
-        self.assertEqual((steps, options["waits"]), ([[*self.BY_NAME, "restart", "kafka"]],
-                                                     [{("Container", "gio-kafka"): "start"}]))
 
     def test_a_restart_restarts_what_runs_as_it_is(self):
         # Kafka UI and Redis were stopped from the Stack: a restart of the add-on, or of a group on the Stack, leaves

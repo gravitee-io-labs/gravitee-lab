@@ -572,10 +572,10 @@ What the server decides and the page shows. A name in backticks is the code to r
 
 - The three kinds are created here, personal or shared: from a form that writes the compose file, or as the prompt that
   has an AI agent follow a skill of `.agents/skills/` (`personal.SKILLS`).
-- A personal item is deleted here, or shared. "Share" moves it into the project with the paths that change, once `make
-  check` has nothing to say of it as a shared item (`personal.share`). Share, and the rename of a setup, list first the
-  other files they write again ("Changes").
-- An item cannot be shared or deleted while it is on (`personal.held`).
+- A personal item is deleted here, or shared. "Share" copies it into a catalog, once the rules of a catalog's item have
+  nothing to say of it (`contribute.share`). Share, and the rename of a setup, list first the other files they write again
+  ("Changes").
+- An item cannot be deleted while it is on (`personal.held`).
   - An add-on or a playground says "Stop it first" while something of it runs, "Turn it off first" otherwise. It is not
     deleted while something of it runs, on or off either: its containers would run on with no file.
   - A setup is held only when the on file names it itself (a person may write it), and it is not renamed either.
@@ -700,7 +700,7 @@ place gone with its platform, or a place not read yet.
     ordered the current before the `legacy` ones, then by name (`project._consoles`).
   - Nothing else is a UI: there is no other key, no address of its own, no flag on a link.
   - Whether a UI answers and the page may frame it is a look of the Lab UI's server
-    (`GET /api/playgrounds/<id>/frame?url=`, `probe.py`, kept 4 s), asked only for these addresses, judged against the
+    (`GET /api/playgrounds/<id>/frame?url=`, `probe.py`), asked only for these addresses, judged against the
     origin the page was opened with: `frame-ancestors` first, then X-Frame-Options, as a browser does. One whose certificate
     this machine does not trust answers and is not framed. Why one does not answer is said in words in the tooltip of
     *Does not answer* (Not listening yet, No answer within 3 s, Not ready yet for a proxy's 502 to 504), and not at all
@@ -936,7 +936,7 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   `paintChart`). No library.
   - One `requestAnimationFrame` loop runs while the page is shown, Resources unfolded, the tab visible and a stream open, and
     stops otherwise: folded, no chart is drawn and no frame asked for, its figures still written as samples come. Each
-    frame draws the line as the clock says it is, `LAG` (1.5 s) behind it, so that the right edge is between two samples it
+    frame draws the line as the clock says it is, `LAG` (3.5 s) behind it, so that the right edge is between two samples it
     knows (interpolated there; the last value is held while a sample is late, no longer than `GAP`, 5 s) and the whole line
     slides left continuously. A sample is dated by the moment it came, not by the `at` of the server, which counts whole
     seconds. A line breaks where samples are more than `GAP` apart (nothing was listening). The width is always `SPAN` (60) seconds, from the first load: the scale never changes, the line grows in from the right
@@ -949,25 +949,21 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
     a rise at once and eases down (`EASE`, 0.8 s) when a high point leaves the window, so that the line does not jump.
   - The figure beside a chart is written when a sample comes (`paintValues`: a text node, not a redraw). With
     `prefers-reduced-motion` no loop runs and the chart is drawn when a sample comes, to the sample.
-- **Live numbers** come from one long-lived `docker stats --format '{{json .}}'` process, behind `GET /api/dashboard/stats`,
-  an event stream of at most one event a second (`cpu_percent`, `memory_used`, `containers`, `at`). Only the lab's containers
+- **Live numbers** come from `docker stats --no-stream --format '{{json .}}'`, about two seconds, behind `GET /api/dashboard/stats`,
+  an event stream of one event every few seconds (`cpu_percent`, `memory_used`, `containers`, `at`). Only the lab's containers
   are counted: `dashboard.lab_names` lists the names of the containers of the Compose project (`docker ps` by its label, kept 10
-  seconds) and `Stats.feed` leaves out the others, what else Docker runs not being the lab's load. When the names cannot be told,
+  seconds) and `dashboard.load` leaves out the others, what else Docker runs not being the lab's load. When the names cannot be told,
   every container counts.
-  - It starts when a client connects and stops when the last one leaves. The page closes the stream when it is hidden or
+  - It is read while a client follows the stream, and the clients share a reading (`LOAD_TTL`). The page closes the stream when it is hidden or
     left, and opens it again when it shows (`visibilitychange`). A stream that the browser gave up on (an error answer closes an
     `EventSource` for good: `readyState` closed) is opened again after 3 seconds, then 6, 12 and so on up to a minute while it keeps failing, and no frame is
     asked for while it is dead.
-  - `cpu_percent` is the sum of the containers' CPU divided by the cores Docker has, from 0 to 100. Docker's screen escapes
-    are stripped from its output.
-- **The machine's own numbers** are cheap local readings with the standard library: `sysctl` and `vm_stat` on macOS,
-  `/proc/meminfo` on Linux and WSL 2, `os.cpu_count`, `shutil.disk_usage`. No `psutil`.
+  - `cpu_percent` is the sum of the containers' CPU divided by the cores Docker has, from 0 to 100.
 - **What Docker holds** is `data` of `GET /api/dashboard`, parsed from `docker system df --format '{{json .}}'`
-  (`dashboard.parse_df`): for `images`, `containers`, `volumes` and `cache` a `count`, a `size` and the `reclaimable` size (what
-  no container uses, never above `size`), the `running` containers, and a `total` with the sum of the four sizes and of the four
-  unused sizes. Docker writes sizes in powers of 1000 (`58.9GB`), and the page does the same. The page says "unused" for what
+  (`dashboard.parse_df`): for `images`, `containers`, `volumes` and `cache` a `size` and the `reclaimable` size (what
+  no container uses, never above `size`), and a `total` with the sum of the four sizes and of the four unused sizes. Docker writes sizes in powers of 1000 (`58.9GB`), and the page does the same. The page says "unused" for what
   the answer calls `reclaimable`.
-- **When it reads.** `GET /api/dashboard` (`docker`, `machine`, `data`, `products`, `pending`) when the page
+- **When it reads.** `GET /api/dashboard` (`docker`, `data`, `products`, `pending`) when the page
   opens, when what the versions depend on moves (Docker answering, the state of each group, the tag each container runs:
   `signature` in `dashboard.js`, checked at each draw, one read at a time) and by *Count storage again*. `docker system df` (about 2
   seconds) is cached for 60 seconds; `docker info` and `docker compose version` are the Lab's one reading of each, which the state and
@@ -1378,9 +1374,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   the version of the oldest), `platforms.plugins` from the mounts of the gateway add-on's service, and nothing of this
   machine's core changes. An environment with no gateway is not set up: nothing is compared, and the place's reason is
   *Set up a gateway in <place> first*. The state carries `deploys_to`, the kinds a playground's files let it go to
-  (what does not depend on an environment); each place carries `capabilities` and `cannot`, the first reason of each
-  playground that cannot go there, which the picker and the server's refusal use. A compose file that still carries `deploys_to` is told
-  *x-gravitee.deploys_to is no longer a key: compatibility with a platform is computed*. The reasons, the first that
+  (what does not depend on an environment); each place carries `cannot`, the first reason of each
+  playground that cannot go there, which the picker and the server's refusal use. The reasons, the first that
   applies, are exact strings:
 
   | Reason | When |
@@ -1649,8 +1644,8 @@ dark, at 1440 and 900 px wide.
      samples, Docker's versions muted at its end on a wide window; at 375 px two lines at most, nothing cut. A click anywhere on it,
      or Tab to its toggle and Enter or Space, unfolds it quickly (at once with reduced motion), the ring on the whole line; a reload
      keeps the choice. Folded, the Performance panel shows no animation frame. Unfolded, the CPU and memory lines slide continuously
-     (no step every second) and end in a round dot at the right edge, at any width, light and dark. A hidden tab, or leaving the page, ends the stream and the animation: with two tabs on the page
-     there is one `docker stats` process (`ps`), and none once both are gone. With reduced motion set in the system, the lines
+     (no step every second) and end in a round dot at the right edge, at any width, light and dark. A hidden tab, or leaving the page, ends the stream and the animation: no `docker stats`
+     process comes (`ps`) once both tabs are gone. With reduced motion set in the system, the lines
      are drawn when a sample comes. The strip is one row of 64 px at 1440 and 1966 px, two or three short rows at 1100 and 900 px,
      and one item over the other at 375 px. Hover, then Tab to, each part of the storage bar and the "unused" figure, and tap them
      on a touch screen: the same popover as the Apply needed badge opens for each, in light and dark,

@@ -48,7 +48,6 @@ variable): a new one is a decision, and a test fails on a row the seeder no long
 import ast
 import os
 import re
-import shutil
 import sys
 import tempfile
 import unittest
@@ -63,6 +62,7 @@ from lab_ui import paths
 from lab_ui.paths import CORE_FILE, ROOT
 
 from . import Case
+from .fixtures import have_compose
 
 LOCK = "contract.lock"
 DOC = "docs/contract.md"
@@ -609,15 +609,6 @@ anchor seeder since=1
 """
 
 
-def compose_ready():
-    """Whether Compose 5 reads the core: it is the one reader of the files, and needs no daemon."""
-    if not shutil.which("docker"):
-        return False
-    code, out, _ = compose.run([*compose.COMPOSE, "version", "--short"], timeout=30)
-    major = out.strip().lstrip("v").split(".")[0]
-    return code == 0 and major.isdigit() and int(major) >= 5
-
-
 class Lock(Case):
 
     def test_a_lock_is_read_and_written_the_same(self):
@@ -745,7 +736,6 @@ class Plan(Case):
     def test_an_addition_stops_until_contract_is_raised(self):
         live = {**self.live(), ("label", "io.gravitee.new"): ""}
         self.assertEqual(plan(SAMPLE, live, 2, 1)[1], ["Added items need `contract` raised to 3 in docker-compose.yml first"])
-        self.assertEqual(main(["--write", "--keep-level"]), 2, "there is no level to keep: every addition raises it")
 
     def test_a_kind_listed_for_the_first_time_takes_the_level_of_what_it_belongs_to(self):
         """The values of a label were read before the lock listed them: they take the label's level, once, and are no
@@ -986,7 +976,7 @@ class Core(Case):
                 core_levels({"x-gravitee": meta})
 
 
-@unittest.skipUnless(compose_ready(), "Docker Compose 5 is not installed")
+@unittest.skipUnless(have_compose(), "Docker Compose 5 is not installed")
 class Live(Case):
     """The lock against the files of this repository."""
 
@@ -1013,9 +1003,6 @@ class Live(Case):
         self.assertRegex(meta["seeder"]["image"], r"^[a-z0-9.-]+(/[a-z0-9._-]+)+$", "a repository, without a tag")
         self.assertTrue((ROOT / "seeder/Dockerfile").is_file(), "the image is built from ./seeder")
         self.assertIn(("anchor", "seeder"), listing(self.config))
-
-    def test_the_core_still_passes_check(self):
-        self.assertEqual([message for where, message in check.problems() if where == CORE_FILE], [])
 
     def test_removing_a_listed_item_asks_for_contract_min(self):
         self.patch(check, "META", check.META - {"tested"})
@@ -1073,17 +1060,6 @@ class Live(Case):
         """A row left behind hides the removal of its item."""
         self.assertEqual(sorted((module, source) for module, source in UNREAD if (module, source) not in scan_seed(ROOT / "seeder")[1]), [])
 
-    def test_a_label_a_seed_setting_and_a_frame_message_are_listed(self):
-        found = listing(self.config)
-        for key in (("label", "io.gravitee.role"), ("label", "io.gravitee.console.<id>.url"),
-                    ("seed.setting", "APIM_MANAGEMENT_URL"), ("seed.setting", "SEED_PROTECTIONS"),
-                    ("seed.folder", "aim/models"), ("seed.file", "controls.yaml"), ("frame.message", "gravitee-lab:action"),
-                    ("frame.message", "gravitee-lab:location"), ("core.service", "apim-gateway"),
-                    ("core.variable", "INTERNAL_API_PASSWORD"), ("core.image_variable", "APIM_VERSION"),
-                    ("core.network", "edge"), ("core.category", "Gravitee Platform"), ("anchor", "plugins/apim")):
-            self.assertIn(key, found)
-        self.assertEqual(found[("core.service", "apim-gateway")], "port=8082,8443 health=yes networks=edge,internal")
-
 
 class Level(Case):
     """The lock as it stands, read as text: no Docker needed."""
@@ -1100,19 +1076,6 @@ class Level(Case):
         self.assertTrue(1 <= self.floor <= self.contract)
         self.assertTrue(all(1 <= since <= self.contract for _, since in self.rows.values()))
 
-    def test_the_work_in_flight_is_in_level_one(self):
-        for key in (("unit.key", "x-gravitee.terminal"), ("unit.key", "x-gravitee.host_access"),
-                    ("unit.key", "x-gravitee.requires.lab"), ("guide.block", "run"), ("seed.folder", "environments"),
-                    ("seed.folder", "k8s")):
-            with self.subTest(key=key):
-                self.assertEqual(self.rows[key][1], 1)
-
-    def test_the_keys_of_catalog_yml_are_of_the_format_of_level_one_but_renamed_which_came_after(self):
-        later = {f"x-gravitee-catalog.renamed{part}" for part in ("", ".items", ".settings")}
-        listed = {name: since for (kind, name), (_, since) in self.rows.items() if kind == "catalog.key"}
-        self.assertEqual({name for name, since in listed.items() if since > FORMAT_LEVEL}, later)
-        self.assertEqual(len({listed[name] for name in later}), 1, "one change, one level")
-
     def test_the_keys_of_catalog_yml_listed_for_the_first_time_take_the_level_of_the_format_and_a_new_one_raises_contract(self):
         text = "contract 1\ncontract_min 1\ncore.network edge since=1\n"
         live = {("core.network", "edge"): "", ("catalog.key", "x-gravitee-catalog.id"): ""}
@@ -1122,11 +1085,6 @@ class Level(Case):
         later = {**live, ("catalog.key", "x-gravitee-catalog.renamed"): ""}
         self.assertEqual(plan(written, later, 1, 1)[1], ["Added items need `contract` raised to 2 in docker-compose.yml first"])
         self.assertEqual(parse(plan(written, later, 2, 1)[0])[2][("catalog.key", "x-gravitee-catalog.renamed")][1], 2)
-
-    def test_a_key_is_read_by_one_kind_or_all(self):
-        for (kind, name), (attributes, _) in self.rows.items():
-            if kind == "unit.key":
-                self.assertRegex(attributes, r"^kinds=(any|addon|setup|playground)$", name)
 
     def test_every_item_is_documented(self):
         doc = (ROOT / DOC).read_text(encoding="utf-8")

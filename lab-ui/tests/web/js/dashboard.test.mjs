@@ -158,23 +158,22 @@ const gateway = (more) => ({ id: "g1", name: "lab", environmentId: "env-developm
   connection: "CONNECTED", version: "4.12.20", domains: ["localhost:8090"], here: false, kept: true, ...more });
 const check = (gateways = [], more = {}) => ({ state: "ok", message: "", environments: ["Development", "Test", "Production"].map(environment), gateways, ...more });
 
-const product = (id, name, more = {}) => ({ id, name, deployed: "4.12.20", deployed_state: "running", channel: "stable", stable: "4.12.21",
-  prerelease: "4.13.0-alpha.4", latest: "4.12.21", status: "newer", ...more });
+const product = (id, name, more = {}) => ({ id, name, deployed: "4.12.20", deployed_state: "running", channel: "stable",
+  latest: "4.12.21", status: "newer", ...more });
 // What `docker system df` says, as the server gives it: a size and what is unused for each type, and the total of the four
 const DF = (more = {}) => {
-  const found = { images: { count: 122, size: 58890000000, reclaimable: 42700000000 }, containers: { count: 20, running: 19, size: 2243000000, reclaimable: 131100 },
-    volumes: { count: 73, size: 5944000000, reclaimable: 5479000000 }, cache: { count: 1630, size: 18620000000, reclaimable: 9709000000 }, ...more };
+  const found = { images: { size: 58890000000, reclaimable: 42700000000 }, containers: { size: 2243000000, reclaimable: 131100 },
+    volumes: { size: 5944000000, reclaimable: 5479000000 }, cache: { size: 18620000000, reclaimable: 9709000000 }, ...more };
   const total = (field) => ["images", "containers", "volumes", "cache"].reduce((sum, kind) => sum + found[kind][field], 0);
   return { ...found, total: { size: total("size"), reclaimable: total("reclaimable") }, read_at: 1791734641 };
 };
-// A full answer: two products of the platform (one behind, one that runs a pre-release), Docker and the machine
+// A full answer: two products of the platform (one behind, one that runs a pre-release) and Docker
 const dashboard = (more = {}) => ({
   docker: { engine: "29.7.2", compose: "5.4.0", os: "Docker Desktop", cpus: 6, memory: 8320028672 },
-  machine: { cpus: 11, memory_total: 38654705664, memory_available: 11066654720, disk_total: 494384795648, disk_free: 96660758528 },
   data: DF(),
   products: [
     product("api-management", "API Management"),
-    product("access-management", "Access Management", { deployed: "4.13.0-alpha.7", channel: "pre-release", stable: "4.12.8", prerelease: "4.13.0-alpha.7", latest: "4.13.0-alpha.7", status: "latest" }),
+    product("access-management", "Access Management", { deployed: "4.13.0-alpha.7", channel: "pre-release", latest: "4.13.0-alpha.7", status: "latest" }),
   ],
   gateways: { cloud: { stable: "4.12.21" } },
   pending: false,
@@ -472,7 +471,7 @@ test("a product that runs behind what is saved and has a newer version out says 
   const causes = [{ kind: "tag", saved: "4.12.20", running: "4.13.0-alpha.4", older: true, services: [] }];
   const late = { note: "Apply needed", note_tone: "warn", note_title: "4.12.20 is saved, 4.13.0-alpha.4 still runs.", note_target: null, note_file: null, note_apply: true, note_causes: causes };
   await open({ state: lab({ groups: [group("api-management", "API Management", ["apim-gateway"], RUNNING, late)] }),
-    body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.4", channel: "pre-release", prerelease: "4.13.0-alpha.9", latest: "4.13.0-alpha.9", status: "newer" })] }) });
+    body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.4", channel: "pre-release", latest: "4.13.0-alpha.9", status: "newer" })] }) });
   const badge = part(products()[0], "upd").querySelector(".tip-btn");
   assert.equal(upd(products()[0]), "Apply needed");
   assert.deepEqual(tipOf(badge).slice(-2), ["Update available 4.13.0-alpha.9", "Apply restarts it with what is saved, older versions included."], "the newer version, under the causes");
@@ -543,7 +542,7 @@ test("a console is where its link says, wherever that is: the one of a service o
 });
 
 test("a pre-release is told its newer version, a release once there is one", async () => {
-  await open({ body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.2", channel: "pre-release", stable: "4.13.0", prerelease: null, latest: "4.13.0" })] }) });
+  await open({ body: dashboard({ products: [product("api-management", "API Management", { deployed: "4.13.0-alpha.2", channel: "pre-release", prerelease: null, latest: "4.13.0" })] }) });
   assert.equal(ver(products()[0]), "4.13.0-alpha.2");
   assert.equal(upd(products()[0]), "Update available");
   assert.deepEqual(tipOf(part(products()[0], "upd").querySelector(".tip-btn")), ["Update available", "4.13.0-alpha.2 4.13.0", "Choose it on the Images page."]);
@@ -1475,9 +1474,6 @@ test("CPU and memory say in their figure what it is a share of, and their label 
   assert.deepEqual([block("cpu"), block("memory")].map((cell) => cell.querySelector(".dash-of").getAttribute("class")), ["dash-of muted", "dash-of muted"]);
   stream().send({ cpu_percent: 4.1, memory_used: 4.9 * 2 ** 30, containers: 12, at: 5 });
   assert.deepEqual(cells().slice(0, 2).map(tileSaid), ["CPU 4.1% of 6 cores", "Memory 4.9 GB of 7.7 GB"]);
-  // A Docker that does not say how many cores or how much memory it has: the machine's own
-  await open({ body: dashboard({ docker: { engine: "29.7.2", compose: "5.4.0", os: null, cpus: null, memory: null } }) });
-  assert.deepEqual(cells().slice(0, 2).map(tileSaid), ["CPU — of 11 cores", "Memory — of 36 GB"]);
   dashboardPage.hide();
 });
 
@@ -1533,7 +1529,7 @@ test("storage says what Docker stores, its images, containers, volumes and build
 
 test("a type that takes nothing is not in the popover of what is unused, and nothing unused says so", async () => {
   const none = { count: 0, size: 0, reclaimable: 0 };
-  await open({ body: dashboard({ data: DF({ containers: { ...none, running: 0 }, volumes: none, cache: none, images: { count: 4, size: 1200000000, reclaimable: 0 } }) }) });
+  await open({ body: dashboard({ data: DF({ containers: { ...none, running: 0 }, volumes: none, cache: none, images: { size: 1200000000, reclaimable: 0 } }) }) });
   assert.equal(tileSaid(cells()[2]), "Storage 1.2 GB in Docker Nothing unused");
   assert.deepEqual(cells()[2].querySelectorAll(".dash-unused .pop-who").map(text), ["Images"]);
   assert.deepEqual(tipOf(cells()[2].querySelector(".dash-unused .tip-btn")), ["Nothing unused", "What no container uses", "Images 1.2 GB, all in use"]);
@@ -1549,7 +1545,7 @@ test("volumes that no container uses say they can hold data, and what is unused 
 });
 
 test("what Docker stores is a line of words with no bar, and does not depend on the disk: Docker's data may be on another one", async () => {
-  await open({ body: dashboard({ machine: { ...dashboard().machine, disk_free: 2100000000 } }) });
+  await open();
   assert.equal(section.querySelectorAll(".dash-bar, .dash-part, .dash-disk").length, 0);
   assert.doesNotMatch(said(section) + unseen(), /disk|free/i);
   assert.equal(text(cells()[2].querySelector(".dash-value")), "85.7 GB");
@@ -1819,7 +1815,7 @@ test("a chart is built once: a sample changes the figure beside it and the chart
   assert.equal(value("cpu"), "12%");
   assert.ok(section.querySelector('[data-chart="cpu"]') === svg && svg.querySelector(".chart-line") === path, "the same elements: nothing is built again");
   const before = line("cpu");
-  frame(1004);
+  frame(1006);
   assert.notEqual(line("cpu"), before, "a frame moves it");
   assert.equal(queued.size, 1, "and asks for the next");
   // A draw of the page (the lab moved) leaves the chart and its figure as they are
@@ -1829,12 +1825,12 @@ test("a chart is built once: a sample changes the figure beside it and the chart
   dashboardPage.hide();
 });
 
-test("the line ends at the right edge a second and a half behind the clock, read between the two samples around it, and slides left as the clock goes on", async () => {
+test("the line ends at the right edge three seconds and a half behind the clock, read between the two samples around it, and slides left as the clock goes on", async () => {
   await charts();
   send(1000, 10);
   send(1001, 30);
   send(1002, 50);
-  frame(1003);   // the edge is at 1001.5: half way between 30 and 50
+  frame(1005);   // the edge is at 1001.5: half way between 30 and 50
   let [first, ...rest] = points(line("cpu"));
   const end = rest.at(-1);
   assert.equal(end[0], 240, "the right edge");
@@ -1843,7 +1839,7 @@ test("the line ends at the right edge a second and a half behind the clock, read
   assert.deepEqual(points(line("cpu", "dot")), [[240, 5]], "the dot is at the edge");
   // As the clock goes on the same line moves left and a new end comes: no step, the same samples at other places
   const at = (seconds) => { frame(seconds); return points(line("cpu")); };
-  const x1 = at(1003.2)[0][0], x2 = at(1003.4)[0][0], x3 = at(1003.6)[0][0];
+  const x1 = at(1005.2)[0][0], x2 = at(1005.4)[0][0], x3 = at(1005.6)[0][0];
   assert.ok(x1 < first[0] && x2 < x1 && x3 < x2, "it goes left at each frame");
   assert.ok(Math.abs((x1 - x2) - (x2 - x3)) < 0.2 && x1 - x2 < 6, "a little and the same at each: a continuous slide, not a step a second");
   dashboardPage.hide();
@@ -1868,13 +1864,13 @@ test("a chart always shows the last minute: its scale never changes, the line gr
   await charts();
   send(1000);
   send(1001);
-  frame(1002.5);   // the edge is at 1001: a second of load in the 60 that make the width
+  frame(1004.5);   // the edge is at 1001: a second of load in the 60 that make the width
   assert.equal(points(line("cpu"))[0][0], 236);
   for (let at = 1002; at <= 1030; at++) send(at);
-  frame(1031.5);   // 30 seconds of it: half the width, at the same scale
+  frame(1033.5);   // 30 seconds of it: half the width, at the same scale
   assert.equal(points(line("cpu"))[0][0], 120);
   for (let at = 1031; at <= 1070; at++) send(at);
-  frame(1071.5);   // 70 seconds sent, one minute shown: the first is gone to the left
+  frame(1073.5);   // 70 seconds sent, one minute shown: the first is gone to the left
   assert.ok(points(line("cpu"))[0][0] < 0, "what is older is at the left of the edge, where the chart cuts it");
   assert.equal(points(line("cpu")).at(-1)[0], 240);
   assert.match(section.querySelector('[data-chart="cpu"] clipPath rect').getAttribute("x"), /^0$/);
@@ -1886,10 +1882,10 @@ test("a sample that is late holds the last value for a few seconds, then the lin
   send(1000, 20);
   send(1001, 20);
   send(1002, 20);
-  frame(1005);   // the edge is at 1003.5, a second and a half past the last sample: held
+  frame(1007);   // the edge is at 1003.5, a second and a half past the last sample: held
   assert.equal(points(line("cpu")).at(-1)[0], 240);
   assert.equal(points(line("cpu", "dot")).length, 1);
-  frame(1010);   // 6 seconds late: nothing was listening
+  frame(1012);   // 6 seconds late: nothing was listening
   assert.ok(points(line("cpu")).at(-1)[0] < 240, "the line ends before the edge");
   assert.equal(line("cpu", "dot"), "", "and no dot");
   dashboardPage.hide();
@@ -1942,7 +1938,7 @@ test("a chart has the numbers of its scale beside it, so that a line is read aga
   assert.deepEqual([plot("cpu"), plot("memory")], ["Last 60 seconds, 0 to 10%", "Last 60 seconds, 0 to 7.7 GB"], "and what the line covers");
   // A high point raises the top of the CPU's scale, at once, and its tooltip says it
   for (let at = 1000; at < 1004; at++) send(at, at === 1002 ? 42.4 : 5);
-  frame(1004.5);
+  frame(1006.5);
   assert.deepEqual(axis("cpu"), ["42%", "0"]);
   assert.equal(plot("cpu"), "Last 60 seconds, 0 to 42%");
   assert.equal(axis("memory")[0], "7.7 GB", "the memory's does not move");
@@ -1996,6 +1992,7 @@ test("folded, Resources draws no chart and asks for no frame, while its figures 
   assert.equal(value("cpu"), "9.0%", "the line says the load");
   assert.equal(queued.size, 0, "and asks for no frame");
   assert.equal(line("cpu"), before, "the chart is not drawn");
+  clock = 1006 * 1000;
   unfold(true);
   assert.notEqual(line("cpu"), before, "drawn as it unfolds");
   assert.equal(queued.size, 1, "and moving");

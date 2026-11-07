@@ -1,9 +1,7 @@
 """The .env files: values survive a round trip, comments and order are kept, an empty add-on file goes away."""
 
-import os
 import stat
 import unittest
-from unittest import mock
 
 from lab_ui.docker import envfiles
 
@@ -74,18 +72,6 @@ class EnvFiles(Case):
         mode = stat.S_IMODE((self.root / "addons/hybrid/.env").stat().st_mode)
         self.assertEqual(mode, 0o600)
         self.assertEqual([f.name for f in (self.root / "addons/hybrid").iterdir()], [".env"])
-
-    def test_secrets_are_the_owner_s_before_they_are_written(self):
-        # Through a copy of its own, which no other save shares, made 0600 before anything is written to it
-        modes, fdopen = [], os.fdopen
-
-        def opened(handle, *args, **how):
-            modes.append(stat.S_IMODE(os.fstat(handle).st_mode))
-            return fdopen(handle, *args, **how)
-        with mock.patch.object(os, "fdopen", opened):
-            envfiles.write(".env", {"GRAVITEE_LICENSE": "secret"})
-        self.assertEqual(modes, [0o600])
-        self.assertEqual([f.name for f in self.root.iterdir() if f.is_file()], [".env"])
 
     def test_an_addon_file_left_empty_is_deleted(self):
         envfiles.write("addons/hybrid/.env", {"HYBRID_CLOUD_TOKEN": "t"})

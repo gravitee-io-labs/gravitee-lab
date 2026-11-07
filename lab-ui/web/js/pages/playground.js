@@ -69,7 +69,7 @@ function held(why) {
   const wait = store.wait(), offline = store.offline ? wait : "";
   return { disabled: !!(offline || why), reason: offline || why };
 }
-export const shareEntry = (x) => ({ label: "Share", ...held(x.held?.share), onSelect: () => share(x) });
+export const shareEntry = (x) => ({ label: "Share", ...held(""), onSelect: () => share(x) });
 
 // A flow of a menu: asks the server what it would do (`check`), says it (`ask` answers the body of the request that does it, nothing to
 // stop there), then does it. Both requests show on the item's button, and what they refuse is said in a toast.

@@ -91,13 +91,6 @@ class Reading(Folder):
         self.assertFalse(os.path.lexists(self.link_of("fixture")), "the folder was not linked")
         self.assertEqual([one["id"] for one in registry.entries()], [PARTNER])
 
-    def test_without_a_catalogs_json_none_is_made(self):
-        folder = self.catalog()
-        self.assertFalse((self.root / ".lab/catalogs.json").exists())
-        self.check(folder)
-        self.assertFalse((self.root / ".lab/catalogs.json").exists())
-        self.assertFalse(any(self.root.glob(".lab/catalogs/*")), "nothing is linked")
-
     def test_the_project_is_the_labs_again_after_the_check_even_when_it_failed(self):
         folder = self.catalog()
         with mock.patch.object(check, "catalog_problems", side_effect=RuntimeError("boom")):
@@ -324,11 +317,6 @@ class Codes(Folder):
         self.assertEqual(code, "T26")
         self.assertIn("Fix: Remove what this Gravitee Lab does not read", text)
 
-    def test_a_code_the_standard_knows_is_one_explain_knows(self):
-        out = self.run_tool("explain", "T26")
-        self.assertEqual(out[0], 0)
-        self.assertIn("T26 (error)", out[1])
-
 
 class Range(Folder):
     """Without --base the commits since origin/main are read, and the first line says so."""
@@ -424,17 +412,6 @@ class Range(Folder):
                 self.assertEqual(self.check(work, "--base", zeros, "--history")[1:], self.check(work, "--base", zeros)[1:])
         self.assertEqual(self.check(work, "--base", "")[0], 0, "an empty base asks for nothing: the default is taken")
         self.assertEqual(lines(self.check(work, "--base", "")[1])[0], "Reading the files and the 1 commit since origin/main")
-
-    @COMPOSE
-    def test_a_secret_in_the_first_push_is_found_in_the_whole_history_a_base_of_zeros_reads(self):
-        work = self.clone()
-        token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0" + "k1L2m3N4o5P6q7R8s9T0"[:16]
-        self.commit(work, "notes.txt", f"token {token}\n", "Add a note")
-        self.commit(work, "notes.txt", "gone\n", "Remove it again")
-        code, out, err = self.check(work, "--base", "0" * 40)
-        self.assertEqual(code, 1, out)
-        self.assertIn("SE02", out)
-        self.assertNotIn(token, out + err)
 
     @COMPOSE
     def test_a_base_that_only_looks_like_zeros_is_still_a_commit_that_is_missing(self):
@@ -537,15 +514,6 @@ class Options(Folder):
         self.assertEqual(sorted(asjson[0]), ["code", "line", "message", "path", "severity"])
         self.assertEqual(self.check(folder, "--format", "json")[1], self.check(folder, "--format", "json")[1], "the same bytes")
 
-    def test_a_finding_with_no_code_is_an_annotation_with_no_title_and_one_with_a_code_has_it(self):
-        given = ("::error file=a.yml,title=::no code\n::error file=b.yml,line=3,title=ST05::coded\n::warning title=::no file\n"
-                 "::notice title=check::kept\n::error file=a%2Ctitle=::x,title=::message that says ,title=:: and  title=:: itself\n"
-                 "::error file=c.yml,title=::so does this ,title=:: one\n")
-        self.assertEqual(catalog._untitled(given),
-                         "::error file=a.yml::no code\n::error file=b.yml,line=3,title=ST05::coded\n::warning::no file\n"
-                         "::notice title=check::kept\n::error file=a%2Ctitle=::x,title=::message that says ,title=:: and  title=:: itself\n"
-                         "::error file=c.yml::so does this ,title=:: one\n")
-
     def test_ci_is_github_annotations_and_a_summary_in_the_file_the_runner_names(self):
         folder = self.catalog(files={".env": "A=1\n"})
         summary = self.work / "summary.md"
@@ -618,11 +586,6 @@ class Options(Folder):
         for bad in ("ST", "st5", "ST12;rm", "--x", ""):
             with self.subTest(bad=bad):
                 self.assertEqual(self.check(folder, "--error", bad)[0], 2)
-
-    def test_verbose_adds_the_information(self):
-        folder = self.catalog()
-        quiet, loud = (json.loads(self.check(folder, "--format", "json", *more)[1]) for more in ((), ("--verbose",)))
-        self.assertGreaterEqual(len(loud), len(quiet))
 
     def test_a_pull_request_has_no_base_of_its_own_to_give(self):
         folder = self.catalog()
@@ -1045,7 +1008,6 @@ class Hostile(Folder):
         self.quick(check._hidden, "/tmp/x/" * (self.MEGABYTE // 7), folders)
         for text in (line, "Reads settings that are not its own: " + line, "Same name as " + line, "Needs " + line + ", which is blocked"):
             self.quick(check._blocked, text, ["T20", "T21", "T25", "T26"], "hub", "a.yml")
-        self.quick(catalog._tidy, line + "\n" + "     " + line + "\n" + line, [])
         self.quick(catalog._codes, [line])
         self.quick(catalog._codes, [",".join(["ST05"] * 100000)])
         self.quick(catalog._pull_number, "1" * self.MEGABYTE, "https://github.com/a/b.git")

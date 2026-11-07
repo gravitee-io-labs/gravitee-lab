@@ -521,8 +521,7 @@ def stop_running() -> None:
 
 
 atexit.register(stop_running)
-if hasattr(threading, "_register_atexit"):   # CPython 3.9 and later; after the import of the pool, so that ours runs first
-    threading._register_atexit(stop_running)
+threading._register_atexit(stop_running)   # after the import of the pool, so that ours runs first
 
 
 def _close(*pipes):

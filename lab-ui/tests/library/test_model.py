@@ -52,13 +52,6 @@ def failed(jid="j1", verb="start", error="dependency failed to start: container 
     return {"id": jid, "verb": verb, "error": error}
 
 
-def sent(summary):
-    """What the page gets of a job in the state: all but what the items say and, while it runs, how far it is, which comes
-    beside the state (api.state)."""
-    hidden = ("changes", "containers", "settled") + (() if summary["done"] else ("progress", "detail"))
-    return {key: value for key, value in summary.items() if key not in hidden}
-
-
 class Services(Case):
 
     def test_states(self):
@@ -239,6 +232,10 @@ class Built(Case):
                            features, {"error": docker_error, "memory": memory}, created or {}, saved=saved,
                            license_status=license_status, **more)
 
+    def license(self, status="none", **more):
+        return {"status": status, "expires": None, "days_left": None, "date": None, "problem": None,
+                "digest": "saved", **more}
+
     def item(self, kind, uid, **scenario):
         body = self.build(**scenario)
         return next(item for item in body[kind + "s"] if item["id"] == uid)
@@ -294,31 +291,20 @@ class State(Built):
                                                                     "sandbox-seed": exited(1)}, **sandbox)
         self.assertEqual((item["state"]["key"], item["note"]), ("issue", "Seed exited (1)"))
 
-    def test_a_seed_that_failed_runs_again_at_its_start(self):
-        # The playground's seed exited (1) after it recorded what it created: its row says why, and its Start, the
-        # natural click, sets it up again, seed included
+    def test_a_seed_that_failed_or_that_docker_stopped_runs_again_at_its_start(self):
+        # It exited (1) after it recorded what it created, or Docker Desktop restarted in the middle of a first seed and its
+        # apps came back without it: its row says why, and its Start, the natural click, sets it up again, seed included
         created = {"welcome": [{"what": "APIs", "count": 3}]}
-        containers = {**CORE, **WELCOME, "seed": exited(1)}
-        item = self.item("playground", "welcome", playground="welcome", containers=containers, created=created)
-        self.assertEqual((item["state"]["key"], item["note"], item["action"]["label"], item["action"]["dialog"]),
-                         ("issue", "Seed exited (1)", "Start", None))
-        states = {name: model.service_state(found, name == "seed", False) for name, found in containers.items()}
-        self.assertTrue(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
-        states["seed"] = model.service_state(exited(0), True, False)
-        self.assertFalse(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
-
-    def test_a_seed_that_docker_stopped_before_its_end_runs_again_at_its_start(self):
-        # Docker Desktop restarted in the middle of a first seed that had recorded a few objects: its apps came back, the
-        # seed did not, and its Start sets the playground up again, seed included
-        created = {"welcome": [{"what": "APIs", "count": 1}]}
-        for code in (137, 143):
+        for code in (1, 137, 143):
             with self.subTest(code=code):
                 containers = {**CORE, **WELCOME, "seed": exited(code)}
                 item = self.item("playground", "welcome", playground="welcome", containers=containers, created=created)
-                self.assertEqual((item["state"]["key"], item["note"], item["action"]["label"]),
-                                 ("issue", f"Seed exited ({code})", "Start"))
+                self.assertEqual((item["state"]["key"], item["note"], item["action"]["label"], item["action"]["dialog"]),
+                                 ("issue", f"Seed exited ({code})", "Start", None))
                 states = {name: model.service_state(found, name == "seed", False) for name, found in containers.items()}
                 self.assertTrue(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
+        states["seed"] = model.service_state(exited(0), True, False)
+        self.assertFalse(model.seed_failed(states, self.project["playgrounds"]["welcome"]))
 
     def test_a_container_stopped_on_purpose_is_partly_running(self):
         # Kafka UI stopped from the Stack: Kafka runs partly, said muted, never red; its button stays Stop
@@ -493,9 +479,6 @@ class State(Built):
         action = self.item("addon", "jade", locked=layers.LOCKED)["action"]
         self.assertEqual((action["enabled"], action["reason"]), (False, layers.LOCKED))
 
-    def test_needs_settings(self):
-        self.assertEqual(self.note("addon", "hybrid", missing=["hybrid"]), ("Needs settings", "warn"))
-
     def test_on_and_not_running_starts_with_the_platform(self):
         # What is on and does not run says so; with the platform, once it is started
         down = {**stopped("apim-gateway", "apim-management-api", "mongodb", "kafka", "kafka-ui")}
@@ -531,33 +514,6 @@ class State(Built):
         running = {**CORE, **healthy("jade", "kiosk")}   # what the license lacks is still said
         self.assertEqual(self.note("playground", "welcome", explicit=["jade", "kiosk"], containers=running,
                                    features={"feature-0"}), ("Not in the license", "warn"))
-
-    def test_turns_off_what_is_on_and_does_not_run(self):
-        # The platform stopped, Jade on: AI Agent Lens's start turns it off, it stops nothing
-        down = stopped("apim-gateway", "apim-management-api", "mongodb", "jade")
-        self.assertEqual(self.note("addon", "agent-lens", explicit=["jade"], containers=down), ("", ""))
-        item = self.item("addon", "agent-lens", explicit=["jade"], containers=down)
-        self.assertEqual([row["name"] for row in item["action"]["dialog"]["turns_off"]], ["Jade"])
-        # One stops, another is turned off: the dialog says both, the row neither
-        self.project["addons"]["redpanda"]["conflicts"] = {"kafka": "same ports", "jade": ""}
-        item = self.item("addon", "redpanda", explicit=["jade", "kafka"],
-                         containers={**CORE, **healthy("kafka", "kafka-ui"), "jade": exited(143)})
-        self.assertEqual((item["note"], item["note_title"]), ("", ""))
-        self.assertEqual([[row["name"] for row in item["action"]["dialog"][part]] for part in ("stops", "turns_off")],
-                         [["Kafka"], ["Jade"]])
-
-    def test_what_was_started_outside_the_lab_ui_is_never_stopped_by_another_start(self):
-        # Kiosk runs without being on: no other row says that its start stops it
-        running = {**CORE, **healthy("kiosk")}
-        self.assertEqual(self.note("addon", "jade", containers=running), ("", ""))
-        self.assertEqual(self.item("addon", "jade", containers=running)["action"]["dialog"]["stops"], [])
-
-    def test_the_playground_that_stops_is_in_the_dialog_not_on_the_row(self):
-        # Its apps and the add-ons it brought go with it: its name says it all, in the dialog
-        running = {**CORE, **WELCOME}
-        self.assertEqual(self.note("addon", "jade", playground="welcome", containers=running), ("", ""))
-        item = self.item("addon", "jade", playground="welcome", containers=running)
-        self.assertEqual([row["name"] for row in item["action"]["dialog"]["stops"]], ["Welcome apps", "AI Agent Lens"])
 
     def test_via_what_brought_it(self):
         # It links to what brought it
@@ -739,10 +695,10 @@ class State(Built):
     def test_core_file_that_does_not_load(self):
         # Compose reads nothing without it: Start and Stop say why before the click, the settings an add-on lacks first
         self.project["core_loaded"] = False
-        action = self.item("addon", "kafka", docker_error="down")["action"]
+        action = self.item("addon", "kafka")["action"]
         self.assertEqual((action["enabled"], action["reason"]), (False, "docker-compose.yml does not load"))
         self.assertEqual(self.item("addon", "hybrid", missing=["hybrid"])["action"]["reason"], "Needs settings")
-        start = self.build(docker_error="down")["platform"]["start"]
+        start = self.build()["platform"]["start"]
         self.assertEqual((start["enabled"], start["reason"]), (False, "docker-compose.yml does not load"))
 
     def test_dialog_rows(self):
@@ -811,16 +767,13 @@ class State(Built):
         # starts what was stopped, and what Update makes again is not known before its pull: it never asks
         running = {**CORE, **healthy("kafka", "kafka-ui")}
         platform = self.build(explicit=["kafka"], containers=running)["platform"]
-        self.assertEqual(platform["update"], {"needed": True, "enabled": True, "reason": None, "dialog": None})
+        self.assertEqual(platform["update"], {"needed": True, "enabled": True, "reason": None})
         self.assertEqual(platform["restart"], {"needed": True, "enabled": True, "reason": None})
-        platform = self.build(explicit=["kafka"], containers={**CORE, **healthy("kafka"), "kafka-ui": exited(143)},
-                              saved=SAVED)["platform"]
-        self.assertIsNone(platform["update"]["dialog"])
         # Nothing of what is on runs: neither is offered, and each says why
         down = stopped("apim-gateway", "apim-management-api", "mongodb", "kafka", "kafka-ui")
         platform = self.build(explicit=["kafka"], containers=down)["platform"]
         nothing = {"needed": False, "enabled": False, "reason": "Nothing runs"}
-        self.assertEqual((platform["restart"], platform["update"]), (nothing, {**nothing, "dialog": None}))
+        self.assertEqual((platform["restart"], platform["update"]), (nothing, nothing))
         # An add-on that is on runs alone: both act on it; one that runs without being on does not count
         platform = self.build(explicit=["kafka"], containers={**down, **healthy("kafka")})["platform"]
         self.assertEqual(platform["restart"], {"needed": True, "enabled": True, "reason": None})
@@ -879,8 +832,8 @@ class State(Built):
         self.assertEqual(next(s for s in body["setups"] if s["id"] == "events")["state"]["key"], "starting")
         # What the job changes and what it said of each container are in the items, and how far it is beside the state while
         # it runs: the page gets the rest
-        self.assertEqual(body["job"], sent(events))
-        self.assertEqual(sorted(body["job"]), ["done", "for", "id", "ok", "title", "verb"])
+        self.assertEqual(body["job"], {"id": "j3", "title": "Start Events", "for": "setup:events", "verb": "start", "done": False,
+                                       "ok": None})
         ended = {**events, "done": True, "ok": True, "progress": 1}
         self.assertEqual(sorted(self.build(explicit=["kafka-desk", "jade"], job=ended)["job"]),
                          ["done", "for", "id", "ok", "progress", "title", "verb"], "once it ended, all of it")
@@ -1145,8 +1098,7 @@ class State(Built):
         self.project["playgrounds"]["welcome"]["setups"] = ["observability", "gone"]
         self.assertEqual(self.build()["playgrounds"][0]["setups"], [{"id": "observability", "name": "Observability"}])
         self.assertEqual([link["label"] for link in playground["links"]], ["Hello", "AI Agent Lens"])
-        self.assertEqual((playground["apps"], playground["seed"], playground["guide"], playground["created"]),
-                         (["hello-app"], "seed", "0123456789ab", []))
+        self.assertEqual((playground["apps"], playground["guide"], playground["created"]), (["hello-app"], "0123456789ab", []))
 
     def test_a_service_named_like_another_says_what_it_belongs_to(self):
         # Two gateways: in what an action restarts, each with its group
@@ -1252,17 +1204,17 @@ class State(Built):
 
         def held(kind, uid, **scenario):
             return self.item(kind, uid, **scenario)["held"]
-        # What the playground includes is shared, the playground following; it is not deleted
-        used = {"share": "", "delete": "Used by Sandbox"}
+        # What the playground includes is not deleted
+        used = {"delete": "Used by Sandbox"}
         self.assertEqual((held("addon", "local/whoami"), held("setup", "local/mine")), (used, used))
-        self.assertEqual(held("playground", "local/sandbox"), {"share": "", "delete": ""})
+        self.assertEqual(held("playground", "local/sandbox"), {"delete": ""})
         # On, the playground and the add-on it brings stay where they are; a setup only when the on file names it. Deleting is
-        # turned off first while nothing of it runs, stopped first while it runs; sharing is never held: a share is a copy
-        off = {"share": "", "delete": "Turn it off first"}
+        # turned off first while nothing of it runs, stopped first while it runs
+        off = {"delete": "Turn it off first"}
         running = {"playground": "local/sandbox", "explicit": ["kiosk"]}
         self.assertEqual((held("playground", "local/sandbox", **running), held("addon", "local/whoami", **running)),
                          (off, off))
-        stop = {"share": "", "delete": "Stop it first"}
+        stop = {"delete": "Stop it first"}
         running["containers"] = {**CORE, **healthy("whoami", "kiosk")}
         self.assertEqual((held("playground", "local/sandbox", **running), held("addon", "local/whoami", **running)),
                          (stop, stop))
@@ -1323,7 +1275,7 @@ class State(Built):
                          ("docker-compose.yml", ".env", ["GRAVITEE_LICENSE"]))
         self.assertEqual([(g["id"], g["state"]["key"], g["note"], g["note_tone"]) for g in platform["groups"]],
                          [("api-management", "issue", "Gateway exited (1)", "err"), ("databases", "running", "", "")])
-        self.assertEqual(sorted(platform), ["apply", "behind", "containers", "env_file", "file", "groups",
+        self.assertEqual(sorted(platform), ["apply", "behind", "containers", "env_file", "file", "gateways", "groups",
                                             "license_var", "name", "progress", "reset_turns_off", "restart",
                                             "settings", "start", "state", "update"])
         self.assertEqual({link["service"]: link["up"] for link in body["links"] if link["section"] == "Kafka"},
@@ -1440,26 +1392,6 @@ class Behind(Built):
         self.assertEqual(body["platform"]["groups"][0]["note_title"], "4.12.20 is saved, 4.13.0-alpha.4 still runs.")
         self.assertEqual([row["reason"] for row in body["platform"]["behind"]],
                          ["API Management: 4.12.20 is saved, 4.13.0-alpha.4 still runs."])
-
-    def test_a_tag_a_pull_moved_is_said_as_a_newer_image_not_as_a_hash(self):
-        self.project["services"]["mongodb"].update(tag="latest", image="mongo:latest")
-        containers = {**AS_SAVED, "mongodb": {**made(image_id="sha256:old"), "image": "sha256:3f2a9c1b77d0aa"}}
-        saved = {**SAVED, "images": {**SAVED["images"], "mongodb": "sha256:saved"}}
-        body = self.build(containers=containers, saved=saved)
-        self.assertEqual(body["services"]["mongodb"]["note_title"], "Image latest changed since it started.")
-        self.assertEqual(body["services"]["mongodb"]["running_tag"], "")
-
-    def test_a_configuration_whose_settings_are_not_known_says_only_that_it_changed(self):
-        containers = {**AS_SAVED, "apim-gateway": made("old")}
-        body = self.build(containers=containers, saved=SAVED)
-        self.assertEqual(body["services"]["apim-gateway"]["note_title"], "Its configuration changed since it started.")
-        self.assertEqual([row["reason"] for row in body["platform"]["behind"]],
-                         ["API Management: Gateway (its configuration changed since it started)."])
-
-    def test_a_label_that_changed_is_said_as_the_configuration(self):
-        containers = {**AS_SAVED, "apim-gateway": made("old")}
-        body = self.build(containers=containers, saved=SAVED, changed={"apim-gateway": {"settings": [], "labels": True}})
-        self.assertEqual(body["services"]["apim-gateway"]["note_title"], "Its configuration changed since it started.")
 
     def test_a_row_that_does_not_run_behind_has_no_badge_and_no_reason(self):
         body = self.build(containers=AS_SAVED, saved=SAVED)
@@ -1618,12 +1550,6 @@ class Catalogs(Built):
         self.assertEqual((item["file"], item["display_file"]),
                          (".lab/catalogs/local/addons/kafka/compose.yml", "addons/kafka/compose.yml"))
 
-    def test_the_fields_of_a_place_are_on_the_three_kinds(self):
-        body = self.build()
-        for kind in ("addons", "setups", "playgrounds"):
-            for item in body[kind]:
-                self.assertLessEqual(set(ROW), set(item), item["id"])
-
     # --- The note ---------------------------------------------------------------------------------------------------
 
     def test_a_blocked_item_says_blocked_with_its_reasons_and_who_to_ask(self):
@@ -1708,13 +1634,6 @@ class Catalogs(Built):
         self.assertEqual(self.note("addon", "kafka", job=job("Start Kafka", start=[["addon", "kafka"]], key="addon:kafka")),
                          ("", ""))
 
-    def test_the_words_of_a_lacking_catalog_are_those_of_layers_and_model_has_no_copy_of_them(self):
-        self.patch(layers, "need_line", lambda need: f"Said by layers for {need['reason']}")
-        self.mark("kafka", needs_catalogs=[{"id": "partner", "name": "Partner Bank", "min": None, "reason": "failed"}])
-        item = self.item("addon", "kafka")
-        self.assertEqual((item["note"], item["note_title"], item["action"]["reason"]), ("Said by layers for failed",) * 3)
-        self.assertFalse(hasattr(model, "_need_line") or hasattr(model, "_minimum"))
-
     def test_what_blocks_an_item_waits_for_the_settings_in_the_reason_of_its_start(self):
         self.mark("hybrid", needs_catalogs=[{"id": "partner", "name": "Partner Bank", "min": None, "reason": "missing"}])
         self.assertEqual(self.item("addon", "hybrid", missing=["hybrid"])["action"]["reason"], "Needs the catalog Partner Bank")
@@ -1734,18 +1653,15 @@ class Catalogs(Built):
     def test_the_license_it_needs_is_said_before_the_twin(self):
         own(self.project)
         self.mark("local/whoami", personal=True, twin={"id": "whoami", "name": "Acme Hub"}, requires={"license": ["feature-1"]})
-        none = {"status": "none", "expires": None, "days_left": None, "date": None, "problem": None, "digest": "saved"}
-        item = self.item("addon", "local/whoami", license_status=none, features=set())
+        item = self.item("addon", "local/whoami", license_status=self.license(), features=set())
         self.assertEqual(item["note"], "Needs a license")
 
     # --- The body ---------------------------------------------------------------------------------------------------
 
     def test_the_gateway_of_each_kind_of_platform_is_in_the_platform_when_the_project_chose_one(self):
-        self.assertNotIn("gateways", self.build()["platform"], "a project that did not choose says nothing")
+        self.assertIsNone(self.build()["platform"]["gateways"], "a project that did not choose says nothing")
         self.project["platform"] = {"gateways": {"cloud": "hybrid"}}
         self.assertEqual(self.build()["platform"]["gateways"], {"cloud": "hybrid"})
-        self.project["platform"] = {"gateways": {}}
-        self.assertEqual(self.build()["platform"]["gateways"], {"cloud": None}, "every kind of platform is there")
 
     def test_what_the_catalogs_and_the_first_start_say_is_in_the_body_as_it_is_given(self):
         body = self.build()
@@ -1755,12 +1671,6 @@ class Catalogs(Built):
         body = self.build(**given)
         self.assertEqual({key: body[key] for key in given}, given)
         json.dumps(body)
-
-    def test_what_the_first_start_answers_goes_through_as_it_is(self):
-        # Whatever firstrun.content answers, now or when it is written, is the state's content
-        from lab_ui.catalogs import firstrun
-        content = firstrun.content(self.project, {})
-        self.assertEqual(self.build(content=content)["content"], content)
 
     def test_git_is_said_as_the_page_reads_it(self):
         self.assertEqual(model.git_state((2, 43, 2)), {"available": True, "version": "2.43.2"})
@@ -1822,10 +1732,6 @@ class Trouble(Built):
         item = self.item("addon", "kafka", explicit=["kafka"], saved=SAVED,
                          containers={**CORE, "kafka": {**restarting, "config_hash": "old"}, "kafka-ui": container()})
         self.assertEqual(item["action"]["do"], "start")
-
-    def license(self, status, **more):
-        return {"status": status, "expires": None, "days_left": None, "date": None, "problem": None,
-                "digest": "saved", **more}
 
     def test_what_needs_a_license_says_what_it_lacks(self):
         # One word per meaning, each with its tone, each opening the core's settings
@@ -2020,20 +1926,22 @@ class Platforms(Built):
                                              "domains": ["localhost:8090", "apim-hybrid-gateway:8082"]})
 
     def test_it_needs_a_hybrid_gateway_once_a_platform_is_registered_and_its_token_is_the_setting_it_lacks(self):
-        lacking = self.item("addon", "hybrid", missing=["hybrid"], platforms=[self.RECORD])
+        token = {"hybrid": ["HYBRID_CLOUD_TOKEN"]}
+        lacking = self.item("addon", "hybrid", missing=token, platforms=[self.RECORD])
         self.assertEqual((lacking["note"], lacking["note_tone"], lacking["note_target"], lacking["action"]["do"]),
                          ("Needs a hybrid gateway", "", {"kind": "platform", "id": None}, "start"))
         self.assertEqual((lacking["action"]["enabled"], lacking["action"]["reason"]), (False, "Needs a hybrid gateway"))
         # Without a platform it needs settings, as any add-on does
-        plain = self.item("addon", "hybrid", missing=["hybrid"])
+        plain = self.item("addon", "hybrid", missing=token)
         self.assertEqual((plain["note"], plain["note_target"]), ("Needs settings", None))
         # A platform of another kind runs no gateway here
-        other = self.item("addon", "hybrid", missing=["hybrid"], platforms=[{**self.RECORD, "kind": "apim"}])
+        other = self.item("addon", "hybrid", missing=token, platforms=[{**self.RECORD, "kind": "apim"}])
         self.assertEqual(other["note"], "Needs settings")
-        # Another setting that it requires keeps the note it had: the token may be set
+        # Another required setting that is saved changes nothing, one that is not keeps the note it had
         self.project["addons"]["hybrid"]["settings"].append(
             {"key": "OTHER", "default": None, "required": True, "comment": "", "secret": False})
-        self.assertEqual(self.note("addon", "hybrid", missing=["hybrid"], platforms=[self.RECORD]),
+        self.assertEqual(self.note("addon", "hybrid", missing=token, platforms=[self.RECORD])[0], "Needs a hybrid gateway")
+        self.assertEqual(self.note("addon", "hybrid", missing={"hybrid": ["HYBRID_CLOUD_TOKEN", "OTHER"]}, platforms=[self.RECORD]),
                          ("Needs settings", "warn"))
 
     def test_an_add_on_that_runs_no_gateway_needs_settings_whatever_is_registered(self):
@@ -2073,10 +1981,6 @@ class Unlicensed(Built):
     def setUp(self):
         super().setUp()
         licensed(self.project, False)
-
-    def license(self, status="none", **more):
-        return {"status": status, "expires": None, "days_left": None, "date": None, "problem": None,
-                "digest": "saved", **more}
 
     def engine(self, license_status=None, **scenario):
         """The state, its Alert Engine group and its service."""

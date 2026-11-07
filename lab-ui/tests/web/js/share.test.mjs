@@ -33,7 +33,7 @@ const { share, openCreate } = await import("../../../web/js/dialogs/create.js");
 for (const form of page.doc.querySelectorAll("dialog form")) form.checkValidity = () => true;   // a browser tells whether the required fields are filled
 
 const SKILL = ".agents/skills/share-item/SKILL.md";
-const mine = item("playground", "local/bank", "Acme Bakery", { personal: true, held: { share: "", delete: "" }, file: ".lab/catalogs/local/playgrounds/bank/compose.yml" });
+const mine = item("playground", "local/bank", "Acme Bakery", { personal: true, held: { delete: "" }, file: ".lab/catalogs/local/playgrounds/bank/compose.yml" });
 const state = (more = {}) => lab({ playgrounds: [mine], skills: { share: SKILL }, root: "/lab",
   catalogs: [FIRST({ address: "github.com/example/demos" }), catalog({ address: "github.com/acme/lab-hub" }), FOLDER()], ...more });
 store.state = state();

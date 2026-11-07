@@ -81,11 +81,11 @@ class Usage(Exception):
 def say(text=""):
     """A line on standard output. What a catalog wrote (a name, a reason, a problem of its catalog.yml) is shown as text: no
     control character or escape sequence of it reaches the terminal."""
-    print(check.printable(text), flush=True)
+    print(report.printable(text, "\n"), flush=True)
 
 
 def complain(text):
-    print(check.printable(text), file=sys.stderr, flush=True)
+    print(report.printable(text, "\n"), file=sys.stderr, flush=True)
 
 
 def _lab(name):
@@ -533,7 +533,7 @@ def _target(text):
     if os.path.isdir(named) and (pathlike or registry.entry(wanted) is None):
         return Target("folder", os.path.realpath(named), "")
     if pathlike or not re.fullmatch(paths.NS, wanted):
-        raise Usage(f"{check.printable(wanted)[:200]} is not a folder")
+        raise Usage(f"{report.printable(wanted)[:200]} is not a folder")
     if registry.entry(wanted) is None:
         raise Usage(f"{wanted} is neither a folder nor a catalog installed or linked here")
     return Target("catalog", os.path.realpath(Path(paths.ROOT) / paths.CATALOGS_DIR / wanted), wanted)
@@ -555,7 +555,7 @@ def _codes(values):
         for one in value.split(","):
             one = one.strip().upper()
             if not RULE_CODE.fullmatch(one):
-                raise Usage(f"--error takes rule codes such as ST05 or DF22, separated by commas: {check.printable(one)[:40]}")
+                raise Usage(f"--error takes rule codes such as ST05 or DF22, separated by commas: {report.printable(one)[:40]}")
             codes.append(one)
     return tuple(dict.fromkeys(codes))
 
@@ -636,7 +636,7 @@ def _items(target, folder, summary, args, notes):
         with check.scrubbed():
             built, inputs = check.loaded()
             try:
-                found = check.catalog_problems(target.ns, built, inputs, audited=True)
+                found = check.catalog_problems(target.ns, built, inputs)
             except check.ComposeGone:
                 return Items([], [], None, [check.NO_COMPOSE])
             return Items(check.as_problems(found, built, target.ns, (paths.ROOT, target.path)), check.catalog_files(target.ns),
@@ -653,7 +653,7 @@ def _items(target, folder, summary, args, notes):
     with check.temporary_link(folder, ns, needs, audiences) as linked, check.scrubbed():
         built, inputs = check.loaded()
         try:
-            found = check.catalog_problems(ns, built, inputs, audited=True)
+            found = check.catalog_problems(ns, built, inputs)
         except check.ComposeGone:
             return Items([], [], None, [check.NO_COMPOSE])
         hide = (linked.root / paths.CATALOGS_DIR / ns, linked.root, linked.lab, linked.folder)
@@ -728,7 +728,7 @@ def _pull(spec, target, stack, notes):
     done = gitx.run(["remote", "get-url", "origin"], cwd=target.path, timeout=10)
     origin = done.out.decode("utf-8", "replace").strip() if done.code == 0 else ""
     if not origin:
-        raise Usage(f"{check.printable(target.path)} has no origin remote: --pr fetches the pull request from it")
+        raise Usage(f"{report.printable(target.path)} has no origin remote: --pr fetches the pull request from it")
     number = _pull_number(spec, origin)
     address = gitx.checked(gitx.parse_address(origin))
     holder = Path(tempfile.mkdtemp(prefix="gravitee-lab-pr-")).resolve()
@@ -775,43 +775,16 @@ def _pull(spec, target, stack, notes):
     return Pulled(str(folder), options, seeder)
 
 
-def _tidy(text, problems):
-    """The text of a check as `make check` prints it, for a problem that has no code (what the rules of the items say: the standard
-    has none for them): its line starts where the others' code does, and the verdict does not send to `make explain` with no code."""
-    text = re.sub(r"(?m)^     (?! )", "    ", text)
-    lines = text.split("\n")
-    last = max((number for number, line in enumerate(lines) if line.strip()), default=None)
-    tail = ". Run make explain CODE= for more."
-    if last is not None and lines[last].endswith(tail):
-        coded = [one for one in problems if one.severity in (report.ERROR, report.WARNING) and one.code]
-        lines[last] = lines[last][:-len(tail)]
-        if coded:
-            first = sorted(coded, key=lambda one: (one.severity != report.ERROR, one.path, int(one.line or 0), one.code))[0]
-            lines[last] += f". Run make explain CODE={check.printable(first.code)} for more."
-    return "\n".join(lines)
-
-
-UNTITLED = (re.compile(r"^(::(?:error|warning|notice) [^:\n]*),title=::", re.M), re.compile(r"^(::(?:error|warning|notice)) title=::", re.M))
-
-
-def _untitled(text):
-    """The annotations without the empty `title=` of a finding that has no code. Only the properties of a command are touched (they
-    hold no colon: a colon in a value is escaped), never the message after them."""
-    for pattern in UNTITLED:
-        text = pattern.sub(r"\1::", text)
-    return text
-
-
 def _render(found, files, skipped, fmt, verbose, header, ci):
     """The report of a check in the format asked. What was not checked is never left out: `text` says it with the verdict, `github`
     as an annotation (an error under --ci) and `json`, which is a list of problems, on standard error."""
     if fmt == "text":
-        return _tidy(report.render(found, "text", checked=files, skipped=skipped, verbose=verbose, header=header), found), ""
+        return report.render(found, "text", checked=files, skipped=skipped, verbose=verbose, header=header), ""
     if fmt == "github":
         level = "error" if ci else "warning"
-        extra = "".join(f"::{level} title=check::{report.escape_data(check.printable('Not checked: ' + why))}\n" for why in skipped)
-        return _untitled(report.render(found, "github", verbose=verbose)) + extra, ""
-    return report.render(found, "json", verbose=verbose), "".join(f"Not checked: {check.printable(why)}\n" for why in skipped)
+        extra = "".join(f"::{level} title=check::{report.escape_data(report.printable('Not checked: ' + why))}\n" for why in skipped)
+        return report.render(found, "github", verbose=verbose) + extra, ""
+    return report.render(found, "json", verbose=verbose), "".join(f"Not checked: {report.printable(why)}\n" for why in skipped)
 
 
 def _write_summary(found, skipped):
@@ -896,7 +869,7 @@ def run_check(args):
     error = _codes(args.error)
     target = _target(args.target)
     if target.kind == "folder" and args.pr is None and not _is_catalog(target.path):
-        raise Usage(f"{check.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
+        raise Usage(f"{report.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
     notes = []
     why = check.compose_missing()
     installed = target.kind == "catalog" and (registry.entry(target.ns) or {}).get("kind") == "git"
@@ -975,7 +948,7 @@ def index(args):
             text = manifest.render_index(manifest.build_index(target.ns))
     else:
         if not _is_catalog(target.path):
-            raise Usage(f"{check.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
+            raise Usage(f"{report.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
         text = _folder_index(target.path)
         if text is None:
             return 1
@@ -1004,7 +977,7 @@ def explain_command(args):
     if args.format == "json":
         sys.stdout.write(json.dumps(entry._asdict(), indent=2, sort_keys=True, ensure_ascii=True) + "\n")
     else:
-        sys.stdout.write(check.printable(explain.explain(code)))
+        sys.stdout.write(report.printable(explain.explain(code), "\n"))
     sys.stdout.flush()
     return 0
 

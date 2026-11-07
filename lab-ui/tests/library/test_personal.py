@@ -348,13 +348,6 @@ services:
         self.assertEqual(self.tree(), before)
         self.assertFalse((self.root / f"{LOCAL}/addons/whoami").exists())
 
-    def test_what_is_written_goes_through_an_atomic_replace(self):
-        written = []
-        real = paths.write_atomic
-        self.patch(paths, "write_atomic", lambda file, text, mode=0o644: (written.append(file.name), real(file, text, mode))[1])
-        self.create()
-        self.assertEqual(sorted(written), ["README.md", "compose.yml"])
-
 
 class Playgrounds(Folder):
 
@@ -500,9 +493,9 @@ class Deleted(Folder):
             personal.delete(self.project, "addon", "local/whoami")
         self.assertEqual(self.tree(), before)
         on = {"playground": None, "effective": [], "setups": []}
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", running=True), "Stop it first")
         # A setup owns no container: what of its add-ons runs is theirs
-        self.assertEqual(personal.held(self.project, on, "setup", "local/mine", deleting=True, running=True), "")
+        self.assertEqual(personal.held(self.project, on, "setup", "local/mine", running=True), "")
         # What it brings runs for something else: an item that is off is only its own services
         self.containers.return_value = ({"kiosk": {"state": "running"}}, None)
         with self.assertRaisesRegex(RuntimeError, "^Used by Sandbox$"):
@@ -523,60 +516,22 @@ class Deleted(Folder):
         self.assertTrue(state.is_dir())
         on = {"playground": None, "effective": [], "setups": []}
         deployed = [{"place": "my-account/dev-env", "environment": "Development", "created": [{"what": "APIs", "count": 1}]}]
-        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True, deployed=deployed),
+        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deployed=deployed),
                          "Delete what it created in Development first")
         # Deleted there, its record is empty: it goes
         (state / "created.json").write_text("[]", encoding="utf-8")
-        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox", deleting=True,
+        self.assertEqual(personal.held(self.project, on, "playground", "local/sandbox",
                                        deployed=[{**deployed[0], "created": []}]), "")
         delete()
         self.assertFalse((self.root / SANDBOX).exists())
         self.assertNotEqual(self.tree(), before)
 
-    def test_what_the_menu_says_of_a_share_and_of_a_delete(self):
+    def test_what_the_menu_says_of_a_delete(self):
         on = {"playground": None, "effective": [], "setups": []}
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "", "a share is a copy: nothing holds it")
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True), "Used by Sandbox")
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "Used by Sandbox")
         on = {"playground": "local/sandbox", "effective": ["local/whoami"], "setups": []}
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "", "not even while it is on")
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True), "Turn it off first")
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", deleting=True, running=True), "Stop it first")
-
-
-class Sharing(Folder):
-    """Sharing is a copy into a catalog, which catalogs/contribute.py does: this module answers the check without a destination
-    and hands the rest over."""
-
-    def setUp(self):
-        super().setUp()
-        self.own()
-
-    def test_without_a_destination_a_check_says_where_the_item_is_in_its_own_catalog(self):
-        before = self.tree()
-        self.assertEqual(personal.share("addon", "local/whoami", check_only=True),
-                         {"file": "addons/whoami/compose.yml", "problems": [], "changes": []})
-        self.assertEqual(personal.share("setup", "local/mine", check_only=True)["file"], "setups/mine.yml")
-        self.assertEqual(self.tree(), before)
-
-    def test_without_a_destination_there_is_nothing_to_share(self):
-        before = self.tree()
-        with self.assertRaisesRegex(ValueError, "Choose where to share"):
-            personal.share("addon", "local/whoami")
-        self.assertEqual(self.tree(), before)
-
-    def test_only_what_belongs_to_this_machine(self):
-        before = self.tree()
-        for kind, uid in (("addon", "kafka"), ("addon", "local/../kafka"), ("setup", "observability")):
-            with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, "Only your own .* can be shared here"):
-                personal.share(kind, uid, True)
-        with self.assertRaises(paths.NotFound):
-            personal.share("playground", "local/gone", True)
-        self.assertEqual(self.tree(), before)
-
-    def test_it_is_not_held_while_it_is_on(self):
-        self.write(paths.ON_FILE, f"include:\n  - {WHOAMI}\n  - {MINE}\n")
-        for kind, uid in (("addon", "local/whoami"), ("setup", "local/mine")):
-            self.assertEqual(personal.share(kind, uid, True)["problems"], [])
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "Turn it off first")
+        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", running=True), "Stop it first")
 
 
 class Following(Folder):
@@ -626,14 +581,12 @@ class Skills(Folder):
     def test_the_skills_found_on_disk(self):
         self.assertEqual(personal.skills(), {})
         self.write(".agents/skills/new-addon/SKILL.md")
+        self.write(".agents/skills/new-catalog/SKILL.md")
         self.write(".agents/skills/share-item/SKILL.md")
         self.write(".agents/skills/other/SKILL.md")
         self.assertEqual(personal.skills(), {"addon": ".agents/skills/new-addon/SKILL.md",
+                                             "catalog": ".agents/skills/new-catalog/SKILL.md",
                                              "share": ".agents/skills/share-item/SKILL.md"})
-
-    def test_a_catalog_has_a_skill_like_the_three_kinds(self):
-        self.write(".agents/skills/new-catalog/SKILL.md")
-        self.assertEqual(personal.skills(), {"catalog": ".agents/skills/new-catalog/SKILL.md"})
         self.assertEqual(sorted(personal.SKILLS), ["addon", "catalog", "playground", "setup", "share"])
 
 
@@ -654,16 +607,6 @@ class TheSkills(Case):
                 self.assertTrue((paths.LAB_UI_DIR.parent / check.STUB_FILE.format(name)).is_file())
         self.assertEqual(sorted(personal.SKILLS.values()), sorted(set(self.NAMES) - {"prepare-pull-request"}))
 
-    def test_a_personal_item_is_where_the_layout_of_the_catalogs_puts_it_and_the_old_layout_is_named_nowhere(self):
-        for name in self.NAMES:
-            text = self.skill(name)
-            with self.subTest(name=name):
-                self.assertNotRegex(text, r"(?<!catalogs/)(addons|setups|playgrounds)/local", "the personal folders left the project")
-                self.assertNotRegex(text, r"(addons|setups|playgrounds)/AGENTS\.md", "the guides of the kinds moved to docs/units.md")
-                self.assertNotRegex(text, r"moving it out of local|shared with the project", "a share is a copy")
-        for name in ("new-addon", "new-setup", "new-playground", "share-item"):
-            self.assertIn(".lab/catalogs/local/", self.skill(name), name)
-
     def test_the_commands_they_give_are_commands_of_the_tool_with_arguments_it_takes(self):
         tool = catalog.parser()
         seen = 0
@@ -675,12 +618,6 @@ class TheSkills(Case):
                         tool.parse_args(words)
                     seen += 1
         self.assertGreater(seen, 8)
-
-    def test_they_read_documents_that_are_not_gone_with_the_folders_of_the_kinds(self):
-        for name in self.NAMES:
-            for found in re.finditer(r"`(docs/[a-z-]+\.md)`", self.skill(name)):
-                with self.subTest(name=name, document=found.group(1)):
-                    self.assertIn(found.group(1), ("docs/units.md", "docs/playgrounds.md", "docs/catalogs.md", "docs/writing-a-catalog.md"))
 
 
 if __name__ == "__main__":

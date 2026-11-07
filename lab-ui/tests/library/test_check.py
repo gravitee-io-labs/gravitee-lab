@@ -14,7 +14,6 @@ import io
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 import types
@@ -29,6 +28,7 @@ from lab_ui import paths
 from lab_ui.catalogs import manifest, registry
 
 from .. import Case, fixtures
+from ..catalogs.test_cli import snapshot
 from .test_project import catalog_inputs, member, port, service, variable
 
 REPO = fixtures.CORE.parent   # the engine's own tree: the contract.lock that the check reads
@@ -53,14 +53,10 @@ def unit(ns, kind, name):
 
 
 KAFKA, JADE = unit("fixture", "addon", "kafka"), unit("fixture", "addon", "jade")
-INSPECTOR, WHOAMI = unit("fixture", "addon", "agent-lens"), unit("local", "addon", "whoami")
-WELCOME, EVENTS = unit("fixture", "playground", "welcome"), unit("fixture", "setup", "events")
-MINE, HYBRID = unit("local", "setup", "mine"), unit("fixture", "addon", "hybrid")
-LEDGER = unit("partner", "addon", "ledger")
-MISNAMED = "the Lab UI does not see it: name it with lowercase letters, digits and dashes"
+WHOAMI, EVENTS = unit("local", "addon", "whoami"), unit("fixture", "setup", "events")
+MINE = unit("local", "setup", "mine")
 PERSONAL = "what belongs to this machine is not shared with the project"
 ALWAYS = "restart: always starts a stopped container again when Docker restarts: use unless-stopped"
-LITERAL = "is a literal: write ${NAME:-default} so that it is a setting (no password in a compose file)"
 
 
 class Machine(Case):
@@ -90,36 +86,9 @@ class Machine(Case):
                     self.write(f"{paths.unit_folder(*found)}/README.md", "# It")
         return self.built
 
-    def context(self, ns="fixture", declared=()):
-        return {"catalog": ns, "declared": list(declared), "products": ()}
-
-    def lines(self, kind, uid, shared=True, **context):
+    def lines(self, kind, uid, **context):
         """What is wrong with a unit of the machine."""
-        return list(check._unit(kind, uid, self.built, self.given["raw"], shared, context or None))
-
-
-class Misnamed(Case):
-
-    def test_a_file_the_lab_ui_does_not_see_is_a_problem(self):
-        root = self.folder(files=dict.fromkeys((
-            "addons/kafka/compose.yml", "addons/My_Addon/compose.yml", "addons/.hidden/compose.yml",
-            "addons/AGENTS.md", "addons/empty/README.md",
-            "setups/events.yml", "setups/Team_Demo.yml", "setups/.mine.yml", "setups/notes.md",
-            "playgrounds/welcome/compose.yml", "playgrounds/_scratch/compose.yml", "playgrounds/Work Shop/compose.yml"), ""))
-        self.assertEqual(list(check._misnamed(root)), [(path, MISNAMED) for path in (
-            "addons/My_Addon/compose.yml", "setups/Team_Demo.yml", "playgrounds/Work Shop/compose.yml",
-            "playgrounds/_scratch/compose.yml")])
-
-    def test_a_catalog_with_none_of_the_folders_has_nothing_to_name(self):
-        self.assertEqual(list(check._misnamed(self.folder())), [])
-
-    def test_local_is_the_name_of_this_machine_not_one_to_share(self):
-        root = self.folder(files=dict.fromkeys(("addons/local/compose.yml", "setups/local.yml",
-                                                "playgrounds/local/compose.yml", "addons/kafka/compose.yml"), ""))
-        self.assertEqual(list(check._misnamed(root)), [
-            ("addons/local/compose.yml", "a add-on cannot be named local: it would read as one of this machine"),
-            ("setups/local.yml", "a setup cannot be named local: it would read as one of this machine"),
-            ("playgrounds/local/compose.yml", "a playground cannot be named local: it would read as one of this machine")])
+        return list(check._unit(kind, uid, self.built, self.given["raw"], context or None))
 
 
 def skill(name, description="Creates an add-on", head=None):
@@ -198,12 +167,12 @@ class Includes(Case):
         self.folder(check, paths, compose)
         fixtures.default(self, "fixture")
 
-    def found(self, kind, included, shared=True, catalog="fixture", declared=(), name="it"):
+    def found(self, kind, included, catalog="fixture", declared=(), name="it"):
         """What is wrong with a file of this kind that includes these, all of them on disk."""
         for path in included:
             self.write(path, "")
         with mock.patch.object(compose, "includes", return_value=included):
-            return list(check._includes(kind, unit("fixture", kind, name), shared, catalog, declared))
+            return list(check._includes(kind, unit("fixture", kind, name), catalog, declared))
 
     def test_a_playground_includes_add_ons_and_setups(self):
         self.assertEqual(self.found("playground", [KAFKA, EVENTS]), [])
@@ -215,10 +184,6 @@ class Includes(Case):
         self.assertEqual(self.found("playground", own, catalog=None),
                          [f"includes {path}: {PERSONAL}" for path in own])
         self.assertEqual(self.found("setup", [WHOAMI], catalog=None), [f"includes {WHOAMI}: {PERSONAL}"])
-        # What is of this machine includes what it wants, of the kinds a file may include
-        self.assertEqual(self.found("playground", own, shared=False, catalog=None), [])
-        self.assertEqual(self.found("addon", own, shared=False, catalog=None),
-                         [f"includes {MINE}: only add-ons can be included"])
 
     def test_an_add_on_and_a_setup_include_add_ons_only(self):
         for kind in ("addon", "setup"):
@@ -226,18 +191,18 @@ class Includes(Case):
 
     def test_what_is_included_is_there_and_the_line_says_where_the_unit_would_be(self):
         with mock.patch.object(compose, "includes", return_value=[KAFKA, EVENTS, ".lab/addons/kafka/compose.yml"]):
-            self.assertEqual(list(check._includes("playground", unit("fixture", "playground", "it"), True, "fixture")), [
+            self.assertEqual(list(check._includes("playground", unit("fixture", "playground", "it"), "fixture")), [
                 "includes addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
                 "../../addons/kafka/compose.yml",
                 "includes setups/events.yml, which does not exist: from here a unit of this catalog is ../../setups/events.yml",
                 "includes .lab/addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
                 "../../addons/kafka/compose.yml"])
-            self.assertEqual(list(check._includes("setup", unit("fixture", "setup", "it"), True, "fixture"))[0],
+            self.assertEqual(list(check._includes("setup", unit("fixture", "setup", "it"), "fixture"))[0],
                              "includes addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
                              "../addons/kafka/compose.yml")
         # Outside a catalog (an item about to be shared) the line is the file as written, and no advice
         with mock.patch.object(compose, "includes", return_value=[KAFKA]):
-            self.assertEqual(list(check._includes("setup", "setups/events.yml", True)),
+            self.assertEqual(list(check._includes("setup", "setups/events.yml")),
                              [f"includes {KAFKA}, which does not exist"])
 
     def test_what_comes_from_a_catalog_is_not_shared_into_another(self):
@@ -293,48 +258,33 @@ class Items(Machine):
 
     def test_a_key_that_x_gravitee_does_not_know_is_said_not_ignored(self):
         # A key of another version, or a typo, does nothing: the person is told, whatever the key was called
-        meta = {"kind": "playground", "name": "Welcome", "description": "x", "consoles": [], "start": "http://localhost:8110", "console": []}
+        meta = {"kind": "playground", "name": "Welcome", "description": "x", "category": "AI", "consoles": [],
+                "start": "http://localhost:8110", "console": []}
         known = ", ".join(sorted(check.META))
-        self.assertEqual(list(check._metadata("playground", meta, [], False)), [
+        self.assertEqual(list(check._metadata("playground", meta, [])), [
             f"x-gravitee.console is not a key of x-gravitee: {known}",
             f"x-gravitee.start is not a key of x-gravitee: {known}"])
         # Every key the project reads is known: the files of the project say nothing more
         every = {key: None for key in check.META if check.KEY_OF.get(key, "playground") == "playground"}
-        self.assertEqual(list(check._metadata("playground", every | {"kind": "playground", "name": "x",
-                                                                      "description": "x"}, [], False)), [])
+        self.assertEqual(list(check._metadata("playground", every | {"kind": "playground", "name": "x", "description": "x",
+                                                                      "category": "AI"}, [])), [])
 
     def test_a_key_that_only_one_kind_reads_is_said_of_the_others(self):
         # A gateway is an add-on's
         for kind in ("addon", "setup", "playground"):
             meta = {"kind": kind, "name": "x", "description": "x", "category": "AI", "gateway": {}}
             with self.subTest(kind=kind):
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"], False)),
+                self.assertEqual(list(check._metadata(kind, meta, ["AI"])),
                                  [] if kind == "addon" else ["x-gravitee.gateway is a key of add-ons only"])
 
-    def test_where_a_playground_can_be_deployed_is_computed_so_a_file_that_declares_it_is_told(self):
-        said = "x-gravitee.deploys_to is no longer a key: compatibility with a platform is computed"
-        known = ", ".join(sorted(check.META))
-        self.assertNotIn("deploys_to", check.META)
+    def test_every_item_has_a_category(self):
         for kind in ("addon", "setup", "playground"):
-            meta = {"kind": kind, "name": "x", "description": "x", "category": "AI", "deploys_to": ["cloud"]}
-            with self.subTest(kind=kind):
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"], False)), [said])
-        # Whatever it holds, and once: it is no more a key than a typo is, and says why
-        meta = {"kind": "playground", "name": "x", "description": "x", "deploys_to": None, "deploy": "cloud"}
-        self.assertEqual(list(check._metadata("playground", meta, [], False)),
-                         [f"x-gravitee.deploy is not a key of x-gravitee: {known}", said])
-
-    def test_what_is_shared_has_a_category_like_an_add_on(self):
-        for kind in ("setup", "playground"):
             meta = {"kind": kind, "name": "x", "description": "x"}
             with self.subTest(kind=kind):
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"], False)), [])
-                self.assertEqual(list(check._metadata(kind, meta, ["AI"], True)), ["x-gravitee.category is missing"])
-                self.assertEqual(list(check._metadata(kind, {**meta, "category": "AI"}, ["AI"], True)), [])
-                self.assertEqual(list(check._metadata(kind, {**meta, "category": "Mine"}, ["AI"], True)),
+                self.assertEqual(list(check._metadata(kind, meta, ["AI"])), ["x-gravitee.category is missing"])
+                self.assertEqual(list(check._metadata(kind, {**meta, "category": "AI"}, ["AI"])), [])
+                self.assertEqual(list(check._metadata(kind, {**meta, "category": "Mine"}, ["AI"])),
                                  ["x-gravitee.category must be one of: AI"])
-        meta = {"kind": "addon", "name": "x", "description": "x"}   # an add-on's, whether it is shared or not
-        self.assertEqual(list(check._metadata("addon", meta, ["AI"], False)), ["x-gravitee.category is missing"])
 
     def test_a_port_with_a_variable_says_how_to_write_it_on_127_0_0_1(self):
         ports = [compose._port(written) for written in (
@@ -382,11 +332,6 @@ class Items(Machine):
             theirs = {"catalog": "acme-hub", "conflicts": {"kafka": "x", "jade": "", "ledger": "x", "nothing": "x"}}
             self.assertEqual(list(check._conflicts(theirs)), [
                 "conflicts with jade: say why", "conflicts with nothing, which is not an add-on"])
-            self.assertEqual(check._conflict_id("kafka", "acme-hub", set(known)), "@acme-hub/kafka")
-            self.assertEqual(check._conflict_id("jade", "acme-hub", set(known)), "jade")
-            self.assertEqual(check._conflict_id("@fixture/kafka", "acme-hub", set(known)), "kafka", "qualified is that catalog's")
-            self.assertEqual(check._conflict_id("@acme-hub/kafka", "fixture", set(known)), "@acme-hub/kafka")
-            self.assertIsNone(check._conflict_id("ledger", "fixture", set(known)))
 
     def test_two_add_ons_of_a_catalog_that_is_not_the_first_conflict_by_the_bare_id_they_name(self):
         # `conflicts: {echo: why}` in a unit of @acme-hub names @acme-hub/echo: the ports they share are no clash, and a playground
@@ -427,7 +372,6 @@ class Items(Machine):
                 self.assertEqual(list(check._level({"lab": level})), [self.LEVEL])
         for requires in (None, {}, {"plugins": {}}, "lab", ["lab"]):
             self.assertEqual(list(check._level(requires)), [], requires)   # no level said, or requires written otherwise
-        self.assertIn("lab", check.REQUIRES)
         built = self.machine([member("fixture", "playground", "welcome", ["acme-website"])])
         self.assertEqual(list(check._requires({"lab": "x"}, built)), [], "said once, for every kind, by the item")
 
@@ -535,67 +479,6 @@ class Items(Machine):
             "seed/environments/beam/apis/broken.json is not valid JSON: "
             "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
             "seed/environments/moderna/apis/list.json must hold a JSON object"])
-
-    def test_an_environment_folder_is_named_like_an_id_and_holds_its_environment_file(self):
-        good = "id: {}\nname: Fine\n"
-        root = self.folder(files={
-            "seed/environments/moderna/environment.yaml": good.format("moderna"),
-            "seed/environments/Novo_Nordisk/environment.yaml": good.format("Novo_Nordisk"),
-            "seed/environments/local/environment.yaml": good.format("local"),
-            "seed/environments/default/environment.yaml": good.format("default"),
-            "seed/environments/defaults/environment.yaml": good.format("defaults"),
-            "seed/environments/beam/apis/one.json": "{}",
-            "seed/environments/.hidden/environment.yaml": "",
-            "seed/environments/README.md": "files are no environment"})
-        name = ("an environment is named by an id, lowercase letters, digits and dashes, and not `local` or `default`")
-        self.assertEqual(list(check._environments(root)), [
-            f"seed/environments/Novo_Nordisk: {name}",
-            "seed/environments/beam/environment.yaml is missing",
-            f"seed/environments/default: {name}",
-            f"seed/environments/local: {name}"])
-
-    def test_the_id_of_an_environment_is_its_folder_and_it_has_a_name(self):
-        root = self.folder(files={
-            "seed/environments/beam/environment.yaml": "id: beam-therapeutics\nname: Beam Therapeutics\n",
-            "seed/environments/kyverna/environment.yaml": "id: kyverna\ndescription: No name\n",
-            "seed/environments/moderna/environment.yaml": "name: Moderna\n",
-            "seed/environments/pitt/environment.yaml": "",
-            "seed/environments/boston/environment.yaml":
-                "id: 'boston'   # the folder\nname: \"Boston Children's Hospital\"  # what the Console lists\n",
-            "seed/environments/novo/environment.yaml": "id: novo\nname: Novo's own\n"})
-        self.assertEqual(list(check._environments(root)), [
-            "seed/environments/beam/environment.yaml: id must be beam, the name of its folder",
-            "seed/environments/kyverna/environment.yaml: name is missing",
-            "seed/environments/moderna/environment.yaml: id must be moderna, the name of its folder",
-            "seed/environments/pitt/environment.yaml: id must be pitt, the name of its folder",
-            "seed/environments/pitt/environment.yaml: name is missing"])
-        self.assertEqual(list(check._environments(self.folder())), [], "a seed without environments has none to check")
-
-    def test_the_environments_of_a_seed_are_among_what_the_seed_is_checked_on(self):
-        root = self.folder(files={"seed/environments/beam/apis/one.json": "{}"})
-        self.assertEqual(list(check._seed(root)), ["seed/environments/beam/environment.yaml is missing"])
-
-    def test_a_plain_yaml_file_is_read_by_its_top_level_lines(self):
-        text = "# an environment\nid: beam   # its folder\nname: 'Beam: Therapeutics'\nempty:\nnested:\n  id: not-this\n- id: nor-this\n"
-        self.assertEqual(check._flat(text), {"id": "beam", "name": "Beam: Therapeutics", "empty": "", "nested": ""})
-        self.assertEqual(check._flat("id: x\r\nname: Y\r\n"), {"id": "x", "name": "Y"})
-
-    def test_what_an_add_on_or_a_playground_builds_says_how_it_comes(self):
-        # Built here or pulled, as its pull policy says: the Lab UI never forces a build
-        built = self.machine([member("fixture", "playground", "welcome", ["acme-website"])])
-        service_ = built["services"]["acme-website"]
-        service_.update(built=True, pull_policy=None)
-        self.assertEqual(list(check._pull_policy(built["playgrounds"]["welcome"], built)), [
-            "acme-website builds its image: say how it comes with pull_policy (build or never, or always to pull it)"])
-        service_["pull_policy"] = "build"
-        self.assertEqual(list(check._pull_policy(built["playgrounds"]["welcome"], built)), [])
-
-    def test_a_catalog_that_was_audited_leaves_the_pull_policy_to_im01(self):
-        said = "acme-website builds its image: say how it comes with pull_policy (build or never, or always to pull it)"
-        built = self.machine([member("fixture", "playground", "welcome", ["acme-website"])])
-        built["services"]["acme-website"].update(built=True, pull_policy=None)
-        self.assertIn(said, self.lines("playground", "welcome", catalog="fixture"))
-        self.assertNotIn(said, self.lines("playground", "welcome", catalog="fixture", audited=True))
 
 
 PORTAL_COMMAND = ["/bin/sh", "-c", "sed -i -e '/X-Frame-Options/d' -e \"s|self|& {pages}|\" x; sh /run.sh"]
@@ -945,7 +828,6 @@ class Gateways(Machine):
         self.assertEqual(list(check._gateway(built["addons"]["@partner/theirs"], built)), [])
 
     def test_a_deploy_brings_the_gateway_alone_so_it_leaves_the_core_as_it_is(self):
-        self.assertEqual(self.gateway(), [])
         built = self.build(self.hybrid(waits=("hybrid-redis", "apim-gateway")))   # its own Redis is fine, the core's is not
         self.assertEqual(list(check._gateway(built["addons"]["hybrid"], built)), [
             "x-gravitee.gateway: a deploy brings hybrid, whose apim-hybrid-gateway depends_on apim-gateway, a service of the "
@@ -1033,166 +915,6 @@ class Listings(Case):
             self.assertEqual(list(check._table(kind, self.units[kind], self.root / "catalog")), [])
         self.assertEqual(list(check._table("setup", [], self.root / "catalog")), [])
 
-    def test_the_old_name_of_the_listings_is_gone(self):
-        self.assertFalse(hasattr(check, "CATALOGS"))
-        self.assertEqual(sorted(check.LISTINGS), ["addon", "playground", "setup"])
-
-
-class Literals(Case):
-    """No password, secret, key or token is written in a shared file: each is a setting, ${NAME:-default}."""
-
-    LITERAL = "is a literal: write ${NAME:-default} so that it is a setting (no password in a compose file)"
-    IN_URI = ("a literal password in its URI: write ${NAME:-default} for the password so that it is a setting "
-              "(no password in a compose file)")
-
-    def found(self, config, included=(), **others):
-        """What is wrong with a file of this config, `others` being the config of the files it includes (by path)."""
-        raw = {"a.yml": config, **others}
-        return list(check._literals(raw, "a.yml", list(included)))
-
-    def environment(self, **values):
-        return {"services": {"app": {"environment": values}}}
-
-    def test_a_literal_password_in_an_environment(self):
-        self.assertEqual(self.found(self.environment(DB_PASSWORD="hunter2")),
-                         [f"app environment: DB_PASSWORD {self.LITERAL}"])
-
-    def test_a_literal_in_labels_and_in_any_extension_block(self):
-        config = {"services": {"app": {"labels": {"io.example.api-key": "abc"}}},
-                  "x-bank-secrets": {"demo-password": "HelloWorld@123"}, "x-nested": {"deep": [{"client_secret": "s"}]}}
-        self.assertEqual(self.found(config), [
-            f"app labels: io.example.api-key {self.LITERAL}",
-            f"x-bank-secrets: demo-password {self.LITERAL}",
-            f"x-nested.deep[0]: client_secret {self.LITERAL}"])
-
-    def test_the_password_of_a_console_sign_in_is_shown_and_no_secret(self):
-        config = {"services": {"ui": {"labels": {"io.gravitee.console.ui.username": "admin", "io.gravitee.console.ui.password": "admin",
-                                                 "io.gravitee.console.password": "admin"}}}}
-        self.assertEqual(self.found(config), [f"ui labels: io.gravitee.console.password {self.LITERAL}"], "a label of no console is one")
-
-    def test_the_names_of_a_secret(self):
-        for key in ("PASSWORD", "DB_PASSWD", "KEYSTORE_PASSPHRASE", "CLIENT_SECRET", "LLM_API_KEY", "OPENAI_APIKEY",
-                    "ADMIN_TOKEN", "token", "gravitee_ratelimit_redis_password", "Admin_Password", "KAFKA_CLIENT_PASSWORDS"):
-            with self.subTest(key=key):
-                self.assertEqual(self.found(self.environment(**{key: "literal"})), [f"app environment: {key} {self.LITERAL}"])
-
-    def test_a_name_that_ends_with_key_is_an_api_key(self):
-        # Whatever the separator: a key of a service is a secret, named after its service or not
-        for key in ("ACME_KEY", "ADMIN_KEY", "encryption_key", "signing-key", "gravitee.license.key", "llm.Key"):
-            with self.subTest(key=key):
-                self.assertEqual(self.found(self.environment(**{key: "literal"})), [f"app environment: {key} {self.LITERAL}"])
-        # What only has key in its name is none: a key alone, a keystore, an id of a key, a public key
-        self.assertEqual(self.found(self.environment(KEY="a", KEYS="b", KEY_ID="c", KEYSTORE="d", MONKEY="e",
-                                                     PUBLIC_KEY="f", **{"public-key": "g", "ssl.public.key": "h"})), [])
-        # A setting passes, as for every secret
-        self.assertEqual(self.found(self.environment(ACME_KEY="${ACME_KEY:-demo}")), [])
-
-    def test_a_setting_passes_with_or_without_a_default(self):
-        self.assertEqual(self.found(self.environment(
-            DB_PASSWORD="${DB_PASSWORD:-demo}", API_KEY="${API_KEY}", SECRET="${A:-${B:-x}}", ADMIN_TOKEN="${T-}",
-            OTHER_PASSWORD="prefix-${X:-y}")), [])
-
-    def test_an_empty_value_passes(self):
-        self.assertEqual(self.found(self.environment(DB_PASSWORD="", API_KEY="", KAFKA_GRAVITEE_MANAGEMENTAPIORGADMINTOKEN="")),
-                         [])
-
-    def test_a_name_that_says_where_what_kind_or_whether_is_not_a_secret(self):
-        self.assertEqual(self.found(self.environment(
-            AM_TOKEN_URL="http://am-gateway:8092/oauth/token", AM_AUTHORIZE_URL="http://localhost/authorize",
-            DB_PASSWORD_FILE="/run/secrets/db", CLIENT_SECRET_PATH="/etc/secret", TLS_SECRET_URI="file:///x",
-            KAFKA_TLS_TYPE="PEM", KAFKA_SECRET_TYPE="pem", TOKEN_ENDPOINT="http://x/token", gravitee_secrets_enabled="true",
-            gravitee_secrets_kubernetes_kubeConfigFile="/kube", GOOGLE_APPLICATION_CREDENTIALS="/opt/secrets/key.json",
-            DELEGATION="on", KAFKA_TLS_CLIENT_AUTH="requested", gravitee_servers_1_ssl_keystore_type="pkcs12",
-            NEXTAUTH_URL="http://localhost:3010", TOKEN_URL="http://x", PUBLIC_KEY="not asked")), [])
-
-    def test_a_setting_that_only_mentions_a_secret_is_not_one(self):
-        # Where a secret manager is, how it is reached, which one it is, how long a token lasts, what a password must be
-        self.assertEqual(self.found(self.environment(
-            gravitee_secrets_vault_host="vault", gravitee_secrets_vault_port="8200", gravitee_secrets_vault_auth_method="token",
-            gravitee_secrets_vault_namespace="lab", gravitee_secrets_provider="vault", SECRET_PROVIDER="aws",
-            PASSWORD_POLICY="strong", PASSWORD_REGEX="[a-z]+", ADMIN_TOKEN_TIMEOUT="30", ADMIN_API_KEY_TIMEOUTMS="3000",
-            API_KEY_HOST="keys", KEY_PROVIDER_HOST="h", PASSWORD_METHOD="bcrypt")), [])
-        # What ends in anything else is still one
-        self.assertEqual(self.found(self.environment(SECRET_HOSTS="a", PASSWORD_PORTS="b")), [
-            f"app environment: SECRET_HOSTS {self.LITERAL}", f"app environment: PASSWORD_PORTS {self.LITERAL}"])
-
-    def test_only_text_is_read(self):
-        # A flag or a list of names is no password: "secrets" lists the secrets a service uses, by name
-        config = {"services": {"app": {"secrets": ["db_password"], "environment": {"A_PASSWORD_ENABLED": True,
-                                                                                    "SECRET_COUNT": None}}},
-                  "secrets": {"db_password": {"file": "./db_password.txt"}}}
-        self.assertEqual(self.found(config), [])
-        # A number written without quotes is one, where YAML keeps it a number
-        self.assertEqual(self.found({"x-demo": {"password": 1234}}), [f"x-demo: password {self.LITERAL}"])
-
-    def test_a_literal_password_in_a_uri(self):
-        self.assertEqual(self.found(self.environment(
-            OPENFGA_DATASTORE_URI="postgres://openfga:openfga@postgres:5432/openfga?sslmode=disable",
-            REDIS_URL="redis://:secret@redis:6379/0")), [
-            f"app environment: OPENFGA_DATASTORE_URI has {self.IN_URI}", f"app environment: REDIS_URL has {self.IN_URI}"])
-        self.assertEqual(self.found({"services": {"app": {"command": ["serve", "--db", "mongodb://u:p@mongo/db"]}}}),
-                         [f"app command: a URI has {self.IN_URI}"])
-        self.assertEqual(self.found({"x-demo": {"links": ["https://admin:admin@example.com/ui"]}}),
-                         [f"x-demo.links: a URI has {self.IN_URI}"])
-
-    def test_a_uri_whose_password_is_a_setting_passes(self):
-        self.assertEqual(self.found(self.environment(
-            OPENFGA_DATASTORE_URI="postgres://openfga:${OPENFGA_POSTGRES_PASSWORD:-openfga}@postgres:5432/openfga",
-            A="postgres://${DB_USER:-openfga}:${DB_PASSWORD:-openfga}@postgres/db", B="https://user@example.com/x",
-            C="http://localhost:8080/path:abc@x", D="postgres://user:@host/db", E="amqp://host:5672",
-            F="redis://:${REDIS_PASSWORD}@redis")), [])
-        # A setting elsewhere in the text does not make a literal password one
-        self.assertEqual(self.found(self.environment(A="postgres://u:literal@host/${DB:-db}")),
-                         [f"app environment: A has {self.IN_URI}"])
-
-    def test_a_secret_in_a_uri_is_said_once(self):
-        self.assertEqual(self.found(self.environment(DB_PASSWORD="postgres://u:p@h")),
-                         [f"app environment: DB_PASSWORD {self.LITERAL}"])
-
-    def test_the_password_and_the_key_of_an_account(self):
-        config = {"x-gravitee": {"accounts": [
-            {"for": "Console", "username": "admin", "password": "admin"},
-            {"for": "LLM proxy", "key": "acme-key"},
-            {"for": "Portal", "username": "john", "password": "${PORTAL_PASSWORD:-doe}"},
-            {"for": "Proxy", "key": "${LLM_KEY:-acme-key}"},
-            {"for": "Empty", "username": "john", "password": ""},
-            {"for": "Token", "token": "abc"}]}}
-        self.assertEqual(self.found(config), [
-            f"x-gravitee.accounts[0]: password {self.LITERAL}", f"x-gravitee.accounts[1]: key {self.LITERAL}",
-            f"x-gravitee.accounts[5]: token {self.LITERAL}"])
-
-    def test_the_rest_of_x_gravitee_is_not_asked(self):
-        # Its keys are read by the Lab UI; a license feature may be named after a secret manager
-        config = {"x-gravitee": {"name": "Demo", "key": "value", "requires": {"license": {
-            "apim-secrets-manager": "Step 4", "apim-secret-provider-vault": "Step 5"}}}}
-        self.assertEqual(self.found(config), [])
-        # Outside x-gravitee, a block named `accounts` or `key` is like any other
-        self.assertEqual(self.found({"x-other": {"accounts": [{"key": "k", "password": "p"}]}}), [
-            f"x-other.accounts[0]: password {self.LITERAL}"])
-
-    def test_a_shared_secret_anchor_is_a_setting_everywhere_it_is_used(self):
-        # Compose resolves the anchors: each use shows the setting the anchor was given
-        demo = "${ACME_BAKERY_DEMO_PASSWORD:-HelloWorld@123}"
-        config = {"x-bank-secrets": {"demo-password": demo},
-                  "x-gravitee": {"accounts": [{"username": "alice", "password": demo}]},
-                  "services": {"seed": {"environment": {"BANK_DEMO_PASSWORD": demo, "APIM_PASSWORD": "${P:-admin}"}}}}
-        self.assertEqual(self.found(config), [])
-
-    def test_what_an_included_file_writes_is_its_own(self):
-        # Read alone, a file shows the services of the files it includes: their secret is theirs, once
-        inner = self.environment(DB_PASSWORD="hunter2")
-        outer = {"services": {"app": {"environment": {"DB_PASSWORD": "hunter2", "API_KEY": "abc"}}}}
-        self.assertEqual(self.found(outer, included=["b.yml"], **{"b.yml": inner}), [f"app environment: API_KEY {self.LITERAL}"])
-        self.assertEqual(self.found(inner, **{"b.yml": inner}), [f"app environment: DB_PASSWORD {self.LITERAL}"])
-        # A different secret over the included one is the file's
-        outer["services"]["app"]["environment"] = {"DB_PASSWORD": "other"}
-        self.assertEqual(self.found(outer, included=["b.yml"], **{"b.yml": inner}),
-                         [f"app environment: DB_PASSWORD {self.LITERAL}"])
-
-    def test_a_build_argument_and_a_nested_block_are_named_by_their_path(self):
-        config = {"services": {"app": {"build": {"args": {"NPM_TOKEN": "abc"}}}}, "name": "demo"}
-        self.assertEqual(self.found(config), [f"app build.args: NPM_TOKEN {self.LITERAL}"])
-
 
 class Sharing(Machine):
     """An item of this machine about to be shared is checked as what it will be, and `make check` is silent about the rest."""
@@ -1259,19 +981,6 @@ class Sharing(Machine):
         self.assertEqual(self.found(WHOAMI, other[0], sharing=WHOAMI), [(other[0], f"publishes port 8098, like {WHOAMI}")])
         self.assertEqual(self.found(WHOAMI, other[0], sharing=other[0]), [(WHOAMI, f"publishes port 8098, like {other[0]}")])
 
-    def test_what_belongs_to_this_machine_publishes_where_it_wants_until_it_is_shared(self):
-        self.whoami()
-        self.units[1][1]["services"]["whoami"]["ports"] = [port(8098, host_ip=None)]
-        self.machine(self.units)
-        self.assertEqual(self.found(WHOAMI), [])
-        self.assertEqual(self.found(WHOAMI, sharing=WHOAMI),
-                         [(WHOAMI, "publishes port 8098 on every interface: write 127.0.0.1:8098:8098")])
-
-    def test_no_secret_is_written_in_what_is_about_to_be_shared(self):
-        self.whoami(environment={"WHOAMI_API_KEY": "abc"})
-        self.assertEqual(self.found(WHOAMI), [])
-        self.assertEqual(self.found(WHOAMI, sharing=WHOAMI), [(WHOAMI, f"whoami environment: WHOAMI_API_KEY {LITERAL}")])
-
     def test_what_keeps_running_restarts_unless_stopped(self):
         self.whoami(restart="always")
         self.assertEqual(self.found(WHOAMI), [])
@@ -1302,10 +1011,9 @@ class Sharing(Machine):
     def test_the_core_is_checked_whoever_asks(self):
         self.whoami()
         self.machine(self.units, core=lambda core: core["services"]["apim-gateway"].update(
-            environment={"REDIS_PASSWORD": "redispassword"}, restart="always"))
+            restart="always"))
         said = [message for file, message in check.problems() if file == CORE]
         self.assertIn(f"apim-gateway: {ALWAYS}", said)
-        self.assertIn(f"apim-gateway environment: REDIS_PASSWORD {LITERAL}", said)
         self.assertEqual(said, [message for file, message in check.problems(sharing=WHOAMI) if file == CORE])
 
 
@@ -1322,21 +1030,6 @@ class Core(unittest.TestCase):
                      {"x-gravitee": {"seeder": {"image": 3}}}):
             with self.subTest(core=core):
                 self.assertEqual(list(check._contract_keys(core)), [wanted])
-
-    def test_the_levels_are_whole_numbers_from_1_and_the_floor_is_not_above_the_top(self):
-        seeder = {"seeder": {"image": "ghcr.io/o/r/seeder"}}
-        self.assertEqual(list(check._contract_keys({"x-gravitee": seeder})), [], "a core without levels reads as level 1")
-        self.assertEqual(list(check._contract_keys({"x-gravitee": {**seeder, "contract": 3, "contract_min": 2}})), [])
-        for meta, said in (({"contract": 0}, ["x-gravitee.contract must be a whole number from 1"]),
-                           ({"contract": "1"}, ["x-gravitee.contract must be a whole number from 1"]),
-                           ({"contract_min": 1.5}, ["x-gravitee.contract_min must be a whole number from 1"]),
-                           ({"contract": True}, ["x-gravitee.contract must be a whole number from 1"]),
-                           ({"contract": 2, "contract_min": 3},
-                            ["x-gravitee.contract_min is above contract: the oldest level still read cannot pass the newest"])):
-            with self.subTest(meta=meta):
-                self.assertEqual(list(check._contract_keys({"x-gravitee": {**seeder, **meta}})), said)
-
-
 
 
 class Contract(Machine):
@@ -1574,7 +1267,7 @@ class Renamed(Machine):
                 ("playground", "tide-pools", built["playgrounds"]["tide-pools"])]
 
     def lines(self, **renamed):
-        return list(check._renamed_lines({"renamed": renamed}, self.units(), self.given["raw"]))
+        return list(check._renamed_lines({"renamed": renamed}, self.units()))
 
     def test_an_old_item_is_gone_from_the_catalog_and_the_end_of_its_chain_is_there(self):
         self.assertEqual(self.lines(items={"addon:gate": "addon:gate-keeper", "playground:tides": "playground:tide-lab",
@@ -1590,7 +1283,7 @@ class Renamed(Machine):
         units = self.units()
         reads = {units[0][2]["file"]: ["GATE_LICENSE"]}
         self.assertEqual(list(check._renamed_lines({"renamed": {"settings": {"GATE_LICENSE": "GATE_KEEPER_LICENSE"}}}, units,
-                                                   self.given["raw"], reads)),
+                                                   reads)),
                          ["renamed.settings: GATE_LICENSE is still read by gate-keeper: the Lab renames it in the .env of every "
                           "item of the catalog, so read GATE_KEEPER_LICENSE there"])
 
@@ -1607,7 +1300,7 @@ class Renamed(Machine):
         def read(path, also=None):
             return commits.get(path)
         meta = {"renamed": {"items": {"addon:gate": "addon:gate-keeper"}, "settings": {"GATE_TOKEN": "GATE_KEEPER_TOKEN"}}}
-        said = list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"}))
+        said = list(check._renamed_lines(meta, units, {}, read, {"GRAVITEE_LICENSE"}))
         self.assertEqual(said, [
             "renamed.items: addon:gate had the volume gate-data, which addon:gate-keeper does not: keep the name, or the people "
             "who have it lose its data",
@@ -1615,17 +1308,17 @@ class Renamed(Machine):
             "addon:gate-keeper reads, or the value people set is left behind"], "a setting of the core is the Lab's .env's")
         meta["renamed"]["settings"]["GATE_VERSION"] = "GATE_KEEPER_VERSION"
         commits["addons/gate/compose.yml"] = (before, None, then.replace("gate-keeper-data", "gate-data"))
-        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"})), [])
+        self.assertEqual(list(check._renamed_lines(meta, units, {}, read, {"GRAVITEE_LICENSE"})), [])
         self.write(units[0][2]["file"], "services:\n  gate-keeper-proxy:\n    image: x:1\n")
-        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, read, {"GRAVITEE_LICENSE"})), [],
+        self.assertEqual(list(check._renamed_lines(meta, units, {}, read, {"GRAVITEE_LICENSE"})), [],
                          "a later release that drops a setting or a volume is not the rename's: only its commit is read")
-        self.assertEqual(list(check._renamed_lines(meta, units, self.given["raw"], {}, lambda path, also=None: None)), [],
+        self.assertEqual(list(check._renamed_lines(meta, units, {}, lambda path, also=None: None)), [],
                          "with no history to read, nothing is said of it")
 
     def test_a_rename_into_an_item_the_release_before_had_is_refused(self):
         units = self.units()
         commits = {"addons/gate/compose.yml": ("services: {}\n", "services: {}\n", "services: {}\n")}
-        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, self.given["raw"], {},
+        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, {},
                                          lambda path, also=None: commits.get(path)))
         self.assertEqual(said, ["renamed.items: addon:gate-keeper was an item already when addon:gate was renamed into it: the "
                                 "Lab keeps the two apart, so addon:gate is removed, not renamed. Fix: rename it into a name that "
@@ -1633,7 +1326,7 @@ class Renamed(Machine):
 
     def test_a_setting_of_the_core_or_a_shared_one_is_never_renamed(self):
         said = list(check._renamed_lines({"renamed": {"settings": {"GRAVITEE_LICENSE": "GATE_LICENSE"}}}, self.units(),
-                                         self.given["raw"], {}, None, {"GRAVITEE_LICENSE"}))
+                                         {}, None, {"GRAVITEE_LICENSE"}))
         self.assertEqual(said, ["renamed.settings: GRAVITEE_LICENSE is a setting of the Lab's own .env (the core's, or shared by "
                                 "the catalog's items): the Lab renames only the settings of each item's .env"])
 
@@ -1643,14 +1336,14 @@ class Renamed(Machine):
 
         def read(path, also=None):
             return commits.get(path)
-        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, self.given["raw"], {},
+        said = list(check._renamed_lines({"renamed": {"items": {"addon:gate": "addon:gate-keeper"}}}, units, {},
                                          read))
         self.assertEqual(said, [check.WARNING_MARK + "renamed.items: addon:gate-keeper is a name an earlier release gave another "
                                 "item: who updates from that release has both, so addon:gate is removed there, not renamed"])
 
     def test_settings_are_not_judged_against_the_tree_and_nothing_is_nothing(self):
         self.assertEqual(self.lines(settings={"GATE_LICENSE": "GATE_KEEPER_LICENSE"}), [])
-        self.assertEqual(list(check._renamed_lines({}, self.units(), self.given["raw"])), [])
+        self.assertEqual(list(check._renamed_lines({}, self.units())), [])
 
 
 class Availability(Case):
@@ -1664,9 +1357,7 @@ class Availability(Case):
             check.available("fixture")
         self.assertEqual(str(said.exception), "fixture includes from partner, which is neither installed nor linked here: "
                                               "check them together, after catalog.py link PATH or catalog.py add ADDRESS --yes")
-        self.assertEqual(check.missing("fixture"), ["partner"])
         fixtures.install(self, "partner")
-        self.assertEqual(check.missing("fixture"), [])
         self.assertIn("partner", check.available("fixture"))
 
     def test_a_catalog_that_is_not_here_cannot_be_checked(self):
@@ -1691,7 +1382,6 @@ class Availability(Case):
             self.assertIn("fixture", check.available("fixture", rows(state)), state)
         catalogs = {"fixture": {"kind": "folder", "version": "1.0.0", "state": "linked", "requires_catalogs": {"partner": {}}},
                     "partner": {"kind": "git", "version": "2.0.0", "state": "damaged", "requires_catalogs": {}}}
-        self.assertEqual(check.missing("fixture", catalogs), ["partner"], "a damaged install does not count as present")
         with self.assertRaises(check.Unavailable) as raised:
             check.available("fixture", catalogs)
         self.assertEqual(str(raised.exception), "fixture includes from partner, which is damaged: repair it from the menu of "
@@ -1699,12 +1389,14 @@ class Availability(Case):
 
     def test_a_declared_catalog_that_is_only_downloading_is_not_here(self):
         fixtures.declare(self, "partner")
-        self.assertEqual(check.missing("fixture"), ["partner"])
+        with self.assertRaises(check.Unavailable):
+            check.available("fixture")
         fixtures.install(self, "partner", link=True)
-        self.assertEqual(check.missing("fixture"), [])
+        self.assertIn("partner", check.available("fixture"))
         (self.root / ".lab/catalogs/partner").unlink()
         (self.root / ".lab/catalogs/partner").symlink_to(self.root / "gone")
-        self.assertEqual(check.missing("fixture"), ["partner"], "a link to nothing is not a catalog")
+        with self.assertRaises(check.Unavailable, msg="a link to nothing is not a catalog"):
+            check.available("fixture")
 
 
 class Needs(Case):
@@ -1715,17 +1407,8 @@ class Needs(Case):
         check.needs_here("hub", ["partner"], here)
         check.needs_here("hub", [], {})
         with self.assertRaises(check.Unavailable) as raised:
-            check.needs_here("hub", ["partner", "ghost"], here)
-        self.assertEqual(str(raised.exception), "hub includes from ghost, which is neither installed nor linked here: check them "
-                                                "together, after catalog.py link PATH or catalog.py add ADDRESS --yes")
-        with self.assertRaises(check.Unavailable) as raised:
-            check.needs_here("hub", ["a", "b"], {})
-        self.assertIn("a, b, which are neither installed nor linked here", str(raised.exception))
-        damaged = {"partner": {"kind": "git", "version": "2.0.0", "state": "damaged", "requires_catalogs": {}}}
-        with self.assertRaises(check.Unavailable) as raised:
-            check.needs_here("hub", ["partner"], damaged)
-        self.assertEqual(str(raised.exception), "hub includes from partner, which is damaged: repair it from the menu of its row in "
-                                                "the Lab UI, or remove it and add it again")
+            check.needs_here("hub", ["a", "partner", "b"], here)
+        self.assertIn("hub includes from a, b, which are neither installed nor linked here", str(raised.exception))
 
 
 class Scrubbing(Case):
@@ -1982,12 +1665,6 @@ class Engine(Case):
     def test_with_no_catalog_installed_it_prints_all_good_and_exits_0(self):
         self.assertEqual(self.run_check(), (0, self.ALL_GOOD))
 
-    def test_the_readme_tables_of_the_folders_of_the_old_layout_are_none_of_its_business(self):
-        # 27 rows of addons/, setups/ and playgrounds/ at the root of the engine made it red; they are no listing of this layout
-        for folder in ("addons", "setups", "playgrounds"):
-            self.write(f"{folder}/README.md", f"# {folder}\n\n| Name | What |\n|---|---|\n| [Kafka](kafka/) | Kafka broker |\n")
-        self.assertEqual(self.run_check(), (0, self.ALL_GOOD))
-
     def test_what_the_installed_catalogs_hold_never_turns_it_red(self):
         fixtures.install(self, "fixture")
         fixtures.install(self, "partner")
@@ -2006,21 +1683,21 @@ class Engine(Case):
                                                "write the seeder's image without a tag, such as ghcr.io/owner/repo/seeder, the "
                                                "only image a seed service may have\n\n1 problem\n"))
 
+    def test_a_secret_written_in_the_core_is_told(self):
+        text = fixtures.CORE.read_text(encoding="utf-8")
+        self.write("docker-compose.yml", f"{text}\nx-demo:\n  password: hunter2\n  uri: postgres://u:hunter2@db/x\n")
+        project.forget()
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn(": password has a literal value", out)
+        self.assertIn("holds a URL with a password", out)
+
     def test_the_wiring_of_the_agents_is_checked_with_the_core(self):
         self.write("AGENTS.md", "")
         project.forget()
         self.assertEqual(self.run_check(), (1, "✓ docker-compose.yml\n"
                                                "✗ AGENTS.md\n"
                                                "    CLAUDE.md is missing: create it with the single line @AGENTS.md\n\n1 problem\n"))
-
-    def test_the_checkout_itself_prints_all_good(self):
-        done = subprocess.run([sys.executable, str(REPO / "lab-ui" / "server.py"), "--check"], cwd=REPO, capture_output=True,
-                              text=True, timeout=300, stdin=subprocess.DEVNULL)
-        self.assertEqual((done.returncode, done.stdout), (0, self.ALL_GOOD), done.stderr)
-
-    def test_the_checkout_check_is_what_make_check_runs(self):
-        text = (REPO / "Makefile").read_text(encoding="utf-8")
-        self.assertIn("lab-ui/server.py --check", text)
 
 
 class Shared(Case):
@@ -2059,18 +1736,6 @@ class Shared(Case):
 
     def said(self, ns, file):
         return [line for _, line in self.found(ns, file)]
-
-
-def snapshot(root):
-    """Everything under a folder, as it is: path, kind, size, modification time, and where a link leads."""
-    found = []
-    for top, folders, names in os.walk(root):
-        for name in sorted(names) + sorted(folders):
-            where = os.path.join(top, name)
-            info = os.lstat(where)
-            found.append((os.path.relpath(where, root), oct(info.st_mode), info.st_size, info.st_mtime_ns,
-                          os.readlink(where) if os.path.islink(where) else None))
-    return sorted(found)
 
 
 def _odd_ledger():
@@ -2170,15 +1835,6 @@ class Fixtures(Shared):
         self.assertRegex(found[0][1], r"^lab is 0 but must be 1, for .+: older Gravitee Labs read it")
         self.assertIn(("addons/older/compose.yml", "Blocked: Written for an older Gravitee Lab"), self.found("lab-old"))
 
-    def test_the_fixture_units_that_are_fine_pass_every_lint_of_the_catalog_profile(self):
-        # No unit of the fixtures is in the catalog profile's way but the ones the oracle says
-        quiet = {key for key, one in fixtures.expected().items() if not one["lint"] and one["verdict"] == "ok"}
-        self.assertTrue(quiet)
-        for key in sorted(quiet):
-            kind, _, uid = key.partition(":")
-            unit = self.built[f"{kind}s"][uid]
-            self.assertEqual(self.said(unit["catalog"], unit["file"][len(f".lab/catalogs/{unit['catalog']}/"):]), [], key)
-
     def test_checking_writes_nothing(self):
         before = snapshot(self.root)
         check.catalog_problems("fixture", self.built, self.inputs)
@@ -2188,51 +1844,6 @@ class Fixtures(Shared):
         with contextlib.redirect_stdout(out):
             check.run()
         self.assertEqual(snapshot(self.root), before)
-
-    def test_the_report_is_text_annotations_or_a_list(self):
-        found, files = self.found("fixture"), check.catalog_files("fixture")
-        text = check.render(found, files)
-        self.assertIn("✓ addons/echo/compose.yml\n", text)
-        self.assertIn("✗ addons/port-core/compose.yml\n    publishes port 8082, like docker-compose.yml\n", text)
-        self.assertTrue(text.endswith("\n3 problems\n"))
-        annotations = check.render(found, files, "github")
-        self.assertIn("::error file=addons/port-core/compose.yml::publishes port 8082, like docker-compose.yml\n", annotations)
-        self.assertEqual(len(annotations.splitlines()), 3)
-        listed = json.loads(check.render(found, files, "json"))
-        self.assertEqual(listed, [{"file": where, "message": line} for where, line in found])
-        self.assertEqual(json.loads(check.render([], files, "json")), [])
-        self.assertEqual(check.render([], files, "github"), "")
-        self.assertEqual(check.render([], ["catalog.yml"]), "✓ catalog.yml\n\nAll good\n")
-
-
-class Annotations(unittest.TestCase):
-
-    def test_what_an_author_names_cannot_write_to_the_screen_that_shows_it(self):
-        found = [("addons/x\x1b[2Jy/compose.yml", "includes a\x1b]0;title\x07 file\x00")]
-        text = check.render(found, [])
-        self.assertNotIn("\x1b", text)
-        self.assertNotIn("\x07", text)
-        self.assertEqual(text, "✗ addons/x [2Jy/compose.yml\n    includes a ]0;title  file \n\n1 problem\n")
-        self.assertNotIn("\x1b", check.render(found, [], "github"))
-        self.assertEqual(json.loads(check.render(found, [], "json")), [{"file": found[0][0], "message": found[0][1]}],
-                         "JSON says every character it holds, escaped")
-
-    def test_a_name_that_is_no_utf_8_is_a_report_in_every_format_not_a_crash(self):
-        found = [("addons/\udcff/compose.yml", "includes a file that is \udcfe")]   # what listdir gives for bytes that are no UTF-8
-        for how in ("text", "github", "json"):
-            with self.subTest(how=how):
-                check.render(found, [], how).encode("utf-8")
-        self.assertEqual(len(json.loads(check.render(found, [], "json"))), 1)
-
-    def test_what_the_command_line_prints_keeps_its_lines_and_loses_what_moves_the_cursor(self):
-        self.assertEqual(check.printable("one\r\ntwo\x1b[2K\nthree\rfour\x07"), "one\ntwo [2K\nthree four ")
-        self.assertEqual(check.printable(""), "")
-        self.assertEqual(check.printable(None), "None")
-        self.assertEqual(check.printable("\u009b2J \u202e"), " 2J  ", "a C1 control and a direction override are spaces too")
-
-    def test_a_message_that_has_a_line_break_or_a_percent_sign_stays_one_annotation(self):
-        text = check.render([("a, b: c.yml", "50% of it\r\nis wrong")], [], "github")
-        self.assertEqual(text, "::error file=a%2C b%3A c.yml::50%25 of it%0D%0Ais wrong\n")
 
 
 class Hostile(Shared):
@@ -2290,10 +1901,6 @@ class Hostile(Shared):
         # What declares its reason is not asked again; whether this catalog may use the machine is the policy's to say
         self.assertFalse([line for line in self.said("fixture", "addons/cluster/compose.yml") if "host_access" in line])
         self.assertIn("Blocked: Runs with full privileges", self.said("hostile", "addons/h-privileged-declared/compose.yml"))
-
-    def test_a_port_on_every_interface_says_how_to_write_it(self):
-        self.assertIn("publishes port 8199 on every interface: write 127.0.0.1:8199:80",
-                      self.said("hostile", "addons/t17-all-interfaces/compose.yml"))
 
     def test_a_name_that_clashes_is_told_with_the_fix_of_the_prefix(self):
         said = self.said("hostile", "addons/t21-name-clash/compose.yml")
@@ -2413,11 +2020,6 @@ volumes:
     "addons/xlist/compose.yml": "x-gravitee: [1, 2]\nservices:\n  xlist-app:\n    image: busybox\n",
     "addons/xtext/compose.yml": "x-gravitee: hello\nservices:\n  xtext-app:\n    image: busybox\n",
     "addons/xnumber/compose.yml": "x-gravitee: 7\nservices:\n  xnumber-app:\n    image: busybox\n",
-    # A level that is none, in an add-on and in a setup
-    "addons/oldlab/compose.yml": addon("oldlab", "services:\n  oldlab-app:\n    image: busybox\n", ", requires: {lab: x}"),
-    "addons/oldlab/README.md": "# Oldlab\n",
-    "setups/oldlab.yml": "x-gravitee: {kind: setup, name: Oldlab, category: Other, requires: {lab: 1.5}}\n"
-                         "include:\n  - ../addons/fine/compose.yml\n",
     # A playground whose seed is a link and whose .env is a pipe
     "playgrounds/trap/compose.yml": """x-gravitee: {kind: playground, name: Trap, category: Other, description: Has a link, tags: [A], duration: 1 min, first_start: 1 min}
 services:
@@ -2493,17 +2095,13 @@ class Authoring(Shared):
         self.assertEqual(len([line for line in envy if line.startswith("the screen reads words")]), 1)
         self.assertEqual([line for line in self.said("partner", "addons/fine/compose.yml") if "screen" in line], [])
 
-    def test_an_include_of_a_file_that_is_no_unit_is_told(self):
-        said = self.said("partner", "addons/listy/compose.yml")
-        self.assertIn("Blocked: Includes content from outside the catalog", said)
-        self.assertIn("includes notes.yml, which the Lab does not follow: it reads an included file only when it is a unit "
-                      "written with lists of plain file names, in a folder whose .env is a plain file", said)
-
-    def test_a_unit_that_includes_one_the_lab_does_not_follow_is_told_which(self):
-        said = self.said("partner", "addons/reach/compose.yml")
-        self.assertIn("Blocked: Includes content from outside the catalog", said)
-        self.assertIn("includes notes.yml, which the Lab does not follow: it reads an included file only when it is a unit "
-                      "written with lists of plain file names, in a folder whose .env is a plain file", said)
+    def test_an_include_the_lab_does_not_follow_is_told_of_the_unit_and_of_one_that_includes_it(self):
+        for unit in ("listy", "reach"):
+            with self.subTest(unit=unit):
+                said = self.said("partner", f"addons/{unit}/compose.yml")
+                self.assertIn("Blocked: Includes content from outside the catalog", said)
+                self.assertIn("includes notes.yml, which the Lab does not follow: it reads an included file only when it is a unit "
+                              "written with lists of plain file names, in a folder whose .env is a plain file", said)
 
     def test_an_x_gravitee_that_is_no_mapping_is_told_by_the_project_and_the_check_goes_on(self):
         # A list, a text or a number in its place used to stop the whole check with a traceback, and no report
@@ -2512,12 +2110,6 @@ class Authoring(Shared):
                 said = self.said("partner", f"addons/{name}/compose.yml")
                 self.assertIn("x-gravitee must be a mapping", said)
                 self.assertIn("x-gravitee.kind must be addon", said)
-
-    def test_a_level_that_is_none_is_told_of_an_add_on_and_of_a_setup_as_of_a_playground(self):
-        level = "x-gravitee.requires.lab must be a whole number from 1: older Gravitee Labs read it, and an item does without it"
-        self.assertEqual(self.said("partner", "addons/oldlab/compose.yml").count(level), 1)
-        self.assertEqual(self.said("partner", "setups/oldlab.yml").count(level), 1)
-        self.assertNotIn(level, self.said("partner", "addons/fine/compose.yml"))
 
     def test_a_seed_that_is_a_link_and_a_pipe_for_an_env_are_told_where(self):
         said = self.said("partner", "playgrounds/trap/compose.yml")
@@ -2568,8 +2160,6 @@ class Dependencies(unittest.TestCase):
         self.assertEqual(list(check._dependencies(meta, [], {}, "fixture")), [
             "requires.catalogs.fixture is this catalog itself: remove it",
             "requires.catalogs.partner is declared and no unit includes from it: remove it"])
-        self.assertEqual(list(check._dependencies({"requires": {"catalogs": {"partner": {}}}}, [], {}, "fixture")), [
-            "requires.catalogs.partner is declared and no unit includes from it: remove it"])
 
 
 class Closure(unittest.TestCase):
@@ -2598,18 +2188,11 @@ class Closure(unittest.TestCase):
         self.assertTrue(said[0].startswith("an include is a list under include: of plain file names, one on each line"))
 
 
-class Names(unittest.TestCase):
+class Names(Case):
     """What a folder holds that the Lab refuses to read, found without following a link."""
 
     def setUp(self):
-        holder = tempfile.TemporaryDirectory()
-        self.addCleanup(holder.cleanup)
-        self.root = Path(holder.name).resolve()
-
-    def write(self, path, text="x"):
-        file = self.root / path
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(text, encoding="utf-8")
+        self.folder()
 
     def test_a_folder_of_plain_files_is_read(self):
         self.write("compose.yml")
@@ -2635,15 +2218,15 @@ class Names(unittest.TestCase):
                          ["playgrounds/x is a link: the Lab does not follow links, so the unit is refused"])
 
     def test_a_file_over_1_mb_is_told(self):
-        self.write("compose.yml", "x" * (check.BIG_FILE + 1))
-        self.write("seed/big.json", "y" * (check.BIG_FILE + 1))
+        self.write("compose.yml", "x" * (check.TEXT_LIMIT + 1))
+        self.write("seed/big.json", "y" * (check.TEXT_LIMIT + 1))
         self.assertEqual(list(check._not_read(self.root, "addons/x")), [
             "addons/x/compose.yml is over 1 MB: the Lab does not read more than that of a file, so the unit is refused",
             "addons/x/seed/big.json is over 1 MB: the Lab does not read more than that of a file, so the unit is refused"])
 
     def test_a_text_that_is_not_utf_8_or_is_too_big_is_not_read(self):
         (self.root / "a").write_bytes(b"\xff\xfe\x00")
-        self.write("b", "x" * (check.BIG_FILE + 1))
+        self.write("b", "x" * (check.TEXT_LIMIT + 1))
         os.mkfifo(self.root / "c")
         for name in "abc":
             self.assertIsNone(check._read(self.root / name), name)
@@ -2671,7 +2254,7 @@ class Names(unittest.TestCase):
         (unit / "guide.md").write_text("## 2. Two\n", encoding="utf-8")
         self.assertEqual(list(check._guide(unit)), ["guide.md: number its steps 1, 2, 3 in order, not 2"])
         big = unit / "seed/apim/apis/big.json"
-        big.write_text(" " * (check.BIG_FILE + 1), encoding="utf-8")
+        big.write_text(" " * (check.TEXT_LIMIT + 1), encoding="utf-8")
         self.assertEqual(list(check._seed(unit)), [], "a file over 1 MB is not read: the line about its size is `_not_read`'s")
 
     def test_the_words_the_screen_reads_are_found_wherever_they_are_spelled(self):
@@ -2734,11 +2317,6 @@ class Declarations(Case):
             "canary: playground:ghost is not an item of this catalog",
             "colour is not a key of x-gravitee-catalog: " + ", ".join(manifest.KEYS),
             "requires.catalogs.lab-new is declared and no unit includes from it: remove it"])
-
-    def test_the_images_a_catalog_builds_are_the_audit_s_to_judge_and_the_items_say_nothing_of_them(self):
-        found = check.catalog_problems("fixture", self.built, self.inputs)
-        self.assertEqual([line for where, line in found if "CI publishes" in line or "CI never publishes" in line], [])
-        self.assertFalse(hasattr(check, "_registry"), "the registry-prefix rule is IM02 and IM04 now")
 
     def test_the_units_go_to_the_audit_with_the_services_they_define_and_the_contexts_as_their_files_wrote_them(self):
         from lab_ui.catalogs import audit

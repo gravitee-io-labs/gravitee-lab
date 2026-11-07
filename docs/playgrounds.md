@@ -502,8 +502,8 @@ seed/environments/<id>/
 
 - **The id** is the folder's name, the environment's id and its hrid: lowercase letters, digits and dashes, not `local` or `default`,
   and never the platform's own (`APIM_ENV`), which the seed refuses. `environment.yaml` repeats the id and holds a `name`, and
-  `make check` says when they are missing or differ. The id, the name and the description are one line of plain or quoted
-  text with no ` #` in it: the init script, `make check` and the seed read the file in three ways, and agree on that. `${ENV_ID}` and `${ENV_NAME}` stand for the id and the name in every
+  the seed and the catalog's CI (`seedlint.py`) say when they are missing or differ. The id, the name and the description are one line of plain or quoted
+  text with no ` #` in it: the init script and the seed read the file in two ways, and agree on that. `${ENV_ID}` and `${ENV_NAME}` stand for the id and the name in every
   file of the folder: the engine sets them, the seed service sets every other variable.
 - **The seed never creates or deletes an environment**, because [no API does](#environments-and-developer-portals). It looks
   the environment up by id and stops with `Environment <id> does not exist on this platform` when it is missing. The playground

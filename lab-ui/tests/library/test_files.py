@@ -1091,45 +1091,27 @@ class Rendered(Case):
             self.assertEqual({name for name in hashes if hashes[name] != in_place[name]}, {"fixture-echo"})
             self.assertEqual(self.snapshot(), before)
 
-    def test_a_preview_of_a_file_that_a_setup_includes_gives_the_hashes_of_the_files_in_place(self):
-        # The setup includes echo and the ledger of the partner catalog, and is listed among the files that change the
-        # gateway
+    def test_a_preview_of_a_file_between_those_that_change_the_gateway_gives_the_hashes_of_the_files_in_place(self):
+        # A setup that includes echo and the ledger of the partner catalog; a file of this machine that includes a file of a
+        # catalog; a file of this machine, read with a copy beside it where one of a catalog is read with a copy in the
+        # scratch folder, and the two ways agree
         fixtures.install(self, "partner")
-        pair = fixtures.unit_file("fixture", "setup", "pair")
-        listing = self.overlays("ova", "ovb")
-        self.write(".lab/on.yml", "include:\n" + "".join(f"  - {file}\n" for file in [listing[0], pair, listing[1]]))
-        in_place, before = compose.config_hashes(), self.snapshot()
-        self.assertLessEqual({"fixture-echo", "partner-ledger"}, set(in_place))
-        for path in (ECHO, fixtures.unit_file("partner", "addon", "ledger"), pair, *listing):
-            with self.subTest(path):
-                self.assertEqual(files.draft_hashes(UNIT, path, (self.root / path).read_text(encoding="utf-8")),
-                                 (in_place, True))
-        self.assertEqual(self.snapshot(), before)
-
-    def test_a_preview_of_a_file_of_a_catalog_that_a_file_of_this_machine_includes_is_the_same(self):
-        mine = ".lab/catalogs/local/addons/viewer/compose.yml"
-        self.write(mine, "services:\n  viewer:\n    image: busybox\ninclude:\n  - ../../../fixture/addons/echo/compose.yml\n")
-        listing = self.overlays("ova", "ovb")
-        self.write(".lab/on.yml", "include:\n" + "".join(f"  - {file}\n" for file in [listing[0], mine, listing[1]]))
-        in_place, before = compose.config_hashes(), self.snapshot()
-        self.assertLessEqual({"viewer", "fixture-echo"}, set(in_place))
-        for path in (ECHO, mine, *listing):
-            with self.subTest(path):
-                self.assertEqual(files.draft_hashes(UNIT, path, (self.root / path).read_text(encoding="utf-8")),
-                                 (in_place, True))
-        self.assertEqual(self.snapshot(), before)
-
-    def test_a_preview_is_the_same_for_a_file_of_this_machine_and_one_of_a_catalog(self):
-        # The two ways of reading a file in its place, a copy beside it and a copy in the scratch folder, agree
         fixtures.local(self, "scratch")
-        mine = fixtures.unit_file("local", "addon", "scratch")
-        listing = self.overlays("ova", "ovb")
-        self.write(".lab/on.yml", "include:\n" + "".join(f"  - {file}\n" for file in [listing[0], mine, listing[1]]))
-        in_place = compose.config_hashes()
-        for path in (listing[0], mine, listing[1]):
-            with self.subTest(path):
-                self.assertEqual(files.draft_hashes(UNIT, path, (self.root / path).read_text(encoding="utf-8")),
-                                 (in_place, True))
+        viewer = self.write(".lab/catalogs/local/addons/viewer/compose.yml",
+                            "services:\n  viewer:\n    image: busybox\ninclude:\n  - ../../../fixture/addons/echo/compose.yml\n")
+        pair, ledger = fixtures.unit_file("fixture", "setup", "pair"), fixtures.unit_file("partner", "addon", "ledger")
+        first, last = self.overlays("ova", "ovb")
+        for middle, previewed, services in ((pair, (ECHO, ledger), {"fixture-echo", "partner-ledger"}),
+                                            (viewer, (ECHO,), {"viewer", "fixture-echo"}),
+                                            (fixtures.unit_file("local", "addon", "scratch"), (), set())):
+            self.write(".lab/on.yml", f"include:\n  - {first}\n  - {middle}\n  - {last}\n")
+            in_place, before = compose.config_hashes(), self.snapshot()
+            self.assertLessEqual(services, set(in_place))
+            for path in (*previewed, middle, first, last):
+                with self.subTest(middle=middle, path=path):
+                    self.assertEqual(files.draft_hashes(UNIT, path, (self.root / path).read_text(encoding="utf-8")),
+                                     (in_place, True))
+            self.assertEqual(self.snapshot(), before)
 
 
 class Linked(Rendered):

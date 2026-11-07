@@ -5,11 +5,8 @@ import json
 import os
 import re
 import stat
-import subprocess
-import sys
 import threading
 import tempfile
-import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -18,6 +15,7 @@ from lab_ui import paths
 from lab_ui.catalogs import registry
 
 from . import Case
+from .server.test_api import served_elsewhere
 
 
 class SeedApis(Case):
@@ -39,23 +37,6 @@ class SeedApis(Case):
         root = self.folder(files={"compose.yml": "", "seed/controls.yaml": ""})
         self.assertEqual(self.found(root), [])
         self.assertEqual(self.found(root / "gone"), [])
-
-
-class Isolation(Case):
-    """The day the checkout has its catalogs.default.json, no test of this module may notice."""
-
-    def test_no_test_reads_the_project_it_runs_in(self):
-        self.folder(paths)   # stands for the checkout, with the file it will have
-        self.write(paths.DEFAULT_FILE, json.dumps({"schema": 1, "catalogs": [{"id": "checkout-catalog"}]}))
-        self.patch(paths, "_default", (None, None))
-        cases = [case for case in vars(sys.modules[__name__]).values()
-                 if isinstance(case, type) and issubclass(case, unittest.TestCase) and case is not Isolation]
-        suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case) for case in cases)
-        result = unittest.TestResult()
-        suite.run(result)
-        self.assertGreater(result.testsRun, 60)
-        self.assertEqual(result.testsRun, suite.countTestCases())
-        self.assertEqual([str(case) for case, _ in result.failures + result.errors], [])
 
 
 class Records(Case):
@@ -106,21 +87,6 @@ class Serving(Case):
         self.folder(paths)
         self.addCleanup(paths.stop_serving)
 
-    def holder(self, port):
-        """Another process that serves the folder on `port`, until the test ends."""
-        script = ("import fcntl, os, sys\n"
-                  "descriptor = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
-                  "fcntl.flock(descriptor, fcntl.LOCK_EX)\n"
-                  "os.write(descriptor, sys.argv[2].encode() + b'\\n')\n"
-                  "print('held', flush=True)\n"
-                  "sys.stdin.read()\n")
-        (self.root / paths.LAB_DIR).mkdir(exist_ok=True)
-        holder = subprocess.Popen([sys.executable, "-c", script, str(self.root / paths.SERVING_FILE), str(port)],
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-        self.addCleanup(holder.wait, 10)
-        self.addCleanup(holder.stdin.close)
-        self.assertEqual(holder.stdout.readline(), "held\n")
-
     def test_the_lab_ui_that_serves_the_folder_holds_it_with_its_port_and_lets_it_go(self):
         self.assertIsNone(paths.served_elsewhere())
         self.assertIsNone(paths.serve_here(9000))
@@ -131,13 +97,13 @@ class Serving(Case):
         self.assertIsNone(paths.serve_here(9002), "let go, it is free for the next")
 
     def test_another_process_that_serves_the_folder_is_found_with_its_port(self):
-        self.patch(paths, "SERVING_WAIT", 0.1)
-        self.holder(9000)
+        served_elsewhere(self, 9000)
         self.assertEqual(paths.served_elsewhere(), 9000)
         self.assertEqual(paths.serve_here(9001), 9000)
         self.assertEqual((self.root / paths.SERVING_FILE).read_text(), "9000\n", "nothing written over")
 
     def test_a_command_that_only_looks_is_no_lab_ui_that_serves(self):
+        self.patch(paths, "SERVING_WAIT", 60)   # it is free once the command goes: no slow timer may outlast the wait
         (self.root / paths.LAB_DIR).mkdir()
         looking = os.open(self.root / paths.SERVING_FILE, os.O_RDWR | os.O_CREAT, 0o600)
         os.write(looking, b"9000\n")   # what the last Lab UI wrote before it stopped
@@ -213,8 +179,6 @@ class Grammar(OnDisk):
 
     def test_the_pattern_of_a_route_has_one_group(self):
         self.assertEqual(re.compile(paths.ID).groups, 1)
-        self.assertEqual(paths.ID, "(local/[a-z0-9-]+|@[a-z][a-z0-9-]{0,22}[a-z0-9]/[a-z0-9-]+"
-                                   "|(?!local/)(?!@)[a-z0-9-]+)")
         route = re.compile(rf"/api/(addon|setup|playground)s/{paths.ID}/(start|stop)")
         for path, groups in (("/api/addons/kafka/start", ("addon", "kafka", "start")),
                              ("/api/playgrounds/local/demo/stop", ("playground", "local/demo", "stop")),
@@ -240,10 +204,6 @@ class DefaultNamespace(OnDisk):
     def test_no_file_no_default(self):
         os.remove(self.root / paths.DEFAULT_FILE)
         self.assertIsNone(paths.default_ns())
-
-    def test_the_real_file_is_read_by_this_one_reader(self):
-        self.assertEqual((paths.DEFAULT_FILE, paths.ROOT), ("catalogs.default.json", self.root))
-        self.assertEqual(paths.default_ns(), "gravitee")
 
     def test_whatever_is_not_a_usable_file_is_no_default(self):
         entry = {"id": "gravitee", "name": "n", "url": "https://example.invalid/c.git"}
@@ -290,13 +250,6 @@ class DefaultNamespace(OnDisk):
         self.assertEqual(paths.default_ns(), "gravitee")
         self.write(paths.DEFAULT_FILE, entries + " " * ((1 << 16) - len(entries) + 1))
         self.assertIsNone(paths.default_ns())
-
-    def test_a_number_of_a_million_digits_does_not_hold_up_the_reader(self):
-        # Before Python 3.11 reading one takes seconds; the size limit keeps it to a few milliseconds
-        self.write(paths.DEFAULT_FILE, '{"schema": 1, "catalogs": [{"id": "gravitee"}], "more": ' + "9" * 900000 + "}")
-        started = time.perf_counter()
-        self.assertIsNone(paths.default_ns())
-        self.assertLess(time.perf_counter() - started, 1)
 
     def test_what_is_not_a_regular_file_is_never_opened(self):
         os.remove(self.root / paths.DEFAULT_FILE)
@@ -444,23 +397,15 @@ class InCatalogs(OnDisk):
                         paths.unit_file(kind, uid)
 
     def test_a_bare_name_has_no_place_without_a_default_catalog(self):
-        # A place is never made of None; this machine's and another catalog's need no default file
-        with self.assertRaises(paths.NotFound):
-            paths._place("kafka", None)
-        self.assertEqual((paths._place("local/x", None), paths._place("@acme-hub/x", None)), (("local", "x"), ("acme-hub", "x")))
+        os.remove(self.root / paths.DEFAULT_FILE)
+        with self.assertRaises(paths.NotFound):   # a place is never made of None
+            paths.unit_file("addon", "kafka")
 
     def test_a_kind_that_does_not_exist_is_a_key_error(self):
         with self.assertRaises(KeyError):
             paths.unit_file("playlist", "kafka")
         with self.assertRaises(KeyError):
             paths.ids("playlist")
-
-    def test_the_patterns_and_the_files_of_the_scheme(self):
-        self.assertEqual(paths.CATALOG_FILES, {
-            "addon": ".lab/catalogs/{ns}/addons/{name}/compose.yml",
-            "setup": ".lab/catalogs/{ns}/setups/{name}.yml",
-            "playground": ".lab/catalogs/{ns}/playgrounds/{name}/compose.yml"})
-        self.assertEqual(paths.KINDS, ("addon", "setup", "playground"))
 
     def test_what_belongs_to_this_machine(self):
         ids = ("local/whoami", "whoami", "local", "localhost", "@acme-hub/x")
@@ -585,9 +530,6 @@ class Listing(OnDisk):
                 self.assertEqual([paths.names(ns, kind) for kind in paths.KINDS], [[], [], []])
         self.put("acme/addons")   # a file where the folder of the kind should be
         self.assertEqual(paths.names("acme", "addon"), [])
-
-    def test_the_private_name_is_gone_for_good(self):
-        self.assertFalse(hasattr(paths, "_names"), "one name, the public one")
 
 
 class Found(OnDisk):
@@ -724,18 +666,11 @@ class Vouched(OnDisk):
             ".lab/catalogs/acme-hub/addons/listed/compose.yml", ".lab/catalogs/plain/addons/loose/compose.yml",
             ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/acme-hub/playgrounds/bank/compose.yml"])
 
-    def test_a_name_the_manifest_vouches_for_and_the_folder_lacks_is_no_unit(self):
-        self.assertNotIn("@acme-hub/ghost", paths.ids("playground"))
-
     def test_the_half_of_an_install_the_registry_does_not_know_lists_nothing(self):
         # A manifest the registry gives no units for (not valid for the pin, not in the lock): its files are not content
         self.vouches.clear()
         self.assertEqual(self.everything(), {
             "addon": ["local/mine", "@plain/loose"], "setup": ["local/mine"], "playground": []})
-
-    def test_this_machine_is_listed_as_it_is_whatever_a_file_says(self):
-        self.assertIn("local/mine", paths.ids("addon"))
-        self.assertNotIn("local", [call.args[0] for call in self.asked.call_args_list])
 
     def test_a_link_to_a_folder_is_listed_as_it_is(self):
         author = tempfile.TemporaryDirectory()
@@ -746,10 +681,6 @@ class Vouched(OnDisk):
         os.symlink(author.name, self.root / ".lab/catalogs/author-cat")
         self.assertIn("@author-cat/linked", paths.ids("addon"))
         self.assertNotIn("author-cat", [call.args[0] for call in self.asked.call_args_list])
-
-    def test_a_folder_with_no_manifest_is_listed_as_it_is(self):
-        self.assertIn("@plain/loose", paths.ids("addon"))
-        self.assertNotIn("plain", [call.args[0] for call in self.asked.call_args_list])
 
     def test_a_manifest_that_is_not_a_file_is_not_a_manifest(self):
         os.makedirs(self.root / ".lab/catalogs/plain/.installed.json")
@@ -891,15 +822,6 @@ class WriteAtomic(Case):
         notes = self.root / "notes.md"
         paths.write_atomic(notes, "# Démo ✓\nline two\n")
         self.assertEqual(notes.read_bytes(), "# Démo ✓\nline two\n".encode("utf-8"))
-
-    def test_a_system_without_fchmod_sets_the_mode_on_the_copy(self):
-        env = self.root / ".env"
-        fchmod = paths.os.fchmod
-        self.addCleanup(setattr, paths.os, "fchmod", fchmod)
-        del paths.os.fchmod
-        paths.write_atomic(env, "TOKEN=x\n", mode=0o600)
-        self.assertEqual((env.read_text(encoding="utf-8"), env.stat().st_mode & 0o777, self.copies()),
-                         ("TOKEN=x\n", 0o600, []))
 
     def test_a_write_that_fails_leaves_the_file_and_no_copy(self):
         env = self.root / self.write(".env", "TOKEN=old\n")

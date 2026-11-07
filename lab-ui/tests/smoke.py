@@ -23,12 +23,12 @@ ITEM = {"kind", "id", "name", "personal", "held", "category", "description", "fi
         "up", "state", "progress", "note", "note_tone", "note_title", "note_target", "note_file", "links", "action",
         "secondary", "failed_job", "login"}
 OF_KIND = {"playgrounds": {"tags", "duration", "first_start", "source", "chapters", "guide", "accounts", "requires",
-                           "setups", "addons", "includes", "services", "apps", "seed", "created", "stop", "reseed",
+                           "setups", "addons", "includes", "services", "apps", "created", "stop", "reseed",
                            "brings", "recreates", "tabs"},
            "setups": {"includes", "members"},
            "addons": {"services", "needs", "conflicts", "restarts", "brings", "recreates"}}
 ACTION = {"do", "label", "enabled", "reason", "dialog"}
-PRODUCT = {"id", "name", "deployed", "deployed_state", "channel", "stable", "prerelease", "latest", "status"}
+PRODUCT = {"id", "name", "deployed", "deployed_state", "channel", "latest", "status"}
 SERVICE = {"label", "container", "image", "tag", "running_tag", "registry", "ports", "built", "role", "state", "uptime",
            "on", "behind", "needs_license", "note", "note_tone", "note_title", "note_target", "note_file", "brings",
            "recreates"}
@@ -115,7 +115,7 @@ def state(lab_ui):
     has(body["platform"]["containers"], {"running", "total"}, "the platform's containers")
     has(body["platform"]["start"], {"needed", "starts", "restarts", "enabled", "reason", "dialog"},
         "the platform's Start")
-    has(body["platform"]["update"], {"needed", "enabled", "reason", "dialog"}, "the platform's Update")
+    has(body["platform"]["update"], {"needed", "enabled", "reason"}, "the platform's Update")
     has(body["platform"]["restart"], {"needed", "enabled", "reason"}, "the platform's Restart")
     has(body["platform"]["apply"], {"needed", "restarts", "starts", "enabled", "reason", "dialog"},
         "the platform's Apply")
@@ -187,13 +187,12 @@ def images(lab_ui):
 
 
 def dashboard(lab_ui):
-    """The Dashboard's data: a row per product with its channel and its latest version, Docker and the machine. What runs
+    """The Dashboard's data: a row per product with its channel and its latest version, and Docker. What runs
     and what is on is the state's: each group of the platform counts its own containers, and they add up to the
     platform's."""
     body = lab_ui.json("/api/dashboard")
-    has(body, {"docker", "machine", "data", "products", "pending"}, "the dashboard")
+    has(body, {"docker", "data", "products", "pending"}, "the dashboard")
     has(body["docker"], {"engine", "compose", "os", "cpus", "memory"}, "what the dashboard says of Docker")
-    has(body["machine"], {"cpus", "memory_total", "memory_available", "disk_total", "disk_free"}, "the machine")
     assert body["products"], "no product is listed"
     for product in body["products"]:
         has(product, PRODUCT, f"product {product.get('id')}")

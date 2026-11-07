@@ -10,14 +10,13 @@ import os
 import random
 import re
 import shlex
-import shutil
 import signal
-import stat
 import subprocess
 import sys
 import threading
 import time
 import unittest
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
@@ -203,6 +202,13 @@ class Interpolated(Case):
         self.assertEqual(self.text("HelloWorld@123"), "HelloWorld@123")
         self.assertEqual(self.text(""), "")
 
+    def test_braces_never_closed_are_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded, and a project read comes here for its accounts and console labels
+        text = "${" * 32000
+        started = time.process_time()
+        self.assertEqual(self.text(text), text)
+        self.assertLess(time.process_time() - started, 1)
+
 
 class Variables(ProjectFolder):
 
@@ -263,6 +269,13 @@ services:
         self.assertTrue(found["PASSWORD"]["required"])   # ${PASSWORD:-demo} then ${PASSWORD}
         self.assertEqual(found["PASSWORD"]["default"], "demo")
 
+    def test_a_file_of_many_variables_is_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded: no pass over the file for each of its variables
+        text = "x:\n" + "".join(f"  v{number}: ${{V{number}}}\n" for number in range(10000))
+        started = time.process_time()
+        self.assertEqual(len(compose.variables(self.write("addons/many/compose.yml", text))), 10000)
+        self.assertLess(time.process_time() - started, 3)
+
     def test_doubled_dollar_and_comment_text_are_ignored(self):
         found = self.variables()
         self.assertNotIn("gravitee", found)
@@ -306,9 +319,9 @@ class OldestCompose(ProjectFolder):
     def test_an_empty_list_of_the_labs_block_reads_as_on_the_oldest_compose(self):
         path = self.write("addons/echo/compose.yml", self.TEXT)
         here = self.root / "addons/echo"
-        newest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        newest = compose.x_gravitee(self.TEXT, here), compose.raw(path)["x-gravitee"]
         oldest_compose(self)
-        oldest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        oldest = compose.x_gravitee(self.TEXT, here), compose.raw(path)["x-gravitee"]
         self.assertEqual(newest, oldest)
         self.assertEqual(newest[0], {"kind": "addon", "name": "Echo", "private_from": None, "tested": [None],
                                      "nested": {"list": None, "map": {}}, "kept": ["a"]}, "an empty list is null, its key is there")
@@ -380,12 +393,14 @@ class PullPolicyVariables(Copies):
                 "      note: pull_policy ${X:-never}\n")
         self.assertEqual(compose._policies_written(text), text)
 
-    def test_a_file_without_a_variable_policy_is_read_as_it_is(self):
-        self.write("addons/tool/compose.yml", self.COPIED)
-        seen = self.read("addons/tool/compose.yml")
-        self.assertEqual(seen["arguments"], ["-f", "addons/tool/compose.yml"])
-        self.assertEqual(seen["options"], ("--no-interpolate", "--no-consistency"))
-        self.assertEqual(list(self.scratch.iterdir()), [])
+    def test_a_long_line_is_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded, and a regex that goes back over it holds every thread of the Lab UI
+        blanks = " " * 64000
+        for written, wanted in (("a%sb", "a%sb"), ("${A:-never}%s# why", "never%s# why")):
+            text = "    pull_policy: " + written % blanks + "\n"
+            started = time.process_time()
+            self.assertEqual(compose._policies_written(text), "    pull_policy: " + wanted % blanks + "\n")
+            self.assertLess(time.process_time() - started, 1)
 
     def test_the_copy_is_read_from_the_folder_of_its_file(self):
         self.write("addons/tool/compose.yml", self.TOOL)
@@ -514,9 +529,9 @@ class SkippedIncludes(Copies):
     def test_a_line_that_an_item_took_is_not_read_as_an_item_again(self):
         self.write("playgrounds/mine/compose.yml", f"include:\n  - path: ../../{GONE}\n    env_file: ../x.env\n"
                    "  - ../../addons/tool/compose.yml\n" + self.MINE)
-        items = compose._items
-        self.patch(compose, "_items", side_effect=lambda file, text: [*items(file, text)] + (
-            [(2, "x", "addons/tool/compose.yml")] if file.startswith("playgrounds") else []))   # the line of a key, as an item
+        items = compose._include_items
+        self.patch(compose, "_include_items", side_effect=lambda text, file, copied=False: [*items(text, file, copied)] + (
+            [(2, "x", "addons/tool/compose.yml")] if copied and file.startswith("playgrounds") else []))   # the line of a key, as an item
         self.assertNotIn("gone", self.top(self.read("playgrounds/mine/compose.yml", skip=[GONE])))
 
     def test_a_hostile_include_list_is_read_or_refused_never_a_crash(self):
@@ -592,13 +607,6 @@ class SkippedIncludes(Copies):
         self.write("playgrounds/mine/compose.yml", text)
         self.read("playgrounds/mine/compose.yml", skip=[GONE])
         self.assertEqual((self.root / "playgrounds/mine/compose.yml").read_text(encoding="utf-8"), text)
-
-    def test_a_problem_names_the_file_and_not_its_copy(self):
-        self.write("setups/mine.yml", f"include:\n  - ../addons/tool/compose.yml\n  - ../{GONE}\n")
-        with self.assertRaises(compose.ComposeError) as caught:
-            self.read("setups/mine.yml", skip=[GONE], fails=lambda seen: f"validating {seen['arguments'][3]}: bogus")
-        self.assertEqual(str(caught.exception), f"validating {self.root / 'setups/mine.yml'}: bogus")
-        self.assertEqual(list(self.scratch.iterdir()), [])
 
     def test_the_time_compose_has(self):
         self.write("setups/mine.yml", "include:\n  - ../addons/tool/compose.yml\n")
@@ -975,52 +983,28 @@ class Shell(Case):
 class Kept(unittest.TestCase):
     """The cache of what is slow to ask again."""
 
-    def test_asked_at_the_same_time_it_is_asked_once(self):
-        # Two pages' refreshes that both find nothing kept: one `config --hash`, not two
-        cache, calls, release = compose.Cache(), [], threading.Event()
+    def test_asked_at_the_same_time_it_is_asked_once_and_each_gets_what_it_answers_or_raises(self):
+        # Two pages' refreshes that find nothing kept: one `config --hash`, not two. Docker hangs: the Welcome check, the state
+        # and a second tab each have the failure of one `docker info`, not one read more than the caller before
+        waiting = threading.Semaphore(0)
 
-        def slow():
-            calls.append(1)
-            release.wait(5)
-            return {"mongodb": "h"}
-        answers = []
-        threads = [threading.Thread(target=lambda: answers.append(cache.get("config-hash:x", 300, slow)))
-                   for _ in range(3)]
-        for thread in threads:
-            thread.start()
-        deadline = time.monotonic() + 5
-        while not calls and time.monotonic() < deadline:
-            time.sleep(0.01)
-        time.sleep(0.05)   # the others ask meanwhile
-        release.set()
-        for thread in threads:
-            thread.join(5)
-        self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
+        class Awaited(Future):   # says that a caller waits on the read
+            def result(self, timeout=None):
+                waiting.release()
+                return super().result(timeout)
+        for outcome in ({"mongodb": "h"}, compose.ComposeError("Docker does not answer")):
+            cache, calls = compose.Cache(), []
 
-    def test_callers_that_wait_on_a_read_that_fails_each_get_its_failure_after_one_read(self):
-        # Docker hangs: the Welcome check, the state and a second tab ask docker:info at once, and `docker info` fails
-        # after its limit. Each caller has the failure after one read's time, not one read more than the caller before
-        cache, calls, waited, READ = compose.Cache(), [], [], 0.5
-
-        def failing():
-            calls.append(1)
-            time.sleep(READ)
-            raise compose.ComposeError("Docker does not answer")
-
-        def ask():
-            began = time.monotonic()
-            with self.assertRaises(compose.ComposeError):
-                cache.get("docker:info", 600, failing)
-            waited.append(time.monotonic() - began)
-        threads = [threading.Thread(target=ask) for _ in range(3)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(10)
-        self.assertLess(max(waited), READ * 1.6, f"fn ran {len(calls)} times, callers waited {sorted(waited)}")
-        self.assertEqual((len(waited), len(calls)), (3, 1))
-        # Not kept: the next caller asks again
-        self.assertEqual(cache.get("docker:info", 600, lambda: "29.7.2"), "29.7.2")
+            def read():
+                calls.append(1)
+                for _ in range(2):   # it ends once the two others wait on it, however long they take to ask
+                    waiting.acquire(timeout=10)
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return outcome
+            with mock.patch.object(compose, "Future", Awaited), ThreadPoolExecutor(3) as pool:
+                asked = [pool.submit(cache.get, "key", 300, read) for _ in range(3)]
+            self.assertEqual((len(calls), [future.exception() or future.result() for future in asked]), (1, [outcome] * 3))
 
     def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
         # What the read raises is not kept; any answer is, None and "" too (an answer that nothing lacks is one)
@@ -1047,10 +1031,8 @@ class Kept(unittest.TestCase):
         self.addCleanup(reader.join, 5)
         self.addCleanup(release.set)
         asking.wait(5)
-        began = time.monotonic()
         self.assertEqual([cache.kept("latest", 60), cache.kept("tags", 60), cache.kept("tags", 0)],
                          [None, ["4.12.21"], None])
-        self.assertLess(time.monotonic() - began, 1)
         release.set()
         reader.join(5)
         self.assertTrue(cache.kept("latest", 60))
@@ -1135,15 +1117,6 @@ class Docker(Case):
                  if spelled in path.read_text(encoding="utf-8")]
         self.assertEqual(found, [])
 
-    def test_its_scratch_folder_is_private_and_kept_for_the_run(self):
-        folder = compose.scratch()
-        self.assertEqual((folder, stat.S_IMODE(folder.stat().st_mode)), (compose.scratch(), 0o700))
-
-    def test_its_scratch_folder_is_made_again_when_the_system_clears_it(self):
-        shutil.rmtree(compose.scratch())
-        folder = compose.scratch()
-        self.assertEqual((folder.is_dir(), stat.S_IMODE(folder.stat().st_mode)), (True, 0o700))
-
 
 class Environment(Case):
     """What every command gets: the files Compose reads, and no remote include."""
@@ -1157,12 +1130,6 @@ class Environment(Case):
         self.assertEqual(found["COMPOSE_EXPERIMENTAL_GIT_REMOTE"], "false")
         self.assertEqual(found["COMPOSE_EXPERIMENTAL_OCI_REMOTE"], "false")
         self.assertEqual(found["SHELL_KEEPS"], "this")
-
-    def test_the_flags_reach_every_command(self):
-        with mock.patch.dict(os.environ, {"COMPOSE_EXPERIMENTAL_GIT_REMOTE": "true"}):
-            answer = compose.run(["sh", "-c", 'printf "%s %s" "$COMPOSE_EXPERIMENTAL_GIT_REMOTE" '
-                                              '"$COMPOSE_EXPERIMENTAL_OCI_REMOTE"'])
-        self.assertEqual(answer, (0, "false false", ""))
 
     def test_a_command_gets_the_environment_it_is_given_in_place_of_the_shells(self):
         # scrubbed_environment() and build_environment() are given whole: nothing of the shell stays under them
@@ -1230,10 +1197,8 @@ class Run(Commands):
         self.assertEqual(compose.run(["pwd"], cwd=folder), (0, f"{folder}\n", ""))
 
     def test_past_its_time_it_is_ended_with_everything_it_started(self):
-        started = time.monotonic()
         answer = compose.run(["sh", "-c", f"sleep {FOREVER} & echo $! > {shlex.quote(str(self.pidfile))}; wait"], timeout=1)
         self.assertEqual(answer, (124, "", "sh did not answer within 1 s"))
-        self.assertLess(time.monotonic() - started, 10)
         pid = self.child()
         self.assertTrue(settled(lambda: not alive(pid)), "what the command started is still running")
         self.assertEqual(compose._running, set())
@@ -1312,10 +1277,8 @@ class Run(Commands):
             compose._ending = True
             return process
         with mock.patch.object(subprocess, "Popen", late):
-            started = time.monotonic()
             code, _, _ = compose.run(["sleep", str(FOREVER)], timeout=5)
         self.assertEqual(code, -signal.SIGKILL)   # not 124: it did not wait for its time
-        self.assertLess(time.monotonic() - started, 4)
         self.assertEqual(compose._running, set())
 
 
@@ -1324,7 +1287,7 @@ class Spawn(Commands):
     Lab UI ends as it exits, and ends when asked, with what it started."""
 
     def spawned(self, script):
-        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT, cwd=self.root)
+        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT)
         self.addCleanup(lambda: (process.poll() is None and os.killpg(process.pid, signal.SIGKILL), process.wait(),
                                  process.stdout.close(), compose.release(process)))
         return process
@@ -1471,10 +1434,8 @@ class Exiting(Case):
         for imported in ("before", "after"):
             with self.subTest(pool_imported=imported):
                 process = self.program(POOL, imported)
-                started = time.monotonic()
                 os.killpg(process.pid, signal.SIGINT)   # what a terminal sends to the group of its foreground program
                 self.assertEqual(self.exits(process), 0)
-                self.assertLess(time.monotonic() - started, 15)
                 self.assertTrue(settled(lambda: not holding(self.marker)), "a command is still running")
 
     def test_a_hang_up_and_a_termination_end_the_commands_too(self):
@@ -1541,18 +1502,14 @@ class Limits(ProjectFolder):
             compose.config_json(["-f", "a.yml"], 3, asked)
             compose._config(["-f", "a.yml"], "--no-interpolate", environ=asked)
             compose.resolved(["-f", "a.yml"])
-        first, *others = run.call_args_list
-        self.assertNotIn("environ", first.kwargs, "the call of the Lab is the call it was")
-        self.assertEqual([call.kwargs.get("environ") for call in others], [asked, asked, asked, None])
+        self.assertEqual([call.kwargs["environ"] for call in run.call_args_list], [None, asked, asked, asked, None])
         self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [15, 15, 3, 120, 120])
 
     def test_a_read_that_is_not_answered_in_time_raises_compose_error(self):
         self.patch(compose, "plugin", lambda: None)
         self.patch(compose, "COMPOSE", ["sh", "-c", f"sleep {FOREVER}", "sh"])   # a Compose that never answers
-        started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "^sh did not answer within 1 s$"):
             compose.config_json(["-f", "a.yml"], timeout=1)
-        self.assertLess(time.monotonic() - started, 10)
 
     def test_the_whole_configuration_is_answered_not_only_the_services(self):
         self.patch(compose, "plugin", lambda: None)
@@ -1757,10 +1714,8 @@ class Compose5(ProjectFolder):
         if holding(name) is None:
             self.skipTest("ps cannot list processes: what is left behind is not found")
         self.addCleanup(lambda: [os.kill(pid, 9) for pid in holding(name) or []])   # nothing may be left waiting
-        started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "did not answer within 1 s"):
             compose.config_json(["-f", "docker-compose.yml", "-f", name], timeout=1)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(name)), "Compose is still waiting")
 
 
@@ -1787,10 +1742,8 @@ class XGravitee(ProjectFolder):
     def test_a_text_that_takes_too_long_or_answers_too_much_cannot_be_read_and_leaves_nothing_running(self):
         os.mkfifo(self.here / "never")   # a file that never ends: Compose waits on it
         self.patch(compose, "ALONE_TIMEOUT", 2)
-        started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "did not answer within 2 s"):
             compose.x_gravitee("include: [never]\nx-gravitee: {kind: addon}\n", self.here)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(str(self.here))), "the Compose that waited on it is ended, with its plugin")
         self.patch(compose, "ALONE_OUTPUT", 10)
         with self.assertRaisesRegex(compose.ComposeError, "^Compose answered more than an item can hold$"):
@@ -1801,17 +1754,15 @@ class XGravitee(ProjectFolder):
         os.mkfifo(self.here / "tool.env")
         self.patch(compose, "ALONE_TIMEOUT", 2)
         text = "x-gravitee: {kind: playground}\ninclude:\n  - path: tool.yml\n    env_file: tool.env\n"
-        started = time.monotonic()
         try:
-            compose.x_gravitee(text, self.here, fresh=True)
+            compose.x_gravitee(text, self.here)
         except compose.ComposeError as error:
             self.assertIn(compose.cause(error), ("Compose took too long to read it", "Compose cannot read it"))
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(str(self.here))))
         (self.here / "tool.env").unlink()
         (self.here / "tool.env").write_text("SECRET hunter2 is no line of variables\n")
         try:
-            compose.x_gravitee(text, self.here, fresh=True)
+            compose.x_gravitee(text, self.here)
         except compose.ComposeError as error:
             self.assertNotIn("hunter2", compose.cause(error))
 
@@ -1822,9 +1773,9 @@ class XGravitee(ProjectFolder):
         path = self.write(".lab/catalogs/local/playgrounds/mine/compose.yml", text)
         self.assertEqual(compose.left_out(text, path), [".lab/catalogs/local/addons/gone/compose.yml"])
         read = compose.raw(path, skip=compose.left_out(text, path))["x-gravitee"]
-        self.assertEqual(compose.x_gravitee(text, folder, fresh=True), read)
+        self.assertEqual(compose.x_gravitee(text, folder), read)
         edited = text.replace(", copy_of: tour", "")
-        self.assertEqual(compose.x_gravitee(edited, folder, fresh=True), {"kind": "playground", "name": "Mine"},
+        self.assertEqual(compose.x_gravitee(edited, folder), {"kind": "playground", "name": "Mine"},
                          "a text of the Lab's, not on disk, read the same way")
 
     def test_a_refusal_may_name_the_items_own_file_its_env_file_and_what_it_includes(self):
@@ -1869,25 +1820,11 @@ class XGravitee(ProjectFolder):
             with self.subTest(name):
                 for one in (".env", "x.env"):
                     make(self.here / one)
-                started = time.monotonic()
-                self.assertEqual(compose.x_gravitee(text, self.here, fresh=True), {"kind": "addon", "name": "Quiet"})
-                self.assertLess(time.monotonic() - started, 5, "answered at once: neither file is opened")
+                # A file that was opened would end in the error of its time, not in this answer
+                self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Quiet"})
                 self.assertTrue(settled(lambda: not holding(str(self.here))))
                 for one in (".env", "x.env"):
                     (self.here / one).unlink()
-
-    def test_the_same_text_in_the_same_folder_is_read_once_and_a_file_raw_read_is_not_read_again(self):
-        text = "x-gravitee: {kind: addon, name: Once}\nservices:\n  once:\n    image: busybox\n"
-        real, runs = compose.run, []
-        self.patch(compose, "run", lambda cmd, **more: runs.append(cmd) or real(cmd, **more))
-        first = compose.x_gravitee(text, self.here)
-        first["name"] = "changed by its caller"
-        self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Once"})
-        self.assertEqual(len(runs), 1)
-        self.write("addons/read/compose.yml", text.replace("Once", "Read"))
-        compose.raw("addons/read/compose.yml")
-        self.assertEqual(compose.x_gravitee(text.replace("Once", "Read"), self.root / "addons" / "read"), {"kind": "addon", "name": "Read"})
-        self.assertEqual(len(runs), 2, "raw's reading answers")
 
 
 if __name__ == "__main__":

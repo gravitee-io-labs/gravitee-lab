@@ -180,8 +180,9 @@ SOURCE_CUT = 120   # an image or the address of a build, as the preview shows it
 NAME_CUT = 60   # the characters of one author's name in a reason line
 FIELD_CUT = 240   # and of a whole field: three names, the count of the rest
 
-# The names of what is secret (check.SECRET_NAME and check.NOT_SECRET, which a test keeps equal): a seed that reads one
-# gets no token to hold (N02)
+# The names of what is secret, in an environment, a label or an account (an API key, not a public one), then the endings of a
+# name that says where a secret is, what kind it is, how it is reached or whether it is on, which is none itself
+# (AM_TOKEN_URL, KAFKA_TLS_TYPE, SECRET_MANAGER_HOST, TOKEN_TIMEOUT): a seed that reads one gets no token to hold (N02)
 SECRET_NAME = re.compile(r"PASSWORD|PASSWD|PASSPHRASE|SECRET|API[_.-]?KEY|(?:^|[_.-])TOKEN$|(?<!PUBLIC)[_.-]KEY$", re.I)
 NOT_SECRET = re.compile(r"(?:URL|URI|PATH|FILE|TYPE|ENDPOINT|ENABLED|HOST|PORT|METHOD|POLICY|REGEX|NAMESPACE|PROVIDER"
                         r"|TIMEOUT|TIMEOUTMS)$", re.I)

@@ -29,8 +29,6 @@ _TOKEN = re.compile(r'"[^"]*"|\S+')
 _SINCE = re.compile(r"since=(\d+)")
 # A console label, whatever its id and its attribute: the lock lists them with <id> for the id
 CONSOLE = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.([A-Za-z0-9_-]+)")
-# The keys that were read once and are not any more, and why: no sign of a newer Lab, and the check tells the file so
-GONE = {"deploys_to": "compatibility with a platform is computed"}
 # The values of a label that the Lab acts on: a service with another value is read by no Lab yet. The lock lists each
 # (`label.value`), as the test of the contract states them from this table
 LABEL_VALUES = {"io.gravitee.role": ("seed",), "io.gravitee.license": ("required",),
@@ -218,8 +216,6 @@ def unknown(found: Iterable[Item], held: Optional[Lock]) -> List[Item]:
     valued = {name.partition("=")[0] for kind, name in rows if kind == "label.value"}   # the labels whose values the lock lists
     for kind, name in found:
         if (kind, name) in rows:
-            continue
-        if kind == "unit.key" and name.split(".")[-1] in GONE and name.count(".") == 1:
             continue
         if kind in ("unit.key", "label", "core.service", "core.network", "core.category", "anchor") \
                 or kind in ("seed.folder", "seed.file") and posixpath.dirname(name) in parents \

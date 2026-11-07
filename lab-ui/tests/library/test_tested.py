@@ -127,20 +127,7 @@ class Moved(Case):
     def saved(self):
         return json.loads((self.root / tested.FILE).read_text())
 
-    def test_the_sets_follow_the_playground_to_its_new_id(self):
-        tested.moved("playground", "local/bank", "@acme-hub/bank")
-        self.assertEqual(self.saved(), {"@acme-hub/bank": self.SETS, "other": self.SETS})
-        self.assertEqual(tested.sets("@acme-hub/bank"), self.SETS)
-        self.assertEqual(tested.sets("local/bank"), [])
-
-    def test_where_the_new_id_has_sets_the_two_are_joined_and_the_same_ones_kept_once(self):
-        newer = [{"versions": {"APIM_VERSION": "4.13.1"}, "images": {"APIM_VERSION": "sha256:two"}, "at": "2026-10-02T10:00:00Z"}]
-        self.write(tested.FILE, json.dumps({"local/bank": self.SETS, "bank": [*self.SETS, *newer]}))
-        tested.moved("playground", "local/bank", "bank")
-        self.assertEqual(self.saved(), {"bank": [*self.SETS, *newer]})
-
     def test_only_a_playground_has_tested_sets(self):
-        tested.moved("addon", "local/bank", "bank")
         tested.moved("addon", "local/bank")
         self.assertEqual(self.saved(), {"local/bank": self.SETS, "other": self.SETS})
 
@@ -152,11 +139,9 @@ class Moved(Case):
 
     def test_a_file_that_is_not_there_or_does_not_read_is_not_written(self):
         (self.root / tested.FILE).unlink()
-        tested.moved("playground", "local/bank", "bank")
         tested.moved("playground", "local/bank")
         self.assertFalse((self.root / tested.FILE).exists())
         self.write(tested.FILE, "not json")
-        tested.moved("playground", "local/bank", "bank")
         tested.moved("playground", "local/bank")
         # What it held is kept aside, as it was (paths.read_record), and nothing is written in its place
         self.assertFalse((self.root / tested.FILE).exists())

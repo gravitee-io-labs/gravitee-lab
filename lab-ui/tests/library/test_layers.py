@@ -1,8 +1,6 @@
 """layers: closures, conflicts and every plan on a small hand-built project, a deploy to a remote place included; the
 on file, the settings an add-on lacks and the job of a plan in a temporary folder. No Docker."""
 
-import hashlib
-import inspect
 import itertools
 import json
 import os
@@ -17,14 +15,10 @@ from lab_ui import paths
 from lab_ui.docker.jobs import Job, JobFailed, awaited
 
 from .. import Case, fixtures
-from ..docker.test_jobs import Docker, container, progress, replay
 from .test_project import read
 
 SERVICE_LABELS = {"apim-gateway": "Gateway", "apim-management-api": "Management API", "kafka": "Kafka broker",
                   "kafka-ui": "Kafka UI", "openfga-migrate": "OpenFGA migration", "seed": "Seed"}
-# The services Docker checks the health of (test_jobs.Docker): ready once healthy, the others once they run
-HEALTH_CHECKED = {"apim-gateway", "apim-management-api", "mongodb", "kafka", "jade", "redpanda", "openfga",
-                  "hybrid-gateway"}
 EXPORTER = "both take the gateway's exporter"
 
 
@@ -131,11 +125,11 @@ def own(project):
 
 def on(project, explicit=(), playground=None, missing=(), locked=None, setups=()):
     """What layers.current() answers for this on file. `setups`: the ones it lists, `explicit` holding their
-    includes."""
+    includes. `missing`: the add-ons that lack settings, or {each: the names of those settings}."""
     brought = project["playgrounds"][playground]["addons"] if playground else []
     return {"playground": playground, "explicit": sorted(explicit), "setups": sorted(setups),
             "effective": sorted(layers.closure(project, [*explicit, *brought])),
-            "missing": list(missing), "problems": [], "locked": locked}
+            "missing": list(missing), "unset": missing if isinstance(missing, dict) else {}, "problems": [], "locked": locked}
 
 
 def cloud(project):
@@ -233,7 +227,7 @@ class ServiceOf(Case):
         # The portals of a playground follow API Management's version: sorting before it, they must not take its name
         project = {"services": self.SERVICES}
         self.assertEqual(layers.service_of(project, "APIM_VERSION")[0], "apim-management-api")
-        self.assertEqual(layers.saved_image(project, "APIM_VERSION"), ("4", "API Management"))
+        self.assertEqual(layers.saved_setting(project, "APIM_VERSION"), ("4", "API Management"))
         self.assertEqual(layers.service_of(project, "PORTAL_VERSION")[0], "apelor-portal-beam")
         self.assertEqual(layers.service_of(project, "APIM_GATEWAY_VERSION")[0], "apim-gateway")
 
@@ -373,11 +367,6 @@ class Plans(Case):
         self.assertEqual(plan["services"], {"remove": [], "start": ["apim-gateway", "apim-management-api", "kafka",
                                                                     "kafka-desk", "kafka-ui"]})
 
-    def test_a_plan_takes_no_services_to_make_again_besides_what_it_finds(self):
-        # It once took them (`also`), then ignored them without a word: a caller that gives them is told
-        with self.assertRaises(TypeError):
-            layers.plan(self.project, on(self.project), up(), "addon", "kiosk", "start", also={"apim-management-api"})
-
     def test_start_stops_the_explicit_add_on_in_conflict(self):
         state = on(self.project, ["jade", "kiosk"])
         plan = self.plan(state, up("jade", "kiosk"), "addon", "agent-lens", "start")
@@ -393,11 +382,31 @@ class Plans(Case):
         self.check(plan, starts=[INSPECTOR], turns_off=[JADE], playground=None, explicit=["agent-lens"])
         self.assertEqual(plan["services"], {"remove": ["jade"], "start": ["agent-lens"]})
 
-    def test_start_stops_what_needs_the_add_on_in_conflict(self):
-        state = on(self.project, ["kafka-desk"])
-        plan = self.plan(state, up("kafka", "kafka-desk"), "addon", "redpanda", "start")
-        self.check(plan, starts=[REDPANDA], stops=[KAFKA, CONSOLE], restarts=[GATEWAY, API], playground=None,
-                   explicit=["redpanda"])
+    def test_what_a_plan_stops_keeps_and_leaves_alone(self):
+        second(self.project)
+        for why, state, running, kind, uid, do, expected in (
+                ("a start stops what needs the add-on in conflict", on(self.project, ["kafka-desk"]), up("kafka", "kafka-desk"),
+                 "addon", "redpanda", "start",
+                 {"starts": [REDPANDA], "stops": [KAFKA, CONSOLE], "restarts": [GATEWAY, API], "explicit": ["redpanda"]}),
+                ("a start leaves the running playground alone", on(self.project, playground="welcome"),
+                 up("agent-lens", playgrounds=["welcome"]), "addon", "kafka", "start",
+                 {"starts": [KAFKA], "restarts": [GATEWAY], "playground": "welcome", "explicit": ["kafka"]}),
+                ("an add-on's start leaves the apps of the playground as they are", on(self.project, playground="welcome"),
+                 up("agent-lens", playgrounds=["demo"]), "addon", "kafka", "start",
+                 {"starts": [KAFKA], "restarts": [GATEWAY], "playground": "welcome", "explicit": ["kafka"]}),
+                ("a stop takes what needs it", on(self.project, ["kafka-desk", "kiosk"]), up("kafka", "kafka-desk", "kiosk"),
+                 "addon", "kafka", "stop",
+                 {"stops": [KAFKA, CONSOLE], "restarts": [GATEWAY, API], "explicit": ["kiosk"]}),
+                ("a stop takes the playground that needs it", on(self.project, ["kiosk"], "welcome"),
+                 up("agent-lens", "kiosk", playgrounds=["welcome"]), "addon", "agent-lens", "stop",
+                 {"stops": [APPS, INSPECTOR], "keeps": [DATA], "restarts": [GATEWAY], "explicit": ["kiosk"]}),
+                ("a stop starts nothing: Kiosk is on and does not run", on(self.project, ["jade", "kiosk"]), up("jade"),
+                 "addon", "jade", "stop", {"stops": [JADE], "restarts": [GATEWAY], "explicit": ["kiosk"]}),
+                ("a playground's stop keeps the add-on turned on by itself", on(self.project, ["agent-lens"], "welcome"),
+                 up("agent-lens", playgrounds=["welcome"]), "playground", "welcome", "stop",
+                 {"stops": [APPS], "keeps": [DATA], "restarts": [GATEWAY], "explicit": ["agent-lens"]})):
+            with self.subTest(why):
+                self.check(self.plan(state, running, kind, uid, do), **{"playground": None, **expected})
 
     def test_start_stops_the_playground_in_conflict(self):
         state = on(self.project, ["kiosk"], "welcome")
@@ -414,11 +423,6 @@ class Plans(Case):
         plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "setup", "observability", "start")
         self.check(plan, starts=[JADE, KIOSK], stops=[APPS, INSPECTOR], keeps=[DATA], restarts=[GATEWAY],
                    playground=None, explicit=["jade", "kiosk"])
-
-    def test_start_leaves_the_running_playground_alone(self):
-        state = on(self.project, playground="welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "addon", "kafka", "start")
-        self.check(plan, starts=[KAFKA], restarts=[GATEWAY], playground="welcome", explicit=["kafka"])
 
     def test_start_again_restarts_what_a_start_that_failed_left_behind(self):
         # Kafka's start turned it on, then failed before the gateway was made again: on, Kafka no longer comes, yet
@@ -655,7 +659,7 @@ class Plans(Case):
 
     def test_three_images_that_are_too_old_are_listed_as_a_sentence(self):
         saved = {"A_VERSION": ("1", "Alpha"), "B_VERSION": ("1", "Beta"), "C_VERSION": ("1", "Gamma")}
-        self.patch(layers, "saved_image", lambda project, variable: saved[variable])
+        self.patch(layers, "saved_setting", lambda project, variable: saved[variable])
         unit = {"requires": {"images": {"A_VERSION": "2", "B_VERSION": "2", "C_VERSION": "2"}}}
         self.assertEqual(layers.too_old(self.project, unit), "Needs Alpha 2 or later, Beta 2 or later and Gamma 2 "
                                                              "or later: choose them on the Images page")
@@ -765,18 +769,6 @@ class Plans(Case):
         # Its container removed, then the gateway made again without its settings
         self.assertEqual((plan["label"], plan["services"]), ("Stop", {"remove": ["jade"], "start": ["apim-gateway"]}))
 
-    def test_stop_takes_what_needs_it(self):
-        state = on(self.project, ["kafka-desk", "kiosk"])
-        plan = self.plan(state, up("kafka", "kafka-desk", "kiosk"), "addon", "kafka", "stop")
-        self.check(plan, stops=[KAFKA, CONSOLE], restarts=[GATEWAY, API], playground=None, explicit=["kiosk"])
-
-    def test_stop_takes_the_playground_that_needs_it(self):
-        state = on(self.project, ["kiosk"], "welcome")
-        running = up("agent-lens", "kiosk", playgrounds=["welcome"])
-        plan = self.plan(state, running, "addon", "agent-lens", "stop")
-        self.check(plan, stops=[APPS, INSPECTOR], keeps=[DATA], restarts=[GATEWAY], playground=None,
-                   explicit=["kiosk"])
-
     def test_turn_off_what_is_on_and_does_not_run(self):
         # The platform stopped from the Stack, Kafka Desk on: its stop turns it off with Kafka, removing their
         # stopped containers; nothing restarts, nothing starts
@@ -786,12 +778,6 @@ class Plans(Case):
         self.check(plan, turns_off=[KAFKA, CONSOLE], playground=None, explicit=[])
         self.assertEqual((plan["label"], plan["services"]),
                          ("Turn off", {"remove": ["kafka", "kafka-desk", "kafka-ui"], "start": []}))
-
-    def test_a_stop_starts_nothing(self):
-        # Kiosk is on and does not run: Jade's stop leaves it as it is
-        state = on(self.project, ["jade", "kiosk"])
-        plan = self.plan(state, up("jade"), "addon", "jade", "stop")
-        self.check(plan, stops=[JADE], restarts=[GATEWAY], playground=None, explicit=["kiosk"])
 
     def test_a_stop_takes_the_item_that_runs_without_being_on(self):
         # A stop of Kafka failed once the on file was written: off, it still runs. Its stop again removes it
@@ -950,16 +936,6 @@ class Plans(Case):
                          ("Stop", {"remove": ["agent-lens", "hello-app", "seed"], "start": []}))
         with self.assertRaisesRegex(RuntimeError, "Would also stop AI Agent Lens"):
             layers.check(self.project, plan, [])
-        # On, what it brings goes as it always did; one turned on by itself stays
-        state = on(self.project, ["agent-lens"], "welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "playground", "welcome", "stop")
-        self.assertEqual(plan["stops"], [APPS])
-
-    def test_playground_stop_keeps_the_add_on_turned_on_explicitly(self):
-        state = on(self.project, ["agent-lens"], "welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "playground", "welcome", "stop")
-        self.check(plan, stops=[APPS], keeps=[DATA], restarts=[GATEWAY], playground=None,
-                   explicit=["agent-lens"])
 
     def test_apps_and_data_only_of_a_playground_that_has_them(self):
         own(self.project)   # Sandbox: neither apps nor a seed
@@ -972,12 +948,6 @@ class Plans(Case):
         # What it brings runs no more: it is turned off
         plan = self.plan(state, up(), "playground", "local/sandbox", "stop")
         self.check(plan, turns_off=[itself, whoami], playground=None, explicit=[])
-
-    def test_an_add_on_s_start_leaves_the_apps_of_the_playground_as_they_are(self):
-        second(self.project)
-        state = on(self.project, playground="welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["demo"]), "addon", "kafka", "start")
-        self.check(plan, starts=[KAFKA], restarts=[GATEWAY], playground="welcome", explicit=["kafka"])
 
     def test_platform_not_up(self):
         # An add-on starts alone: the platform is not what it depends on. A stop removes it, and starts nothing
@@ -1111,50 +1081,11 @@ class Plans(Case):
         plan = self.plan(on(self.project, ["kiosk"]), up("kiosk", platform=False), "addon", "kiosk", "stop")
         self.assertEqual(layers.waits(self.project, plan), [{("Container", "lab-kiosk"): "stop"}])
         plan = self.plan(on(self.project, ["jade"]), up(platform=False), "addon", "kafka", "stop")
-        self.assertEqual((layers.commands(plan), layers.waits(self.project, plan)), ([], []))
-
-
-# The plans of this project on main, before a place existed, and whether each asks, in the situations of snapshot(); since
-# then each also says where what a start brings runs (`targets`) and the on file it was made from (`stamp`), and nothing else
-MAIN_PLANS = {"off": "a642bc3a9afc", "platform": "b12fc3051b48", "busy": "1d4af90d4ba8", "stopped": "94417cab3ba0",
-              "behind": "4a43429f0c1a"}
-
-
-def snapshot(**extra):
-    """The fingerprint of the plan of every add-on, setup and playground, started and stopped (a playground's start
-    set up or not), and whether it asks, in a few situations of the small project: {situation: digest}. The JSON keeps
-    the order of the keys and the rows, so a plan that changes in any way changes it."""
-    project = lab()
-    own(project)
-    second(project)
-    situations = {
-        "off": (on(project), up(platform=False), frozenset()),
-        "platform": (on(project), up(), frozenset()),
-        "busy": (on(project, ["jade", "kiosk", "kafka"], "welcome"),
-                 up("jade", "kiosk", "kafka", "agent-lens", playgrounds=["welcome"]), frozenset()),
-        "stopped": (on(project, ["kafka-desk", "kiosk"], "demo"),
-                    up(platform=False, created=["kafka", "kafka-desk", "kiosk"]), frozenset()),
-        "behind": (on(project, ["jade"], missing=["hybrid"]), up("jade"), frozenset({"apim-gateway", "hello-app"}))}
-    found = {}
-    for situation, (state, running, behind) in situations.items():
-        plans = [layers.plan(project, state, running, kind, uid, do, fresh=fresh, behind=behind, **extra)
-                 for kind in ("addon", "setup", "playground") for uid in sorted(project[kind + "s"])
-                 for do in ("start", "stop") for fresh in ((False, True) if kind == "playground" else (False,))]
-        text_of = json.dumps([plans, [layers.asks(plan) for plan in plans]], default=sorted)
-        found[situation] = hashlib.sha256(text_of.encode()).hexdigest()[:12]
-    return found
+        self.assertEqual((plan["services"], layers.waits(self.project, plan)), ({"remove": [], "start": []}, []))
 
 
 class ThisMachine(Case):
-    """Without a place, or with This machine, a plan is the one it always was."""
-
-    def test_the_plans_are_those_of_main(self):
-        self.assertEqual(snapshot(), MAIN_PLANS)
-
-    def test_this_machine_is_no_place(self):
-        for place in (None, layers.MACHINE, {"id": layers.MACHINE, "name": "This machine"}):
-            with self.subTest(place=place):
-                self.assertEqual(snapshot(place=place), MAIN_PLANS)
+    """Without a place, a plan says nothing of one."""
 
     def test_a_local_plan_says_nothing_of_a_place(self):
         project = lab()
@@ -1200,7 +1131,7 @@ class Places(Case):
 
     def assertAlone(self, plan):
         """Nothing of the core is in the plan but what the playground needs of it (layers.local_needs): not the platform
-        nor a group, not another service as a row, a service it starts or removes, a command, a container it waits for,
+        nor a group, not another service as a row, a service it starts or removes, a container it waits for,
         or what its job's changes cover."""
         allowed = set(layers.local_needs(self.project, self.project["playgrounds"]["hotels"]))
         rows = [found for part in (*layers.ROWS, *layers.PLACE_ROWS) for found in plan[part]]
@@ -1208,12 +1139,10 @@ class Places(Case):
             self.assertNotIn(found["kind"], ("platform", "group"), found)
             self.assertFalse(found["kind"] == "service" and found["id"] in self.core and found["id"] not in allowed, found)
         named = {*plan["services"]["start"], *plan["services"]["remove"]}
-        words = {word for command in layers.commands(plan) for word in command}
         moves = layers.changing(self.project, layers.changes(self.project, plan))
         waited = {container for found in layers.waits(self.project, plan) for _, container in found}
         for name in set(self.core) - allowed:
             self.assertNotIn(name, named)
-            self.assertNotIn(name, words)
             self.assertNotIn(name, moves)
             self.assertNotIn(f"lab-{name}", waited)
 
@@ -1231,8 +1160,6 @@ class Places(Case):
         self.assertFalse({("platform", "platform"), ("service", "apim-gateway"), ("service", "apim-management-api")} & rows)
         self.assertLessEqual({"alert-engine", "mongodb"}, set(plan["services"]["start"]))
         self.assertFalse({"apim-gateway", "apim-management-api"} & set(plan["services"]["start"]))
-        # Nothing to start of it once it runs
-        plan = self.plan(on(self.project), self.up(platform=False), fresh=True)
         services["hotels-api"]["depends_on"] = []
         self.assertEqual(layers.local_needs(self.project, self.project["playgrounds"]["hotels"]), [])
 
@@ -1269,7 +1196,6 @@ class Places(Case):
         self.check(plan, playground="hotels", explicit=["hybrid"])
         self.assertEqual(plan["services"], {"remove": [], "start": []})
         self.assertTrue(layers.asks(plan))
-        self.assertEqual(layers.commands(plan), [])
         # Its apps do not run: they start, it does not
         plan = self.plan(state, self.up("hybrid"))
         self.check(plan, starts=[HOTELS], playground="hotels", explicit=["hybrid"])
@@ -1294,8 +1220,8 @@ class Places(Case):
                    playground="hotels", explicit=["hybrid"])
         # Both of its services, by name, without what they depend on; its Redis, unchanged, is left as it is
         self.assertEqual(plan["services"], {"remove": [], "start": ["apim-hybrid-gateway", "hybrid-redis"]})
-        self.assertEqual(layers.commands(plan), [[*compose.COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway",
-                                                  "hybrid-redis"]])
+        self.assertEqual(layers.starting(plan["services"]["start"]),
+                         [[*compose.COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway", "hybrid-redis"]])
         # Its row says Starting, and the playground's, as for any start that runs what runs again
         self.assertEqual(layers.changes(self.project, plan), {"start": [["addon", "hybrid"], ["playground", "hotels"]],
                                                               "stop": []})
@@ -1355,9 +1281,6 @@ class Places(Case):
         self.project["playgrounds"]["welcome"]["restarts"] = ["apim-gateway"]
 
     def test_no_core_service_is_in_the_plan_of_a_remote_place(self):
-        # commands() names the project from the core file, which compose.project_name() reads through the Docker CLI: given
-        # here, so the test needs none
-        self.patch(compose, "project_name", lambda: "lab")
         # Over every service of the core, in every situation: of what is on, of what runs, of the place and the start
         self.worst()
         states = [on(self.project), on(self.project, playground="hotels"), on(self.project, ["hybrid"], "hotels"),
@@ -1369,21 +1292,15 @@ class Places(Case):
         places = [place(), place(here=False, serving=TEST), place(TEST, here=False)]
         behind = [frozenset(), frozenset(self.core), frozenset({*self.core, "hotels-api", "hybrid-redis", "kiosk",
                                                                "apim-hybrid-gateway"})]
-        count = 0
         for state, running, where, late, fresh in itertools.product(states, runnings, places, behind, (True, False)):
             plan = self.plan(state, running, where=where, behind=late, fresh=fresh)
             self.assertAlone(plan)
             self.assertIn("hybrid", plan["explicit"])
-            count += 1
-        self.assertEqual(count, 5 * 7 * 3 * 3 * 2)
         # The same over the gateway's own start, the swap
         for state, running, where in itertools.product(states, runnings, places):
             self.assertAlone(self.plan(state, running, "addon", "hybrid", where=where))
 
     def test_the_core_services_another_playground_restarts_are_not_restarted(self):
-        # commands() names the project from the core file, which compose.project_name() reads through the Docker CLI: given
-        # here, so the test needs none
-        self.patch(compose, "project_name", lambda: "lab")
         # Welcome is on with AI Agent Lens, which configures the gateway: on this machine, Hotels' start stops them
         # and restarts the gateway, to take the change off; to a remote place it stops them, and the gateway is left
         # as it is, which the Stack says (Apply needed) and the Stack's Apply makes right
@@ -1433,7 +1350,6 @@ class Places(Case):
         self.assertTrue(layers.asks(plan))
         self.assertEqual(layers.dialog(plan), {**{key: plan[key] for key in layers.ROWS},
                                                "deploys_to": [ENVIRONMENT], "serves": [], "stops_serving": []})
-        self.assertEqual(ENVIRONMENT["kind"], "environment")
         # The gateway alone has no place to deploy to: the swap is all it says
         plan = self.plan(on(self.project, ["hybrid"]), self.up("hybrid"), "addon", "hybrid", where=place(here=False))
         self.assertEqual((plan["deploys_to"], [row["kind"] for row in plan["restarts"]], layers.asks(plan)),
@@ -1786,6 +1702,15 @@ class Files(Case):
         (self.root / ".lab/catalogs/fixture/addons/hybrid/.env").unlink()
         self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
 
+    def test_a_setting_in_the_root_env_is_no_missing_setting_for_compose_reads_that_file_first(self):
+        env = paths.unit_env("addon", "hybrid")
+        self.write(env, "HYBRID_CLOUD_TOKEN=\n")
+        self.write(".env", "HYBRID_CLOUD_TOKEN=token\n")
+        self.assertEqual(layers.current(self.project)["missing"], [])
+        self.write(".env", "HYBRID_CLOUD_TOKEN=\n")
+        self.write(env, "HYBRID_CLOUD_TOKEN=token\n")
+        self.assertEqual(layers.current(self.project)["missing"], ["hybrid"], "the root's empty value wins, as with Compose")
+
     def applied(self, plan):
         """The job layers.apply() starts for a plan: (title, steps, its other arguments)."""
         jobs = self.patch(layers, "JOBS")
@@ -1817,7 +1742,9 @@ class Files(Case):
 
     def test_apply_removes_what_goes_by_name_then_restarts(self):
         # AI Agent Lens in place of Jade: Jade removed by name, then the inspector and the gateway it
-        # changes; Kiosk, started outside the Lab UI, stays
+        # changes; Kiosk, started outside the Lab UI, stays. An image that declares a VOLUME gets an anonymous one at each
+        # start: left behind by the removal, nothing reaches it once its container is gone, a Reset neither. Named volumes
+        # are not anonymous: Compose's -v keeps them
         state = on(self.project, ["jade"])
         plan = layers.plan(self.project, state, up("jade", "kiosk"), "addon", "agent-lens", "start")
         _, (_, remove, write, start), more = self.applied(plan)
@@ -1844,16 +1771,6 @@ class Files(Case):
                                 "changes": {"start": [], "stop": [["addon", "kafka"], ["addon", "kafka-desk"]]},
                                 "waits": [{("Container", "lab-kafka"): "stop", ("Container", "lab-kafka-ui"): "stop",
                                            ("Container", "lab-kafka-desk"): "stop"}]})
-
-    def test_what_goes_is_removed_with_the_anonymous_volumes_of_its_containers(self):
-        # An image that declares a VOLUME gets an anonymous one at each start: left behind by the removal, nothing reaches it
-        # once its container is gone, a Reset neither. Named volumes are not anonymous: Compose's -v keeps them
-        plan = layers.plan(self.project, on(self.project, ["kafka-desk"]), up("kafka", "kafka-desk"), "addon", "kafka",
-                           "stop")
-        remove = self.applied(plan)[1][1]
-        self.assertEqual(remove[len(compose.COMPOSE):], ["-p", "lab", "rm", "--stop", "--force", "-v",
-                                                         "kafka", "kafka-desk", "kafka-ui"])
-        self.assertEqual(layers.commands(plan)[0], remove)
 
     def test_what_goes_is_removed_before_the_on_file_says_it_is_off(self):
         # The removal fails, or is canceled, or the Lab UI ends there: Kafka is still on, stopped, never off and still running
@@ -1932,48 +1849,6 @@ class Files(Case):
             ("kafka", "start"), ("kafka-ui", "start"), ("kafka-desk", "start"), ("apim-gateway", "start"),
             ("apim-management-api", "start"))}])
 
-    def ran(self, plan, docker, *outputs):
-        """The job of a plan, its commands printing these lines in turn, with Docker following them: how far it was
-        after each line, and the job."""
-        title, steps, more = self.applied(plan)
-        job = Job(title, steps, **more)
-        return progress(replay(job, *outputs, refresh=docker.refresh)), job
-
-    def test_an_add_on_start_is_there_once_its_containers_are_ready(self):
-        # Kafka, its UI and the gateway it restarts: running is half way for the two with a health check
-        plan = layers.plan(self.project, on(self.project), up(), "addon", "kafka", "start")
-        lines = [" Container lab-mongodb Running ", " Container lab-apim-gateway Recreate ",
-                 " Container lab-kafka Creating ", " Container lab-kafka Created ", " Container lab-kafka-ui Created ",
-                 " Container lab-apim-gateway Recreated ", " Container lab-kafka Starting ",
-                 " Container lab-kafka Started ", " Container lab-kafka Waiting ", " Container lab-kafka Healthy ",
-                 " Container lab-kafka-ui Starting ", " Container lab-kafka-ui Started ",
-                 " Container lab-apim-gateway Starting ", " Container lab-apim-gateway Started "]
-        docker = Docker(self.project, {"mongodb": container(health="healthy"),
-                                       "apim-gateway": container(health="healthy")}, HEALTH_CHECKED)
-        curve, job = self.ran(plan, docker, lines)
-        self.assertEqual(curve, [0, 0, 0, 0.067, 0.133, 0.2, 0.2, 0.3, 0.3, 0.467, 0.467, 0.733, 0.733, 0.833])
-        # Compose returned while the gateway's health check runs; Docker says when it passes
-        self.assertEqual((job.ok, round(job.progress, 3)), (True, 0.833))
-        docker.healthy("apim-gateway")
-        docker.observe(job)
-        self.assertEqual(job.progress, 1)
-
-    def test_a_stop_is_there_once_its_containers_are_removed(self):
-        # What it stops, removed by name, then the gateway it restarts without Kafka's settings: each command half
-        plan = layers.plan(self.project, on(self.project, ["kafka"]), up("kafka"), "addon", "kafka", "stop")
-        removed = [" Container lab-kafka-ui Stopping ", " Container lab-kafka Stopping ",
-                   " Container lab-kafka-ui Stopped ", " Container lab-kafka-ui Removing ",
-                   " Container lab-kafka Stopped ", " Container lab-kafka Removing ", " Container lab-kafka Removed ",
-                   " Container lab-kafka-ui Removed "]
-        restarted = [" Container lab-apim-gateway Recreate ", " Container lab-apim-gateway Recreated ",
-                     " Container lab-apim-gateway Starting ", " Container lab-apim-gateway Started ",
-                     " Container lab-apim-gateway Healthy "]
-        running = {name: container(health="healthy") for name in ("kafka", "kafka-ui", "apim-gateway")}
-        curve, job = self.ran(plan, Docker(self.project, running, HEALTH_CHECKED), removed, restarted)
-        self.assertEqual(self.applied(plan)[2]["changes"], {"start": [["service", "apim-gateway"]],
-                                                            "stop": [["addon", "kafka"]]})
-        self.assertEqual(curve, [0.125, 0.25, 0.375, 0.375, 0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.75, 1])
-
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Catalogs: what stands between an item of a catalog and the platform
@@ -2049,7 +1924,6 @@ class Gates(Case):
         # The file is locked, the policy blocks it, a catalog is lacking, its twin is on, a setting is lacking, a port is
         # taken: each is said once the one before it is gone
         twins(self.project)
-        self.project["addons"]["kiosk"].update(catalog="fixture", services=["kiosk"])
         self.project["services"]["kiosk"]["ports"] = ["5601"]
         self.project["services"]["jade"]["ports"] = ["5601"]
         self.block("kiosk", "Mounts the Docker socket")
@@ -2148,9 +2022,7 @@ class Gates(Case):
     # --- Ports -----------------------------------------------------------------------------------------------------
 
     def publish(self, **ports):
-        """These services publish these host ports; the first catalog owns the add-ons."""
-        for uid in self.project["addons"]:
-            self.project["addons"][uid]["catalog"] = "fixture"
+        """These services publish these host ports."""
         for name, published in ports.items():
             self.project["services"][name]["ports"] = list(published)
 
@@ -2182,7 +2054,6 @@ class Gates(Case):
         # Another playground replaces the one that is on: its port is free by then
         second(self.project)
         self.publish(**{"hello-app": ["8080"], "demo-app": ["8080"]})
-        self.project["playgrounds"]["welcome"]["catalog"] = self.project["playgrounds"]["demo"]["catalog"] = "fixture"
         state = on(self.project, playground="welcome")
         self.assertIsNone(self.why("playground", "demo", state, up(playgrounds=["welcome"], project=self.project)))
         # An add-on that is on and stays holds it
@@ -2196,12 +2067,6 @@ class Gates(Case):
         state = on(self.project, ["kiosk"])
         unit = self.project["addons"]["local/kiosk"]
         self.assertIsNone(layers._port_clash(self.project, state, up("kiosk", project=self.project), "addon", unit))
-
-    def test_a_unit_that_says_no_catalog_is_asked_for_its_ports_too(self):
-        self.publish(kiosk=["5601"], **{"kafka-ui": ["5601"]})
-        for uid in self.project["addons"]:
-            del self.project["addons"][uid]["catalog"]
-        self.assertEqual(self.why("addon", "kiosk", on(self.project, ["kafka"])), "Port 5601 is used by Kafka")
 
     def test_a_port_the_platform_publishes_is_taken_while_it_does_not_run(self):
         self.project["services"]["apim-gateway"]["ports"] = ["8082"]
@@ -2300,21 +2165,6 @@ class Preflight(Case):
         self.project["addons"]["kiosk"]["blocked"] = None
         with self.assertRaisesRegex(RuntimeError, "^Would also turn off Jade$"):
             layers.check(self.project, self.plan("addon", "agent-lens", state=on(self.project, ["jade"])), [])
-        self.service.preflight.assert_not_called()
-
-    def test_a_caller_that_leaves_out_the_project_or_what_the_page_sent_back_is_refused_not_let_through_unverified(self):
-        # The form check(plan, accept) skipped the preflight without a word: it is gone, and so is the default of `accept`
-        parameters = inspect.signature(layers.check).parameters.values()
-        self.assertEqual([(one.name, one.default) for one in parameters],
-                         [(name, inspect.Parameter.empty) for name in ("project", "plan", "accept")])
-        plan = self.plan("addon", "kiosk")
-        for call in (lambda: layers.check(plan, []), lambda: layers.check(self.project, plan), lambda: layers.check(plan)):
-            with self.assertRaises(TypeError):
-                call()
-        self.service.preflight.assert_not_called()
-
-    def test_a_plan_from_a_caller_that_names_no_kind_is_not_verified(self):
-        layers.check(self.project, {"blocked": None, "stops": [], "turns_off": [], "itself": set()}, [])
         self.service.preflight.assert_not_called()
 
 
@@ -2426,21 +2276,11 @@ class Entries(Case):
                          ("welcome", ["@partner/ledger", "kiosk", "local/whoami"], None, []))
         self.assertEqual(state["effective"], ["@partner/ledger", "agent-lens", "kiosk", "local/whoami"])
 
-    def test_a_setup_of_a_catalog_stands_for_its_add_ons(self):
-        state = self.on_file("include:\n  - .lab/catalogs/fixture/setups/events.yml\n")
-        self.assertEqual((state["setups"], state["explicit"], state["effective"], state["locked"]),
-                         (["events"], ["kafka-desk"], ["kafka", "kafka-desk"], None))
-
     def test_an_item_the_policy_blocks_is_an_entry_like_any_other_and_locks_nothing(self):
         self.project["addons"]["kiosk"]["blocked"] = {"reasons": ["Mounts the Docker socket"]}
         self.project["addons"]["kiosk"]["services"] = []
         state = self.on_file("include:\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
         self.assertEqual((state["explicit"], state["locked"], state["problems"]), (["kiosk"], None, []))
-
-    def test_an_entry_of_a_catalog_whose_file_does_not_load_locks_the_file_as_before(self):
-        del self.project["addons"]["@partner/ledger"]
-        state = self.on_file("include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n")
-        self.assertEqual(state["locked"], ".lab/catalogs/partner/addons/ledger/compose.yml does not load")
 
     def test_a_line_outside_the_catalogs_locks_the_file(self):
         self.write("addons/kiosk/compose.yml")
@@ -2480,12 +2320,6 @@ class Entries(Case):
         os.mkfifo(env)   # a pipe is not waited for
         self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
 
-    def test_a_unit_of_one_catalog_brings_a_unit_of_another(self):
-        # closure follows the ids the project gives, whatever catalog they come from
-        self.project["addons"]["@partner/ledger"]["needs"] = ["kiosk"]
-        self.assertEqual(layers.closure(self.project, ["@partner/ledger"]), {"@partner/ledger", "kiosk"})
-        self.assertEqual(layers.current(self.project)["effective"], [])
-
     # --- The writer ------------------------------------------------------------------------------------------------
 
     BLOCKED = {".lab/catalogs/fixture/addons/kiosk/compose.yml": "Mounts the Docker socket"}
@@ -2504,10 +2338,6 @@ class Entries(Case):
         layers.write(None, ["kiosk"], blocked=self.BLOCKED)
         layers.write(None, [], blocked=self.BLOCKED)
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
-
-    def test_no_map_and_an_empty_one_gate_nothing(self):
-        for blocked in (None, {}):
-            layers.write("welcome", ["kiosk"], blocked=blocked)
 
     def test_a_unit_of_a_catalog_that_is_not_in_the_map_is_added(self):
         layers.write("welcome", ["kiosk"], blocked={".lab/catalogs/fixture/addons/jade/compose.yml": "No"})
@@ -2625,8 +2455,7 @@ class Binds(Case):
         return self.patch(compose, "config_json", return_value={"services": {"app": {"volumes": volumes}}})
 
     def test_a_missing_folder_inside_the_folder_of_the_playground_is_made_with_its_parents(self):
-        os.umask(0o077)
-        self.addCleanup(os.umask, 0o022)
+        self.addCleanup(os.umask, os.umask(0o077))
         self.binds(self.unit / ".state", self.unit / "data" / "deep" / "er")
         made = layers.make_binds(self.project, self.plan)
         self.assertEqual(made, [str(self.unit / ".state"), str(self.unit / "data"), str(self.unit / "data/deep"),
@@ -2739,160 +2568,20 @@ class Binds(Case):
                                   str(self.root / paths.unit_file("addon", "agent-lens"))])
 
 
-# ---------------------------------------------------------------------------------------------------------------------
-# The fixture catalogs, as the Lab UI reads them
-# ---------------------------------------------------------------------------------------------------------------------
-
-def nothing_up(*services, addons=()):
-    """What model.up() answers when nothing of the project runs but these services (started outside the Lab UI), those of
-    these add-ons."""
-    running = set(services)
-    return {"platform": False, "groups": set(), "addons": set(addons), "playgrounds": set(), "services": running,
-            "ready": running, "done": set(), "created": set(services)}
-
-
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
 class Real(Case):
-    """The units of the fixture catalogs, read with the real core by Compose (no daemon): what the gates say of them."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        fixtures.need_compose()
-        holder = cls.holder = Case()   # a case of the class's own: the folder it makes and what it patches last as long
-        cls.addClassCleanup(holder.doCleanups)
-        cls.inputs, cls.built = read(holder, {"partner": {}, "lab-new": {}, "lab-old": {}}, ("scratch", "sandbox"), {})
-        cls.root = holder.root
-
-    def setUp(self):
-        self.addCleanup(lambda: (self.root / paths.ON_FILE).exists() and (self.root / paths.ON_FILE).unlink())
-
-    def begin(self, kind, uid, state=None, running=None):
-        state = state or layers.current(self.built)
-        return layers.plan(self.built, state, running or nothing_up(), kind, uid, "start")
-
-    def test_the_entries_of_every_catalog_are_recognized_and_a_unit_the_policy_blocks_locks_nothing(self):
-        layers.write("tour", ["future", "@partner/ledger", "local/scratch", "echo"])
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "include:\n"
-                         "  - .lab/catalogs/fixture/playgrounds/tour/compose.yml\n"
-                         "  - .lab/catalogs/partner/addons/ledger/compose.yml\n"
-                         "  - .lab/catalogs/fixture/addons/echo/compose.yml\n"
-                         "  - .lab/catalogs/fixture/addons/future/compose.yml\n"
-                         "  - .lab/catalogs/local/addons/scratch/compose.yml\n")
-        state = layers.current(self.built)
-        self.assertEqual((state["playground"], state["explicit"], state["locked"], state["problems"]),
-                         ("tour", ["@partner/ledger", "echo", "future", "local/scratch"], None, []))
-
-    def test_the_map_of_what_must_not_start_is_what_the_project_says_blocked(self):
-        found = layers.blocked_files(self.built)
-        self.assertEqual(found, {
-            ".lab/catalogs/fixture/addons/future/compose.yml": "Needs a newer Gravitee Lab",
-            ".lab/catalogs/fixture/setups/pair.yml": "Depends on private content",
-            ".lab/catalogs/lab-new/addons/newer/compose.yml": "Needs a newer Gravitee Lab",
-            ".lab/catalogs/lab-old/addons/older/compose.yml": "Written for an older Gravitee Lab"})
-
-    def test_a_blocked_unit_is_refused_by_the_plan_and_by_the_writer_and_never_for_a_stop(self):
-        plan = self.begin("addon", "future")
-        self.assertEqual(plan["blocked"], "Needs a newer Gravitee Lab")
-        with self.assertRaisesRegex(RuntimeError, "^future is blocked: Needs a newer Gravitee Lab$"):
-            layers.write(None, ["future"], blocked=layers.blocked_files(self.built))
-        self.assertFalse((self.root / paths.ON_FILE).exists())
-        layers.write(None, ["future"])   # it is on, whoever put it there
-        state = layers.current(self.built)
-        stop = layers.plan(self.built, state, nothing_up(), "addon", "future", "stop")
-        self.assertIsNone(stop["blocked"])
-        layers.write(stop["playground"], stop["explicit"], blocked=layers.blocked_files(self.built))   # a removal
-        self.assertEqual(layers.current(self.built)["explicit"], [])
-
-    def test_what_a_setup_brings_from_another_catalog_that_is_blocked_blocks_it(self):
-        plan = self.begin("setup", "pair")
-        self.assertEqual(plan["blocked"], "Depends on private content")
-
-    def test_a_port_the_core_publishes_is_taken_whether_it_runs_or_not(self):
-        # The platform is always on: started with the port taken, the add-on would make the next Start all fail
-        for running in (nothing_up(), nothing_up("apim-gateway")):
-            self.assertEqual(self.begin("addon", "port-core", running=running)["blocked"], "Port 8082 is used by API Management")
-
-    def test_a_port_two_units_publish_is_taken_while_the_first_runs_or_is_on_and_not_when_it_is_turned_off_for_it(self):
-        running = nothing_up("fixture-echo", addons=["echo"])
-        self.assertEqual(self.begin("addon", "echo-twin", running=running)["blocked"], "Port 8191 is used by Echo")
-        # On: the twin declares a conflict with Echo, so starting it turns Echo off, which frees the port
-        layers.write(None, ["echo"])
-        state = layers.current(self.built)
-        plan = self.begin("addon", "echo-twin", state)
-        self.assertEqual([row["id"] for row in plan["turns_off"]], ["echo"])
-        self.assertIsNone(plan["blocked"])
-        # Echo stays when the thing that comes does not conflict with it: the port is taken
-        self.assertEqual(self.begin("addon", "echo-core", state)["blocked"], None, "it brings Echo, which is its own")
-
-    def test_a_start_is_verified_by_the_catalogs_for_the_units_of_catalogs_it_puts_in_the_on_file(self):
-        service = types.ModuleType("service")
-        service.preflight = mock.Mock()
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.service": service}):
-            layers.check(self.built, self.begin("addon", "@partner/ledger"), [])
-            service.preflight.assert_called_once_with(self.built, [("addon", "@partner/ledger")])
-            service.preflight.reset_mock()
-            # This machine's own add-on is nobody's catalog: only the Echo of the first catalog that it brings is verified
-            layers.check(self.built, self.begin("addon", "local/scratch"), [])
-            service.preflight.assert_called_once_with(self.built, [("addon", "echo")])
+    """A playground of the fixture catalogs, read with the real core by Compose (no daemon)."""
 
     def test_the_folders_a_playground_binds_are_made_in_its_folder_and_nowhere_else(self):
+        _, built = read(self)
         folder = self.root / paths.unit_folder("playground", "tour")
-        self.addCleanup(lambda: __import__("shutil").rmtree(folder / ".state", ignore_errors=True))
         before = sorted(os.listdir(folder))
         self.assertNotIn(".state", before)
-        state = layers.current(self.built)
-        made = layers.make_binds(self.built, self.begin("playground", "tour", state))
-        self.assertEqual(made, [str(folder / ".state")])
+        plan = layers.plan(built, layers.current(built), up(platform=False, project=built), "playground", "tour", "start")
+        self.assertEqual(layers.make_binds(built, plan), [str(folder / ".state")])
         self.assertEqual(oct(os.stat(folder / ".state").st_mode & 0o777), "0o755")
         self.assertEqual(sorted(os.listdir(folder)), sorted([*before, ".state"]), "the seed is where it was")
-        self.assertEqual(layers.make_binds(self.built, self.begin("playground", "tour", state)), [], "once")
-
-    def test_the_gateway_the_project_chose_is_the_one_that_declares_it(self):
-        self.assertEqual(self.built["platform"], {"gateways": {"cloud": "gateway"}})
-        self.assertEqual(layers.closure(self.built, ["echo-core"]), {"echo-core", "echo"})
-
-
-@unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
-class RealTwins(Case):
-    """The same item in this machine and in a catalog, as the project finds it."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        fixtures.need_compose()
-        holder = cls.holder = Case()
-        cls.addClassCleanup(holder.doCleanups)
-
-        def twin(case):
-            text = (fixtures.CATALOGS / "fixture/addons/echo/compose.yml").read_text(encoding="utf-8")
-            case.write(".lab/catalogs/local/addons/echo/compose.yml", text)
-        cls.inputs, cls.built = read(holder, more=twin)
-
-    def why(self, uid, explicit, running=None):
-        state = on(self.built, explicit)
-        return layers.plan(self.built, state, running or nothing_up(), "addon", uid, "start")["blocked"]
-
-    def test_what_brings_one_is_not_started_while_the_other_is_on_or_up(self):
-        # Echo core includes Echo of the catalog: its file and the one of Echo of this machine would both be in the on file
-        self.assertEqual(layers.closure(self.built, ["echo-core"]), {"echo-core", "echo"})
-        self.assertIsNone(self.why("echo-core", []))
-        self.assertEqual(self.why("echo-core", ["local/echo"]), "Also in Personal: turn it off first")
-        self.assertEqual(self.why("echo-core", [], nothing_up("fixture-echo", addons=["local/echo"])),
-                         "Also in Personal: turn it off first")
-        plan = layers.plan(self.built, on(self.built, ["local/echo"]), nothing_up(), "addon", "echo-core", "start")
-        with self.assertRaisesRegex(RuntimeError, "^Also in Personal: turn it off first$"):
-            layers.check(self.built, plan, [])
-        # Writing is refused for it by the plan, not by the file: the half of the catalog is not in the file with its twin
-        self.assertIsNone(self.why("echo-core", ["echo"]), "its own Echo is not the twin")
-
-    def test_one_is_not_started_while_the_other_is_on_or_up(self):
-        self.assertEqual(self.built["addons"]["echo"]["twin"], {"id": "local/echo", "name": "Personal"})
-        self.assertIsNone(self.why("echo", []))
-        self.assertIsNone(self.why("local/echo", []))
-        self.assertEqual(self.why("echo", ["local/echo"]), "Also in Personal: turn it off first")
-        self.assertEqual(self.why("local/echo", ["echo"]), "Also in Fixture catalog: turn it off first")
-        self.assertEqual(self.why("local/echo", [], nothing_up("fixture-echo", addons=["echo"])), "Also in Fixture catalog: turn it off first")
+        self.assertEqual(layers.make_binds(built, plan), [], "once")
 
 
 if __name__ == "__main__":

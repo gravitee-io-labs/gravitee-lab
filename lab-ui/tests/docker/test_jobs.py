@@ -256,7 +256,7 @@ class Cut(Case):
 
     def test_a_command_runs_in_the_project_folder_in_a_session_of_its_own(self):
         # Where the project is (a `git` or a `make` of an update acts there), out of reach of the Lab UI's own signals
-        self.folder(paths)
+        self.folder(compose)
         job = Job("Update", [[sys.executable, "-c", "import os; print(os.getcwd()); print(os.getsid(0) == os.getpid())"]],
                   key="lab", verb="update")
         job.run()
@@ -502,10 +502,6 @@ class Progress(Case):
         self.assertIsNone(job.progress)
         docker = Docker(LAB, {"redis": container("exited", code=143), "reader-ui": container(health="unhealthy")})
         self.assertEqual(progress(replay(job, STOPS, refresh=docker.refresh)), [0.5, 0.75, 1, 1, 1, 1])
-
-    def test_a_restart(self):
-        job = self.job([UP], awaited(SERVICES, start=["alert-engine"]))
-        self.assertEqual(progress(replay(job, RESTARTS)), [0.2, 0.5])
 
     def test_a_one_shot_is_ready_once_it_ended_well(self):
         job = self.job([UP], awaited(SERVICES, start=["openfga-migrate"]))

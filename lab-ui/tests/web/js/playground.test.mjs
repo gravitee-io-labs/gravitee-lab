@@ -178,20 +178,19 @@ const SENTENCE = { "No hybrid gateway": (name) => `Set up a gateway in ${name} f
 // A place as GET /api/places says it
 const place = (platform, id, name, more = {}) => {
   const found = { id: `${platform.id}/${id}`, name: `${name} (${platform.name})`, platform: { id: platform.id, name: platform.name, kind: platform.kind },
-    environment: { id, name, organization: "org-1" }, state: "ready", missing: null, reason: "", token: { state: "valid" },
-    gateway: { id: "g1", name: "Gravitee Lab", state: "healthy", here: false, kept: true, connection: "CONNECTED" },
-    capabilities: { products: { "API Management": "4.12.21" }, plugins: false, detail: "" }, cannot: {}, ...more };
+    environment: { id, name }, state: "ready", missing: null, reason: "", token: { state: "valid" },
+    gateway: { id: "g1", name: "Gravitee Lab", state: "healthy", here: false, kept: true, connection: "CONNECTED" }, cannot: {}, ...more };
   return found.missing ? { ...found, state: "missing", reason: SENTENCE[found.missing](found.name) } : found;
 };
 const DEV = place(ACCOUNT, "env-dev", "Development");
-const TEST = place(ACCOUNT, "env-test", "Test", { missing: "No hybrid gateway", gateway: null, capabilities: null });
+const TEST = place(ACCOUNT, "env-test", "Test", { missing: "No hybrid gateway", gateway: null });
 const OTHER = place(CLIENT, "env-test", "Test", { missing: "No Cloud Token", token: { state: "unset" } });
 // A platform that cannot be read has no environment to list, token or gateway: it is one place, by its name
 const SLOW = { ...place({ id: "slow-lab", name: "Slow lab", kind: "cloud" }, "env-dev", "Development"), id: "slow-lab", name: "Slow lab", environment: null,
-  state: "unusable", reason: "Unreachable", token: null, gateway: null, capabilities: null };
+  state: "unusable", reason: "Unreachable", token: null, gateway: null };
 const PLACES = [DEV, TEST, OTHER, SLOW];
 // Development before anything is made there: no gateway, no Cloud Token
-const BARE = place(ACCOUNT, "env-dev", "Development", { missing: "No hybrid gateway", gateway: null, token: { state: "unset" }, capabilities: null });
+const BARE = place(ACCOUNT, "env-dev", "Development", { missing: "No hybrid gateway", gateway: null, token: { state: "unset" } });
 const HOTELS_DEV = { place: DEV.id, environment: "Development", created: [{ what: "APIs", count: 3 }, { what: "Applications", count: 1 }] };
 
 // Acme Hostels: it deploys to Cloud too. Its seed recorded 12 APIs on This machine. Why a playground cannot go to a place is in the
@@ -307,7 +306,7 @@ test("a place kept for the playground is not known before the places are read: n
 // What places.py answers for a platform it has not read yet (the first call after the Lab UI starts), or cannot read: one entry, by the
 // platform's own id, with no environment, token or gateway
 const UNREAD = (reason) => ({ id: "my-account", name: "My Account", platform: { id: "my-account", name: "My Account", kind: "cloud" }, environment: null,
-  state: "unusable", missing: null, reason, token: null, gateway: null, capabilities: null, cannot: {} });
+  state: "unusable", missing: null, reason, token: null, gateway: null, cannot: {} });
 
 test("a place kept for a platform that is still being read, or cannot be used, is not This machine: nothing deploys and the reason is the button's title", async () => {
   for (const reason of ["Loading", "Invalid token", "Unreachable"]) {
@@ -377,7 +376,7 @@ test("a playground that cannot go to a platform has the picker too: This machine
 });
 
 test("a place whose environment does not run what the playground needs is listed disabled with its reason, the others open", async () => {
-  const LATER = place(CLIENT, "env-dev", "Development", { capabilities: { products: { "API Management": "4.13.2" }, plugins: false, detail: "" } });
+  const LATER = place(CLIENT, "env-dev", "Development");
   await visit({ ...off }, { places: [{ ...DEV, cannot: { hotels: "Needs API Management 4.13" } }, LATER] });
   assert.deepEqual(await opened(), [["This machine", "", false], ["Development (Client lab)", "", false], ["Development (My Account)", "Needs API Management 4.13", true]]);
   Combo.close();
@@ -1106,7 +1105,7 @@ test("its file button reads View and shows no path of this machine; the file of 
 });
 
 test("a playground of this machine has a More, last of the page's actions, with Export, Export for Docker Compose, Share and Delete", async () => {
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   const more = section.querySelector("#pg-actions [data-more]");
   assert.deepEqual([more.getAttribute("aria-label"), more.getAttribute("data-tip"), more.getAttribute("aria-haspopup")], ["More for Acme Hostels", "More", "true"]);
   assert.ok(section.querySelector("#pg-actions .row-icons").lastElementChild === more, "at the end, after its files");
@@ -1118,10 +1117,10 @@ test("a playground of this machine has a More, last of the page's actions, with 
   await leave();
 });
 
-test("Share and Delete of the page are held for the reasons the list gives, and the Lab UI not answering holds them too", async () => {
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "Turn off Acme Hostels first", delete: "Stop Acme Hostels first" } }, { platforms: [], places: [], id: "local/hotels" });
+test("Delete of the page is held for the reason the list gives, and the Lab UI not answering holds Share and Delete", async () => {
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "Stop Acme Hostels first" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
-  assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Share", "Turn off Acme Hostels first"], ["Delete", "Stop Acme Hostels first"]]);
+  assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Share", ""], ["Delete", "Stop Acme Hostels first"]]);
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   store.offline = true;
   section.querySelector("#pg-actions [data-more]").click();
@@ -1132,7 +1131,7 @@ test("Share and Delete of the page are held for the reasons the list gives, and 
 });
 
 test("Delete of the page says what goes and what stays in Gravitee, deletes that playground alone, and the page goes back to the list once it is gone", async () => {
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   server.calls = [];
   section.querySelector("#pg-actions [data-more]").click();
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[3] }));   // the menu is the document's
@@ -1201,7 +1200,7 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   server.exported = { name: "Acme Hostels", file: "hotels.zip", carries: [{ kind: "playground", id: "local/hotels", name: "Acme Hostels" },
     { kind: "addon", id: "local/kiosk", name: "Kiosk" }], needs: [{ id: "acme", name: "Acme public" }], problems: [], blocked: [],
   uses_machine: [{ name: "Kiosk", what: ["runs privileged"] }] };
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   server.calls = [];
   section.querySelector("#pg-actions [data-more]").click();
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
@@ -1219,7 +1218,7 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   const plain = server.exported;
   server.exported = { ...plain, private: [{ key: "1a2b3c", name: "Internal", items: ["Ledger"], item_ids: ["@internal/ledger"] }],
     registries: [{ registry: "graviteeio.azurecr.io", images: ["graviteeio.azurecr.io/apim-gateway:4.13.0"] }] };
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
   await flush();
@@ -1234,7 +1233,7 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   // Many origins fold under a line that counts them, one each: a name that starts with a number is no count
   server.exported = { ...plain, private: ["12 Tools", "Internal", "Partner", "Ops", "Legal"].map((name, n) => ({ key: `k${n}`, name, items: ["Ledger"],
     item_ids: ["@internal/ledger"] })) };
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
   await flush();
@@ -1244,7 +1243,7 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   server.exported = plain;
   // What another Lab would block is said, and the file is not made
   server.exported = { ...server.exported, uses_machine: [], blocked: [{ name: "Kiosk", reasons: ["Changes Gateway beyond adding settings"] }] };
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
   await flush();
@@ -1259,7 +1258,7 @@ test("an imported playground moves to Personal from its menu: with what it bring
   server.movePlan = {
     together: { moves: ["Acme Hostels", "Kiosk"], stays: [{ name: "Ledger", why: "Used by Notes" }], replaces: [], held: "", uses_machine: ["Kiosk"] },
     alone: { moves: ["Acme Hostels"], stays: [], replaces: ["Acme Hostels"], held: "" }, used_by: "" };
-  const imported = { ...off, id: "@hostels/hotels", origin: { id: "imported", name: "Imported" }, held: { share: "", delete: "" } };
+  const imported = { ...off, id: "@hostels/hotels", origin: { id: "imported", name: "Imported" }, held: { delete: "" } };
   await visit(imported, { platforms: [], places: [], id: "@hostels/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
   const entries = menu.querySelectorAll(".menu-item");
@@ -1313,7 +1312,7 @@ test("a playground of a catalog is copied to Personal from its menu: alone, or w
 });
 
 test("Delete names the folder by the path the item is read by (display_file), the file it opens being its own", async () => {
-  const mine = { ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" }, file: ".lab/catalogs/local/playgrounds/hotels/compose.yml" };
+  const mine = { ...off, personal: true, id: "local/hotels", held: { delete: "" }, file: ".lab/catalogs/local/playgrounds/hotels/compose.yml" };
   for (const [display_file, said] of [["playgrounds/hotels/compose.yml", "playgrounds/hotels/"], ["", ".lab/catalogs/local/playgrounds/hotels/"], [undefined, ".lab/catalogs/local/playgrounds/hotels/"]]) {
     await visit({ ...mine, display_file }, { platforms: [], places: [], id: "local/hotels" });
     section.querySelector("#pg-actions [data-more]").click();

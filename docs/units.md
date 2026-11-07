@@ -404,8 +404,8 @@ twice must be safe: [seeder/AGENTS.md](../seeder/AGENTS.md).
 - **Addresses** are `${VAR}`, set by the seed service. A seed file never names a container or writes an address.
 - **Environments of its own**: a playground for several tenants has a folder `seed/environments/<id>/` for each, which
   repeats the layout of `seed/apim/` (settings, users, groups, APIs, applications, subscriptions, a developer portal). The
-  folder is the environment's id, `environment.yaml` repeats it and names the environment, and `make check` says when they
-  differ. The seed looks an environment up and never creates or deletes it: [the folder's
+  folder is the environment's id, `environment.yaml` repeats it and names the environment, and the seed and the catalog's
+  CI (`seedlint.py`) say when they differ. The seed looks an environment up and never creates or deletes it: [the folder's
   layout](playgrounds.md#environments-of-its-own). Such a playground stays on *This machine*, and a `seed/apim/` is
   optional.
 - **A one-shot service writes to the core's database only when no API can.** No management API creates an environment, so the

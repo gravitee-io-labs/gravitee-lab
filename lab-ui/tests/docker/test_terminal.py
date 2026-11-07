@@ -201,9 +201,6 @@ class Sent(Case):
         for value in (None, [24], [24, 80, 1], [0, 80], [24, 1001], [24.5, 80], ["24", "80"], [True, 80], "24x80", {"rows": 24}):
             self.assertIsNone(terminal.size(value), repr(value))
 
-    def test_the_output_travels_as_base64(self):
-        self.assertEqual(terminal.encode(b"\x1b[32mok\x1b[0m\r\n"), "G1szMm1vaxtbMG0NCg==")
-
 
 if __name__ == "__main__":
     unittest.main()

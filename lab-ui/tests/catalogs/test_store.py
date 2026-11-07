@@ -359,7 +359,8 @@ class Rejections(Case):
                  entry("catalog.yml", size=MIB + 1)],
         "ST14": [entry(p) for p in (
             "addons/Upper/compose.yml", "addons/under_score/compose.yml", "addons/dot.name/compose.yml",
-            "playgrounds/Shop/compose.yml", "setups/Pair.yml", "setups/under_score.yml", "setups/.yml")],
+            "playgrounds/Shop/compose.yml", "setups/Pair.yml", "setups/under_score.yml", "setups/.yml", "addons/local/compose.yml",
+            "playgrounds/local/compose.yml", "setups/local.yml")],
         "ST15": [entry(p) for p in (
             "addons/NOTES.md", "playgrounds/notes.txt", "setups/pair.yaml", "setups/sub/x.yml", "setups/readme.md",
             "setups/pair.yml.bak", "addons", "playgrounds", "setups/x", "addons/readme.md", "playgrounds/Readme.md",

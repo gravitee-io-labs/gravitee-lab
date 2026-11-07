@@ -105,13 +105,11 @@ function lab({ away = false, core = "stopped", hotels = {}, ...more } = {}) {
 
 // A place as the cache of /api/places says it
 const place = (more = {}) => ({ id: "acme/development", name: "Development (My Account)", platform: { id: "acme", name: "My Account", kind: "cloud" },
-  environment: { id: "development", name: "Development", organization: "o1" }, state: "ready", missing: null, reason: "", token: { state: "valid" },
-  gateway: { id: "g1", name: "lab", state: "connected", here: true, kept: true, connection: "CONNECTED" },
-  capabilities: { products: { "API Management": "4.12.21" }, plugins: false, detail: "" }, cannot: CANNOT, ...more });
-const lacks = (missing, reason, token) => place({ state: "missing", missing, reason, token: { state: token }, gateway: null, capabilities: null });
+  environment: { id: "development", name: "Development" }, state: "ready", missing: null, reason: "", token: { state: "valid" },
+  gateway: { id: "g1", name: "lab", state: "connected", here: true, kept: true, connection: "CONNECTED" }, cannot: CANNOT, ...more });
+const lacks = (missing, reason, token) => place({ state: "missing", missing, reason, token: { state: token }, gateway: null });
 // A platform that cannot be used is one place of its own id, without environment, token or gateway
-const unusable = (reason) => place({ id: "acme", name: "My Account", environment: null, state: "unusable", reason, token: null, gateway: null,
-  capabilities: null });
+const unusable = (reason) => place({ id: "acme", name: "My Account", environment: null, state: "unusable", reason, token: null, gateway: null });
 const ACCOUNT = { id: "acme", name: "My Account", kind: "cloud", url: "https://eu.cloud.gravitee.io" };
 
 // --- What a page draws, one line for each node ---------------------------------------------
@@ -545,7 +543,7 @@ const made = (kind, id, name, more) => (kind === "playground" ? playground(id, n
   : item(kind, id, name, kind === "setup" ? { members: [], includes: [], ...more } : { ...BLANK, ...more }));
 const inHub = (kind, id, name, more = {}) => made(kind, `@acme-hub/${id}`, name, { origin: origin(), readonly: true, display_file: `${kind}s/${id}/compose.yml`,
   needs_catalogs: [], compat: "ok", twin: null, uses_machine: [], ...more });
-const ofMine = (kind, id, name, more = {}) => made(kind, `local/${id}`, name, { personal: true, held: { share: "", delete: "" }, ...more });
+const ofMine = (kind, id, name, more = {}) => made(kind, `local/${id}`, name, { personal: true, held: { delete: "" }, ...more });
 const base = lab();
 // The lab with another catalog added and this machine's items: what the lists tell apart
 function world({ playgrounds = [], setups = [], addons = [], ...more } = {}) {

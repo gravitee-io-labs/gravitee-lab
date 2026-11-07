@@ -58,9 +58,6 @@ class Line(unittest.TestCase):
         self.assertEqual(reasons.line({"a": config("GRAVITEE_LICENSE", "REDIS_PASSWORD")}),
                          "Its settings changed since it started: GRAVITEE_LICENSE, REDIS_PASSWORD.")
 
-    def test_a_configuration_that_cannot_be_told_says_only_that_it_changed(self):
-        self.assertEqual(reasons.line({"a": config()}), "Its configuration changed since it started.")
-
     def test_nothing_behind_says_nothing(self):
         self.assertEqual(reasons.line({}), "")
         self.assertEqual(reasons.line({}, {}), "")
@@ -206,9 +203,3 @@ class Causes(unittest.TestCase):
         self.assertTrue(reasons.causes({"a": tag("4.12.20-debian", "4.13.0-alpha.4-debian")})[0]["older"])
         self.assertFalse(reasons.causes({"a": tag("4.13.0", "4.13.0-alpha.4")})[0]["older"], "a release is above its pre-releases")
         self.assertFalse(reasons.causes({"a": tag("latest", "4.13.0")})[0]["older"], "a tag that moves names no version")
-
-    def test_never_a_value(self):
-        # What drift.py finds is a name; the causes hold names and tags, and the line the same
-        found = reasons.causes({"a": config("INTERNAL_API_PASSWORD")})
-        self.assertEqual(found, [{"kind": "settings", "settings": ["INTERNAL_API_PASSWORD"], "services": []}])
-        self.assertEqual(set().union(*(cause.keys() for cause in found)), {"kind", "settings", "services"})

@@ -167,7 +167,7 @@ class Images(Case):
                             layers.outside())
 
     def test_state(self):
-        self.patch(images, "local_images", return_value={"mongo:8.0.29", "bitnamilegacy/kafka:3.9"})
+        self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "a", "bitnamilegacy/kafka:3.9": "b"})
         self.patch(compose, "project_name", return_value="lab")
         self.patch(compose, "ps", return_value={"mongodb": {"state": "running", "image": "mongo:7"},
                                                 "kafka": {"state": "exited", "image": "x"}})
@@ -196,7 +196,7 @@ class Images(Case):
                                             "note_title": "Not from the Lab UI, so the platform does not start it."})
 
     def test_whether_a_component_that_is_on_takes_its_images_from_azure(self):
-        self.patch(images, "local_images", return_value=set())
+        self.patch(compose, "image_ids", return_value={})
         self.patch(compose, "containers", return_value=({}, None))
         self.patch(envfiles, "read", return_value={})
         # The platform is always on: its images come from the Azure registry its .env names (resolved here)
@@ -210,11 +210,18 @@ class Images(Case):
         self.assertFalse(self.state()["azure_in_use"])
         self.assertTrue(self.state(["tools"])["azure_in_use"])
 
+    def test_an_image_written_with_docker_hubs_own_prefixes_is_pulled_as_docker_lists_it(self):
+        self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "a"})
+        self.patch(compose, "containers", return_value=({}, None))
+        self.patch(envfiles, "read", return_value={})
+        for written in ("library/mongo:8.0.29", "docker.io/library/mongo:8.0.29"):
+            self.project["services"]["mongodb"]["image"] = written
+            self.assertTrue({c["id"]: c for c in self.state()["components"]}["MONGODB_VERSION"]["pulled"], written)
+
     def test_with_docker_not_answering_what_is_pulled_is_not_known(self):
         compose.CACHE.drop("local:image-ids")
         self.addCleanup(compose.CACHE.drop, "local:image-ids")
         self.patch(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon"))
-        self.assertIsNone(images.local_images())
         self.patch(compose, "containers", return_value=({}, "Cannot connect to the Docker daemon"))
         self.patch(envfiles, "read", return_value={})
         self.assertEqual({c["pulled"] for c in self.state()["components"]}, {None})
@@ -449,6 +456,7 @@ class Images(Case):
         reasons = {"offline": images.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")),
                    "limited": images.urllib.error.HTTPError("https://hub.docker.com", 429, "Too Many Requests", {}, None),
                    "refused": images.urllib.error.HTTPError("https://ghcr.io", 403, "Forbidden", {}, None),
+                   "absent": images.urllib.error.HTTPError("https://hub.docker.com", 404, "Not Found", {}, None),
                    "slow": images.urllib.error.URLError(TimeoutError("timed out"))}
         said = {}
         for name, error in reasons.items():
@@ -465,6 +473,8 @@ class Images(Case):
             ("limited", "MCP_LENS_VERSION"): "Too many requests to ghcr.io: try again later",
             ("refused", "ELASTICSEARCH_VERSION"): "Docker Hub refuses the request",
             ("refused", "MCP_LENS_VERSION"): "ghcr.io refuses the request",
+            ("absent", "ELASTICSEARCH_VERSION"): "Not found on Docker Hub",
+            ("absent", "MCP_LENS_VERSION"): "Not found on ghcr.io",
             ("slow", "ELASTICSEARCH_VERSION"): "Docker Hub does not answer in time",
             ("slow", "MCP_LENS_VERSION"): "ghcr.io does not answer in time"})
 
@@ -549,7 +559,7 @@ class Shared(Case):
 
     def test_a_link_saved_to_a_variable_that_does_not_reach_reads_as_compose_reads_it(self):
         # Saved by an earlier Lab: Compose reads it empty, so the image is the default's. The page says what runs
-        self.patch(images, "local_images", return_value=set())
+        self.patch(compose, "image_ids", return_value={})
         self.patch(compose, "containers", return_value=({}, None))
         self.env[paths.unit_env("playground", "shop")] = {"SHOP_OPENSSL_VERSION": "${KAFKA_CERTS_VERSION}"}
         listed = {c["id"]: c for c in images.state(self.project, lambda owner: True, None)["components"]}
@@ -582,7 +592,6 @@ class Anonymous(Case):
     def setUp(self):
         self.answers = {}
         self.patch(images, "_status", side_effect=lambda url, token=None: self.answers.get((url, bool(token)), (None, "")))
-        self.patch(images, "_status_get", side_effect=lambda url: self.answers.get((url, False), (None, "")))
         self.patch(images, "_json", side_effect=lambda url, token=None: self.answers[("token", url)])
         self.patch(compose, "CACHE", compose.Cache())   # each test asks afresh
 

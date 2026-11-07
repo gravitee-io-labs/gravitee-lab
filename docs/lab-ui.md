@@ -267,15 +267,13 @@ resources run across the page under them, one line that you unfold.
 | The environments of the Cloud | The Gravitee Cloud page's own reads, one call to the Cloud for each account | The page shows, and the tab is seen again |
 | The versions of Docker and Compose, the cores and memory Docker has | `docker info` and `docker compose version` | The page opens |
 | What Docker stores and what is unused: images, containers, volumes and build cache | `docker system df`, which takes about 2 seconds | The page opens, and *Count storage again* |
-| The load and memory of the containers | One `docker stats` process | While the page is in view, folded or not |
-| The memory and cores of the machine, the disk | The system itself, with no Docker | The page opens |
+| The load and memory of the containers | `docker stats --no-stream`, which takes about 2 seconds | Every few seconds while the page is in view, folded or not |
 
 - **Docker's answers are kept.** What Docker stores is kept for a minute, its Compose's version too; what Docker says of itself
   until it restarts (at most 10 minutes), the same answer every page and the first step of *Welcome to Gravitee Lab* read. Going to
   another page and back reads nothing again. *Count storage again* reads them again at once. A read that failed is tried again after
   10 seconds.
-- **The load is live.** The Lab UI starts one `docker stats` process when the page connects and stops it when the last
-  page that listens leaves. A tab you hide, or a page you leave, closes its connection, so the Lab UI in the background
+- **The load is live.** While a page listens, the Lab UI reads it every few seconds, and the pages that listen share a reading. A tab you hide, or a page you leave, closes its connection, so the Lab UI in the background
   costs Docker nothing. A connection that the browser gave up on is opened again after 3 seconds, then 6, 12 and so on up to a minute. The CPU is the sum of the lab's
   containers' CPU divided by the cores Docker has, so 100% is every core it has. The last minute is drawn by the page, on a scale that never changes (the line grows in from the right, then passes) and kept nowhere, and only while Resources is unfolded. With *reduce motion* set in
   your system, the charts are drawn when a sample comes and do not slide.
@@ -284,7 +282,7 @@ resources run across the page under them, one line that you unfold.
 - **Without Docker**, the banner says why, once, and the menu's chip says it is not reachable. The figures that need it,
   CPU, Memory and Storage, are dashes and the charts are gone. No dot is colored, no count is said, the buttons wait and say
   why, and there is nothing to open. The page still shows what needs no Docker: the versions configured for the products, the
-  Cloud, what is on, and the disk.
+  Cloud and what is on.
 
 ## Containers
 

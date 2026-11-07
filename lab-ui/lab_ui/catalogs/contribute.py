@@ -9,7 +9,7 @@ unit are at one depth, so only an include of the catalog itself changes).
 Before anything leaves it is judged the way a consumer and the catalog's CI will judge it: its includes are in the target
 or in a catalog the target declares, no secret is in it and, for a Public target, no name of a private catalog; the text
 screen is clean, Compose loads it alone with the core, the trust policy lets it run, the rules every item of a catalog keeps
-(`check.problems(sharing=...)`: a category, a README, `unless-stopped`, a description on each service, ports on the loopback)
+(`check.problems(sharing=...)`: a category, a README, `unless-stopped`, a description on each service)
 are kept, and the rules of the catalog standard (ST, SE, DF, GD, IM) find nothing in the files that would be copied. The copy
 is judged in a hidden folder beside the installs, `.lab/catalogs/.stage-share~<token>`, at the depth of a unit so that its
 relative paths resolve as they will; an include of the target's own units is written there as the include of another catalog,
@@ -712,8 +712,7 @@ def _unwritten(copy, file, kind, slug, ns, row, skip=frozenset()) -> List[str]:
 
 def _own_rules(file) -> List[str]:
     """What the rules of an item of a catalog find in the personal compose file `file` (`check.problems(sharing=...)`: a
-    category, a README, `unless-stopped`, a description on each service, ports on the loopback, no literal secret, its ports
-    among the project's, a playground that loads alone), the lines the catalog's own check gives the copy."""
+    category, a README, `unless-stopped`, a description on each service, its ports among the project's, a playground that loads alone), the lines the catalog's own check gives the copy."""
     return [message for where, message in check.problems(sharing=file) if where == file]
 
 
@@ -1371,8 +1370,7 @@ def rewritten(before, after, changed, name, what="its private label and whose co
     the file is: its x-gravitee is the one of `before` with the keys of `changed` set to their values (None: gone, or empty) and
     nothing else, and it still loads. Else the refusal that names the item and says why, decided on what is true now: a file
     Compose cannot read as it is (`label_unread`, _unread), or a label or a copy_of the Lab could not write, or whose writing broke
-    a file that reads (`label_failed`, NOT_WRITTEN). A reading remembered (compose.x_gravitee) says a text was readable, not that
-    it is: when what the Lab wrote cannot be read, the file as it is is read again before the Lab takes the fault."""
+    a file that reads (`label_failed`, NOT_WRITTEN)."""
     where = folder or compose.scratch()
     known = compose.named_by(before, where, file)
     try:
@@ -1382,10 +1380,6 @@ def rewritten(before, after, changed, name, what="its private label and whose co
     try:
         new = old if after == before else compose.x_gravitee(after, where, name=file)
     except compose.ComposeError:
-        try:
-            compose.x_gravitee(before, where, fresh=True, name=file)
-        except compose.ComposeError as error:   # the file itself cannot be read now: not what the Lab wrote
-            raise _unread(name, error, known) from None
         raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None   # what the Lab wrote broke it
     old, new = (old if isinstance(old, dict) else {}), ({} if new is None else new)   # no block: nothing it says
     wanted = {**{key: value for key, value in old.items() if key not in changed},

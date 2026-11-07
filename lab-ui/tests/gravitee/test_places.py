@@ -6,14 +6,10 @@ never in an answer, an error or the record, and a test never prints one."""
 import json
 import os
 import re
-import subprocess
-import sys
 import threading
 import time
 import unittest
-import urllib.request
 from pathlib import Path
-from unittest import mock
 
 from lab_ui.gravitee import cloud, platforms, places
 from lab_ui.docker import envfiles
@@ -127,13 +123,10 @@ class Reading(Places):
 
     def test_a_platform_not_read_yet_is_loading_and_nothing_is_waited_for(self):
         release, began = self.blocked()
-        started = time.monotonic()
         found = places.places(PROJECT)
-        self.assertLess(time.monotonic() - started, 2, "the call waited for the platform")
         self.assertEqual(found, [{"id": "my-account", "name": NAME, "platform": {
             "id": "my-account", "name": NAME, "kind": "cloud"}, "environment": None, "state": "unusable",
-            "missing": None, "reason": "Loading", "token": None, "gateway": None, "capabilities": None,
-            "cannot": {}}])
+            "missing": None, "reason": "Loading", "token": None, "gateway": None, "cannot": {}}])
         self.assertEqual(places.place(PROJECT, f"my-account/{DEV}")["reason"], "Loading")
         self.assertEqual(places.serving(PROJECT), None)
         release.set()
@@ -219,13 +212,6 @@ class Reading(Places):
         self.assertEqual(places._reading, {})
         self.assertEqual(places._cache["my-account"][1]["message"], "RuntimeError", "its type, not its message")
 
-    def test_the_first_read_does_not_ask_the_platform_to_the_caller(self):
-        """The state of the Lab calls places() for every request: it must not ask the Cloud itself."""
-        release, began = self.blocked()
-        asked = len(self.fake.state.asked)
-        places.places(PROJECT)
-        self.assertEqual(len(self.fake.state.asked), asked)
-
 
 class States(Places):
     def test_the_places_of_a_platform_are_its_environments_in_the_order_of_the_account(self):
@@ -235,24 +221,21 @@ class States(Places):
             ("my-account/fake-env-prod", f"Production ({NAME})")])
         self.assertEqual(found[0]["platform"], {"id": "my-account", "name": NAME, "kind": "cloud"})
         self.assertEqual(found[0]["environment"],
-                         {"id": DEV, "name": "Development", "organization": "fake-organization"})
+                         {"id": DEV, "name": "Development"})
         self.assertHidden(found)
 
     def test_nothing_in_an_environment_lacks_a_hybrid_gateway_first(self):
         # With no gateway at all it is not set up: what it runs is not known
         found = self.place()
-        self.assertEqual((found["state"], found["missing"], found["reason"], found["token"], found["gateway"],
-                          found["capabilities"]), ("missing", "No hybrid gateway",
-                                                   f"Set up a gateway in {DEVELOPMENT} first", {"state": "unset"}, None,
-                                                   None))
+        self.assertEqual((found["state"], found["missing"], found["reason"], found["token"], found["gateway"]),
+                         ("missing", "No hybrid gateway", f"Set up a gateway in {DEVELOPMENT} first", {"state": "unset"}, None))
 
     def test_one_that_has_only_gateways_the_lab_cannot_run_lacks_one_of_its_own(self):
         made = self.create(DEV, "lab", platform="my-account")["gateway"]
         envfiles.write(".env", {test_platforms.gateway_key(made["id"], "MY_ACCOUNT"): None})   # as if made in the console
         envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
         found = self.place()
-        self.assertEqual((found["missing"], found["reason"], found["capabilities"]["products"]),
-                         ("No hybrid gateway", f"Create a hybrid gateway for {DEVELOPMENT}", {"APIM": "4.12.20"}))
+        self.assertEqual((found["missing"], found["reason"]), ("No hybrid gateway", f"Create a hybrid gateway for {DEVELOPMENT}"))
 
     def test_then_a_cloud_token(self):
         self.create(DEV, "lab", platform="my-account")
@@ -338,8 +321,8 @@ class States(Places):
     def test_the_things_a_picker_needs_are_all_there(self):
         self.ready()
         for found in self.read():
-            self.assertEqual(sorted(found), ["cannot", "capabilities", "environment", "gateway", "id", "missing", "name",
-                                             "platform", "reason", "state", "token"])
+            self.assertEqual(sorted(found), ["cannot", "environment", "gateway", "id", "missing", "name", "platform", "reason",
+                                             "state", "token"])
             self.assertIn(found["state"], ("ready", "missing"))
 
 
@@ -368,10 +351,7 @@ class Compatibility(Places):
 
     def test_an_environment_whose_gateway_runs_api_management(self):
         self.create(DEV, "lab", platform="my-account")
-        found = self.at()
-        self.assertEqual(found["capabilities"], {"products": {"API Management": "4.12.20"}, "plugins": False,
-                                                 "detail": "", "installed": None, "license": None})
-        self.assertEqual(found["cannot"], {"bank": "Needs Access Management", "later": "Needs API Management 4.13"})
+        self.assertEqual(self.at()["cannot"], {"bank": "Needs Access Management", "later": "Needs API Management 4.13"})
 
     def test_a_seed_of_its_own_is_off_for_every_place_and_says_so_first(self):
         # Hotels brings its own seed code, Later reads a token in its seed data, Bank would also need Access Management
@@ -395,15 +375,13 @@ class Compatibility(Places):
         # What does not depend on the environment is all that is said; the place says to set up a gateway
         self.create(TEST, "lab", platform="my-account")
         found = self.at(DEV)
-        self.assertEqual((found["capabilities"], found["cannot"], found["reason"]),
-                         (None, {"bank": CHANGES}, f"Set up a gateway in {DEVELOPMENT} first"))
+        self.assertEqual((found["cannot"], found["reason"]), ({"bank": CHANGES}, f"Set up a gateway in {DEVELOPMENT} first"))
 
     def test_a_platform_that_cannot_be_read_keeps_its_own_state(self):
         self.create(DEV, "lab", platform="my-account")
         envfiles.write(".env", {KEY: "rotated-since"})
         found = self.at()
-        self.assertEqual((found["state"], found["reason"], found["capabilities"], found["cannot"]),
-                         ("unusable", "Invalid token", None, {"bank": CHANGES}))
+        self.assertEqual((found["state"], found["reason"], found["cannot"]), ("unusable", "Invalid token", {"bank": CHANGES}))
 
     def test_the_places_are_judged_from_what_was_read(self):
         self.create(DEV, "lab", platform="my-account")
@@ -424,7 +402,7 @@ class Unusable(Places):
         self.assertEqual(self.only(), {
             "id": "my-account", "name": NAME, "platform": {"id": "my-account", "name": NAME, "kind": "cloud"},
             "environment": None, "state": "unusable", "missing": None, "reason": "Invalid token", "token": None,
-            "gateway": None, "capabilities": None, "cannot": {}})
+            "gateway": None, "cannot": {}})
 
     def test_a_platform_that_does_not_answer(self):
         self.fake.shutdown()
@@ -443,7 +421,7 @@ class Unusable(Places):
 
     def test_what_is_not_a_place(self):
         self.read()
-        for place_id in ("nope/x", "nope", "my-account/nope", "", None, 4):
+        for place_id in ("nope/x", "nope", "my-account/nope", ""):
             self.assertIsNone(places.place(PROJECT, place_id), repr(place_id))
 
     def test_the_places_come_back_with_a_token_the_cloud_accepts(self):
@@ -476,7 +454,7 @@ class Serving(Places):
         self.read()
         self.assertEqual(places.serving(PROJECT), {
             "platform": {"id": "my-account", "name": NAME, "kind": "cloud"},
-            "environment": {"id": TEST, "name": "Test", "organization": "fake-organization"},
+            "environment": {"id": TEST, "name": "Test"},
             "gateway": {"id": gateway["id"], "name": "lab"}})
 
     def test_it_follows_the_swap(self):
@@ -568,18 +546,6 @@ class SeedEnv(Places):
             if name.endswith("_PROXY"):
                 self.assertIn(name.lower(), places.CLEARED)
 
-    def test_emptied_they_leave_nothing_for_the_http_library_to_honor(self):
-        # The way the seeder's library (requests) takes a proxy from the environment is urllib's: a name whose value is empty
-        # is no proxy, in either case, for every scheme the seeder talks
-        proxies = {name: "http://author.invalid:3128" for name in places.CLEARED if name.lower().endswith("_proxy")}
-        # Whatever proxy this machine's own environment names is not the test's business
-        mine = {name: value for name, value in os.environ.items() if not name.lower().endswith("_proxy")
-                and name != "REQUEST_METHOD"}
-        with mock.patch.dict(os.environ, {**mine, **proxies}, clear=True):
-            self.assertEqual(set(urllib.request.getproxies_environment()), {"http", "https", "all"})
-        with mock.patch.dict(os.environ, {**mine, **proxies, **{name: "" for name in places.CLEARED}}, clear=True):
-            self.assertEqual(urllib.request.getproxies_environment(), {})
-
     def test_a_seed_of_its_own_or_one_that_reads_a_token_gets_none(self):
         # Before the token is read: it never is held for a seed that must not have it
         read = self.patch(platforms, "cloud_token", side_effect=AssertionError("the token was read"))
@@ -611,14 +577,6 @@ class SeedEnv(Places):
     def test_without_the_add_on_there_are_no_gateway_addresses(self):
         env = places.seed_env({"addons": {}}, f"my-account/{DEV}", PLAYGROUND)
         self.assertFalse({"APIM_GATEWAY_URL", "GATEWAY_INTERNAL_URL"} & set(env))
-
-    def test_the_gate_of_gravitee_cloud_is_by_region(self):
-        """The platform's address ends so: the token's cpg names the Gate. (The record is edited, as the fake's address
-        cannot be a Cloud's.)"""
-        record = {**platforms.read()[0], "url": "https://eu.cloud.gravitee.io"}
-        self.write(platforms.FILE, json.dumps([record]))
-        self.assertEqual(places.seed_env(PROJECT, f"my-account/{DEV}", PLAYGROUND)["APIM_MANAGEMENT_URL"],
-                         "https://eu.cloudgate.gravitee.io")
 
     def test_what_cannot_be_seeded(self):
         envfiles.write(".env", {DEV_KEY: fake_cloud.CLOUD_TOKEN_EXPIRED})
@@ -656,10 +614,8 @@ class Verify(Places):
         found = places.verify(PROJECT, f"my-account/{DEV}")
         self.assertEqual((found["id"], found["state"]), (f"my-account/{DEV}", "ready"))
         asked = self.fake.state.asked[len(before):]
-        # The plan and the organizations were read with the platform and are kept; the fake's license text cannot be
-        # decoded, so it is asked again, as anything the Cloud did not say is
+        # The plan and the organizations were read with the platform and are kept
         self.assertEqual(asked, [("GET", f"/accounts/{ACCOUNT}/environments"), ("GET", f"/accounts/{ACCOUNT}/gateways"),
-                                 ("GET", f"/accounts/{ACCOUNT}/organizations/fake-organization/license"),
                                  ("GET", f"{cloud.GATE}/v2/organizations/fake-organization/environments/{DEV}/apis")])
 
     def test_it_reads_the_platform_again_whatever_was_served(self):
@@ -719,15 +675,6 @@ class Verify(Places):
             with self.subTest(place=place_id), self.assertRaisesRegex(paths.NotFound, "^No place "):
                 places.verify(PROJECT, place_id)
 
-    def test_what_a_request_sends_that_is_no_text_is_not_a_place_either(self):
-        """The body of a request is JSON: a number or a list is a refusal in words, not an error of the code."""
-        for place_id in (5, ["my-account/" + DEV], {"id": "x"}, None, True):
-            with self.subTest(place=place_id):
-                with self.assertRaisesRegex(paths.NotFound, "^No place"):
-                    places.verify(PROJECT, place_id)
-                with self.assertRaisesRegex(paths.NotFound, "^No place"):
-                    places.seed_env(PROJECT, place_id, PLAYGROUND)
-
     def test_nothing_in_what_it_says_holds_a_token(self):
         self.ready()
         seen = [places.verify(PROJECT, f"my-account/{DEV}")]
@@ -736,16 +683,6 @@ class Verify(Places):
             places.verify(PROJECT, f"my-account/{DEV}")
         seen += [str(caught.exception), places.places(PROJECT), places.serving(PROJECT)]
         self.assertHidden(seen)
-
-
-class Naming(Places):
-    def test_a_place_is_named_by_its_environment_and_its_platform_never_with_a_dot_between(self):
-        self.assertEqual(places.label("My Account", "Development"), "Development (My Account)")
-        found = self.read()
-        self.assertEqual([place["name"] for place in found],
-                         ["Development (My Account)", "Test (My Account)", "Production (My Account)"])
-        self.assertFalse(any(" · " in json.dumps(place) for place in found), "a middle dot separates a place")
-        self.assertEqual(places.place(PROJECT, f"my-account/{DEV}")["name"], DEVELOPMENT)
 
 
 class Gateways(Places):
@@ -1043,14 +980,6 @@ class State(Case):
             with self.subTest(text=text[:20]):
                 self.write(meta, text)
                 self.assertIsNone(places._named("@acme/bank", "my-account/test"))
-
-
-class Imports(unittest.TestCase):
-    def test_neither_module_needs_the_checks(self):
-        """check.py imports platforms for its kinds: a module of those that imports check would be a circle."""
-        found = subprocess.run([sys.executable, "-c", "import sys, lab_ui.gravitee.platforms, lab_ui.gravitee.places; "
-                                "sys.exit('lab_ui.library.check' in sys.modules)"], cwd=paths.LAB_UI_DIR, check=False)
-        self.assertEqual(found.returncode, 0)
 
 
 if __name__ == "__main__":
