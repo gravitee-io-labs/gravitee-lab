@@ -683,7 +683,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 *Error.* Publish gate stage of `catalog.py ci`.
 
-- **Message**: The commit {sha7} carries a tool credit in its message or its author. main is never rewritten. Fix: find how it got there (the merge settings, V18) and write the next title without it.
+- **Message**: The commit {sha7} carries a tool credit in its message or its author. main is never rewritten. Fix: find how it got there (the merge settings) and write the next title without it.
 
 ## End-to-end plan
 

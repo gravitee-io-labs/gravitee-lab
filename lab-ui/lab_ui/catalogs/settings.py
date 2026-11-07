@@ -714,7 +714,7 @@ class _Audit:
             if sel is not None else "")
         patterns = sorted(DOCKER_PATTERNS)
         if self.personal:
-            # The pattern list may apply to public repositories only (V3): a list half in place is worse than none
+            # The pattern list may apply to public repositories only: a list half in place is worse than none
             return self.add("actions.listed", WARN, now=now,
                             fix=f"Once the rehearsal shows that the plan enforces it: PUT repos/{repo}/actions/permissions "
                                 "with "
