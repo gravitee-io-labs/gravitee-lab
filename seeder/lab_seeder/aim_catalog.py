@@ -51,7 +51,7 @@ from . import aim_proxies
 from . import common
 from .apim import digest_of
 from .common import Api, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
-from .gamma import CATALOG, WORKSPACES, Gamma
+from .gamma import CATALOG, Gamma
 
 SECTION = "aim-catalog"
 LISTED = 60   # seconds the catalog has to list an API that API Management has just made
@@ -463,26 +463,12 @@ def seed_skills(aim):
 def release_studios(aim):
     """A tool cannot be deleted while a studio holds it: the studios the seed made go first, with their records, and
     aim_proxies makes them again from the new tools, which is what a studio needs anyway, its tools being fixed when it
-    is made. A studio whose create's answer aim_proxies lost is only a note, and holds the tools all the same: the studio
-    the seed has no record of at the note's path is the seed's (`common.adopted`), as aim_proxies finds a studio by its
-    path, and goes once the recorded ones are gone, its record taking the place of the one of its name. One of that name
-    at another path is not: the person made it."""
-    noted = [x for x in common.notes(aim_proxies.SECTION, "studio") if x.get("contextPath")]
-    studios = [p for p in aim.rows("/mcp-proxies", WORKSPACES) if p.get("mode") == "STUDIO"
-               and not common.recorded(aim_proxies.SECTION, "studio", p["id"])] if noted else []
-
-    def release():
-        for x in common.created():
-            if (x["product"], x["kind"]) == (aim_proxies.SECTION, "studio"):
-                aim.delete(f"/mcp-proxies/{x['id']}")
-                common.forget(*aim_proxies.of_studio(x["id"]))   # gone, with its subscriptions: its create is noted
-                log(SECTION, f"  ✓ Studio '{x['name']}' deleted: it is made again from the new tools")
-    release()
-    for note in noted:
-        at = [p for p in studios if (p.get("contextPath") or "").rstrip("/") == note["contextPath"].rstrip("/")]
-        if len(at) == 1:
-            common.adopted(aim_proxies.SECTION, "studio", note["name"], at[0]["id"])
-    release()
+    is made."""
+    for x in common.created():
+        if (x["product"], x["kind"]) == (aim_proxies.SECTION, "studio"):
+            aim.delete(f"/mcp-proxies/{x['id']}")
+            common.forget(*aim_proxies.of_studio(x["id"]))   # gone, with its subscriptions: its create is noted
+            log(SECTION, f"  ✓ Studio '{x['name']}' deleted: it is made again from the new tools")
 
 
 def checked(name, operation, overrides):

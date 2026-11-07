@@ -488,7 +488,7 @@ class McpProxies:
         wanted = digest_of(body)
         found, recomposed = self.kept(name, path, wanted, body)
         if found is None:
-            with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
+            with making(SECTION, "studio", "MCP studios", name, missing=True):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
                 record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")
@@ -613,7 +613,7 @@ class McpProxies:
         wanted = digest_of(body)
         found, changed = self.kept(name, path, wanted, body)
         if found is None:
-            with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
+            with making(SECTION, "studio", "MCP studios", name, missing=True):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
                 record(SECTION, "studio", "MCP studios", name, found["id"], digest=wanted)
             log(SECTION, f"✓ MCP studio created: {name}")

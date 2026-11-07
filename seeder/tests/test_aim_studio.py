@@ -610,8 +610,6 @@ class Replacement(Studios):
         self.seed()
         self.file(STUDIO.replace("alias: get_customer", "alias: customer"))
         self.answer_lost(("POST", AIM + "/mcp-studios"), self.world.create)
-        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], [PATH],
-                         "the note names the path the studio is found by (aim_catalog.release_studios)")
         self.seed()
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
 
@@ -799,7 +797,6 @@ class OldShape(Studios):
         self.seed()
         self.file(OLD_STUDIO.replace("tool: getCustomer", "tool: searchCustomers"))
         self.answer_lost(("POST", AIM + "/mcp-studios"), self.world.create)
-        self.assertEqual([x["contextPath"] for x in common.notes("aim-proxies", "studio")], ["/old"])
         self.seed()
         self.assertEqual([x["id"] for x in common.created() if x["kind"] == "studio"], list(self.world.studios))
 
