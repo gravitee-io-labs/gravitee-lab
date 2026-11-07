@@ -804,13 +804,15 @@ test("Continue at work reads Reading, the bar of the fetch is under the field, a
   assert.deepEqual(toasts(), []);
 });
 
+// A file dropped on the first screen of Import, once what it reads is said
+const drop = async (file) => {
+  adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+  await settle();
+};
+
 test("Import to Personal keeps the playground as the person's own, says what it replaces there, and opens its page; what cannot run goes to Imported only", async () => {
   show([FIRST()]);
   openImport();
-  const drop = async (file) => {
-    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
-    await settle();
-  };
   server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
     imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: ["Kiosk"], same: [] } });
   await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
@@ -839,10 +841,6 @@ test("Import to Personal keeps the playground as the person's own, says what it 
 test("Import to Personal of what uses this machine is the person's allowance: the button says Allow and import, and the request carries it", async () => {
   show([FIRST()]);
   openImport();
-  const drop = async (file) => {
-    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
-    await settle();
-  };
   server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
     imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [],
     rows: { uses_machine: [{ id: "@contoso/kiosk", name: "kiosk", service: "kiosk", what: ["runs privileged"], why: "Runs a service manager" }] },
@@ -866,10 +864,6 @@ test("Settings kept from a removed import of that name are said, used or not, an
   show([FIRST()]);
   clearToasts();
   openImport();
-  const drop = async (file) => {
-    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
-    await settle();
-  };
   const preview = (used) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
     imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [], rows: {}, personal: { replaces: [], same: [] },
     kept: { used, where: ".lab/kept-settings/contoso-1a2b3c4d" } });
@@ -900,10 +894,6 @@ test("Import takes the file of an exported playground, shows the preview of an A
   clearToasts();
   openImport();
   const screen = () => adding().querySelector("#catalog-file");
-  const drop = async (file) => {
-    screen().dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
-    await settle();
-  };
   assert.deepEqual([heading(), screen().hidden, primary() ?? null], ["Import playground", false, null], "the file comes first, and nothing to confirm yet");
   server.calls.length = 0;
   await drop(new File(["x"], "notes.txt"));
@@ -1011,6 +1001,14 @@ test("the marks of the second screen say what Runs means, what Uses this machine
   shut();
 });
 
+// Allow them to use this machine, as a person chooses it
+const allowThem = () => {
+  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
+  keep.checked = false;
+  allow.checked = true;
+  allow.dispatchEvent(new Ev("change", { bubbles: true }));
+};
+
 test("the choice of two is there only for items that use this machine: Keep them blocked is the default, and choosing to allow takes them off Cannot run", async () => {
   await previewed(PREVIEW());
   const choice = adding().querySelector("#catalog-choice");
@@ -1092,10 +1090,7 @@ test("an item that is Blocked and also uses this machine counts once under Canno
   const kea = { kind: "addon", id: "@acme-hub/kea", name: "Kookaburra", reasons: ["Mounts the Docker socket"] };
   await previewed(PREVIEW({ blocked: [kea] }));
   assert.equal(rowsOf().pop()[1], "1 item", "Kookaburra once, though it is `kookaburra` in one list and `@acme-hub/kea` in the other");
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
-  allow.dispatchEvent(new Ev("change", { bubbles: true }));
+  allowThem();
   assert.ok(!rowsOf().some(([label]) => label === "Cannot run"), "allowed, it is no longer one that cannot run");
   shut();
   await updating(PLAN({ uses_machine: [{ id: "kookaburra", name: "Kookaburra", what: ["runs privileged"] }], blocked: [kea] }));
@@ -1732,10 +1727,7 @@ test("an update that makes items need this machine has the row and the choice of
   assert.ok(rowsOf().some(([label, value]) => label === "Uses this machine" && value === "1 item"));
   assert.equal(adding().querySelector("#catalog-choice").hidden, false);
   assert.equal(rowsOf().pop()[0], "Cannot run", "kept blocked: they cannot run");
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
-  allow.dispatchEvent(new Ev("change", { bubbles: true }));
+  allowThem();
   assert.ok(!rowsOf().some(([label]) => label === "Cannot run"));
   server.answers[at("/update")] = { catalog: GIT("uptodate") };
   server.answers[at("/allow")] = { catalog: GIT("uptodate", { host: "allowed" }) };
