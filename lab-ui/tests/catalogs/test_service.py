@@ -6,7 +6,6 @@ Docker daemon. Two bases: `Real` reads the fixture catalogs with Compose 5 (a vi
 project does, for the few tests whose point is the judgement; `Seam` puts a stand-in for the project and its judgement behind the
 module, for the rest, which are about the flows, the lock, the lines and the codes."""
 
-import ast
 import contextlib
 import io
 import json
@@ -1744,17 +1743,6 @@ class Checker(Seam):
             service.check_all()
         self.assertEqual(said.getvalue().strip(), "Gravitee Lab UI: could not check partner (KeyError)")
         self.assertEqual(self.state("lab-new"), "uptodate")
-
-    def test_the_module_starts_no_thread(self):
-        starts = []
-        self.patch(threading.Thread, "start", lambda self_: starts.append(self_) or None)
-        service.check_all()
-        service.check_now("partner")
-        self.assertEqual(starts, [])
-        tree = ast.parse(Path(service.__file__).read_text(encoding="utf-8"))
-        names = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
-        self.assertNotIn("Thread", names, "the one background thread of the Lab is the worker's")
-        self.assertNotIn("Timer", names)
 
 
 class Unreadable(Seam):

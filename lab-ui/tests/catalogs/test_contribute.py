@@ -1246,6 +1246,12 @@ class Copied(Seam):
             self.share("local/bank", "lab-new", "playground")
         self.assertEqual(list((self.target / "playgrounds").iterdir()), [], "not the hidden folder either")
 
+    def test_the_next_share_of_an_item_clears_the_half_copy_a_stop_left(self):
+        self.item("addon", "plain", "Plain", "services: {}\n")
+        self.write(".lab/catalogs/lab-new/addons/.share-plain/left.txt", "half")
+        self.share("local/plain", "lab-new")
+        self.assertFalse((self.target / "addons/plain/left.txt").exists() or (self.target / "addons/.share-plain").exists())
+
     def test_a_link_in_the_folder_is_not_followed(self):
         outside = self.root.parent / "outside-the-catalog"
         outside.mkdir(exist_ok=True)
