@@ -587,7 +587,8 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None
     units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
     closure = list(dict.fromkeys(node for target in direct if paths.unit_of(target)
                                  for node in resolve.closure(units, *paths.unit_of(target))))
-    same = [paths.ROOT / paths.unit_folder(*node) for node in closure if node[0] != "setup" and paths.origin(node[1]) == ns]
+    same = [paths.ROOT / paths.unit_folder(*node) for node in closure
+            if node[0] != "setup" and paths.origin(node[1]) in (ns, paths.default_ns())]
     contract, listed, meta = inputs.get("contract") or {}, bool(row.get("listed")), raw.get("x-gravitee") or {}
     asked = (meta.get("requires") or {}).get("lab")
     context = {"ns": ns, "host_ok": bool(trust.host_ok(listed, {"host": row.get("host") == "allowed"})), "listed": listed,

@@ -1770,6 +1770,13 @@ class Real(Base):
         """The lines of the trust policy, which are the reasons a consumer is given: the others are the rules of the author."""
         return [line for line in problems if line.startswith("Blocked: ")]
 
+    def test_a_file_it_brings_from_the_default_catalog_is_one_it_may_mount_as_a_consumer_lets_it(self):
+        uid = self.plain(self.PLAIN.replace("services:", "include:\n  - ../../../fixture/addons/echo/compose.yml\nservices:", 1)
+                         + "    volumes:\n      - ../../../fixture/addons/echo/README.md:/x:ro\n")
+        rows = registry.inputs
+        self.patch(contribute.registry, "inputs", lambda: {**rows(), "partner": {**rows()["partner"], "requires_catalogs": {"fixture": {}}}})
+        self.assertEqual(self.blocked(self.share(uid, "partner")["problems"]), [])
+
     def test_a_copy_the_policy_lets_run_has_nothing_to_fix(self):
         self.assertEqual(self.share()["problems"], [])
         self.assertEqual(self.share(self.plain(), "fixture")["problems"], [])
