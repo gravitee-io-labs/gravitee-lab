@@ -868,14 +868,6 @@ class Beat(Served, Case):
             raise CatalogError(code, "Cannot reach somewhere.", 502)
         self.patch(firstrun, "provision", provision)
 
-    def arriving(self):
-        """provision replaced by one that succeeds: the catalog has a copy."""
-        def provision(ns):
-            self.calls.append(ns)
-            registry.set_lock(ns, pin="a" * 40, error=None)
-            return {"id": ns}
-        self.patch(firstrun, "provision", provision)
-
     def worker(self):
         now, clock = self.fake_clock()
         self.started()
