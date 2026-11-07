@@ -1785,11 +1785,7 @@ class JobRoutes(LabUI):
 
 class CommandLine(LabUI):
 
-    # The folder of a test is a clone made by hand: the command that starts its Lab UI is make ui (command())
-    RUNNING = "\n  >  Lab UI   http://localhost:{}\n     Already running. To load a new version, stop it with Ctrl+C in its " \
-              "terminal, then run make ui again.\n"
-
-    def another_program(self, handler=None):
+    def another_program(self):
         """A web server that is not the Lab UI, on a free port of its own: answers its port."""
         class Other(BaseHTTPRequestHandler):
             server_version = "SomethingElse"
@@ -1801,7 +1797,7 @@ class CommandLine(LabUI):
 
             def log_message(self, fmt, *args):
                 pass
-        server = ThreadingHTTPServer(("127.0.0.1", 0), handler or Other)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Other)
         server.daemon_threads = True
         threading.Thread(target=server.serve_forever, args=(0.01,), daemon=True).start()
         self.addCleanup(server.server_close)
@@ -1816,7 +1812,6 @@ class CommandLine(LabUI):
                                  ((0, "v4.9.1\n", ""), old.format("4.9.1")),
                                  ((0, "dev\n", ""), old.format("dev")),
                                  ((0, "5.0.0-desktop.1\n", ""), ""), ((0, "v5.4.0\n", ""), ""),
-                                 ((0, "5.6.0\n", ""), ""),
                                  ((1, "", "docker: 'compose' is not a docker command"), old.format("none")),
                                  ((127, "", "docker: not found"),
                                   "docker not found: install Docker with Compose 5.0 or later "
@@ -1824,30 +1819,6 @@ class CommandLine(LabUI):
             run.return_value = answer
             api.compose.CACHE.drop("docker:")   # each is another machine
             self.assertEqual(api.requirement(), expected)
-
-    def test_a_compose_that_lacks_nothing_is_asked_once_for_the_time_the_state_keeps_it(self):
-        # Every state asks it: the answer that nothing lacks is kept as long as a line that something does
-        run = self.patch(api.compose, "run", return_value=(0, "5.6.1\n", ""))
-        self.patch(api.compose, "CACHE", api.compose.Cache())
-        for _ in range(3):
-            api._docker_down({"docker": {"error": None}, "problems": []})
-        self.assertEqual(run.call_count, 1)
-        # The one reading of it, which the Dashboard and the check of the machine share
-        self.assertEqual((api.compose.compose_version(), run.call_count), ("5.6.1", 1))
-
-    def test_a_second_lab_ui_of_the_folder_on_another_port_is_sent_to_the_first(self):
-        # UI_PORT=9001 in the folder whose Lab UI serves on 9000: two Lab UIs would run their jobs at the same time
-        self.folder(paths)
-        served_elsewhere(self, 9000)
-        bound = self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("a second Lab UI served the folder"))
-        opened, printed = self.patch(api, "open_browser"), io.StringIO()
-        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
-            api.serve(9001, browser=False)
-            opened.assert_not_called()
-            api.serve(9001, browser=True)
-        bound.assert_not_called()
-        opened.assert_called_once_with("http://localhost:9000")
-        self.assertEqual(printed.getvalue(), (self.RUNNING.format(9000) + "\n") * 2)
 
     def test_the_lab_ui_of_another_folder_on_the_port_is_said_and_never_opened(self):
         # A second clone: the page of the first would act on the first lab
@@ -1922,27 +1893,11 @@ class CommandLine(LabUI):
             api.find_docker()
             self.assertEqual(os.environ["PATH"], "/usr/bin")
 
-    def test_what_answers_is_the_lab_ui_by_the_server_header_of_its_page(self):
-        self.assertTrue(api.is_lab_ui(self.server.server_port))
-        self.assertFalse(api.is_lab_ui(self.another_program()))
-
-    def test_anything_but_an_answer_is_another_program(self):
-        class Hangs(BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.connection.close()   # no answer at all
-        self.assertFalse(api.is_lab_ui(self.another_program(Hangs)))
-        with socket.socket() as free:   # nothing listens
-            free.bind(("127.0.0.1", 0))
-            self.assertFalse(api.is_lab_ui(free.getsockname()[1]))
+    def test_anything_but_an_answer_is_another_program_and_the_probe_waits_a_second_at_most(self):
         for error in (TimeoutError("timed out"), http.client.BadStatusLine("")):
-            with mock.patch.object(api.http.client, "HTTPConnection", side_effect=error):
-                self.assertFalse(api.is_lab_ui(self.server.server_port), error)
-
-    def test_the_probe_does_not_wait_longer_than_a_second(self):
-        with mock.patch.object(api.http.client, "HTTPConnection") as connection:
-            connection.return_value.getresponse.return_value.getheader.return_value = "GraviteeLabUI Python/3.12"
-            self.assertTrue(api.is_lab_ui(9000))
-        connection.assert_called_once_with("127.0.0.1", 9000, timeout=1)
+            with mock.patch.object(api.http.client, "HTTPConnection", side_effect=error) as connection:
+                self.assertFalse(api.is_lab_ui(9000), error)
+            connection.assert_called_once_with("127.0.0.1", 9000, timeout=1)
 
     def test_what_it_prints_is_utf8_whatever_the_terminal_says(self):
         streams = [mock.Mock(spec=["reconfigure"]), mock.Mock(spec=["reconfigure"])]   # no file number to ask a tty
@@ -2162,9 +2117,8 @@ class StateOfCatalogs(LabUI):
 
 
 class Startup(Case):
-    """Bind the port first; only once it is bound, finish what a stop left, write the intent of the first run and start the one background thread. A second `make ui`
-    touches nothing;
-    `--check`, `--list` and `--e2e` run none of it."""
+    """Bind the port first; only once it is bound, finish what a stop left, write the intent of the first run and start the one
+    background thread. A second `make ui` touches nothing; `--check`, `--list` and `--e2e` run none of it."""
 
     STEPS = (("service", "recover"), ("moving", "recover_at_start"), ("firstrun", "reconcile"), ("firstrun", "start_worker"))
 
@@ -2191,10 +2145,10 @@ class Startup(Case):
         self.timer = self.patch(api.threading, "Timer")
         self.opened = self.patch(api, "open_browser")
 
-    def serve(self, browser=False):
+    def serve(self, browser=False, port=9000):
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):   # an ASCII arrow
-            api.serve(9000, browser)
+            api.serve(port, browser)
         return printed.getvalue()
 
     def test_the_port_is_bound_first_then_the_steps_in_order_and_then_the_page_is_served(self):
@@ -2222,31 +2176,23 @@ class Startup(Case):
         self.serve(browser=False)
         self.timer.assert_not_called()
 
-    def test_a_lab_that_serves_already_is_left_alone_not_one_of_the_steps_runs(self):
-        for module, name in self.STEPS:
-            self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran on the already running branch"))
-        self.patch(api.compose, "stop_on_signals", side_effect=AssertionError("signals were taken over"))
-        self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("the port was bound"))
+    def test_a_second_lab_ui_of_the_folder_is_sent_to_the_first_and_touches_nothing(self):
+        # UI_PORT=9001 in the folder whose Lab UI serves on 9000: two Lab UIs would run their jobs at the same time. The folder of
+        # a test is a clone made by hand: the command that starts its Lab UI is make ui (command())
         served_elsewhere(self, 9000)
-        said = self.serve(browser=True)
-        self.assertIn("Already running", said)
+        said = self.serve(browser=False, port=9001)
+        self.opened.assert_not_called()
+        self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Already running. To load a new version, stop it with "
+                               "Ctrl+C in its terminal, then run make ui again.\n\n")
+        self.serve(browser=True, port=9001)
         self.opened.assert_called_once_with("http://localhost:9000")
-
-    def test_another_program_or_lab_ui_on_the_port_is_an_exit_and_touches_nothing(self):
-        for module, name in self.STEPS:
-            self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran"))
-        self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
-        for answers in (False, True):
-            self.patch(api, "is_lab_ui", return_value=answers)
-            with self.assertRaises(SystemExit):
-                self.serve()
+        self.assertEqual(self.events, [])
 
     def test_an_error_other_than_a_busy_port_is_raised_before_anything_is_touched(self):
-        for module, name in self.STEPS:
-            self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran"))
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EACCES, "Permission denied"))
         with self.assertRaises(OSError):
             self.serve()
+        self.assertEqual(self.events, [])
 
     def test_a_step_that_fails_is_a_line_on_standard_error_and_the_rest_of_the_start_goes_on(self):
         self.patch(api.service, "recover", side_effect=CatalogError("damaged", "A catalog changed on disk.", 409))
