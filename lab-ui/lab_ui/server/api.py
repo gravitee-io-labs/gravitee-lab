@@ -1033,31 +1033,17 @@ def is_lab_ui(port):
         return False
 
 
-def warm_up():
-    """The lab read in the background, as the first state reads it: the page that opens a moment later finds it read. What
-    fails is said by the state the page asks for. Answers the thread."""
-    def read():
-        try:
-            snapshot()
-        except Exception:  # noqa: BLE001 - the state the page asks for says what failed
-            pass
-    thread = threading.Thread(target=read, name="lab-warm-up", daemon=True)
-    thread.start()
-    return thread
-
-
 def start_up():
     """What the Lab does once its port is bound in this order: what a stop left of a change of Personal is put right, the
     sweeper finishes what a stop left in the installs of the Lab and then in the folders of the catalogs that are linked (the
-    half copies a Share left), the intent of the first run is written and what has no copy is marked as downloading, the
-    background threads of the Lab start, and the lab is read once in the background (warm_up). Each step is local and fast
-    but the last ones, which return at once; a failure of one is said in a line and never keeps the Lab from serving, because
-    its row says what is wrong."""
+    half copies a Share left), the intent of the first run is written and what has no copy is marked as downloading, and the
+    background threads of the Lab start. Each step is local and fast but the last ones, which return at once; a failure of
+    one is said in a line and never keeps the Lab from serving, because its row says what is wrong."""
     for what, step in (("finishing what a stop left", service.recover),
                        ("finishing a change of Personal that a stop left", moving.recover_at_start),
                        ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
                        ("starting the download of catalogs", firstrun.start_worker),
-                       ("starting the check for new versions", updates.start_checking), ("reading the lab", warm_up)):
+                       ("starting the check for new versions", updates.start_checking)):
         try:
             step()
         except Exception as error:  # noqa: BLE001 - the Lab serves whatever these find

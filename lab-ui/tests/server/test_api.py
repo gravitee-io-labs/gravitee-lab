@@ -2378,9 +2378,6 @@ class StateOfCatalogs(LabUI):
         self.assertEqual([row["id"] for row in state["catalogs"]], ["local"], "and nothing is shown of catalogs but an empty Personal, which the page hides")
 
 
-WARM_UP = api.warm_up   # the real one: the cases of Startup replace it
-
-
 class Startup(Case):
     """Bind the port first; only once it is bound, finish what a stop left (in the installs of the Lab and in the folders of
     the catalogs that are linked), write the intent of the first run and start the one background thread. A second `make ui`
@@ -2409,7 +2406,6 @@ class Startup(Case):
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
         self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals",)))
-        self.patch(api, "warm_up", side_effect=lambda: events.append(("warm up",)))
         self.timer = self.patch(api.threading, "Timer")
         self.opened = self.patch(api, "open_browser")
 
@@ -2423,7 +2419,7 @@ class Startup(Case):
         said = self.serve()
         self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
-                                       ("warm up",), ("serve",)])
+                                       ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
                                "and the containers keep running.\n\n")
 
@@ -2443,12 +2439,6 @@ class Startup(Case):
         self.timer.reset_mock()
         self.serve(browser=False)
         self.timer.assert_not_called()
-
-    def test_the_lab_is_read_once_in_the_background_and_a_read_that_fails_is_the_state_s_to_say(self):
-        self.patch(api, "warm_up", WARM_UP)
-        read = self.patch(api, "snapshot", side_effect=RuntimeError("Docker hangs"))
-        api.warm_up().join(5)
-        read.assert_called_once_with()
 
     def test_a_lab_that_serves_already_is_left_alone_not_one_of_the_steps_runs(self):
         for module, name in self.STEPS:
@@ -2483,7 +2473,7 @@ class Startup(Case):
             self.serve()
         self.assertEqual(said.getvalue().splitlines(), [
             "Gravitee Lab UI: finishing what a stop left failed (CatalogError: A catalog changed on disk.)"])
-        self.assertEqual(self.events[-4:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("warm up",), ("serve",)])
+        self.assertEqual(self.events[-3:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
 
     def test_what_a_share_left_is_swept_after_what_a_stop_left_and_a_sweep_that_fails_keeps_nothing_from_starting(self):
         # The half copies Share leaves in the folder of a linked catalog go at start, as the installs' sweep does
@@ -2494,8 +2484,7 @@ class Startup(Case):
         self.assertEqual(said.getvalue().splitlines(),
                          ["Gravitee Lab UI: sweeping what a share left failed (OSError: read-only file system)"])
         self.assertEqual([event for event in self.events if event[0] != "bind" and event != ("signals",)],
-                         [("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
-                          ("warm up",), ("serve",)])
+                         [("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
 
     def test_the_command_line_runs_requirement_and_prepare_for_every_command_and_the_steps_for_serve_only(self):
         order = []
