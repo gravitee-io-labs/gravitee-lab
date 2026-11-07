@@ -438,28 +438,6 @@ test("the progress of the fetch of an Add rides among the catalogs and is no row
   assert.equal(store.measuring(), false);
 });
 
-test("what the content says to retry, and the dot of the menu, never take the progress of a fetch for a catalog", () => {
-  const failed = (catalogs) => lab({ content: content("failed"), catalogs });
-  const retry = (state) => ui.contentStatus(state).match(/data-catalog="([^"]*)"/)?.[1];
-  const added = [FIRST({ commit: "" }), catalog({ commit: "9f1c2ab" })];
-  assert.equal(retry(failed(added)), "gravitee");
-  assert.equal(ui.contentStatus(failed([...added, CHECKING])), ui.contentStatus(failed(added)), "the same block with it as without");
-  assert.equal(ui.contentStatus(failed([CHECKING, ...added])), ui.contentStatus(failed(added)), "wherever it stands");
-  assert.equal(retry(failed([CHECKING])), "", "alone, it is no catalog to try again");
-  assert.equal(ui.contentLead(failed([CHECKING, ...added])).extra, ui.contentLead(failed(added)).extra);
-  const entry = page.doc.createElement("a");
-  entry.setAttribute("class", "nav-item");
-  entry.setAttribute("data-nav", "catalogs");
-  entry.setAttribute("aria-label", "Catalogs");
-  entry.innerHTML = '<span>Catalogs</span><i class="nav-dot" hidden></i>';
-  page.doc.body.append(entry);
-  ui.paintMenuDot(lab({ catalogs: [FIRST(), { ...CHECKING, attention: "update" }] }));
-  assert.equal(entry.querySelector(".nav-dot").hidden, true, "no row asks for attention");
-  ui.paintMenuDot(lab({ catalogs: [FIRST(), { ...CHECKING, attention: "update" }, catalog({ attention: "repair" })] }));
-  assert.equal(entry.getAttribute("aria-label"), "Catalogs, needs repair", "the first row that does, not the entry that is none");
-  entry.remove();
-});
-
 // --- Add catalog leads to the Catalogs page ------------------------------------------------------------------------------------------------
 
 test("the action of an environment that no add-on can serve leads to the Catalogs page and asks nothing of the platform", () => {

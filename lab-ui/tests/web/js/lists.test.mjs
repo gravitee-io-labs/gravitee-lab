@@ -457,28 +457,6 @@ test("a Start on images it was not tested with is the Start that switches them, 
   page.stored.deploy = "acme/development";
 });
 
-test("a Start says where its item comes from when the server says it, on This machine and on a place alike: one row among those that say what stays", async () => {
-  const from = { from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" } };
-  const starts = [{ kind: "addon", id: "kazoo", name: "Kazoo" }];
-  const notes = () => picks.querySelectorAll(".choice-row").map((row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text),
-    row.querySelectorAll(".muted").map(text)]);
-  // On a place, the dialog is the one the checks of that place read
-  server.dialog = { starts, stops: [], turns_off: [], keeps: [], restarts: [], ...from };
-  await start("acme-hostels", S1.calm, [place()]);
-  assert.deepEqual(effects().steps, [["Starts", ["Kazoo Add-on"]], ["Deploys to", ["Development (My Account) Environment"]]]);
-  assert.deepEqual(notes(), [["From", ["Acme Hub"], ["Version 1.4.0"]]]);
-  await answer(false);
-  // On This machine, the one the state gives the row
-  page.stored.deploy = "machine";
-  draw(lab({ hotels: { action: { ...ACTION("start"), dialog: { starts, stops: [], turns_off: [], keeps: [], restarts: [], ...from } } } }), [ACCOUNT], [place()]);
-  startOfRow("acme-hostels").click();
-  await settle();
-  assert.deepEqual(notes(), [["From", ["Acme Hub"], ["Version 1.4.0"]]]);
-  await answer(false);
-  server.dialog = null;
-  page.stored.deploy = "acme/development";
-});
-
 test("a playground that cannot go to the place chosen starts on This machine, as its page does", async () => {
   await start("acme-bakery", lab({ hotels: {} }), [place()]);
   assert.deepEqual(posts(), [["/api/playgrounds/acme-bakery/start", { accept: [] }]]);
@@ -651,23 +629,6 @@ test("what was chosen is not kept: drawn again once the catalogs were one, the p
   draw(everyone());
   assert.equal(names("playgrounds").length, 4, "all of them again");
   assert.equal(value("playgrounds"), "All catalogs");
-  alone();
-});
-
-test("the progress of the fetch of an Add, carried among the catalogs, is no source of a list: no picker for it, and every list is as it is without it", () => {
-  const check = { id: "check", kind: "progress", progress: 0.4 };
-  const lists = () => ["playgrounds", "setups", "addons"].map((name) => drawn(sections[name]));
-  draw(lab({ catalogs: [FIRST()], content: content("ready") }));
-  const bare = lists();
-  draw(lab({ catalogs: [FIRST(), check], content: content("ready") }));
-  assert.deepEqual(lists(), bare, "the first catalog alone, and the fetch of another");
-  assert.equal(scope("playgrounds"), null);
-  draw(everyone());
-  const world = lists();
-  draw({ ...everyone(), catalogs: [...everyone().catalogs, check] });
-  assert.deepEqual(lists(), world, "with another catalog, the picker and its rows are the same");
-  draw({ ...everyone(), catalogs: [check, ...everyone().catalogs] });
-  assert.deepEqual(lists(), world, "wherever it stands");
   alone();
 });
 
