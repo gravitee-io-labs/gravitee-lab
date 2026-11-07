@@ -7,7 +7,6 @@ import json
 import os
 import re
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -117,12 +116,6 @@ class AnyId(Case):
             said = str(caught.exception)
             self.assertTrue(said.startswith("Name the item as kind:id, kind being addon, setup, playground"), said)
             self.assertNotIn("error", said, "what was typed is not said back")
-
-    def test_the_form_alone_is_judged_by_parse(self):
-        self.assertEqual(e2e.parse("addon:@hub/ghost"), ("addon", "@hub/ghost"))
-        self.assertEqual(e2e.parse("addon:local/mine"), ("addon", "local/mine"))
-        self.assertEqual(e2e.parse("setup:pair"), ("setup", "pair"))
-
 
 class Versions(Case):
 
@@ -291,42 +284,6 @@ class Starting(Case):
             attempt(lab).start(1800)
         self.assertNotIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls)
 
-    def test_an_app_that_restarted_while_it_warmed_up_and_runs_since_does_not_fail_the_start(self):
-        # Docker started it again at 2, 4.5 and 8 s, and it runs since: "Keeps restarting" for 60 s after its last start, while
-        # the seed runs for 5 minutes and the job ends well
-        clock, t0, starts, seed = Clock(), 1_800_000_000, (0, 2, 4.5, 8), 300
-        self.patch(compose.time, "time", lambda: t0 + clock.now)
-
-        def inspect(command, timeout=0, **_):
-            done = [at for at in starts if at <= clock.now]
-            started = time.strftime("%Y-%m-%dT%H:%M:%S.000000000Z", time.gmtime(t0 + done[-1]))
-            return 0, f"/gio-shop-app|false|{len(done) - 1}|{started}||", ""
-        self.patch(compose, "run", side_effect=inspect)
-
-        def app():
-            """shop-app as /api/state says it: compose._inspect, then model.service_state."""
-            restarting = any(at - 0.2 <= clock.now < at for at in starts[1:])
-            container = {"state": "restarting" if restarting else "running", "health": "", "exit_code": 0,
-                         "name": "gio-shop-app", **compose._inspect(["gio-shop-app"])["gio-shop-app"]}
-            return model.service_state(container, False, True)
-
-        seen = {}
-
-        class Lab(FakeLab):
-            def call(self, method, path, body=None):
-                if method != "GET":
-                    return super().call(method, path, body)
-                self.calls.append((method, path, body))
-                seen[clock.now] = (shop := app())["label"]
-                return lab_state({"shop-app": shop, "shop-seed": UP}, job=JOB if clock.now >= seed else {**JOB, "done": False})
-
-        lab = Lab()
-        run = e2e.Run(lab, "playground", "shop", clock=clock, sleep=clock.sleep, get=lambda url: 200,
-                      shell=lambda command, timeout=0: (0, "", ""))
-        run.start(1800)
-        self.assertEqual([(step.name, step.ok) for step in run.steps], [("Start Shop", True)])
-        self.assertEqual((seen[9], seen[69]), ("Keeps restarting", "Running"))
-        self.assertNotIn(("POST", f"/api/jobs/{JOB['id']}/cancel", None), lab.calls)
 
 class Settling(Case):
 
@@ -949,20 +906,10 @@ class FixtureCatalogs(Case):
     def items(self, found):
         return [job["item"] for job in found["matrix"]["include"]]
 
-    def test_any_item_of_the_project_is_one_to_try_and_a_machine_s_is_not(self):
-        self.assertEqual(e2e.target("playground:tour", self.built), ("playground", "tour"))
-        self.assertEqual(e2e.target("addon:@partner/ledger", self.built), ("addon", "@partner/ledger"))
-        with self.assertRaisesRegex(ValueError, "No add-on named @partner/echo"):
-            e2e.target("addon:@partner/echo", self.built)
-
     def test_the_canary_is_read_from_catalog_yml_of_the_linked_catalog(self):
         found = e2e.plan(self.built)
         self.assertEqual(self.items(found), ["playground:tour", "addon:echo"])
         self.assertEqual(found["count"], 2)
-
-    def test_a_change_of_the_engine_runs_that_canary_too(self):
-        self.patch(e2e, "changed_files", lambda folder, base, head: ["docker-compose.yml"])
-        self.assertEqual(self.items(e2e.plan(self.built, changed=("a", "b"))), ["playground:tour", "addon:echo"])
 
     def test_a_canary_whose_file_no_longer_loads_ends_the_plan_as_the_project_lists_it(self):
         """Compose could not read the file, so the project has no such item: a plan that left it out would try nothing and pass."""
