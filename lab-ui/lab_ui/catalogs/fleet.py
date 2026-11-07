@@ -29,7 +29,7 @@ from . import gitx, settings, standard as standards
 from .report import escape_data
 from .standard import pin_problem, release_state
 from .tree import FolderTree
-from .settings import FAIL, WARN, Refused, Unusable, Usage, as_dict, clean, is_int, plan_limit, refusal
+from .settings import Refused, Unusable, Usage, as_dict, clean, is_int, plan_limit, refusal
 
 COMMIT = re.compile(r"[0-9a-f]{40}")
 KIND_FOLDERS = ("addons/", "setups/", "playgrounds/")   # the content of a catalog: an upgrade never touches it
@@ -118,31 +118,15 @@ def _unread(row: Row) -> bool:
     return bool(row.error) and not row.error.startswith("archived")
 
 
-def exit_code(rows, strict: bool = False) -> int:
+def exit_code(rows) -> int:
     """1 when a repository failed a rule or could not be read (an archived one is left out), as settings.exit_code says for
     one; else 0."""
-    return 1 if any(_unread(row) or settings.exit_code(row.findings, strict) for row in rows) else 0
+    return 1 if any(_unread(row) or settings.exit_code(row.findings) for row in rows) else 0
 
 
-def render_audit(rows, fmt: str = "text") -> str:
-    """The audit as one table of identifiers by repository, or as `github` annotations, or as JSON."""
+def render_audit(rows) -> str:
+    """The audit as one table of identifiers by repository."""
     owner = getattr(rows, "owner", "")
-    if fmt == "json":
-        return json.dumps({"owner": owner, "repositories": [
-            {"repository": row.repo, "error": row.error, "summary": settings.summary(row.findings),
-             "not_applicable": sorted(getattr(row.findings, "inapplicable", ())),
-             "findings": [finding._asdict() for finding in row.findings]} for row in rows]}, indent=2, sort_keys=True)
-    if fmt == "github":
-        lines = []
-        for row in rows:
-            if _unread(row):
-                lines.append(f"::error title={settings.TOPIC}::" + escape_data(f"{row.repo}: {row.error}"))
-            for finding in row.findings:
-                if finding.status in (FAIL, WARN):
-                    level = "error" if finding.status == FAIL else "warning"
-                    lines.append(f"::{level} title={finding.id}::" + escape_data(
-                        f"{row.repo}: {finding.title}" + (f": {finding.now}" if finding.now else "")))
-        return "\n".join(lines)
     if not rows:
         return f"No repository of {owner} has the topic {settings.TOPIC}"
     names = [row.repo.split("/", 1)[1] for row in rows]

@@ -172,34 +172,23 @@ class Audit(Case):
     def test_the_exit_code_is_the_one_of_each_repository(self):
         runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
         rows = fleet.audit_fleet("acme-labs", runner, {})
-        self.assertEqual((0, 0), (fleet.exit_code(rows), fleet.exit_code(rows, True)))
+        self.assertEqual(0, fleet.exit_code(rows))
         runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
         weak = fleet.audit_fleet("acme-labs", runner, {"as": "public"})
         self.assertEqual(1, fleet.exit_code(weak))                  # the private one still forbids forking
         self.assertEqual(FAIL, {f.id: f for f in weak[1].findings}["repo.forking"].status)
 
-    def test_the_table_in_json_and_as_annotations(self):
-        runner = self.hub([listed("acme-labs/lab-internal"), listed("acme-labs/lab-hub"), listed("acme-labs/lab-hidden")])
-        rows = fleet.audit_fleet("acme-labs", runner, {"as": "public"})
-        document = json.loads(fleet.render_audit(rows, "json"))
-        self.assertEqual(["owner", "repositories"], list(document))
-        self.assertEqual(["acme-labs/lab-hidden", "acme-labs/lab-hub", "acme-labs/lab-internal"], [r["repository"] for r in document["repositories"]])
-        self.assertEqual(["error", "findings", "not_applicable", "repository", "summary"], list(document["repositories"][0]))
-        lines = fleet.render_audit(rows, "github").splitlines()
-        self.assertTrue(lines[0].startswith("::error title=gravitee-lab-catalog::acme-labs/lab-hidden: acme-labs/lab-hidden was not found"))
-        self.assertTrue(any(line.startswith("::error title=repo.forking::acme-labs/lab-internal: A public repository can be forked") for line in lines))
-        self.assertTrue(all(re.match(r"^::(error|warning) title=[a-z_.-]+::", line) for line in lines))
+    def test_no_catalog_is_said_in_a_line(self):
         self.assertEqual("No repository of acme has the topic gravitee-lab-catalog", fleet.render_audit(fleet.Fleet(owner="acme")))
 
     def test_the_command_line_audits_the_fleet(self):
         runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
         out, err = io.StringIO(), io.StringIO()
-        code = settings.main(["--fleet", "acme-labs", "--strict"], runner=runner, stdout=out, stderr=err)
+        code = settings.main(["--fleet", "acme-labs"], runner=runner, stdout=out, stderr=err)
         self.assertEqual((0, ""), (code, err.getvalue()))
         self.assertTrue(out.getvalue().startswith("Catalog standard for 2 repositories of acme-labs\n"))
         out, err = io.StringIO(), io.StringIO()
-        self.assertEqual(1, settings.main(["--fleet", "acme-labs", "--as", "public", "--format", "github"], runner=runner, stdout=out, stderr=err))
-        self.assertIn("title=repo.forking", out.getvalue())
+        self.assertEqual(1, settings.main(["--fleet", "acme-labs", "--as", "public"], runner=runner, stdout=out, stderr=err))
         out, err = io.StringIO(), io.StringIO()
         self.assertEqual(2, settings.main(["--fleet", "a b"], runner=runner, stdout=out, stderr=err))
         self.assertEqual(["OWNER is a user or an organization of github.com."], err.getvalue().splitlines())

@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import quote
 
-from .report import escape_data
 from .standard import LEVEL
 
 ACTIONS_APP_ID = 15368            # the integration id of GitHub Actions: only a workflow can pass the required check
@@ -185,14 +184,11 @@ class Finding(NamedTuple):
 
 class Findings(list):
     """The findings of one audit, in the order of the table of 7.5. `repo` is the repository, `about` how it is described
-    (`private, user-owned`), `level` the standard it is audited against,
-    `inapplicable` the ids whose `n.a.` says the rule does not apply to this repository, which is not a plan that falls short
-    of the standard, and `optional` the ids whose `warn` is about something the plan sells and the standard does not ask
-    for there (secret scanning on a private repository): `--strict` leaves both alone."""
+    (`private, user-owned`), `level` the standard it is audited against."""
 
     def __init__(self, *args):
         super().__init__(*args)
-        self.repo, self.about, self.level, self.inapplicable, self.optional = "", "", None, set(), set()
+        self.repo, self.about, self.level = "", "", None
 
 
 class Applied(NamedTuple):
@@ -482,12 +478,8 @@ class _Audit:
 
     # --- the facts
 
-    def add(self, id, status, title=None, now="", fix=None, applies=True, optional=False):
+    def add(self, id, status, title=None, now="", fix=None):
         self.found.append(Finding(id, status, TITLES[id] if title is None else title, clean(now, 400), fix))
-        if not applies:
-            self.found.inapplicable.add(id)
-        if optional:
-            self.found.optional.add(id)
 
     def unreadable(self, id, reply):
         self.add(id, MANUAL, now=refusal(reply))
@@ -651,8 +643,7 @@ class _Audit:
                 self.add("repo.forking", FAIL, title, now="allow_forking=false",
                          fix=f"Switch forking on at the go-public step: PATCH repos/{repo} allow_forking=true")
         elif allow and self.personal:   # GitHub answers 422 (measured): only an organization may turn it off on a private repository
-            self.add("repo.forking", NA, now="the repository belongs to a user: GitHub lets only an organization turn forking off",
-                     applies=False)
+            self.add("repo.forking", NA, now="the repository belongs to a user: GitHub lets only an organization turn forking off")
         elif allow:
             self.add("repo.forking", FAIL, now="allow_forking=true",
                      fix=[request("PATCH", f"repos/{repo}", {"allow_forking": False})])
@@ -684,7 +675,7 @@ class _Audit:
                      fix="Have the organization's cloud trust policies pin job_workflow_ref or an environment, "
                          "never repo:ORG/*")
         else:
-            self.add("actions.oidc", NA, now="the repository belongs to a user", applies=False)
+            self.add("actions.oidc", NA, now="the repository belongs to a user")
         self.nightly()
 
     def pinning_and_list(self):
@@ -844,7 +835,7 @@ class _Audit:
         for what, key in (("organization-secrets", "secrets"), ("organization-variables", "variables")):
             reply, items = self.reads.pages(f"repos/{self.repo}/actions/{what}", key)
             if reply.code == 422 and not self.org:
-                return self.add("actions.org_secrets", NA, now="the repository belongs to a user", applies=False)
+                return self.add("actions.org_secrets", NA, now="the repository belongs to a user")
             if reply.code != 200:
                 return self.unreadable("actions.org_secrets", reply)
             names += names_of(items)
@@ -888,13 +879,12 @@ class _Audit:
     def nightly(self):
         standard = self.standard()
         if standard is None:
-            return self.add("actions.nightly", NA, now="there is no .github/standard.json: this is not a catalog yet",
-                            applies=False)
+            return self.add("actions.nightly", NA, now="there is no .github/standard.json: this is not a catalog yet")
         if standard.error or standard.level is None:
             return self.add("actions.nightly", MANUAL, now="the level of the standard cannot be read: "
                             + (standard.error or "it has no level"))
         if standard.level < 2:
-            return self.add("actions.nightly", NA, now=f"standard {standard.level} has no nightly.yml", applies=False)
+            return self.add("actions.nightly", NA, now=f"standard {standard.level} has no nightly.yml")
         reply, items = self.reads.pages(f"repos/{self.repo}/actions/workflows", "workflows")
         if reply.code != 200:
             return self.unreadable("actions.nightly", reply)
@@ -916,7 +906,7 @@ class _Audit:
         # The key reads the Lab: whether one is needed is the Lab's visibility, not this repository's
         if self.public or self.lab_is_public() is True:
             if self.secret_state.endswith("in no store"):
-                return self.add("lab.key", NA, now="the Lab is public: no key reads it", applies=False)
+                return self.add("lab.key", NA, now="the Lab is public: no key reads it")
             return self.add("lab.key", MANUAL, now=self.secret_state,
                             fix="A public Lab needs no key: remove LAB_DEPLOY_KEY from both stores and the deploy key "
                                 "from the Lab repository")
@@ -1168,7 +1158,7 @@ class _Audit:
     def push_rules(self):
         for key, id in (("push", "rules.push"), ("paths", "rules.protected_paths")):
             if self.public:
-                self.add(id, NA, now="push rules are not offered on a public repository", applies=False)
+                self.add(id, NA, now="push rules are not offered on a public repository")
             elif not self.org:
                 self.add(id, NA, now="push rules need an organization plan, Team or Enterprise")
             else:
@@ -1223,14 +1213,11 @@ class _Audit:
             self.add("security.scanning", OK)
         else:
             # On a private repository it is a paid add-on, also when the repository is audited as a public one: something
-            # to do when it is bought, not a failure. The standard asks for it on a
-            # private or internal repository nowhere, so --strict leaves it alone unless the audit is the go-public
-            # gate, which lists what only a public repository can have
+            # to do when it is bought, not a failure
             wanted = {"security_and_analysis": {key: {"status": "enabled"} for key in ANALYSIS_KEYS}}
-            paid = self.visibility != "public"
-            self.add("security.scanning", WARN if paid else FAIL,
+            self.add("security.scanning", WARN if self.visibility != "public" else FAIL,
                      now=", ".join(f"{key}={clean(as_dict(analysis.get(key)).get('status'), 20)}" for key in ANALYSIS_KEYS),
-                     fix=[request("PATCH", f"repos/{repo}", wanted)], optional=paid and not self.public)
+                     fix=[request("PATCH", f"repos/{repo}", wanted)])
         alerts = self.reads.get(f"repos/{repo}/vulnerability-alerts")
         updates = self.reads.get(f"repos/{repo}/automated-security-fixes")
         problems, requests = [], []
@@ -1249,8 +1236,7 @@ class _Audit:
         else:
             self.add("security.dependabot", OK)
         if self.visibility != "public":
-            return self.add("security.reporting", NA, now="public repositories only; SECURITY.md names the channel",
-                            applies=self.public)
+            return self.add("security.reporting", NA, now="public repositories only; SECURITY.md names the channel")
         reply = self.reads.get(f"repos/{repo}/private-vulnerability-reporting")
         if reply.code != 200:
             return self.unreadable("security.reporting", reply)
@@ -1394,18 +1380,9 @@ def summary(findings) -> Dict[str, int]:
     return {status: number for status, number in count.items() if number}
 
 
-def exit_code(findings, strict: bool = False) -> int:
-    """1 when a rule failed; with `strict` also when one warns or cannot be enforced on this plan (an `n.a.` that says the
-    rule does not apply here is not that, and neither is a `warn` about what the plan sells and the standard does not ask
-    for there)."""
-    skip, optional = getattr(findings, "inapplicable", ()), getattr(findings, "optional", ())
-    bad = (FAIL, WARN, NA) if strict else (FAIL,)
-
-    def counts(finding) -> bool:
-        if finding.status not in bad:
-            return False
-        return not (finding.status == NA and finding.id in skip or finding.status == WARN and finding.id in optional)
-    return 1 if any(counts(finding) for finding in findings) else 0
+def exit_code(findings) -> int:
+    """1 when a rule failed, else 0."""
+    return 1 if any(finding.status == FAIL for finding in findings) else 0
 
 
 def fix_lines(fix) -> List[str]:
@@ -1414,17 +1391,9 @@ def fix_lines(fix) -> List[str]:
     return [f"{req['method']} {req['path']}" for req in fix] if isinstance(fix, list) else []
 
 
-def render(findings, fmt: str = "text") -> str:
-    """The audit as text (the table), as `github` annotations, or as one JSON document with sorted keys."""
+def render(findings) -> str:
+    """The audit as a table."""
     repo, about, level = getattr(findings, "repo", ""), getattr(findings, "about", ""), getattr(findings, "level", None)
-    if fmt == "json":
-        return json.dumps({"repository": repo, "about": about, "standard": level, "summary": summary(findings),
-                           "not_applicable": sorted(getattr(findings, "inapplicable", ())),
-                           "findings": [finding._asdict() for finding in findings]}, indent=2, sort_keys=True)
-    if fmt == "github":
-        return "\n".join(f"::{'error' if finding.status == FAIL else 'warning'} title={finding.id}::" + escape_data(
-            finding.title + (f": {finding.now}" if finding.now else "")) for finding in findings
-            if finding.status in (FAIL, WARN))
     width = max([len(finding.id) for finding in findings] or [0])
     lines = [f"Catalog standard{f' {level}' if level else ''} for {repo} ({about})"]
     for finding in findings:
@@ -1512,18 +1481,16 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--apply", action="store_true")
     p.add_argument("--yes", action="store_true")
     p.add_argument("--effective-only", action="store_true")
-    p.add_argument("--strict", action="store_true")
     p.add_argument("--as", dest="visibility", choices=("public", "private", "internal"))
     p.add_argument("--fleet", metavar="OWNER")
-    p.add_argument("--format", choices=("text", "json", "github"), default="text")
     return p
 
 
 def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, git: Optional[Callable] = None,
          stdout=None, stderr=None, cwd: Optional[str] = None) -> int:
-    """`catalog.py repo-settings`. Exit 0 when nothing failed, 1 when a rule failed (with --strict also a warning or an `n.a.`;
-    with --apply --yes, when GitHub refused a request), 2 when it cannot be done: no `gh`, no sign-in, a repository that is
-    not on GitHub, a command line that makes no sense. Every exit 2 is one line on standard error."""
+    """`catalog.py repo-settings`. Exit 0 when nothing failed, 1 when a rule failed (with --apply --yes, when GitHub refused a
+    request), 2 when it cannot be done: no `gh`, no sign-in, a repository that is not on GitHub, a command line that makes no sense.
+    Every exit 2 is one line on standard error."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
     try:
         args = parser().parse_args(argv)
@@ -1536,26 +1503,21 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
         if args.fleet is not None:
             from . import fleet
             rows = fleet.audit_fleet(args.fleet, runner, options)
-            print(fleet.render_audit(rows, args.format), file=out)
-            return fleet.exit_code(rows, args.strict)
+            print(fleet.render_audit(rows), file=out)
+            return fleet.exit_code(rows)
         repo = resolve_target(args.target, git, cwd)
         findings = audit(repo, runner, options)
         if not args.apply:
-            print(render(findings, args.format), file=out)
-            return exit_code(findings, args.strict)
+            print(render(findings), file=out)
+            return exit_code(findings)
         applied = apply(repo, runner, findings, args.yes)
-        if args.format == "json":
-            document = json.loads(render(findings, "json"))
-            document["requests"] = [item._asdict() for item in applied]
-            print(json.dumps(document, indent=2, sort_keys=True), file=out)
-        else:
-            print(render(findings, args.format), file=out)
-            print(render_applied(applied), file=out)
+        print(render(findings), file=out)
+        print(render_applied(applied), file=out)
         if args.yes and any(item.outcome == "refused" for item in applied):
             return 1
         if args.yes and any(item.outcome == "done" for item in applied):
             findings = audit(repo, runner, options)           # what is there now, asked again (it writes nothing)
-        return exit_code(findings, args.strict)
+        return exit_code(findings)
     except SystemExit as leave:
         return leave.code if isinstance(leave.code, int) else 2
     except Unusable as problem:
