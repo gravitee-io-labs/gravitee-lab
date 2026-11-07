@@ -607,18 +607,15 @@ def levels(store: Path, tip: str, limit: int = 50, address: Optional[gitx.Addres
     here = bare.read(store, commit, FILE)
     if here is None:
         raise gitx.fail("not_catalog", address)
-    cache = {here: _lab_of(here)}
     touching = bare.changes(store, commit, [FILE], limit)
-    forms = [(commit, cache[here], touching[0][0] if touching else None)]
+    forms = [(commit, _lab_of(here), touching[0][0] if touching else None)]
     for (newer, parent), (older, _) in zip(touching, touching[1:]):
         if parent is None:
             break
         data = bare.read(store, older, FILE)
         if data is None:   # the file was deleted at `older`: the commits between hold no catalog
             continue
-        if data not in cache:
-            cache[data] = _lab_of(data)
-        forms.append((parent, cache[data], older))
+        forms.append((parent, _lab_of(data), older))
     found = []
     for newest, lab, since in forms:
         found.append((newest, lab))
@@ -634,11 +631,9 @@ def releases(store: Path, tip: str) -> list:
     """The releases of this catalog that lead to `tip`: [(commit, lab, version)], the greatest version first. A release is a
     tag `vX.Y.Z` (`store.release_tags`) whose commit has a catalog.yml that says `version: X.Y.Z`: a tag the file does not
     agree with is a name and not a release, and is left out. `lab` is read as `levels` reads it (`_lab_of`)."""
-    found, cache = [], {}
+    found = []
     for _, name, commit in bare.release_tags(store, tip):
-        data = cache.get(commit)
-        if data is None:
-            data = cache[commit] = bare.read(store, commit, FILE) or b""
+        data = bare.read(store, commit, FILE)
         if data and registry.scan(data).get("version") == name[1:]:
             found.append((commit, _lab_of(data), name[1:]))
     return found

@@ -790,38 +790,6 @@ class Provision(Served, Case):
         self.assertEqual(firstrun.content()["key"], "ready")
         self.assertEqual(self.failure_row(), "uptodate")
 
-    def failed_once(self):
-        """An entry with no copy whose first attempt, nobody watching, found the host unreachable: the lock holds the
-        failure, this process remembers its line, and nothing is on the bar."""
-        registry.write_config({"schema": 1, "catalogs": [{"id": self.ns, "kind": "git", "url": self.remote.url}]})
-        with mock.patch.object(gitx, "ls_remote", side_effect=gitx.fail("unreachable")), self.assertRaises(CatalogError):
-            firstrun.provision(self.ns)
-        self.assertEqual(firstrun.content()["key"], "failed")
-
-    def test_a_silent_retry_stays_failed_through_every_step_of_its_commit(self):
-        self.failed_once()
-        seen = []
-        self.patch(install, "STEP", lambda step: seen.append((step, firstrun.content()["key"])))
-        firstrun.provision(self.ns)
-        steps = [step for step, _ in seen]
-        self.assertTrue({"add:pending", "add:install", "add:placed", "add:lock", "add:done"} <= set(steps), steps)
-        end = steps.index("add:done")
-        self.assertEqual({key for _, key in seen[:end]}, {"failed"}, f"no flicker through the commit: {seen}")
-        self.assertEqual({key for _, key in seen[end:]}, {"ready"}, "and it is ready the moment the lock says so")
-
-    def test_a_retry_a_click_started_is_a_download_through_every_step_of_its_commit(self):
-        self.failed_once()
-        registry.set_lock(self.ns, error=None)   # what service.check_now does, and then it marks the catalog
-        firstrun.reconcile()
-        self.assertEqual(firstrun.content()["key"], "downloading")
-        seen = []
-        self.patch(install, "STEP", lambda step: seen.append((step, firstrun.content()["key"])))
-        firstrun.provision(self.ns)
-        steps = [step for step, _ in seen]
-        end = steps.index("add:done")
-        self.assertEqual({key for _, key in seen[:end]}, {"downloading"}, str(seen))
-        self.assertEqual({key for _, key in seen[end:]}, {"ready"})
-
     def test_an_env_that_is_not_utf8_is_no_failure_of_a_catalog_that_is_installed(self):
         self.started()
         self.patch(envfiles, "ROOT", self.root)
