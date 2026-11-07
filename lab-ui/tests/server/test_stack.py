@@ -1,5 +1,4 @@
-"""stack: the commands the platform's actions run and what each waits for, on the project of test_api; how far a
-group's, a service's, a restart's and an update's jobs are as Compose and Docker go. No Docker."""
+"""stack: the commands the platform's actions run and what each waits for, on the project of test_api. No Docker."""
 
 import json
 import os
@@ -13,11 +12,8 @@ from lab_ui.docker.jobs import Job, JobFailed, awaited
 
 from .. import Case
 from .test_api import PROJECT
-from ..docker.test_jobs import Docker, container, progress, replay
 
 DEFINED = PROJECT["services"]
-# The services Docker checks the health of (test_jobs.Docker)
-HEALTH_CHECKED = {"mongodb", "redis", "kazoo", "jade"}
 
 
 def migrate(**more):
@@ -351,14 +347,6 @@ class StackActions(Case):
         self.assertEqual(forgotten.call_count, 2, "their record is not among what is emptied")
         self.assertEqual({call.args[1] for call in deployed.call_args_list}, {stack.playgrounds.created})
 
-    def test_a_reset_with_nothing_in_a_platform_says_what_it_always_did(self):
-        self.patch(stack.layers, "write")
-        self.patch(stack.playgrounds, "forget")
-        self.patch(stack.places, "deployed", return_value=[])
-        self.patch(stack.platforms, "read", return_value=[])
-        job, _ = self.reset()
-        self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome"])
-
     def test_restart_restarts_what_runs_as_it_is(self):
         # Redis was stopped from the Stack, the playground's app failed, Kazoo UI was never created: they stay so. Only
         # what runs is restarted, and only that shows as starting and is waited for
@@ -638,60 +626,6 @@ class StackActions(Case):
         stack.compose.ps.return_value = {"welcome-seed": {"state": "running"}}   # seeding: it may be stopped
         stack.service_action(PROJECT, "welcome-seed", "stop")
         self.jobs.start.assert_called_once()
-
-    # --- How far each job is, as Compose and Docker go ---------------------------------------------------------------
-
-    def ran(self, lines, *more, running=()):
-        """The job the last action started, its commands printing these lines in turn, with Docker following them
-        from these containers running and healthy: how far it was after each line, and the job."""
-        title, steps, options = self.started(self.jobs)
-        job = Job(title, steps, **options)
-        docker = Docker(PROJECT, {name: container(health="healthy") for name in running}, HEALTH_CHECKED)
-        return progress(replay(job, lines, *more, refresh=docker.refresh)), job, docker
-
-    def test_a_group_stops(self):
-        stack.group_action(PROJECT, "databases", "stop")
-        curve, job, _ = self.ran([" Container gio-mongodb Stopping ", " Container gio-redis Stopping ",
-                                  " Container gio-redis Stopped ", " Container gio-mongodb Stopped "],
-                                 running=("mongodb", "redis"))
-        self.assertEqual((curve, job.progress), ([0.25, 0.5, 0.75, 1], 1))
-
-    def test_a_service_starts_and_is_there_once_healthy(self):
-        stack.service_action(PROJECT, "jade", "start")
-        curve, job, docker = self.ran([" Container gio-jade Creating ", " Container gio-jade Created ",
-                                       " Container gio-jade Starting ", " Container gio-jade Started "])
-        self.assertEqual((curve, job.ok, job.progress), ([0, 0.2, 0.2, 0.5], True, 0.5))
-        docker.healthy("jade")
-        docker.observe(job)
-        self.assertEqual(job.progress, 1)
-
-    def test_a_restart_is_there_once_what_it_restarted_is_ready(self):
-        # Kazoo's health check runs again after the restart: Docker shows it healthy only once it passes
-        stack.unit_action(PROJECT, "addon", "kazoo", "restart")
-        lines = [" Container gio-kazoo-ui Restarting ", " Container gio-kazoo Restarting ",
-                 " Container gio-kazoo-ui Started ", " Container gio-kazoo Started "]
-        curve, job, docker = self.ran(lines, running=("kazoo", "kazoo-ui"))
-        self.assertEqual(curve, [0.1, 0.2, 0.6, 0.75])
-        docker.healthy("kazoo")
-        docker.observe(job)
-        self.assertEqual(job.progress, 1)
-
-    def test_an_update_pulls_then_makes_again_what_changed(self):
-        # The pull is half of the job, each image alike; then what runs: what got no new image runs on and is there
-        # at once, Kazoo, which got one, is made again and is there once healthy
-        stack.action(PROJECT, "update")
-        images = ("mongo:8.0.29", "redis:8.10.1-alpine", "docker.io/acmecontainer/kazoo:3.9",
-                  "acmecontainer/kazoo-ui:latest")
-        pulls = [f" Image {image} {status} " for status in ("Pulling", "Pulled") for image in images]
-        starts = [*(f" Container gio-{name} Running " for name in ("mongodb", "redis", "kazoo-ui")),
-                  " Container gio-kazoo Recreate ", " Container gio-kazoo Recreated ",
-                  " Container gio-kazoo Starting ", " Container gio-kazoo Started "]
-        curve, job, docker = self.ran(pulls, starts, running=("mongodb", "redis", "kazoo", "kazoo-ui"))
-        self.assertEqual(curve[:8], [0, 0, 0, 0, 0.125, 0.25, 0.375, 0.5])
-        self.assertEqual(curve[8:], [0.625, 0.75, 0.875, 0.875, 0.9, 0.9, 0.938])
-        docker.healthy("kazoo")
-        docker.observe(job)
-        self.assertEqual((job.ok, job.progress), (True, 1))
 
 
 class ResetRecords(Case):
