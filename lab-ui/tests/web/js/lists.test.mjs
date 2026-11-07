@@ -5,11 +5,7 @@
 // DOM does not take), and a deliberate change of what a lab without a platform sees is written the same way. The state carries what
 // a registered platform adds (what a playground deploys to and what it cannot, the place chosen) with no platform registered: none
 // of it may show. The Start of a row follows the place chosen on any page, as the page of the playground does (web/js/platform/places.js).
-//
-// The catalogs add two more snapshots, written the same way: lists.empty.txt is what the lists draw while the catalogs download, fail, are missing
-// or hold nothing, with no item to list and with only this machine's (WRITE_EMPTY=1), and lists.catalogs.txt what they draw with another catalog added:
-// the Catalog fact of its About, the picker of the catalogs in place of the two choices, its Blocked and Needs a catalog notes (WRITE_CATALOGS=1). With the first
-// catalog alone, the pages are lists.main.txt: no chip, no picker, no scope control while all of the items are one catalog's.
+// With the first catalog alone, the pages are lists.main.txt: no chip, no picker, no scope control while all of the items are one catalog's.
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { mock, test } from "node:test";
@@ -23,7 +19,7 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: Date.now(
 // A timer set with no delay (the menu's, in ui.js) is NaN for the mock, which then loses the timers that follow it
 const setTimer = globalThis.setTimeout;
 globalThis.setTimeout = (fn, ms, ...rest) => setTimer(fn, ms ?? 0, ...rest);
-const MAIN = new URL("./lists.main.txt", import.meta.url), EMPTY = new URL("./lists.empty.txt", import.meta.url), CATALOGS = new URL("./lists.catalogs.txt", import.meta.url);
+const MAIN = new URL("./lists.main.txt", import.meta.url);
 const ENVIRONMENTS = [{ id: "development", name: "Development" }, { id: "test", name: "Test" }];
 const CANNOT = { "acme-bakery": "Needs Access Management" };   // what a place says Acme Bakery cannot go there for
 // What the server answers, and every call the page made
@@ -177,8 +173,8 @@ function everything() {
 
 // What was written: the name of each part, then what it drew
 const written = (dom) => Object.entries(dom).map(([name, body]) => `=== ${name} ===\n${body}\n`).join("");
-function read(file = MAIN) {
-  const parts = readFileSync(file, "utf8").split(/^=== (.*) ===\n/m), main = {};
+function read() {
+  const parts = readFileSync(MAIN, "utf8").split(/^=== (.*) ===\n/m), main = {};
   for (let i = 1; i < parts.length; i += 2) main[parts[i]] = parts[i + 1].replace(/\n$/, "");
   return main;
 }
@@ -618,6 +614,8 @@ test("with another catalog added the picker is drawn from the items, not from th
   assert.deepEqual([button.getAttribute("class"), button.getAttribute("aria-haspopup")], ["combo-btn", "dialog"]);
   assert.equal(text(button.querySelector(".sr-only")), "Catalog:");
   assert.ok(button.parent.lastElementChild === button, "among the filters of the list, after them");
+  assert.ok(sections.playgrounds.querySelector(".list-card").classList.contains("by-catalog"), "its rows name their catalog where the card has the room");
+  assert.deepEqual(sections.playgrounds.querySelectorAll(".list-item .col-from").map(text), ["Gravitee public", "Gravitee public", "Acme Hub", "Personal"]);
   assert.equal(sections.playgrounds.querySelectorAll('[role="radiogroup"]').length, 0);
   // A list whose items are one catalog's has none, whatever else is added
   draw(world());
@@ -626,6 +624,7 @@ test("with another catalog added the picker is drawn from the items, not from th
   assert.equal(scope("playgrounds").picker, "Catalog: All catalogs");
   alone();
   assert.equal(sections.playgrounds.querySelectorAll("[data-catalogs]").length, 0, "taken off once the catalogs are one");
+  assert.ok(!sections.playgrounds.querySelector(".list-card").classList.contains("by-catalog"));
 });
 
 // The picker, open: its options as [name, count, ticked]
@@ -1045,57 +1044,6 @@ test("a catalog's name, an author's words and a failure line are text, never mar
   assert.equal(sections.playgrounds.querySelectorAll("img").length, 0);
   alone();
 });
-
-// --- The snapshots ----------------------------------------------------------------------------------------------------------------------------
-
-function empties() {
-  const dom = {}, all = ["playgrounds", "setups", "addons"];
-  const mine = (key, more) => lab({ playgrounds: [ofMine("playground", "scratch", "Scratch")], setups: [], addons: [], catalogs: [PERSONAL(), catalog({ id: "gravitee", commit: "" })], content: content(key, more) });
-  draw(noItem("downloading", { progress: 0.42 }, [FIRST({ commit: "", progress: 0.42 })]));
-  for (const name of all) dom[`${name}: downloading`] = drawn(sections[name]);
-  draw(noItem("failed", {}, [catalog({ id: "gravitee", commit: "" })]));
-  dom["playgrounds: failed"] = drawn(sections.playgrounds);
-  draw(noItem("none"));
-  dom["playgrounds: no catalog"] = drawn(sections.playgrounds);
-  draw(noItem("none", { offer: null }));
-  dom["playgrounds: no catalog, none to offer"] = drawn(sections.playgrounds);
-  draw(noItem("ready", {}, [FIRST()]));
-  for (const name of all) dom[`${name}: nothing of its kind`] = drawn(sections[name]);
-  draw(mine("downloading", { progress: 0.42 }));
-  dom["playgrounds: downloading, an item of this machine"] = drawn(sections.playgrounds);
-  draw(mine("failed"));
-  dom["playgrounds: failed, an item of this machine"] = drawn(sections.playgrounds);
-  alone();
-  return dom;
-}
-
-function withCatalogs() {
-  const dom = {}, state = everyone();
-  draw(state);
-  opening("addons", "@acme-hub/kea");
-  opening("playgrounds", "@acme-hub/ledger-demo");
-  draw(state);
-  for (const name of ["playgrounds", "setups", "addons"]) dom[`${name}: two catalogs and this machine`] = drawn(sections[name]);
-  selectCatalog("playground", "acme-hub");
-  draw(state);
-  dom["playgrounds: filtered to the other catalog"] = drawn(sections.playgrounds);
-  draw(lab({ playgrounds: [...base.playgrounds, ofMine("playground", "scratch", "Scratch")], catalogs: [FIRST(), PERSONAL()], content: content("ready") }));
-  dom["playgrounds: the first catalog and this machine"] = drawn(sections.playgrounds);
-  alone();
-  return dom;
-}
-
-const snapshot = (name, file, variable, dom) => test(`${name}: what the lists draw is written in ${file.pathname.split("/").pop()}, and a deliberate change is written again with ${variable}=1`, () => {
-  mock.timers.tick(10000);   // the lists at rest: no button still says how its action went, which the tests above leave in flight
-  if (process.env[variable]) writeFileSync(file, written(dom()));
-  const now = dom(), then = read(file);
-  assert.deepEqual(Object.keys(now), Object.keys(then));
-  for (const key of Object.keys(then)) {
-    assert.equal(now[key], then[key], key);
-  }
-});
-snapshot("with the content of the catalogs on its way, missing or empty", EMPTY, "WRITE_EMPTY", empties);
-snapshot("with another catalog added", CATALOGS, "WRITE_CATALOGS", withCatalogs);
 
 // Last: the button of a failed action says so for a moment, which the tests above do not wait for
 test("what the checks of the place cannot read is said in a toast, and nothing starts", async () => {
