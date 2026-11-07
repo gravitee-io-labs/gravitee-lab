@@ -143,6 +143,8 @@ class E2ETest(unittest.TestCase):
         self.assertIn("name: E2E result", body)
         needs = re.search(r"(?m)^    needs: \[(.+)\]$", body).group(1).split(", ")
         self.assertEqual(sorted(needs), sorted(set(self.jobs) - {"result", "nightly"}))
+        for name in needs:
+            self.assertIn(f"needs.{name}.result", body, "a job whose result is not read fails with this check green")
         self.assertIn("always() &&", body, "it reports when a job failed, was cancelled or was refused")
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", body, "none for a fork, as for the e2e job")
 
