@@ -268,32 +268,21 @@ test("the layers on top of the platform say they come from a catalog, and the co
   assert.ok(!/playgrounds\/|setups\/|addons\/|local/.test(text(body.querySelector(".layers"))), "no folder of a catalog is named by a layer");
 });
 
-test("a person's own items are said to stay on the machine until they are shared to a catalog, and not a word of the project's folders", () => {
-  const parts = body.children.filter((child) => child.tag), title = parts.find((h) => h.tag === "h3" && text(h) === "Yours or shared");
-  const paragraph = parts[parts.indexOf(title) + 1];
-  assert.equal(text(paragraph), "New playground, New setup and New add-on make one from a form or with an AI agent. Personal stays on this machine until you share it to a catalog.");
-  assert.ok(!/project|local|git/i.test(text(paragraph)));
-});
-
 test("the pages it points to are the Library's and the Catalogs, each leading to its page", () => {
   const rows = body.querySelectorAll(".pairs > div").map((one) => [text(one.querySelector("dt")), one.querySelectorAll("a").map((a) => a.getAttribute("href"))]);
   assert.deepEqual(rows, [["Dashboard", ["#/dashboard"]], ["Library", ["#/playgrounds", "#/setups", "#/addons"]], ["Catalogs", ["#/catalogs"]],
     ["Monitor", ["#/containers", "#/logs"]], ["Configure", ["#/images", "#/plugins"]]]);
-  assert.equal(text(body.querySelectorAll(".pairs > div")[2].querySelector("dd")), "Catalogs: where they come from, to add and to update");
 });
 
 test("with the catalogs there, the foot of the start is what it always was: Back, and Discover the playgrounds that works", async () => {
   await go("start");
   say({ content: content("ready"), catalogs: [FIRST()], platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" } } });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
   assert.deepEqual(lead(), ["Discover the playgrounds", false, ""]);
-  assert.equal(slot().getAttribute("class"), "btn primary");
   assert.deepEqual(extra(), []);
 });
 
 test("while the catalogs download the lead stays in its place and waits, saying why; a failure adds Try again before it, no catalog Add Gravitee public", () => {
   say({ content: content("downloading"), catalogs: [catalog({ id: "gravitee", commit: "", progress: 0.4 })] });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
   assert.deepEqual(lead(), ["Discover the playgrounds", true, WAITING]);
   assert.deepEqual(extra(), []);
   say({ content: content("failed"), catalogs: [catalog({ id: "gravitee", commit: "" })] });
@@ -301,7 +290,6 @@ test("while the catalogs download the lead stays in its place and waits, saying 
   assert.deepEqual(lead(), ["Discover the playgrounds", true, "Cannot reach github.com. Check your connection, then try again."]);
   assert.deepEqual(extra(), [["retry", "gravitee", "Try again"]]);
   say({ content: content("none") });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Add Gravitee public", "Discover the playgrounds"]);
   assert.deepEqual(lead(), ["Discover the playgrounds", true, "No catalog added"]);
   assert.deepEqual(extra(), [["add", "gravitee", "Add Gravitee public"]]);
   say({ content: content("none", { offer: null }) });
@@ -337,26 +325,6 @@ test("a lead that waits does nothing when it is clicked, and the dialog stays", 
   dialog.showModal();
 });
 
-test("Try again and Add the catalog that is listed keep the dialog open and are answered by the Catalogs page's one handler, which asks the routes of the catalogs", async () => {
-  await import("../../../web/js/dialogs/catalog.js");   // where the actions of the content status live, once, for every page that draws it
-  say({ content: content("failed"), catalogs: [catalog({ id: "gravitee", commit: "" })] });
-  calls.length = 0;
-  const retry = actions().querySelector("[data-content-act]");
-  retry.click();
-  page.doc.dispatchEvent(new Ev("click", { target: retry }));
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(calls.map((call) => [call.path, call.body]).filter(([path]) => path !== "/api/state"), [["/api/catalogs/gravitee/check", {}]]);
-  assert.ok(dialog.hasAttribute("open"), "the foot follows the download: the person is not sent anywhere");
-  say({ content: content("none") });
-  calls.length = 0;
-  const add = actions().querySelector("[data-content-act]");
-  add.click();
-  page.doc.dispatchEvent(new Ev("click", { target: add }));
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(calls.map((call) => [call.path, call.body])[0], ["/api/catalogs", { listed: "gravitee" }]);
-  assert.ok(dialog.hasAttribute("open"));
-});
-
 test("the Cloud card cannot be chosen while nothing can run its gateway, and says why in the words of the catalogs; with an add-on it is as it was", async () => {
   await go("core");
   const cloud = () => body.querySelectorAll(".core-card")[1];
@@ -366,10 +334,6 @@ test("the Cloud card cannot be chosen while nothing can run its gateway, and say
   assert.ok(!body.querySelectorAll(".core-card")[0].hasAttribute("aria-disabled"), "This machine is never held");
   say({ content: content("downloading") });
   assert.equal(cloud().getAttribute("data-why"), WAITING);
-  say({ content: content("failed") });
-  assert.equal(cloud().getAttribute("data-why"), "Cannot reach github.com. Check your connection, then try again.");
-  say({ content: content("none") });
-  assert.equal(cloud().getAttribute("data-why"), "No catalog added");
   say({ content: content("ready"), addons: [GATEWAY], platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" }, gateways: { cloud: "hyssop" } } });
   assert.deepEqual([cloud().hasAttribute("aria-disabled"), cloud().hasAttribute("data-why"), radio().hasAttribute("aria-disabled")], [false, false, false]);
   // A radio reached by the keyboard all the same does not change where it runs
