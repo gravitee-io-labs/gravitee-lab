@@ -303,8 +303,7 @@ export function showOutput(jobId) {
 
 // What a job does, said to a screen reader as it starts and ends (a polite live region): the page says it on the button that started it
 function say(words) {
-  const said = $("#job-said");
-  if (said) said.textContent = words;
+  $("#job-said").textContent = words;
 }
 
 // The drawer opens on its close button when a person opens it (the keyboard is in it, as in a dialog), and gives the keyboard back to

@@ -395,7 +395,6 @@ let at = 0;         // the place of its entry in the history: every entry shown 
 function boot() {
   const waiting = !store.state, el = $("#boot");
   document.body.classList.toggle("booting", waiting);
-  if (!el) return waiting;
   const failed = store.offline || store.error;
   setHTML(el, !waiting ? "" : !failed ? `<p class="empty">${loading("Reading the lab")}</p>`
     : `<div class="card boot-card"><strong>${esc(store.error || "The Lab UI does not answer")}</strong>

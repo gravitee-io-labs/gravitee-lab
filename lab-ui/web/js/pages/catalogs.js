@@ -296,7 +296,6 @@ function controlOf(el) {
 }
 
 function draw(state) {
-  if (!section) return;
   const at = document.activeElement, again = at && section.contains(at) ? controlOf(at) : "";
   const rows = grouped(state.catalogs.filter(shown));
   holdOff($("[data-add-catalog]", section), noGit(), NO_GIT);

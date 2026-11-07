@@ -304,10 +304,10 @@ test("a toast made just before its dialog closes is not left in it: the toasts l
   page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
 });
 
-test("a dialog opened again goes to the top; one that is open already keeps its place; a dialog that was never shown by showModal is found by the document", () => {
+test("a dialog opened again goes to the top; one that is open already keeps its place", () => {
   const host = () => page.doc.querySelector("#toasts").parent;
   const closed = (dlg) => { dlg.close(); page.doc.dispatchEvent(new Ev("close", { target: dlg })); };
-  const [a, b, c] = [1, 2, 3].map(() => { const dlg = page.doc.createElement("dialog"); page.doc.body.append(dlg); return dlg; });
+  const [a, b] = [1, 2].map(() => { const dlg = page.doc.createElement("dialog"); page.doc.body.append(dlg); return dlg; });
   a.showModal();
   b.showModal();
   ui.toast("x");
@@ -322,14 +322,9 @@ test("a dialog opened again goes to the top; one that is open already keeps its 
   b.showModal();
   ui.toast("w");
   assert.ok(host() === b, "closed and opened again: on top");
-  // Open by its attribute, as the page never does: the last of the document stands in when none opened by showModal is open
   closed(a);
   closed(b);
-  c.open = true;
-  ui.toast("v");
-  assert.ok(host() === c);
-  closed(c);
-  for (const dlg of [a, b, c]) dlg.remove();
+  for (const dlg of [a, b]) dlg.remove();
   page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
 });
 

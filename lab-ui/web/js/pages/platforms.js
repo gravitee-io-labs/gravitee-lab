@@ -265,7 +265,6 @@ function keyOf(el) {
 }
 
 function draw() {
-  if (!section) return;
   const at = document.activeElement, key = at && section.contains(at) ? keyOf(at) : "";
   const cards = !!platforms?.length && !failed;
   const lonely = $(".plat-lonely", section);

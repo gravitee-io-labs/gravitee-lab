@@ -10,14 +10,13 @@ import { Popup } from "./popup.js";
 
 // The dialogs in the order they were opened in. The top layer stacks a modal dialog over every one opened before it, wherever it is in the
 // document (a confirmation of index.html opened over a dialog made later sits above it), and the document does not say which is on top. Every
-// modal dialog of the page goes through showModal, so its prototype keeps the order. Where there is no such prototype (a page without
-// dialogs), the last open dialog of the document stands in.
+// modal dialog of the page goes through showModal, so its prototype keeps the order.
 const stacked = [];
 
-// The dialog on top of the page: the last one opened that is still open, else the last open one of the document, else none
+// The dialog on top of the page: the last one opened that is still open, else none
 function topDialog() {
   for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at].open && stacked[at].isConnected) return stacked[at];
-  return $$("dialog[open]").pop() || null;
+  return null;
 }
 
 // An open dialog sits in the browser's top layer, and makes everything outside it inert: the toasts live in the one on top while it is open,
@@ -48,25 +47,22 @@ function cross(dialog) {
   dialog.append(button);   // last in the document, at the corner by its style: a dialog still opens on its own first control
 }
 
-const proto = globalThis.HTMLDialogElement?.prototype;
-if (proto && typeof proto.showModal === "function") {
-  const showModal = proto.showModal, close = proto.close;
-  proto.showModal = function (...args) {
-    const was = this.open;
-    if (!was) cross(this);
-    showModal.apply(this, args);
-    if (was) return;   // one that is open already keeps its place in the top layer (the call throws, or does nothing)
-    for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at] === this || !stacked[at].open || !stacked[at].isConnected) stacked.splice(at, 1);
-    stacked.push(this);
-  };
-  // The toasts and the bubble leave a dialog as it closes, not a task later when the browser says so: a toast made just before the close
-  // (`toast("Updated")`, then `dialog.close()`) is not left in a dialog that no longer shows
-  proto.close = function (...args) {
-    close.apply(this, args);
-    hostToasts();
-    releaseFloat();
-  };
-}
+const proto = HTMLDialogElement.prototype, { showModal, close } = proto;
+proto.showModal = function (...args) {
+  const was = this.open;
+  if (!was) cross(this);
+  showModal.apply(this, args);
+  if (was) return;   // one that is open already keeps its place in the top layer (the call throws, or does nothing)
+  for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at] === this || !stacked[at].open || !stacked[at].isConnected) stacked.splice(at, 1);
+  stacked.push(this);
+};
+// The toasts and the bubble leave a dialog as it closes, not a task later when the browser says so: a toast made just before the close
+// (`toast("Updated")`, then `dialog.close()`) is not left in a dialog that no longer shows
+proto.close = function (...args) {
+  close.apply(this, args);
+  hostToasts();
+  releaseFloat();
+};
 
 // A confirmation goes by itself; an error is an alert, stays while the pointer or the keyboard is on it, and has its close button
 export function toast(message, error = false) {
@@ -154,8 +150,8 @@ const effectRows = (rows = []) => {
 // with the reason of the option, for one that cannot be taken, and with the first one's reason when none can. `action` and `danger` are asked
 // with undefined while none is chosen.
 export function effectsDialog({ title, steps = [], options, action, danger = () => false, unchosen, other = null }) {
-  const dlg = $("#choice"), ok = $("#choice-ok"), list = $("#choice-list"), second = $("#choice-alt");
-  if (second) Object.assign(second, { hidden: !other, textContent: other?.label || "" });
+  const dlg = $("#choice"), ok = $("#choice-ok"), list = $("#choice-list");
+  Object.assign($("#choice-alt"), { hidden: !other, textContent: other?.label || "" });
   const single = options.length === 1, waits = unchosen !== undefined, blank = waits && !single;
   $("#choice-title").textContent = title;
   list.classList.toggle("single", single);
