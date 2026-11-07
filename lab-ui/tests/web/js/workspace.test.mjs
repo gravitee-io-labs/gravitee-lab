@@ -651,7 +651,6 @@ test("a playground without a guide is the same page too: the guide's place is th
   await flush();
   assert.ok(section.querySelector("#pg-guide"), "the guide's place");
   assert.ok(section.querySelector(".pg-divider"), "the divider");
-  assert.equal(card().classList.contains("solo"), false);
   setWidth(900);
   page.resized.run();
   assert.equal(card().classList.contains("rows"), true, "as narrow as any: no guide is no reason for another layout");

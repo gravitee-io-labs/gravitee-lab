@@ -441,6 +441,4 @@ export function openConnect({ added, runs, done }) {
 }
 
 // Set up one environment that is not used yet: the second step alone, for it. `runs`, `replaces` and `done` as in the wizard.
-export function openUseEnvironment({ platform, environment, runs = true, replaces = "", done }) {
-  setUp({ platform, environment, runs, replaces, done });
-}
+export const openUseEnvironment = setUp;

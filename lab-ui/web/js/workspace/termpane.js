@@ -91,7 +91,6 @@ export const TermPane = {
   // Opens the panel if it is folded, and runs the command at the shell's prompt
   async run(text) {
     if (folded()) fold(false);
-    shell ||= new Shell($(".pg-term-screen", pane), item.id, () => {});
     await shell.run(text);
   },
 

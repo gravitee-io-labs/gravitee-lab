@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { HOSTILE, catalog as catalogRow, content, FIRST, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -548,16 +548,6 @@ test("Start on a remote place always asks first: what it starts, then where it d
   assert.equal(posts("/start").length, 0, "nothing runs before it is confirmed");
   await answer(true);
   assert.deepEqual(posts("/start").map((c) => [c.path, c.body]), [["/api/playgrounds/hotels/start", { place: DEV.id, accept: [] }]]);
-  await leave();
-});
-
-test("a remote Start that starts nothing still opens the dialog, with the place alone", async () => {
-  await visit({ ...off }, { kept: DEV.id });
-  section.querySelector(".pg-start-btn").click();
-  await flush();
-  assert.deepEqual(effects().steps, [["Deploys to", ["Development (My Account) Environment"]]]);
-  await answer(false);
-  assert.equal(posts("/start").length, 0);
   await leave();
 });
 
@@ -1429,11 +1419,6 @@ test("a playground's address that names one about to arrive is not given up whil
       playgroundPage.render(store.state);
       assert.deepEqual(bounced, ["#/playgrounds"], done);
     }
-    // A server that does not say the content gives up at once, as it always did
-    bounced.length = 0;
-    store.state = { ...plain, playgrounds: [] };
-    playgroundPage.render(store.state);
-    assert.deepEqual(bounced, ["#/playgrounds"]);
   } finally {
     router.replace = real;
   }

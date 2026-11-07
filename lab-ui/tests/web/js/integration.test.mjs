@@ -304,10 +304,10 @@ test("a toast made just before its dialog closes is not left in it: the toasts l
   page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
 });
 
-test("a dialog opened again goes to the top; one that is open already keeps its place; a dialog that was never shown by showModal is found by the document", () => {
+test("a dialog opened again goes to the top; one that is open already keeps its place", () => {
   const host = () => page.doc.querySelector("#toasts").parent;
   const closed = (dlg) => { dlg.close(); page.doc.dispatchEvent(new Ev("close", { target: dlg })); };
-  const [a, b, c] = [1, 2, 3].map(() => { const dlg = page.doc.createElement("dialog"); page.doc.body.append(dlg); return dlg; });
+  const [a, b] = [1, 2].map(() => { const dlg = page.doc.createElement("dialog"); page.doc.body.append(dlg); return dlg; });
   a.showModal();
   b.showModal();
   ui.toast("x");
@@ -322,14 +322,9 @@ test("a dialog opened again goes to the top; one that is open already keeps its 
   b.showModal();
   ui.toast("w");
   assert.ok(host() === b, "closed and opened again: on top");
-  // Open by its attribute, as the page never does: the last of the document stands in when none opened by showModal is open
   closed(a);
   closed(b);
-  c.open = true;
-  ui.toast("v");
-  assert.ok(host() === c);
-  closed(c);
-  for (const dlg of [a, b, c]) dlg.remove();
+  for (const dlg of [a, b]) dlg.remove();
   page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
 });
 
@@ -443,28 +438,6 @@ test("the progress of the fetch of an Add rides among the catalogs and is no row
   assert.equal(store.measuring(), false);
 });
 
-test("what the content says to retry, and the dot of the menu, never take the progress of a fetch for a catalog", () => {
-  const failed = (catalogs) => lab({ content: content("failed"), catalogs });
-  const retry = (state) => ui.contentStatus(state).match(/data-catalog="([^"]*)"/)?.[1];
-  const added = [FIRST({ commit: "" }), catalog({ commit: "9f1c2ab" })];
-  assert.equal(retry(failed(added)), "gravitee");
-  assert.equal(ui.contentStatus(failed([...added, CHECKING])), ui.contentStatus(failed(added)), "the same block with it as without");
-  assert.equal(ui.contentStatus(failed([CHECKING, ...added])), ui.contentStatus(failed(added)), "wherever it stands");
-  assert.equal(retry(failed([CHECKING])), "", "alone, it is no catalog to try again");
-  assert.equal(ui.contentLead(failed([CHECKING, ...added])).extra, ui.contentLead(failed(added)).extra);
-  const entry = page.doc.createElement("a");
-  entry.setAttribute("class", "nav-item");
-  entry.setAttribute("data-nav", "catalogs");
-  entry.setAttribute("aria-label", "Catalogs");
-  entry.innerHTML = '<span>Catalogs</span><i class="nav-dot" hidden></i>';
-  page.doc.body.append(entry);
-  ui.paintMenuDot(lab({ catalogs: [FIRST(), { ...CHECKING, attention: "update" }] }));
-  assert.equal(entry.querySelector(".nav-dot").hidden, true, "no row asks for attention");
-  ui.paintMenuDot(lab({ catalogs: [FIRST(), { ...CHECKING, attention: "update" }, catalog({ attention: "repair" })] }));
-  assert.equal(entry.getAttribute("aria-label"), "Catalogs, needs repair", "the first row that does, not the entry that is none");
-  entry.remove();
-});
-
 // --- Add catalog leads to the Catalogs page ------------------------------------------------------------------------------------------------
 
 test("the action of an environment that no add-on can serve leads to the Catalogs page and asks nothing of the platform", () => {
@@ -529,11 +502,8 @@ test("with API Management in the Cloud, Start all waits while no add-on can run 
   assert.deepEqual(head(cloud({}, { cloud: "hyssop" }, stuck)), { shown: true, off: true, why: "Set up a gateway in Development first" });
   // ... and the catalogs' reason comes first, since it is the cause
   assert.equal(head(cloud({}, none, stuck)).why, "Needs a gateway add-on");
-  // This machine's Start all is never held by it, and a state that does not say what runs a gateway holds nothing
+  // This machine's Start all is never held by it
   assert.deepEqual(head(cloud({}, none, { ...CLOUD, place: "machine" })), { shown: true, off: false, why: "" });
-  const old = cloud();
-  delete old.platform.gateways;
-  assert.deepEqual(head(old), { shown: true, off: false, why: "" });
   // Held, then free once an add-on can: the same button
   store.state = lab();
 });

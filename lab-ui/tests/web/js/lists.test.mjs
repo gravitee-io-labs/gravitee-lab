@@ -5,17 +5,13 @@
 // DOM does not take), and a deliberate change of what a lab without a platform sees is written the same way. The state carries what
 // a registered platform adds (what a playground deploys to and what it cannot, the place chosen) with no platform registered: none
 // of it may show. The Start of a row follows the place chosen on any page, as the page of the playground does (web/js/platform/places.js).
-//
-// The catalogs add two more snapshots, written the same way: lists.empty.txt is what the lists draw while the catalogs download, fail, are missing
-// or hold nothing, with no item to list and with only this machine's (WRITE_EMPTY=1), and lists.catalogs.txt what they draw with another catalog added:
-// the Catalog fact of its About, the picker of the catalogs in place of the two choices, its Blocked and Needs a catalog notes (WRITE_CATALOGS=1). With the first
-// catalog alone, the pages are lists.main.txt: no chip, no picker, no scope control while all of the items are one catalog's.
+// With the first catalog alone, the pages are lists.main.txt: no chip, no picker, no scope control while all of the items are one catalog's.
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
-import { BLOCKED, FIRST, HOSTILE, NEEDS, PERSONAL, catalog, content, gains, origin } from "./fixtures.mjs";
+import { BLOCKED, FIRST, HOSTILE, NEEDS, PERSONAL, catalog, content, origin } from "./fixtures.mjs";
 
 // The clock is the mock's too: what a button says of how its action went lasts a time that only the ticks of the tests make pass, never the
 // load of the machine (a snapshot drawn a second late would otherwise be another one)
@@ -23,7 +19,7 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: Date.now(
 // A timer set with no delay (the menu's, in ui.js) is NaN for the mock, which then loses the timers that follow it
 const setTimer = globalThis.setTimeout;
 globalThis.setTimeout = (fn, ms, ...rest) => setTimer(fn, ms ?? 0, ...rest);
-const MAIN = new URL("./lists.main.txt", import.meta.url), EMPTY = new URL("./lists.empty.txt", import.meta.url), CATALOGS = new URL("./lists.catalogs.txt", import.meta.url);
+const MAIN = new URL("./lists.main.txt", import.meta.url);
 const ENVIRONMENTS = [{ id: "development", name: "Development" }, { id: "test", name: "Test" }];
 const CANNOT = { "acme-bakery": "Needs Access Management" };   // what a place says Acme Bakery cannot go there for
 // What the server answers, and every call the page made
@@ -177,8 +173,8 @@ function everything() {
 
 // What was written: the name of each part, then what it drew
 const written = (dom) => Object.entries(dom).map(([name, body]) => `=== ${name} ===\n${body}\n`).join("");
-function read(file = MAIN) {
-  const parts = readFileSync(file, "utf8").split(/^=== (.*) ===\n/m), main = {};
+function read() {
+  const parts = readFileSync(MAIN, "utf8").split(/^=== (.*) ===\n/m), main = {};
   for (let i = 1; i < parts.length; i += 2) main[parts[i]] = parts[i + 1].replace(/\n$/, "");
   return main;
 }
@@ -461,52 +457,10 @@ test("a Start on images it was not tested with is the Start that switches them, 
   page.stored.deploy = "acme/development";
 });
 
-test("a Start says where its item comes from when the server says it, on This machine and on a place alike: one row among those that say what stays", async () => {
-  const from = { from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" } };
-  const starts = [{ kind: "addon", id: "kazoo", name: "Kazoo" }];
-  const notes = () => picks.querySelectorAll(".choice-row").map((row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text),
-    row.querySelectorAll(".muted").map(text)]);
-  // On a place, the dialog is the one the checks of that place read
-  server.dialog = { starts, stops: [], turns_off: [], keeps: [], restarts: [], ...from };
-  await start("acme-hostels", S1.calm, [place()]);
-  assert.deepEqual(effects().steps, [["Starts", ["Kazoo Add-on"]], ["Deploys to", ["Development (My Account) Environment"]]]);
-  assert.deepEqual(notes(), [["From", ["Acme Hub"], ["Version 1.4.0"]]]);
-  await answer(false);
-  // On This machine, the one the state gives the row
-  page.stored.deploy = "machine";
-  draw(lab({ hotels: { action: { ...ACTION("start"), dialog: { starts, stops: [], turns_off: [], keeps: [], restarts: [], ...from } } } }), [ACCOUNT], [place()]);
-  startOfRow("acme-hostels").click();
-  await settle();
-  assert.deepEqual(notes(), [["From", ["Acme Hub"], ["Version 1.4.0"]]]);
-  await answer(false);
-  // Said by no one, it is not drawn
-  server.dialog = null;
-  draw(lab({ hotels: { action: { ...ACTION("start"), dialog: { starts, stops: [], turns_off: [], keeps: [], restarts: [] } } } }), [ACCOUNT], [place()]);
-  startOfRow("acme-hostels").click();
-  await settle();
-  assert.deepEqual(notes(), []);
-  await answer(false);
-  page.stored.deploy = "acme/development";
-});
-
 test("a playground that cannot go to the place chosen starts on This machine, as its page does", async () => {
   await start("acme-bakery", lab({ hotels: {} }), [place()]);
   assert.deepEqual(posts(), [["/api/playgrounds/acme-bakery/start", { accept: [] }]]);
   assert.ok(!server.calls.some((call) => call.path.includes("/check")));
-});
-
-test("the Start of a row names This machine in its dialog once a platform is registered, when it asks, and not before", async () => {
-  const dialog = { starts: [{ kind: "addon", id: "kazoo", name: "Kazoo" }], stops: [], turns_off: [], keeps: [], restarts: [] };
-  const asking = lab({ hotels: { action: { ...ACTION("start"), dialog } } });
-  page.stored.deploy = "machine";
-  for (const [platforms, steps] of [[[ACCOUNT], [["Starts", ["Kazoo Add-on"]], ["Deploys to", ["This machine Platform"]]]], [[], [["Starts", ["Kazoo Add-on"]]]]]) {
-    draw(asking, platforms, [place()]);
-    startOfRow("acme-hostels").click();
-    await settle();
-    assert.deepEqual(effects().steps, steps, `${platforms.length} platform`);
-    await answer(false);
-  }
-  page.stored.deploy = "acme/development";
 });
 
 test("the Start of a row waits for the places while a place is kept and they are not read: it never starts the wrong one", () => {
@@ -565,8 +519,8 @@ const everyone = () => world({
 
 // The control that tells the catalogs apart, as a list draws it: none, or the picker
 const scope = (name) => {
-  const choices = sections[name].querySelectorAll("[data-scope]"), picker = sections[name].querySelector("[data-catalogs]");
-  return { choices: choices.map((b) => [text(b), b.getAttribute("aria-checked")]), picker: picker ? text(picker) : null };
+  const picker = sections[name].querySelector("[data-catalogs]");
+  return picker ? text(picker) : null;
 };
 const names = (name) => sections[name].querySelectorAll(".list-item .list-name").map(text);
 const marks = (name, id) => row(name, id).querySelectorAll(".list-marks .pill").map(text);
@@ -589,7 +543,7 @@ const menuOf = (name, id) => {
 test("with the first catalog alone there is no chip, no picker and no scope control: nothing to tell apart", () => {
   alone();
   for (const name of ["playgrounds", "setups", "addons"]) {
-    assert.deepEqual(scope(name), { choices: [], picker: null }, name);
+    assert.equal(scope(name), null, name);
     assert.equal(sections[name].querySelectorAll('[role="radiogroup"]').length, 0, name);
   }
   assert.deepEqual(marks("playgrounds", "acme-hostels"), []);
@@ -598,8 +552,8 @@ test("with the first catalog alone there is no chip, no picker and no scope cont
 
 test("with the first catalog's items and this machine's, the same picker tells them apart, and no Shared: nothing is shared with the project", async () => {
   draw(lab({ playgrounds: [...base.playgrounds, ofMine("playground", "scratch", "Scratch")], catalogs: [FIRST(), PERSONAL()], content: content("ready") }));
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: "Catalog: All catalogs" });
-  assert.deepEqual(scope("setups"), { choices: [], picker: null }, "a list with one source has no control");
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
+  assert.equal(scope("setups"), null, "a list with one source has no control");
   assert.deepEqual(marks("playgrounds", "local/scratch"), ["Personal"]);
   assert.deepEqual(marks("playgrounds", "acme-hostels"), []);
   assert.deepEqual(await opened("playgrounds"), [["All catalogs", "3", true], ["Gravitee public", "2", false], ["Personal", "1", false]]);
@@ -613,19 +567,22 @@ test("with the first catalog's items and this machine's, the same picker tells t
 
 test("with another catalog added the picker is drawn from the items, not from the markup of the page", () => {
   draw(everyone());
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: "Catalog: All catalogs" });
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
   const button = sections.playgrounds.querySelector("[data-catalogs]");
   assert.deepEqual([button.getAttribute("class"), button.getAttribute("aria-haspopup")], ["combo-btn", "dialog"]);
   assert.equal(text(button.querySelector(".sr-only")), "Catalog:");
   assert.ok(button.parent.lastElementChild === button, "among the filters of the list, after them");
+  assert.ok(sections.playgrounds.querySelector(".list-card").classList.contains("by-catalog"), "its rows name their catalog where the card has the room");
+  assert.deepEqual(sections.playgrounds.querySelectorAll(".list-item .col-from").map(text), ["Gravitee public", "Gravitee public", "Acme Hub", "Personal"]);
   assert.equal(sections.playgrounds.querySelectorAll('[role="radiogroup"]').length, 0);
   // A list whose items are one catalog's has none, whatever else is added
   draw(world());
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: null }, "one source holds the items of this list");
+  assert.equal(scope("playgrounds"), null, "one source holds the items of this list");
   draw(everyone());
-  assert.equal(scope("playgrounds").picker, "Catalog: All catalogs");
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
   alone();
   assert.equal(sections.playgrounds.querySelectorAll("[data-catalogs]").length, 0, "taken off once the catalogs are one");
+  assert.ok(!sections.playgrounds.querySelector(".list-card").classList.contains("by-catalog"));
 });
 
 // The picker, open: its options as [name, count, ticked]
@@ -672,23 +629,6 @@ test("what was chosen is not kept: drawn again once the catalogs were one, the p
   draw(everyone());
   assert.equal(names("playgrounds").length, 4, "all of them again");
   assert.equal(value("playgrounds"), "All catalogs");
-  alone();
-});
-
-test("the progress of the fetch of an Add, carried among the catalogs, is no source of a list: no picker for it, and every list is as it is without it", () => {
-  const check = { id: "check", kind: "progress", progress: 0.4 };
-  const lists = () => ["playgrounds", "setups", "addons"].map((name) => drawn(sections[name]));
-  draw(lab({ catalogs: [FIRST()], content: content("ready") }));
-  const bare = lists();
-  draw(lab({ catalogs: [FIRST(), check], content: content("ready") }));
-  assert.deepEqual(lists(), bare, "the first catalog alone, and the fetch of another");
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: null });
-  draw(everyone());
-  const world = lists();
-  draw({ ...everyone(), catalogs: [...everyone().catalogs, check] });
-  assert.deepEqual(lists(), world, "with another catalog, the picker and its rows are the same");
-  draw({ ...everyone(), catalogs: [check, ...everyone().catalogs] });
-  assert.deepEqual(lists(), world, "wherever it stands");
   alone();
 });
 
@@ -1045,57 +985,6 @@ test("a catalog's name, an author's words and a failure line are text, never mar
   assert.equal(sections.playgrounds.querySelectorAll("img").length, 0);
   alone();
 });
-
-// --- The snapshots ----------------------------------------------------------------------------------------------------------------------------
-
-function empties() {
-  const dom = {}, all = ["playgrounds", "setups", "addons"];
-  const mine = (key, more) => lab({ playgrounds: [ofMine("playground", "scratch", "Scratch")], setups: [], addons: [], catalogs: [PERSONAL(), catalog({ id: "gravitee", commit: "" })], content: content(key, more) });
-  draw(noItem("downloading", { progress: 0.42 }, [FIRST({ commit: "", progress: 0.42 })]));
-  for (const name of all) dom[`${name}: downloading`] = drawn(sections[name]);
-  draw(noItem("failed", {}, [catalog({ id: "gravitee", commit: "" })]));
-  dom["playgrounds: failed"] = drawn(sections.playgrounds);
-  draw(noItem("none"));
-  dom["playgrounds: no catalog"] = drawn(sections.playgrounds);
-  draw(noItem("none", { offer: null }));
-  dom["playgrounds: no catalog, none to offer"] = drawn(sections.playgrounds);
-  draw(noItem("ready", {}, [FIRST()]));
-  for (const name of all) dom[`${name}: nothing of its kind`] = drawn(sections[name]);
-  draw(mine("downloading", { progress: 0.42 }));
-  dom["playgrounds: downloading, an item of this machine"] = drawn(sections.playgrounds);
-  draw(mine("failed"));
-  dom["playgrounds: failed, an item of this machine"] = drawn(sections.playgrounds);
-  alone();
-  return dom;
-}
-
-function withCatalogs() {
-  const dom = {}, state = everyone();
-  draw(state);
-  opening("addons", "@acme-hub/kea");
-  opening("playgrounds", "@acme-hub/ledger-demo");
-  draw(state);
-  for (const name of ["playgrounds", "setups", "addons"]) dom[`${name}: two catalogs and this machine`] = drawn(sections[name]);
-  selectCatalog("playground", "acme-hub");
-  draw(state);
-  dom["playgrounds: filtered to the other catalog"] = drawn(sections.playgrounds);
-  draw(lab({ playgrounds: [...base.playgrounds, ofMine("playground", "scratch", "Scratch")], catalogs: [FIRST(), PERSONAL()], content: content("ready") }));
-  dom["playgrounds: the first catalog and this machine"] = drawn(sections.playgrounds);
-  alone();
-  return dom;
-}
-
-const snapshot = (name, file, variable, dom) => test(`${name}: what the lists draw is written in ${file.pathname.split("/").pop()}, and a deliberate change is written again with ${variable}=1`, () => {
-  mock.timers.tick(10000);   // the lists at rest: no button still says how its action went, which the tests above leave in flight
-  if (process.env[variable]) writeFileSync(file, written(dom()));
-  const now = dom(), then = read(file);
-  assert.deepEqual(Object.keys(now), Object.keys(then));
-  for (const key of Object.keys(then)) {
-    assert.equal(now[key], then[key], key);
-  }
-});
-snapshot("with the content of the catalogs on its way, missing or empty", EMPTY, "WRITE_EMPTY", empties);
-snapshot("with another catalog added", CATALOGS, "WRITE_CATALOGS", withCatalogs);
 
 // Last: the button of a failed action says so for a moment, which the tests above do not wait for
 test("what the checks of the place cannot read is said in a toast, and nothing starts", async () => {

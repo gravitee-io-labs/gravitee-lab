@@ -194,7 +194,6 @@ export function followLab() {
 // the menu is collapsed
 export function paintLab() {
   const lab = store.state?.lab, button = $("#lab"), dot = $("#lab-dot");
-  if (!button) return;
   const waiting = !!lab?.update && !store.offline;
   const version = lab?.version || (lab?.commit ? "dev" : "");
   button.hidden = !lab;
@@ -204,10 +203,8 @@ export function paintLab() {
     : lab?.commit ? `Development version ${lab.commit}` : "Gravitee Lab";
   button.dataset.tip = tip;
   button.setAttribute("aria-label", tip);
-  if (dot) {
-    dot.hidden = !waiting;
-    dot.dataset.tip = tip;
-    dot.setAttribute("aria-label", tip);
-  }
+  dot.hidden = !waiting;
+  dot.dataset.tip = tip;
+  dot.setAttribute("aria-label", tip);
   if (dialog.open) draw();
 }

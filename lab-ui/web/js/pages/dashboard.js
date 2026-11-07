@@ -38,8 +38,6 @@ const MARGIN = [5, 4];   // the room above and below the line, in the same units
 const WAIT = 3000;    // milliseconds before the versions a registry is still listing are asked for again
 const SOON = 1000;    // and before what Docker holds, which the server was still reading, is
 const RETRY = 10000;  // and before a read that failed is tried again
-const REOPEN = 3000;  // and before a stream that the browser gave up on is opened again, twice as long each time up to REOPEN_MAX
-const REOPEN_MAX = 60000;
 const FRESH = 30000;  // milliseconds a check of the Cloud is still new, for a tab that is seen again
 const POLL = 5000;    // milliseconds before a gateway that runs here and has not connected yet is read again, twice as long each time
 const POLLS = 5;      // and how many times: it is left as it is after about two and a half minutes
@@ -68,8 +66,6 @@ let failed = "";       // why it could not be read, in the server's words
 let shown = false;     // the page is the one on screen
 let source = null;     // the stream of the containers' load
 let again = null;      // the timer of the next look at versions the server is still reading, or at a read that failed
-let reopen = null;     // the timer of the next try at a stream that was closed
-let tries = 0;         // the tries so far since a sample came: each waits twice as long
 let lookout = null;    // the timer that notices a stream gone quiet
 let live = [];         // the last minute of it: [seconds when it came, cpu_percent, memory_used]
 let heavy = null;      // what the last sample said of each container, {top: [{name, cpu, memory}], memory}: the popovers of the load
@@ -684,7 +680,7 @@ function tick() {
   frame = requestAnimationFrame(tick);
 }
 
-const animating = () => shown && unfolded && !document.hidden && !!source && source.readyState !== CLOSED && !still() && !!globalThis.requestAnimationFrame;
+const animating = () => shown && unfolded && !document.hidden && !!source && !still() && !!globalThis.requestAnimationFrame;
 
 function animate() {
   if (!frame && animating()) frame = requestAnimationFrame(tick);
@@ -826,7 +822,6 @@ function connect() {
   source = own;
   own.onmessage = (event) => {
     const sample = JSON.parse(event.data), at = stamp();
-    tries = 0;
     live = [...recent(at), [at, sample.cpu_percent, sample.memory_used]];
     heavy = { top: sample.top || [], memory: sample.memory_used };
     if (!data) return;
@@ -834,15 +829,8 @@ function connect() {
     if (still()) paintCharts(at);
     else animate();
   };
-  // A cut is tried again by the browser, unless Docker does not answer; one it gave up on (the server answered with an
-  // error, which closes it for good) is opened again here after a while
-  own.onerror = () => {
-    if (down()) return disconnect();
-    if (own.readyState !== CLOSED) return;
-    disconnect();
-    clearTimeout(reopen);
-    reopen = setTimeout(connect, Math.min(REOPEN_MAX, REOPEN * 2 ** tries++));
-  };
+  // A cut is tried again by the browser, unless Docker does not answer; one it gave up on is opened by the next read
+  own.onerror = () => { if (down() || own.readyState === CLOSED) disconnect(); };
   lookout ||= setInterval(paintValues, 2000);
   animate();
 }
@@ -898,9 +886,8 @@ function stop() {
   frame = 0;
   clearTimeout(again);
   clearTimeout(watch);
-  clearTimeout(reopen);
   clearInterval(lookout);
-  again = watch = reopen = lookout = null;
+  again = watch = lookout = null;
 }
 
 // --- Clicks -----------------------------------------------------------------------------

@@ -26,8 +26,8 @@ export const movable = () => coreOf().group || null;
 const value = () => (onCloud() ? "cloud" : "machine");
 
 // Why the Cloud cannot be chosen, or its Start all, its Create gateway, used now: that no add-on runs a gateway of that kind of platform
-// ("Needs a gateway add-on"), or, while the catalogs are downloading, failed or none, the reason the lists give. "" when it can, and for a
-// state that does not say (environments.js).
+// ("Needs a gateway add-on"), or, while the catalogs are downloading, failed or none, the reason the lists give; "" when it can
+// (environments.js).
 export const gatewayWhy = (kind = "cloud") => gatewayGap(kind)?.why ?? "";
 
 // The two choices: their names, the icon of each, the words of its card in the welcome dialog, what it changes in its tooltip, said of

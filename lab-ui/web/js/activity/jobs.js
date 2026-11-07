@@ -303,8 +303,7 @@ export function showOutput(jobId) {
 
 // What a job does, said to a screen reader as it starts and ends (a polite live region): the page says it on the button that started it
 function say(words) {
-  const said = $("#job-said");
-  if (said) said.textContent = words;
+  $("#job-said").textContent = words;
 }
 
 // The drawer opens on its close button when a person opens it (the keyboard is in it, as in a dialog), and gives the keyboard back to
@@ -323,15 +322,6 @@ function closeDrawer() {
   opener = null;
 }
 
-function showIdle() {
-  $("#job-title").textContent = "Activity";
-  $("#job-state").className = "job-state idle";
-  $("#job-time").textContent = "";
-  JobView.reset();
-  $("#job-output").textContent = "No activity";
-  openDrawer();
-}
-
 export function initJobs() {
   // The drawer's Cancel is the button of an action: it says "Canceling" until the job answers
   $("#job-cancel").outerHTML = actionButton({ key: "job", verb: "cancel", label: "Cancel",
@@ -340,7 +330,6 @@ export function initJobs() {
     const drawer = $("#drawer"), job = store.state?.job;
     if (!drawer.hidden) closeDrawer();
     else if (job) showOutput(job.id);
-    else showIdle();
   });
   $("#drawer-close").addEventListener("click", closeDrawer);
   // Escape closes it too, once nothing above it takes the key: an open dialog, menu or picker closes first. Asked

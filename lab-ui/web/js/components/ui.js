@@ -10,14 +10,13 @@ import { Popup } from "./popup.js";
 
 // The dialogs in the order they were opened in. The top layer stacks a modal dialog over every one opened before it, wherever it is in the
 // document (a confirmation of index.html opened over a dialog made later sits above it), and the document does not say which is on top. Every
-// modal dialog of the page goes through showModal, so its prototype keeps the order. Where there is no such prototype (a page without
-// dialogs), the last open dialog of the document stands in.
+// modal dialog of the page goes through showModal, so its prototype keeps the order.
 const stacked = [];
 
-// The dialog on top of the page: the last one opened that is still open, else the last open one of the document, else none
+// The dialog on top of the page: the last one opened that is still open, else none
 function topDialog() {
   for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at].open && stacked[at].isConnected) return stacked[at];
-  return $$("dialog[open]").pop() || null;
+  return null;
 }
 
 // An open dialog sits in the browser's top layer, and makes everything outside it inert: the toasts live in the one on top while it is open,
@@ -48,25 +47,22 @@ function cross(dialog) {
   dialog.append(button);   // last in the document, at the corner by its style: a dialog still opens on its own first control
 }
 
-const proto = globalThis.HTMLDialogElement?.prototype;
-if (proto && typeof proto.showModal === "function") {
-  const showModal = proto.showModal, close = proto.close;
-  proto.showModal = function (...args) {
-    const was = this.open;
-    if (!was) cross(this);
-    showModal.apply(this, args);
-    if (was) return;   // one that is open already keeps its place in the top layer (the call throws, or does nothing)
-    for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at] === this || !stacked[at].open || !stacked[at].isConnected) stacked.splice(at, 1);
-    stacked.push(this);
-  };
-  // The toasts and the bubble leave a dialog as it closes, not a task later when the browser says so: a toast made just before the close
-  // (`toast("Updated")`, then `dialog.close()`) is not left in a dialog that no longer shows
-  proto.close = function (...args) {
-    close.apply(this, args);
-    hostToasts();
-    releaseFloat();
-  };
-}
+const proto = HTMLDialogElement.prototype, { showModal, close } = proto;
+proto.showModal = function (...args) {
+  const was = this.open;
+  if (!was) cross(this);
+  showModal.apply(this, args);
+  if (was) return;   // one that is open already keeps its place in the top layer (the call throws, or does nothing)
+  for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at] === this || !stacked[at].open || !stacked[at].isConnected) stacked.splice(at, 1);
+  stacked.push(this);
+};
+// The toasts and the bubble leave a dialog as it closes, not a task later when the browser says so: a toast made just before the close
+// (`toast("Updated")`, then `dialog.close()`) is not left in a dialog that no longer shows
+proto.close = function (...args) {
+  close.apply(this, args);
+  hostToasts();
+  releaseFloat();
+};
 
 // A confirmation goes by itself; an error is an alert, stays while the pointer or the keyboard is on it, and has its close button
 export function toast(message, error = false) {
@@ -154,8 +150,8 @@ const effectRows = (rows = []) => {
 // with the reason of the option, for one that cannot be taken, and with the first one's reason when none can. `action` and `danger` are asked
 // with undefined while none is chosen.
 export function effectsDialog({ title, steps = [], options, action, danger = () => false, unchosen, other = null }) {
-  const dlg = $("#choice"), ok = $("#choice-ok"), list = $("#choice-list"), second = $("#choice-alt");
-  if (second) Object.assign(second, { hidden: !other, textContent: other?.label || "" });
+  const dlg = $("#choice"), ok = $("#choice-ok"), list = $("#choice-list");
+  Object.assign($("#choice-alt"), { hidden: !other, textContent: other?.label || "" });
   const single = options.length === 1, waits = unchosen !== undefined, blank = waits && !single;
   $("#choice-title").textContent = title;
   list.classList.toggle("single", single);
@@ -606,8 +602,7 @@ const several = (causes) => new Set(causes.flatMap((cause) => cause.services || 
 // What Apply does to them: it restarts them as saved, and goes back to a version saved that is older than the one that runs
 const applies = (them, causes) => `Apply restarts ${them} with what is saved${causes.some((cause) => cause.older) ? ", older versions included" : ""}.`;
 
-// The card of what differs from what is saved: for a row, its causes; for the platform, a row for each product, add-on or playground
-// (the state's `platform.behind`), under how many containers it is in all, and what Apply does
+// The card of what differs from what is saved, for a row: its causes
 const rowCard = (causes) => ({ title: "Differs from what is saved", rows: [{ lines: causes.map(causeLine) }],
   foot: applies(several(causes) ? "them" : "it", causes) });
 
@@ -637,7 +632,9 @@ const needCard = (x) => (x.note_causes[0]?.kind === "switch"
 // ... for whoever says that note elsewhere (the gateway of an environment that the add-on runs): null for a note without causes of that
 // kind (what runs behind what is saved has its own card)
 export const noteCard = (x) => (x.note_causes?.length && feetOf(x.note_causes[0]?.kind) ? needCard(x) : null);
-function behindCard(behind) {
+// ... for the platform: a row for each product, add-on or playground (the state's `platform.behind`), under how many containers it is in all,
+// and what Apply does: the popover of the notice
+export function behindWhy({ behind }) {
   const total = behind.reduce((sum, row) => sum + (row.count || 1), 0);
   return { title: count(total), rows: behind.map((row) => ({ subject: row.name, lines: row.causes.map(causeLine) })),
     foot: applies(total === 1 ? "it" : "them", behind.flatMap((row) => row.causes)) };
@@ -654,9 +651,6 @@ export function applyBadge(reason, causes = null, more = []) {
   const said = reasons.map((one, i, all) => (i < all.length - 1 ? one.replace(/\.$/, "") : one)).join(". ");
   return tipHtml(`Apply needed${icon("info")}`, card || (reasons.length ? reasons : "Differs from what is saved"), "pill warn", "Apply needed", { said, title: false });
 }
-
-// What the platform says runs behind what is saved, as the popover of the notice
-export const behindWhy = (platform) => behindCard(platform.behind);
 
 // Where a bubble goes: under its button, its left edge at the button's, kept 12 px inside the window; above it when there is more room
 // there. A popover taller than the room it has scrolls inside (components.css). Its arrow points at the button's middle.
@@ -973,7 +967,7 @@ export function contentStatus(state, { kind = "", items = 0 } = {}) {
     return block("failed", `${content.line ? `<span>${esc(content.line)}</span>` : ""}${contentButton("retry", retryOf(state), "Try again")}`);
   }
   if (content.key === "none") return block("none", `<span>${NO_CATALOG}</span>${offerOf(content, onPage)}`);
-  if (content.key === "ready" && !items && !onPage) return block("ready", Object.hasOwn(NOTHING, kind) ? NOTHING[kind] : NOTHING[""]);
+  if (content.key === "ready" && !items && !onPage) return block("ready", NOTHING[kind]);
   return "";
 }
 
@@ -993,8 +987,7 @@ export function contentLead(state) {
 // as the page wrote it. Called once the state is drawn (main.js).
 const ATTENTION = [["update", "update available"], ["repair", "needs repair"], ["lab", "update the Lab"], ["download", "not downloaded"]];
 export function paintMenuDot(state = store.state) {
-  const entry = $('.nav-item[data-nav="catalogs"]'), dot = entry && $(".nav-dot", entry);
-  if (!dot) return;
+  const entry = $('.nav-item[data-nav="catalogs"]'), dot = $(".nav-dot", entry);
   entry._plain ??= { name: entry.getAttribute("aria-label"), tip: entry.dataset.tip };
   const rows = catalogRows(state);
   const found = ATTENTION.find(([key]) => rows.some((row) => row.attention === key));
@@ -1086,13 +1079,13 @@ const ING = { start: "Starting", stop: "Stopping", restart: "Restarting", update
   apply: "Applying", remove: "Removing", reset: "Resetting", down: "Removing",
   reseed: "Seeding", deploy: "Deploying", login: "Logging in", create: "Creating", save: "Saving", share: "Sharing",
   delete: "Deleting", replace: "Replacing", refresh: "Refreshing", cancel: "Canceling", add: "Adding", connect: "Connecting",
-  setup: "Setting up", repair: "Repairing", export: "Exporting", import: "Importing", move: "Moving", copy: "Copying", check: "Checking" };
+  setup: "Setting up", export: "Exporting", import: "Importing", move: "Moving", copy: "Copying", check: "Checking" };
 const ing = (verb) => ING[verb] || "Working";
 // What a verb says once its action is over, with its check or its error mark: the word of the button that started it
 const WORD = { start: "Start", stop: "Stop", restart: "Restart", update: "Update", pull: "Pull", apply: "Apply",
   remove: "Remove", reset: "Reset", down: "Remove", reseed: "Re-seed", deploy: "Deploy", login: "Log in",
   create: "Create", save: "Save", share: "Share", delete: "Delete", replace: "Replace", refresh: "Refresh", cancel: "Cancel",
-  add: "Add", connect: "Connect", setup: "Set up", repair: "Repair", export: "Export", import: "Import", move: "Move", copy: "Copy", check: "Check" };
+  add: "Add", connect: "Connect", setup: "Set up", export: "Export", import: "Import", move: "Move", copy: "Copy", check: "Check" };
 // What Turn on and Turn off change, as the tooltip of their button wherever it is (a row, a playground's head): what is on, which
 // starts with the platform, and nothing that runs now
 export const TURNS = { "Turn on": "Start it with the platform from now on", "Turn off": "No longer start it with the platform" };

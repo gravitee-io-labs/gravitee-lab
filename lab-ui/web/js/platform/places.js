@@ -18,9 +18,6 @@ export const THIS_MACHINE = { kind: "platform", id: MACHINE, name: "This machine
 // Once a platform is registered every playground says where it deploys; before, nothing of this is drawn
 export const registered = () => store.platforms.length > 0;
 
-// A place as its platform and its environment read together: "Development (My Account)"
-const placeLabel = (environment, platform) => `${environment} (${platform})`;
-
 // Why a playground does not go to a place, as the place says it; "" when it goes
 // A playground is named by its id in `cannot`, an add-on or a setup by its kind and its id
 export const whyNot = (item, place) => place.cannot?.[item.kind === "playground" ? item.id : `${item.kind}:${item.id}`] || "";
@@ -97,7 +94,7 @@ export function recordName({ place, environment }) {
   const found = store.places.find((p) => p.id === place);
   if (found) return found.name;
   const id = place.split("/")[0];
-  return placeLabel(environment, store.platforms.find((p) => p.id === id)?.name ?? id);
+  return `${environment} (${store.platforms.find((p) => p.id === id)?.name ?? id})`;
 }
 
 // --- Start on a place -----------------------------------------------------------------------

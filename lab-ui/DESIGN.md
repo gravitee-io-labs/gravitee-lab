@@ -1250,7 +1250,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - **A place** is where a seed creates its APIs: *This machine*, or one environment of a registered platform. The
   containers always run here. A place is labelled *<environment> (<platform>)*, as in *Development (My Account)*, in the
   picker, the dialogs, the tooltips, the records and the Reset text: never a middle dot or any bullet between the two
-  (`places.label`, `placeLabel`). The words are Deploy to (the picker), Deploys to (the last step of a dialog) and
+  (`places.label`). The words are Deploy to (the picker), Deploys to (the last step of a dialog) and
   Deployed to (the panel). The UI never says place, target, mode or active platform; code and routes say `place`.
 - **A place's id** is `machine`, or `<platform id>/<environment id>`. A platform that cannot be used is one place with
   its own id. Records, jobs and the localStorage key take these ids.

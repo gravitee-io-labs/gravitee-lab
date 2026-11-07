@@ -10,21 +10,16 @@ export const hybrid = (gateway) => gateway.type === "HYBRID";
 
 // The add-on that runs the hybrid gateways of a platform here. The server chooses it (`state.platform.gateways`, an add-on id by kind of
 // platform, null when none can: one that is blocked, needs a catalog or is not compatible is not a candidate), so that the page never
-// scans. A state that does not say, as before the catalogs, has it looked for: the add-on that declares a gateway for its kind.
-export function addonOf(platform) {
-  const chosen = store.state?.platform?.gateways;
-  if (chosen && typeof chosen === "object") return store.item("addon", chosen[platform.kind]);
-  return store.state?.addons?.find((addon) => addon.gateway?.platform === platform.kind);
-}
+// scans.
+export const addonOf = (platform) => store.item("addon", store.state?.platform.gateways?.[platform.kind]);
 
-// Why no add-on can be named for a kind of platform, when the server says that none runs it: null while one does, and for a state that does
-// not say. {ready, why, extra}: with the content of the catalogs there, `why` is "Needs a gateway add-on"; with it on its way or missing it
-// is the reason the lists give (downloading, the failure line, no catalog) and `extra` the button that mends it, which is never put as a
-// lack of add-on for a catalog that simply is not there.
+// Why no add-on can be named for a kind of platform, when the server says that none runs it: null while one does. {ready, why, extra}: with
+// the content of the catalogs there, `why` is "Needs a gateway add-on"; with it on its way or missing it is the reason the lists give
+// (downloading, the failure line, no catalog) and `extra` the button that mends it, which is never put as a lack of add-on for a catalog that
+// simply is not there.
 const NEEDS_ADDON = "Needs a gateway add-on";
 export function gatewayGap(kind) {
-  const chosen = store.state?.platform?.gateways;
-  if (!chosen || typeof chosen !== "object" || chosen[kind]) return null;
+  if (store.state?.platform.gateways?.[kind]) return null;
   const { ready, why, extra } = contentLead(store.state);
   return ready ? { ready, why: NEEDS_ADDON, extra: "" } : { ready, why: why || NEEDS_ADDON, extra };
 }
@@ -38,9 +33,9 @@ export const runs = (addon) => ["running", "partly", "starting", "stopping"].inc
 export const stopOf = (addon) => (addon?.action?.do === "stop" ? addon.action : addon?.secondary?.do === "stop" ? addon.secondary : null);
 
 // The hybrid gateways of an environment, in the order the Lab prefers them: the one that runs here, the ones whose token the Lab
-// keeps, those Cloud says are connected, then the rest. Only the first three are of use here: another one is none of the Lab's.
+// keeps, then the rest
 function gatewaysIn(check, env) {
-  const rank = (gateway) => (gateway.here ? 0 : gateway.kept ? 1 : gateway.connection === "CONNECTED" ? 2 : 3);
+  const rank = (gateway) => (gateway.here ? 0 : gateway.kept ? 1 : 2);
   return (check?.gateways || []).filter((gateway) => hybrid(gateway) && gateway.environmentId === env.id)
     .sort((a, b) => rank(a) - rank(b));
 }
@@ -102,7 +97,7 @@ function gatewayState(gateway, addon, late) {
     }
     if (CONTAINER[key]) {
       const [dot, word] = CONTAINER[key];
-      return { key: key === "off" ? "stopped" : key, dot, word, tip: lines(gateway) };
+      return { key, dot, word, tip: lines(gateway) };
     }
     if (connected) return { key: "running", dot: "healthy", word: "Running here", tip: lines(gateway) };
     return late ? { key: "late", dot: "warn", word: "Not connected", tip: lines(gateway, "Gravitee Cloud has not seen it for 2 minutes", "Its logs say why") }
@@ -143,7 +138,7 @@ function soon(expires) {
   return days >= SOON ? "" : days <= 0 ? "Expires today" : days === 1 ? "Expires tomorrow" : `Expires in ${days} days`;
 }
 
-// What the Lab may do in an environment: {key, dot, word, note, tip, expires}. A Cloud Token that is set and valid is no use without a
+// What the Lab may do in an environment: {key, dot, word, note, tip}. A Cloud Token that is set and valid is no use without a
 // gateway of the environment on this machine, which a deploy goes through: the word says what is missing and the note that the token is
 // set; with a gateway that another machine runs it says it needs one here. `note` is the line under the word, the expiry in amber when it is near.
 function deployState(token, gateway) {
@@ -151,12 +146,12 @@ function deployState(token, gateway) {
   const dated = expires ? `${state === "expired" ? "Expired on" : "Expires"} ${day(expires)}` : "";
   const near = state === "valid" && expires ? soon(expires) : "";
   if (state === "valid") {
-    return usable(gateway) ? { key: "ready", dot: near ? "warn" : "healthy", word: "Can deploy", note: near, soon: !!near, tip: dated ? [dated] : [], expires }
+    return usable(gateway) ? { key: "ready", dot: near ? "warn" : "healthy", word: "Can deploy", note: near, soon: !!near, tip: dated ? [dated] : [] }
       : { key: "gateway", dot: "stopped", word: gateway ? "Needs a gateway here" : "Needs a gateway", note: near ? `Cloud Token set, ${near.toLowerCase()}` : "Cloud Token set", soon: !!near,
-        tip: ["A deploy goes through a gateway of this environment that runs here", ...(dated ? [dated] : [])], expires };
+        tip: ["A deploy goes through a gateway of this environment that runs here", ...(dated ? [dated] : [])] };
   }
   const [dot, word] = TOKENS[state];
-  return { key: state, dot, word, note: "", soon: false, tip: dated ? [dated] : [], expires };
+  return { key: state, dot, word, note: "", soon: false, tip: dated ? [dated] : [] };
 }
 
 // What the playgrounds deployed in an environment, from the records the Lab keeps for each place: [{id, name, created}] and the line
@@ -204,13 +199,11 @@ function actionOf(used, main, gateway, deploy, addon, gap) {
 // ({id, name, token}) and, for the page that polls, `late`: the gateway that runs here has not connected for long.
 //   used      the Lab has something here: a gateway of the environment, any (even one it cannot use, so that it can be removed), a
 //             gateway it lost in Cloud, a Cloud Token, or a deploy
-//   gateway   {key, dot, word, tip, details, version, address, name, id, here, kept, others, count}: key is none, running, connecting, late,
-//             starting, stopping, stopped, elsewhere, issue, license, orphan, unknown, or, with no add-on to run it, noaddon, downloading or
-//             nocontent (`extra` the button that mends it); `details` the words under the state (its
-//             version and, while it runs here, `address`, the one to call; the name of a gateway of another machine; what is left of
-//             one Cloud deleted); `others` are the gateways beyond the first one, `count` how many hybrid gateways the environment
-//             has; `license` is set when the word of an issue is a license that is missing, which the action then adds
-//   deploy    {key, dot, word, note, tip, expires, soon}: key is ready, gateway, unset, expired or refused; `note` the line under the word
+//   gateway   {key, dot, word, tip, version, address, name, id, here, kept, count}: key is none, running, connecting, late,
+//             starting, stopping, stopped, off, elsewhere, issue, license, orphan, unknown, or, with no add-on to run it, noaddon, downloading or
+//             nocontent (`extra` the button that mends it); `address` the one to call while it runs here; `count` how many hybrid
+//             gateways the environment has; `license` is set when the word of an issue is a license that is missing, which the action then adds
+//   deploy    {key, dot, word, note, tip, soon}: key is ready, gateway, unset, expired or refused; `note` the line under the word
 //   deployed  [{id, name, created}] what playgrounds deployed there, and `summary` the line that says it
 //   action    {do, label, disabled, reason} the one action to offer, do being set-up, add-license, create-gateway, start-gateway,
 //             add-token, replace-token, stop-gateway or add-catalog (the Catalogs page); null when there is none
@@ -223,10 +216,8 @@ export function environmentStatus(platform, check, env, { late = false } = {}) {
   const state = gap && own.key !== "elsewhere" ? gapState(platform, gap) : own, bare = state !== own;
   // It answers where it runs: not while it is stopped, or waits for a license
   const address = main?.here && ["running", "connecting", "late"].includes(state.key) ? addressOf(main, addon) : "";
-  const details = bare ? [] : !main ? (lost ? [runs(addon) ? "Still runs here" : "Its token is still set"] : []) : state.key === "elsewhere" ? [main.name, main.version] : [main.version, address];
-  const gateway = { ...state, details: details.filter(Boolean), version: bare ? "" : main?.version || "", address,
-    name: main?.name || "", id: main?.id || lost?.gateway || "", here: !!main?.here || !!lost, kept: !!main?.kept,
-    others: found.filter((other) => other !== main), count: found.length };
+  const gateway = { ...state, version: bare ? "" : main?.version || "", address,
+    name: main?.name || "", id: main?.id || lost?.gateway || "", here: !!main?.here || !!lost, kept: !!main?.kept, count: found.length };
   const deploy = deployState(env.token || {}, main), deployed = deployedIn(platform, env);
   const used = found.length > 0 || !!lost || deploy.key !== "unset" || deployed.length > 0;
   return { id: env.id, name: env.name, used, gateway, deploy, deployed, summary: said(deployed), action: actionOf(used, main, gateway, deploy, addon, gap) };
@@ -284,8 +275,7 @@ export const gatewayCount = (n) => (n ? `${n} ${n === 1 ? "gateway" : "gateways"
 // created and stopped are quiet; while Docker does not answer nothing is known of what runs here: a dot with no color. `extra` follows the
 // word on its line: on the Gravitee Cloud page, how many gateways the environment has when it has several, which leads to their list.
 export function gatewayCell(g, extra = "") {
-  const dot = g.key === "unknown" ? "" : g.dot;
-  return statusHtml(dot, g.word, { tip: gatewayTip(g), quiet: !dot || ["stopped", "off"].includes(dot), extra: extra + (g.extra || "") });
+  return statusHtml(g.dot, g.word, { tip: gatewayTip(g), quiet: !g.dot || ["stopped", "off"].includes(g.dot), extra: extra + (g.extra || "") });
 }
 
 // What the popover of a gateway's state says: its name as its title, its version and, while it runs here, its address, in monospace. A

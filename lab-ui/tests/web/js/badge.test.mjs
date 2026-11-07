@@ -13,7 +13,7 @@ globalThis.innerHeight = 800;
 const { closest } = El.prototype;
 El.prototype.closest = function (selector) { return selector.includes(":is([role") ? null : closest.call(this, selector); };
 const { store } = await import("../../../web/js/core.js");
-const { actionButton, applyBadge, behindWhy, catalogNeed, flash, noteBadge, noteCard, noteHtml, originLink, paintActions, tipHtml } = await import("../../../web/js/components/ui.js");
+const { applyBadge, behindWhy, catalogNeed, noteBadge, noteCard, noteHtml, originLink, tipHtml } = await import("../../../web/js/components/ui.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
 Object.defineProperty(store, "platforms", { get: () => [], configurable: true });
 
@@ -83,7 +83,6 @@ test("the note of what runs behind is the badge, its tooltip the reason; any oth
   const plain = draw(noteHtml({ note: "Needs settings", note_tone: "warn", note_title: "Fill them in" }));
   assert.equal(plain.querySelectorAll(".tip").length, 0);
   assert.equal(plain.querySelector(".list-note").getAttribute("data-tip"), "Fill them in", "the shared tooltip, never the browser's title");
-  assert.equal(plain.querySelector(".list-note").getAttribute("title"), null);
   // A note whose words are all it says has them as its tooltip while they are cut
   const cut = draw(noteHtml({ note: "Developer Portal stopped" })).querySelector(".list-note");
   assert.deepEqual([cut.getAttribute("data-tip"), cut.hasAttribute("data-tip-cut")], ["Developer Portal stopped", true]);
@@ -435,17 +434,4 @@ test("a popover may end with one button that leads somewhere; the others are as 
   const hostile = draw(tipHtml("x", { title: "T", action: { label: HOSTILE, href: `#/x${HOSTILE_QUOTED}` } }));
   assert.equal(hostile.querySelectorAll("img, script").length, 0);
   assert.equal(hostile.querySelectorAll("a").length, 1);
-});
-
-// --- The verb of a repair ---------------------------------------------------------------------------------------------------------
-
-test("a repair is an action like the others: it works as Repairing and says Repair when it is over", () => {
-  const root = draw(actionButton({ key: "catalog-op:acme-hub", verb: "repair", label: "Repair" }));
-  const button = root.querySelector("button");
-  assert.equal(button.querySelector(".pbtn-text").getAttribute("data-wait"), "Repairing\u2026");
-  assert.equal(button.getAttribute("data-act-verb"), "repair");
-  flash("catalog-op:acme-hub", "repair", true);
-  paintActions(root);
-  assert.ok(button.classList.contains("said") && button.classList.contains("done"));
-  assert.equal(text(button.querySelector(".pbtn-text")), "Repair");
 });

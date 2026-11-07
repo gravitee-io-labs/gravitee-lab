@@ -189,8 +189,7 @@ function gatewayMenu(p, g) {
 // domains have their columns)
 function gatewayState(g) {
   const tip = Array.isArray(g.st.tip) ? (g.st.tip.length > 1 ? g.st.tip.slice(1) : []) : g.st.tip;
-  const dot = g.st.key === "unknown" ? "" : g.st.dot;
-  return statusHtml(dot, g.st.word, { tip, quiet: !dot || ["stopped", "off"].includes(dot) });
+  return statusHtml(g.st.dot, g.st.word, { tip, quiet: !g.st.dot || ["stopped", "off"].includes(g.st.dot) });
 }
 
 // A gateway of the account: its name, its environment, its state, its version, the domains it answers on, then what to do
@@ -265,7 +264,6 @@ function keyOf(el) {
 }
 
 function draw() {
-  if (!section) return;
   const at = document.activeElement, key = at && section.contains(at) ? keyOf(at) : "";
   const cards = !!platforms?.length && !failed;
   const lonely = $(".plat-lonely", section);

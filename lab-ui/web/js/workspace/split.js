@@ -134,7 +134,7 @@ export const isReady = (tab, origin, data) => !!tab && !!data && data.type === R
 // Why the actions of the guide cannot be sent now, "" when they can. `live`: the playground runs; `tab`: its first console,
 // null without one; `status`: what the page knows of that UI once it looked ("framed", "refused", "down", "" before). `down`
 // says what a UI that does not run is.
-export function actionReason({ live, name, tab, status }, down = (ui) => `${ui.label} is not running`) {
+export function actionReason({ live, name, tab, status }, down) {
   if (!live) return `${name} is not running`;
   if (!tab) return `${name} shows no UI beside its guide`;
   if (!tab.up) return down(tab);

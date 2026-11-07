@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
-import { Ev, installDom } from "./dom-stub.mjs";
+import { installDom } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const page = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
