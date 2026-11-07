@@ -35,7 +35,7 @@ Then do these one-time steps on GitHub:
 7. Decide on a `CODEOWNERS` file and a code of conduct. Both are the owner's choice.
 8. Check that the `REPOSITORY` constant in `lab-ui/web/js/dialogs/welcome.js` has the new address. The sweep rewrites it.
 
-A fork builds the images only when you run its *Lab images* workflow by hand, from `main`.
+A fork builds the seeder's image only when you run its *Lab images* workflow by hand, from `main`.
 
 ## End-to-end runs
 
@@ -147,5 +147,5 @@ Every morning, the workflow *Gravitee versions* compares the defaults of `docker
 newer one opens an issue with the label `gravitee-versions`, or updates the one that is open; the issue closes by itself once the
 defaults are the latest. To follow a release:
 
-1. Raise the default in `docker-compose.yml` and in the table of [Configuration](configuration.md#images-and-versions).
+1. Raise the default in `docker-compose.yml`.
 2. Start the platform on it, then each playground of the catalogs, and move their `x-gravitee.tested` sets to it.
