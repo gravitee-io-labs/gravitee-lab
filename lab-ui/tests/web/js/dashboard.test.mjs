@@ -5,7 +5,8 @@
 // the product that runs there) and what else is on (the catalog, with the search and the filters of the lists), and last what the lab's
 // containers use of the machine (Resources: two live charts and the storage). It acts as the pages that own the actions do (the head as the Containers', an item as its list's, on the same keys), draws
 // what the store says live, reads its own numbers when it opens, when the lab moves and by Refresh, listens to the load only while it
-// is seen, moves its charts from the clock and not from the samples, and reads the Cloud in parallel without holding up the rest.
+// is seen, moves its charts from the clock and not from the samples, reads the Cloud in parallel without holding up the rest, and
+// separates nothing with a dot, a bullet or a slash.
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
@@ -1820,6 +1821,24 @@ test("with reduced motion no animation runs: the chart is drawn when a sample co
 });
 
 // --- Words and drawing --------------------------------------------------------------------------
+
+test("no text of the page separates with a dot, a bullet or a slash, in any state", async () => {
+  const everything = [
+    { body: dashboard() },
+    { state: lab({ platform: { containers: { running: 3, total: 7 } }, addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "malt", "Malt server", { starred: true })] }),
+      listed: [PLATFORM], checks: { "cloud-eu": check([gateway({ here: true }), gateway({ id: "g2", environmentId: "env-production", connection: "NOT_CONNECTED" })]) } },
+    { state: lab({ blind: true, docker: { error: "Cannot connect to the Docker daemon" }, wait: "Docker is not reachable", core: "absent" }),
+      body: dashboard({ docker: { engine: null, compose: null, os: null, cpus: null, memory: null, error: "Cannot connect to the Docker daemon" }, data: null }),
+      listed: [PLATFORM], checks: { "cloud-eu": { state: "unreachable", message: "Unreachable", environments: [], gateways: [] } } },
+  ];
+  for (const state of everything) {
+    await open(state);
+    stream()?.send({ cpu_percent: 3, memory_used: 1000, containers: 0, at: 5 });
+    const words = said(section) + [...section.querySelectorAll("[title], [data-tip], [aria-label]")].map((el) => `${el.getAttribute("title")} ${el.getAttribute("data-tip")} ${el.getAttribute("aria-label")}`).join(" ");
+    assert.doesNotMatch(words, /[·•∙‧⋅]| \/ | \| /, words);
+  }
+  dashboardPage.hide();
+});
 
 test("every block of the page is drawn only when its own text changed", async () => {
   await open();

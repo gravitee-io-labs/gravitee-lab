@@ -110,6 +110,22 @@ test("a token that is set says so while a gateway is missing, and says it expire
   assert.equal(status([gateway({ here: true })], { state: "expired", expires: dayFrom(-3) }).deploy.note, "", "an expired one says it in its word");
 });
 
+test("what the playgrounds deployed there makes it in use, by name for one and by count for several", () => {
+  const record = (place, created) => ({ place, created });
+  lab({ playgrounds: [{ id: "h", name: "Acme Hostels API", deployed: [record("cloud-eu/env-dev", [{ what: "APIs", count: 3 }]), record("cloud-eu/env-test", [{ what: "APIs", count: 1 }])] }] });
+  const one = status();
+  assert.equal(one.used, true);
+  assert.deepEqual(one.deployed, [{ id: "h", name: "Acme Hostels API", created: [{ what: "APIs", count: 3 }] }]);
+  assert.equal(one.summary, "Acme Hostels API deployed");
+  lab({ playgrounds: [{ id: "h", name: "Acme Hostels API", deployed: [record("cloud-eu/env-dev", [{ what: "APIs", count: 3 }])] },
+    { id: "b", name: "Acme Bakery", deployed: [record("cloud-eu/env-dev", [{ what: "APIs", count: 1 }])] },
+    { id: "e", name: "Empty", deployed: [record("cloud-eu/env-dev", [])] }] });
+  assert.equal(status().summary, "2 playgrounds deployed");
+  assert.equal(status().deployed.length, 2, "a record that holds nothing is nothing");
+  lab({ playgrounds: [{ id: "h", name: "Other", deployed: [record("other/env-dev", [{ what: "APIs", count: 3 }])] }] });
+  assert.equal(status().used, false, "a place of another platform is another place");
+});
+
 // --- The add-on that runs a gateway is the server's choice ------------------------------------------------------------------------------
 
 // A lab whose server says what runs the gateways of each kind of platform (`platform.gateways`), and what its catalogs are doing

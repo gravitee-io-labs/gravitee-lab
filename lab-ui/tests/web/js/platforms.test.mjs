@@ -873,6 +873,18 @@ test("Start asks the server what it does and says it first: Restarts, Serves, St
   assert.ok(server.checks > 1, "the platform is read again");
 });
 
+test("a Start that is canceled does nothing", async () => {
+  await open(ok([gateway({ here: true })], { Development: VALID }));
+  store.state = state({ addons: [ADDON(STOPPED)] });
+  platformsPage.render(store.state);
+  server.plan = { dialog: { restarts: [{ name: "Hybrid gateway", kind: "addon", id: "hyssop" }],
+    serves: [{ kind: "environment", id: "a/b", name: "x" }], stops_serving: [{ kind: "environment", id: "c/d", name: "y" }] } };
+  await click('[data-do="start-gateway"]');
+  await answer(false);
+  assert.equal(posted("/start").length, 0);
+  store.state = state();
+});
+
 test("a Start that does nothing beyond the add-on asks nothing", async () => {
   store.state = state({ addons: [ADDON(STOPPED)] });
   await open(ok([gateway({ here: true })], { Development: VALID }));

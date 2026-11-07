@@ -325,6 +325,26 @@ test("a lead that waits does nothing when it is clicked, and the dialog stays", 
   dialog.showModal();
 });
 
+test("Try again and Add the catalog that is listed keep the dialog open and are answered by the Catalogs page's one handler, which asks the routes of the catalogs", async () => {
+  await import("../../../web/js/dialogs/catalog.js");   // where the actions of the content status live, once, for every page that draws it
+  say({ content: content("failed"), catalogs: [catalog({ id: "gravitee", commit: "" })] });
+  calls.length = 0;
+  const retry = actions().querySelector("[data-content-act]");
+  retry.click();
+  page.doc.dispatchEvent(new Ev("click", { target: retry }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.map((call) => [call.path, call.body]).filter(([path]) => path !== "/api/state"), [["/api/catalogs/gravitee/check", {}]]);
+  assert.ok(dialog.hasAttribute("open"), "the foot follows the download: the person is not sent anywhere");
+  say({ content: content("none") });
+  calls.length = 0;
+  const add = actions().querySelector("[data-content-act]");
+  add.click();
+  page.doc.dispatchEvent(new Ev("click", { target: add }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.map((call) => [call.path, call.body])[0], ["/api/catalogs", { listed: "gravitee" }]);
+  assert.ok(dialog.hasAttribute("open"));
+});
+
 test("the Cloud card cannot be chosen while nothing can run its gateway, and says why in the words of the catalogs; with an add-on it is as it was", async () => {
   await go("core");
   const cloud = () => body.querySelectorAll(".core-card")[1];
