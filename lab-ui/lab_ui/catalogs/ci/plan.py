@@ -35,7 +35,7 @@ from typing import Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
 
 from .. import gitx, report, tree as trees, trust
 from ..report import ERROR, Problem
-from . import PLATFORMS, Unavailable, Usage, entry, json_line, parsed, parser, problem, write_outputs, write_summary
+from . import PLATFORMS, Unavailable, Usage, entry, json_line, parsed, parser, problem, write_outputs
 
 NAME = re.compile(r"[a-z0-9-]+")
 EVENT = re.compile(r"[a-z_]{1,40}")
@@ -267,8 +267,7 @@ def lines_of(plan: Plan) -> List[str]:
 @entry
 def main(argv, out, err, **seams) -> int:
     """`ci plan`. Exit 1 for BD06 or SD04 (and nothing is written to the outputs), 2 for a usage error."""
-    found = parser("plan", "What a change touches: the units, whether to seed, whether to build, on which architectures.",
-                   ci=True)
+    found = parser("plan", "What a change touches: the units, whether to seed, whether to build, on which architectures.", ci=False)
     found.add_argument("--event", default="pull_request", help="the event: push, pull_request, workflow_dispatch, schedule")
     found.add_argument("--base", default="", help="the commit the change is measured from (default: origin/main)")
     found.add_argument("--head", default="", help="the commit the change ends at (default: the files as they are)")
@@ -291,10 +290,7 @@ def main(argv, out, err, **seams) -> int:
     failed = [each for each in plan.problems if each.severity == ERROR]
     out.write("\n".join(lines_of(plan)) + "\n")
     if plan.problems:
-        out.write(report.render(plan.problems, "github" if args.ci else "text"))
-    if args.ci:
-        write_summary("### What the change touches\n\n" + "\n".join(f"- {line}" for line in lines_of(plan)) + "\n"
-                      + ("\n" + report.summary(plan.problems, "make ci") if plan.problems else ""))
+        out.write(report.render(plan.problems, "text"))
     if failed:
         return 1
     if args.github_output:

@@ -1,22 +1,21 @@
 """The rules of the catalog repository standard, one module for each family: `structure` (ST), `secrets` (SE),
-`commits` (CR), `guides` (GD), `dockerfiles` (DF), `images` (IM), and, from other packages, `workflows` (WF) and `codeowners`
-(CO). A rule module is pure: `check(tree, ctx) -> [Problem]` reads a `Tree` (and the commits of a change through `ctx`), never
-writes, runs nothing of what it reads and takes no longer than a second for a line of a megabyte. Each module also exports
-`RULES`, its table of `Rule(code, severity, rule, message)`: the message is the text of with `{field}` places, the
-one text CI, `make check`, Share and `explain` all use.
+`commits` (CR), `guides` (GD), `dockerfiles` (DF), `images` (IM), `workflows` (WF) and `codeowners` (CO). A rule module is pure:
+`check(tree, ctx) -> [Problem]` reads a `Tree` (and the commits of a change through `ctx`), never writes, runs nothing of what it
+reads and takes no longer than a second for a line of a megabyte. Each module also exports `RULES`, its table of
+`Rule(code, severity, rule, message)`: the message is the text with `{field}` places, the one text CI, `make check`, Share and
+`explain` all use.
 
 This file holds what the families share:
 
 - `Rule`, `say` and `problem`: the table row and how a message is made of it. Only a lower-case `{field}` that the rule names
   is replaced, so a message can hold `${NAME:-}` or `${PREFIX_NAME}` as they are.
-- `Context` and `context(tree)`: what a rule knows besides the tree (the catalog's `catalog.yml` and `standard.json`, the
-  commits of the change, the Lab's seeder), read once.
+- `Context` and `context(tree)`: what a rule knows besides the tree (the catalog's `catalog.yml`, the commits of the change, the
+  Lab's seeder), read once.
 - `outline(text)`: the block-style YAML of a Compose file as a tree of keys and values, with no YAML library and no
   recursion, for the rules that must know where in a file a key is (SE04, IM).
 - The places of a catalog: its units and its Compose files."""
 
 import bisect
-import json
 import re
 from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
@@ -71,7 +70,6 @@ class Context(NamedTuple):
     """What the rules are given besides the `Tree`. Every field has a default, so a rule works with `Context()`.
 
     catalog        the scalars of the `x-gravitee-catalog` block of `catalog.yml` (`id`, `license`, `images`, ...)
-    standard       `.github/standard.json` as a mapping, or None
     git            whether this is a repository with the standard (it has `.github/`); a folder catalog needs less
     history        a `tree.History` (or anything with `commits()` and `added()`): the commits of the change, or None
     units          the resolved units of the project (`images.units_of`), when the caller has loaded them with Compose
@@ -83,7 +81,6 @@ class Context(NamedTuple):
     partial        the tree is a part of a catalog (the files Share staged), so the files a whole catalog has are not asked for
     """
     catalog: Optional[dict] = None
-    standard: Optional[dict] = None
     git: bool = True
     history: Optional[object] = None
     units: Optional[list] = None
@@ -114,23 +111,13 @@ def catalog_meta(text: str) -> dict:
 
 
 def context(tree, **given) -> Context:
-    """The Context of a tree: `catalog` from its `catalog.yml`, `standard` from `.github/standard.json` and `git` from whether
-    the tree has a `.github/`, each unless `given`. Anything else in `given` is a field of Context."""
+    """The Context of a tree: `catalog` from its `catalog.yml` and `git` from whether the tree has a `.github/`, each unless
+    `given`. Anything else in `given` is a field of Context."""
     if "catalog" not in given:
         data = tree.read("catalog.yml", TEXT_LIMIT)
         given["catalog"] = catalog_meta(data.decode("utf-8", "replace")) if data is not None else {}
-    paths = [each.path for each in tree.entries()]
-    if "standard" not in given:
-        data = tree.read(".github/standard.json", 4097)
-        standard = None
-        if data is not None and len(data) <= 4096:
-            try:
-                standard = json.loads(data.decode("utf-8"))
-            except (ValueError, RecursionError):
-                standard = None
-        given["standard"] = standard if isinstance(standard, dict) else None
     if "git" not in given:
-        given["git"] = given["standard"] is not None or any(path.startswith(".github/") for path in paths)
+        given["git"] = any(each.path.startswith(".github/") for each in tree.entries())
     return Context(**given)
 
 

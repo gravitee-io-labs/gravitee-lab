@@ -370,31 +370,17 @@ class Command(support.WithGit, Run):
         files = {f"playgrounds/big/apps/app{n}/Dockerfile": "FROM busybox:1.36\n" for n in range(21)}
         head = self.change({**files, "playgrounds/big/compose.yml": COMPOSE.format(name="big")})
         code, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                               "--github-output", "--ci")
+                                               "--github-output")
         self.assertEqual(code, 1)
         self.assertIsNone(written)   # no file and no key: the result job turns red on an empty answer
-        self.assertIn("::error title=BD06::Split this pull request: it changes 21 apps, the limit is 20.", shown)
+        self.assertIn("Split this pull request: it changes 21 apps, the limit is 20.", shown)
 
     def test_a_standard_that_names_no_known_platform_writes_nothing_and_exits_1(self):
         head = self.change({".github/standard.json": '{"platforms": ["linux/riscv64"], "standard": 1}\n'})
         code, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                               "--github-output", "--ci")
+                                               "--github-output")
         self.assertEqual((code, written), (1, None))
-        self.assertIn("title=SD04::.github/standard.json: platforms must be a non-empty list made of linux/amd64 and "
-                      "linux/arm64.", shown)
-
-    def test_ci_means_github_annotations_and_a_summary(self):
-        summary = Path(tempfile.mkdtemp(prefix="gravitee-lab-summary-")) / "summary.md"
-        self.addCleanup(lambda: __import__("shutil").rmtree(summary.parent, True))
-        head = self.change({"playgrounds/big/compose.yml": COMPOSE.format(name="big"),
-                            **{f"playgrounds/big/apps/app{n}/Dockerfile": "FROM busybox:1.36\n" for n in range(21)}})
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
-            code, shown, _, _ = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head, "--ci")
-        self.assertEqual(code, 1)
-        self.assertIn("::error title=BD06::", shown)
-        text = summary.read_text(encoding="utf-8")
-        self.assertIn("What the change touches", text)
-        self.assertIn("1 problem to look at. To see them on your machine, run `make ci`.", text)
+        self.assertIn(".github/standard.json: platforms must be a non-empty list made of linux/amd64 and linux/arm64.", shown)
 
     def test_the_outputs_need_a_workflow_step(self):
         code, _, said, _ = self.command(self.repo, "--event", "push", "--github-output", outputs=False)

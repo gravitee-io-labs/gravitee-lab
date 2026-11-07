@@ -132,7 +132,7 @@ STAGES = (
     ("PB07", ERROR, "guard", "main was force-pushed, it was at {sha}: the commits people pinned are gone. Fix: restore it from "
                              "that commit, then run catalog.py repo-settings."),
     ("PB08", ERROR, "publish gate", "The commit {sha7} carries a tool credit in its message or its author. main is never "
-                                    "rewritten. Fix: find how it got there (the merge settings, V18) and write the next title "
+                                    "rewritten. Fix: find how it got there (the merge settings) and write the next title "
                                     "without it."),
     ("E2E01", ERROR, "e2e plan", "{item}: {service} reads GRAVITEE_LICENSE. Fix: only an overlay on a core service may read it."),
     ("E2E02", ERROR, "e2e plan", "A pull request is tried from the workflow of main. Fix: run this workflow on main."),

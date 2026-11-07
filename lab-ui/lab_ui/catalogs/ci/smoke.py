@@ -18,9 +18,8 @@ For each unit the trust policy judged OK (`ci.load`, the same reading the build 
    did, then `docker compose -p catalog-smoke-<unit> -f docker-compose.yml -f on.yml up -d --wait --wait-timeout 240 --no-build
    --pull missing --no-deps <services>` runs in a temporary project of this process in which the catalog is linked (the way `check`
    reads a folder: nothing is linked into the Lab and nothing of it is written), with the build environment of 5.5. The services
-   start in waves, one for each level of `depends_on` among them, so that a service never starts before what it waits for
-   (rehearsal item V13 asks whether one call for all of them would do; the waves are right whatever the answer). A unit with no
-   dependency among its services is one wave, and one command.
+   start in waves, one for each level of `depends_on` among them, so that a service never starts before what it waits for. A unit
+   with no dependency among its services is one wave, and one command.
 4. `--wait` ends when the services are healthy (or running, when they have none); any exit is a failure. They are looked at again
    after a few seconds, so a service that dies right after it started is found too. On failure the last 60 lines of the log of each
    container that is not up are printed (between `::stop-commands::` and its token: they are a stranger's program's words).

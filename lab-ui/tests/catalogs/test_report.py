@@ -371,22 +371,10 @@ class Audit(WithGit):
         found = [each for each in self.run_in(repo).problems if each.code == "ST06"]
         self.assertEqual(["error"], [each.severity for each in found], "on main itself, debt is an error")
 
-    def test_a_warning_a_catalog_or_a_run_makes_an_error_is_one(self):
+    def test_a_warning_a_run_makes_an_error_is_one(self):
         repo = self.work("warn", support.files({"apps/x/Dockerfile": "FROM python:3\nUSER app\n"}))
         self.assertEqual(["warning"], [each.severity for each in self.run_in(repo).problems if each.code == "DF22"])
         self.assertEqual(["error"], [each.severity for each in self.run_in(repo, error=("DF22",)).problems if each.code == "DF22"])
-        marked = support.files({"apps/x/Dockerfile": "FROM python:3\nUSER app\n",
-                                ".github/standard.json": support.GOOD[".github/standard.json"].replace(
-                                    '"standard": 1', '"standard": 1,\n  "strict": ["DF22"]')})
-        repo = self.work("strict", marked)
-        self.assertEqual(["error"], [each.severity for each in self.run_in(repo).problems if each.code == "DF22"])
-
-    def test_soft_prints_every_error_as_a_warning_and_exits_zero(self):
-        repo = self.work("soft", support.files({"docs/k.pem": "x\n"}))
-        options = audit.Options(soft=True, seeder_images=())
-        result = audit.run(repo, options)
-        self.assertEqual({"warning"}, {each.severity for each in result.problems if each.code == "ST06"})
-        self.assertEqual(0, audit.status(result, options))
 
     def test_the_exit_code(self):
         clean, bad = audit.Result([], []), audit.Result([ERROR], [])
@@ -394,10 +382,8 @@ class Audit(WithGit):
         plain = audit.Options()
         self.assertEqual([0, 1, 0, 1], [audit.status(clean, plain), audit.status(bad, plain), audit.status(warn, plain),
                                          audit.status(skipped, plain)])
-        self.assertEqual(1, audit.status(warn, audit.Options(strict=True)))
         self.assertEqual(2, audit.status(skipped, audit.Options(ci=True)))
         self.assertEqual(1, audit.status(bad, audit.Options(ci=True)))
-        self.assertEqual([0, 0], [audit.status(skipped, audit.Options(soft=True)), audit.status(bad, audit.Options(soft=True))])
 
     def test_a_folder_catalog_is_judged_on_the_families_that_need_no_github(self):
         repo = self.work("folder", support.FOLDER)

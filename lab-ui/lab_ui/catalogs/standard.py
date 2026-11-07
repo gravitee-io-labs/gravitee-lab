@@ -23,8 +23,7 @@ puts its number in the marker of the files it renders, but the number is not com
 at every level, and `upgrade` rewrites only the files whose content changed.
 
 Nothing here runs what it reads. A repository is read through a `Tree`, never opened by a path of its own; it is written by
-`upgrade_apply` only, through a temporary file and `os.replace`, never through a link, and a failed run puts back what it
-wrote. Standard library only."""
+`upgrade_apply` only, through a temporary file and `os.replace`, never through a link. Standard library only."""
 
 import copy
 import hashlib
@@ -32,9 +31,7 @@ import json
 import os
 import re
 import shlex
-import stat
 import sys
-import tempfile
 import unicodedata
 from pathlib import Path
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
@@ -54,7 +51,6 @@ PLATFORMS = ("linux/amd64", "linux/arm64")
 MODULES = ("e2e",)
 LICENSES = {"agpl-3.0-only": "AGPL-3.0-only", "apache-2.0": "Apache-2.0", "mit": "MIT"}
 SHOWN = 80                             # characters of a stranger's word that a message shows
-LOG_LINES = 50                         # the lines of the Lab's own log that a moved pin brings
 
 MARKER = re.compile(r"# Managed by the Lab catalog standard (\d{1,3}): change it with catalog\.py upgrade, in a pull request a "
                     r"maintainer reads\.")
@@ -63,11 +59,6 @@ JSON_MARKER = re.compile(r'\s{0,8}"_managed":\s{0,4}"Managed by the Lab catalog 
 PLACEHOLDERS = ("CATALOG_ID", "CATALOG_ENV", "CATALOG_NAME", "DESCRIPTION", "LICENSE", "IMAGES", "MAINTAINERS", "SECURITY_CONTACT",
                 "LAB_REPOSITORY", "LAB_REF")
 PLACEHOLDER = re.compile("__(" + "|".join(PLACEHOLDERS) + ")__")
-
-# The fixed parameters of the golden hashes of the seeded files: nothing here is a real name or address
-GOLDEN_PARAMS = {"id": "acme-hub", "name": "Acme Hub", "description": "Demos for workshops", "license": "Apache-2.0",
-                 "images": "ghcr.io/acme/lab-hub", "maintainers": "@acme/maintainers", "lab_repository": "acme/gravitee-lab",
-                 "lab_ref": "0123456789abcdef0123456789abcdef01234567", "with": ["e2e"]}
 
 # The rules of the standard itself. SD07 and SD11 are raised where the Lab is fetched (the `lab` action, `check --online`)
 RULES = table([
@@ -286,8 +277,7 @@ def _words(value, limit: int, what: str) -> str:
 
 def values(params: dict) -> dict:
     """The parameters of `new`, checked and in the form the template wants: every value the placeholders need, `local`, `with`,
-    `platforms`, `maintainers` (a list), `lab_repository` and `lab_ref`. A TemplateError says what is wrong in one
-    line."""
+    `maintainers` (a list), `lab_repository` and `lab_ref`. A TemplateError says what is wrong in one line."""
     params = dict(params or {})
     local = bool(params.get("local"))
     need = ("id", "name") if local else ("id", "name", "maintainers", "lab_repository", "lab_ref")
@@ -324,12 +314,6 @@ def values(params: dict) -> dict:
     out["with"] = tuple(dict.fromkeys(extra))
     if local and out["with"]:
         raise TemplateError("A folder catalog has no workflows: --local takes no --with.")
-    platforms = params.get("platforms") or ["linux/amd64"]
-    if isinstance(platforms, str):
-        platforms = [part for part in platforms.split(",") if part]
-    if not platforms or any(each not in PLATFORMS for each in platforms) or len(set(platforms)) != len(platforms):
-        raise TemplateError("--platforms is linux/amd64, linux/arm64 or both.")
-    out["platforms"] = list(platforms)
     if local:
         out.update({"maintainers": [], "lab_repository": "", "lab_ref": "", "security_contact": ""})
         return out
@@ -344,8 +328,7 @@ def values(params: dict) -> dict:
     if not isinstance(params["lab_ref"], str) or not _COMMIT.fullmatch(params["lab_ref"]):
         raise TemplateError("--lab-ref takes the full commit of the Lab: 40 hexadecimal characters.")
     out["lab_ref"] = params["lab_ref"]
-    contact = params.get("security_contact")
-    out["security_contact"] = _words(contact, 120, "The security contact") if contact else out["maintainers"][0]
+    out["security_contact"] = out["maintainers"][0]
     return out
 
 
@@ -383,7 +366,7 @@ def dump_standard(data: dict) -> str:
 
 def standard_for(given: dict) -> dict:
     return {"form": "inline", "lab": {"ref": given["lab_ref"], "repository": given["lab_repository"]},
-            "platforms": list(given["platforms"]), "standard": LEVEL}
+            "platforms": ["linux/amd64"], "standard": LEVEL}
 
 
 def _no_twins(pairs):
@@ -437,11 +420,6 @@ def parse_standard(raw: bytes) -> Tuple[Optional[dict], List[Tuple[str, str]]]:
     if not isinstance(platforms, list) or not platforms or any(each not in PLATFORMS for each in platforms) \
             or len(set(map(str, platforms))) != len(platforms):
         found.append((ERROR, "platforms is a list of linux/amd64, linux/arm64 or both"))
-    if "strict" in data:
-        strict = data["strict"]
-        if not isinstance(strict, list) or len(strict) > 50 or any(not isinstance(each, str) or not re.fullmatch(
-                r"[A-Z]{2,3}[0-9]{2}", each) for each in strict):
-            found.append((ERROR, "strict is a list of rule codes such as DF22"))
     if "needs" in data:
         needs = data["needs"]
         if not isinstance(needs, dict) or len(needs) > 10 or any(
@@ -449,7 +427,7 @@ def parse_standard(raw: bytes) -> Tuple[Optional[dict], List[Tuple[str, str]]]:
                 or not lab_repository_ok(what.get("repository")) or not isinstance(what.get("ref"), str)
                 or not _COMMIT.fullmatch(what["ref"]) for name, what in needs.items()):
             found.append((ERROR, "needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}"))
-    for key in sorted(set(data) - {"standard", "form", "lab", "platforms", "strict", "needs"}, key=str)[:5]:
+    for key in sorted(set(data) - {"standard", "form", "lab", "platforms", "needs"}, key=str)[:5]:
         found.append((WARNING, f"{printable(str(key))[:40]} is not a key of the standard"))
     return data, found
 
@@ -627,27 +605,14 @@ def _owned_checks(tree) -> List[Problem]:
 # Golden hashes of the template
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _sha(text) -> str:
-    return hashlib.sha256(text if isinstance(text, bytes) else text.encode("utf-8")).hexdigest()
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def golden_now() -> dict:
-    """The hashes of the template as it is: the sha256 of every managed file (normalized) and of every seeded file rendered with
-    the fixed parameters, as the full catalog and as the folder catalog."""
-    rendered = render_new(GOLDEN_PARAMS)
-    known = {each["path"]: each for each in manifest()["files"]}
-    local = render_new({"id": "acme-hub", "name": "Acme Hub", "local": True})
-    return {"level": LEVEL,
-            "managed": {path: _sha(normalize(data.decode("utf-8"))) for path, data in sorted(rendered.items())
-                        if known[path]["class"] == "managed"},
-            "seeded": {path: _sha(data) for path, data in sorted(rendered.items()) if known[path]["class"] != "managed"},
-            "local": {path: _sha(data) for path, data in sorted(local.items())}}
-
-
-def _differences(before, now) -> List[str]:
-    """The paths whose hash is not the recorded one, in either direction, sorted."""
-    before, now = before if isinstance(before, dict) else {}, now if isinstance(now, dict) else {}
-    return sorted(path for path in set(before) | set(now) if before.get(path) != now.get(path))
+    """The hashes of the template as it is: the sha256 of every managed file (normalized), the files a catalog keeps equal."""
+    return {"level": LEVEL, "managed": {each["path"]: _sha(normalize(_source("managed", each["path"])))
+                                        for each in manifest()["files"] if each["class"] == "managed"}}
 
 
 def golden_problems() -> List[str]:
@@ -663,8 +628,8 @@ def golden_problems() -> List[str]:
     found: List[str] = []
     if recorded.get("level") != now["level"]:
         found.append(f"  golden.json is for level {recorded.get('level')}, the template says {now['level']}")
-    found.extend(f"  {path}" for kind in ("managed", "seeded") for path in _differences(recorded.get(kind), now[kind])[:20])
-    found.extend(f"  folder catalog: {path}" for path in _differences(recorded.get("local"), now["local"])[:20])
+    before = recorded.get("managed") if isinstance(recorded.get("managed"), dict) else {}
+    found.extend(f"  {path}" for path in sorted(set(before) | set(now["managed"])) if before.get(path) != now["managed"].get(path))
     return [GOLDEN_MESSAGE, *found] if found else []
 
 
@@ -771,20 +736,6 @@ def latest_release(lab, git=None) -> str:
     return commit if _COMMIT.fullmatch(commit) else ""
 
 
-def lab_log(lab, old: str, new: str) -> List[str]:
-    """The Lab's own log of `lab-ui` and `.github` between two pins: at most LOG_LINES lines, each cut and made safe for a
-    terminal. Empty when the Lab checkout does not hold both commits."""
-    try:
-        result = gitx.run(["log", "--oneline", "--no-decorate", "-n", str(LOG_LINES), f"{old}..{new}", "--", "lab-ui", ".github"],
-                          cwd=str(lab), timeout=30)
-    except (gitx.CatalogError, OSError):
-        return []
-    if result.code != 0:
-        return []
-    lines = [printable(gitx.redact(line))[:200].strip() for line in result.out.decode("utf-8", "replace").splitlines()]
-    return [line for line in lines if line][:LOG_LINES]
-
-
 def _derived(tree, state: Declared, options: dict) -> dict:
     """The parameters `--adopt` renders the missing seeded files with, read from the repository: `catalog.yml` for the id, the
     name, the description, the license and the registry; the `*` line of CODEOWNERS (or `--maintainers`) for the owners; the
@@ -803,8 +754,7 @@ def _derived(tree, state: Declared, options: dict) -> dict:
     return {"id": meta.get("id"), "name": meta.get("name"), "description": meta.get("description"), "license": meta.get("license"),
             "images": meta.get("images"), "maintainers": owners,
             "lab_repository": options.get("lab_repository") or lab.get("repository"),
-            "lab_ref": options.get("lab_ref") or lab.get("ref"),
-            "platforms": (state.data or {}).get("platforms") if state.data else None}
+            "lab_ref": options.get("lab_ref") or lab.get("ref")}
 
 
 def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
@@ -814,19 +764,19 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         files       [{path, action, class, why, content}], action one of add, update, current, owned
         owned       the paths the catalog owns (no marker): skipped, listed
         notes       [{level, summary, manual, settings}] for the levels the repository has not reached
-        lab         {repository, old, new, compare, log}: the Lab pin, and what moving it brings
+        lab         {repository, old, new, compare}: the Lab pin, and what moving it brings
         refused     "" or why nothing can be done (the plan has no files then)
         pending     whether anything would be written
 
     `options`: lab_ref (40 hex: the new pin), adopt, with (modules), maintainers / lab_repository (for what adopt adds),
-    lab (the Lab checkout: SD11 and the log of a moved pin are asked of it), legacy_lab (when the key is there, catalog.yml gets
+    lab (the Lab checkout: SD11 is asked of it), legacy_lab (when the key is there, catalog.yml gets
     the lines older Gravitee Labs read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
-    it reads the tree and runs `git log` in the Lab checkout; it writes nothing."""
+    it reads the tree and asks the Lab checkout; it writes nothing."""
     options = dict(options or {})
     adopt = bool(options.get("adopt"))
     state = declared(tree)
     plan: dict = {"level": LEVEL, "have": state.level, "files": [], "owned": [], "notes": [], "refused": "", "pending": False,
-                  "lab": {"repository": "", "old": "", "new": "", "compare": "", "log": []}, "name": ""}
+                  "lab": {"repository": "", "old": "", "new": "", "compare": ""}, "name": ""}
 
     def refuse(why: str) -> dict:
         plan["refused"] = why
@@ -917,11 +867,8 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     plan["pending"] = any(each["action"] in (ADD, UPDATE) for each in files)
     plan["notes"] = [{"level": number, **data["notes"][str(number)]} for number in range((state.level or 0) + 1, LEVEL + 1)]
     moved = bool(ref_new) and old.get("ref") not in (None, ref_new)
-    plan["lab"] = {"repository": repo, "old": old.get("ref") or "", "new": ref if moved else "", "compare": "", "log": []}
-    if moved:
-        plan["lab"]["compare"] = f"https://github.com/{repo}/compare/{old['ref']}...{ref}"
-        if lab_checkout is not None:
-            plan["lab"]["log"] = lab_log(lab_checkout, old["ref"], ref)
+    plan["lab"] = {"repository": repo, "old": old.get("ref") or "", "new": ref if moved else "",
+                   "compare": f"https://github.com/{repo}/compare/{old['ref']}...{ref}" if moved else ""}
     return plan
 
 
@@ -954,13 +901,9 @@ class UpgradeError(Exception):
     """An upgrade that cannot be done or could not be finished: one line for the person."""
 
 
-MAX_REWRITE = 8 * 1024 * 1024   # a managed file larger than this is not read back to be put back; it is not a managed file
-
-
 def _inside(root: str, relative: str) -> str:
-    """The path of `relative` below `root`, after checking that no folder on the way is a link, a file or the work tree of another
-    repository (a write through a link would leave the repository, and one into a nested repository or a submodule would put the
-    standard's files in that one). Folders that are missing are made. The last name may be a link: it is replaced."""
+    """The path of `relative` below `root`, after checking that no folder on the way is a link or a file (a write through a link
+    would leave the repository). Folders that are missing are made. The last name may be a link: it is replaced."""
     if not _clean(relative):
         raise UpgradeError(f"{printable(relative)[:SHOWN]} is not a path inside the repository.")
     here = root
@@ -975,85 +918,24 @@ def _inside(root: str, relative: str) -> str:
         if os.path.islink(here) or not os.path.isdir(here):
             raise UpgradeError(f"{printable(here[len(root) + 1:])[:SHOWN]} is a link or a file, not a folder: the upgrade does not "
                                "write through it.")
-        if os.path.lexists(os.path.join(here, ".git")):
-            raise UpgradeError(f"{printable(here[len(root) + 1:])[:SHOWN]} is the work tree of another repository (a nested "
-                               "repository or a submodule): the upgrade does not write into it.")
     return os.path.join(here, parts[-1])
 
 
-def _snapshot(target: str) -> tuple:
-    """What is at a path now, so that it can be put back: ('none',), ('link', where it leads) or ('file', bytes, mode)."""
-    try:
-        info = os.lstat(target)
-    except FileNotFoundError:
-        return ("none", target)
-    if stat.S_ISLNK(info.st_mode):
-        return ("link", target, os.readlink(target))
-    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_REWRITE:
-        raise UpgradeError(f"{printable(os.path.basename(target))[:SHOWN]} is not a file the upgrade can rewrite.")
-    return ("file", target, Path(target).read_bytes(), info.st_mode & 0o777)
-
-
-def _put_back(record: tuple) -> None:
-    kind, target = record[0], record[1]
-    if kind == "none":
-        if os.path.lexists(target):
-            os.unlink(target)
-        return
-    if kind == "link":
-        if os.path.lexists(target):
-            os.unlink(target)
-        os.symlink(record[2], target)
-        return
-    handle, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".restore.")
-    try:
-        with os.fdopen(handle, "wb") as out:
-            out.write(record[2])
-        os.chmod(tmp, record[3])
-        os.replace(tmp, target)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-
 def upgrade_apply(root, plan: dict) -> List[str]:
-    """Writes a plan in `root` and answers the paths it wrote, sorted. Only the plan's own paths are touched, none
-    through a link; each file is written through a temporary file and `os.replace`, keeps its execute bit, and is LF. When a
-    write fails, what was written is put back and the error goes on. It refuses a folder that is a submodule or holds a
-    repository of its own: the standard's files do not go into another repository."""
+    """Writes a plan in `root` and answers the paths it wrote, sorted. Only the plan's own paths are touched, none through a link;
+    each file is written through a temporary file and `os.replace`, keeps its execute bit, and is LF."""
     if plan.get("refused"):
         raise UpgradeError(plan["refused"])
     base = os.path.realpath(str(root))
-    modules = gitlinks(base, [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE)])
-    if modules:
-        raise UpgradeError("The upgrade does not write into a submodule: " + ", ".join(modules) + ". Fix: make it a folder of this "
-                           "repository, or take it out of the standard's paths.")
-    done: List[tuple] = []
     out: List[str] = []
-    try:
-        for each in plan["files"]:
-            if each["action"] not in (ADD, UPDATE):
-                continue
-            target = _inside(base, each["path"])
-            before = _snapshot(target)
-            mode = 0o755 if before[0] == "file" and before[3] & 0o111 else 0o644
-            done.append(before)
-            paths.write_atomic(Path(target), each["content"].decode("utf-8"), mode)
-            out.append(each["path"])
-    except BaseException:
-        rollback(done)
-        raise
+    for each in plan["files"]:
+        if each["action"] not in (ADD, UPDATE):
+            continue
+        target = _inside(base, each["path"])
+        executable = os.path.isfile(target) and not os.path.islink(target) and os.access(target, os.X_OK)
+        paths.write_atomic(Path(target), each["content"].decode("utf-8"), 0o755 if executable else 0o644)
+        out.append(each["path"])
     return sorted(out)
-
-
-def rollback(done: list) -> None:
-    """Puts back every file `upgrade_apply` wrote, last first."""
-    for record in reversed(done):
-        try:
-            _put_back(record)
-        except OSError:
-            pass
 
 
 # ---- git around an upgrade
@@ -1088,25 +970,6 @@ def dirty_files(root, relative: Iterable[str]) -> List[str]:
     for record in result.out.split(b"\0"):
         if len(record) > 3:
             found.append(os.fsdecode(record[3:]))
-    return sorted(found)
-
-
-def gitlinks(root, relative: Iterable[str]) -> List[str]:
-    """Which folders on the way to these paths are submodules (an entry of mode 160000 in the index, there is no repository in
-    it when it was not initialised): the upgrade does not write into another repository. Empty for a folder that is not a work
-    tree."""
-    folders = sorted({"/".join(parts[:cut]) for parts in (path.split("/") for path in set(relative)) for cut in range(1, len(parts))})
-    if not folders or not _is_work_tree(root):
-        return []
-    result = _asked(root, "ls-files", "--stage", "-z", "--", *(":(literal)" + folder for folder in folders))
-    if result.code != 0:
-        raise UpgradeError("git could not say which folders are submodules: " + printable(result.err)[:200])
-    found = []
-    for record in result.out.split(b"\0"):
-        mode, _, rest = record.partition(b" ")
-        name = os.fsdecode(rest.partition(b"\t")[2])
-        if mode == b"160000" and name in folders:
-            found.append(name)
     return sorted(found)
 
 
@@ -1165,10 +1028,8 @@ def _new_arguments(argv: List[str]):
     parser.add_argument("--license", default="UNLICENSED")
     parser.add_argument("--images")
     parser.add_argument("--description")
-    parser.add_argument("--security-contact", dest="security_contact")
     parser.add_argument("--lab-repo", dest="lab_repo")
     parser.add_argument("--lab-ref", dest="lab_ref")
-    parser.add_argument("--platforms")
     parser.add_argument("--with", dest="with_", action="append", default=[])
     parser.add_argument("--local", action="store_true")
     return parser.parse_args(argv)
@@ -1212,8 +1073,7 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
                 elif pin_problem(lab, ref, LEVEL):
                     raise Usage(pin_problem(lab, ref, LEVEL))
         params = {"id": args.id, "name": args.name, "maintainers": args.maintainers, "license": args.license, "images": args.images,
-                  "description": args.description, "security_contact": args.security_contact, "lab_repository": repository,
-                  "lab_ref": ref, "platforms": args.platforms, "with": args.with_, "local": args.local}
+                  "description": args.description, "lab_repository": repository, "lab_ref": ref, "with": args.with_, "local": args.local}
         written = create(args.dir, params)
         given = values(params)
     except (Usage, TemplateError) as error:
@@ -1270,25 +1130,9 @@ def describe(plan: dict) -> str:
     lab = plan["lab"]
     if lab["new"]:
         lines += ["", f"The Lab pin moves from {lab['old'][:7]} to {lab['new'][:7]}. What it brings:", f"  {lab['compare']}"]
-        lines += [f"  {each}" for each in lab["log"]]
     if not plan["pending"]:
         lines += ["", "Nothing to upgrade"]
     return "\n".join(lines)
-
-
-def apply_command(args) -> str:
-    """The command that makes what the plan says, as the person would type it: the Makefile's when it carries every option that
-    was given (it is run in the catalog and takes `LAB_REF`), else `catalog.py`'s own with all of them."""
-    plain = not (args.adopt or args.with_ or args.maintainers or args.lab_repo)
-    if plain and args.dir == ".":
-        return "make upgrade WRITE=1" + (f" LAB_REF={shlex.quote(args.lab_ref)}" if args.lab_ref else "")
-    words = ["catalog.py", "upgrade"] + ([] if args.dir == "." else [shlex.quote(args.dir)])
-    for flag, value in (("--lab-ref", args.lab_ref), ("--maintainers", args.maintainers), ("--lab-repo", args.lab_repo)):
-        words += [flag, shlex.quote(value)] if value else []
-    words += ["--adopt"] if args.adopt else []
-    for word in args.with_:
-        words += ["--with", shlex.quote(word)]
-    return " ".join(words + ["--write"])
 
 
 def legacy_lab(root) -> Optional[int]:
@@ -1341,7 +1185,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         return 0
     if not args.write:
         _say("")
-        _say(f"Nothing was written. To apply: {apply_command(args)}")
+        _say("Nothing was written. To apply: the same command with --write (with make: WRITE=1).")
         return 1
     try:
         touched = [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE)]

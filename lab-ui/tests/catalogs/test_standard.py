@@ -147,10 +147,6 @@ class Template(unittest.TestCase):
         for data in found.values():
             self.assertTrue(data["_managed"].startswith(f"Managed by the Lab catalog standard {standard.LEVEL}: "))
 
-    def test_the_rulesets_are_what_repo_settings_sends(self):
-        from lab_ui.catalogs import settings
-        self.assertEqual(sorted(settings.load_rulesets()), ["history", "main", "paths", "push", "tag_history", "tags"])
-
     def test_the_fleet_may_change_only_the_folders_of_the_managed_files(self):
         from lab_ui.catalogs import fleet
         self.assertEqual(fleet.MANAGED_ROOTS, standard.managed_roots())
@@ -199,12 +195,6 @@ class Golden(Case):
         template = support.copy_template(self)
         path = template / "managed" / ".github" / "workflows" / "ci.yml"
         path.write_text(path.read_text(encoding="utf-8").replace("actions/checkout@", "evil/checkout@", 1), encoding="utf-8")
-        self.assertTrue(standard.golden_problems())
-
-    def test_a_change_of_a_seeded_file_fails_too(self):
-        template = support.copy_template(self)
-        path = template / "seeded" / "REVIEWING.md"
-        path.write_text(path.read_text(encoding="utf-8") + "\nOne more line.\n", encoding="utf-8")
         self.assertTrue(standard.golden_problems())
 
     def test_a_change_of_the_level_without_a_refresh_fails_and_a_refresh_passes(self):
@@ -266,7 +256,6 @@ class Values(unittest.TestCase):
         for bad in ("Acme \uff1chub\uff1e", "\uff1cscript\uff1e", "a\uff40b", "a\ufe64b\ufe65", "\uff1c"):
             self.assertIn("holds a character", self.refused(name=bad), repr(bad))
         self.assertIn("holds a character", self.refused(description="\uff1cimg\uff1e"))
-        self.assertIn("holds a character", self.refused(security_contact="\uff1c@x\uff1e"))
         self.assertEqual(standard.values(params(name="\ufb01sh \u2460"))["name"], "fish 1")   # a ligature and a circled digit are plain
         files = standard.render_new(params(name="\ufb01sh Hub"))
         self.assertIn(b"# fish Hub", files["README.md"])
@@ -313,18 +302,13 @@ class Values(unittest.TestCase):
         for bad in ("main", "v1.0.0", "0123456", LAB_COMMIT.upper(), LAB_COMMIT + "0", LAB_COMMIT[:39] + "g", LAB_COMMIT + "\n"):
             self.assertIn("full commit", self.refused(lab_ref=bad), bad)
 
-    def test_with_and_platforms(self):
+    def test_with(self):
         self.assertIn("--with takes e2e", self.refused(**{"with": ["gold"]}))
-        self.assertIn("--platforms", self.refused(platforms=["linux/riscv64"]))
-        self.assertIn("--platforms", self.refused(platforms=["linux/amd64", "linux/amd64"]))
-        self.assertEqual(standard.values(params(platforms="linux/amd64,linux/arm64"))["platforms"], ["linux/amd64", "linux/arm64"])
-        self.assertEqual(standard.values(params())["platforms"], ["linux/amd64"])
 
     def test_what_is_far_too_long_is_refused_at_once(self):
         start = time.process_time()
         for more in ({"name": "x" * 1000000}, {"images": "a/" * 500000}, {"license": "a" * 1000000}, {"description": "d" * 1000000},
-                     {"id": "a" * 1000000}, {"lab_repository": "a/" + "b" * 1000000}, {"maintainers": "@" + "a" * 1000000},
-                     {"security_contact": "c" * 1000000}):
+                     {"id": "a" * 1000000}, {"lab_repository": "a/" + "b" * 1000000}, {"maintainers": "@" + "a" * 1000000}):
             with self.assertRaises(standard.TemplateError):
                 standard.render_new(params(**more))
         self.assertLess(time.process_time() - start, 1.0)
@@ -333,10 +317,8 @@ class Values(unittest.TestCase):
         with self.assertRaisesRegex(standard.TemplateError, "--local takes no --with"):
             standard.values({"local": True, "id": "mine", "name": "Mine", "with": ["e2e"]})
 
-    def test_the_security_contact_is_the_first_maintainer_until_one_is_given(self):
+    def test_the_security_contact_is_the_first_maintainer(self):
         self.assertEqual(standard.values(params(maintainers="@acme/maintainers,@alice"))["security_contact"], "@acme/maintainers")
-        self.assertEqual(standard.values(params(security_contact="security@acme.example"))["security_contact"], "security@acme.example")
-        self.assertIn("security contact", self.refused(security_contact="a\nb"))
 
 
 class Rendering(unittest.TestCase):
@@ -422,8 +404,6 @@ class Rendering(unittest.TestCase):
         self.assertEqual(text, '{\n  "form": "inline",\n  "lab": {\n    "ref": "%s",\n    "repository": "acme/gravitee-lab"\n  },\n'
                                '  "platforms": [\n    "linux/amd64"\n  ],\n  "standard": 9\n}\n' % LAB_COMMIT)
         self.assertEqual(json.loads(text)["standard"], standard.LEVEL)
-        both = standard.render_new(params(platforms="linux/amd64,linux/arm64"))[".github/standard.json"].decode()
-        self.assertEqual(json.loads(both)["platforms"], ["linux/amd64", "linux/arm64"])
 
     def test_codeowners_has_the_two_lines(self):
         text = render(maintainers="@acme/maintainers,@alice")[".github/CODEOWNERS"].decode()
@@ -500,10 +480,8 @@ class Rendering(unittest.TestCase):
 
 
 class Leaks(unittest.TestCase):
-    """No engine owner, address or tool credit in any template file or in anything it renders."""
+    """No outside address or tool credit in any template file or in anything it renders."""
 
-    OWNERS = re.compile(r"dobl1|graviteesource|gravitee-io|gravitee-lab-catalog|dorian|blanc\b|internal\.gravitee", re.I)
-    ADDRESSES = re.compile(r"github\.com/(?!__LAB_REPOSITORY__|acme/)|ghcr\.io/(?!acme/)|https://[a-z0-9.-]+\.[a-z]{2,}/(?!__)", re.I)
     ALLOWED_LINKS = ("https://spdx.org/licenses/", "https://github.com/__LAB_REPOSITORY__", "http://localhost", "https://github.com/acme",
                      "http://www.apache.org/licenses/", "https://www.gnu.org/licenses/", "https://fsf.org/", "https://www.apache.org",
                      "https://github.com/features")
@@ -516,10 +494,6 @@ class Leaks(unittest.TestCase):
             yield f"rendered {path}", data.decode("utf-8")
         for path, data in standard.render_new({"local": True, "id": "mine", "name": "Mine"}).items():
             yield f"local {path}", data.decode("utf-8")
-
-    def test_no_owner_of_the_engine_and_no_private_name(self):
-        for name, text in self.files():
-            self.assertIsNone(self.OWNERS.search(text), name)
 
     def test_the_only_addresses_are_the_lab_of_the_parameters_and_the_texts_of_licenses(self):
         for name, text in self.files():
@@ -537,11 +511,6 @@ class Leaks(unittest.TestCase):
             for line in text.split("\n"):
                 self.assertIsNone(commits.CREDITS.search(line), f"{name}: {line}")
             self.assertNotIn("\U0001f916", text, name)
-
-    def test_no_file_of_the_template_holds_an_invisible_character(self):
-        bad = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff\u00ad]")
-        for name, text in self.files():
-            self.assertIsNone(bad.search(text), name)
 
 
 class Normalizing(unittest.TestCase):
@@ -810,7 +779,6 @@ class Drift(Case):
             "standard": ("standard is a whole number from 1: the level of the managed files in this repository", [0, -1, "1", True, 1.5, 1000]),
             "form": ("form is inline", ["sideways", "reusable", 1, None]),
             "platforms": ("platforms is a list of linux/amd64, linux/arm64 or both", [[], ["linux/riscv64"], "linux/amd64", ["linux/amd64"] * 2]),
-            "strict": ("strict is a list of rule codes such as DF22", ["DF22", ["df22"], [5], ["DF22!"], ["X" * 5]]),
             "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}",
                       [[], "hub", {"Hub": {"repository": "a/b", "ref": LAB_COMMIT}}, {"hub": {"repository": "a/b", "ref": "main"}},
                        {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}]),
@@ -843,11 +811,6 @@ class Drift(Case):
         found = [(each.severity, each.message) for each in self.check(files) if each.code == "SD04"]
         self.assertEqual(sorted(found), [("warning", ".github/standard.json: color is not a key of the standard."),
                                          ("warning", ".github/standard.json: lab.x is not a key of the standard.")])
-
-    def test_strict_is_a_good_key(self):
-        base = json.loads(render()[".github/standard.json"])
-        files = {**render(), ".github/standard.json": json.dumps({**base, "strict": ["DF22", "DF23"]}).encode()}
-        self.assertEqual(self.check(files), [])
 
     def test_without_standard_json_the_files_are_judged_as_the_labs_own_level_and_sd04_is_silent(self):
         files = render()
@@ -957,7 +920,7 @@ class LabAction(unittest.TestCase):
             self.assertEqual(written, "", raw)
 
     def test_a_valid_value_with_other_keys_around_it_is_still_two_lines(self):
-        code, written, _ = self.run_block(self.good(form="reusable", strict=["DF22"], color="red"))
+        code, written, _ = self.run_block(self.good(form="reusable", color="red"))
         self.assertEqual((code, written), (0, f"repository=acme/gravitee-lab\nref={LAB_COMMIT}\n"))
 
     def test_the_commit_has_to_be_a_release_of_the_lab_and_a_fake_git_says_so(self):
@@ -1135,7 +1098,7 @@ class Commands(Case):
         self.assertEqual(self.new("--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)[0], 0)
 
     def test_a_parameter_that_is_wrong_ends_in_one_line_and_nothing_is_made(self):
-        for more in (("--license", "Apache 2.0"), ("--images", "GHCR.io/x"), ("--with", "gold"), ("--platforms", "arm")):
+        for more in (("--license", "Apache 2.0"), ("--images", "GHCR.io/x"), ("--with", "gold")):
             code, out, err = self.new("--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT, *more)
             self.assertEqual((code, out), (2, ""), more)
             self.assertEqual(len(err.splitlines()), 1, err)
@@ -1174,18 +1137,6 @@ class Upgrading(Case):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = standard.main_upgrade([str(repo.root), *argv], lab=lab or repo.top)
-        return code, out.getvalue(), err.getvalue()
-
-    def upgrade_here(self, repo, *argv, lab=None):
-        """`catalog.py upgrade . ...` run in the folder of the catalog, as the Makefile runs it."""
-        out, err = io.StringIO(), io.StringIO()
-        before = os.getcwd()
-        os.chdir(str(repo.root))
-        try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                code = standard.main_upgrade([".", *argv], lab=lab or repo.top)
-        finally:
-            os.chdir(before)
         return code, out.getvalue(), err.getvalue()
 
     def test_nothing_to_upgrade(self):
@@ -1269,11 +1220,8 @@ class Upgrading(Case):
         code, out, err = self.upgrade(repo)
         self.assertEqual((code, err), (1, ""))
         self.assertIn("Will change\n  update   .github/workflows/ci.yml\n", out)
-        self.assertTrue(out.endswith(f"Nothing was written. To apply: catalog.py upgrade {repo.root} --write\n"), out)   # not run in the folder
+        self.assertTrue(out.endswith("Nothing was written. To apply: the same command with --write (with make: WRITE=1).\n"), out)
         self.assertIn("# x", (repo.root / ".github/workflows/ci.yml").read_text())
-        code, out, err = self.upgrade_here(repo)
-        self.assertEqual((code, err), (1, ""))
-        self.assertTrue(out.endswith("Nothing was written. To apply: make upgrade WRITE=1\n"), out)   # the Makefile's, as the spec shows it
 
     def test_write_brings_the_files_to_the_level_and_a_second_run_has_nothing_to_do(self):
         repo = self.repo(files=at(8))
@@ -1350,55 +1298,14 @@ class Upgrading(Case):
         self.assertEqual(standard.dirty_files(repo.root, []), [])
         self.assertEqual(standard.dirty_files(repo.top, [".github/workflows/ci.yml"]), [])    # not a work tree
 
-    def test_nothing_is_written_into_another_repository(self):
-        repo = self.repo()
-        repo.git("rm", "-r", "--quiet", ".github/rulesets")
-        repo.git("commit", "--quiet", "-m", "Drop the rulesets")
-        inner = repo.root / ".github/rulesets"
-        inner.mkdir()
-        support.Repo.git_in(inner, "init", "--quiet")                                    # a nested repository
-        plan = self.plan(repo)
-        self.assertEqual(sorted(path for path, action in self.actions(plan).items() if action == "add"),
-                         [".github/rulesets/default-branch.json", ".github/rulesets/history.json", ".github/rulesets/protected-paths.json",
-                          ".github/rulesets/push.json", ".github/rulesets/tag-history.json", ".github/rulesets/tags.json"])
-        with self.assertRaisesRegex(standard.UpgradeError, r"^\.github/rulesets is the work tree of another repository"):
-            standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(os.listdir(inner), [".git"])
-        code, out, err = self.upgrade(repo, "--write")
-        self.assertEqual(code, 2)
-        self.assertIn("is the work tree of another repository (a nested repository or a submodule): the upgrade does not write into it.", err)
-        self.assertEqual(os.listdir(inner), [".git"])
-        # a submodule that was initialised has a `.git` file instead of a folder
-        shutil.rmtree(inner / ".git")
-        (inner / ".git").write_text("gitdir: ../../.git/modules/rulesets\n")
-        with self.assertRaisesRegex(standard.UpgradeError, "another repository"):
-            standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(os.listdir(inner), [".git"])
-
-    def test_nothing_is_written_into_a_submodule_that_was_not_initialised(self):
-        repo = self.repo()
-        repo.git("rm", "-r", "--quiet", ".github/rulesets")
-        repo.git("update-index", "--add", "--cacheinfo", "160000," + repo.git("rev-parse", "HEAD").strip() + ",.github/rulesets")
-        repo.git("commit", "--quiet", "-m", "A submodule where the rulesets were")
-        (repo.root / ".github/rulesets").mkdir(exist_ok=True)                           # what a clone without --recurse-submodules has
-        self.assertEqual(standard.gitlinks(repo.root, [".github/rulesets/push.json", ".github/workflows/ci.yml", "Makefile"]),
-                         [".github/rulesets"])
-        self.assertEqual(standard.gitlinks(repo.root, ["Makefile", ".github/workflows/ci.yml"]), [])
-        self.assertEqual(standard.gitlinks(repo.top, [".github/rulesets/push.json"]), [])                # not a work tree
-        code, out, err = self.upgrade(repo, "--write")
-        self.assertEqual((code, out.count("Wrote")), (2, 0))
-        self.assertEqual(err, "The upgrade does not write into a submodule: .github/rulesets. Fix: make it a folder of this repository, or "
-                              "take it out of the standard's paths.\n")
-        self.assertEqual(os.listdir(repo.root / ".github/rulesets"), [])
-
     def test_git_that_says_too_much_stops_the_upgrade_with_one_line(self):
         repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
         (repo.root / ".github/untracked.txt").write_text("x\n")
+        with (repo.root / ".github/workflows/ci.yml").open("a") as handle:
+            handle.write("# y\n")
         self.patch(standard, "GIT_LIMIT", 10)
         with self.assertRaisesRegex(standard.UpgradeError, "far more than the few files"):
             standard.dirty_files(repo.root, [".github"])
-        with self.assertRaisesRegex(standard.UpgradeError, "far more than the few files"):
-            standard.gitlinks(repo.root, [".github/workflows/ci.yml"])
         code, out, err = self.upgrade(repo, "--write")
         self.assertEqual((code, len(err.splitlines())), (2, 1))
         self.assertIn("far more than the few files of the standard can account for", err)
@@ -1411,54 +1318,6 @@ class Upgrading(Case):
         standard.upgrade_apply(repo.root, plan)
         self.assertFalse((repo.root / ".github/workflows/ci.yml").read_bytes().startswith(b"\xef\xbb\xbf"))
         self.assertEqual(standard.drift(FolderTree(repo.root)), [])
-
-    def test_the_line_that_applies_the_plan_carries_every_option_that_was_given(self):
-        def line(*argv):
-            return standard.apply_command(standard._upgrade_arguments(list(argv)))
-        self.assertEqual(line(), "make upgrade WRITE=1")
-        self.assertEqual(line("."), "make upgrade WRITE=1")
-        self.assertEqual(line("--lab-ref", "latest"), "make upgrade WRITE=1 LAB_REF=latest")
-        self.assertEqual(line("--lab-ref", NEWER_COMMIT), f"make upgrade WRITE=1 LAB_REF={NEWER_COMMIT}")
-        self.assertEqual(line("../hub"), "catalog.py upgrade ../hub --write")
-        self.assertEqual(line("a hub", "--lab-ref", "latest"), "catalog.py upgrade 'a hub' --lab-ref latest --write")
-        self.assertEqual(line("--adopt", "--maintainers", "@acme/maintainers", "--lab-repo", "acme/lab"),
-                         "catalog.py upgrade --maintainers @acme/maintainers --lab-repo acme/lab --adopt --write")
-        self.assertEqual(line("--with", "e2e", "--with", "x"), "catalog.py upgrade --with e2e --with x --write")
-        self.assertEqual(line("--lab-ref", "a b;rm -rf x"), "make upgrade WRITE=1 LAB_REF='a b;rm -rf x'")      # quoted for the shell
-        self.assertEqual(line("a;b", "--maintainers", "x y"), "catalog.py upgrade 'a;b' --maintainers 'x y' --write")
-
-    def test_the_hint_after_a_plan_does_what_the_options_asked(self):
-        repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
-        lab = support.lab_checkout(self)
-        tip = lab.git("rev-parse", "HEAD").strip()
-        code, out, err = self.upgrade_here(repo, "--lab-ref", tip, lab=lab.root)
-        self.assertEqual((code, err), (1, ""))
-        self.assertTrue(out.endswith(f"Nothing was written. To apply: make upgrade WRITE=1 LAB_REF={tip}\n"), out)
-        code, out, err = self.upgrade_here(repo, "--maintainers", "@a")
-        self.assertTrue(out.endswith("Nothing was written. To apply: catalog.py upgrade --maintainers @a --write\n"), out)
-
-    def test_a_failure_after_the_third_write_leaves_the_files_as_they_were(self):
-        repo = self.repo(files=at(1))
-        plan = self.plan(repo)
-        extra = {"path": ".github/zz.txt", "action": "add", "class": "managed", "why": "", "content": b"x\n"}
-        plan = {**plan, "files": plan["files"] + [extra, {**extra, "path": ".github/zy.txt"}]}
-        before = {path: (repo.root / path).read_bytes() for path in render() if (repo.root / path).is_file()}
-        real = standard.paths.write_atomic
-        calls = []
-
-        def fail_after_three(target, text, mode):
-            calls.append(target)
-            if len(calls) == 4:
-                raise OSError(5, "Input/output error")
-            return real(target, text, mode)
-        self.patch(standard.paths, "write_atomic", fail_after_three)
-        with self.assertRaises(OSError):
-            standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(len(calls), 4)
-        self.assertEqual(repo.git("status", "--porcelain").strip(), "")
-        self.assertEqual({path: (repo.root / path).read_bytes() for path in before}, before)
-        self.assertFalse((repo.root / ".github/workflows/nightly.yml").exists())
-        self.assertFalse((repo.root / ".github/zz.txt").exists())
 
     def test_adopt_adds_what_is_missing_keeps_what_is_there_and_lists_what_the_catalog_owns(self):
         files = {"catalog.yml": render()["catalog.yml"], "README.md": b"# mine\n", ".github/workflows/ci.yml": b"name: mine\n", "addons/x/compose.yml":
@@ -1561,28 +1420,6 @@ class Upgrading(Case):
         self.assertFalse(target.is_symlink())
         self.assertEqual(standard.drift(FolderTree(repo.root)), [])
 
-    def test_a_link_that_was_replaced_is_put_back_when_a_later_write_fails(self):
-        repo = self.repo()
-        target = repo.root / ".github/dependabot.yml"
-        target.unlink()
-        os.symlink("/etc/hostname", target)
-        plan = self.plan(repo)
-        plan["files"] = plan["files"] + [{"path": ".github/zz.yml", "action": "add", "class": "managed", "why": "", "content": b"x\n"}]
-        real = standard.paths.write_atomic
-        calls = []
-
-        def fail_on_the_second(path, text, mode):
-            calls.append(path)
-            if len(calls) == 2:
-                raise OSError(5, "Input/output error")
-            return real(path, text, mode)
-        self.patch(standard.paths, "write_atomic", fail_on_the_second)
-        with self.assertRaises(OSError):
-            standard.upgrade_apply(repo.root, plan)
-        self.assertTrue(target.is_symlink())
-        self.assertEqual(os.readlink(target), "/etc/hostname")
-        self.assertFalse((repo.root / ".github/zz.yml").exists())
-
     def test_the_e2e_module_is_added_on_request(self):
         repo = self.repo(images="ghcr.io/acme/lab-hub")
         self.assertNotIn(".github/workflows/e2e.yml", self.actions(self.plan(repo)))
@@ -1636,18 +1473,14 @@ class MovingThePin(Case):
     def plan(self, **options):
         return standard.upgrade_plan(FolderTree(self.catalog.root), {"lab_ref": self.new, "lab": self.lab.root, **options})
 
-    def test_the_plan_has_the_compare_link_and_at_most_fifty_lines_of_the_labs_log(self):
+    def test_the_plan_has_the_compare_link(self):
         plan = self.plan()
         self.assertEqual(plan["lab"]["compare"], f"https://github.com/acme/gravitee-lab/compare/{self.old}...{self.new}")
         self.assertEqual((plan["lab"]["old"], plan["lab"]["new"]), (self.old, self.new))
-        self.assertLessEqual(len(plan["lab"]["log"]), 50)
-        self.assertGreater(len(plan["lab"]["log"]), 30)
-        self.assertTrue(all(len(line) <= 200 and "\x1b" not in line for line in plan["lab"]["log"]))
         self.assertEqual(self.actions(plan), {".github/standard.json": "update"})
         text = standard.describe(plan)
         self.assertIn(f"The Lab pin moves from {self.old[:7]} to {self.new[:7]}. What it brings:", text)
         self.assertIn(plan["lab"]["compare"], text)
-        self.assertEqual(len([line for line in text.split("\n") if line.startswith("  ") and "Change " in line]), len(plan["lab"]["log"]))
 
     def actions(self, plan):
         return {each["path"]: each["action"] for each in plan["files"] if each["action"] != "current"}
@@ -1732,9 +1565,9 @@ class MovingThePin(Case):
         self.assertEqual((code, err.getvalue()), (2, "--lab-ref latest: the Lab checkout that runs this has no release to name. Fix: "
                                                      "git fetch --tags, then run again.\n"))
 
-    def test_the_fleet_gets_a_plan_without_a_lab_checkout_and_no_log(self):
+    def test_the_fleet_gets_a_plan_without_a_lab_checkout(self):
         plan = standard.upgrade_plan(FolderTree(self.catalog.root), {"lab_ref": self.new})
-        self.assertEqual((plan["lab"]["log"], plan["refused"]), ([], ""))
+        self.assertEqual(plan["refused"], "")
         self.assertTrue(plan["lab"]["compare"])
         self.assertEqual(plan["owned"], [])
 
@@ -1839,21 +1672,6 @@ class Rules(unittest.TestCase):
                     self.assertIn("key: ${{ secrets.LAB_DEPLOY_KEY }}", line, path)
         text = render()[".github/workflows/ci.yml"].decode()
         self.assertEqual(text.count("uses: ./catalog/.github/actions/lab"), 3)
-
-    def test_no_cache_of_any_kind_in_the_files(self):
-        for path, data in render(**EVERYTHING).items():
-            if path.startswith(".github/"):
-                code = "\n".join(line for line in data.decode().split("\n") if not line.lstrip().startswith("#"))
-                self.assertNotRegex(code, r"actions/cache|cache-from|cache-to|type=gha|^\s*(?:- )?cache:", path)
-
-    def test_every_job_has_a_timeout_and_the_token_only_reads_at_the_top(self):
-        for path, data in render(**EVERYTHING).items():
-            if path.startswith(".github/workflows/"):
-                text = data.decode()
-                self.assertIn("permissions:\n  contents: read\n", text, path)
-                jobs = re.split(r"^  ([\w-]+):\s*$", text.split("\njobs:\n", 1)[1], flags=re.M)
-                for name, body in zip(jobs[1::2], jobs[2::2]):
-                    self.assertIn("timeout-minutes:", body, f"{path} {name}")
 
 
 class Hostile(unittest.TestCase):

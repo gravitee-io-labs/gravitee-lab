@@ -1,7 +1,7 @@
-"""`catalog.py ci run [PATH] [--all] [--base REF] [--app NAME]`: the local runner behind `make ci`. It runs on a person's
+"""`catalog.py ci run [PATH] [--all] [--app NAME]`: the local runner behind `make ci`. It runs on a person's
 machine what the CI of a catalog runs without a license, in the order CI runs it, on the architecture of this machine:
 
-    plan        the units changed since `origin/main` (`--base REF` for another commit, `--all` for every unit)
+    plan        the units changed since `origin/main` (`--all` for every unit)
     manifests   every image they pull exists in its registry
     build       the apps of those units, for this machine's architecture
     test        the tests of each app in its image, offline (`--app NAME`: that app alone)
@@ -61,13 +61,6 @@ def stage_function(name: str, stages: Optional[Dict[str, Callable]] = None) -> C
     return getattr(importlib.import_module(f"{__package__}.{module_name}"), function)
 
 
-def base_of(root: str, asked: str) -> str:
-    """The commit the change is measured from: the one asked for, else `git merge-base origin/main HEAD`; "" when there is none."""
-    if asked:
-        return trees.resolve(root, asked) or ""
-    return trees.default_base(root) or "" if trees.is_repository(root) else ""
-
-
 def units_with_app(units, root: str, name: str, lab=None) -> List[str]:
     """The keys of the loaded units that build an app of this name."""
     specs, _, _ = specs_of(units, host_platform(), root, lab, local=True)
@@ -78,7 +71,6 @@ def units_with_app(units, root: str, name: str, lab=None) -> List[str]:
 def main(argv, out, err, **seams) -> int:
     found = parser("run", "Plan, manifests, build and test on this machine, as CI does.", ci=False)
     found.add_argument("--all", action="store_true", help="every unit, not only those changed since the base")
-    found.add_argument("--base", default="", help="the commit the change is measured from (default: origin/main)")
     found.add_argument("--app", default=None, help="build and test this app only (the folder of its build context)")
     args = parsed(found, argv)
     root = os.path.abspath(args.path)
@@ -87,9 +79,7 @@ def main(argv, out, err, **seams) -> int:
 
     # plan: the CI's own function, on this machine's architecture
     tree = trees.FolderTree(root)
-    base, reason = base_of(root, args.base), ""
-    if args.base and not base:
-        raise Usage(f"{report.printable(args.base)[:60]} is not a commit of this repository")
+    base, reason = (trees.default_base(root) or "") if trees.is_repository(root) else "", ""
     changed = None
     if not args.all:
         if not base:

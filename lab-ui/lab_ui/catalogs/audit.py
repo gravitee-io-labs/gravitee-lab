@@ -13,8 +13,8 @@ What `run` decides, and the rule modules do not:
   is a new error. It is not done for a change that holds nothing (the base is the head): there is nothing to subtract from. The
   base is read from the repository's git directory as git names it, so a linked work tree (`git worktree add`), whose `.git`
   is a file, is read as a clone is; when the files of the base cannot be read that is said, and the errors stay errors.
-- **Severity.** `.github/standard.json "strict"` and `error` make a warning an error; `soft` prints every error as a warning.
-  `status` is the exit code: 1 for an error (and a warning with `strict`), and 1 for a check that was skipped, 2 under `ci`.
+- **Severity.** `error` makes a warning an error.
+  `status` is the exit code: 1 for an error, and 1 for a check that was skipped, 2 under `ci`.
 - **What it does not do.** It never writes (git is asked to leave the index alone), never links, never runs a file of the tree,
   and makes no network call: `online` only asks for the checks that compare with GitHub (IM04), from what git already holds.
 
@@ -45,9 +45,7 @@ class Options(NamedTuple):
 
     base           the commit the change is measured from, as git names a commit (`origin/main`, `HEAD~1`, a branch, an id); None
                    takes `git merge-base origin/main HEAD` when there is one
-    soft           every error is a warning and the exit code is 0 (the check of a newer Lab on a catalog written for an older)
     error          codes that are errors for this run whatever they are
-    strict         the exit code is 1 for a warning too
     online         the checks that compare with GitHub are asked for
     history        read every commit of the history, not only those since the base
     ci             the run is CI's: IM04 is asked for, and a skipped check is exit 2
@@ -61,9 +59,7 @@ class Options(NamedTuple):
     repository     OWNER/REPO of this repository (IM04); default $GITHUB_REPOSITORY, else the `origin` remote
     """
     base: Optional[str] = None
-    soft: bool = False
     error: Tuple[str, ...] = ()
-    strict: bool = False
     online: bool = False
     history: bool = False
     ci: bool = False
@@ -195,23 +191,17 @@ def subtract(now: List[Problem], earlier: List[Problem]) -> List[Problem]:
     return out
 
 
-def promote(problems: List[Problem], standard: Optional[dict], error: Iterable[str]) -> List[Problem]:
-    """A warning whose code the catalog (`.github/standard.json "strict"`) or the run (`error`) makes an error is one."""
+def promote(problems: List[Problem], error: Iterable[str]) -> List[Problem]:
+    """A warning whose code the run (`error`) makes an error is one."""
     codes = set(error)
-    listed = standard.get("strict") if isinstance(standard, dict) else None
-    if isinstance(listed, list):
-        codes |= {each for each in listed if isinstance(each, str)}
     return [each._replace(severity=ERROR) if each.severity == WARNING and each.code in codes else each for each in problems]
 
 
 def status(result: Result, options: Optional[Options] = None) -> int:
-    """The exit code of a check: 1 for an error (and for a warning with `strict`), 1 for a skipped check (2 under `ci`: the
-    environment cannot do what the check needs), 0 otherwise. `soft` makes it 0."""
+    """The exit code of a check: 1 for an error, 1 for a skipped check (2 under `ci`: the environment cannot do what the check
+    needs), 0 otherwise."""
     options = options or Options()
-    if options.soft:
-        return 0
-    if any(each.severity == ERROR for each in result.problems) or (options.strict and any(
-            each.severity == WARNING for each in result.problems)):
+    if any(each.severity == ERROR for each in result.problems):
         return 1
     return (2 if options.ci else 1) if result.skipped else 0
 
@@ -258,10 +248,8 @@ def run(root, options: Optional[Options] = None) -> Result:
         skipped.append("the commits since the base: this folder has no git history")
     if options.history and folder and history is None:
         skipped.append("the history: this folder has no git history")
-    found = promote(found, ctx.standard, options.error)
+    found = promote(found, options.error)
     found = _against_base(found, tree, root, options, base, ctx, skipped)
-    if options.soft:
-        found = [each._replace(severity=WARNING) if each.severity == ERROR else each for each in found]
     found.sort(key=lambda each: (FAMILIES.index(family(each.code)) if family(each.code) in FAMILIES else len(FAMILIES), each.path,
                                  each.line, each.code, each.message))
     return Result(found, list(dict.fromkeys(skipped)), base, commits, _header(base, commits, options, history, ctx, lost))
@@ -291,4 +279,4 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
     quiet = context(before, units=None, seeder_images=ctx.seeder_images, seeder_paths=ctx.seeder_paths,
                     repository=ctx.repository, ci=ctx.ci, online=ctx.online)
     earlier = _run_families(before, quiet, [code for code in FAMILIES if code in HYGIENE])
-    return subtract(found, promote(earlier, ctx.standard, options.error))
+    return subtract(found, promote(earlier, options.error))

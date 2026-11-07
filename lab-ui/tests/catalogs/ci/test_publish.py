@@ -495,7 +495,7 @@ class Gates(Fixture):
                 self.github.passed(sha)
                 self.assertEqual(self.plan(), 1, self.out.getvalue())
                 self.assertIn(f"PB08 The commit {sha[:7]} carries a tool credit in its message or its author. main is never rewritten. "
-                              "Fix: find how it got there (the merge settings, V18) and write the next title without it.",
+                              "Fix: find how it got there (the merge settings) and write the next title without it.",
                               self.out.getvalue())
                 self.assertEqual(self.outputs(), {})
                 self.assertEqual(self.github.asked, [], "the credit is seen before anything is asked of GitHub")
