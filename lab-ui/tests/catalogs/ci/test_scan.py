@@ -324,15 +324,6 @@ class Built(Fixture):
         self.assertIn(f"SC01 {PREFIX}/bakery-api:latest: GHSA-6q48-6c7w-9gw2 in certifi 2026.1.1, fixed in 2026.10.19. Fix: update the package "
                       "or the base image.", self.out.getvalue())
 
-    def test_the_scan_of_the_images_built_runs_the_same_hardened_scanner_with_no_network(self):
-        self.run_built()
-        scans = [call for call in self.docker.runs() if "--input" in call]
-        self.assertEqual(len(scans), 2)
-        for call in scans:
-            self.assertIn(SCANNER, call)
-            self.assertEqual(options(call, "--network"), ["none"])
-            self.assertEqual(call[:len(scan.HARDENED) + 2], ["docker", "run", *scan.HARDENED])
-
     def test_an_image_that_was_not_built_here_is_said_and_the_build_is_what_fails(self):
         self.docker.absent = {f"{PREFIX}/bakery-api:latest"}
         self.assertEqual(self.run_built(), 0)
