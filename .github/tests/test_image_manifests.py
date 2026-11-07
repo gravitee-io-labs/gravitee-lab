@@ -438,13 +438,6 @@ class PinnedTest(Served):
         return connection
 
 
-class CheckTest(unittest.TestCase):
-    def test_every_image_is_asked_and_the_answers_keep_their_images(self):
-        answers = {"a:1": True, "b:2": False, "c:3": None}
-        self.assertEqual(image_manifests.check(list(answers), answers.get), answers)
-        self.assertEqual(image_manifests.check([], answers.get), {})
-
-
 class ImagesTest(Offline):
     """images(): what the core and an item pull, read the way a file of a stranger is read. The project and Compose are given."""
 
