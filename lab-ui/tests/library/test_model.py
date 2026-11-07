@@ -363,9 +363,9 @@ class State(Built):
         stopped_all = {**CORE, **stopped("kazoo", "kazoo-ui", "kazoo-desk")}
         events = self.item("setup", "events", explicit=["kazoo-desk"], containers=stopped_all)
         self.assertEqual((events["on"], events["state"]["key"], events["note"]), (True, "stopped", "Stopped"))
-        observability = self.item("setup", "observability", explicit=["jade"], containers=CORE)
-        self.assertEqual((observability["on"], observability["state"]["key"], observability["note"],
-                          observability["note_title"]), (False, "off", "Partly on", "On: Jade"))
+        overlook = self.item("setup", "overlook", explicit=["jade"], containers=CORE)
+        self.assertEqual((overlook["on"], overlook["state"]["key"], overlook["note"],
+                          overlook["note_title"]), (False, "off", "Partly on", "On: Jade"))
         partly = self.item("setup", "events", explicit=["kazoo-desk"],
                            containers={**CORE, **healthy("kazoo", "kazoo-ui"), "kazoo-desk": exited(143)})
         self.assertEqual((partly["state"]["key"], partly["note"], partly["note_tone"]),
@@ -551,19 +551,19 @@ class State(Built):
         self.assertEqual((item["action"]["do"], item["action"]["label"], item["secondary"]["label"]),
                          ("start", "Turn on", "Stop"))
         # A setup whose add-ons all run, none of them on; its tooltip names them
-        item = self.item("setup", "observability", containers={**CORE, **healthy("jade", "kiosk")})
+        item = self.item("setup", "overlook", containers={**CORE, **healthy("jade", "kiosk")})
         self.assertEqual((item["note"], item["note_title"], item["action"]["label"]),
                          ("Started by hand",
                           "Jade, Kiosk were not started from the Lab UI, so the platform does not start them.", "Turn on"))
         # One of them running alone, the other off: the setup is off, and says why its menu has Stop, as an add-on
         # does
-        item = self.item("setup", "observability", containers={**CORE, **healthy("jade")})
+        item = self.item("setup", "overlook", containers={**CORE, **healthy("jade")})
         self.assertEqual((item["state"]["key"], item["note"], item["note_title"], item["action"]["label"],
                           item["secondary"]["label"]),
                          ("off", "Started by hand",
                           "Jade was not started from the Lab UI, so the platform does not start it.", "Turn on", "Stop"))
         # What of it is on runs as it should: that is not outside the Lab UI
-        item = self.item("setup", "observability", explicit=["jade"], containers={**CORE, **healthy("jade")})
+        item = self.item("setup", "overlook", explicit=["jade"], containers={**CORE, **healthy("jade")})
         self.assertEqual((item["note"], item["action"]["label"]), ("Partly on", "Start"))
 
     def test_license_lacks_a_feature(self):
@@ -894,9 +894,9 @@ class State(Built):
         events = self.item("setup", "events", explicit=["kazoo-desk"], containers=down)
         self.assertEqual((events["action"]["do"], events["secondary"]["label"]), ("start", "Turn off"))
         # A setup some add-ons of which are on: its menu turns them off, asking first
-        observability = self.item("setup", "observability", explicit=["jade"], containers={**CORE,
+        overlook = self.item("setup", "overlook", explicit=["jade"], containers={**CORE,
                                                                                              **healthy("jade")})
-        self.assertEqual((observability["secondary"]["label"], observability["secondary"]["dialog"]["stops"]),
+        self.assertEqual((overlook["secondary"]["label"], overlook["secondary"]["dialog"]["stops"]),
                          ("Stop", [JADE]))
         # A playground too, on its row and its page: its apps do not run, what it brings and runs stops with it
         playground = self.item("playground", "welcome", playground="welcome",
@@ -1081,7 +1081,7 @@ class State(Built):
             {"label": "Kazoo", "url": "http://localhost/kazoo-ui", "port": None, "up": True, "service": "kazoo-ui"}])
         self.assertEqual((addons["hyssop"]["env_file"], addons["hyssop"]["settings"]),
                          (".lab/catalogs/fixture/addons/hyssop/.env", ["HYSSOP_CLOUD_TOKEN"]))
-        setup = next(item for item in body["setups"] if item["id"] == "observability")
+        setup = next(item for item in body["setups"] if item["id"] == "overlook")
         # A setup with one add-on turned on is partly on: off, it says which
         self.assertEqual((setup["on"], setup["up"], setup["state"]["key"], setup["note"], setup["note_title"]),
                          (False, True, "off", "Partly on", "On: Jade"))
@@ -1095,8 +1095,8 @@ class State(Built):
         self.assertEqual(playground["addons"], [{"id": "agent-lens", "name": "AI Agent Lens"}])
         self.assertEqual(playground["setups"], [])
         # The setups it includes are named; one that does not load is left out, its problem says why
-        self.project["playgrounds"]["welcome"]["setups"] = ["observability", "gone"]
-        self.assertEqual(self.build()["playgrounds"][0]["setups"], [{"id": "observability", "name": "Observability"}])
+        self.project["playgrounds"]["welcome"]["setups"] = ["overlook", "gone"]
+        self.assertEqual(self.build()["playgrounds"][0]["setups"], [{"id": "overlook", "name": "Overlook"}])
         self.assertEqual([link["label"] for link in playground["links"]], ["Hello", "AI Agent Lens"])
         self.assertEqual((playground["apps"], playground["guide"], playground["created"]), (["hello-app"], "0123456789ab", []))
 
@@ -1112,7 +1112,7 @@ class State(Built):
         for uid, name in (("lab-10", "Lab 10"), ("lab-2", "Lab 2")):
             self.project["setups"][uid] = {**self.project["setups"]["inspect"], "id": uid, "name": name}
         self.assertEqual([setup["name"] for setup in self.build()["setups"]],
-                         ["Events", "Inspect", "Lab 2", "Lab 10", "Mine", "Observability"])
+                         ["Events", "Inspect", "Lab 2", "Lab 10", "Mine", "Overlook"])
 
     def test_legacy_consoles_come_last(self):
         # A playground's own consoles come before those of its add-ons, a legacy one after them all

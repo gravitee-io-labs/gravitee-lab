@@ -27,14 +27,14 @@ class Stars(Folder):
         starred.star(self.project, "addon", "kazoo", True)   # twice is once
         self.assertEqual(self.saved(), {"addon": ["kazoo", "local/whoami"], "playground": ["welcome"]})
         starred.star(self.project, "playground", "welcome", False)
-        starred.star(self.project, "setup", "observability", False)   # not starred: nothing changes
+        starred.star(self.project, "setup", "overlook", False)   # not starred: nothing changes
         self.assertEqual(self.saved(), {"addon": ["kazoo", "local/whoami"]})
 
     def test_the_state_says_it_of_every_item(self):
-        starred.star(self.project, "setup", "observability", True)
+        starred.star(self.project, "setup", "overlook", True)
         state = {kind + "s": [{"id": uid} for uid in self.project[kind + "s"]] for kind in paths.KINDS}
         starred.mark(state)
-        self.assertEqual({x["id"] for x in state["setups"] if x["starred"]}, {"observability"})
+        self.assertEqual({x["id"] for x in state["setups"] if x["starred"]}, {"overlook"})
         self.assertFalse(any(x["starred"] for x in state["addons"] + state["playgrounds"]))
 
     def test_only_what_the_project_has(self):
@@ -51,8 +51,8 @@ class Stars(Folder):
 
     def test_a_file_that_does_not_read_stars_nothing(self):
         empty = {"addon": set(), "setup": set(), "playground": set()}
-        for text, found in (("{", empty), ("[]", empty), ('{"addon": "kazoo", "setup": [1, "observability"]}',
-                                                          {**empty, "setup": {"observability"}})):
+        for text, found in (("{", empty), ("[]", empty), ('{"addon": "kazoo", "setup": [1, "overlook"]}',
+                                                          {**empty, "setup": {"overlook"}})):
             self.write(starred.FILE, text)
             self.assertEqual(starred.read(), found, text)
 

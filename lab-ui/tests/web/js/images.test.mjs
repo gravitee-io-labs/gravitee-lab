@@ -111,7 +111,7 @@ test("what runs behind what is saved has the badge in the State cell, with the s
 });
 
 test("the platform's components come first under its band, its own add-ons' under a band of their own, then what is not Gravitee's, and each band folds", async () => {
-  const gravitee = { kind: "addon", id: "federation", name: "API Federation" }, other = { kind: "addon", id: "observability", name: "Jade" };
+  const gravitee = { kind: "addon", id: "federation", name: "API Federation" }, other = { kind: "addon", id: "overlook", name: "Jade" };
   const agent = { ...component("AGENT_VERSION", "Apigee X agent", ["graviteeio/agent:1"]), group: null, owner: gravitee };
   const tools = { ...component("TOOLS_VERSION", "Operator installer", ["tools:1"], { kind: "third-party" }), group: null, owner: gravitee };   // an image of another maker, run by the platform's add-on
   const jade = { ...component("JADE_VERSION", "Jade", ["jade:1"], { kind: "third-party" }), group: null, owner: other };
@@ -119,7 +119,7 @@ test("the platform's components come first under its band, its own add-ons' unde
   const hyssop = { ...component("HYSSOP_VERSION", "Hybrid gateway", ["graviteeio/apim-gateway:1"]), owner: gravitee };   // an add-on's gateway: a gateway of its group
   COMPONENTS.push(agent, tools, jade, kazoo, hyssop);
   const was = store.state;
-  store.state = { ...was, addons: [{ id: "federation", category: "Gravitee Platform" }, { id: "observability", category: "Observability" }] };
+  store.state = { ...was, addons: [{ id: "federation", category: "Gravitee Platform" }, { id: "overlook", category: "Observability" }] };
   imagesPage.show([]);
   imagesPage.render(store.state);
   await flush();

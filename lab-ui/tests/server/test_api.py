@@ -50,7 +50,7 @@ PROJECT = {
                "tuning": {"name": "Tuning", "services": []},
                "local/whoami": {"name": "Whoami", "services": ["whoami"]}},
     "playgrounds": {"welcome": {"name": "Welcome", "apps": ["hello-app"]}, "local/sandbox": {"name": "Sandbox"}},
-    "setups": {"observability": {"name": "Observability", "members": ["jade", "kiosk"]},
+    "setups": {"overlook": {"name": "Overlook", "members": ["jade", "kiosk"]},
                "local/my-demo": {"name": "My demo", "members": ["kazoo"]}},
     # Its container gio-<name>, its image (built here or pulled)
     "services": {name: {"role": role, "owner": {"kind": kind, "id": uid}, "container": f"gio-{name}", "image": image,
@@ -647,7 +647,7 @@ class Accepted(LabUI):
     """What the page sends back of the rows its dialog showed is a list of keys. A text would be searched by pieces of it, and a
     mapping by its keys: the gate that asks for what the page showed would take them for it, so no route takes either."""
 
-    ROUTES = [("POST", "/api/addons/kazoo/start"), ("POST", "/api/setups/observability/start"),
+    ROUTES = [("POST", "/api/addons/kazoo/start"), ("POST", "/api/setups/overlook/start"),
               ("POST", "/api/playgrounds/welcome/start"), ("POST", "/api/playgrounds/welcome/stop"),
               ("POST", "/api/playgrounds/welcome/reseed"), ("POST", "/api/platforms/my-account/gateways/gw-1/start"),
               ("POST", "/api/stack/start")]
@@ -1047,7 +1047,7 @@ class Personal(LabUI):
         self.assertEqual(self.request("POST", "/api/playgrounds/welcome/containers/start")[0], 200)
         action.assert_called_once_with(PROJECT, "playground", "welcome", "start")
         # A setup has no container of its own; a verb other than start, stop and restart is no route
-        for path in ("/api/setups/observability/containers/start", "/api/addons/kazoo/containers/rm"):
+        for path in ("/api/setups/overlook/containers/start", "/api/addons/kazoo/containers/rm"):
             self.assertEqual(self.request("POST", path)[0], 404, path)
 
 
@@ -1745,7 +1745,7 @@ class StartsAreVerified(GatewayCase):
         for kind in ("addons", "setups", "playgrounds"):
             for unit in self.project[kind].values():
                 unit["catalog"] = "fixture"
-        for kind, uid in (("addons", "kiosk"), ("addons", "hyssop"), ("setups", "observability")):
+        for kind, uid in (("addons", "kiosk"), ("addons", "hyssop"), ("setups", "overlook")):
             self.project[kind][uid]["deploys_to"] = ["cloud"]
         self.verify = self.patch(api.service, "preflight")
         # What would run: one job queue for every module that starts a job
@@ -1774,11 +1774,11 @@ class StartsAreVerified(GatewayCase):
         place, nothing, seeded = {"place": self.PLACE}, ([], None), (["hyssop"], "hotels")
         return [
             ("an add-on", "/api/addons/kiosk/start", {}, [("addon", "kiosk")], nothing),
-            ("a setup", "/api/setups/observability/start", {}, [("setup", "observability"), ("addon", "jade"), ("addon", "kiosk")],
+            ("a setup", "/api/setups/overlook/start", {}, [("setup", "overlook"), ("addon", "jade"), ("addon", "kiosk")],
              nothing),
             ("a playground", "/api/playgrounds/welcome/start", {}, [("playground", "welcome"), ("addon", "agent-lens")], nothing),
             ("an add-on in a place", "/api/addons/kiosk/start", place, [("addon", "kiosk"), ("addon", "hyssop")], nothing),
-            ("a setup in a place", "/api/setups/observability/start", place,
+            ("a setup in a place", "/api/setups/overlook/start", place,
              [("addon", "jade"), ("addon", "kiosk"), ("addon", "hyssop")], nothing),
             ("a playground in a place", "/api/playgrounds/hotels/start", place, [("playground", "hotels"), ("addon", "hyssop")],
              nothing),

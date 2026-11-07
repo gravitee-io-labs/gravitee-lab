@@ -176,9 +176,9 @@ class Setups(Folder):
                 ("Demo", [5], None, "The add-ons must be a list of ids"),
                 ("Demo", ["jade", "agent-lens"], None, f"AI Agent Lens and Jade cannot .*: {EXPORTER}"),
                 ("Demo", ["kazoo-desk", "redpanda"], None, "Kazoo and Redpanda cannot run together"),
-                ("Demo", ["kiosk"], "observability", "Only your own setups can be changed here"),
+                ("Demo", ["kiosk"], "overlook", "Only your own setups can be changed here"),
                 ("Mine", ["kiosk"], None, "Another setup has this name"),
-                ("Observability", ["kiosk"], None, "Another setup has this name"),
+                ("Overlook", ["kiosk"], None, "Another setup has this name"),
                 ("Costs $5", ["kiosk"], None, r"Write the name without \$")):
             with self.subTest(name=name, addons=addons), self.assertRaisesRegex(ValueError, message):
                 personal.save_setup(self.project, name, "", addons, sid)
@@ -358,7 +358,7 @@ class Playgrounds(Folder):
         self.own()
         (self.root / SANDBOX).unlink()
         (self.root / SANDBOX).parent.rmdir()
-        created = self.create(setups=["observability", "local/mine"], addons=["local/whoami", "kazoo"])
+        created = self.create(setups=["overlook", "local/mine"], addons=["local/whoami", "kazoo"])
         self.assertEqual(created, {"file": SANDBOX, "id": "local/sandbox"})
         self.assertEqual(self.text(SANDBOX), """x-gravitee:
   kind: playground
@@ -368,7 +368,7 @@ class Playgrounds(Folder):
 
 include:
   - ../../setups/mine.yml
-  - ../../../fixture/setups/observability.yml
+  - ../../../fixture/setups/overlook.yml
   - ../../../fixture/addons/kazoo/compose.yml
   - ../../addons/whoami/compose.yml
 
@@ -380,11 +380,11 @@ services: {}
 
     def test_kept_in_a_folder_catalog_or_with_nothing_included(self):
         self.catalog("fixture")
-        created = self.create(category="Other", setups=["observability"], addons=["kazoo"], catalog="fixture")
+        created = self.create(category="Other", setups=["overlook"], addons=["kazoo"], catalog="fixture")
         self.assertEqual(created, {"file": f"{FIXTURE}/playgrounds/sandbox/compose.yml", "id": "sandbox"})
         self.assertEqual(self.text(created["file"]), 'x-gravitee:\n  kind: playground\n  name: "Sandbox"\n'
                          '  category: Other\n  description: "A place to try"\n\n'
-                         "include:\n  - ../../setups/observability.yml\n"
+                         "include:\n  - ../../setups/overlook.yml\n"
                          "  - ../../addons/kazoo/compose.yml\n\nservices: {}\n")
         self.create("Empty")
         self.assertNotIn("include", self.text(f"{LOCAL}/playgrounds/empty/compose.yml"))
@@ -417,7 +417,7 @@ services: {}
                 ({"name": "Other", "setups": ["local/mine"], "catalog": "fixture"}, "Mine is of this machine: share it"),
                 ({"name": "Other", "addons": ["local/whoami"], "catalog": "fixture"}, "Whoami is of this machine"),
                 # Jade comes with the setup, AI Agent Lens is chosen
-                ({"name": "Other", "setups": ["observability"], "addons": ["agent-lens"]},
+                ({"name": "Other", "setups": ["overlook"], "addons": ["agent-lens"]},
                  f"AI Agent Lens and Jade cannot run together: {EXPORTER}")):
             with self.subTest(fields=fields), self.assertRaisesRegex(ValueError, message):
                 self.create(**fields)
@@ -458,7 +458,7 @@ class Deleted(Folder):
         before = self.tree()
         for kind, uid, noun in (("addon", "kazoo", "add-ons"), ("addon", "local/../kazoo", "add-ons"),
                                 ("addon", "local/", "add-ons"), ("addon", "local/whoami/../../kazoo", "add-ons"),
-                                ("setup", "observability", "setups"), ("setup", "local/../observability", "setups"),
+                                ("setup", "overlook", "setups"), ("setup", "local/../overlook", "setups"),
                                 ("playground", "welcome", "playgrounds"), ("playground", "local", "playgrounds")):
             with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, f"Only your own {noun} can be deleted here"):
                 personal.delete(self.project, kind, uid)

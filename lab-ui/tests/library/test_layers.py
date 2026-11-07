@@ -82,8 +82,8 @@ def lab():
                         "product": None, "file": "docker-compose.yml", "env_file": ".env", "settings": []}
                        for name, names in groups.items()],
             "products": {}, "addons": {addon["id"]: addon for addon in addons},
-            "setups": {"observability": _setup("observability", "Observability", ["jade", "kiosk"],
-                                               ["jade", "kiosk"]),
+            "setups": {"overlook": _setup("overlook", "Overlook", ["jade", "kiosk"],
+                                          ["jade", "kiosk"]),
                        "events": _setup("events", "Events", ["kazoo-desk"], ["kazoo", "kazoo-desk"]),
                        "inspect": _setup("inspect", "Inspect", ["agent-lens"], ["agent-lens"]),
                        "local/mine": _setup("local/mine", "Mine", ["kiosk"], ["kiosk"])},
@@ -420,7 +420,7 @@ class Plans(Case):
         plan = self.plan(on(self.project), up(), "setup", "events", "start")
         self.check(plan, starts=[KAZOO, CONSOLE], restarts=[GATEWAY, API], playground=None, explicit=["kazoo-desk"])
         state = on(self.project, playground="welcome")
-        plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "setup", "observability", "start")
+        plan = self.plan(state, up("agent-lens", playgrounds=["welcome"]), "setup", "overlook", "start")
         self.check(plan, starts=[JADE, KIOSK], stops=[APPS, INSPECTOR], keeps=[DATA], restarts=[GATEWAY],
                    playground=None, explicit=["jade", "kiosk"])
 
@@ -788,7 +788,7 @@ class Plans(Case):
     def test_stop_setup_stops_its_members(self):
         state = on(self.project, ["jade", "kazoo", "kazoo-desk", "kiosk"])   # Kazoo is on by itself too
         running = up("jade", "kazoo", "kazoo-desk", "kiosk")
-        self.check(self.plan(state, running, "setup", "observability", "stop"), stops=[JADE, KIOSK],
+        self.check(self.plan(state, running, "setup", "overlook", "stop"), stops=[JADE, KIOSK],
                    restarts=[GATEWAY], playground=None, explicit=["kazoo", "kazoo-desk"])
         self.check(self.plan(state, running, "setup", "events", "stop"), stops=[KAZOO, CONSOLE],
                    restarts=[GATEWAY, API], playground=None, explicit=["jade", "kiosk"])
@@ -812,14 +812,14 @@ class Plans(Case):
         # Another setup whose add-ons only this one turned on does not keep them
         state = on(self.project, ["jade", "kiosk"])
         self.project["setups"]["local/mine"].update(includes=["kiosk"], members=["kiosk"])
-        plan = self.plan(state, up("jade", "kiosk"), "setup", "observability", "stop")
+        plan = self.plan(state, up("jade", "kiosk"), "setup", "overlook", "stop")
         self.check(plan, stops=[JADE, KIOSK], restarts=[GATEWAY], playground=None, explicit=[])
 
     def test_a_setup_s_stop_says_what_was_turned_on_by_itself(self):
-        # Jade turned on by itself, Kiosk off: Observability is not on, Jade is not the setup
-        plan = self.plan(on(self.project, ["jade"]), up("jade"), "setup", "observability", "stop")
+        # Jade turned on by itself, Kiosk off: Overlook is not on, Jade is not the setup
+        plan = self.plan(on(self.project, ["jade"]), up("jade"), "setup", "overlook", "stop")
         self.check(plan, stops=[JADE], restarts=[GATEWAY], playground=None, explicit=[])
-        self.assertEqual((plan["itself"], plan["label"]), ({"setup:observability"}, "Stop"))
+        self.assertEqual((plan["itself"], plan["label"]), ({"setup:overlook"}, "Stop"))
         with self.assertRaisesRegex(RuntimeError, "Would also stop Jade"):
             layers.check(self.project, plan, [])
         # On, an add-on of it turned on by itself is not the setup either: Kazoo, Events having turned on Kazoo Desk
@@ -833,11 +833,11 @@ class Plans(Case):
                  (["kazoo"], up(), "addon", "kazoo", "stop", "Turn off"),
                  ([], up("kiosk"), "addon", "kiosk", "start", "Turn on"),
                  ([], up(), "addon", "kiosk", "start", "Start"),
-                 (["jade"], up("jade", "kiosk"), "setup", "observability", "start", "Turn on"),
-                 (["jade"], up("jade"), "setup", "observability", "start", "Start"),
+                 (["jade"], up("jade", "kiosk"), "setup", "overlook", "start", "Turn on"),
+                 (["jade"], up("jade"), "setup", "overlook", "start", "Start"),
                  # One of its add-ons runs without being on, the other is off: as an add-on that runs
-                 ([], up("kiosk"), "setup", "observability", "start", "Turn on"),
-                 (["jade"], up(), "setup", "observability", "stop", "Turn off")]
+                 ([], up("kiosk"), "setup", "overlook", "start", "Turn on"),
+                 (["jade"], up(), "setup", "overlook", "stop", "Turn off")]
         for explicit, running, kind, uid, do, label in cases:
             with self.subTest(uid=uid, do=do, label=label):
                 self.assertEqual(self.plan(on(self.project, explicit), running, kind, uid, do)["label"], label)
@@ -1019,10 +1019,10 @@ class Plans(Case):
         self.assertEqual(self.changes(state, up("jade", "kiosk"), "addon", "agent-lens", "start"),
                          {"start": [["addon", "agent-lens"], ["service", "apim-gateway"]],
                           "stop": [["addon", "jade"]]})
-        self.assertEqual(self.changes(state, up("jade", "kiosk"), "setup", "observability", "stop"),
+        self.assertEqual(self.changes(state, up("jade", "kiosk"), "setup", "overlook", "stop"),
                          {"start": [["service", "apim-gateway"]], "stop": [["addon", "jade"], ["addon", "kiosk"]]})
         # What is turned off is removed: it shows as stopping
-        self.assertEqual(self.changes(state, up("jade"), "setup", "observability", "stop"),
+        self.assertEqual(self.changes(state, up("jade"), "setup", "overlook", "stop"),
                          {"start": [["service", "apim-gateway"]], "stop": [["addon", "jade"], ["addon", "kiosk"]]})
 
     def test_changes_of_a_start_again_name_the_item(self):
@@ -1034,10 +1034,10 @@ class Plans(Case):
         self.assertEqual(self.changes(state, running, "playground", "welcome", "start"),
                          {"start": [["playground", "welcome"]], "stop": []})
         state = on(self.project, ["jade", "kiosk"])
-        self.assertEqual(self.changes(state, up("jade", "kiosk"), "setup", "observability", "start"),
+        self.assertEqual(self.changes(state, up("jade", "kiosk"), "setup", "overlook", "start"),
                          {"start": [["addon", "jade"], ["addon", "kiosk"]], "stop": []})
         # A member that starts already says so for the setup: the one that runs is left as it is
-        self.assertEqual(self.changes(on(self.project, ["jade"]), up("jade"), "setup", "observability", "start"),
+        self.assertEqual(self.changes(on(self.project, ["jade"]), up("jade"), "setup", "overlook", "start"),
                          {"start": [["addon", "kiosk"]], "stop": []})
 
     def test_the_services_a_job_s_changes_cover(self):
@@ -1904,7 +1904,7 @@ class Gates(Case):
         self.block("agent-lens", "Mounts the Docker socket")
         self.assertEqual(self.why("playground", "welcome"), "Mounts the Docker socket")
         self.block("kiosk", "Runs with full privileges")
-        self.assertEqual(self.why("setup", "observability"), "Runs with full privileges", "a setup is its add-ons")
+        self.assertEqual(self.why("setup", "overlook"), "Runs with full privileges", "a setup is its add-ons")
 
     def test_a_catalog_it_lacks_is_said_in_the_words_of_the_page(self):
         for reason, line in NEEDS.items():
@@ -2014,10 +2014,10 @@ class Gates(Case):
         self.assertEqual(self.why("playground", "welcome", on(self.project, playground="local/sandbox")),
                          "Also in Personal: turn it off first")
         self.assertIsNone(self.why("playground", "welcome"))
-        self.project["setups"]["observability"]["twin"] = {"id": "local/mine", "name": "Personal"}
-        self.assertEqual(self.why("setup", "observability", on(self.project, ["kiosk"], setups=["local/mine"])),
+        self.project["setups"]["overlook"]["twin"] = {"id": "local/mine", "name": "Personal"}
+        self.assertEqual(self.why("setup", "overlook", on(self.project, ["kiosk"], setups=["local/mine"])),
                          "Also in Personal: turn it off first")
-        self.assertIsNone(self.why("setup", "observability"))
+        self.assertIsNone(self.why("setup", "overlook"))
 
     # --- Ports -----------------------------------------------------------------------------------------------------
 
@@ -2192,8 +2192,8 @@ class From(Case):
     def test_it_is_said_for_a_playground_and_a_setup_and_in_a_dialog_that_opens_for_another_reason(self):
         self.come_from("welcome", "playground")
         self.assertEqual(self.plan("playground", "welcome")["hints"], {"from": "Version 2.0.0"})
-        self.come_from("observability", "setup", name="Acme Hub", version="1.4.0")
-        self.assertEqual(self.plan("setup", "observability")["from"][0]["name"], "Acme Hub")
+        self.come_from("overlook", "setup", name="Acme Hub", version="1.4.0")
+        self.assertEqual(self.plan("setup", "overlook")["from"][0]["name"], "Acme Hub")
         self.come_from("kazoo-desk")
         plan = self.plan("addon", "kazoo-desk")   # it starts Kazoo too
         self.assertTrue(layers.asks(plan))
@@ -2545,9 +2545,9 @@ class Binds(Case):
         config.assert_not_called()
 
     def test_a_setup_has_no_folder_and_no_service(self):
-        self.project["setups"]["observability"]["catalog"] = "fixture"
+        self.project["setups"]["overlook"]["catalog"] = "fixture"
         config = self.binds(self.unit / ".state")
-        layers.make_binds(self.project, {"do": "start", "kind": "setup", "id": "observability", "playground": None,
+        layers.make_binds(self.project, {"do": "start", "kind": "setup", "id": "overlook", "playground": None,
                                          "explicit": ["jade", "kiosk"]})
         config.assert_not_called()   # jade and kiosk say no catalog, a setup has no folder
 
