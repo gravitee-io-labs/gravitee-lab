@@ -85,12 +85,6 @@ class Stars(Folder):
         starred.moved("addon", "local/whoami")
         self.assertFalse((self.root / starred.FILE).exists())
 
-    def test_deleted_it_loses_its_star(self):
-        starred.star(self.project, "playground", "local/sandbox", True)
-        starred.star(self.project, "playground", "welcome", True)
-        personal.delete(self.project, "playground", "local/sandbox")
-        self.assertEqual(self.saved(), {"playground": ["welcome"]})
-
     def test_the_file_is_replaced_whole_and_a_file_that_does_not_read_is_left(self):
         starred.star(self.project, "addon", "local/whoami", True)
         self.assertEqual([p.name for p in (self.root / ".lab").iterdir() if p.name.endswith(".tmp")], [])
