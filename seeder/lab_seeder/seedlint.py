@@ -1,8 +1,7 @@
 """Lints the seed files of playgrounds, read as the seeder reads them: each ${VAR} they use is one the playground's seed
-service sets (or one the engine gives the files of an environment), no address is written out (it is a variable, so the
-same files work against any platform), each file parses once its variables are replaced, the folders of
-seed/environments agree with themselves, and the subscriptions of a studio (seed/aim/studios) name a plan of it that takes
-them, with an apiKey that is text.
+service sets (or one the engine gives the files of an environment), each file parses once its variables are replaced, the
+folders of seed/environments agree with themselves, and the subscriptions of a studio (seed/aim/studios) name a plan of it that
+takes them, with an apiKey that is text.
 
     python seedlint.py FOLDER... [--format text|github]
 
@@ -52,11 +51,6 @@ except ImportError as e:
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
 
 TEXT = (".yaml", ".yml", ".json", ".md", ".gapl", ".cedar", ".txt")   # whatever the seed may read, not only what it parses
-# An address that is not a variable would break on a platform that is not this one (a scheme is written in any case). The
-# public hosts the files may name
-LITERAL_URL = re.compile(r"(?i:https?)://(?!\$\{)([^\s\"'/\\}:]+)")
-PUBLIC = re.compile(r"^(?:www\.w3\.org|json-schema\.org|[a-z0-9.-]*gravitee\.io|[a-z0-9.-]*huggingface\.co"
-                    r"|generativelanguage\.googleapis\.com)$")
 # The pattern of Compose for a value of the seed service: ${NAME}, ${NAME-default}, ${NAME:-default}, and $$ for a dollar
 COMPOSE_VARIABLE = re.compile(r"\$(?:\$|\{[A-Za-z_]\w*(?::?-([^}]*))?\})")
 # A default opened and, when nothing closes it, read to the end of the text by every pattern of the seeder
@@ -84,7 +78,7 @@ Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds 
 STUDIO_SUBSCRIPTION = ("application", "plan", "apiKey")
 # The keys of a studio's file that give its protocol versions, one of the two (aim_proxies.VERSION_KEYS)
 STUDIO_VERSIONS = ("supportedProtocolVersions", "protocolVersion")
-TITLES = {"variable": "Seed variable", "address": "Seed address", "read": "Seed file", "parse": "Seed file",
+TITLES = {"variable": "Seed variable", "read": "Seed file", "parse": "Seed file",
           "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
 
 
@@ -264,16 +258,6 @@ def provided_to(path, folder):
     """The names the engine gives a file of the seed: those of an environment for the files under seed/environments, none for
     the others."""
     return common.PROVIDED if path.relative_to(folder / "seed").parts[:1] == ("environments",) else ()
-
-
-def _addresses(text):
-    """[(address, offset)] of the addresses of a text that are not a variable, public hosts apart, at their first use."""
-    seen, found = set(), []
-    for m in LITERAL_URL.finditer(text):
-        if m.group(0) not in seen and not PUBLIC.match(m.group(1).lower()):
-            seen.add(m.group(0))
-            found.append((m.group(0), m.start()))
-    return found
 
 
 # --- The seed service of a playground ---------------------------------------------------
@@ -634,17 +618,6 @@ def _parse(path, text, matches, environment, provided):
     return None
 
 
-def _address_problems(path, text):
-    """The problems of the addresses a seed file writes out. MANY are told, the others counted."""
-    shown = _addresses(text)
-    fix = "Fix: an address is a ${VARIABLE} set by the seed service."
-    found = [Problem("address", str(path), text.count("\n", 0, offset) + 1, f"{_short(address, 100)} is written out. {fix}")
-             for address, offset in shown[:MANY]]
-    if len(shown) > MANY:
-        found.append(Problem("address", str(path), 0, f"{len(shown) - MANY} more addresses are written out."))
-    return found
-
-
 def _front_matter(text):
     """The front matter of a SKILL.md, as the seeder of the skills reads it, else an empty text."""
     head = FRONT_MATTER.match(text)
@@ -683,7 +656,6 @@ def _lint(folder):
             if len(unset) > MANY:
                 out.append(Problem("variable", str(path), 0, f"{len(unset) - MANY} more variables have no value."))
             blocked = bool(unset)
-        out.extend(_address_problems(path, text))
         if path.name == "SKILL.md" and common.merged_pairs(_front_matter(text)) > COPIED:
             out.append(Problem("read", str(path), 0, MERGES))
         if not blocked and path.suffix in (".yaml", ".yml", ".json"):

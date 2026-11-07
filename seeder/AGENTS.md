@@ -95,8 +95,8 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
 
 Every address, credential and id comes from the environment (`setting()` in `common.py`), and seed files hold `${VAR}` for
 what depends on the target (`render()`). No module and no seed file names a container or writes an address: the
-playground's seed service sets the variables. `seedlint`, which the *Seed files* job of a catalog's CI runs, fails on a literal address
-and on a variable no seed service sets.
+playground's seed service sets the variables. `seedlint`, which the *Seed files* job of a catalog's CI runs, fails on a variable no seed
+service sets.
 
 ## Behavior to keep
 

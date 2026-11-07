@@ -430,8 +430,8 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
   `docker compose up`) runs it again, which is why running it twice must be safe.
 - **Endpoints, never container names.** A seed talks to endpoints. Its files hold no address and no container name: they
   use `${VAR}`, and the seed service sets each one, to a container name in the lab. The seeder reads every endpoint
-  from its settings, so the same files can seed another platform. The *Seed files* job of a catalog's CI (`seedlint.py`) fails on a literal address
-  in a seed file, and on a variable no seed service sets.
+  from its settings, so the same files can seed another platform. The *Seed files* job of a catalog's CI (`seedlint.py`) fails on a variable no
+  seed service sets.
 
 ### Files
 

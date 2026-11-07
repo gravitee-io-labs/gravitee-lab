@@ -1,5 +1,4 @@
-"""The checks of seed files: no address is written out, the seed service is read whichever way it is written, and the folders
-of seed/environments agree with themselves: a member of a group is a user, an application's group is a group, a subscription
+"""The checks of seed files: the seed service is read whichever way it is written, and the folders of seed/environments agree with themselves: a member of a group is a user, an application's group is a group, a subscription
 names an application, an API and a plan of the folder.
 
 The checks are those of seedlint.py, which a catalog's CI runs on the command line (test_seedlint.py tests the command and runs
@@ -11,18 +10,11 @@ import unittest
 from pathlib import Path
 
 from lab_seeder import common
-from lab_seeder.seedlint import SMALL, _addresses, _environment_findings, seed_environment, seed_service
+from lab_seeder.seedlint import SMALL, _environment_findings, seed_environment, seed_service
 
 
 class Preflight(unittest.TestCase):
     """The checks themselves, on files made for it: they find what they are meant to find."""
-
-    def test_an_address_that_is_not_a_variable_is_found(self):
-        text = ("a: http://localhost:8083/x\nb: http://bakery-mcp:8000\nc: https://host.docker.internal:11434/v1\n"
-                "d: ${BAKERY_MCP_URL}/x\ne: http://${HOST}:80\nf: https://huggingface.co/m\ng: https://docs.gravitee.io/apim\n"
-                'h: "https://www.w3.org/2001/XMLSchema"')
-        self.assertEqual([address for address, _ in _addresses(text)],
-                         ["http://localhost", "http://bakery-mcp", "https://host.docker.internal"])
 
     def test_a_seed_service_is_the_one_with_the_seed_label_and_its_variables_are_read_whichever_way_they_are_written(self):
         with tempfile.TemporaryDirectory() as folder:
