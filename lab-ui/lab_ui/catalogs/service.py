@@ -52,7 +52,6 @@ _staging = threading.Lock()   # one tree is staged and judged at a time: the fol
 _checking = {}   # ticket -> how far the fetch of an Add check is (0..1 or None): state.catalogs[] says it
 _known = {"at": None, "version": None}   # the version of git and when it was asked
 _creating = threading.Lock()   # one new catalog at a time: its id is chosen from the ones that are there, and a folder that fails is taken away
-_asking = threading.Lock()   # one question to git at a time, and not under the lock of the tickets: git may be slow
 
 
 def _now():
@@ -85,10 +84,9 @@ def _text(value, field):
 def git_version(fresh=False):
     """The version of git as gitx.version() finds it, kept for GIT_AGE seconds: the state asks at every poll and it is one
     process. A click that may have changed it (Try again, Add, Check again) asks `fresh`."""
-    with _asking:
-        if fresh or _known["at"] is None or _now() - _known["at"] > GIT_AGE:
-            _known.update(at=_now(), version=gitx.version())
-        return _known["version"]
+    if fresh or _known["at"] is None or _now() - _known["at"] > GIT_AGE:
+        _known.update(at=_now(), version=gitx.version())
+    return _known["version"]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -97,7 +95,7 @@ def git_version(fresh=False):
 
 def _remove_stage(ns):
     """The staged tree of a catalog (a folder, or the link a folder catalog is staged as), removed. Nothing here raises: a
-    leftover is the sweeper's (rule 12 of)."""
+    leftover is the sweeper's."""
     with contextlib.suppress(OSError, ValueError):
         where = registry.stage_dir(ns)
         if where.is_symlink():
@@ -426,14 +424,14 @@ def _waiting():
     return f"Wait for {last.title}" if last and not last.done else _elsewhere()
 
 
-def _unit_id(ns, kind, name):
+def _unit_id(ns, name):
     return name if ns == paths.default_ns() else f"@{ns}/{name}"
 
 
 def _unit_name(found, ns, key):
     """What a unit of a catalog is called, by its `kind:name` key, for a line about it."""
     kind, _, name = key.partition(":")
-    unit = ((found or {}).get(f"{kind}s") or {}).get(_unit_id(ns, kind, name)) or {}
+    unit = ((found or {}).get(f"{kind}s") or {}).get(_unit_id(ns, name)) or {}
     return resolve.shown(unit.get("name") or name, NAME_CUT)
 
 
@@ -1099,14 +1097,6 @@ def allow_host(ns, enabled):
 # Update and Go back
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _refetch(ns, entry):
-    """The store of a catalog lacks an object (the cache is disposable): the branch is fetched again, with no lock held, from
-    the address the entry has (the tracked one for a listed catalog), and the step that needed it is made again."""
-    url, branch = defaults.effective(entry)
-    gitx.require()
-    bare.fetch(gitx.parse_address(url), branch, registry.store_dir(ns), stall=30, cap=CHECK_CAP)
-
-
 def _targeted(ns, op, held):
     """(the commit an Update or a Go back moves to, moved): the one `_offered` gives from the tip the store holds, or
     `lock.previous`. None when there is nothing to move to. `moved`: the release installed was moved to it."""
@@ -1134,7 +1124,7 @@ def _on_keys(ns):
 
 
 def _names_of(found, ns, keys):
-    return [{"kind": key.partition(":")[0], "id": _unit_id(ns, *key.split(":", 1)),
+    return [{"kind": key.partition(":")[0], "id": _unit_id(ns, key.partition(":")[2]),
              "name": _unit_name(found, ns, key)} for key in sorted(keys)]
 
 
@@ -1163,8 +1153,8 @@ def _after(found, ns, plan, judged):
     that the plan drops left out and those it rewrites replaced by the new version's. An item of the catalog that the same
     release rewrites, or removes, is not broken by what it no longer includes."""
     going = list(plan["removes"]) + sorted(plan.get("renamed") or {})   # an item renamed is not there under its old id
-    changed = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["updates"] + going}
-    dropped = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in going}
+    changed = {(key.partition(":")[0], _unit_id(ns, key.partition(":")[2])) for key in plan["updates"] + going}
+    dropped = {(key.partition(":")[0], _unit_id(ns, key.partition(":")[2])) for key in going}
     world = {}
     for kind in paths.KINDS:
         world[kind] = {uid: unit for uid, unit in (found.get(f"{kind}s") or {}).items() if (kind, uid) not in changed}
@@ -1196,7 +1186,7 @@ def _changes_of(plan, ns, judged, verdicts, old_verdicts):
     changes = []
     for key in plan["updates"]:
         kind, name = key.split(":", 1)
-        uid = _unit_id(ns, kind, name)
+        uid = _unit_id(ns, name)
         new, old = (verdicts.get((kind, uid)) or {}).get("surface"), (old_verdicts.get((kind, uid)) or {}).get("surface")
         if new is None or old is None:
             continue
@@ -1215,8 +1205,8 @@ def _plan(ns, op):
         raise ValueError(f"{_called(ns)} has nothing installed yet")
     try:
         target, moved = _targeted(ns, op, held)
-    except bare.MissingObject:
-        _refetch(ns, entry)
+    except bare.MissingObject:   # the cache is disposable: fetched again, with no lock held, and the step is made again
+        _fetch_tip(ns, entry)
         target, moved = _targeted(ns, op, held)
     if target is None:
         return {"upToDate": True}
@@ -1240,8 +1230,8 @@ def _plan(ns, op):
             _remove_stage(ns)   # what was refused is not left to be installed
             raise
         old_verdicts = project.judge_inputs(live[1])[1]
-        gone = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["removes"]}
-        renamed = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan.get("renamed") or {}}
+        gone = {(key.partition(":")[0], _unit_id(ns, key.partition(":")[2])) for key in plan["removes"]}
+        renamed = {(key.partition(":")[0], _unit_id(ns, key.partition(":")[2])) for key in plan.get("renamed") or {}}
         after = _after(found, ns, plan, judged)
         moved = renames.files(ns, plan.get("renamed") or {})
         lost = [one for one in _items_that_include(found, renamed, after) if not _follows(found, one, moved)]
@@ -1254,7 +1244,7 @@ def _plan(ns, op):
         emptied = _movable_line(ns, plan["from"], plan["to"], plan["op"])
         def cannot_run(key):
             kind, _, name = key.partition(":")
-            return layers.why_not((judged.get(kind) or {}).get(_unit_id(ns, kind, name)) or {}) is not None
+            return layers.why_not((judged.get(kind) or {}).get(_unit_id(ns, name)) or {}) is not None
         including = _on_includers(found, ns, plan.get("renamed") or {}, after, moved)
         # What includes a renamed item is asked again when the update is applied, as it is then
         plan["context"]["including"] = lambda: _on_includers(project.loaded()[0], ns, plan.get("renamed") or {}, after, moved)
@@ -1291,7 +1281,7 @@ def _on_includers(found, ns, renamed, after, moved):
     held = {}
     for old in sorted(renamed):
         kind, _, name = old.partition(":")
-        for one in _items_that_include(found, {(kind, _unit_id(ns, kind, name))}, after):
+        for one in _items_that_include(found, {(kind, _unit_id(ns, name))}, after):
             if is_on(one) and not _follows(found, one, moved):
                 held.setdefault(old, one["name"])
     return held
@@ -1373,8 +1363,8 @@ def _renames_of(found, ns, plan, judged, on):
 
 def _names_of_new(keys, ns, judged):
     """The same as `_names_of` for units of the new version, named as the new catalog.yml and compose files name them."""
-    return [{"kind": key.partition(":")[0], "id": _unit_id(ns, *key.split(":", 1)),
-             "name": resolve.shown((judged[key.partition(":")[0]].get(_unit_id(ns, *key.split(":", 1))) or {}).get("name")
+    return [{"kind": key.partition(":")[0], "id": _unit_id(ns, key.partition(":")[2]),
+             "name": resolve.shown((judged[key.partition(":")[0]].get(_unit_id(ns, key.partition(":")[2])) or {}).get("name")
                                    or key.partition(":")[2], NAME_CUT)} for key in sorted(keys)]
 
 
@@ -1484,7 +1474,7 @@ def _removal(ns, entry):
         raise CatalogError("linked", install.LINKED, 409)
     found = project.loaded()[0]
     units = registry.units_of(ns)
-    going = {(kind, _unit_id(ns, kind, name)) for kind, names in units.items() for name in names}
+    going = {(kind, _unit_id(ns, name)) for kind, names in units.items() for name in names}
     return {"held": _hold(ns, found) or _under_way_hold(ns, held), "items": sum(len(names) for names in units.values()),
             "folder": entry["kind"] == "folder", "breaks": [{k: one[k] for k in ("kind", "id", "name")}
                                                             for one in _items_that_include(found, going)],
@@ -1522,7 +1512,7 @@ def remove(ns, check=False, keep_settings=True):
 
 def repair(ns):
     """Repair: the install is made again at the pin from the local store. A store that lacks an object is fetched again
-    with no lock held () and the repair is made again. Answers {"catalog": Row}."""
+    with no lock held and the repair is made again. Answers {"catalog": Row}."""
     entry, _ = _git(ns)
     _no_job()
     try:
@@ -1530,7 +1520,7 @@ def repair(ns):
             with _changing():
                 install.repair(ns)
         except bare.MissingObject:
-            _refetch(ns, entry)
+            _fetch_tip(ns, entry)
             with _changing():
                 install.repair(ns)
     except CatalogError as error:
