@@ -323,15 +323,6 @@ function closeDrawer() {
   opener = null;
 }
 
-function showIdle() {
-  $("#job-title").textContent = "Activity";
-  $("#job-state").className = "job-state idle";
-  $("#job-time").textContent = "";
-  JobView.reset();
-  $("#job-output").textContent = "No activity";
-  openDrawer();
-}
-
 export function initJobs() {
   // The drawer's Cancel is the button of an action: it says "Canceling" until the job answers
   $("#job-cancel").outerHTML = actionButton({ key: "job", verb: "cancel", label: "Cancel",
@@ -340,7 +331,6 @@ export function initJobs() {
     const drawer = $("#drawer"), job = store.state?.job;
     if (!drawer.hidden) closeDrawer();
     else if (job) showOutput(job.id);
-    else showIdle();
   });
   $("#drawer-close").addEventListener("click", closeDrawer);
   // Escape closes it too, once nothing above it takes the key: an open dialog, menu or picker closes first. Asked
