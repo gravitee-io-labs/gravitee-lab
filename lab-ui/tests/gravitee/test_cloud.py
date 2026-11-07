@@ -264,27 +264,19 @@ class Fake(Client):
                                                                     f"Bearer {SECRET}"))
         self.assertEqual(headers["Accept"], "application/json")
 
-    def test_a_token_the_cloud_refuses(self):
-        self.raises("invalid", "refuses this token", self.account(self.url, account=ACCOUNT))
-
     def test_the_status_of_a_refusal_is_known(self):
-        for code, words in [(401, "refuses this token"), (403, "not allowed"), (404, "Not found"), (400, "refuses it"),
-                            (500, "answered an error"), (302, "another address")]:
+        for code, kind, words in [(401, "invalid", "refuses this token"), (403, "invalid", "not allowed"), (404, "invalid", "Not found"),
+                                  (400, "invalid", "refuses it"), (500, "unreachable", "answered an error (HTTP 500)"),
+                                  (302, "unreachable", "another address")]:
             address, _ = self.scripted(lambda *asked, code=code: (code, "{}", None))
-            with self.subTest(code=code), self.assertRaises(cloud.CloudError) as caught:
-                self.account(address)()
-            self.assertEqual(caught.exception.status, code)
-            self.assertIn(words, str(caught.exception))
+            with self.subTest(code=code):
+                self.assertEqual(self.raises(kind, words, self.account(address)).status, code)
 
     def test_what_the_cloud_refuses_it_says(self):
         self.raises("invalid", "refuses it: Bad request: name must have 2 to 128 characters",
                     lambda: self.client.create_gateway(ACCOUNT, "fake-env-dev", "x", []))
         self.raises("invalid", "refuses it: Bad request: environmentId",
                     lambda: self.client.create_gateway(ACCOUNT, "fake-env-nope", "lab", []))
-
-    def test_what_it_does_not_know(self):
-        self.raises("invalid", "Not found", lambda: self.client.delete_gateway(ACCOUNT, "nope"))
-        self.raises("invalid", "refuses this token", lambda: self.client.environments("other-account"))
 
     def test_an_id_is_one_segment_of_the_path(self):
         self.raises("invalid", "Not found", lambda: self.client.delete_gateway(ACCOUNT, "../accounts"))
@@ -395,10 +387,6 @@ class Wrong(Client):
         self.patch(cloud, "MAX_ANSWER", 10)
         address, _ = self.scripted(lambda *asked: (200, '{"id": "acc", "description": "' + "x" * 20 + '"}', None))
         self.raises("unreachable", "does not answer like Gravitee Cloud", self.account(address))
-
-    def test_an_error_of_the_cloud(self):
-        address, _ = self.scripted(lambda *asked: (500, '{"message": "boom"}', None))
-        self.raises("unreachable", "answered an error (HTTP 500)", self.account(address))
 
     def test_a_redirect_is_not_followed_so_the_token_stays_here(self):
         elsewhere, other = self.scripted(lambda *asked: (200, "{}", None))
