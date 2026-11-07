@@ -90,7 +90,7 @@ def _read_default(file):
 
 def default_ns():
     """The id of the first entry of catalogs.default.json, which owns the bare ids; None without a usable file. Read
-    again only when the file changes (path, modified time, size, inode), because every state poll asks. This is the one
+    again only when the file changes (path, modified time, size), because every state poll asks. This is the one
     reader of that id. The rest of the file (the addresses, the other entries) is
     defaults.read()'s, which checks what it uses."""
     global _default
@@ -101,20 +101,10 @@ def default_ns():
         return None
     if not stat.S_ISREG(info.st_mode):   # a pipe would block the read
         return None
-    seen = (str(file), info.st_mtime_ns, info.st_size, info.st_ino)
+    seen = (str(file), info.st_mtime_ns, info.st_size)
     if _default[0] != seen:
         _default = (seen, _read_default(file))
     return _default[1]
-
-
-def _is_id(uid, default):
-    """is_id, for a caller that has read the default namespace and will not read it again."""
-    if not isinstance(uid, str) or not _ID.fullmatch(uid):
-        return False
-    if uid.startswith("@"):
-        ns = uid[1:].split("/", 1)[0]
-        return ns not in RESERVED_NS and ns != default
-    return True
 
 
 def is_id(uid):
@@ -123,39 +113,40 @@ def is_id(uid):
     the form is judged, never whether the unit exists. A bare `local` is one too, as the grammar has it, though it shares its
     address with the items of this machine (#/playgrounds/local/x is local/x, never `local` at a step x): the checks of
     `make check` refuse a shared unit of that name, so that none exists."""
-    return _is_id(uid, default_ns() if isinstance(uid, str) and uid.startswith("@") else None)
-
-
-def _canonical(uid, default):
-    if default and isinstance(uid, str) and uid.startswith(f"@{default}/") and _NAME.fullmatch(uid[len(default) + 2:]):
-        return uid[len(default) + 2:]
-    return uid
+    if not isinstance(uid, str) or not _ID.fullmatch(uid):
+        return False
+    if uid.startswith("@"):
+        ns = uid[1:].split("/", 1)[0]
+        return ns not in RESERVED_NS and ns != default_ns()
+    return True
 
 
 def canonical(uid):
     """`@<default namespace>/x` as the bare id x it names, anything else as it is. To read input (a key of a conflict, a
     pasted address), never to write: nothing writes the long form."""
-    return _canonical(uid, default_ns())
+    default = default_ns()
+    if default and isinstance(uid, str) and uid.startswith(f"@{default}/") and _NAME.fullmatch(uid[len(default) + 2:]):
+        return uid[len(default) + 2:]
+    return uid
 
 
-def _split(uid, default):
-    """(namespace, name) of an id _is_id accepted; the namespace of a bare id is the default, None without one."""
+def _split(uid):
+    """(namespace, name) of an id is_id accepted; the namespace of a bare id is the default, None without one."""
     if uid.startswith("@"):
         return tuple(uid[1:].split("/"))
     if uid.startswith(f"{LOCAL}/"):
         return LOCAL, uid[len(LOCAL) + 1:]
-    return default, uid
+    return default_ns(), uid
 
 
 def split_ref(uid):
     """(namespace, name) of an id, `@<default namespace>/x` too: "@acme-hub/bank" is ("acme-hub", "bank"), "local/x" is
     ("local", "x"), "bank" is (the default namespace, "bank"), which is None while no default file exists. NotFound
     for what is not an id."""
-    default = default_ns()
-    uid = _canonical(uid, default)
-    if not _is_id(uid, default):
+    uid = canonical(uid)
+    if not is_id(uid):
         raise NotFound("Not an id")
-    return _split(uid, default)
+    return _split(uid)
 
 
 def origin(uid):
@@ -168,19 +159,13 @@ def is_default(uid):
     return isinstance(uid, str) and _NAME.fullmatch(uid) is not None
 
 
-def _place(uid, default):
-    """(namespace, name) a path is made of, for an id that is one, under the default namespace `default`. NotFound otherwise,
-    for the second spelling of an id, and for a bare id with no default catalog."""
-    ns, name = _split(uid, default) if _is_id(uid, default) else (None, None)
-    if ns is None:
-        raise NotFound("Not an id")
-    return ns, name
-
-
 def unit_file(kind, uid):
     """The compose file of an add-on, setup or playground, relative to the project: in the folder of its catalog,
-    .lab/catalogs/<namespace>/. NotFound for what is not an id."""
-    ns, name = _place(uid, default_ns())
+    .lab/catalogs/<namespace>/. NotFound for what is not an id, for the second spelling of an id, and for a bare id with no
+    default catalog."""
+    ns, name = _split(uid) if is_id(uid) else (None, None)
+    if ns is None:
+        raise NotFound("Not an id")
     return CATALOG_FILES[kind].format(ns=ns, name=name)
 
 
@@ -276,10 +261,8 @@ def ids(kind):
 
 def files():
     """The file of every add-on, setup and playground found on disk, kind by kind, in the order of ids."""
-    default = default_ns()
-    found = _found(KINDS, default)
-    return [CATALOG_FILES[kind].format(ns=ns, name=name) for kind in KINDS
-            for ns, name in (_place(uid, default) for uid in found[kind])]
+    found = _found(KINDS, default_ns())
+    return [unit_file(kind, uid) for kind in KINDS for uid in found[kind]]
 
 
 def personal(uid):
