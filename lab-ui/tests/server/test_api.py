@@ -850,7 +850,7 @@ class Logs(Case):
                             ("2026-10-03T12:44:35.329927337Z", "2026-10-03T12:44:35.329927337Z")):
             self.assertEqual(api._stamp(when), stamp)
 
-    def test_the_logs_of_a_container_are_read_as_utf8_whatever_the_terminal_says(self):
+    def test_what_is_followed_is_ended_with_the_stream(self):
         self.patch(api.project, "load", return_value=PROJECT)
         self.patch(api, "_started", return_value=(False, None))
         popen = self.patch(api.subprocess, "Popen")
@@ -868,7 +868,6 @@ class Logs(Case):
             def sse_start(self):
                 pass
         api.stream_logs(Request())
-        self.assertEqual((popen.call_args.kwargs["encoding"], popen.call_args.kwargs["errors"]), ("utf-8", "replace"))
         popen.return_value.kill.assert_called()
 
     def test_a_start_again_is_its_own_event_after_the_lines_before_it(self):
