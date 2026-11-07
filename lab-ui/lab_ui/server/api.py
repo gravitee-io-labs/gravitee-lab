@@ -495,7 +495,7 @@ def add_catalog(req):
     allowance of the dialog's choice may come with the ticket (`host`); the page sends it as a request of its own."""
     if req.body.get("listed") is not None:
         return service.add_listed(req.body["listed"])
-    return service.add(req.body.get("ticket"), host=req.body.get("host") is True)
+    return service.add(req.body.get("ticket"))
 
 
 def update_catalog(req, ns, change):

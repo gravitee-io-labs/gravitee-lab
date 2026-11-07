@@ -1186,7 +1186,8 @@ class Judging(Real):
 
     def test_the_preview_and_the_project_after_the_add_say_the_same_of_what_cannot_run(self):
         shown = service.check_address(fixtures.remote(self, "hostile").url)
-        service.add(shown["ticket"], host=True)   # allowed: the preview is judged as if it were
+        service.add(shown["ticket"])
+        service.allow_host("hostile", True)   # allowed: the preview is judged as if it were
         built = project.loaded()[0]
         after = {uid: unit["blocked"]["reasons"] for kind in ("addons", "setups", "playgrounds")
                  for uid, unit in built[kind].items() if unit["catalog"] == "hostile" and unit["blocked"]}
@@ -1266,20 +1267,6 @@ class Adding(Seam):
         self.assertEqual(lines_of(raised.exception), ("busy", 409, "Another catalog change is running. Try again in a moment."))
         self.assertIn(ticket, service.TICKETS)
         self.assertEqual(service.add(ticket)["catalog"]["id"], "partner")
-
-    def test_the_allowance_the_person_chose_with_the_dialog_is_stored_for_a_catalog_that_is_not_listed(self):
-        service.add(service.check_address(self.remote("partner").url)["ticket"], host=True)
-        self.assertIs(registry.entry("partner").get("host"), True)
-        self.assertEqual(self.row("partner")["host"], "allowed")
-        service.add(service.check_address(self.remote("lab-new", lab=1).url)["ticket"])
-        self.assertNotIn("host", registry.entry("lab-new"))
-
-    def test_a_listed_catalog_has_no_stored_allowance_it_is_implied(self):
-        remote = self.remote("partner")
-        self.list_at("partner", remote)
-        service.add(service.check_address(remote.url)["ticket"], host=True)
-        self.assertNotIn("host", registry.entry("partner"))
-        self.assertEqual(self.row("partner")["host"], "listed")
 
     def test_a_catalog_added_between_the_check_and_the_add_makes_the_add_a_refusal_not_a_second_copy(self):
         remote = self.remote("partner")

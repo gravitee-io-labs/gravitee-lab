@@ -2168,16 +2168,12 @@ class CatalogRoutes(LabUI):
         self.post("/api/catalogs/check", {"address": "acme/lab-hub"})
         self.calls["check_address"].assert_called_with("acme/lab-hub", None)
 
-    def test_the_add_takes_a_ticket_and_may_say_the_allowance_and_a_listed_catalog_is_added_by_its_id(self):
+    def test_the_add_takes_a_ticket_and_a_listed_catalog_is_added_by_its_id(self):
         self.assertEqual(self.post("/api/catalogs", {"ticket": "abc"}), (200, {"catalog": self.ROW}))
-        self.calls["add"].assert_called_once_with("abc", host=False)
-        self.post("/api/catalogs", {"ticket": "abc", "host": True})
-        self.calls["add"].assert_called_with("abc", host=True)
-        self.post("/api/catalogs", {"ticket": "abc", "host": "yes"})
-        self.calls["add"].assert_called_with("abc", host=False)
+        self.calls["add"].assert_called_once_with("abc")
         self.assertEqual(self.post("/api/catalogs", {"listed": "gravitee"}), (200, {"catalog": self.ROW}))
         self.calls["add_listed"].assert_called_once_with("gravitee")
-        self.assertEqual(self.calls["add"].call_count, 3, "a listed catalog is not a ticket")
+        self.assertEqual(self.calls["add"].call_count, 1, "a listed catalog is not a ticket")
 
     def test_new_catalog_takes_a_name(self):
         self.assertEqual(self.post("/api/catalogs/new", {"name": "My catalog"}), (200, {"catalog": self.ROW}))

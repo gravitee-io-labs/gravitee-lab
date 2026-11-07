@@ -802,7 +802,7 @@ def check_address(address, branch=None):
             _understood(meta, judged, mine)
         preview = _preview(ticket, meta, "git", found_at, audience, bool(listed_at), judged, verdicts, mine, newer=offered.tip != "ok")
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=found_at, branch=remote["branch"], audience=audience,
-              roots=roots, meta=meta, store=store_path, listed=bool(listed_at))
+              roots=roots, meta=meta, store=store_path)
         return preview
     except BaseException:
         _clean_up(ticket, staged, store_path)
@@ -826,7 +826,7 @@ def _check_folder(asked):
             judged, verdicts, mine = _review(meta["id"], meta, "folder", "private", False, "allowed", ignored)
         preview = _preview(ticket, meta, "folder", asked, "private", False, judged, verdicts, mine)
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=asked, branch=None, audience="private", roots=[],
-              meta=meta, store=None, listed=False, judged=sorted(uid for _, uid in mine))
+              meta=meta, store=None, judged=sorted(uid for _, uid in mine))
         return preview
     except BaseException:
         _clean_up(ticket, staged, None)
@@ -878,14 +878,12 @@ def _preview(ticket, meta, kind, address, audience, listed, judged, verdicts, mi
     return shown
 
 
-def add(ticket, host=False):
-    """Puts the catalog the check showed in place. `host` is the allowance the person chose with the
-    dialog (the page sends it as a request of its own after the Add, and may send it here). Answers {"catalog": Row}."""
+def add(ticket):
+    """Puts the catalog the check showed in place. Answers {"catalog": Row}."""
     data = _held(ticket, "add")
     staged, ns = data["staged"], data["ns"]
     with _changing():
-        install.commit_add(staged, data["address"], data["branch"], data["audience"], data["roots"], meta=data["meta"],
-                           host=bool(host) and not data["listed"])
+        install.commit_add(staged, data["address"], data["branch"], data["audience"], data["roots"], meta=data["meta"])
         if data.get("imported"):   # an imported playground: what its file held is recorded, and settings kept for it go back
             from . import exports   # here and not above: exports reads this module
             exports.added(ns, data)
