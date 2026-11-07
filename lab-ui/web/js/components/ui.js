@@ -602,8 +602,7 @@ const several = (causes) => new Set(causes.flatMap((cause) => cause.services || 
 // What Apply does to them: it restarts them as saved, and goes back to a version saved that is older than the one that runs
 const applies = (them, causes) => `Apply restarts ${them} with what is saved${causes.some((cause) => cause.older) ? ", older versions included" : ""}.`;
 
-// The card of what differs from what is saved: for a row, its causes; for the platform, a row for each product, add-on or playground
-// (the state's `platform.behind`), under how many containers it is in all, and what Apply does
+// The card of what differs from what is saved, for a row: its causes
 const rowCard = (causes) => ({ title: "Differs from what is saved", rows: [{ lines: causes.map(causeLine) }],
   foot: applies(several(causes) ? "them" : "it", causes) });
 
@@ -633,7 +632,9 @@ const needCard = (x) => (x.note_causes[0]?.kind === "switch"
 // ... for whoever says that note elsewhere (the gateway of an environment that the add-on runs): null for a note without causes of that
 // kind (what runs behind what is saved has its own card)
 export const noteCard = (x) => (x.note_causes?.length && feetOf(x.note_causes[0]?.kind) ? needCard(x) : null);
-function behindCard(behind) {
+// ... for the platform: a row for each product, add-on or playground (the state's `platform.behind`), under how many containers it is in all,
+// and what Apply does: the popover of the notice
+export function behindWhy({ behind }) {
   const total = behind.reduce((sum, row) => sum + (row.count || 1), 0);
   return { title: count(total), rows: behind.map((row) => ({ subject: row.name, lines: row.causes.map(causeLine) })),
     foot: applies(total === 1 ? "it" : "them", behind.flatMap((row) => row.causes)) };
@@ -650,9 +651,6 @@ export function applyBadge(reason, causes = null, more = []) {
   const said = reasons.map((one, i, all) => (i < all.length - 1 ? one.replace(/\.$/, "") : one)).join(". ");
   return tipHtml(`Apply needed${icon("info")}`, card || (reasons.length ? reasons : "Differs from what is saved"), "pill warn", "Apply needed", { said, title: false });
 }
-
-// What the platform says runs behind what is saved, as the popover of the notice
-export const behindWhy = (platform) => behindCard(platform.behind);
 
 // Where a bubble goes: under its button, its left edge at the button's, kept 12 px inside the window; above it when there is more room
 // there. A popover taller than the room it has scrolls inside (components.css). Its arrow points at the button's middle.
