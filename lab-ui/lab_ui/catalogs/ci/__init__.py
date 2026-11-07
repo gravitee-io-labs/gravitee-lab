@@ -81,28 +81,6 @@ STAGES = {
     "versions-record": ("versions", "record_main"),
     "versions-release": ("versions", "release_main"),
 }
-SUMMARY = {
-    "needs": "fetch and link the catalogs this one requires",
-    "plan": "what a change touches",
-    "gitleaks": "the secrets of every commit, with the Lab's own rules",
-    "manifests": "every image a touched unit pulls exists in its registry",
-    "build": "build the apps of the touched units",
-    "test": "run the tests of each app in its image",
-    "run": "plan, manifests, build and test on this machine, as make ci",
-    "smoke": "start what needs no platform",
-    "scan-built": "scan the images built for a change",
-    "publish-plan": "the gates and the images to publish",
-    "publish": "build and push the images",
-    "release-notes": "the notes of a release",
-    "unreleased": "what changed since the last release",
-    "links": "the links of the guides answer",
-    "scan-published": "scan the published images",
-    "e2e-plan": "the matrix of the end-to-end run",
-    "e2e-gate": "the end-to-end run's last gate",
-    "versions-plan": "the versions of Gravitee the playgrounds are tried on",
-    "versions-record": "write the versions that passed in x-gravitee.tested",
-    "versions-release": "raise the patch number of the catalog",
-}
 
 UNIT = re.compile(r"(addon|playground|setup):([a-z0-9-]{1,100})")
 MAX_UNITS = 1000   # the most --units may name; a catalog is limited to 500 (ST10)
@@ -252,9 +230,7 @@ def main(argv=None, stdout=None, stderr=None, **seams) -> int:
 
 
 def usage() -> str:
-    width = max(len(stage) for stage in STAGES)
-    return "usage: catalog.py ci <stage> [PATH] [options]\n\n" + "\n".join(
-        f"  {stage.ljust(width)}  {SUMMARY[stage]}" for stage in STAGES) + "\n"
+    return "usage: catalog.py ci <stage> [PATH] [options]\n\nStages: " + ", ".join(STAGES) + "\n"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
