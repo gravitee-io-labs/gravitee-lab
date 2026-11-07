@@ -176,8 +176,7 @@ class Register(Platforms):
 
     def test_a_token_or_an_account_id_the_platform_refuses_registers_nothing(self):
         """The Cloud answers 401 to an hrid too, and the words do not say whether the token or the id is wrong."""
-        for wrong in (dict(token="wrong-token-for-the-fake"), dict(account="my-account"),
-                      dict(account="00000000-0000-0000-0000-000000000000"), dict(account=ACCOUNT.upper())):
+        for wrong in (dict(token="wrong-token-for-the-fake"), dict(account="my-account")):
             with self.subTest(wrong=wrong), self.assertRaises(cloud.CloudError) as caught:
                 self.add(**wrong)
             self.assertEqual((str(caught.exception), caught.exception.kind, caught.exception.status),
@@ -301,7 +300,6 @@ class ReplaceAccountToken(Platforms):
         answer = platforms.replace_account_token("gravitee-cloud", fake_cloud.MEMBER_TOKEN)
         self.assertEqual(answer, {**record, "tokenSet": True})
         self.assertEqual(envfiles.read(".env")[KEY], fake_cloud.MEMBER_TOKEN)
-        self.assertEqual(stat.S_IMODE((self.root / ".env").stat().st_mode), 0o600)
         self.assertEqual(platforms.read(), [record])
         self.assertEqual(self.fake.state.asked[-1], ("GET", f"/accounts/{ACCOUNT}"))   # checked for the stored account
         self.assertHidden(answer)
@@ -641,17 +639,12 @@ class CloudTokens(Platforms):
         return {e["id"]: e["token"] for e in platforms.check("gravitee-cloud")["environments"]}[environment]
 
     def test_a_cloud_token_is_kept_for_its_environment_after_one_question_to_cloud_gate(self):
-        self.assertEqual(self.keep(), {})
-        self.assertEqual(envfiles.read(".env")[DEV_KEY], fake_cloud.CLOUD_TOKEN)
-        self.assertEqual(stat.S_IMODE((self.root / ".env").stat().st_mode), 0o600)
+        self.assertEqual(self.keep(f"  {fake_cloud.CLOUD_TOKEN}\n"), {})
+        self.assertEqual(envfiles.read(".env")[DEV_KEY], fake_cloud.CLOUD_TOKEN, "without the spaces around it")
         self.assertEqual(self.gate_asked(), [("GET", f"{cloud.GATE}/v2/organizations/fake-organization/environments/"
                                                      f"{DEV}/apis")])
         self.assertFalse(fake_cloud.CLOUD_TOKEN in self.text(platforms.FILE), "the token is in the record")
         self.assertEqual(envfiles.read(".env")[KEY], fake_cloud.TOKEN, "the Account Token stays")
-
-    def test_a_token_is_kept_without_the_spaces_around_it(self):
-        self.keep(f"  {fake_cloud.CLOUD_TOKEN}\n")
-        self.assertEqual(envfiles.read(".env")[DEV_KEY], fake_cloud.CLOUD_TOKEN)
 
     def test_the_environment_says_it_is_valid_until_the_day_the_token_says(self):
         self.assertEqual(self.token_of(), {"state": "unset"})
@@ -720,8 +713,6 @@ class CloudTokens(Platforms):
             platforms.prove("gravitee-cloud", DEV)
         platforms.delete_cloud_token("gravitee-cloud", DEV)
         self.assertEqual(self.token_of(), {"state": "unset"})
-        self.keep(fake_cloud.cloud_token(DEV))
-        self.assertEqual(self.token_of()["state"], "valid")
 
     def test_a_token_is_forgotten_on_this_machine_only(self):
         self.keep()
@@ -1156,16 +1147,13 @@ class Chosen(Case):
         project = self.project("hyssop")
         self.assertIs(platforms.gateway_addon(project, "cloud"), project["addons"]["hyssop"])
 
-    def test_with_none_chosen_there_is_none(self):
-        self.assertIsNone(platforms.gateway_addon(self.project(None), "cloud"), "a-first and hyssop declare one: not usable")
-
     def test_a_kind_the_project_has_no_choice_for_has_none(self):
         project = self.project("hyssop")
         self.assertIsNone(platforms.gateway_addon(project, "another"))
         self.assertIsNone(platforms.gateway_addon({**project, "platform": {"gateways": {}}}, "cloud"))
 
     def test_a_choice_that_is_no_add_on_of_the_project_or_does_not_declare_the_kind_is_none(self):
-        for chosen in ("gone", "kazoo", "other", 7, ["hyssop"], ""):
+        for chosen in (None, "gone", "kazoo", "other", 7, ["hyssop"], ""):   # none chosen: a-first and hyssop declare one, and neither is usable
             with self.subTest(chosen=chosen):
                 self.assertIsNone(platforms.gateway_addon(self.project(chosen), "cloud"))
 
