@@ -683,8 +683,8 @@ outage:                             # lesson 2: an outage of the cloud provider 
   failover: true
 ```
 
-A control targets an `api` (the steps of a flow, or with `failover: true` the API's failover, switched on or off), an
-`mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), or a `policy`. A failover control needs a
+A control targets an `api` (the steps of a flow, by phase, `request` or `response`, or with `failover: true` the API's failover,
+switched on or off), an `mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), or a `policy`. A failover control needs a
 `failover` block in the API's file, which says how it fails over once it is on.
 
 - **Names are those of the seed files**, not always the console's. A step is named by its `name` in the file, a policy
