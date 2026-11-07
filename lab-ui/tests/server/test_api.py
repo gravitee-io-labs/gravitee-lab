@@ -1945,6 +1945,12 @@ class CommandLine(LabUI):
             with mock.patch.object(api.http.client, "HTTPConnection", side_effect=error):
                 self.assertFalse(api.is_lab_ui(self.server.server_port), error)
 
+    def test_the_probe_does_not_wait_longer_than_a_second(self):
+        with mock.patch.object(api.http.client, "HTTPConnection") as connection:
+            connection.return_value.getresponse.return_value.getheader.return_value = "GraviteeLabUI Python/3.12"
+            self.assertTrue(api.is_lab_ui(9000))
+        connection.assert_called_once_with("127.0.0.1", 9000, timeout=1)
+
     def test_what_it_prints_is_utf8_whatever_the_terminal_says(self):
         streams = [mock.Mock(spec=["reconfigure"]), mock.Mock(spec=["reconfigure"])]   # no file number to ask a tty
         self.patch(api, "requirement", return_value=None)

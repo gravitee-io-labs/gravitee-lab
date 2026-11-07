@@ -1019,6 +1019,13 @@ class Cascades(Platforms):
         platforms.delete_gateway(PROJECT, "gravitee-cloud", gateway["id"])
         self.assertEqual(envfiles.read(ADDON_ENV), {})
 
+    def test_another_gateway_leaves_the_one_here_alone(self):
+        first, second = self.create(DEV, "first")["gateway"], self.create(TEST, "second")["gateway"]
+        held = self.held()
+        platforms.delete_gateway(PROJECT, "gravitee-cloud", second["id"])
+        self.assertEqual(self.held(), held)
+        self.assertEqual(sorted(k for k in envfiles.read(".env") if "_GATEWAY_" in k), [gateway_key(first["id"])])
+
     def test_a_gateway_the_cloud_does_not_delete_keeps_everything(self):
         gateway = self.create()["gateway"]
         self.fake.state.gateways.clear()   # deleted in the console
