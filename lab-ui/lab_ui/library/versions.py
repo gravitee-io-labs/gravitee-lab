@@ -10,11 +10,6 @@ from ..products import VARIANTS
 BUILD = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]*\d))?")
 
 
-def _identifier(part):
-    """An identifier of a pre-release as semantic versioning orders them: numbers by value, before words."""
-    return (0, int(part), "") if part.isdigit() else (1, 0, part)
-
-
 def bare(tag):
     """(the tag without its system, the system or ""): "4.13.0-alpha.8-debian" gives ("4.13.0-alpha.8", "debian"). Every
     version of an image is compared so."""
@@ -55,7 +50,7 @@ def at_least(tag, wanted):
         return not have[1]   # a preview comes before its release
     if not have[1]:
         return True   # the release comes after its previews
-    return [*map(_identifier, have[1])] >= [*map(_identifier, want[1])]
+    return order((numbers[0], ".".join(have[1]))) >= order((numbers[1], ".".join(want[1])))
 
 
 def parse(tag):
@@ -71,7 +66,7 @@ def order(version):
     numbers, pre = version
     if pre is None:
         return numbers, 1, ()
-    return numbers, 0, tuple(map(_identifier, pre.split(".")))
+    return numbers, 0, tuple((0, int(part), "") if part.isdigit() else (1, 0, part) for part in pre.split("."))
 
 
 def written(version):
