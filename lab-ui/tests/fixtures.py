@@ -57,7 +57,6 @@ ENTRY_KEYS = {"url", "host"}   # the entry of catalogs.json
 CATALOG_KEYS = {"name", "version", "lab"}   # catalog.yml, and the lock's cache of it
 LOCK_KEYS = {"audience", "pin", "error"}
 CONTENT_KEYS = {"drop", "files"}   # paths left out of the copy; {path: text} added to it or replaced in it
-PLACE_KEYS = {"link", "store"}   # a folder catalog as a link; the Lab's bare store
 
 
 class Remote:
@@ -89,9 +88,7 @@ class Remote:
 
 
 class Installed(NamedTuple):
-    """What install() put on disk: the catalog and how, where, its two entries, and for git its remote and commit."""
-    ns: str
-    kind: str
+    """What install() put on disk: where, its two entries, and for git its remote and commit."""
     path: Path
     entry: dict
     lock: dict
@@ -431,7 +428,7 @@ def install(case, ns, kind="folder", **patch):
     for a catalog it does not know; pin, error); `drop` (paths left out of the copy); `files` ({path: text} added or
     replaced, which is how a hostile file gets in). Installing again replaces everything of the first time and keeps the
     entry's place."""
-    _check_patch(patch, ENTRY_KEYS | CATALOG_KEYS | LOCK_KEYS | CONTENT_KEYS | PLACE_KEYS)
+    _check_patch(patch, ENTRY_KEYS | CATALOG_KEYS | LOCK_KEYS | CONTENT_KEYS | {"link", "store"})
     tree = _patched(_tree(case, ns), patch)
     meta = _meta_of(tree["catalog.yml"].decode("utf-8")) if "catalog.yml" in tree else {}
     entry, remote_, commit = {"id": ns, "kind": kind}, None, None
@@ -471,7 +468,7 @@ def install(case, ns, kind="folder", **patch):
     entry.update({key: patch[key] for key in ENTRY_KEYS & set(patch)})
     held.update({key: patch[key] for key in LOCK_KEYS & set(patch)})
     held = _put_lock(case, ns, held)   # the entry is written last: it is what makes the catalog one the person has
-    return Installed(ns, kind, target, _put_entry(case, entry), held, remote_, commit)
+    return Installed(target, _put_entry(case, entry), held, remote_, commit)
 
 
 def declare(case, ns, **patch):
