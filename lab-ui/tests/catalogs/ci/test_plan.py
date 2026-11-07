@@ -11,7 +11,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -294,21 +293,12 @@ class Lines(unittest.TestCase):
         self.assertEqual(every[0], "Scope: everything (push)")
 
 
-class Scratch(Case):
-
-    def scratch(self):
-        """A folder of the test's own."""
-        holder = tempfile.TemporaryDirectory()
-        self.addCleanup(holder.cleanup)
-        return Path(holder.name)
-
-
-class Run(Scratch):
+class Run(Case):
     """The command: what it writes to $GITHUB_OUTPUT and to the screen, on a real repository."""
 
     def command(self, root, *argv, outputs=True):
         out, err = io.StringIO(), io.StringIO()
-        file = self.scratch() / "output"
+        file = self.folder() / "output"
         env = {"GITHUB_OUTPUT": str(file)} if outputs else {}
         with mock.patch.dict(os.environ, env):
             if not outputs:
@@ -463,18 +453,18 @@ class Hostile(support.WithGit, Run):
         compose.run.assert_not_called()
 
 
-class Kit(Scratch):
+class Kit(Case):
     """What every stage shares (lab_ui/catalogs/ci/__init__.py)."""
 
     def test_the_outputs_of_a_step_are_lines_of_a_key_and_a_value_and_nothing_else(self):
-        target = self.scratch() / "output"
+        target = self.folder() / "output"
         ci.write_outputs({"units": '["a"]', "seed": "true"}, target)
         ci.write_outputs({"compile": "false"}, target)
         with open(target, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), 'units=["a"]\nseed=true\ncompile=false\n')   # (appended: other steps write there too)
 
     def test_a_key_or_a_value_that_could_start_a_command_or_a_line_is_refused_before_anything_is_written(self):
-        target = self.scratch() / "output"
+        target = self.folder() / "output"
         for items in ({"units": "a\nb=c"}, {"units": "a\rb"}, {"units": "::error::x"}, {"units": "a\x00b"}, {"Units": "x"},
                       {"units=x\nevil": "y"}, {"units": 3}, {"": "x"}, {"a b": "x"}, {"ok": "fine", "bad": "line\nbreak"}):
             with self.subTest(items=items), self.assertRaises(ValueError):
@@ -542,7 +532,7 @@ class Kit(Scratch):
         self.assertEqual([line for line in err.getvalue().splitlines() if line.startswith("::")], [])
 
     def test_a_catalog_that_lists_too_many_files_is_exit_2_not_a_traceback(self):
-        folder = str(self.scratch())
+        folder = str(self.folder())
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(trees.FolderTree, "entries", side_effect=trees.TreeError("This catalog lists more files than the check reads.")):
             self.assertEqual(plan.main([folder, "--event", "push"], out, err), 2)
@@ -564,7 +554,7 @@ class Kit(Scratch):
         self.assertEqual((code, len(out), len(err)), (3, 3000 * 1001, 3000 * 1001))   # (neither pipe filled while the other was waited for)
 
     def test_a_command_that_does_not_end_is_stopped_with_what_it_started(self):
-        pidfile = self.scratch() / "pid"
+        pidfile = self.folder() / "pid"
         started = time.monotonic()
         code, out, err = ci.run_limited(["sh", "-c", f"sleep 120 & echo $! > {pidfile}; wait"], timeout=2, environ=dict(os.environ))
         self.assertLess(time.monotonic() - started, 30)
@@ -621,7 +611,7 @@ class Kit(Scratch):
         self.assertTrue(err.getvalue().startswith("catalog.py ci: "))
 
 
-class Bounded(Scratch):
+class Bounded(Case):
     """What a stranger's program prints is cut to a size a message, a summary and GitHub accept."""
 
     def test_the_tail_is_fifteen_lines_of_at_most_five_hundred_characters(self):
@@ -644,7 +634,7 @@ class Bounded(Scratch):
         self.assertLess(time.process_time() - start, 1.0)
 
     def test_a_summary_over_what_github_keeps_is_cut_at_a_line_and_says_so(self):
-        target = self.scratch() / "summary.md"
+        target = self.folder() / "summary.md"
         text = "# Title\n" + "".join(f"line {number} {'é' * 40}\n" for number in range(60_000))
         self.assertGreater(len(text.encode("utf-8")), ci.SUMMARY_LIMIT)
         with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(target)}):
@@ -659,7 +649,7 @@ class Bounded(Scratch):
         self.assertTrue(cut.splitlines()[-1].startswith("line ") and cut.splitlines()[-1].endswith("é"))   # (a whole line)
 
     def test_a_summary_under_the_limit_is_written_as_it_is(self):
-        target = self.scratch() / "summary.md"
+        target = self.folder() / "summary.md"
         with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(target)}):
             ci.write_summary("a")
             ci.write_summary("b\n")
