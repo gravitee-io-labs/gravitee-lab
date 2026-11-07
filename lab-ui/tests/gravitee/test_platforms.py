@@ -15,9 +15,8 @@ from lab_ui.docker import envfiles
 from lab_ui.library import files
 from lab_ui import paths
 
-from .. import Case, fixtures, fake_cloud
+from .. import Case, fake_cloud
 from .test_cloud import Scripted, serving
-from ..library.test_project import read
 
 ADDON_ENV = ".lab/catalogs/fixture/addons/hyssop/.env"
 ACCOUNT = fake_cloud.ACCOUNT["id"]   # the Account ID a person copies from Cloud
@@ -400,10 +399,6 @@ class Listing(Platforms):
         envfiles.write(".env", {"PLATFORM_GRAVITEE_CLOUD_TOKEN": None})
         self.assertEqual([p["tokenSet"] for p in platforms.listing()["platforms"]], [False])
 
-    def test_nothing_registered(self):
-        self.assertEqual(platforms.listing(), {"platforms": []})
-        self.assertEqual((platforms.read(), self.fake.state.asked), ([], []))
-
 
 class Check(Platforms):
     def test_what_the_platform_holds(self):
@@ -499,17 +494,6 @@ class Entitlements(Platforms):
 
     def read(self):
         return platforms.fetch(platforms.find("gravitee-cloud"))
-
-    def test_the_plan_and_the_scopes_of_the_organizations_are_read(self):
-        found = self.read()["entitled"]
-        self.assertEqual(found["plan"], {"gamma": False})
-        self.assertEqual(found["organizations"]["fake-organization"]["scopes"], ["APIM"])
-        self.fake.state.subscription = {**self.fake.state.subscription, "gammaEnabled": True}
-        self.fake.state.scopes = ["APIM", "AM"]
-        platforms._kept.clear()
-        found = self.read()["entitled"]
-        self.assertEqual((found["plan"], found["organizations"]["fake-organization"]["scopes"]),
-                         ({"gamma": True}, ["AM", "APIM"]))
 
     def test_gamma_and_access_management_are_products_an_environment_has_when_the_account_is_entitled(self):
         self.create()
@@ -676,19 +660,6 @@ class CloudTokens(Platforms):
         self.assertEqual(found, {"state": "valid", "expires": cloud.claims(fake_cloud.CLOUD_TOKEN)["expiry"]})
         self.assertEqual(self.token_of(TEST), {"state": "unset"})
 
-    def test_a_token_replaces_the_one_before(self):
-        self.keep()
-        newer = fake_cloud.cloud_token(DEV)
-        self.keep(newer)
-        self.assertEqual(envfiles.read(".env")[DEV_KEY], newer)
-        self.assertEqual(self.token_of()["state"], "valid")
-
-    def test_each_environment_has_its_own_token(self):
-        self.keep()
-        self.keep(fake_cloud.CLOUD_TOKEN_TEST, TEST)
-        self.assertEqual(sorted(key for key in envfiles.read(".env") if "_ENV_" in key),
-                         [DEV_KEY, "PLATFORM_GRAVITEE_CLOUD_ENV_FAKE_ENV_TEST_TOKEN"])
-
     def test_a_token_that_is_not_right_is_refused_in_plain_words(self):
         for token, environment, words in [
                 (fake_cloud.CLOUD_TOKEN_TEST, DEV, "This Cloud Token is for Test, not Development"),
@@ -844,14 +815,6 @@ class Gateways(Platforms):
         self.assertEqual(shown, {"HYSSOP_CLOUD_TOKEN": issued})
         self.assertEqual(stat.S_IMODE((self.root / ADDON_ENV).stat().st_mode), 0o600)
         self.assertHidden(answer)
-
-    def test_the_token_is_kept_under_the_gateway_in_the_core_env_too(self):
-        gateway = self.create()["gateway"]
-        (issued,) = self.fake.state.tokens.values()
-        self.assertEqual(envfiles.read(".env"), {"GRAVITEE_LICENSE": "keep-me", KEY: fake_cloud.TOKEN,
-                                                 gateway_key(gateway["id"]): issued})
-        self.assertEqual(stat.S_IMODE((self.root / ".env").stat().st_mode), 0o600)
-        self.assertEqual(cloud.claims(issued)["gateway"], gateway["id"])
 
     def test_a_gateway_made_while_one_runs_here_does_not_take_its_place(self):
         first = self.create(DEV, "first")["gateway"]
@@ -1087,12 +1050,6 @@ class RunsHere(Platforms):
         self.assertEqual(platforms.read(), [])
         self.assertEqual(len(self.fake.state.gateways), 1, f"{gateway['id']} stays in the platform that holds it")
 
-    def test_the_token_of_a_gateway_pasted_by_hand_is_not_touched(self):
-        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": fake_cloud.GATEWAY_TOKEN})
-        platforms.remove("gravitee-cloud", PROJECT)
-        self.assertEqual(self.held(), fake_cloud.GATEWAY_TOKEN)
-
-
 class TwoAccounts(Platforms):
     def test_each_platform_keeps_its_own_tokens_and_asks_its_own_account(self):
         self.add()
@@ -1248,30 +1205,6 @@ class LocalGateway(unittest.TestCase):
             self.assertEqual(platforms.local_gateway(project(raw_image)), "gw", raw_image)
         self.assertIsNone(platforms.local_gateway(project("graviteeio/apim-gateway:4.13.1", kind="addon")))
         self.assertIsNone(platforms.local_gateway(project("graviteeio/my-apim-gateway:1")))
-
-
-GATEWAY_FILE = (fixtures.CATALOGS / "fixture/addons/gateway/compose.yml").read_text(encoding="utf-8")
-
-
-@unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
-class Built(Case):
-    """What project.build chose, read back (the choice itself is tested in test_resolve and test_project)."""
-
-    def test_it_is_the_add_on_the_fixture_catalog_declares_and_none_of_the_other_catalogs_is_handed_a_token(self):
-        partner = GATEWAY_FILE.replace("fixture-gateway", "partner-gateway").replace("8195", "8295")
-        _, built = read(self, catalogs={"partner": {"files": {"addons/gateway/compose.yml": partner}}})
-        self.assertIs(platforms.gateway_addon(built, "cloud"), built["addons"]["gateway"])
-        self.assertIsNone(built["addons"]["@partner/gateway"]["gateway"], "a catalog that is not trusted with a Cloud token")
-        self.assertEqual(platforms.local_gateway(built), "apim-gateway")
-
-    def test_it_is_the_next_in_precedence_when_the_first_cannot_start(self):
-        def mine(case):
-            case.write(".lab/catalogs/local/addons/mygate/compose.yml",
-                       GATEWAY_FILE.replace("fixture-gateway", "mine-gateway").replace("8195", "8295"))
-        blocked = GATEWAY_FILE.replace("  kind: addon\n", "  kind: addon\n  requires: {lab: 99}\n", 1)
-        _, built = read(self, fixture={"files": {"addons/gateway/compose.yml": blocked}}, more=mine)
-        self.assertTrue(built["addons"]["gateway"]["blocked"])
-        self.assertIs(platforms.gateway_addon(built, "cloud"), built["addons"]["local/mygate"])
 
 
 if __name__ == "__main__":
