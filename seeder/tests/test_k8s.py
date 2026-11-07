@@ -103,6 +103,15 @@ class Manifests(Cluster):
         k8s.seed()
         self.assertEqual([x["name"] for x in common.created()], made)
 
+    def test_a_namespace_still_being_deleted_is_waited_for_then_made_again_and_recorded(self):
+        self.seed_files(FILES)
+        deleting = (200, {"metadata": {"name": "acme", "deletionTimestamp": "2026-11-07T22:39:00Z"}})
+        self.answer({**self.cluster, ("GET", NAMESPACE): [deleting, deleting, (404, {})]})
+        k8s.seed()
+        self.assertEqual((len(self.platform.sent("GET", NAMESPACE)), len(self.platform.sent("PATCH", NAMESPACE))), (3, 1))
+        self.assertIn(("namespace", "acme"), [(x["kind"], x["name"]) for x in common.created()])
+        self.assertIn("[k8s] ✓ Namespace acme to be deleted ready", self.output())
+
     def test_a_resource_of_the_operator_is_waited_for_until_it_is_accepted(self):
         self.seed_files(FILES)
         self.answer({**self.cluster, ("GET", CONTEXT): [(404, {}), (200, {}), (200, ACCEPTED)]})
