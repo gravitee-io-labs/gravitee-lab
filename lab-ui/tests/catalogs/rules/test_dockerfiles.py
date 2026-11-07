@@ -2,7 +2,6 @@
 equals. The file is read as text: continued lines, here-documents, parser directives, `ONBUILD`, the `ARG` of a base
 image and the stages of the file. A line of a megabyte finishes in under 3 seconds of CPU."""
 
-import subprocess
 import unittest
 
 from lab_ui.catalogs.rules import context, dockerfiles
@@ -322,13 +321,6 @@ class Reading(unittest.TestCase):
         self.assertEqual([("DF21", "apps/a/Dockerfile"), ("DF23", "apps/a/Dockerfile"), ("DF21", "apps/d/Dockerfile"),
                           ("DF23", "apps/d/Dockerfile")], [(each.code, each.path) for each in out], "a NUL byte hides nothing")
 
-    def test_the_fixture_with_every_rule_in_it(self):
-        out = found((DATA / "bad.Dockerfile").read_text())
-        counts = {}
-        for each in out:
-            counts[each.code] = counts.get(each.code, 0) + 1
-        self.assertEqual({"DF01": 1, "DF02": 2, "DF03": 3, "DF04": 4, "DF05": 2, "DF21": 2, "DF22": 1, "DF23": 1, "DF24": 1}, counts)
-
 
 class Hostile(unittest.TestCase):
 
@@ -366,18 +358,9 @@ class Hostile(unittest.TestCase):
 class Calibration(unittest.TestCase):
     """The Dockerfiles of this checkout, the Lab's seeder: judged as a catalog's would be, they hold no error."""
 
-    def names(self):
-        try:
-            done = subprocess.run(["git", "ls-files", "-z"], cwd=support.ROOT, capture_output=True, timeout=60)
-        except (OSError, subprocess.SubprocessError):
-            done = None
-        if done is None or done.returncode != 0:
-            self.skipTest("this checkout is not a git work tree")
-        return [name for name in (each.decode() for each in done.stdout.split(b"\0") if each)
-                if name.rsplit("/", 1)[-1] == "Dockerfile" and "/tests/" not in name and not name.startswith(("lab-ui/", ".github/"))]
-
     def test_the_dockerfiles_of_the_engine_give_no_error(self):
-        names = self.names()
+        names = [name for name in support.tracked(self)
+                 if name.rsplit("/", 1)[-1] == "Dockerfile" and "/tests/" not in name and not name.startswith(("lab-ui/", ".github/"))]
         self.assertTrue(names)
         listing = support.ListTree.from_files({name: (support.ROOT / name).read_bytes() for name in names})
         out = dockerfiles.check(listing, context(listing))

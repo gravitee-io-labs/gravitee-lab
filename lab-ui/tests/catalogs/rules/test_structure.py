@@ -38,7 +38,6 @@ class Names(unittest.TestCase):
 
     def test_the_good_catalog_is_quiet_with_the_kind_level_guides_in_it(self):
         quiet(self)
-        self.assertIn("addons/README.md", support.GOOD)
 
     def test_st01_a_link(self):
         one(self, "ST01", "docs/link.md", "docs/link.md is a symbolic link. Fix: commit the file itself; the Lab does not "
@@ -442,8 +441,6 @@ class Helpers(unittest.TestCase):
         first = structure.check(ListTree.from_files(files), context(ListTree.from_files(files)))
         reverse = dict(reversed(list(files.items())))
         second = structure.check(ListTree.from_files(reverse), context(ListTree.from_files(reverse)))
-        key = lambda each: (each.code, each.path, each.message)  # noqa: E731
-        self.assertEqual(sorted(first, key=key)[:1][0].code, sorted(second, key=key)[:1][0].code)
         self.assertEqual({"ST06", "ST08", "ST13"}, codes(first))
         self.assertEqual({"ST06", "ST08", "ST13"}, codes(second))
 

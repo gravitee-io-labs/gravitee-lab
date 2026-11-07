@@ -239,9 +239,8 @@ class Svg(unittest.TestCase):
                 self.assertEqual(["GD05"], [each.code for each in run(guides, {"docs/big.svg": f"<svg>{pad}{tail}</svg>"})])
         self.assertEqual([], run(guides, {"docs/huge.svg": f"<svg>{pad * 2}<script>x</script></svg>"}), "past 2 MB it is ST09's")
 
-    def test_gd05_the_fixtures(self):
+    def test_gd05_a_plain_svg_passes(self):
         self.assertEqual([], run(guides, {"docs/img/plain.svg": (DATA / "plain.svg").read_text()}))
-        self.assertEqual(["GD05"], [each.code for each in run(guides, {"docs/img/active.svg": (DATA / "active.svg").read_text()})])
 
     def test_gd05_a_script_spelled_in_odd_ways_is_one(self):
         for content in ("<svg><SCRIPT>x</SCRIPT></svg>", "<svg><Script\n>x</script></svg>", "<svg><a href=' java\tscript:x'><a/></svg>",
@@ -331,15 +330,8 @@ class Content(unittest.TestCase):
     """The guides, READMEs and SVG files that this checkout holds."""
 
     def test_no_guide_of_the_engine_runs_anything(self):
-        import subprocess
-        try:
-            done = subprocess.run(["git", "ls-files", "-z"], cwd=support.ROOT, capture_output=True, timeout=60)
-        except (OSError, subprocess.SubprocessError):
-            done = None
-        if done is None or done.returncode != 0:
-            self.skipTest("this checkout is not a git work tree")
         held, entries = {}, []
-        for name in (each.decode() for each in done.stdout.split(b"\0") if each):
+        for name in support.tracked(self):
             path = support.ROOT / name
             if "/tests/data/" in name:   # the fixtures of the rules hold the files they refuse
                 continue

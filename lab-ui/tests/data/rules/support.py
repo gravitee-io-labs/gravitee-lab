@@ -131,6 +131,17 @@ def tool_address() -> str:
     return "noreply@" + "anthropic" + ".com"
 
 
+def tracked(case) -> List[str]:
+    """The files git tracks in this checkout; the test is skipped outside a work tree."""
+    try:
+        done = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        done = None
+    if done is None or done.returncode != 0:
+        case.skipTest("this checkout is not a git work tree")
+    return [name.decode() for name in done.stdout.split(b"\0") if name]
+
+
 GIT = gitx.executable()
 PRINCIPAL = {"GIT_AUTHOR_NAME": "Ada Dev", "GIT_AUTHOR_EMAIL": "ada@example.test", "GIT_COMMITTER_NAME": "Ada Dev",
              "GIT_COMMITTER_EMAIL": "ada@example.test"}
