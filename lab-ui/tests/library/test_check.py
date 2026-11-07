@@ -640,22 +640,22 @@ class Hosts(Machine):
     def test_a_service_that_takes_more_of_this_machine_says_why_in_the_file_that_asks_for_it(self):
         path = self.unit_file
         user = unit("fixture", "addon", "user")
-        k3s = {"k3s": {"privileged": True}, "web": {}}
-        ask = "k3s: runs privileged: say why in x-gravitee.host_access (k3s: <reason>), so that it is read before it runs"
-        self.assertEqual(self.found({}, k3s), [ask])
-        self.assertEqual(self.found({"host_access": {"k3s": "Runs a kubelet"}}, k3s), [])
+        kea = {"kea": {"privileged": True}, "web": {}}
+        ask = "kea: runs privileged: say why in x-gravitee.host_access (kea: <reason>), so that it is read before it runs"
+        self.assertEqual(self.found({}, kea), [ask])
+        self.assertEqual(self.found({"host_access": {"kea": "Runs nested containers"}}, kea), [])
         # A declaration stays true: for what takes nothing, and for what is not a service of the file
-        self.assertEqual(self.found({"host_access": {"k3s": "Runs a kubelet", "web": "Why"}}, k3s),
+        self.assertEqual(self.found({"host_access": {"kea": "Runs nested containers", "web": "Why"}}, kea),
                          ["x-gravitee.host_access: web takes nothing of this machine beyond its container: remove it"])
-        self.assertEqual(self.found({"host_access": {"k3s": "Runs a kubelet", "ghost": "Why"}}, k3s),
+        self.assertEqual(self.found({"host_access": {"kea": "Runs nested containers", "ghost": "Why"}}, kea),
                          ["x-gravitee.host_access: ghost is not a service of this file"])
         # What an included file asks is its own: only what the file adds is said
-        self.assertEqual(self.found({}, {**k3s, "own": {"network_mode": "host"}}, ("k3s", "web", "own"), [path], {path: k3s}, user),
+        self.assertEqual(self.found({}, {**kea, "own": {"network_mode": "host"}}, ("kea", "web", "own"), [path], {path: kea}, user),
                          ["own: shares the network of this machine: say why in x-gravitee.host_access (own: <reason>), "
                           "so that it is read before it runs"])
-        for bad in ({"host_access": ["k3s"]}, {"host_access": {"k3s": ""}}, {"host_access": {"k3s": 1}}, {"host_access": {1: "x"}}):
+        for bad in ({"host_access": ["kea"]}, {"host_access": {"kea": ""}}, {"host_access": {"kea": 1}}, {"host_access": {1: "x"}}):
             with self.subTest(bad=bad):
-                self.assertEqual(self.found(bad, k3s),
+                self.assertEqual(self.found(bad, kea),
                                  ["x-gravitee.host_access must map a service to the reason it takes more of this machine"])
 
     def test_a_bind_inside_the_folder_of_the_unit_asks_nothing_and_one_outside_it_asks_for_a_reason(self):

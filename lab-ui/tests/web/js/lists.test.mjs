@@ -554,13 +554,13 @@ function world({ playgrounds = [], setups = [], addons = [], ...more } = {}) {
 const alone = () => draw(lab({ catalogs: [FIRST()], content: content("ready") }));
 // A row open, whether it was or not (open toggles it)
 const opening = (name, id) => { if (!row(name, id).classList.contains("open")) open(name, id); };
-const USES = [{ service: "k3s", what: ["runs privileged"], why: "Runs containerd and the kubelet" }];
+const USES = [{ service: "kea", what: ["runs privileged"], why: "Runs nested containers" }];
 const everyone = () => world({
   playgrounds: [inHub("playground", "ledger-demo", "Ledger demo"), ofMine("playground", "scratch", "Scratch")],
   setups: [inHub("setup", "duo", "Duo", { members: [{ id: "kazoo", name: "Kazoo" }], includes: [], note: "Needs a catalog", note_tone: "warn",
     note_target: { kind: "catalog", id: null }, note_causes: [NEEDS.missing], action: { ...ACTION("start"), enabled: false, reason: "Needs the catalog Partner Bank" } })],
   addons: [inHub("addon", "mock-bank", "Mock bank", { note: "Blocked", note_tone: "err", note_causes: [BLOCKED],
-    action: { ...ACTION("start"), enabled: false, reason: BLOCKED.reasons[0] } }), inHub("addon", "k3s", "Kubernetes", { uses_machine: USES })],
+    action: { ...ACTION("start"), enabled: false, reason: BLOCKED.reasons[0] } }), inHub("addon", "kea", "Kookaburra", { uses_machine: USES })],
 });
 
 // The control that tells the catalogs apart, as a list draws it: none, or the picker
@@ -841,11 +841,11 @@ test("Use the catalog version waits, saying why in the server's words, while the
 test("what an item takes of this machine is one pair of its opened row, in its author's words", () => {
   const state = everyone();
   draw(state);
-  opening("addons", "@acme-hub/k3s");
+  opening("addons", "@acme-hub/kea");
   opening("addons", "@acme-hub/mock-bank");
   draw(state);
   const facts = (id) => row("addons", id).querySelectorAll(".panel-fact").map((fact) => [text(fact.firstElementChild), text(fact.lastElementChild)]);
-  assert.deepEqual(facts("@acme-hub/k3s"), [["Catalog", "Acme Hub 1.4.0"], ["Uses this machine", "Runs containerd and the kubelet"]]);
+  assert.deepEqual(facts("@acme-hub/kea"), [["Catalog", "Acme Hub 1.4.0"], ["Uses this machine", "Runs nested containers"]]);
   assert.deepEqual(facts("@acme-hub/mock-bank"), [["Catalog", "Acme Hub 1.4.0"]], "most items use nothing of it");
   alone();
 });
@@ -869,14 +869,14 @@ test("an address that names an item of another catalog finds it through a filter
   await settle();   // what the tests before left to do is done
   typed("addons", "zzz");
   assert.deepEqual(names("addons"), []);
-  addonsPage.show(["@acme-hub/k3s"]);
+  addonsPage.show(["@acme-hub/kea"]);
   draw(everyone());
-  assert.ok(names("addons").includes("Kubernetes"), "its row shows");
+  assert.ok(names("addons").includes("Kookaburra"), "its row shows");
   assert.equal(sections.addons.querySelector('[data-filter="q"]').value, "", "the filters were cleared for it");
-  assert.equal(row("addons", "@acme-hub/k3s").classList.contains("open"), true);
+  assert.equal(row("addons", "@acme-hub/kea").classList.contains("open"), true);
   await settle();
-  assert.ok(page.focused() === row("addons", "@acme-hub/k3s").querySelector(".s-toggle"));
-  assert.equal(row("addons", "@acme-hub/k3s").scrolled.length, 1);
+  assert.ok(page.focused() === row("addons", "@acme-hub/kea").querySelector(".s-toggle"));
+  assert.equal(row("addons", "@acme-hub/kea").scrolled.length, 1);
   // The list's own address gives the list back as it was before, its search too
   addonsPage.show([]);
   assert.equal(sections.addons.querySelector('[data-filter="q"]').value, "zzz");
@@ -895,16 +895,16 @@ test("Back from an address that opened a row gives back the catalogs the list wa
   Combo.close();
   const narrowed = names("addons");
   assert.ok(narrowed.length > 0 && narrowed.length < all.length, "the picker narrowed the list");
-  addonsPage.show(["@acme-hub/k3s"]);
+  addonsPage.show(["@acme-hub/kea"]);
   draw(everyone());
   assert.equal(value("addons"), "All catalogs", "the row an address names shows, whatever the filters hid");
-  assert.ok(names("addons").includes("Kubernetes"));
+  assert.ok(names("addons").includes("Kookaburra"));
   addonsPage.show([]);
   assert.equal(value("addons"), "Gravitee public", "the list's own address gives the catalogs back");
   draw(store.state);
   assert.deepEqual(names("addons"), narrowed);
   // What is changed by hand while the row is open is kept instead
-  addonsPage.show(["@acme-hub/k3s"]);
+  addonsPage.show(["@acme-hub/kea"]);
   draw(everyone());
   await opened("addons");
   await choose("Acme Hub");
@@ -1002,15 +1002,15 @@ test("a row's address that names an item about to arrive is waited for while the
   page.body.hidden = false;
   alone();
   await settle();
-  addonsPage.show(["@acme-hub/k3s"]);
+  addonsPage.show(["@acme-hub/kea"]);
   draw(lab({ catalogs: [FIRST()], content: content("downloading") }));
-  assert.equal(row("addons", "@acme-hub/k3s"), null);
+  assert.equal(row("addons", "@acme-hub/kea"), null);
   draw(lab({ catalogs: [FIRST()], content: content("downloading") }));
   assert.ok(names("addons").length > 0, "what is there is shown meanwhile");
   draw(everyone());
-  assert.equal(row("addons", "@acme-hub/k3s").classList.contains("open"), true, "it opens when it arrives");
+  assert.equal(row("addons", "@acme-hub/kea").classList.contains("open"), true, "it opens when it arrives");
   await settle();
-  assert.ok(page.focused() === row("addons", "@acme-hub/k3s").querySelector(".s-toggle"), "and takes the focus");
+  assert.ok(page.focused() === row("addons", "@acme-hub/kea").querySelector(".s-toggle"), "and takes the focus");
   // Given up: the catalogs are done and it is not there; when it comes later nothing opens it
   addonsPage.show([]);
   addonsPage.show(["@acme-hub/late"]);
@@ -1072,7 +1072,7 @@ function empties() {
 function withCatalogs() {
   const dom = {}, state = everyone();
   draw(state);
-  opening("addons", "@acme-hub/k3s");
+  opening("addons", "@acme-hub/kea");
   opening("playgrounds", "@acme-hub/ledger-demo");
   draw(state);
   for (const name of ["playgrounds", "setups", "addons"]) dom[`${name}: two catalogs and this machine`] = drawn(sections[name]);

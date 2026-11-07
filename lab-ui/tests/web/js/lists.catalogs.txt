@@ -752,21 +752,21 @@
                     "Acme Hub"
                   <span class="muted">
                     "1.4.0"
-        <li class="list-item open" data-key="@acme-hub/k3s">
+        <li class="list-item open" data-key="@acme-hub/kea">
           <div class="list-row list-grid">
-            <button type="button" class="s-toggle" data-toggle="" aria-label="Kubernetes" aria-controls="detail--acme-hub-k3s" aria-keyshortcuts="S" aria-expanded="true">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Kookaburra" aria-controls="detail--acme-hub-kea" aria-keyshortcuts="S" aria-expanded="true">
               <svg aria-hidden="true">
                 <use href="#i-chevron">
             <span class="list-main">
-              <strong class="list-name" data-tip="Kubernetes" data-tip-cut="">
-                "Kubernetes"
+              <strong class="list-name" data-tip="Kookaburra" data-tip-cut="">
+                "Kookaburra"
               <span class="list-marks">
-                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Kubernetes">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Kookaburra">
                   <svg aria-hidden="true">
                     <use href="#i-star">
               <span class="list-sub">
-                <span class="list-desc" data-tip="Kubernetes for the demo" data-tip-cut="">
-                  "Kubernetes for the demo"
+                <span class="list-desc" data-tip="Kookaburra for the demo" data-tip-cut="">
+                  "Kookaburra for the demo"
             <span class="list-col col-from" data-tip="Acme Hub" data-tip-cut="">
               "Acme Hub"
             <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
@@ -778,7 +778,7 @@
                   "Off"
             <span class="list-actions">
               <span class="warn-slot">
-              <button class="btn pbtn act" data-act-for="addon:@acme-hub/k3s" data-act="" data-busy="" aria-label="Start Kubernetes">
+              <button class="btn pbtn act" data-act-for="addon:@acme-hub/kea" data-act="" data-busy="" aria-label="Start Kookaburra">
                 <span class="pbtn-wrap">
                   <span class="pbtn-face">
                     <svg aria-hidden="true">
@@ -793,20 +793,20 @@
                         <span class="pbtn-mark">
                         <span>
               <span class="row-icons">
-                <button class="icon-btn" data-file="addons/@acme-hub/k3s/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
+                <button class="icon-btn" data-file="addons/@acme-hub/kea/compose.yml" data-tip="View compose.yml" aria-label="View compose.yml">
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Kubernetes" aria-haspopup="true">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Kookaburra" aria-haspopup="true">
                   <svg aria-hidden="true">
                     <use href="#i-more">
-          <div class="list-detail" id="detail--acme-hub-k3s">
+          <div class="list-detail" id="detail--acme-hub-kea">
             <section class="panel ">
               <div class="panel-head">
                 <span>
                   "About"
               <p class="panel-row">
-                "Kubernetes for the demo"
+                "Kookaburra for the demo"
               <div class="panel-row panel-fact">
                 <span>
                   "Catalog"
@@ -820,7 +820,7 @@
                   "Uses this machine"
                 <span>
                   <span class="muted" data-tip-cut="">
-                    "Runs containerd and the kubelet"
+                    "Runs nested containers"
     <div class="empty" hidden="">
       "No matches"
       <button class="btn" data-clear="">

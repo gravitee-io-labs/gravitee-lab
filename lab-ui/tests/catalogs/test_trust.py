@@ -1807,8 +1807,8 @@ class Surface(Golden):
 
     def test_the_label_of_a_service_that_uses_the_machine_is_its_own(self):
         def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-privileged"]["labels"] = {"io.gravitee.name": "Kubernetes"}
-        self.assertEqual(self.changed("t03-privileged", edit)["surface"]["uses_machine"][0]["label"], "Kubernetes")
+            arguments["unit_config"]["services"]["hostile-privileged"]["labels"] = {"io.gravitee.name": "Kookaburra"}
+        self.assertEqual(self.changed("t03-privileged", edit)["surface"]["uses_machine"][0]["label"], "Kookaburra")
 
     def test_surfaces_add_up(self):
         one = {"builds": [{"service": "x", "source": "local"}], "ports": [2, 1], "core": [{"service": "g", "label": "G", "keys": ["environment"]}],

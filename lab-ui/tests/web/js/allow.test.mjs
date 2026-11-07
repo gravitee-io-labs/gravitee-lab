@@ -1,5 +1,5 @@
 // The allowance of the items that use this machine (the items the policy holds back), walked from end to end over a server that remembers what it
-// was told, with the state it sends in the shapes of the contract: a catalog that is not listed holds a Kubernetes add-on that
+// was told, with the state it sends in the shapes of the contract: a catalog that is not listed holds a Kookaburra add-on that
 // runs privileged. The Add dialog offers the choice once the preview lists the item in `rows.uses_machine`, Keep them blocked first; Allow adds the
 // catalog and then gives the allowance; the Catalogs page and the add-ons list follow the state (Blocked with its reason, then free to start,
 // then Blocked again); stopping the allowance is held while the item is on, by the page and by the server; allowing is the one consent that
@@ -19,7 +19,7 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 // --- The server: a catalog that is not listed, with one item that runs privileged ---------------------------------------------------------------
 
 const REASON = "Runs with full privileges";
-const USES = [{ id: "@acme-hub/k3s", name: "Kubernetes", service: "k3s", what: ["runs privileged"], why: "Runs containerd and the kubelet" }];
+const USES = [{ id: "@acme-hub/kea", name: "Kookaburra", service: "kea", what: ["runs privileged"], why: "Runs nested containers" }];
 const world = { added: false, host: "no", on: false, calls: [], refuse: {}, previewed: 0 };
 const allowed = () => world.host === "allowed";
 
@@ -29,21 +29,21 @@ const preview = () => ({ ticket: "9f3a4c1d2e5b6a70", expires: 600, catalog: { id
   rows: { builds: { local: 0, remote: [] }, ports: [], core: [], reads: [], uses_machine: USES, needs: [] }, blocked: [], ignored: 0 });
 // The row of the catalog once added: its allowance (`host`), the items it holds that use this machine, and, until it is allowed, the ones that cannot run
 const row = () => catalog({ id: "acme-hub", host: world.host, counts: { playground: 0, setup: 0, addon: 1 }, uses_machine: USES,
-  blocked: allowed() ? [] : [{ kind: "addon", id: "@acme-hub/k3s", name: "Kubernetes", reasons: [REASON] }] });
+  blocked: allowed() ? [] : [{ kind: "addon", id: "@acme-hub/kea", name: "Kookaburra", reasons: [REASON] }] });
 const RUNNING = { key: "running", label: "Running", running: true };
 const OFF = { key: "off", label: "", running: false };
 // The add-on of that catalog, as an item of the state: Blocked with its note and its reason until the catalog is allowed
-const k3s = () => {
+const kea = () => {
   const blocked = !allowed();
-  return item("addon", "@acme-hub/k3s", "Kubernetes", {
-    ...gains({ origin: origin(), readonly: true, blocked: blocked ? { reasons: [REASON] } : null, uses_machine: [{ service: "k3s", what: ["runs privileged"], why: "Runs containerd and the kubelet" }] }),
+  return item("addon", "@acme-hub/kea", "Kookaburra", {
+    ...gains({ origin: origin(), readonly: true, blocked: blocked ? { reasons: [REASON] } : null, uses_machine: [{ service: "kea", what: ["runs privileged"], why: "Runs nested containers" }] }),
     services: [], needs: [], conflicts: {}, restarts: [], brings: [], recreates: [], links: [], secondary: null, failed_job: null, login: null, on: world.on, up: world.on, state: world.on ? RUNNING : OFF,
     action: blocked ? { do: "start", label: "Start", enabled: false, reason: REASON, dialog: null }
       : { do: world.on ? "stop" : "start", label: world.on ? "Stop" : "Start", enabled: true, reason: null, dialog: null },
     ...(blocked ? { note: "Blocked", note_tone: "err", note_title: REASON, note_causes: [{ kind: "blocked", reasons: [REASON], owner: "Acme Hub", folder: false }] } : {}),
   });
 };
-const stateNow = () => lab({ catalogs: world.added ? [FIRST(), row()] : [FIRST()], addons: world.added ? [k3s()] : [], content: content("ready") });
+const stateNow = () => lab({ catalogs: world.added ? [FIRST(), row()] : [FIRST()], addons: world.added ? [kea()] : [], content: content("ready") });
 
 const page = installDom({
   fetch: async (path, options = {}) => {
@@ -58,7 +58,7 @@ const page = installDom({
     }
     if (path === "/api/catalogs/acme-hub/allow") {
       // The server holds the allowance while the item is on (host_not_allowed), and writes it otherwise
-      if (!body.enabled && world.on) return reply({ error: "Turn off Kubernetes first.", code: "host_not_allowed" }, 409);
+      if (!body.enabled && world.on) return reply({ error: "Turn off Kookaburra first.", code: "host_not_allowed" }, 409);
       world.host = body.enabled ? "allowed" : "no";
       return reply({ catalog: row() });
     }
@@ -122,7 +122,7 @@ const choose = (li, label) => {
   page.doc.dispatchEvent(new Ev("click", { target: entry }));
 };
 const closeMenu = () => page.doc.dispatchEvent(new Ev("click", { target: page.doc.body }));
-const kubernetes = () => sections.addons.querySelector('.list-item[data-key="@acme-hub/k3s"]');
+const kookaburra = () => sections.addons.querySelector('.list-item[data-key="@acme-hub/kea"]');
 // The pairs of the opened row of a catalog, as [label, value]
 const about = () => catalogRow().querySelectorAll(".panel-fact").map((fact) => [words(fact.children[0]), words(fact.children[1])]);
 
@@ -156,7 +156,7 @@ test("the Add dialog lists the item that uses this machine, offers to keep it bl
   // The preview lists it; the rows say what it takes, and, while it is kept blocked, that it cannot run
   assert.deepEqual(rowsOf().filter(([label]) => ["Uses this machine", "Cannot run"].includes(label)), [["Uses this machine", "1 item"], ["Cannot run", "1 item"]]);
   const mark = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Uses this machine").querySelector(".tip");
-  assert.deepEqual(bubble(mark), ["Kubernetes", "Runs privileged", "Runs containerd and the kubelet"], "what it takes and the author's reason, per item");
+  assert.deepEqual(bubble(mark), ["Kookaburra", "Runs privileged", "Runs nested containers"], "what it takes and the author's reason, per item");
   const choices = adding().querySelector("#catalog-choice");
   assert.equal(choices.hidden, false);
   const [keep, allow] = choices.querySelectorAll("input");
@@ -191,7 +191,7 @@ test("once allowed the item is free to start and the Catalogs page says Allowed;
   assert.deepEqual(labels.find(([label]) => /allowing use/.test(label)), ["Stop allowing use of this machine", ""]);
   assert.ok(!labels.some(([label]) => label === "Allow use of this machine"));
   // The item itself: no note, its Start is free, and its opened row says what it takes in its author's words
-  const k = kubernetes();
+  const k = kookaburra();
   assert.equal(k.querySelector(".list-state .note"), null);
   const start = k.querySelector(".list-actions .btn");
   assert.equal(isOff(start), false);
@@ -201,7 +201,7 @@ test("while the item is on the allowance cannot be stopped: the menu says which 
   world.on = true;
   await refresh();
   const li = catalogRow();
-  assert.deepEqual(menuOf(li).find(([label]) => /allowing use/.test(label)), ["Stop allowing use of this machine", "Stop Kubernetes first"]);
+  assert.deepEqual(menuOf(li).find(([label]) => /allowing use/.test(label)), ["Stop allowing use of this machine", "Stop Kookaburra first"]);
   closeMenu();
   // Choosing the held entry does nothing
   world.calls.length = 0;
@@ -222,7 +222,7 @@ test("while the item is on the allowance cannot be stopped: the menu says which 
   world.calls.length = 0;
   await answer(true);
   assert.deepEqual(calls(), [["/api/catalogs/acme-hub/allow", { enabled: false }]]);
-  assert.deepEqual(toasts(), ["Turn off Kubernetes first."]);
+  assert.deepEqual(toasts(), ["Turn off Kookaburra first."]);
   assert.equal(world.host, "allowed", "nothing was taken away");
   world.on = false;
   await refresh();
@@ -234,12 +234,12 @@ test("Stop allowing says what it blocks and is harmless; the item is Blocked aga
   await settle();
   const said = effects();
   assert.deepEqual([said.title, said.action, said.danger], ["Stop allowing use of this machine", "Stop allowing", false]);
-  assert.deepEqual(said.steps, [["Blocks", ["Kubernetes"], "They stay listed and cannot start"]]);
+  assert.deepEqual(said.steps, [["Blocks", ["Kookaburra"], "They stay listed and cannot start"]]);
   world.calls.length = 0;
   await answer(true);
   assert.deepEqual(calls(), [["/api/catalogs/acme-hub/allow", { enabled: false }]]);
   assert.equal(world.host, "no");
-  const k = kubernetes();
+  const k = kookaburra();
   assert.equal(k.querySelector(".list-state .note"), null, "the State does not say it: the warning beside the Start does");
   assert.equal(text(k.querySelector(".list-actions .pop-title")), "Blocked");
   const start = k.querySelector(".list-actions .btn.act");
@@ -257,7 +257,7 @@ test("Allow use of this machine names the item and what it takes, in the danger 
   await settle();
   const said = effects();
   assert.deepEqual([said.title, said.action, said.danger], ["Allow use of this machine", "Allow", true]);
-  assert.deepEqual(said.steps, [["Uses this machine", ["Kubernetes: runs privileged"], ""]]);
+  assert.deepEqual(said.steps, [["Uses this machine", ["Kookaburra: runs privileged"], ""]]);
   assert.equal(enter(), true, "a key that presses Enter is refused");
   world.calls.length = 0;
   await answer(false);
@@ -268,7 +268,7 @@ test("Allow use of this machine names the item and what it takes, in the danger 
   await answer(true);
   assert.deepEqual(calls(), [["/api/catalogs/acme-hub/allow", { enabled: true }]]);
   assert.equal(world.host, "allowed");
-  const start = kubernetes().querySelector(".list-actions .btn");
+  const start = kookaburra().querySelector(".list-actions .btn");
   assert.equal(isOff(start), false, "free again");
 });
 

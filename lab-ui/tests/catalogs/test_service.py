@@ -282,14 +282,14 @@ class Rows(Seam):
         self.installed("partner")
         summary = {"partner": {
             "blocked": [{"kind": "addon", "id": "@partner/x", "name": "X", "reasons": ["Mounts the Docker socket"]}],
-            "uses_machine": [{"id": "@partner/k3s", "name": "Kubernetes", "service": "k3s", "what": ["runs privileged"],
-                              "why": "Runs containerd and the kubelet", "extra": "not part of the row"}],
+            "uses_machine": [{"id": "@partner/kea", "name": "Kookaburra", "service": "kea", "what": ["runs privileged"],
+                              "why": "Runs nested containers", "extra": "not part of the row"}],
             "problems": [{"file": ".lab/catalogs/partner/addons/y/compose.yml", "display": "addons/y/compose.yml",
                           "message": "Cannot be read: boom"}]}}
         row = next(one for one in service.describe({"catalogs": summary}, {}) if one["id"] == "partner")
         self.assertEqual(row["blocked"], summary["partner"]["blocked"])
-        self.assertEqual(row["uses_machine"], [{"id": "@partner/k3s", "name": "Kubernetes", "service": "k3s",
-                                                "what": ["runs privileged"], "why": "Runs containerd and the kubelet"}])
+        self.assertEqual(row["uses_machine"], [{"id": "@partner/kea", "name": "Kookaburra", "service": "kea",
+                                                "what": ["runs privileged"], "why": "Runs nested containers"}])
         self.assertEqual(row["problems"], ["addons/y/compose.yml: Cannot be read: boom"])
 
     def test_a_suggestion_preselects_the_allowance_when_the_suggestions_file_says_so(self):
@@ -2425,19 +2425,19 @@ class Growth(unittest.TestCase):
 
     def test_nothing_grew_when_nothing_is_new_or_less(self):
         old = self.surface(ports=[8140, 8141], reads=["license"], builds=[{"service": "a", "source": "local"}], seed="custom",
-                           plugins=["apim"], uses_machine=[{"service": "k3s", "what": ["runs privileged"]}])
+                           plugins=["apim"], uses_machine=[{"service": "kea", "what": ["runs privileged"]}])
         self.assertEqual(service._growth(old, old), [])
         self.assertEqual(service._growth(old, self.surface(ports=[8140])), [])
 
     def test_each_kind_of_growth_is_one_fact_and_its_value(self):
-        old = self.surface(ports=[8140], uses_machine=[{"service": "k3s", "what": ["runs privileged"]}],
+        old = self.surface(ports=[8140], uses_machine=[{"service": "kea", "what": ["runs privileged"]}],
                            core=[{"service": "apim-gateway", "label": "API Management gateway", "keys": ["environment"]}])
         new = self.surface(
             ports=[8140, 8141], builds=[{"service": "mock", "source": "github.com/acme/mock"}, {"service": "web", "source": "local"}],
             core=[{"service": "apim-gateway", "label": "API Management gateway", "keys": ["environment", "labels"]},
                   {"service": "mongodb", "label": "MongoDB", "keys": ["environment"]}],
             reads=["license", "gateway token"], plugins=["apim"], seed="custom",
-            uses_machine=[{"service": "k3s", "what": ["runs privileged", "mounts the Docker socket"]},
+            uses_machine=[{"service": "kea", "what": ["runs privileged", "mounts the Docker socket"]},
                           {"service": "new", "what": ["publishes a port to the network"]}])
         self.assertEqual(service._growth(old, new), [
             ("port", "8141"), ("build", "github.com/acme/mock"), ("build", "local"),

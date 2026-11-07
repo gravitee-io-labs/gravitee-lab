@@ -1382,16 +1382,16 @@ test("a Lab that reads a level other than the playground's says so, and what to 
 
 test("what it uses of this machine is one line among what Start does, in its author's words, once each and cut", async () => {
   const use = (service, why) => ({ service, what: ["runs privileged"], why });
-  await visit({ ...off, uses_machine: [use("k3s", "Runs containerd and the kubelet"), use("k3s-agent", "Runs containerd and the kubelet"), use("socket", "Reads the Docker socket")] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", "Runs nested containers"), use("kea-agent", "Runs nested containers"), use("socket", "Reads the Docker socket")] }, { platforms: [], places: [] });
   const line = prepared().find((one) => one.name === "Uses this machine");
-  assert.deepEqual([line.kind, line.action], ["auto", "Runs containerd and the kubelet, Reads the Docker socket"]);
+  assert.deepEqual([line.kind, line.action], ["auto", "Runs nested containers, Reads the Docker socket"]);
   await leave();
   const long = "x".repeat(300);
-  await visit({ ...off, uses_machine: [use("k3s", long)] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", long)] }, { platforms: [], places: [] });
   const cut = prepared().find((one) => one.name === "Uses this machine").action;
   assert.ok(cut.length <= 120 && cut.endsWith("\u2026"), "the author's text is cut");
   await leave();
-  await visit({ ...off, uses_machine: [use("k3s", HOSTILE)] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", HOSTILE)] }, { platforms: [], places: [] });
   assert.equal(section.querySelectorAll("img").length, 0, "text, never markup");
   await leave();
   await visit({ ...off }, { platforms: [], places: [] });

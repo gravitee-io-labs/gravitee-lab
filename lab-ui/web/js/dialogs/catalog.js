@@ -84,7 +84,7 @@ const mark = (card, label) => tipHtml(icon("info"), card, "plat-info", label);
 // What a catalog's items take of this machine, one row for each: what it takes, then the author's reason, which is the author's claim
 export const usesCard = (uses = []) => ({ rows: uses.map((u) => ({ subject: u.name, lines: [[capital((u.what || []).join(", "))], ...(u.why ? [[u.why]] : [])] })) });
 const blockedCard = (blocked) => ({ rows: blocked.map((b) => ({ subject: b.name, lines: [[(b.reasons || [])[0] ?? ""]] })) });
-// The same item in two lists, by its id or by its name: the lists of a preview do not spell an id alike (`@acme-hub/x`, `kubernetes`)
+// The same item in two lists, by its id or by its name: the lists of a preview do not spell an id alike (`@acme-hub/x`, `kookaburra`)
 const alike = (a, b) => (a.id != null && a.id === b.id) || (a.name != null && a.name === b.name);
 
 // The items of a preview or of a plan that cannot run: the Blocked ones, and, while the person keeps the items that use this machine blocked,

@@ -1531,7 +1531,7 @@ class Catalogs(Built):
 
     def test_an_item_of_a_catalog_says_where_it_comes_from_and_what_it_uses_of_this_machine(self):
         origin = {"id": "acme-hub", "name": "Acme Hub", "version": "1.4.0"}
-        uses = [{"service": "k3s", "what": ["runs privileged"], "why": "Runs containerd"}]
+        uses = [{"service": "kea", "what": ["runs privileged"], "why": "Runs nested containers"}]
         self.mark("kazoo", catalog="acme-hub", origin=origin, readonly=True, display_file="addons/kazoo/compose.yml",
                   compat="new", uses_machine=uses, verdict={"state": "ok"}, twin={"id": "local/kazoo", "name": "Personal"})
         item = self.item("addon", "kazoo")
