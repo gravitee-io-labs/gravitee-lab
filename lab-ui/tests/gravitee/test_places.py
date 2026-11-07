@@ -696,7 +696,7 @@ class Gateways(Places):
         for held in (None, "not-a-token"):
             envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": held})
             found = places.gateway(PROJECT, "my-account", gateway["id"])
-            self.assertEqual((found["here"], found["serving"]), (False, None), held)
+            self.assertEqual((found["here"], found["serving"]), (False, None), repr(held))
 
     def test_the_platform_is_read_again_because_a_click_asks(self):
         gateway = self.create(DEV, "lab", platform="my-account")["gateway"]

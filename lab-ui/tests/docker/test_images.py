@@ -355,7 +355,7 @@ class Images(Case):
         for call, words in ((lambda: images.login("graviteeio.azurecr.io"), r"^Install the Azure CLI \(az\)$"),
                             (lambda: images._azure_tags("graviteeio.azurecr.io", "apim-management-api"), r"^Install the Azure CLI \(az\)$"),
                             (lambda: images.login("ghcr.io"), r"^Install the GitHub CLI \(gh\)$")):
-            with self.assertRaisesRegex(RuntimeError, words):
+            with self.assertRaisesRegex(RuntimeError, words, msg=words):
                 call()
         jobs.start.assert_not_called()
         run.assert_not_called()

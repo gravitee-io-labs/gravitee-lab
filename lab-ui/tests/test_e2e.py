@@ -83,7 +83,7 @@ class AnyId(Case):
     def test_an_item_of_a_catalog_that_has_no_such_item_is_said(self):
         for text, words in (("playground:@hub/shop", "No playground named @hub/shop"), ("addon:@other/ledger", "No add-on named @other/ledger"),
                             ("setup:events", "No setup named events")):
-            with self.assertRaisesRegex(ValueError, words):
+            with self.assertRaisesRegex(ValueError, words, msg=text):
                 e2e.target(text, self.BUILT)
 
     def test_what_belongs_to_this_machine_is_refused_for_what_it_is(self):
@@ -102,6 +102,7 @@ class AnyId(Case):
             said = str(caught.exception)
             self.assertTrue(said.startswith("Name the item as kind:id, kind being addon, setup, playground"), said)
             self.assertNotIn("error", said, "what was typed is not said back")
+
 
 class Versions(Case):
 

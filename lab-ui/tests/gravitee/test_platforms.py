@@ -1043,6 +1043,7 @@ class RunsHere(Platforms):
         self.assertEqual(platforms.read(), [])
         self.assertEqual(len(self.fake.state.gateways), 1, f"{gateway['id']} stays in the platform that holds it")
 
+
 class TwoAccounts(Platforms):
     def test_each_platform_keeps_its_own_tokens_and_asks_its_own_account(self):
         self.add()

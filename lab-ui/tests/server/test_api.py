@@ -517,6 +517,7 @@ class State(LabUI):
         self.request("GET", "/api/state")
         self.assertEqual(ps.call_count, 2)
 
+
 class Frame(LabUI):
     """What one UI of a playground is for the page that shows it next to the guide."""
 
