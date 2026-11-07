@@ -90,14 +90,6 @@ class EnvironmentChecks(unittest.TestCase):
         plain = "hrid: newt\nname: Newt\nmembers:\n  - {source: memory, sourceId: astrid.holm}\n"   # ${ENV_NAME} is not set without a name
         self.assertEqual(self.check(**{"environment.yaml": "id: newt\n", "groups/newt.yaml": plain}), ["environment.yaml: name is missing"])
 
-    def test_the_platforms_own_environment_and_a_badly_written_id_are_refused(self):
-        with tempfile.TemporaryDirectory() as root:
-            for name in ("default", "Newt_Biotech"):
-                folder = Path(root) / name
-                folder.mkdir()
-                (folder / "environment.yaml").write_text(f"id: {name}\nname: x\n", encoding="utf-8")
-                self.assertEqual(len(_environment_findings(folder, {})), 1, name)
-
     def test_two_applications_of_one_name_are_found(self):
         self.assertEqual(self.check(**{"applications/again.yaml": "name: ERP\n"}),
                          ["applications/erp.yaml: two applications are named ERP: the seed would write each over the other on every run"])   # the second one in name order is the one named

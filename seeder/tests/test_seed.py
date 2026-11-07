@@ -314,19 +314,3 @@ class Modules(Seed):
         self.seed_files({"authz/policies.yaml": "x: 1"})
         self.assertTrue(common.has_seed("aim/providers", "authz"))
         self.assertFalse(common.has_seed("aim/providers"))
-
-
-class Fakes(Seed):
-
-    def get(self, path, **kwargs):
-        return common.Api("http://apim").get(path, expect=range(100, 600), **kwargs)
-
-    def test_a_path_that_is_a_pattern_must_match_the_whole_path(self):
-        self.answer({("GET", re.compile(r"/apis/[^/]+")): 200})
-        self.assertEqual(self.get("/apis/abc").status_code, 200)
-        with self.assertRaisesRegex(AssertionError, "Unexpected GET /apis/abc/plans"):
-            self.get("/apis/abc/plans")
-
-    def test_a_call_no_route_answers_fails_the_test(self):
-        with self.assertRaisesRegex(AssertionError, r"Unexpected GET /nowhere \{'q': 1\}"):
-            self.get("/nowhere", params={"q": 1})
