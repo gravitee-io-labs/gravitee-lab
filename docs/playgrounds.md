@@ -240,6 +240,7 @@ gateway mounts what the Hybrid gateway add-on mounts. The Lab gives the first re
 
 | Reason | When | What to change |
 |---|---|---|
+| Brings its own seed code, Seed data reads a token | The notes of [the policy](catalogs.md#what-blocked-means): such a seed gets no Cloud Token, whatever the environment | Run the seeder as it is, and read no token in `seed/`: [N01](catalog-rules.md#n01), [N02](catalog-rules.md#n02) |
 | Nothing to deploy | There is no seed service, or `seed/` holds nothing | A seed service, and `seed/apim/` for the API Management it fills |
 | Needs Gamma | `seed/` holds `aim/` or `authz/`, and the account's plan does not enable Gamma | Nothing, when the playground is about Gamma |
 | Needs API Management 4.13 | `requires.images` asks for a later minor version of API Management than the oldest gateway of the environment runs | Ask for the version the environment runs, which the Gravitee Cloud page shows in the gateway's popover |
