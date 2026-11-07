@@ -127,7 +127,6 @@ class Agents:
         self.g = Gamma()
         self.aim = self.g.aim
         self.identities = None   # connected when the first agent asks for an identity
-        self.studios = None      # the MCP studios, listed once
 
     def connect(self):
         self.g.connect(SECTION, lambda: self.aim.get("/catalog/agents", params={"perPage": 1}), "Agents")
@@ -222,9 +221,7 @@ class Agents:
         log(SECTION, f"  ✓ Access restored: {name}")
 
     def studio(self, name):
-        if self.studios is None:
-            self.studios = [p for p in self.aim.rows("/mcp-proxies", WORKSPACES) if p.get("mode") == "STUDIO"]
-        found = [s for s in self.studios if s["name"] == name]
+        found = [p for p in self.aim.rows("/mcp-proxies", WORKSPACES) if p.get("mode") == "STUDIO" and p["name"] == name]
         if not found:
             raise SeedError(f"The MCP studio '{name}' is not there: aim/studios makes it before the agent subscribes")
         if len(found) > 1:
