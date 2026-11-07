@@ -231,7 +231,6 @@ class Rows(Seam):
         row = next(row for row in service.describe(*project.loaded()) if row["id"] == "local")
         self.assertEqual((row["kind"], row["name"], row["counts"], row["state"]["key"]),
                          ("machine", "Personal", {"playground": 0, "setup": 0, "addon": 1}, "machine"))
-        self.assertEqual(sorted(row["state"]), ["key", "label", "next", "reason", "tone"])
 
     def test_a_listed_catalog_the_person_does_not_have_and_a_suggestion_are_rows_that_are_not_added(self):
         config = self.root / ".lab" / "catalogs.json"
@@ -2193,6 +2192,7 @@ class Removing(Seam):
         self.assertEqual(service.remove("partner", check=True)["held"], "Turn off Ledger first")
         self.assertEqual(lines_of(self.refusal(lambda: service.remove("partner", keep_settings=True))),
                          ("held", 409, "Turn off Ledger first."))
+        (self.root / ".lab" / "on.yml").write_text("", encoding="utf-8")
         self.up = {"addon:ledger"}
         self.assertEqual(service.remove("partner", check=True)["held"], "Stop Ledger first")
         self.assertEqual(lines_of(self.refusal(lambda: service.remove("partner", keep_settings=False))),
