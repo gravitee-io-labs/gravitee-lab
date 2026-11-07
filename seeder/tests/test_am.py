@@ -414,10 +414,10 @@ class Kinds(Case):
         with self.assertRaisesRegex(common.SeedError, "Group 'g': user 'nobody' is not in the domain"):
             self.seed()
 
-    def test_a_group_can_be_optional_like_the_rest(self):
-        self.seed_files({"am/domain.yaml": "name: bank\ngroups: [{name: g, optional: true, members: [nobody]}]\n"})
+    def test_an_engine_can_be_optional(self):
+        self.seed_files({"am/domain.yaml": "name: bank\nauthorizationEngines: [{type: openfga, name: OpenFGA, store: Gone, connectionUri: x, optional: true}]\n"})
         self.seed()
-        self.assertIn("! Skipped 'g'", self.output())
+        self.assertIn("! Skipped 'OpenFGA': OpenFGA store 'Gone' is not in seed/openfga", self.output())
 
 
 class Session(Case):

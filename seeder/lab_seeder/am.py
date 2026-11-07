@@ -11,7 +11,7 @@
 Everything is found by name or client ID before being created, so re-running is safe, and what already says what the
 file says is not saved again: AM reloads a domain or an application on every save. A user with `additionalInformation`
 (what the tokens carry) is found first and kept as the file says, next to the fields AM adds at the first sign-in.
-An item marked `optional: true` only warns when it fails (typically a feature the license does not include).
+An authorization engine marked `optional: true` only warns when it fails (a feature the license does not include).
 
 With AM_GATEWAY_URL set, the seed ends once the gateway serves the domain and signs in each application that has a
 `clientSecret`, so that a service that starts after it and signs in at once finds them there.
@@ -271,7 +271,6 @@ class AccessManagement:
     def user(self, spec):
         """A user, created when missing, then its profile (`additionalInformation`, which the tokens carry) made to hold what the
         file says. AM adds fields of its own to it at the first sign-in, which are kept."""
-        spec = {key: value for key, value in spec.items() if key != "optional"}   # the seed's flag, not a user's field
         username, profile = spec["username"], spec.get("additionalInformation")
         user = self._find_user(username)
         if user:
@@ -404,18 +403,6 @@ def signs_in(gateway, spec, method):
                  auth=auth, headers={"Content-Type": None})
 
 
-def optional(spec, step):
-    """Runs a step; an optional one only warns when it fails. Whether it ran."""
-    try:
-        step()
-        return True
-    except SeedError as e:
-        if not spec.get("optional"):
-            raise
-        log(SECTION, f"! Skipped '{spec.get('name', spec.get('username', ''))}': {e}")
-        return False
-
-
 def seed(stores):
     domain_file = seed_file("am", "domain.yaml")
     if not domain_file:
@@ -428,17 +415,22 @@ def seed(stores):
     with_secret = []
     for path in files("am", "applications"):
         spec = load(path)
-        if optional(spec, lambda: am.application(spec)) and spec.get("clientSecret"):
+        am.application(spec)
+        if spec.get("clientSecret"):
             with_secret.append(spec)
     for spec in domain.get("users", []):
-        optional(spec, lambda: am.user(spec))
+        am.user(spec)
     for spec in domain.get("groups", []):
-        optional(spec, lambda: am.group(spec))
+        am.group(spec)
     for path in files("am", "protected-resources"):
-        spec = load(path)
-        optional(spec, lambda: am.protected_resource(spec))
+        am.protected_resource(load(path))
     for spec in domain.get("authorizationEngines", []):
-        optional(spec, lambda: am.authorization_engine(spec, stores))
+        try:
+            am.authorization_engine(spec, stores)
+        except SeedError as e:
+            if not spec.get("optional"):
+                raise
+            log(SECTION, f"! Skipped '{spec['name']}': {e}")
     am.wait_served(with_secret)
 
 
