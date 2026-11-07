@@ -95,7 +95,7 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
 
 Every address, credential and id comes from the environment (`setting()` in `common.py`), and seed files hold `${VAR}` for
 what depends on the target (`render()`). No module and no seed file names a container or writes an address: the
-playground's seed service sets the variables. `seedlint`, which the `seed` job of a catalog's CI runs, fails on a literal address
+playground's seed service sets the variables. `seedlint`, which the *Seed files* job of a catalog's CI runs, fails on a literal address
 and on a variable no seed service sets.
 
 ## Behavior to keep
@@ -146,7 +146,7 @@ later). `make test` runs the Lab UI's tests and the tooling's, then these when t
 the sample seed files. Run directly (`python -m unittest discover -s seeder/tests -t seeder`), the tests
 that hold the fake Redis to the real `redis` library skip when it is missing.
 
-The seed files of a playground are checked where the playground lives: the `seed` job of its catalog's CI runs `seedlint` on them, and
+The seed files of a playground are checked where the playground lives: the *Seed files* job of its catalog's CI runs `seedlint` on them, and
 `tests/fixtures/samples/` holds sample seeds, with invented names, that these tests run the engine against. A demo skill under a
 playground's `seed/aim/skills/<name>/` is data for the seed, which `aim_catalog.py` zips and uploads to Gamma's catalog. It is not a skill for
 this repository's AI tooling, which lives in `.agents/skills/`.
