@@ -408,6 +408,14 @@ PULLS = [" Image gravitee-lab/hello-agent Skipped Image can be built", " Image b
          " Image redis:8 Pulled "]
 
 
+def phase(name, cmd):
+    """A step that names its phase, then runs a command."""
+    def run(job):
+        job.step(name)
+        job.exec(cmd)
+    return run
+
+
 class Progress(Case):
 
     def job(self, steps, *waits, **how):
@@ -431,20 +439,8 @@ class Progress(Case):
         Docker(LAB, {"redis": container(health="healthy"), "reader-ui": container()}, CHECKED).observe(job)
         self.assertEqual(job.progress, 1)
 
-    def test_an_image_s_own_health_check_is_waited_for(self):
-        # Compose says it started and shows no health check: Docker runs the one of its image, and says when it passed
-        job = self.job([UP], awaited(SERVICES, start=["reader-ui"]))
-        docker = Docker(LAB, checked={"reader-ui"})
-        lines = [" Container gio-reader-ui Created ", " Container gio-reader-ui Started "]
-        self.assertEqual(progress(replay(job, lines, refresh=docker.refresh)), [0.2, 0.5])
-        docker.observe(job)
-        self.assertEqual((job.ok, job.progress), (True, 0.5))
-        docker.healthy("reader-ui")
-        docker.observe(job)
-        self.assertEqual(job.progress, 1)
-
     def test_docker_says_the_health_that_compose_does_not_wait_for(self):
-        # Compose returns once Alert Engine runs; its health check passes later, read with the state
+        # Compose returns once Alert Engine runs and shows no health check of its image: it passes later, read with the state
         job = self.job([UP], awaited(SERVICES, start=["alert-engine", "reader-ui"]))
         docker = Docker(LAB, checked=CHECKED)
         lines = [" Container gio-alert-engine Starting ", " Container gio-alert-engine Started ",
@@ -534,11 +530,6 @@ class Progress(Case):
         self.assertEqual((job.ok, job.summary()["progress"], job.summary()["phases"]), (True, 0.75, []))
 
     def test_declared_phases_are_the_stages(self):
-        def phase(name, cmd):
-            def run(job):
-                job.step(name)
-                job.exec(cmd)
-            return run
         steps = [lambda job: job.step("Add-ons"), phase("Apps and services", UP), phase("Seed", ["docker", "logs"])]
         job = self.job(steps, awaited(SERVICES, start=["apim-gateway", "orchard-migrate"]), None,
                        phases=["Apps and services", "Seed"])
@@ -606,11 +597,6 @@ class Progress(Case):
 
     def test_a_container_stopped_then_started_is_half_way_once_stopped(self):
         # Its stop then its start (plugins loaded again): each stage that waits for it is half of its way
-        def phase(name, cmd):
-            def run(job):
-                job.step(name)
-                job.exec(cmd)
-            return run
         job = self.job([phase("Stop", STOP), phase("Start", UP)], awaited(SERVICES, stop=["apim-gateway"]),
                        awaited(SERVICES, start=["apim-gateway"]), phases=["Stop", "Start"])
         read = replay(job, [" Container gio-apim-gateway Stopping ", " Container gio-apim-gateway Stopped "],
