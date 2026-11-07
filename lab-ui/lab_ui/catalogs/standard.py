@@ -278,8 +278,7 @@ def _words(value, limit: int, what: str) -> str:
 
 def values(params: dict) -> dict:
     """The parameters of `new`, checked and in the form the template wants: every value the placeholders need, `local`, `with`,
-    `platforms`, `maintainers` (a list), `lab_repository` and `lab_ref`. A TemplateError says what is wrong in one
-    line."""
+    `maintainers` (a list), `lab_repository` and `lab_ref`. A TemplateError says what is wrong in one line."""
     params = dict(params or {})
     local = bool(params.get("local"))
     need = ("id", "name") if local else ("id", "name", "maintainers", "lab_repository", "lab_ref")
@@ -316,12 +315,6 @@ def values(params: dict) -> dict:
     out["with"] = tuple(dict.fromkeys(extra))
     if local and out["with"]:
         raise TemplateError("A folder catalog has no workflows: --local takes no --with.")
-    platforms = params.get("platforms") or ["linux/amd64"]
-    if isinstance(platforms, str):
-        platforms = [part for part in platforms.split(",") if part]
-    if not platforms or any(each not in PLATFORMS for each in platforms) or len(set(platforms)) != len(platforms):
-        raise TemplateError("--platforms is linux/amd64, linux/arm64 or both.")
-    out["platforms"] = list(platforms)
     if local:
         out.update({"maintainers": [], "lab_repository": "", "lab_ref": "", "security_contact": ""})
         return out
@@ -336,8 +329,7 @@ def values(params: dict) -> dict:
     if not isinstance(params["lab_ref"], str) or not _COMMIT.fullmatch(params["lab_ref"]):
         raise TemplateError("--lab-ref takes the full commit of the Lab: 40 hexadecimal characters.")
     out["lab_ref"] = params["lab_ref"]
-    contact = params.get("security_contact")
-    out["security_contact"] = _words(contact, 120, "The security contact") if contact else out["maintainers"][0]
+    out["security_contact"] = out["maintainers"][0]
     return out
 
 
@@ -375,7 +367,7 @@ def dump_standard(data: dict) -> str:
 
 def standard_for(given: dict) -> dict:
     return {"form": "inline", "lab": {"ref": given["lab_ref"], "repository": given["lab_repository"]},
-            "platforms": list(given["platforms"]), "standard": LEVEL}
+            "platforms": ["linux/amd64"], "standard": LEVEL}
 
 
 def _no_twins(pairs):
@@ -782,8 +774,7 @@ def _derived(tree, state: Declared, options: dict) -> dict:
     return {"id": meta.get("id"), "name": meta.get("name"), "description": meta.get("description"), "license": meta.get("license"),
             "images": meta.get("images"), "maintainers": owners,
             "lab_repository": options.get("lab_repository") or lab.get("repository"),
-            "lab_ref": options.get("lab_ref") or lab.get("ref"),
-            "platforms": (state.data or {}).get("platforms") if state.data else None}
+            "lab_ref": options.get("lab_ref") or lab.get("ref")}
 
 
 def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
@@ -1060,10 +1051,8 @@ def _new_arguments(argv: List[str]):
     parser.add_argument("--license", default="UNLICENSED")
     parser.add_argument("--images")
     parser.add_argument("--description")
-    parser.add_argument("--security-contact", dest="security_contact")
     parser.add_argument("--lab-repo", dest="lab_repo")
     parser.add_argument("--lab-ref", dest="lab_ref")
-    parser.add_argument("--platforms")
     parser.add_argument("--with", dest="with_", action="append", default=[])
     parser.add_argument("--local", action="store_true")
     return parser.parse_args(argv)
@@ -1107,8 +1096,7 @@ def main_new(argv: List[str], lab: Optional[Path] = None) -> int:
                 elif pin_problem(lab, ref, LEVEL):
                     raise Usage(pin_problem(lab, ref, LEVEL))
         params = {"id": args.id, "name": args.name, "maintainers": args.maintainers, "license": args.license, "images": args.images,
-                  "description": args.description, "security_contact": args.security_contact, "lab_repository": repository,
-                  "lab_ref": ref, "platforms": args.platforms, "with": args.with_, "local": args.local}
+                  "description": args.description, "lab_repository": repository, "lab_ref": ref, "with": args.with_, "local": args.local}
         written = create(args.dir, params)
         given = values(params)
     except (Usage, TemplateError) as error:

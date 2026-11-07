@@ -260,7 +260,6 @@ class Values(unittest.TestCase):
         for bad in ("Acme \uff1chub\uff1e", "\uff1cscript\uff1e", "a\uff40b", "a\ufe64b\ufe65", "\uff1c"):
             self.assertIn("holds a character", self.refused(name=bad), repr(bad))
         self.assertIn("holds a character", self.refused(description="\uff1cimg\uff1e"))
-        self.assertIn("holds a character", self.refused(security_contact="\uff1c@x\uff1e"))
         self.assertEqual(standard.values(params(name="\ufb01sh \u2460"))["name"], "fish 1")   # a ligature and a circled digit are plain
         files = standard.render_new(params(name="\ufb01sh Hub"))
         self.assertIn(b"# fish Hub", files["README.md"])
@@ -307,18 +306,13 @@ class Values(unittest.TestCase):
         for bad in ("main", "v1.0.0", "0123456", LAB_COMMIT.upper(), LAB_COMMIT + "0", LAB_COMMIT[:39] + "g", LAB_COMMIT + "\n"):
             self.assertIn("full commit", self.refused(lab_ref=bad), bad)
 
-    def test_with_and_platforms(self):
+    def test_with(self):
         self.assertIn("--with takes e2e", self.refused(**{"with": ["gold"]}))
-        self.assertIn("--platforms", self.refused(platforms=["linux/riscv64"]))
-        self.assertIn("--platforms", self.refused(platforms=["linux/amd64", "linux/amd64"]))
-        self.assertEqual(standard.values(params(platforms="linux/amd64,linux/arm64"))["platforms"], ["linux/amd64", "linux/arm64"])
-        self.assertEqual(standard.values(params())["platforms"], ["linux/amd64"])
 
     def test_what_is_far_too_long_is_refused_at_once(self):
         start = time.process_time()
         for more in ({"name": "x" * 1000000}, {"images": "a/" * 500000}, {"license": "a" * 1000000}, {"description": "d" * 1000000},
-                     {"id": "a" * 1000000}, {"lab_repository": "a/" + "b" * 1000000}, {"maintainers": "@" + "a" * 1000000},
-                     {"security_contact": "c" * 1000000}):
+                     {"id": "a" * 1000000}, {"lab_repository": "a/" + "b" * 1000000}, {"maintainers": "@" + "a" * 1000000}):
             with self.assertRaises(standard.TemplateError):
                 standard.render_new(params(**more))
         self.assertLess(time.process_time() - start, 1.0)
@@ -329,8 +323,6 @@ class Values(unittest.TestCase):
 
     def test_the_security_contact_is_the_first_maintainer_until_one_is_given(self):
         self.assertEqual(standard.values(params(maintainers="@acme/maintainers,@alice"))["security_contact"], "@acme/maintainers")
-        self.assertEqual(standard.values(params(security_contact="security@acme.example"))["security_contact"], "security@acme.example")
-        self.assertIn("security contact", self.refused(security_contact="a\nb"))
 
 
 class Rendering(unittest.TestCase):
@@ -416,8 +408,6 @@ class Rendering(unittest.TestCase):
         self.assertEqual(text, '{\n  "form": "inline",\n  "lab": {\n    "ref": "%s",\n    "repository": "acme/gravitee-lab"\n  },\n'
                                '  "platforms": [\n    "linux/amd64"\n  ],\n  "standard": 9\n}\n' % LAB_COMMIT)
         self.assertEqual(json.loads(text)["standard"], standard.LEVEL)
-        both = standard.render_new(params(platforms="linux/amd64,linux/arm64"))[".github/standard.json"].decode()
-        self.assertEqual(json.loads(both)["platforms"], ["linux/amd64", "linux/arm64"])
 
     def test_codeowners_has_the_two_lines(self):
         text = render(maintainers="@acme/maintainers,@alice")[".github/CODEOWNERS"].decode()
