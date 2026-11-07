@@ -56,8 +56,8 @@ the default catalog, `@<catalog>/<id>` for another.
   skills `new-addon`, `new-setup` and `new-playground`, in Personal or in a catalog that is a folder of yours.
 - Share a personal one with the Lab UI's Share or the `share-item` skill: it is copied into a catalog you can write to, as a
   branch to propose with a pull request or as a copy into a folder. The personal item stays and runs until "Use the catalog
-  version" replaces it. A playground is shared once it has started well here. An item of a catalog is not made personal again;
-  create a personal one for a private variant.
+  version" replaces it. A playground is shared once it has started well here. An item of a catalog stays there: "Copy to Personal"
+  makes a private variant ([Your own items](docs/catalogs.md#your-own-items)).
 - The Lab UI runs your own git only to push that branch, with your name and email. It never commits to your work.
 
 ## Rules
