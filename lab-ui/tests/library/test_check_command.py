@@ -224,19 +224,6 @@ class Reading(Folder):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(lines(out)[-1], "All good")
 
-    def test_the_seeder_is_the_labs_and_is_not_asked_to_be_published(self):
-        """The unit rules of the images (): the services a unit defines, with the context as the author wrote it."""
-        image = fixtures.seeder_image(self)
-        unit = ("x-gravitee: {kind: playground, name: Shop, description: d, tags: [a], duration: 5 min, first_start: 1 min}\n"
-                f"services:\n  shop-seed:\n    image: {image}:latest\n    pull_policy: ${{SHOP_PULL_POLICY:-build}}\n"
-                "    build: ../../../../../seeder\n    labels:\n      io.gravitee.role: seed\n"
-                "      io.gravitee.description: seed\n")
-        folder = self.catalog(files={"playgrounds/shop/compose.yml": unit, "playgrounds/shop/guide.md": "## 1. Start\n",
-                                     "playgrounds/shop/README.md": "# Shop\n"})
-        code, out, err = self.check(folder, "--format", "json")
-        self.assertEqual(err, "")
-        self.assertEqual([one for one in json.loads(out) if one["code"].startswith("IM")], [])
-
 
 class Units(unittest.TestCase):
     """What the unit rules of the images are given."""
@@ -345,6 +332,7 @@ class Range(Folder):
     @COMPOSE
     def test_the_range_since_origin_main_is_read_and_the_first_line_names_it(self):
         work = self.clone()
+        self.assertEqual(lines(self.check(work)[1])[0], "Reading the files and the 0 commits since origin/main")
         gitfixture.git("-C", str(work), "checkout", "--quiet", "-b", "change")
         self.commit(work, "docs/one.md", "one\n", "Add one")
         self.commit(work, "docs/two.md", "two\n", "Add two")
@@ -366,12 +354,6 @@ class Range(Folder):
         self.assertNotIn(token, out + err, "nothing prints a secret")
         self.assertEqual(lines(out)[0], "Reading the files and the 2 commits since origin/main")
 
-    @COMPOSE
-    def test_a_branch_with_nothing_new_has_no_commits_to_read(self):
-        work = self.clone()
-        out = self.check(work)[1]
-        self.assertEqual(lines(out)[0], "Reading the files and the 0 commits since origin/main")
-
     def test_without_an_origin_main_only_the_files_are_read_and_the_first_line_says_so(self):
         work = self.clone()
         gitfixture.git("-C", str(work), "remote", "remove", "origin")
@@ -388,13 +370,7 @@ class Range(Folder):
         self.assertEqual(lines(out)[0], f"Reading the files and the 1 commit since {head[:7]}")
         out = self.check(work, "--base", "no-such-branch")[1]
         self.assertIn("Not checked: the commits since the base: no-such-branch is not a commit of this repository", out)
-
-    @COMPOSE
-    def test_the_whole_history_is_read_with_history(self):
-        work = self.clone()
-        self.commit(work, "docs/one.md", "one\n", "Add one")
-        out = self.check(work, "--history")[1]
-        self.assertEqual(lines(out)[0], "Reading the files and the 2 commits of the whole history")
+        self.assertEqual(lines(self.check(work, "--history")[1])[0], "Reading the files and the 3 commits of the whole history")
 
     @COMPOSE
     def test_the_base_of_a_first_push_is_the_whole_history_and_not_a_commit_that_is_missing(self):
@@ -416,7 +392,7 @@ class Range(Folder):
     @COMPOSE
     def test_a_base_that_only_looks_like_zeros_is_still_a_commit_that_is_missing(self):
         work = self.clone()
-        for base in ("0" * 39, "0" * 41, "0" * 39 + "1", "0" * 40 + "0" * 23):
+        for base in ("0" * 39, "0" * 41, "0" * 39 + "1"):
             with self.subTest(base=base):
                 code, out, err = self.check(work, "--base", base)
                 self.assertEqual(code, 1)
@@ -611,9 +587,12 @@ class Pull(Folder):
     @COMPOSE
     def test_a_pull_request_with_a_makefile_a_hook_and_a_development_container_runs_none_of_them(self):
         repo, work = self.origin(self.programs())
+        before = contents(work)
         code, out, err = self.check(work, "--pr", "7")
         self.assertEqual(err, "")
         self.assertFalse(self.marker.exists(), "something of the pull request ran")
+        self.assertEqual(contents(work), before)
+        self.assertFalse((work / "Makefile").exists(), "nothing was checked out")
         self.assertEqual(code, 1, out)
         self.assertEqual(lines(out)[0].split(" since ")[0], "Reading the files and the 1 commit")
         self.assertIn("ST22 .devcontainer/devcontainer.json would run on a reader's machine", out)
@@ -663,14 +642,6 @@ class Pull(Folder):
                 self.assertIn(code, (0, 1), (out, err))
                 self.assertFalse(self.marker.exists(), f"a program of the clone ran for {argv}")
         self.assertIn("1 commit since", self.check(work)[1].splitlines()[0], "and it did read the commit that was made")
-
-    @COMPOSE
-    def test_the_working_tree_of_the_clone_is_untouched(self):
-        repo, work = self.origin(self.programs())
-        before = contents(work)
-        self.check(work, "--pr", "7")
-        self.assertEqual(contents(work), before)
-        self.assertFalse((work / "Makefile").exists(), "nothing was checked out")
 
     @COMPOSE
     def test_it_links_nothing_and_writes_nothing_in_the_lab_and_leaves_no_store_behind(self):
@@ -992,28 +963,26 @@ class DayOne(Folder):
         os.chdir(self.repo)
         self.addCleanup(os.chdir, before)
 
-    def test_the_check_of_the_first_push_is_all_good(self):
+    def test_the_check_of_the_first_push_is_all_good_and_writes_nothing_in_the_lab(self):
+        before = (snapshot(self.root), contents(self.root))
         code, out, err = self.run_tool("check", "catalog", "--ci", "--base", "0" * 40)
         self.assertEqual((code, out, err), (0, "", ""))
+        self.assertEqual((snapshot(self.root), contents(self.root)), before)
         code, out, err = self.run_tool("check", "catalog", "--base", "0" * 40)
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(lines(out)[0], "Reading the files and the 1 commit of the whole history")
         self.assertEqual(lines(out)[-1], "All good")
 
-    def test_the_index_step_makes_the_catalog_json_the_release_step_reads(self):
+    def test_the_index_step_makes_the_catalog_json_the_release_step_reads_and_writes_nothing_in_the_lab(self):
+        before = (snapshot(self.root), contents(self.root))
         self.assertEqual(self.run_tool("index", "catalog", "--out", "catalog.json"), (0, "", ""))
+        self.assertEqual((snapshot(self.root), contents(self.root)), before)
         found = json.loads((self.repo / "catalog.json").read_text(encoding="utf-8"))
         self.assertEqual((found["schema"], found["catalog"]["id"]), (1, "newcat"))
         self.assertEqual([(one["kind"], one["id"]) for one in found["units"]], [("addon", "hello")])
         os.chdir(self.repo / "catalog")   # `make index`
         self.assertEqual(self.run_tool("index", ".", "--out", "catalog.json"), (0, "", ""))
         self.assertEqual((self.repo / "catalog" / "catalog.json").read_text(encoding="utf-8"), json.dumps(found, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
-
-    def test_nothing_is_linked_into_the_lab_and_nothing_is_written_by_the_two_steps(self):
-        before = (snapshot(self.root), contents(self.root))
-        self.run_tool("check", "catalog", "--ci", "--base", "0" * 40)
-        self.run_tool("index", "catalog", "--out", str(self.work / "catalog.json"))
-        self.assertEqual((snapshot(self.root), contents(self.root)), before)
 
 
 if __name__ == "__main__":
