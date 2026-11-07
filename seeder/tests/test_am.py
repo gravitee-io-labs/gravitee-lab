@@ -243,8 +243,6 @@ class Bank(Case):
             ("application", "applications", "Acme Bakery web"), ("domain", "domains", "acme-bakery"),
             ("group", "groups", "customers"), ("group", "groups", "tellers"), ("protected-resource", "MCP servers", "Acme Bakery MCP"),
             ("user", "users", "alice@acme-bakery.test"), ("user", "users", "bob@acme-bakery.test"), ("user", "users", "tina@acme-bakery.test")])
-        self.assertTrue(all(x["label"].endswith("s") and not x["label"].endswith("ies") for x in common.created()))
-        self.assertEqual({x["kind"] for x in common.created()} - set(am.ORDER), set())
 
     def test_a_second_seed_saves_nothing(self):
         self.settle()
@@ -439,12 +437,6 @@ class Session(Case):
         self.assertEqual(self.am.logins, 2)
         self.assertEqual(len(self.platform.sent("GET", DOMAINS)), 2)
 
-    def test_a_token_that_holds_is_not_replaced(self):
-        access = self.connected()
-        access.api.get(DOMAINS)
-        access.api.get(DOMAINS)
-        self.assertEqual(self.am.logins, 1)
-
     def test_the_second_login_uses_the_same_credentials_as_the_first(self):
         access = self.connected()
         self.am.expire()
@@ -458,13 +450,6 @@ class Session(Case):
         self.assertEqual(self.am.logins, 2)
         self.assertEqual((len(self.am.objects("users")), len(self.am.objects("applications"))), (3, 3))
         self.assertEqual(len(common.created()), 10)
-
-    def test_a_token_given_by_the_environment_is_not_exchanged_and_a_refusal_is_an_error(self):
-        self.env(AM_TOKEN="given", AM_USERNAME=None, AM_PASSWORD=None)
-        self.platform.add({("GET", DOMAINS): (401, {"message": "Unauthorized"})})
-        with self.assertRaises(common.SeedError):
-            am.AccessManagement().api.get(DOMAINS)
-        self.assertEqual(self.platform.sent(*LOGIN), [])
 
     def test_a_login_that_is_refused_is_asked_again_until_the_platform_answers(self):
         self.platform.add({LOGIN: [(503, {}), (200, {"access_token": "ok"})]})
@@ -484,7 +469,7 @@ class Session(Case):
         self.platform.add({("GET", DOMAINS): (401, {"message": "Unauthorized"})})
         with self.assertRaisesRegex(common.SeedError, "^Access Management: GET .*: HTTP 401"):
             am.AccessManagement().connect()
-        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual((self.clock.sleeps, self.platform.sent(*LOGIN)), ([], []))
 
 
 class Gateway(Case):

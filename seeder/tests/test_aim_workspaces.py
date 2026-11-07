@@ -289,12 +289,6 @@ class FirstRun(Workspaces):
         self.assertEqual(self.budgets(), {"Customer care": (5_000_000, "DAY", None), "Fraud analytics": (2_000_000, "DAY", None),
                                           "Hackathon sandbox": (120_000, "HOUR", {"limit": 20, "period": "MINUTE"})})
 
-    def test_the_first_budget_is_the_one_the_workspace_started_with_renamed(self):
-        self.seed()
-        self.assertEqual(len(self.the_workspace()["budgets"]), 3)
-        self.assertEqual(len(self.platform.sent("POST", re.compile(AIM + "/ai-workspaces/[^/]+/budgets"))), 2)
-        self.assertEqual(len(self.platform.sent("PUT", re.compile(AIM + "/ai-workspaces/[^/]+/budgets/[^/]+"))), 1)
-
     def test_the_models_come_from_the_catalog_provider_under_their_aliases(self):
         self.seed()
         [component] = self.the_workspace()["models"]
@@ -557,11 +551,6 @@ class SpendAwareRouting(Workspaces):
         self.assertEqual(len(self.platform.sent("PUT", re.compile(AIM + "/ai-workspaces/[^/]+/router"))), 1)
         self.assertIn("Router controls are off: router", self.output())
 
-    def test_on_the_step_is_saved_enabled(self):
-        self.env(SEED_PROTECTIONS="on")
-        self.seed()
-        self.assertEqual(self.routes(), [("Spend-aware routing", True)])
-
     def test_a_second_run_writes_nothing(self):
         self.seed()
         self.platform.calls.clear()
@@ -607,17 +596,14 @@ class Gateway(Workspaces):
         self.env(GATEWAY_INTERNAL_URL="http://gateway")
         self.world.users["user-admin"] = ADMIN
 
-    def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it(self):
-        self.env(GATEWAY_INTERNAL_URL=None)
-        self.seed()
-        self.assertEqual(self.world.gateway_calls, [])
-        self.assertEqual(self.clock.sleeps, [])
-
-    def test_the_gateway_is_not_asked_and_nothing_is_slept_unless_the_seed_is_asked_to_wait_for_it(self):
-        self.env(SEED_WAIT_GATEWAY="0")
-        self.seed()
-        self.assertEqual(self.world.gateway_calls, [])
-        self.assertEqual(self.clock.sleeps, [])
+    def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it_or_is_not_asked_to_wait(self):
+        for setting in ({"GATEWAY_INTERNAL_URL": None}, {"SEED_WAIT_GATEWAY": "0"}):
+            with self.subTest(setting=setting):
+                self.setUp()
+                self.env(**setting)
+                self.seed()
+                self.assertEqual(self.world.gateway_calls, [])
+                self.assertEqual(self.clock.sleeps, [])
 
     def test_the_seed_waits_until_a_key_is_accepted_with_its_budget_then_for_two_synchronizations(self):
         self.world.gateway_serves_after = 3

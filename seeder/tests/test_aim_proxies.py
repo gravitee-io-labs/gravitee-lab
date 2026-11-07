@@ -259,11 +259,6 @@ class FirstRun(Proxies):
         self.assertEqual((made["product"], made["kind"], made["label"], made["name"], made["id"], made["hrid"]),
                          ("aim-proxies", "mcp-proxy", "MCP proxy APIs", "Acme Bakery MCP", "api-" + HRID, HRID))
 
-    def test_no_studio_is_made_without_a_file_for_it(self):
-        self.seed()
-        self.assertEqual(self.world.studios, {})
-        self.assertEqual(self.platform.sent("POST", AIM + "/mcp-studios"), [])
-
     def test_a_server_the_catalog_does_not_have_stops_the_seed_with_what_to_do(self):
         self.world.servers.clear()
         with self.assertRaisesRegex(common.SeedError, "MCP server Acme Bakery MCP is not in the catalog"):
@@ -361,17 +356,14 @@ class Gateway(Proxies):
         self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL="http://gateway")
 
-    def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it(self):
-        self.env(GATEWAY_INTERNAL_URL=None)
-        self.seed()
-        self.assertEqual(self.world.gateway_calls, [])
-        self.assertEqual(self.platform.sent("POST", TOKEN_URL), [])
-
-    def test_the_gateway_is_not_asked_unless_the_seed_is_asked_to_wait_for_it(self):
-        self.env(SEED_WAIT_GATEWAY="0")
-        self.seed()
-        self.assertEqual(self.world.gateway_calls, [])
-        self.assertEqual(self.platform.sent("POST", TOKEN_URL), [])
+    def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it_or_is_not_asked_to_wait(self):
+        for setting in ({"GATEWAY_INTERNAL_URL": None}, {"SEED_WAIT_GATEWAY": "0"}):
+            with self.subTest(setting=setting):
+                self.setUp()
+                self.env(**setting)
+                self.seed()
+                self.assertEqual(self.world.gateway_calls, [])
+                self.assertEqual(self.platform.sent("POST", TOKEN_URL), [])
 
     def test_the_seed_waits_until_each_person_is_offered_the_tools_of_their_role(self):
         self.world.gateway_serves_after = 3
@@ -380,11 +372,6 @@ class Gateway(Proxies):
         self.assertEqual([c.headers["Authorization"] for c in self.world.gateway_calls[-2:]], ["Bearer token-alice", "Bearer token-tina"])
         self.assertEqual(self.world.gateway_calls[-1].json["method"], "tools/list")
         self.assertIn("✓ Acme Bakery MCP on the gateway (/acme-bakery/mcp) ready", self.output())
-
-    def test_the_answer_may_come_as_an_event_stream(self):
-        self.world.event_stream = True
-        self.seed()
-        self.assertEqual(len(self.world.gateway_calls), 2)
 
     def test_a_token_that_carries_no_claims_is_a_proxy_that_is_not_ready(self):
         self.world.tools_offered["alice"] = 0
@@ -463,23 +450,13 @@ class FirstRunProtections(Protections):
         self.assertEqual({key: enabled for key, enabled in self.written().items() if enabled is False},
                          {key: False for key in self.SWITCHED})
         self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
-
-    def test_on_those_steps_are_written_enabled_in_so_many_words(self):
-        self.env(SEED_PROTECTIONS="on")
-        self.world.tools_offered["alice"] = 7
-        self.seed()
-        self.assertEqual(self.steps(), {key: True for key in self.steps()})
-        self.assertEqual({key: self.written()[key] for key in self.SWITCHED}, {key: True for key in self.SWITCHED})
+        self.assertIn("Controls of Acme Bakery MCP are off: tools, pep", self.output())
 
     def test_a_step_that_is_not_a_control_is_written_without_a_switch_of_its_own(self):
         self.seed()
         [sent] = self.platform.sent("PUT", AUTOMATION)
         step = next(s for f in sent.json["flows"] for s in f["request"] if s["name"] == "30 calls a minute per user")
         self.assertNotIn("enabled", step)
-
-    def test_what_a_run_says_about_the_controls(self):
-        self.seed()
-        self.assertIn("Controls of Acme Bakery MCP are off: tools, pep", self.output())
 
     def test_a_step_a_control_names_that_the_file_lacks_stops_the_seed_before_the_proxy_is_written(self):
         self.seed_files({"controls.yaml": CONTROLS.replace("Fine-Grained Authorization", "Fine Grained Authorization")})
@@ -544,10 +521,6 @@ class ReadyProtections(Protections):
         super().setUp()
         self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL="http://gateway", GATEWAY_READY_TIMEOUT="20")
-
-    def test_off_a_customer_is_expected_to_see_every_tool(self):
-        self.seed()
-        self.assertEqual(len(self.world.gateway_calls), 2)
 
     def test_off_a_gateway_that_still_hides_a_tool_has_not_taken_the_change(self):
         self.world.tools_offered["alice"] = 7

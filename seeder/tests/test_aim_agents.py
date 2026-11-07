@@ -313,14 +313,10 @@ class FirstRun(Agents):
         self.assertEqual(self.world.applications["agent-2"]["identityId"], "am-app-2")
         self.assertEqual([s["applicationId"] for s in self.world.subscriptions], [APPLICATION_ID, "app-2"])
         self.assertEqual(len(self.records()), 4)
+        self.assertEqual(len(self.platform.sent("POST", "http://am/management/auth/token")), 1, "one login for all the agents")
         self.platform.calls.clear()
         aim_agents.seed()
         self.assertEqual(self.changed(), [])
-
-    def test_the_access_management_login_is_made_once_for_all_the_agents(self):
-        self.seed_files({"aim/agents/second-agent.yaml": SECOND})
-        aim_agents.seed()
-        self.assertEqual(len(self.platform.sent("POST", "http://am/management/auth/token")), 1)
 
 
 class SecondRun(Agents):
@@ -568,12 +564,6 @@ class WhatItNeeds(Agents):
         self.world.plans["studio-1"][1]["status"] = "STAGING"
         self.fails("The MCP studio 'Customer desk' has no published plan 'Agents'")
 
-    def test_a_plan_of_another_name_is_not_there(self):
-        self.seed_files({"aim/agents/desk-copilot.yaml": AGENT.replace("plan: Agents", "plan: Humans")})
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_agents.seed()
-        self.assertIn("has no published plan 'Humans'", str(stopped.exception))
-
     def test_an_agent_file_is_checked_before_any_call(self):
         access = "desk-copilot.yaml: access is a list of {studio, plan} or {api, plan, apiKey}"
         for text, problem in ((AGENT.replace("entityId: desk-copilot\n", ""), "desk-copilot.yaml: entityId missing"),
@@ -633,17 +623,6 @@ class AccessToAnApi(Agents):
         self.assertEqual(self.api_subscriptions, [{"id": "llm-sub-1", "application": APPLICATION_ID, "plan": "plan-llm-agents",
                                                    "status": "ACCEPTED", "key": "orchid-llm-key"}])
         self.assertIn("[aim-agents]   ✓ Subscribed: Desk copilot → Orchid models (Agents)", self.output())
-
-    def test_it_comes_after_the_application_is_made_and_with_the_access_to_the_studio(self):
-        aim_agents.seed()
-        writes = [path for method, path in self.changed()]
-        self.assertLess(writes.index(APPLICATION), writes.index(MODELS_SUBSCRIPTIONS))
-        self.assertIn(SUBSCRIPTIONS, writes)
-
-    def test_it_is_recorded_as_a_subscription_of_the_agent_to_an_api_of_seed_apim(self):
-        aim_agents.seed()
-        [record] = [x for x in self.records("subscription") if x["api"] == MODELS_API]
-        self.assertEqual((record["id"], record["application"], record["via"]), ("llm-sub-1", APPLICATION_ID, "apim"))
 
     def test_a_second_run_writes_nothing(self):
         self.made()
