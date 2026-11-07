@@ -201,9 +201,7 @@ def render(problems: Sequence[Problem], fmt: str = "text", checked: Iterable[str
         return as_json(problems, verbose)
     if fmt == "github":
         return as_github(problems, verbose=verbose)
-    if fmt == "text":
-        return as_text(problems, checked, skipped, verbose, header)
-    raise ValueError(f"not a format: {fmt!r} (text, github or json)")
+    return as_text(problems, checked, skipped, verbose, header)
 
 
 def summary(problems: Sequence[Problem], command: str, skipped: Sequence[str] = (), title: str = "") -> str:

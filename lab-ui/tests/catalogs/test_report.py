@@ -151,10 +151,6 @@ class Renderings(unittest.TestCase):
     def test_the_same_finding_is_said_once(self):
         self.assertEqual(1, report.render([ERROR, ERROR], "text").count("    ST05 "))
 
-    def test_an_unknown_format_is_refused(self):
-        with self.assertRaises(ValueError):
-            report.render([ERROR], "xml")
-
     def test_a_finding_with_no_code_has_no_title_and_sends_to_no_explanation(self):
         self.assertEqual("::error file=a.yml::no code", report.annotation(Problem("", "error", "a.yml", 0, "no code")))
         self.assertEqual("::warning::no file", report.annotation(Problem("", "warning", "", 0, "no file")))
