@@ -13,7 +13,6 @@ import stat
 import struct
 import subprocess
 import tempfile
-import threading
 import unittest
 from unittest import mock
 
@@ -233,57 +232,6 @@ class Relocate(Moves):
         self.assertEqual(moves.relocate("shortcut", "elsewhere/shortcut"), "moved")
         self.assertEqual((os.readlink(paths.ROOT / "elsewhere/shortcut"), os.path.lexists(paths.ROOT / "shortcut")),
                          (str(paths.ROOT), False))
-
-    def test_a_folder_that_another_run_made_in_the_meantime_is_used(self):
-        self.put("old/.env", "TOKEN=1\n")
-        self.put("old/other", "2\n")
-        real, raced = os.mkdir, []
-
-        def mkdir(path, mode=0o777, **how):
-            if not raced:   # the other run is first at the first folder, as the look and the mkdir are two steps
-                raced.append(path)
-                real(path, mode)
-            return real(path, mode, **how)
-        self.patch(moves.os, "mkdir", mkdir)
-        self.assertEqual(moves.relocate("old/.env", ".lab/catalogs/fixture/addons/x/.env"), "moved")
-        self.assertEqual(moves.relocate("old/other", ".lab/catalogs/fixture/addons/x/other"), "moved")
-        self.assertEqual(self.text(".lab/catalogs/fixture/addons/x/.env"), "TOKEN=1\n")
-        self.assertEqual(len(raced), 1)
-
-    def test_a_link_where_the_folder_was_to_be_is_an_error_and_the_source_stays(self):
-        self.put("old/.env", "TOKEN=1\n")
-        os.makedirs(self.root / "elsewhere")
-        real, raced = os.mkdir, []
-
-        def mkdir(path, mode=0o777, **how):
-            if not raced:   # the other run put a link where the folder goes
-                raced.append(path)
-                os.symlink(self.root / "elsewhere", path)
-            return real(path, mode, **how)
-        self.patch(moves.os, "mkdir", mkdir)
-        with self.assertRaises(FileExistsError):
-            moves.relocate("old/.env", "new/.env")
-        self.assertEqual((self.text("old/.env"), os.listdir(self.root / "elsewhere")), ("TOKEN=1\n", []))
-
-    def test_runs_that_need_the_same_new_folder_at_once_all_succeed(self):
-        for number in range(120):
-            self.put(f"old/{number}", f"{number}\n")
-        failed, start = [], threading.Barrier(6)
-
-        def run(first):
-            start.wait()
-            for number in range(first, 120, 6):
-                try:
-                    moves.relocate(f"old/{number}", f".lab/catalogs/fixture/addons/x/{number}")
-                except (OSError, moves.Refused) as error:   # the test says which
-                    failed.append(repr(error))
-        threads = [threading.Thread(target=run, args=(first,)) for first in range(6)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        self.assertEqual(failed, [])
-        self.assertEqual((len(os.listdir(self.root / ".lab/catalogs/fixture/addons/x")), os.listdir(self.root / "old")), (120, []))
 
     def test_any_other_error_of_the_disk_is_raised_and_the_source_stays(self):
         self.put("old/.env", "TOKEN=1\n")

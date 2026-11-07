@@ -73,9 +73,8 @@ def _inside(path, folder):
 
 
 def _parents(target):
-    """Makes the folders above `target` that are missing: 0700 where only the person reads, else as `mkdir` does. A
-    folder that another run made in the meantime is used, a link or a file in its place is an error. A private folder
-    that exists with a wider mode is closed."""
+    """Makes the folders above `target` that are missing: 0700 where only the person reads, else as `mkdir` does. A private
+    folder that exists with a wider mode is closed."""
     missing, current = [], os.path.dirname(target)
     while current and not os.path.lexists(current):
         missing.append(current)
@@ -86,11 +85,7 @@ def _parents(target):
     top = _abs(MIGRATION)
     private = _inside(target, top)
     for folder in reversed(missing):
-        try:
-            os.mkdir(folder, 0o700 if private else 0o777)
-        except FileExistsError:   # another run made it between the look and the mkdir: fine when it is a real folder
-            if os.path.islink(folder) or not os.path.isdir(folder):
-                raise
+        os.mkdir(folder, 0o700 if private else 0o777)
     if private and os.path.isdir(top) and not os.path.islink(top):
         os.chmod(top, 0o700)
 
