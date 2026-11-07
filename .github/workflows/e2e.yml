@@ -13,11 +13,6 @@
 #   schedule      the canary every night, on the main branches of the engine and of the catalog. The environment `e2e-nightly` holds the
 #                 license and no reviewer, and is for main only
 #
-# What runs where, and why:
-#   plan       reads the change and makes the matrix: an item and a set of versions each
-#   manifests  every image of the item exists in its registry, with no secret: it runs for any pull request, a fork's too
-#   e2e        starts the item with the CI license. It runs the code of the change with a secret, so it never runs for a fork's pull request
-#   result     `E2E result`, the check to require: it fails when anything ended wrong, and waits for e2e
 # The license reaches one step of one job. The deploy key that reads a private catalog (read-only, deleted when it becomes public) reaches only
 # the checkout that needs it.
 name: E2E
