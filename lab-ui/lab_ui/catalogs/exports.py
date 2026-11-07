@@ -334,7 +334,6 @@ def _plan(gathered, preview):
     rows = project.loaded()[1].get("catalogs") or {}
     units = gathered["units"]
     # The items it carries are on this machine too, where they were exported from: a name they share with themselves is no clash
-    # on another Lab
     # on another Lab, nor is what follows from it: an item blocked only for that is no reason to block what includes it
     carried = set(gathered["carried"])
     others = {unit["name"] for kind, found in units.items() for uid, unit in found.items() if (kind, uid) not in carried}
