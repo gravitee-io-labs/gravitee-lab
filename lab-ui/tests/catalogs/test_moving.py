@@ -136,21 +136,28 @@ class Moving(Base):
     def files_of(self, folder):
         return {path.relative_to(folder).as_posix(): path.read_bytes() for path in folder.rglob("*") if path.is_file()}
 
-    def test_a_move_that_fails_while_it_writes_changes_nothing(self):
+    def in_personal(self):
+        """Sandbox of Personal, with a setting, which a move together would replace: (its folder, its files)."""
         fixtures.local(self, "sandbox")
         mine = self.local("playgrounds/sandbox")
-        (mine / ".env").write_text("SANDBOX_LEVEL=mine\n")
-        before = self.files_of(mine)
+        (mine / ".env").write_text("MINE=1\n")
         project.forget()
-        self.failing_copy()
-        with self.assertRaises(OSError):
-            moving.move("playground", "@sandbox/sandbox", True)
+        return mine, self.files_of(mine)
+
+    def nothing_moved(self, mine, before):
         self.assertEqual(self.files_of(mine), before, "the person's item is as it was")
         self.assertFalse(self.local("addons/scratch").exists(), "nothing half written is in Personal")
         imported = paths.ROOT / exports.IMPORTS_DIR / "sandbox"
         self.assertTrue((imported / "playgrounds/sandbox/compose.yml").is_file() and (imported / "addons/scratch/compose.yml").is_file())
         self.assertIsNotNone(registry.entry("sandbox"))
-        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")), "what it wrote is gone")
+        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")), "no swap is left half in")
+
+    def test_a_move_that_fails_while_it_writes_changes_nothing(self):
+        mine, before = self.in_personal()
+        self.failing_copy()
+        with self.assertRaises(OSError):
+            moving.move("playground", "@sandbox/sandbox", True)
+        self.nothing_moved(mine, before)
 
     def test_what_a_stopped_lab_was_writing_goes(self):
         fixtures.local(self, "sandbox")
@@ -219,11 +226,7 @@ class Moving(Base):
         self.assertFalse(mine.exists(), "the old item does not come back")
 
     def test_a_swap_is_all_its_items_or_none_and_says_what_was_put_back(self):
-        fixtures.local(self, "sandbox")
-        mine = self.local("playgrounds/sandbox")
-        (mine / ".env").write_text("OLD_PERSONAL=1\n")
-        before = self.files_of(mine)
-        project.forget()
+        mine, before = self.in_personal()
         rename = os.rename
         self.patch(moving.os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(28, "No space left on device"))
                    if str(one).endswith("new/addons/scratch") else rename(one, two))
@@ -231,38 +234,24 @@ class Moving(Base):
         self.assertEqual((error.code, error.message), ("swap_failed", "Sandbox, Scratch could not be put in "
                          "Personal (no space left on device): Personal is as it was. Fix: see that the disk has room and that .lab "
                          "can be written, then try again."))
-        self.assertEqual(self.files_of(mine), before, "the first item is back as it was")
-        self.assertFalse(self.local("addons/scratch").exists())
-        self.assertTrue((paths.ROOT / exports.IMPORTS_DIR / "sandbox/playgrounds/sandbox/compose.yml").is_file())
-        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))
+        self.nothing_moved(mine, before)
 
     def test_a_check_that_fails_in_any_way_undoes_the_swap(self):
-        fixtures.local(self, "sandbox")
-        mine = self.local("playgrounds/sandbox")
-        before = self.files_of(mine)
-        project.forget()
+        mine, before = self.in_personal()
         self.patch(moving.project, "read_own", lambda file: (_ for _ in ()).throw(RuntimeError("the reader broke")))
         with self.assertRaisesRegex(RuntimeError, "^the reader broke$"):
             moving.move("playground", "@sandbox/sandbox", True)
-        self.assertEqual(self.files_of(mine), before, "Personal is as it was")
-        self.assertFalse(self.local("addons/scratch").exists())
-        self.assertTrue((paths.ROOT / exports.IMPORTS_DIR / "sandbox/playgrounds/sandbox/compose.yml").is_file())
-        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")), "no swap is left half in")
+        self.nothing_moved(mine, before)
 
     def test_an_item_the_check_cannot_read_once_placed_undoes_the_swap_and_says_why(self):
-        fixtures.local(self, "sandbox")
-        mine = self.local("playgrounds/sandbox")
-        before = self.files_of(mine)
-        project.forget()
+        mine, before = self.in_personal()
         real = project.read_own
         self.patch(moving.project, "read_own", lambda file: (None, "shared/x.yml is not there") if "scratch" in file else real(file))
         error = self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", True))
         self.assertEqual((error.code, error.message), ("placed_unread", "Scratch could not be read once in "
                          "Personal (shared/x.yml is not there), so Personal is as it was. Fix: keep it in "
                          "Imported, where the Lab says why."))
-        self.assertEqual(self.files_of(mine), before)
-        self.assertFalse(self.local("addons/scratch").exists())
-        self.assertFalse(list((paths.ROOT / paths.LAB_DIR).glob(".swap-*")))
+        self.nothing_moved(mine, before)
 
     def test_the_check_of_a_move_reads_the_items_it_placed_and_not_the_project(self):
         read, loads = [], []
