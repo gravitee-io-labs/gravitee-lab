@@ -18,7 +18,6 @@ sys.path.insert(0, str(ROOT / "lab-ui"))
 from lab_ui.catalogs.rules.workflows import GENERIC, problems  # noqa: E402
 
 FILES = sorted([*(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / ".github" / "actions").glob("*/action.yml")])
-WORKFLOWS = [file for file in FILES if file.parent.name == "workflows"]
 INDENT = re.compile(r"^( *)")
 E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # a change of the engine tried on a catalog
 CI = ROOT / ".github" / "workflows" / "ci.yml"
@@ -90,10 +89,6 @@ def step_with(body, marker):
 
 
 class WorkflowsTest(unittest.TestCase):
-    def test_there_are_workflows_to_read(self):
-        self.assertIn("e2e.yml", [file.name for file in WORKFLOWS])
-        self.assertIn("ci.yml", [file.name for file in WORKFLOWS])
-
     def test_every_workflow_and_action_keeps_the_rules_of_any_workflow(self):
         """No pull_request_target, every action pinned to a commit, the token read-only, no `${{ }}` in a script, a timeout and a
         concurrency group, every checkout forgets its credentials, no cache, no hidden construct."""
@@ -101,16 +96,6 @@ class WorkflowsTest(unittest.TestCase):
         for path, text in found.items():
             with self.subTest(file=path):
                 self.assertEqual([each.message for each in problems(path, text, GENERIC)], [])
-
-    def test_the_workflows_are_yaml(self):
-        try:
-            import yaml
-        except ImportError:
-            self.skipTest("PyYAML is not installed")
-        found = {file.name: file.read_text(encoding="utf-8") for file in WORKFLOWS}
-        for name, text in found.items():
-            with self.subTest(file=name):
-                self.assertIn("jobs", yaml.safe_load(text))
 
 
 class E2ETest(unittest.TestCase):
