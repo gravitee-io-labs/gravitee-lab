@@ -578,10 +578,12 @@ def _listed(ns, root) -> Set[str]:
     return set(found["files"]) if found else set()
 
 
-def _machine(ns, root) -> List[str]:
-    """The machine entries of an install folder: the top-most paths that hold no content, a file, a link, or a folder whose
-    files are all the machine's. A `.state` or `secrets` folder is one entry and is not looked into. A link is a file."""
-    root, listed = os.fspath(root), _listed(ns, root)
+def _scan(root, listed: Optional[Set[str]]) -> List[str]:
+    """The machine entries of a folder: the top-most paths that hold no content, a file, a link, or a folder whose files are all
+    the machine's. `listed` is the set of content paths; None for a folder of a person's own, where a name tells, and anything
+    that is not a machine name counts as content. A `.state` or `secrets` folder is one entry and is not looked into. A link is a
+    file."""
+    root = os.fspath(root)
 
     def look(rel, depth):
         content, tops = 0, []
@@ -604,12 +606,17 @@ def _machine(ns, root) -> List[str]:
                 inner, below = look(path, depth + 1)
                 content += inner
                 tops += [path] if inner == 0 and below else below
-            elif path in listed:
-                content += 1
-            else:
+            elif (path not in listed) if listed is not None else machine_name(path):
                 tops.append(path)
+            else:
+                content += 1
         return content, tops
     return look("", 0)[1]
+
+
+def _machine(ns, root) -> List[str]:
+    """The machine entries of an install folder (`_scan`)."""
+    return _scan(root, _listed(ns, root))
 
 
 def _vacate(ns, root) -> None:

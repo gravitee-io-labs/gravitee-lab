@@ -1584,7 +1584,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
 def _machine(folder) -> List[str]:
     """The machine's entries of a folder with no manifest (`install._scan`): `.env` and `.env.*` but `.env.example`, a
     `.state` or `secrets` folder, a key, as the top-most paths that hold nothing else."""
-    return install._scan(folder, None)[1]
+    return install._scan(folder, None)
 
 
 def _kept(kind, slug, rel) -> str:
