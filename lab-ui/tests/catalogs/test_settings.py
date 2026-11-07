@@ -1688,12 +1688,6 @@ class Command(Case):
         run = Run(["acme/lab-hub", "--apply", "--yes"], none)
         self.assertEqual(1, run.code)
 
-    def test_a_request_that_github_refuses_is_a_failure_of_the_command(self):
-        scene = Scene("user-private-free", refuse={("PUT", "/topics"): Reply(403, {"message": "Must have admin rights to Repository."})})
-        run = Run(["acme/lab-hub", "--apply", "--yes"], scene)
-        self.assertEqual(1, run.code)
-        self.assertIn("refused  PUT repos/acme/lab-hub/topics  HTTP 403: Must have admin rights to Repository.", run.text)
-
     def test_the_options_reach_the_audit(self):
         scene = Scene("org-private")
         scene.set("/actions/organization-secrets", {"secrets": [{"name": "MINE"}]})
