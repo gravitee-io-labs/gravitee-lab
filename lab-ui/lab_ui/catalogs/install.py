@@ -1296,7 +1296,10 @@ def _roll(ns, frm, to, label, meta=None):
         if len(roots) <= ROOTS_LIMIT:
             change["roots"] = roots   # the history the person confirmed is the history now pinned
     found = movable(ns, frm, to, label)
-    _converge(ns, to, kept, ignored, label, examine_all=frm == to, then=lambda: _follow(ns, found, label))
+    prepared = _prepared(ns, to, kept, ignored)
+    with _exclusive():   # what follows the files (the renames), that a reader must see with them
+        _apply(ns, to, kept, label, prepared)
+        _follow(ns, found, label)
     if meta is not None:
         fields = _lock_fields(meta)
     else:
@@ -1335,27 +1338,17 @@ def _same(path, entry) -> bool:
 
 
 def _prepared(ns, commit, kept, ignored):
-    """The staging folder of `ns` made to hold exactly `kept` (the one the plan made when it is still intact, else it is
-    written again from the store, which gives the same bytes) and the manifest for it: (the folder, the document)."""
+    """The staging folder of `ns` written with exactly `kept`, the same bytes each time, and the manifest for it: (the folder,
+    the document)."""
     stage_dir = registry.stage_dir(ns)
-    shas = None
-    if os.path.lexists(stage_dir):
-        try:
-            shas = _audit(stage_dir, kept)
-        except CatalogError:
-            shas = None
-    if shas is None:
-        shas = _write_stage(stage_dir, registry.store_dir(ns), kept)
-    return stage_dir, _document(ns, commit, kept, ignored, shas)
+    return stage_dir, _document(ns, commit, kept, ignored, _write_stage(stage_dir, registry.store_dir(ns), kept))
 
 
-def _apply(ns, commit, kept, label, examine_all, prepared):
+def _apply(ns, commit, kept, label, prepared):
     """Brings the install of `ns` to exactly the files `kept` of `commit` from the staging folder `prepared` made, and
     writes its manifest last. The caller holds the project lock. Only the files that differ are replaced, each in one
-    step: those that changed since the manifest the install has, or all of them when `examine_all` (a repair, a manifest
-    that already says `commit`, or none). The files the old manifest listed and `kept` does not are deleted first, and
-    the folders they leave empty, so that a file that becomes a folder finds its place free. A file that is not listed
-    anywhere is the machine's and is not touched."""
+    step. The files the old manifest listed and `kept` does not are deleted first, and the folders they leave empty, so that a
+    file that becomes a folder finds its place free. A file that is not listed anywhere is the machine's and is not touched."""
     stage_dir, document = prepared
     root, old, wanted = registry.install_dir(ns), registry.read_manifest(ns), {entry.path: entry for entry in kept}
     _step(f"{label}:apply")
@@ -1364,18 +1357,12 @@ def _apply(ns, commit, kept, label, examine_all, prepared):
         os.chmod(root, 0o755)
     elif not _real_dir(root):
         raise Unsafe("the install is not a folder", ns)
-    if examine_all or old is None or old["commit"] == commit:
-        examine = set(wanted)
-    else:
-        examine = {path for path, entry in wanted.items()
-                   if _rec(old["files"], path).get("oid") != entry.oid
-                   or _rec(old["files"], path).get("mode") != entry.mode}
     gone = sorted(set(old["files"]) - set(wanted)) if old else []
     for path in gone:   # first, so that a file that becomes a folder, or a folder a file, finds its place free
         _step(f"{label}:removed")
         _unlink(root, path)
     _prune(root, gone)
-    for path in sorted(examine):
+    for path in sorted(wanted):
         if not _same(os.path.join(root, path), wanted[path]):
             _step(f"{label}:file")
             safe_replace(Path(stage_dir) / path, Path(root) / path)
@@ -1393,16 +1380,6 @@ def _moving(ns, store_path, frm, to, label):
         before = set(bare.unit_digests(bare.selected(bare.listing(store_path, base))[0])) - {"@catalog"}
         found = {**found, "items": {old: new for old, new in found["items"].items() if new not in before}}
     return found, base
-
-
-def _converge(ns, commit, kept, ignored, label, examine_all, then=None):
-    """`_prepared`, then `_apply` under the project lock, and `then` under it too: what follows the files, that a reader must
-    see with them (the renames)."""
-    prepared = _prepared(ns, commit, kept, ignored)
-    with _exclusive():
-        _apply(ns, commit, kept, label, examine_all, prepared)
-        if then is not None:
-            then()
 
 
 def _follow(ns, found, label):
@@ -1691,7 +1668,7 @@ def _unshadow_run(ns, record) -> dict:
         if os.path.islink(root):
             os.unlink(root)
         _step("unshadow:install")
-        _apply(ns, held["pin"], kept, "unshadow", True, prepared)
+        _apply(ns, held["pin"], kept, "unshadow", prepared)
         for one in record["moves"]:
             if one["result"] not in ("moved", "copied"):
                 continue
