@@ -414,7 +414,7 @@ class EndToEnd(Case):
         gitfixture.git("tag", f"v{version}", gitfixture.tip(self.repo), repo=self.repo)
 
     def add(self):
-        service.add(service.check_address(gitfixture.url(self.repo))["ticket"], host=True)
+        service.add(service.check_address(gitfixture.url(self.repo))["ticket"])
         project.forget()
 
     def update(self, undo=False):
@@ -794,7 +794,7 @@ class EndToEnd(Case):
                                                     "Inspects what the agents send}\ninclude:\n  - ../../../acme/addons/viewer/compose.yml\n"}
         hub = gitfixture.make_repo(self.home / "hub.git", files)
         gitfixture.git("tag", "v1.0.0", gitfixture.tip(hub), repo=hub)
-        service.add(service.check_address(gitfixture.url(hub))["ticket"], host=True)
+        service.add(service.check_address(gitfixture.url(hub))["ticket"])
         self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/hub/playgrounds/inspect/compose.yml\n")
         project.forget()
         self.release("1.1.0", V2)
