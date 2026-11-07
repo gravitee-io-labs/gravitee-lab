@@ -699,7 +699,7 @@ def _port_clash(project, state, up, kind, unit, going=frozenset()):
 def taken(project, names):
     """The host ports these services publish that another program uses now (machine.held), sorted: Compose would fail to
     publish them once the on file names what publishes them, and every later Start all with it. Asked when a start is
-    clicked, never for the state: it binds each port for an instant. None while the lab's own cannot be told: Compose
+    clicked, never for the state: it tries each port. None while the lab's own cannot be told: Compose
     says it then."""
     return machine.held(_published(project, names)) or []
 
