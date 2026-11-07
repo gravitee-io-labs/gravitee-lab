@@ -357,7 +357,8 @@ class Histories(WithGit):
 
     def test_a_history_over_the_limit_is_said(self):
         repo = self.history_repo()
-        history = tree.History(repo, None, limit=100)
+        self.patch(tree, "LOG_LIMIT", 100)
+        history = tree.History(repo)
         self.assertEqual([], list(history.added()))
         self.assertIn("too large", history.note)
 

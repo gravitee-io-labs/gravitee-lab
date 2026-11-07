@@ -1506,11 +1506,8 @@ def shadow(ns: str, folder: str) -> dict:
     stop is finished by `recover()` and `unshadow` knows what to take back. The caller refuses while an item is on or
     up; this refuses what the on file turns on. Answers {"moved": [...], "kept": [...], "folder": path}."""
     with registry.flock():
-        entry, held = registry.entry(ns), registry.lock_of(ns)
-        if entry is None:
-            raise ValueError(f"{ns} is not a catalog of this machine")
-        if entry["kind"] != "git" or held.get("shadowed"):
-            raise CatalogError("linked", LINKED, 409)
+        _git_entry(ns)
+        entry = registry.entry(ns)
         _settle(ns)
         if not registry.lock_of(ns).get("pin") or registry.manifest(ns) is None:
             raise Unsafe("the install does not read", ns)

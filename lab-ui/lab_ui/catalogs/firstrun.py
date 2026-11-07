@@ -258,10 +258,6 @@ def _contract() -> dict:
     return understood.levels() or {"contract": 1, "contract_min": 1}
 
 
-def _forget_stage(ns: str) -> None:
-    shutil.rmtree(registry.stage_dir(ns), ignore_errors=True)
-
-
 def _stand_in(ns: str, entry: Optional[dict], row: Optional[dict]) -> dict:
     """The entry a catalog is read at: its own in catalogs.json, or for a listed catalog the person does not have the one
     its commit will write (`not_listed` for any other)."""
@@ -310,7 +306,7 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             _set(ns, "commit", 0.0)
             install.commit_add(staged, address, remote["branch"], audience, roots, meta=meta, host=False)
         except Exception:
-            _forget_stage(ns)
+            shutil.rmtree(registry.stage_dir(ns), ignore_errors=True)
             raise
     except Exception:
         if not own:

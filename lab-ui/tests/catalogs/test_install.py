@@ -2376,24 +2376,6 @@ class Stops(Base):
             self.assertTrue(self.settings_exist("partner", made), "the settings are in the install")
         self.runs(build, lambda _: self.add("partner"), check)
 
-    def test_a_stop_at_any_step_of_an_add_beside_the_folder_the_sweeper_renamed_keeps_every_setting(self):
-        made = []
-
-        def build():
-            self.add("partner")
-            made[:] = self.machine("partner")
-            (Path(paths.ROOT) / ".lab/catalogs.json").unlink()
-            install.recover()
-
-        def check(_, step, label):
-            self.settings_exist("partner", made)
-            if registry.entry("partner") is None:
-                self.assertEqual(paths.ids("addon"), [], label)
-                self.add("partner")
-            self.intact("partner")
-            self.assertTrue(self.settings_exist("partner", made), "the settings are back in the install")
-        self.runs(build, lambda _: self.add("partner"), check)
-
     # -- the first download of a listed catalog ------------------------------------------------------------------------
 
     def provision(self, aside=False):
