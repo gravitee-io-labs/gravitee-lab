@@ -15,7 +15,7 @@ catalog.
 A new version of items of Personal (a move, a copy, an import to Personal) is written whole beside Personal first (`stage`), then
 swapped in, all of its items or none (`swap_in`): every old one renamed aside, then every new one renamed in, a journal in the swap
 folder saying each phase before it starts. At any moment an item is the old one or the new one, whole. What a stop of the Lab leaves
-is put right from the journal alone, at the next change and at the Lab UI's start (`recover`), and said; a swap folder that holds
+is put right from the journal alone at the Lab UI's start (`recover`), and said in its terminal; a swap folder that holds
 the person's files is never deleted.
 
 Personal is the last check, as for an import: nothing judges what is there. An item blocked only for what it takes of this

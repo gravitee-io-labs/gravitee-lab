@@ -491,8 +491,7 @@ def cancel(req, jid):
 
 
 def add_catalog(req):
-    """Add: the ticket of the check, or a listed catalog by its id, which is added with no check and no dialog. The
-    allowance of the dialog's choice may come with the ticket (`host`); the page sends it as a request of its own."""
+    """Add: the ticket of the check, or a listed catalog by its id, which is added with no check and no dialog."""
     if req.body.get("listed") is not None:
         return service.add_listed(req.body["listed"])
     return service.add(req.body.get("ticket"))
