@@ -484,7 +484,7 @@ def _set_aside(file):
     if not regular:
         os.rename(file, target)
         return target
-    shutil.copyfile(file, target)
+    shutil.copy(file, target)   # with its mode: a file edited by hand can hold an address with a token
     return target
 
 

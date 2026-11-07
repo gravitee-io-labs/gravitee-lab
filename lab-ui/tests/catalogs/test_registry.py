@@ -372,12 +372,13 @@ class ConfigWrite(Disk):
         registry.write_config({"schema": 1, "catalogs": [git_entry("acme-hub", url="git@example.invalid:team/a.git")]})
 
     def test_a_file_that_cannot_be_read_is_set_aside_and_never_overwritten(self):
-        self.raw(".lab/catalogs.json", b"{ the person's own edit")
+        self.raw(".lab/catalogs.json", b"{ the person's own edit").chmod(0o600)
         registry.write_config({"schema": 1, "catalogs": [git_entry("acme-hub")]})
         aside = sorted(p.name for p in (self.root / ".lab").iterdir() if ".bad-" in p.name)
         self.assertEqual(len(aside), 1)
         self.assertRegex(aside[0], r"catalogs\.json\.bad-\d{8}T\d{6}Z")
         self.assertEqual((self.root / ".lab" / aside[0]).read_bytes(), b"{ the person's own edit")
+        self.assertEqual((self.root / ".lab" / aside[0]).stat().st_mode & 0o777, 0o600, "no one else reads what it may hold")
         self.assertEqual([one["id"] for one in registry.entries()], ["acme-hub"])
         self.assertIsNone(registry.config_problem())
 
