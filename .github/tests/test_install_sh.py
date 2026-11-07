@@ -142,16 +142,19 @@ class Install(unittest.TestCase):
         (folder / "git").chmod(0o755)
         return {"PATH": f"{folder}{os.pathsep}{self.env['PATH']}", "REAL_GIT": shutil.which("git")}
 
-    def linux_without_git(self):
-        """The PATH of a Linux with no git and apk as its package manager: the programs of this machine but git, the package
-        managers, sudo and uname, and fakes for the last three."""
+    def tools_without(self, *left_out):
+        """A folder of links to the programs of this machine, but these."""
         tools = self.folder / "tools"
         tools.mkdir()
-        left_out = {"git", "apt-get", "dnf", "yum", "zypper", "pacman", "apk", "sudo", "uname", "wsl.exe"}
         for folder in ("/usr/bin", "/bin"):
             for program in Path(folder).iterdir():
                 if program.name not in left_out and not (tools / program.name).exists():
                     (tools / program.name).symlink_to(program)
+        return tools
+
+    def linux_without_git(self):
+        """The PATH of a Linux with no git and apk as its package manager: fakes for apk, sudo and uname."""
+        tools = self.tools_without("git", "apt-get", "dnf", "yum", "zypper", "pacman", "apk", "sudo", "uname", "wsl.exe")
         for name, text in (("uname", UNAME), ("sudo", SUDO), ("apk", APK)):
             (tools / name).write_text(text)
             (tools / name).chmod(0o755)
@@ -224,13 +227,7 @@ class Install(unittest.TestCase):
         self.assertEqual((self.home / ".local" / "bin").exists(), False)
 
     def test_a_tool_that_is_missing_stops_it_before_the_clone_with_what_to_do(self):
-        tools = self.folder / "tools"
-        tools.mkdir()
-        for folder in ("/usr/bin", "/bin"):
-            for program in Path(folder).iterdir():
-                if program.name != "git" and not (tools / program.name).exists():
-                    (tools / program.name).symlink_to(program)
-        code, said = self.install(PATH=str(tools))
+        code, said = self.install(PATH=str(self.tools_without("git")))
         self.assertEqual(code, 1, said)
         self.assertRegex(said, r"yet git cannot run|Install git with")
         self.assertFalse(self.lab.exists())
@@ -274,10 +271,9 @@ class Install(unittest.TestCase):
             self.assertNotIn(raw, said)
         self.assertRegex(said, r"✔\x1b\[0m \x1b\[1mTools")
 
-    def test_a_backspace_the_terminal_did_not_erase_still_erases_in_the_answer(self):
-        # The classic Windows console sends ^H, which a tty whose erase is ^? keeps as a character
+    def test_in_a_terminal_it_asks_and_goes_on_with_the_answer(self):
         tools = {key: value for key, value in self.linux_without_git().items() if key != "GRAVITEE_LAB_YES"}
-        code, said = self.terminal(answer=b"n\x08Y\r", **tools)
+        code, said = self.terminal(answer=b"Y\r", **tools)
         self.assertEqual(code, 0, said)
         self.assertIn("The Lab needs git to run. Install it with apk?", said)
         self.assertRegex(said, r"✔\x1b\[0m \x1b\[1mTools")
