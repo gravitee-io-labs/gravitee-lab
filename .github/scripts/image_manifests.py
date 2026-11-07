@@ -19,7 +19,7 @@ The item is somebody else's text and this runs for a pull request of anyone: Com
 read, and a registry on this machine's own network is not asked: not by how its name is written but by what it resolves to
 (`public`), not by a redirect either (`Redirect`), and not by a name that answers a public address to the look and another to the
 connection: the connection is made to the address that was checked, which it resolved itself (`Pinned`). What it prints is data on
-GitHub: an image or a name is a unit's text. `images`, `check` and `exists` are for other scripts to import."""
+GitHub: an image or a name is a unit's text."""
 
 import concurrent.futures
 import http.client
@@ -123,12 +123,7 @@ class Pinning(urllib.request.HTTPSHandler):
 OPENER = urllib.request.build_opener(Redirect, Pinning)
 
 
-def guarded(request, timeout=TIMEOUT):
-    """`urlopen` with the redirects of `Redirect`."""
-    return OPENER.open(request, timeout=timeout)
-
-
-def answer(url, headers, opener=guarded):
+def answer(url, headers, opener):
     """(status, headers) of a HEAD request; 0 and no headers when nothing answers."""
     request = urllib.request.Request(url, headers=headers, method="HEAD")
     try:
@@ -141,7 +136,7 @@ def answer(url, headers, opener=guarded):
         return 0, {}
 
 
-def token(challenge, opener=guarded):
+def token(challenge, opener):
     """The anonymous token a registry's `Bearer realm=...,service=...,scope=...` challenge asks for; None when it gives none,
     and when the realm is not an https address of the public network."""
     found = dict(BEARER.findall(challenge or ""))
@@ -154,9 +149,6 @@ def token(challenge, opener=guarded):
     try:
         with opener(request, timeout=TIMEOUT) as response:
             body = json.loads(response.read())
-    except urllib.error.HTTPError as error:
-        error.close()
-        return None
     except (OSError, ValueError):
         return None
     return body.get("token") or body.get("access_token") if isinstance(body, dict) else None
@@ -190,7 +182,7 @@ def public(host):
     return _addresses(name, port) is not None
 
 
-def exists(image, opener=guarded):
+def exists(image, opener=OPENER.open):
     """Whether the registry has the image: True, False, or None when it cannot be told (no answer, a refusal that is no 404, a
     registry of this machine's own network, which is not asked)."""
     host, name, tag = reference(image)
@@ -245,10 +237,6 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     github = os.environ.get("GITHUB_ACTIONS") == "true"
     if not argv or len(argv) > 2 or (len(argv) == 2 and not argv[1].isdigit()):
-        sys.exit(USAGE)
-    try:
-        e2e.parse(argv[0])
-    except ValueError:
         sys.exit(USAGE)
     try:
         found = images(argv[0], int(argv[1]) if len(argv) == 2 else None)
