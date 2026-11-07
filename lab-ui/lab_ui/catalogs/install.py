@@ -19,19 +19,17 @@ back, a Repair and the first download of a listed catalog by `catalogs.lock`, a 
 Update, Go back or Repair is finished (the store holds every object), a pending Add is finished when the install and the
 store are whole and otherwise undone, a Remove is finished by the sweeper. `STEP` is the hook a test sets to stop a run
 between two steps: it is called with the label of the step about to be taken, and what it raises ends the run there.
-A folder that holds no manifest is never judged by the names of its files (a name the patterns do not know, `data/` or
-`certs/ca.txt`, would read as content that nobody keeps): the marker `.kept` is written before the manifest goes (a Remove,
-a download undone, a working copy linked) and into a folder that has no manifest before it is moved aside or restored
-from, so whatever a stop leaves is all the machine's. A start without git goes on: an operation under way keeps its
-record for a start that has git.
+A folder that holds no manifest holds only what is the machine's, whatever its files are called: the manifest goes after
+the files it lists, so a stop leaves a manifest and what it still lists, or the machine's alone. A start without git goes on:
+an operation under way keeps its record for a start that has git.
 
 Labels, in order. stage: begin, written. add: begin, manifest, store, pending, install, file (for each file of a merge),
 rename, placed, lock, config, done. update, undo and repair: pending, apply, removed (each), file (each), manifest,
 rename, lock, done. The renames a catalog declares (`renames.follow`) say rename:entry, :on, :include, :copy,
-:settings before each change, between rename and the step after it. remove: config, store, files, marker,
-vacate, lock, stars, done. shadow: record, move (each), install, link, config, lock, done. unshadow: record, link,
+:settings before each change, between rename and the step after it. remove: config, store, files, lock,
+stars, done. shadow: record, move (each), install, link, config, lock, done. unshadow: record, link,
 install, then apply, file, removed and manifest of the repair it makes, move (each), config, lock, done. recover: begin,
-pending, sweep, tidy, done.
+pending, sweep, done.
 
 The locks are the catalogs lock and the advisory lock of the other processes (`registry.LOCK`, `registry.flock`), then
 `project.exclusive()` around the steps that change what a reader reads, in that order (, rule 11)."""
@@ -46,7 +44,7 @@ import stat
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, Iterable, List, NamedTuple, Optional, Set
 
 from ..docker import compose
 from ..library import moves, starred
@@ -62,9 +60,7 @@ STEP = None
 # function nothing is asked
 CONTAINERS = None
 
-MARKER = ".kept"   # left by a Remove that kept the settings (rule 12): exactly the machine files and this
 SHADOW = ".shadow-{ns}.json"   # beside the installs: the machine entries a working copy took
-LAB_FILES = (MARKER, paths.MANIFEST)   # the Lab's own files at the top of an install: neither content nor machine
 AGE = 24 * 3600.0   # a stage, a store being added, a partial or a share folder older than this is a leftover (rule 12)
 MAX_FILE = 4 * 1024 * 1024   # a file is read whole to be hashed: the filter keeps content under 2 MB
 MANIFEST_LIMIT = 32 * 1024 * 1024   # as the registry reads one
@@ -582,46 +578,6 @@ def machine_name(rel) -> bool:
             or (name.startswith(".env.") and name != ".env.example") or name.endswith(bare.KEY_SUFFIXES))
 
 
-def _scan(root, listed: Optional[Set[str]]) -> Tuple[int, List[str], bool]:
-    """(how many content files, the machine entries, whether there are any) of an install folder. The machine entries
-    are the top-most paths that hold no content: a file, a link, or a folder whose files are all machine. `listed` is
-    the set of content paths (the manifest's); None for a folder with no manifest, where a name tells, and anything that
-    is not a machine name counts as content. A `.state` or `secrets` folder is one entry and is not looked into. A link
-    is a file."""
-    root = os.fspath(root)
-
-    def look(rel, depth):
-        content, tops, machine = 0, [], False
-        here = os.path.join(root, rel) if rel else root
-        try:
-            names = sorted(os.listdir(here))
-        except OSError:   # what cannot be listed cannot be vouched for
-            return 0, [rel] if rel else [], True
-        for name in names:
-            path = f"{rel}/{name}" if rel else name
-            if not rel and name in LAB_FILES:
-                continue
-            info = _lstat(os.path.join(root, path))
-            if info is None:
-                continue
-            if stat.S_ISDIR(info.st_mode):
-                if name.lower() in _SECRET_DIRS or depth >= DEEP:
-                    tops.append(path)
-                    machine = True
-                    continue
-                inner, below, any_machine = look(path, depth + 1)
-                content += inner
-                tops += [path] if inner == 0 and any_machine else below
-                machine = machine or any_machine
-            elif (path not in listed) if listed is not None else machine_name(path):
-                tops.append(path)
-                machine = True
-            else:
-                content += 1
-        return content, tops, machine
-    return look("", 0)
-
-
 def _manifest_in(root, ns) -> Optional[dict]:
     """The manifest inside the folder `root` as the registry would accept it for catalog `ns`, whatever
     commit it is for, or None: a folder can be an install, a staging folder or a `.removed-<ns>-*` folder, and each says
@@ -632,65 +588,62 @@ def _manifest_in(root, ns) -> Optional[dict]:
         return None
 
 
-def _listed(ns, root) -> Optional[Set[str]]:
-    """The content paths of the folder `root` of catalog `ns`: its manifest's files; nothing is content in a folder that
-    holds the `.kept` marker and no manifest; None when nothing says (a name tells)."""
+def _listed(ns, root) -> Set[str]:
+    """The content paths of the folder `root` of catalog `ns`: its manifest's files. A folder with no manifest holds none, so
+    nothing in it is ever deleted as content."""
     found = _manifest_in(root, ns)
-    if found is not None:
-        return set(found["files"])
-    return set() if os.path.lexists(os.path.join(root, MARKER)) else None
+    return set(found["files"]) if found else set()
 
 
 def _machine(ns, root) -> List[str]:
-    """The machine entries of an install folder (`_scan`)."""
-    return _scan(root, _listed(ns, root))[1]
+    """The machine entries of an install folder: the top-most paths that hold no content, a file, a link, or a folder whose
+    files are all the machine's. A `.state` or `secrets` folder is one entry and is not looked into. A link is a file."""
+    root, listed = os.fspath(root), _listed(ns, root)
+
+    def look(rel, depth):
+        content, tops = 0, []
+        here = os.path.join(root, rel) if rel else root
+        try:
+            names = sorted(os.listdir(here))
+        except OSError:   # what cannot be listed cannot be vouched for
+            return 0, [rel] if rel else []
+        for name in names:
+            path = f"{rel}/{name}" if rel else name
+            if path == paths.MANIFEST:
+                continue
+            info = _lstat(os.path.join(root, path))
+            if info is None:
+                continue
+            if stat.S_ISDIR(info.st_mode):
+                if name.lower() in _SECRET_DIRS or depth >= DEEP:
+                    tops.append(path)
+                    continue
+                inner, below = look(path, depth + 1)
+                content += inner
+                tops += [path] if inner == 0 and below else below
+            elif path in listed:
+                content += 1
+            else:
+                tops.append(path)
+        return content, tops
+    return look("", 0)[1]
 
 
-def _mark(root) -> None:
-    """Writes the marker `.kept` into the folder `root`: from then on every entry of it is the machine's, whatever its
-    name. A folder that holds neither a manifest nor the marker is judged by names (`machine_name`), and a name the
-    patterns do not know (`data/`, `certs/ca.txt`) reads as content that is nobody's to keep: so the marker is written
-    before the manifest that vouched for the folder goes, and a folder that no manifest vouches for gets it before it is
-    moved or emptied. Idempotent."""
-    paths.write_atomic(Path(root) / MARKER, "", mode=0o600)
-
-
-def _vouch(ns, root) -> None:
-    """Marks a folder that no manifest vouches for and that holds no marker yet: nothing in it is judged by its name
-    from then on (`_mark`)."""
-    if _manifest_in(root, ns) is None and not os.path.lexists(os.path.join(root, MARKER)):
-        _mark(root)
-
-
-def _vacate(ns, root, keep_marker=False) -> None:
-    """Removes the content files an install folder lists, its manifest and, unless `keep_marker`, its marker, and the
-    folders that held only them: what is left is the machine's. Idempotent."""
-    found = _manifest_in(root, ns)
-    rels = [rel for rel in (found["files"] if found else ()) if _safe(rel)]
+def _vacate(ns, root) -> None:
+    """Removes the content files an install folder lists, then its manifest, and the folders that held only them: what is left
+    is the machine's. Idempotent."""
+    rels = [rel for rel in _listed(ns, root) if _safe(rel)]
     for rel in rels:
         _unlink(root, rel)
     _unlink(root, paths.MANIFEST)
-    if not keep_marker:
-        _unlink(root, MARKER)
     _prune(root, rels)
 
 
-def _leave(ns, root, label=None, vacating=None) -> bool:
-    """Takes the content out of an install folder and leaves what is the machine's, with the marker that says so, which
-    is written first (after the step `label`) so that a stop between the manifest going and the marker coming never
-    leaves a folder that names must judge. The step `vacating` follows the marker: a stop there leaves a marked folder
-    whose content is still in it, which the sweeper empties. A folder with no manifest and no marker is marked and its
-    content is not taken out: nothing says what is content in it. The folder goes when nothing is left. Answers whether
-    something stays. Idempotent."""
-    protect = _listed(ns, root) is None or bool(_machine(ns, root))
-    if protect:
-        if label:
-            _step(label)
-        _mark(root)
-        if vacating:
-            _step(vacating)
-    _vacate(ns, root, keep_marker=protect)
-    if protect and _machine(ns, root):
+def _leave(ns, root) -> bool:
+    """Takes the content out of an install folder and leaves what is the machine's. The folder goes when nothing is left. Answers
+    whether something stays. Idempotent."""
+    _vacate(ns, root)
+    if _machine(ns, root):
         return True
     _clear(root)
     return False
@@ -698,10 +651,7 @@ def _leave(ns, root, label=None, vacating=None) -> bool:
 
 def _aside(ns, root) -> str:
     """Renames an install folder that cannot be merged to `.removed-<ns>-<utc>` beside it, where its machine files wait
-    for the next Add, and answers the new path. The newest of these is merged into the install at an Add (rule 12). A
-    folder that no manifest vouches for is marked first (`_mark`): nothing in it is judged by its name, so what
-    `_restore` cannot place stays where it is and the folder is never deleted with a file of the person's in it."""
-    _vouch(ns, root)
+    for the next Add, and answers the new path. The newest of these is merged into the install at an Add (rule 12)."""
     offset = 0
     while True:
         target = os.path.join(os.path.dirname(os.fspath(root)), f".removed-{ns}-{_compact(offset)}")
@@ -723,10 +673,10 @@ def _removed_dirs(ns) -> List[str]:
     return [os.path.join(base, name) for _, name in sorted(found)]
 
 
-def _move_in(source, root, rel, moved):
+def _move_in(source, root, rel):
     """Moves `source/rel` to `root/rel`, never over what is there. A folder that is in both places (a unit's folder that
     holds the new content on one side and the machine's files on the other) is merged entry by entry, except a `.state`
-    or `secrets` folder, which only moves whole; a conflict stays where it was. Adds the paths it moved to `moved`."""
+    or `secrets` folder, which only moves whole; a conflict stays where it was."""
     here, target = os.path.join(source, rel), os.path.join(root, rel)
     if not os.path.lexists(target):
         try:
@@ -735,33 +685,27 @@ def _move_in(source, root, rel, moved):
             return
         try:
             os.rename(here, _parts(rel)[-1], dst_dir_fd=directory)
-            moved.append(rel)
         except OSError:   # a folder only root can move: it stays, and is not lost
             pass
         finally:
             os.close(directory)
     elif _real_dir(here) and _real_dir(target) and os.path.basename(rel).lower() not in _SECRET_DIRS:
         for child in sorted(os.listdir(here)):
-            _move_in(source, root, f"{rel}/{child}", moved)
+            _move_in(source, root, f"{rel}/{child}")
 
 
-def _restore(ns, root) -> List[str]:
+def _restore(ns, root) -> None:
     """Moves the machine entries of the newest `.removed-<ns>-<utc>` folder into the install `root`, each to the path it
     had, never over what is there (a conflict stays where it was). The folder is removed when nothing of the machine is
-    left in it. Idempotent: run again after a stop, it moves what is left. Answers the paths it moved."""
+    left in it. Idempotent: run again after a stop, it moves what is left."""
     removed = _removed_dirs(ns)
     if not removed or not _real_dir(root):
-        return []
-    folder, moved = removed[-1], []
-    try:
-        _vouch(ns, folder)   # one a person or an older run made: what it holds is theirs, not judged by names
-    except OSError:   # a folder the Lab cannot mark is left as it is: nothing is moved out of it or deleted from it
-        return []
+        return
+    folder = removed[-1]
     for rel in _machine(ns, folder):
-        _move_in(folder, root, rel, moved)
+        _move_in(folder, root, rel)
     if not _machine(ns, folder):
         _clear(folder)
-    return moved
 
 
 def _target(ns, kept) -> str:
@@ -770,19 +714,16 @@ def _target(ns, kept) -> str:
     install listed (a Remove that kept the settings, a half-made install: the stage is merged into it in place, and the
     machine files never move). Anything else a folder holds, or any path in the way, sends the folder aside first
     (`_aside`): nothing is ever deleted or overwritten for lack of knowing what it is. A link or a file is never
-    replaced: it is `name_taken`. A stop in the merge leaves a folder with no manifest and no marker, which the sweeper
-    sets aside marked, so the units of a half-made install are not seen and the machine's files are not lost."""
+    replaced: it is `name_taken`. A stop in the merge leaves a folder with no manifest, which the sweeper sets aside, so the
+    units of a half-made install are not seen and the machine's files are not lost."""
     root = registry.install_dir(ns)
     info = _lstat(root)
     if info is None:
         return "rename"
     if not stat.S_ISDIR(info.st_mode):
         raise taken(ns)
-    listed = _listed(ns, root)
-    content = _scan(root, listed)[0]
-    known = _manifest_in(root, ns)
-    going = set(known["files"]) if known else set()
-    if (listed is None and content) or any(_in_the_way(root, entry.path, going, going) for entry in kept):
+    going = _listed(ns, root)
+    if any(_in_the_way(root, entry.path, going, going) for entry in kept):
         _aside(ns, root)
         return "rename"
     _vacate(ns, root)
@@ -935,7 +876,6 @@ def _place(ns, staged):
         safe_replace(Path(stage_dir) / entry.path, Path(root) / entry.path)
     safe_replace(Path(stage_dir) / paths.MANIFEST, Path(root) / paths.MANIFEST)
     _clear(stage_dir)
-    _unlink(root, MARKER)
     _restore(ns, root)   # a folder the sweeper renamed, beside the one a Remove left
 
 
@@ -1534,9 +1474,8 @@ def unit_key(path):
 def remove(ns: str, keep_settings: bool = True) -> dict:
     """The removal of a catalog, after the caller has checked `held` and `breaks`: the entry leaves `catalogs.json` (the commit point), the
     store is deleted, then the install: with `keep_settings` the files its manifest lists are deleted with the folders
-    they leave empty and the machine files stay, with the marker `.kept` that tells the sweeper to leave them (a folder
-    with none is removed); without, the whole folder is removed, and what cannot be removed (files Docker made as root)
-    is counted and reported. The lock entry and the stars of its units go. A folder catalog loses its link and nothing
+    they leave empty and the machine files stay (a folder with none is removed); without, the whole folder is removed, and what
+    cannot be removed (files Docker made as root) is counted and reported. The lock entry and the stars of its units go. A folder catalog loses its link and nothing
     else: the author's folder is never touched. Answers {"warning": the line of `removed_partial` or None}. Idempotent:
     run again after a stop, it finishes. `linked` for a git catalog that a working copy stands in for; `held` ("Turn off
     {name} first.") when the on file turns on a unit of it, directly or through an item of another catalog: the caller
@@ -1572,8 +1511,10 @@ def remove(ns: str, keep_settings: bool = True) -> dict:
             _step("remove:files")
             if os.path.islink(root):
                 os.unlink(root)   # the link and nothing it points to
-            elif _real_dir(root):
-                warning = _take_out(ns, root, keep_settings)
+            elif keep_settings and _real_dir(root):
+                _leave(ns, root)
+            elif _real_dir(root) and _remove_tree(root):
+                warning = PARTIAL.format(id=ns)
         _step("remove:lock")
         registry.drop_lock(ns)
         _step("remove:stars")
@@ -1582,20 +1523,6 @@ def remove(ns: str, keep_settings: bool = True) -> dict:
             starred.moved(kind, name if ns == default else f"@{ns}/{name}")
         _step("remove:done")
         return {"warning": warning}
-
-
-def _take_out(ns, root, keep_settings) -> Optional[str]:
-    """The install folder of a catalog that left: its content (and, without `keep_settings`, everything). Answers the
-    warning for what could not be removed."""
-    if keep_settings:
-        # judged while the manifest still says what is content: the rest is the machine's
-        _leave(ns, root, "remove:marker", "remove:vacate")
-        return None
-    if _remove_tree(root):
-        with contextlib.suppress(OSError):
-            _mark(root)   # what is left waits for an Add, as the line says
-        return PARTIAL.format(id=ns)
-    return None
 
 
 # ---------------------------------------------------------------- a working copy in place of a git install
@@ -1703,7 +1630,7 @@ def _shadow_run(ns, record) -> dict:
     with _exclusive():   # the install, the link, the entry and the lock change together for a reader
         if _real_dir(root):
             _step("shadow:install")
-            if _leave(ns, root):   # what could not be moved waits aside, marked
+            if _leave(ns, root):   # what could not be moved waits aside
                 _aside(ns, root)
         _step("shadow:link")
         if _lstat(root) is None:
@@ -1832,7 +1759,6 @@ def _finish(ns):
                 _follow(ns, renames.between(registry.store_dir(ns), None, to), "add")
             now = _utc()
             registry.set_lock(ns, pin=to, previous=None, installed=now, checked=now, error=None, pending=None)
-            _unlink(root, MARKER)
             _clear(registry.stage_dir(ns))
         else:
             if _real_dir(root):
@@ -1862,11 +1788,10 @@ def _namespaces(names):
     return [name for name in names if _NS.fullmatch(name) and name != paths.LOCAL]
 
 
-def _sweep_stale() -> List[Tuple[str, str]]:
+def _sweep_stale() -> None:
     """The leftovers of rule 12 that age alone judges, which need no lock because nothing that old is in use: the
     staging folders and the `*.partial` files of `.lab/catalogs`, and the stores being added, older than a day (`AGE`).
     """
-    done = []
     base = os.path.join(paths.ROOT, paths.CATALOGS_DIR)
     cache = os.path.join(paths.ROOT, registry.STORE_DIR)
     for folder, wanted in ((base, lambda name: name.startswith(".stage-") or name.endswith(".partial")),
@@ -1878,28 +1803,22 @@ def _sweep_stale() -> List[Tuple[str, str]]:
         for name in names:
             if wanted(name) and _age(os.path.join(folder, name)) > AGE:
                 _clear(os.path.join(folder, name))
-                done.append(("swept", name))
-    return done
 
 
-def sweep() -> List[Tuple[str, str]]:
-    """Under the locks: `_sweep_stale`, the `.share-*` folders Share leaves in an install older than
-    a day, and the install folders that have no entry in `catalogs.json`, each judged: left alone when it holds the
-    marker `.kept` (when it still holds its manifest too, a Remove stopped before it took the content out, and the
-    content is taken out: "emptied"), or when its id is listed and it holds only machine files (settings waiting for an
-    Add); removed when it holds nothing but what its manifest lists; renamed `.removed-<ns>-<utc>` when it holds
-    anything else, marked first if no manifest vouches for it. `local` is never swept, a link is never followed, and no
-    install is touched while the file that lists the catalogs cannot be read, so a damaged file never turns every
-    install into garbage. Answers [(what was done, the name)]."""
+def sweep() -> None:
+    """Under the locks: `_sweep_stale`, the `.share-*` folders Share leaves in an install older than a day, and the install
+    folders that have no entry in `catalogs.json` (`_sweep_install`). `local` is never swept, a link is never followed, and no
+    install is touched while the file that lists the catalogs cannot be read, so a damaged file never turns every install into
+    garbage."""
     with _guard():
-        done = _sweep_stale()
+        _sweep_stale()
         if registry.config_problem():
-            return done
+            return
         base = os.path.join(paths.ROOT, paths.CATALOGS_DIR)
         try:
             names = _namespaces(sorted(os.listdir(base)))
         except OSError:
-            return done
+            return
         have = {one["id"] for one in registry.entries()}
         for name in names:
             root = os.path.join(base, name)
@@ -1907,7 +1826,7 @@ def sweep() -> List[Tuple[str, str]]:
                 continue
             try:
                 if name not in have:
-                    done += _sweep_install(name, root)
+                    _sweep_install(name, root)
                     continue
                 inside = sorted(os.listdir(root))
             except OSError:   # a folder the Lab cannot read or rename is left for the person
@@ -1915,34 +1834,22 @@ def sweep() -> List[Tuple[str, str]]:
             for one in inside:
                 if one.startswith(".share-") and _age(os.path.join(root, one)) > AGE:
                     _clear(os.path.join(root, one))
-                    done.append(("swept", f"{name}/{one}"))
-        return done
 
 
-def _sweep_install(ns, root) -> List[Tuple[str, str]]:
-    """Rule 12 for one install folder with no entry."""
-    if os.path.lexists(os.path.join(root, MARKER)):
-        if _manifest_in(root, ns) is None:
-            return []
-        _leave(ns, root)   # a Remove that kept the settings stopped before it took the content out: it is finished
-        return [("emptied", ns)]
-    found = _manifest_in(root, ns)
-    listed = set(found["files"]) if found else None
-    content, _, machine = _scan(root, listed)
-    if not machine and (found is not None or content == 0):
-        _clear(root)
-        return [("removed", ns)]
-    if listed is None and content == 0 and defaults.listed({"id": ns, "kind": "git"}):
-        return []
-    _aside(ns, root)
-    return [("renamed", ns)]
+def _sweep_install(ns, root) -> None:
+    """Rule 12 for one install folder with no entry. One with no manifest that shows units is a half-made install: it goes aside
+    whole, for `paths` lists such a folder by what it holds. From any other, what its manifest lists goes, and what is left is the
+    machine's, which waits for an Add."""
+    if _manifest_in(root, ns) is None and any(paths.names(ns, kind) for kind in paths.KINDS):
+        _aside(ns, root)
+    else:
+        _leave(ns, root)
 
 
 def recover() -> None:
     """At the start of the Lab (after the bind), under the locks: finishes the operations the lock
-    says are under way, finishes a shadow link or its reversal, removes what a stop left (rule 12: `sweep`, the lock
-    entries and the stores that have no entry in `catalogs.json`) and removes the
-    markers of the folders a catalog has been added into. Everything is idempotent and judged by the disk, so a stop inside it is finished by the next. The trouble of
+    says are under way, finishes a shadow link or its reversal, and removes what a stop left (rule 12: `sweep`, the lock
+    entries and the stores that have no entry in `catalogs.json`). Everything is idempotent and judged by the disk, so a stop inside it is finished by the next. The trouble of
     one catalog never ends the start, and neither does a start without git (state `needs_git`): an operation under way
     keeps its record. It raises `busy` when another process holds the lock
     for longer than the wait."""
@@ -1969,22 +1876,7 @@ def recover() -> None:
         sweep()
         if not problem:
             _orphans()
-        _step("recover:tidy")
-        for entry in registry.entries():
-            try:
-                _tidy(entry)
-            except TROUBLE:   # tried again at the next start
-                continue
         _step("recover:done")
-
-
-def _tidy(entry):
-    """The last of `recover()` for one catalog: the marker of a folder a catalog has been added into removed."""
-    held = registry.lock_of(entry["id"])
-    if entry["kind"] != "git" or not held.get("pin") or held.get("pending"):
-        return
-    if registry.manifest(entry["id"]) is not None:
-        _unlink(registry.install_dir(entry["id"]), MARKER)
 
 
 def _orphans():

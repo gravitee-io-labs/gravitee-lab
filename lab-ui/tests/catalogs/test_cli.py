@@ -578,7 +578,6 @@ class Reset(Tool):
         self.assertIsNone(self.config())
         self.assertEqual(registry.read_lock()["catalogs"], {})
         self.assertEqual((self.link_of(PARTNER) / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
-        self.assertTrue((self.link_of(PARTNER) / ".kept").is_file(), "the marker that keeps the sweeper away")
         self.assertFalse((self.link_of(PARTNER) / "addons/ledger/compose.yml").exists(), "the content goes")
 
 

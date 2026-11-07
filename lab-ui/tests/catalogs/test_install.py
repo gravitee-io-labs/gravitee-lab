@@ -223,7 +223,7 @@ class Base(Case):
     def machine(self, ns, unit="addons/ledger", **files):
         """Machine files beside a unit: {relative path inside the unit: text}. Answers their paths in the install. The
         default holds the ones a name tells (`.env`, `.state/`, `secrets/`) and two that no pattern knows, a database in a
-        bind folder and a certificate with an ordinary name, which only the manifest and the marker can vouch for."""
+        bind folder and a certificate with an ordinary name."""
         base = Path(paths.ROOT) / ".lab" / "catalogs" / ns / unit
         made = []
         for rel, text in (files or ODD).items():
@@ -940,7 +940,6 @@ class AddingOverSettings(Base):
         self.assertEqual(env.stat().st_ino, inode, "a machine file is not moved or rewritten")
         self.assertEqual((base / "addons/ledger/.state/created.json").read_text(encoding="utf-8"), "{}\n")
         self.assertEqual((base / "addons/ledger/secrets/token").read_text(encoding="utf-8"), "t\n")
-        self.assertFalse((base / install.MARKER).exists(), "the marker goes")
         self.assertFalse(registry.stage_dir("partner").exists())
         self.assertEqual(self.content("partner") & {"addons/ledger/.env", "addons/ledger/secrets/token"}, set())
 
@@ -948,34 +947,14 @@ class AddingOverSettings(Base):
         self.removed_with_settings()
         install.recover()
         base = Path(paths.ROOT) / ".lab/catalogs/partner"
-        self.assertTrue((base / "addons/ledger/.env").is_file(), "the sweeper leaves a .kept folder alone")
-        self.assertTrue((base / install.MARKER).is_file())
+        self.assertTrue((base / "addons/ledger/.env").is_file(), "the sweeper leaves a folder of settings alone")
         self.add("partner")
         self.assertEqual((base / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
 
-    def test_the_sweeper_renames_a_folder_with_content_and_settings_and_the_next_add_restores_the_settings(self):
-        self.add("partner")
-        self.machine("partner")
-        (Path(paths.ROOT) / ".lab/catalogs.json").unlink()   # the person deleted the file by hand: a first run
-        install.recover()
-        renamed = [p for p in (Path(paths.ROOT) / ".lab/catalogs").iterdir() if p.name.startswith(".removed-partner-")]
-        self.assertEqual(len(renamed), 1)
-        self.assertFalse(registry.install_dir("partner").exists())
-        self.assertEqual((renamed[0] / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
-        self.add("partner")
-        base = Path(paths.ROOT) / ".lab/catalogs/partner"
-        self.intact("partner")
-        self.assertEqual((base / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
-        self.assertEqual((base / "addons/ledger/.state/created.json").read_text(encoding="utf-8"), "{}\n")
-        self.assertFalse(renamed[0].exists(), "nothing of the machine is left in it, so it goes")
-
-    def test_a_folder_a_remove_left_and_one_the_sweeper_renamed_are_both_merged(self):
+    def test_a_folder_a_remove_left_and_one_set_aside_are_both_merged(self):
         self.add("partner")
         self.machine("partner", **{".env": "OLD=1\n", "notes.txt": "kept\n"})
-        (Path(paths.ROOT) / ".lab/catalogs.json").unlink()
-        install.recover()   # renamed
-        self.add("partner")
-        install.remove("partner", keep_settings=True)   # .kept, and the .env that came back
+        install.remove("partner", keep_settings=True)
         base = Path(paths.ROOT) / ".lab/catalogs/partner"
         (base / "addons/ledger/.state").mkdir()
         (base / "addons/ledger/.state/created.json").write_text("{}\n", encoding="utf-8")
@@ -992,9 +971,9 @@ class AddingOverSettings(Base):
     def test_a_conflict_stays_in_the_removed_folder(self):
         self.add("partner")
         self.machine("partner")
+        renamed = Path(install._aside("partner", registry.install_dir("partner")))
         (Path(paths.ROOT) / ".lab/catalogs.json").unlink()
         install.recover()
-        renamed = next(p for p in (Path(paths.ROOT) / ".lab/catalogs").iterdir() if p.name.startswith(".removed-partner-"))
         staged, address, roots = self.prepare("partner")
         # the staged install is renamed first, then a file the person already made there blocks one move
         original = install._restore
@@ -1021,7 +1000,6 @@ class AddingOverSettings(Base):
         self.assertEqual((base / "addons/ledger/.env").read_text(encoding="utf-8"), "KEEP=1\n", "the settings came back")
         self.assertEqual(len(aside), 1, "and the person's own file is not deleted unasked: it waits where it was")
         self.assertEqual((aside[0] / "addons/ledger/compose.yml").read_text(encoding="utf-8"), "services: {mine: {}}\n")
-        self.assertTrue((aside[0] / install.MARKER).is_file(), "nothing in a folder no manifest vouches for is judged by name")
         self.assertEqual(self.tree("partner")["addons/ledger/compose.yml"][1],
                          (fixtures.CATALOGS / "partner/addons/ledger/compose.yml").read_bytes())
 
@@ -1032,7 +1010,6 @@ class AddingOverSettings(Base):
         base.mkdir(exist_ok=True)
         (base / "addons/ledger").mkdir(parents=True, exist_ok=True)
         (base / "addons/ledger/compose.yml").write_text("theirs\n", encoding="utf-8")
-        (base / install.MARKER).write_text("", encoding="utf-8")
         self.add("partner")
         self.assertEqual(self.tree("partner")["addons/ledger/compose.yml"][1], (fixtures.CATALOGS / "partner/addons/ledger/compose.yml").read_bytes())
         aside = [p for p in (Path(paths.ROOT) / ".lab/catalogs").iterdir() if p.name.startswith(".removed-partner-")]
@@ -1051,9 +1028,9 @@ class AddingOverSettings(Base):
 
 
 class Unvouched(Base):
-    """A folder that holds no manifest says nothing of what is content in it, and a name the patterns do not know
-    (`data/db.sqlite`, `certs/ca.txt`) must never read as content that a restore may delete. Every way a folder loses its
-    manifest or its marker, and what is in it afterwards."""
+    """A folder that holds no manifest holds only what is the machine's, and a name the patterns do not know (`data/db.sqlite`,
+    `certs/ca.txt`) must never read as content that a restore may delete. Every way a folder loses its manifest, and what is in
+    it afterwards."""
 
     def setUp(self):
         super().setUp()
@@ -1075,12 +1052,11 @@ class Unvouched(Base):
         for rel, text in {"data/db.sqlite": "rows\n", "certs/ca.txt": "ca\n", ".env": "SECRET=1\n"}.items():
             self.assertEqual((self.base / "addons/ledger" / rel).read_text(encoding="utf-8"), text, rel)
 
-    def test_a_folder_with_no_manifest_is_marked_before_the_sweeper_sets_it_aside(self):
+    def test_a_folder_with_no_manifest_that_shows_units_goes_aside_whole(self):
         self.odd(self.base)
         (self.base / "addons/ledger/compose.yml").write_text("half\n", encoding="utf-8")   # content a merge had written
-        self.assertIn(("renamed", "partner"), install.sweep())
-        (aside,) = self.asides()
-        self.assertTrue((aside / install.MARKER).is_file())
+        install.sweep()
+        self.assertEqual(len(self.asides()), 1)
         self.assertFalse(self.base.exists())
         self.settled()
 
@@ -1099,24 +1075,24 @@ class Unvouched(Base):
         for rel, text in ODD.items():
             self.assertEqual((self.base / "addons/ledger" / rel).read_text(encoding="utf-8"), text, rel)
 
-    def test_a_stop_at_the_step_between_the_marker_and_the_content_going_is_finished_by_the_sweeper(self):
-        """The step `remove:vacate`: the marker is written, the manifest and the content are still there, and a start empties
-        the folder and loses no setting."""
+    def test_a_stop_before_the_content_goes_is_finished_by_the_sweeper(self):
+        """A Remove that was committed: the manifest and the content are still there, and a start empties the folder and loses
+        no setting."""
         self.add("partner")
         made = self.machine("partner")
-        self.patch(install, "STEP", stop_at("remove:vacate"))
+        self.patch(install, "STEP", stop_at("remove:files"))
         with self.assertRaises(Crash):
             install.remove("partner", keep_settings=True)
         self.patch(install, "STEP", None)
-        self.assertTrue((self.base / install.MARKER).is_file(), "marked")
         self.assertTrue((self.base / paths.MANIFEST).is_file(), "the manifest has not gone")
-        self.assertTrue((self.base / "addons/ledger/compose.yml").is_file(), "nor the content")
-        self.assertEqual(registry.entry("partner"), None, "the catalog is out of the list: this is a Remove that was committed")
-        self.assertIn(("emptied", "partner"), install.sweep())
+        self.assertEqual(registry.entry("partner"), None, "the catalog is out of the list")
+        install.sweep()
         self.assertFalse((self.base / "addons/ledger/compose.yml").exists())
-        self.assertEqual(sorted(p.relative_to(self.base).as_posix() for p in self.base.rglob("*") if p.is_file()),
-                         sorted([install.MARKER, *made]))
-        self.assertEqual(install.sweep(), [], "a second start changes nothing")
+        files = sorted(p.relative_to(self.base).as_posix() for p in self.base.rglob("*") if p.is_file())
+        self.assertEqual(files, sorted(made))
+        install.sweep()
+        self.assertEqual(sorted(p.relative_to(self.base).as_posix() for p in self.base.rglob("*") if p.is_file()), files,
+                         "a second start changes nothing")
         self.settled()
 
     def test_a_removed_folder_that_a_person_made_is_not_judged_by_names_either(self):
@@ -1135,15 +1111,15 @@ class Unvouched(Base):
                          (fixtures.CATALOGS / "partner/addons/ledger/compose.yml").read_bytes())
 
     @unittest.skipIf(os.geteuid() == 0, "root writes where it likes")
-    def test_a_removed_folder_the_lab_cannot_mark_is_left_whole_and_the_add_goes_on(self):
+    def test_a_removed_folder_the_lab_cannot_move_out_of_is_left_and_the_add_goes_on(self):
         aside = self.catalogs / ".removed-partner-20200101T000000Z"
         self.odd(aside)
-        aside.chmod(0o555)
-        self.addCleanup(aside.chmod, 0o755)
+        ledger = aside / "addons/ledger"
+        ledger.chmod(0o555)
+        self.addCleanup(ledger.chmod, 0o755)
         self.add("partner")
         self.intact("partner")
-        self.assertEqual((aside / "addons/ledger/data/db.sqlite").read_text(encoding="utf-8"), "rows\n")
-        self.assertFalse((self.base / "addons/ledger/data").exists(), "nothing is taken out of a folder that is not marked")
+        self.assertEqual((ledger / "data/db.sqlite").read_text(encoding="utf-8"), "rows\n")
 
     def test_a_download_that_is_undone_leaves_the_files_it_cannot_vouch_for(self):
         self.listed("partner")
@@ -1154,7 +1130,6 @@ class Unvouched(Base):
         held = registry.lock_of("partner")
         self.assertEqual((held["pin"], held["pending"], held["error"]), (None, None, None))
         self.assertEqual((self.base / "addons/ledger/data/db.sqlite").read_text(encoding="utf-8"), "rows\n")
-        self.assertTrue((self.base / install.MARKER).is_file(), "nothing in it is judged by name from then on")
         staged, address, roots = self.prepare("partner")
         install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
         self.intact("partner")
@@ -1167,13 +1142,6 @@ class Unvouched(Base):
         (self.base / paths.MANIFEST).unlink()
         install.remove("partner", keep_settings=True)
         self.assertEqual((self.base / "addons/ledger/data/db.sqlite").read_text(encoding="utf-8"), "rows\n")
-        self.assertTrue((self.base / install.MARKER).is_file())
-
-    def test_a_marker_does_not_hide_the_manifest_of_a_folder_that_has_both(self):
-        self.add("partner")
-        self.machine("partner")
-        install._mark(self.base)
-        self.assertEqual(install._machine("partner", self.base), TOPS, "content is what the manifest lists")
 
 
 class Downloading(Base):
@@ -1872,7 +1840,7 @@ class Removing(Base):
         self.add("lab-new")
         self.base = Path(paths.ROOT) / ".lab/catalogs/partner"
 
-    def test_a_remove_that_keeps_the_settings_leaves_them_and_a_marker(self):
+    def test_a_remove_that_keeps_the_settings_leaves_them(self):
         made = self.machine("partner")
         answer = install.remove("partner", keep_settings=True)
         self.assertEqual(answer, {"warning": None})
@@ -1880,16 +1848,15 @@ class Removing(Base):
         self.assertNotIn("partner", registry.read_lock()["catalogs"])
         self.assertFalse(registry.store_dir("partner").exists())
         left = sorted(p.relative_to(self.base).as_posix() for p in self.base.rglob("*") if p.is_file())
-        self.assertEqual(left, sorted([install.MARKER, *made]))
-        self.assertEqual(stat.S_IMODE((self.base / install.MARKER).stat().st_mode), 0o600)
+        self.assertEqual(left, sorted(made))
         self.assertEqual([one["id"] for one in registry.entries()], ["lab-new"])
         self.assertEqual(paths.ids("addon"), ["@lab-new/newer"], "the units of a removed catalog are gone")
         self.intact("lab-new")
 
     def test_the_default_is_to_keep_the_settings(self):
-        self.machine("partner")
+        made = self.machine("partner")
         install.remove("partner")
-        self.assertTrue((self.base / install.MARKER).is_file())
+        self.assertTrue((self.base / made[0]).is_file())
 
     def test_a_remove_that_deletes_them_removes_the_folder(self):
         self.machine("partner")
@@ -1907,7 +1874,6 @@ class Removing(Base):
         (self.base / LEDGER / "notes.txt").write_text("mine\n", encoding="utf-8")
         install.remove("partner", keep_settings=True)
         self.assertEqual((self.base / LEDGER / "notes.txt").read_text(encoding="utf-8"), "mine\n")
-        self.assertTrue((self.base / install.MARKER).is_file())
         self.assertFalse((self.base / LEDGER / "compose.yml").exists())
 
     def test_files_docker_made_that_cannot_be_deleted_are_reported_and_what_can_go_goes(self):
@@ -1926,7 +1892,6 @@ class Removing(Base):
         self.assertFalse((self.base / LEDGER / "compose.yml").exists())
         self.assertFalse((self.base / LEDGER / ".env").exists())
         self.assertIsNone(registry.entry("partner"))
-        self.assertTrue((self.base / install.MARKER).is_file(), "what is left waits for an Add, as the line says")
 
     def test_the_stars_of_the_units_go(self):
         starred.star(self.project(), "addon", "@partner/ledger", True)
@@ -2020,10 +1985,9 @@ class Sweeping(Base):
             folder.mkdir(parents=True)
             (folder / "f.txt").write_text("x", encoding="utf-8")
         self.old(old)
-        done = install.sweep()
+        install.sweep()
         self.assertFalse(old.exists())
         self.assertTrue(young.is_dir())
-        self.assertIn(("swept", ".stage-old-one"), done)
 
     def test_a_stage_that_is_a_link_is_removed_as_a_link(self):
         outside = self.root / "outside"
@@ -2077,40 +2041,36 @@ class Sweeping(Base):
         self.assertFalse(share.exists())
         self.assertTrue(theirs.exists(), "the author's folder is never touched")
 
-    def test_a_folder_with_the_marker_is_left_alone_for_ever(self):
-        folder = self.catalogs("partner")
-        (folder / "addons/ledger").mkdir(parents=True)
-        (folder / "addons/ledger/.env").write_text("S=1\n", encoding="utf-8")
-        (folder / install.MARKER).write_text("", encoding="utf-8")
-        self.old(folder, 400 * DAY)
-        self.assertEqual(install.sweep(), [])
-        self.assertTrue((folder / "addons/ledger/.env").is_file())
-
-    def test_the_settings_of_a_listed_catalog_wait_for_its_add(self):
-        folder = self.catalogs("fixture")
-        (folder / "addons/echo").mkdir(parents=True)
-        (folder / "addons/echo/.env").write_text("S=1\n", encoding="utf-8")
-        self.assertEqual(install.sweep(), [])
-        self.assertTrue((folder / "addons/echo/.env").is_file())
+    def test_a_folder_of_settings_waits_for_its_add_for_ever_whatever_its_files_are_called(self):
+        for ns in ("partner", "fixture"):   # a catalog of an address the person typed, and a listed one
+            folder = self.catalogs(ns)
+            (folder / "addons/ledger").mkdir(parents=True)
+            (folder / "addons/ledger/.env").write_text("S=1\n", encoding="utf-8")
+            (folder / "addons/ledger/notes.txt").write_text("mine\n", encoding="utf-8")
+            self.old(folder, 400 * DAY)
+            install.sweep()
+            self.assertTrue((folder / "addons/ledger/.env").is_file())
+            self.assertTrue((folder / "addons/ledger/notes.txt").is_file())
 
     def test_an_empty_folder_and_a_complete_install_with_no_entry_are_removed(self):
         empty = self.catalogs("lab-old")
         (empty / "addons/x").mkdir(parents=True)
         self.add("partner")
         registry.write_config({"schema": 1, "catalogs": []})
-        done = install.sweep()
-        self.assertEqual(sorted(done), [("removed", "lab-old"), ("removed", "partner")])
+        install.sweep()
         self.assertFalse(empty.exists())
         self.assertFalse(self.catalogs("partner").exists())
 
-    def test_a_complete_install_with_settings_and_no_entry_is_renamed(self):
+    def test_a_complete_install_with_settings_and_no_entry_gives_up_its_content_and_keeps_them(self):
         self.add("partner")
         self.machine("partner")
         registry.write_config({"schema": 1, "catalogs": []})
-        self.assertEqual(install.sweep(), [("renamed", "partner")])
-        (renamed,) = [p for p in self.catalogs().iterdir() if p.name.startswith(".removed-partner-")]
-        self.assertTrue((renamed / "addons/ledger/.env").is_file())
-        self.assertTrue((renamed / "addons/ledger/compose.yml").is_file(), "nothing is deleted when settings are there")
+        install.sweep()
+        self.assertTrue((self.catalogs("partner") / "addons/ledger/.env").is_file())
+        self.assertFalse((self.catalogs("partner") / "addons/ledger/compose.yml").exists())
+        self.add("partner")
+        self.intact("partner")
+        self.assertTrue((self.catalogs("partner") / "addons/ledger/.env").is_file())
 
     def test_the_personal_area_a_link_and_the_installs_that_have_an_entry_are_never_swept(self):
         self.add("partner")
@@ -2123,7 +2083,7 @@ class Sweeping(Base):
         link = self.catalogs("stray")
         link.symlink_to(outside, target_is_directory=True)
         self.old(self.catalogs("partner"), 400 * DAY)
-        self.assertEqual(install.sweep(), [])
+        install.sweep()
         self.assertTrue(local.is_file())
         self.assertTrue(link.is_symlink() and (outside / "catalog.yml").is_file())
         self.intact("partner")
@@ -2152,12 +2112,6 @@ class Sweeping(Base):
         self.assertFalse(self.catalogs("partner").exists())
         self.intact("lab-new")
         self.assertTrue(registry.store_dir("lab-new").is_dir())
-
-    def test_a_marker_in_a_catalog_that_is_added_is_removed(self):
-        self.add("partner")
-        (self.catalogs("partner") / install.MARKER).write_text("", encoding="utf-8")
-        install.recover()
-        self.assertFalse((self.catalogs("partner") / install.MARKER).exists())
 
     def test_a_start_with_nothing_installed_does_nothing(self):
         def listing():
@@ -2344,7 +2298,7 @@ class Shadowing(Base):
         self.assertEqual(self.tree("partner"), self.before)
         self.intact("partner")
 
-    def test_an_entry_no_pattern_knows_that_would_not_move_is_kept_by_the_marker_and_comes_back_at_the_next_add(self):
+    def test_an_entry_no_pattern_knows_that_would_not_move_waits_aside_and_comes_back_at_the_next_add(self):
         real = moves.relocate
 
         def stuck(src, dst, why):
@@ -2352,7 +2306,6 @@ class Shadowing(Base):
         self.patch(moves, "relocate", stuck)
         install.shadow("partner", str(self.folder))
         (aside,) = [p for p in (Path(paths.ROOT) / ".lab/catalogs").iterdir() if p.name.startswith(".removed-partner-")]
-        self.assertTrue((aside / install.MARKER).is_file(), "a folder with no manifest is marked before it is set aside")
         self.assertEqual((aside / "addons/ledger/data/db.sqlite").read_text(encoding="utf-8"), "rows\n")
         install.unshadow("partner")
         install.remove("partner", keep_settings=True)
@@ -2748,8 +2701,7 @@ class Stops(Base):
                 self.settings_exist("partner", made)
             self.assertFalse(registry.store_dir("partner").exists() and registry.entry("partner") is None)
         labels = self.runs(build, lambda _: install.remove("partner", keep_settings=True), check)
-        for wanted in ("remove:config", "remove:store", "remove:files", "remove:marker", "remove:vacate", "remove:lock",
-                       "remove:stars"):
+        for wanted in ("remove:config", "remove:store", "remove:files", "remove:lock", "remove:stars"):
             self.assertIn(wanted, labels)
 
     def test_a_stop_at_any_step_of_a_remove_that_deletes_leaves_nothing_visible(self):
@@ -3087,16 +3039,16 @@ class Failing(Base):
         self.assertEqual(self.state("partner"), before)
 
     def test_a_remove_that_fails_in_the_middle_is_finished_by_running_it_again(self):
-        self.machine("partner")
-        real = install._take_out
-        self.patch(install, "_take_out", mock.Mock(side_effect=OSError("disk")))
+        made = self.machine("partner")
+        real = install._leave
+        self.patch(install, "_leave", mock.Mock(side_effect=OSError("disk")))
         with self.assertRaises(OSError):
             install.remove("partner")
         self.assertIsNone(registry.entry("partner"))
-        self.patch(install, "_take_out", real)
+        self.patch(install, "_leave", real)
         self.assertEqual(install.remove("partner"), {"warning": None})
         self.nothing("partner")
-        self.assertTrue((Path(paths.ROOT) / ".lab/catalogs/partner" / install.MARKER).is_file())
+        self.assertTrue((Path(paths.ROOT) / ".lab/catalogs/partner" / made[0]).is_file())
 
 
 class Hostile(Base):

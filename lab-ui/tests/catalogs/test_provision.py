@@ -661,11 +661,9 @@ class Provision(Served, Case):
         install.remove(self.ns, keep_settings=True)
         config = registry.read_config()
         self.assertEqual(config["catalogs"], [])
-        self.assertTrue((base / ".kept").exists())
         row = firstrun.provision(self.ns)   # the listed catalog is not added: its Add
         self.assertEqual(row["id"], self.ns)
         self.assertEqual((base / "addons/echo/.env").read_text(encoding="utf-8"), "TOKEN=mine\n")
-        self.assertFalse((base / ".kept").exists())
 
     # -- what goes wrong without a git error ----------------------------------------------------------------------
 

@@ -2526,7 +2526,7 @@ class Removing(Seam):
         self.assertEqual(lines_of(raised.exception), ("busy", 409, f"{line}."))
         self.assertIsNotNone(registry.entry("partner"), "nothing was removed")
 
-    def test_remove_keeps_the_settings_by_default_and_leaves_a_marker_and_forgets_the_catalog(self):
+    def test_remove_keeps_the_settings_by_default_and_forgets_the_catalog(self):
         env = self.base / "addons" / "ledger" / ".env"
         env.write_text("PARTNER_LEDGER_CURRENCY=USD\n", encoding="utf-8")
         answer = service.remove("partner")
@@ -2535,7 +2535,6 @@ class Removing(Seam):
         self.assertNotIn("partner", registry.read_lock()["catalogs"])
         self.assertFalse(registry.store_dir("partner").exists())
         self.assertEqual(env.read_text(encoding="utf-8"), "PARTNER_LEDGER_CURRENCY=USD\n")
-        self.assertTrue((self.base / install.MARKER).is_file())
         self.assertFalse((self.base / "addons" / "ledger" / "compose.yml").exists())
         row = next((one for one in service.describe(*project.loaded()) if one.get("id") == "partner"), None)
         self.assertIsNone(row)
