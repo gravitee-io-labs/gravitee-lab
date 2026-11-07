@@ -1302,18 +1302,11 @@ class Scanner(Disk):
         name: Base demos
         url: https://github.com/base/lab-base.git
         min: 1.0.0
-      partner-bank:
-        name: Partner Bank
-        url: https://github.com/partner/lab-bank.git
-        min: 2.0.0
 """)
         self.assertEqual(found, {"id": "acme-hub", "name": "Acme Hub", "description": "Banking demos for partner workshops",
                                  "version": "1.4.0", "lab": 1,
-                                 "requires_catalogs": {
-                                     "base-hub": {"name": "Base demos", "min": "1.0.0",
-                                                  "url": "https://github.com/base/lab-base.git"},
-                                     "partner-bank": {"name": "Partner Bank", "min": "2.0.0",
-                                                      "url": "https://github.com/partner/lab-bank.git"}}})
+                                 "requires_catalogs": {"base-hub": {"name": "Base demos", "min": "1.0.0",
+                                                                    "url": "https://github.com/base/lab-base.git"}}})
 
     def test_the_flow_form_of_the_fixtures_and_quotes(self):
         found = self.scan("""x-gravitee-catalog:

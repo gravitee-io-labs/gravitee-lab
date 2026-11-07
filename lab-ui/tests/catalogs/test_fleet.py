@@ -632,12 +632,11 @@ class Upgrade(Case):
         results = self.run_fleet(github, Standard(ref=lab["action"]), ref=lab["action"])
         self.assertEqual("opened", results[0].status)
         body = github.posted[0][1]["body"]
-        short = lambda commit: commit[:7]  # noqa: E731
         self.assertIn(f"git log --oneline {lab['first']}..{lab['action']} -- lab-ui .github\n\n    ", body)
         lines = body.split("-- lab-ui .github\n\n")[1].splitlines()
         self.assertEqual(["Pin the Lab action @someone #12", "Make the engine read the standard"],
                          [line.strip().split(" ", 1)[1] for line in lines])
-        self.assertEqual([short(lab["action"]), short(lab["engine"])], [line.strip().split(" ", 1)[0][:7] for line in lines])
+        self.assertEqual([lab["action"][:7], lab["engine"][:7]], [line.strip().split(" ", 1)[0][:7] for line in lines])
         self.assertNotIn("Write a guide", body)
         self.assertTrue(all(line.startswith("    ") for line in lines))
         message = gitfixture.git("log", "-1", "--format=%B", BRANCH, repo=self.remotes["acme/lab-hub"])
