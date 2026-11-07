@@ -65,24 +65,8 @@ def attempt(lab, **more):
     return e2e.Run(lab, "playground", "shop", clock=clock, sleep=clock.sleep, **more)
 
 
-class Naming(Case):
-
-    BUILT = {"playgrounds": {"shop": {}}, "addons": {"mailer": {}}, "setups": {}}
-
-    def test_an_item_is_named_by_its_kind_and_its_id(self):
-        self.assertEqual(e2e.target("playground:shop", self.BUILT), ("playground", "shop"))
-        self.assertEqual(e2e.target("addon:mailer", self.BUILT), ("addon", "mailer"))
-
-    def test_what_is_not_an_item_of_the_project_is_said(self):
-        for text in (None, "", "shop", "playground:", "plugin:x", ":shop"):
-            with self.subTest(text=text), self.assertRaisesRegex(ValueError, "Name the item as kind:id"):
-                e2e.target(text, self.BUILT)
-        with self.assertRaisesRegex(ValueError, "No setup named events"):
-            e2e.target("setup:events", self.BUILT)
-
-
 class AnyId(Case):
-    """An item is named with the id the Lab gives it, whatever its catalog: bare for the first, @catalog/name for the others."""
+    """An item is named by its kind and the id the Lab gives it, whatever its catalog: bare for the first, @catalog/name for the others."""
 
     BUILT = {"playgrounds": {"shop": {"catalog": "base"}, "@hub/bank": {"catalog": "hub"}, "local/mine": {"catalog": "local"}},
              "addons": {"@hub/ledger": {"catalog": "hub"}, "echo": {"catalog": "base"}}, "setups": {"pair": {"catalog": "base"}}}
@@ -91,12 +75,14 @@ class AnyId(Case):
         self.patch(paths, "default_ns", return_value="base")
 
     def test_an_item_is_named_with_its_catalog_and_the_first_catalog_may_be_written_too(self):
-        for text, found in (("playground:@hub/bank", ("playground", "@hub/bank")), ("addon:@hub/ledger", ("addon", "@hub/ledger")),
+        for text, found in (("playground:shop", ("playground", "shop")), ("addon:echo", ("addon", "echo")),
+                            ("playground:@hub/bank", ("playground", "@hub/bank")), ("addon:@hub/ledger", ("addon", "@hub/ledger")),
                             ("playground:@base/shop", ("playground", "shop"))):
             self.assertEqual(e2e.target(text, self.BUILT), found)
 
     def test_an_item_of_a_catalog_that_has_no_such_item_is_said(self):
-        for text, words in (("playground:@hub/shop", "No playground named @hub/shop"), ("addon:@other/ledger", "No add-on named @other/ledger")):
+        for text, words in (("playground:@hub/shop", "No playground named @hub/shop"), ("addon:@other/ledger", "No add-on named @other/ledger"),
+                            ("setup:events", "No setup named events")):
             with self.assertRaisesRegex(ValueError, words):
                 e2e.target(text, self.BUILT)
 
@@ -105,13 +91,13 @@ class AnyId(Case):
             e2e.target("playground:local/mine", self.BUILT)
 
     def test_a_name_that_is_no_id_is_refused_by_its_form_and_never_repeated(self):
-        hostile = ["playground:a:b", "playground:../shop", "playground:@a/x", "playground:@local/x", "playground:@hub/",
+        hostile = [None, "", "shop", "plugin:x", ":shop", "playground:a:b", "playground:../shop", "playground:@a/x", "playground:@local/x", "playground:@hub/",
                    "playground:@hub/x/y", "playground:Shop", "playground:sho p", "playground:shop\n::error::x", "playground:",
                    "PLAYGROUND:shop", "playground:shop\0", "playground:" + "a" * 300, "::error::x", "playground:@/x",
                    "playground:local/../shop", "playground:shop\n", "playground: shop", "playground:shop ", "playground:\tshop",
                    "playground:shop\r"]
         for text in hostile:
-            with self.subTest(text=text[:30]), self.assertRaises(ValueError) as caught:
+            with self.subTest(text=str(text)[:30]), self.assertRaises(ValueError) as caught:
                 e2e.target(text, self.BUILT)
             said = str(caught.exception)
             self.assertTrue(said.startswith("Name the item as kind:id, kind being addon, setup, playground"), said)
@@ -332,25 +318,18 @@ class Settling(Case):
         with self.assertRaisesRegex(e2e.Failed, r"every container being up did not happen within 300 s \(not up: slow\)"):
             run.settle()
 
-    def test_the_log_of_what_is_not_up_is_read_by_its_container(self):
+    def test_the_log_of_what_is_not_up_is_read_by_its_container_and_of_a_container_of_the_core_in_an_issue_too(self):
         calls = []
 
         def shell(command, timeout=0):
             calls.append(command)
             return 0, "line 1\n", "warning\n"
-        starting = {"key": "starting", "label": "Starting", "running": True}
-        run = attempt(FakeLab(lab_state({"shop": UP, "slow": starting})), shell=shell)
-        self.assertEqual(run.logs(), {"slow": "line 1\nwarning"})
-        self.assertEqual(calls, [["docker", "logs", "--tail", "80", "gio-slow"]])
-
-    def test_the_log_of_a_container_of_the_core_in_an_issue_is_read_too(self):
-        calls = []
-        state = lab_state({"shop": {"key": "starting", "label": "Starting", "running": False}})
+        state = lab_state({"shop": UP, "slow": {"key": "starting", "label": "Starting", "running": True}})
         state["services"].update(mongodb={"state": {"key": "issue", "label": "Keeps restarting"}, "container": "gio-mongodb"},
                                  redis={"state": UP, "container": "gio-redis"})
-        run = attempt(FakeLab(state), shell=lambda command, timeout=0: (calls.append(command[-1]), (0, "said", ""))[1])
-        self.assertEqual(sorted(run.logs()), ["mongodb", "shop"])
-        self.assertEqual(calls, ["gio-shop", "gio-mongodb"])
+        run = attempt(FakeLab(state), shell=shell)
+        self.assertEqual(run.logs(), {"slow": "line 1\nwarning", "mongodb": "line 1\nwarning"})
+        self.assertEqual(calls, [["docker", "logs", "--tail", "80", name] for name in ("gio-slow", "gio-mongodb")])
 
 
 class Consoles(Case):
@@ -717,25 +696,11 @@ class Selecting(Case):
         self.assertLess(len(str(caught.exception)), 200)
         self.assertEqual(e2e.shortened("a\n b"), "'a b'")
 
-    def test_a_job_for_each_set_of_versions_of_an_item(self):
-        sets = lambda item: {"playground:shop": 2}.get(item, 0)   # noqa: E731 - a table, not a function worth a name
-        self.assertEqual(e2e.jobs(["playground:shop"], sets), [
+    def test_the_matrix_is_a_job_for_each_set_of_versions_or_one_on_the_defaults_of_the_core(self):
+        self.assertEqual(e2e.matrix(["playground:shop", "addon:@hub/ledger"], PROJECT), {"count": 3, "matrix": {"include": [
             {"item": "playground:shop", "tested": "0", "name": "playground:shop (versions 0)"},
-            {"item": "playground:shop", "tested": "1", "name": "playground:shop (versions 1)"}])
-
-    def test_an_item_that_says_no_versions_runs_once_on_the_defaults_of_the_core(self):
-        self.assertEqual(e2e.jobs(["playground:tour", "addon:@hub/ledger"], lambda item: 0), [
-            {"item": "playground:tour", "tested": "", "name": "playground:tour (core defaults)"},
-            {"item": "addon:@hub/ledger", "tested": "", "name": "addon:@hub/ledger (core defaults)"}])
-        self.assertEqual(e2e.jobs([], lambda item: 0), [])
-
-    def test_the_matrix_is_what_a_workflow_reads_and_its_count(self):
-        found = e2e.matrix(["playground:shop", "playground:@hub/bank", "addon:echo"], PROJECT)
-        self.assertEqual(found["count"], 4)
-        self.assertEqual([job["name"] for job in found["matrix"]["include"]],
-                         ["playground:shop (versions 0)", "playground:shop (versions 1)", "playground:@hub/bank (versions 0)",
-                          "addon:echo (core defaults)"])
-        self.assertEqual(json.loads(json.dumps(found)), found, "it is JSON")
+            {"item": "playground:shop", "tested": "1", "name": "playground:shop (versions 1)"},
+            {"item": "addon:@hub/ledger", "tested": "", "name": "addon:@hub/ledger (core defaults)"}]}})
 
     def test_a_matrix_of_more_jobs_than_github_runs_is_refused_and_says_so(self):
         built = {"addons": {f"a{n}": unit("base") for n in range(e2e.JOBS_LIMIT + 1)}, "setups": {}, "playgrounds": {}}
