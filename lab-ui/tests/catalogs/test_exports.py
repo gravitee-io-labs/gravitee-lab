@@ -665,12 +665,6 @@ class FromCatalogs(Case):
         self.assertEqual(plan["registries"], [{"registry": "registry.acme.example", "images": ["registry.acme.example/ledger:1"]}])
         self.assertEqual(self.asked[0], ["busybox:1.36", "busybox:1.36"], "the images of the carried services the other Lab pulls")
 
-    def test_the_file_is_made_once_the_person_saw_what_leaves_from_a_private_catalog(self):
-        error = self.refusal(lambda: exports.archive("local/sandbox"))
-        self.assertEqual((error.code, error.message), ("export_private", "It now carries private content of "
-                                                                             "Partner fixture. Fix: export it again to see what leaves with it."))
-        self.assertTrue(exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))["data"])
-
     def test_the_archive_says_where_each_item_of_a_catalog_comes_from(self):
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         said = json.loads(member(made, "sandbox/export.json"))

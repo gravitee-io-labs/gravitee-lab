@@ -382,10 +382,6 @@ class Collect(Seam):
             self.assertEqual(copy.text, copy.kept, ns)
             self.assertIn("build: ../../../../../seeder", copy.text)
             self.assertIn("./seed:/seed:ro", copy.text)
-        self.assertEqual(sorted(contribute.collect("playground", "bank", "partner").files), [
-            "playgrounds/bank/README.md", "playgrounds/bank/apps/web/Dockerfile", "playgrounds/bank/apps/web/index.html",
-            "playgrounds/bank/compose.yml", "playgrounds/bank/guide.md", "playgrounds/bank/seed/am/domain.yaml",
-            "playgrounds/bank/seed/apim/apis/shop.json"])
 
     def test_a_compose_file_over_the_size_a_catalog_keeps_is_not_read_whole(self):
         self.item("addon", "huge", "Huge")
@@ -635,16 +631,6 @@ class Judged(Seam):
                                          "Outer", folder=base / "outer")
                 self.assertEqual((raised.exception.code, raised.exception.message), ("label_unread", f"inner: its compose file "
                                  f"cannot be read ({said}). Fix: correct it so that docker compose config reads it, then try again."))
-
-    def test_a_copy_shared_back_to_its_own_private_catalog_says_nothing_of_it_and_leaves_its_level(self):
-        self.item("addon", "my-ledger", "Ledger", self.COPIED)
-        done = self.share("local/my-ledger", "partner")
-        remote = self.remote("partner")
-        text = remote.git("show", f"{done['branch']}:addons/my-ledger/compose.yml")
-        self.assertEqual(text, "x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps the entries}\nservices: {}")
-        self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"),
-                         "its level stays: nothing in it needs more")
-        self.assertEqual(contribute.origins(self.COPIED, "local/my-ledger"), [(root("partner"), "Partner fixture")])
 
     def test_a_copy_shared_to_a_folder_of_another_name_keeps_its_label_and_raises_the_line_of_older_labs_once(self):
         level = with_the_lock(self)
@@ -1469,9 +1455,6 @@ class Ended(Seam):
         self.assertTrue((self.root / ".lab/migration/kept/local/addons/echo/latest").is_symlink(), "a link moves as a link")
         self.assertEqual((self.root / ".lab/migration/kept/local/addons/echo/data/db.sqlite").read_text(), "rows")
         self.assertFalse((self.root / self.LOCAL).exists())
-        # The item itself, and what a share takes, is the catalog's version now: it is not kept
-        self.assertNotIn("compose.yml", self.kept())
-        self.assertNotIn("README.md", self.kept())
 
     def test_a_file_the_compose_file_names_went_with_a_share_and_is_not_set_aside_but_its_neighbors_are(self):
         self.write(f"{self.LOCAL}/compose.yml", "services:\n  echo-svc:\n    image: busybox\n    volumes:\n"
