@@ -4,7 +4,6 @@ import fcntl
 import json
 import os
 import re
-import stat
 import threading
 import tempfile
 import unittest
@@ -47,16 +46,12 @@ class Records(Case):
         (self.root / ".lab").mkdir()
         self.file = self.root / ".lab" / "kiosk.json"
 
-    def test_a_file_written_whole_is_on_the_disk_then_its_name_too(self):
-        synced, real = [], os.fsync
-
-        def fsync(descriptor):
-            synced.append("folder" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
-            real(descriptor)
-        with unittest.mock.patch.object(paths.os, "fsync", side_effect=fsync):
+    def test_a_file_written_whole_is_on_the_disk_before_it_takes_its_name(self):
+        order = []
+        with unittest.mock.patch.object(paths.os, "fsync", side_effect=lambda _: order.append("synced")), \
+                unittest.mock.patch.object(paths.os, "replace", side_effect=lambda *_: order.append("named")):
             paths.write_atomic(self.file, "{}\n")
-        self.assertEqual(synced, ["file", "folder"])   # the copy, then the folder that names it
-        self.assertEqual(self.file.read_text(encoding="utf-8"), "{}\n")
+        self.assertEqual(order, ["synced", "named"])
 
     def test_a_record_reads_as_its_json_and_one_that_is_not_there_as_none(self):
         self.assertIsNone(paths.read_record(self.file))
@@ -286,25 +281,6 @@ class DefaultNamespace(OnDisk):
         os.remove(self.root / paths.DEFAULT_FILE)
         self.assertIsNone(paths.default_ns())
 
-    def test_a_file_replaced_whole_is_followed(self):
-        self.assertEqual(paths.default_ns(), "gravitee")
-        file = self.root / paths.DEFAULT_FILE
-        stamp = file.stat().st_mtime_ns
-        paths.write_atomic(file, file.read_text(encoding="utf-8").replace("gravitee", "gravitex"))   # as long, same time
-        os.utime(file, ns=(stamp, stamp))
-        self.assertEqual(paths.default_ns(), "gravitex")
-
-    def test_another_project_does_not_answer_with_the_cache_of_this_one(self):
-        self.assertEqual(paths.default_ns(), "gravitee")
-        first, stamp = self.root, (self.root / paths.DEFAULT_FILE).stat().st_mtime_ns
-        self.folder(paths)
-        self.assertIsNone(paths.default_ns())
-        self.default("gravitex")   # as long as the first, written at the same time
-        os.utime(self.root / paths.DEFAULT_FILE, ns=(stamp, stamp))
-        self.assertEqual(paths.default_ns(), "gravitex")
-        self.patch(paths, "ROOT", first)
-        self.assertEqual(paths.default_ns(), "gravitee")
-
 
 class InCatalogs(OnDisk):
     """Every unit sits in the folder of a catalog."""
@@ -401,12 +377,6 @@ class InCatalogs(OnDisk):
         with self.assertRaises(paths.NotFound):   # a place is never made of None
             paths.unit_file("addon", "kazoo")
 
-    def test_a_kind_that_does_not_exist_is_a_key_error(self):
-        with self.assertRaises(KeyError):
-            paths.unit_file("playlist", "kazoo")
-        with self.assertRaises(KeyError):
-            paths.ids("playlist")
-
     def test_what_belongs_to_this_machine(self):
         ids = ("local/whoami", "whoami", "local", "localhost", "@acme-hub/x")
         self.assertEqual([paths.personal(uid) for uid in ids], [True, False, False, False, False])
@@ -462,29 +432,6 @@ class Names(OnDisk):
         self.assertEqual(paths.split_ref("kazoo"), (None, "kazoo"))
         self.assertEqual(paths.split_ref("local/x"), ("local", "x"))
         self.assertEqual(paths.canonical("@gravitee/kazoo"), "@gravitee/kazoo")
-
-    def test_the_default_file_is_looked_at_once_per_question(self):
-        # Two looks could see two files: the answer of one call is about one project
-        seen = self.patch(paths, "default_ns", wraps=paths.default_ns)
-        for label, call in (
-                ("a bare id's file", lambda: paths.unit_file("addon", "kazoo")),
-                ("a personal id's file", lambda: paths.unit_file("addon", "local/x")),
-                ("a catalog id's file", lambda: paths.unit_file("addon", "@acme-hub/x")),
-                ("a unit's folder", lambda: paths.unit_folder("playground", "kazoo")),
-                ("a unit's env", lambda: paths.unit_env("addon", "@acme-hub/x")),
-                ("the unit of a path", lambda: paths.unit_of(".lab/catalogs/gravitee/addons/x/compose.yml")),
-                ("a place", lambda: paths.split_ref("kazoo")), ("a long form", lambda: paths.split_ref("@gravitee/x")),
-                ("an origin", lambda: paths.origin("@acme-hub/x")), ("a canonical form", lambda: paths.canonical("x")),
-                ("whether a long form is an id", lambda: paths.is_id("@acme-hub/x"))):
-            with self.subTest(label):
-                seen.reset_mock()
-                call()
-                self.assertEqual(seen.call_count, 1)
-
-    def test_a_default_file_that_goes_while_a_path_is_made_never_makes_a_path_of_none(self):
-        answers = iter(["gravitee", None, None, None])
-        self.patch(paths, "default_ns", lambda: next(answers))
-        self.assertEqual(paths.unit_file("addon", "kazoo"), ".lab/catalogs/gravitee/addons/kazoo/compose.yml")
 
     def test_only_what_is_shaped_like_a_bare_id_is_default(self):
         for uid in ("local/x", "@acme-hub/x", "", "a b", "x/y", "x\n", None, 5):

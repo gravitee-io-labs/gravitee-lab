@@ -332,11 +332,6 @@ def reseed_playground(req, pid):
     return playgrounds.reseed(project.load(), pid, **more, **({"accept": accept} if more else {}))
 
 
-def stop_playground(req, pid):
-    """Stops a playground, and deletes what it created where it is asked to: every place that holds a record."""
-    return playgrounds.stop(project.load(), pid, bool(req.body.get("remove")), accepted(req))
-
-
 def delete(req, kind, uid):
     """Deletes an item of this machine; a playground that names a `place` is not deleted: what its seed created in that
     place is. A place is never This machine here, whose record is Stop's: asking for it must not delete the folder."""
@@ -354,11 +349,6 @@ def changed(uid, result):
     are now. Answers the result."""
     places.invalidate(uid)
     return result
-
-
-def check_platform(req, pid):
-    found = platforms.check(pid, project.load())
-    return changed(pid, found)
 
 
 def register_platform(req):
@@ -478,12 +468,6 @@ def core_plan(req):
     return {"dialog": found["dialog"], "needed": found["needed"]}
 
 
-def stack_action(req, name):
-    """An action of the platform; the Dashboard's Start all and Stop all say `core`: they follow where API
-    Management runs."""
-    return stack.action(project.load(), name, for_core=bool(req.body.get("core")), accept=accepted(req))
-
-
 def cancel(req, jid):
     job = JOBS.get(jid)
     job.cancel()
@@ -517,11 +501,6 @@ def delete_catalog(req, ns):
     if "keep_settings" not in req.body:
         raise ValueError("Say whether to keep the settings of the catalog")
     return service.remove(ns, keep_settings=req.body["keep_settings"])
-
-
-def use_catalog(req, kind, uid):
-    """Use the catalog version: the personal copy of an item the catalog now has gives its place to the catalog's."""
-    return contribute.use_catalog_version(project.load(), kind, uid)
 
 
 def share_item(req, kind, uid):
@@ -648,7 +627,7 @@ def stream_logs(req):
         with lock:
             if closed.is_set():
                 return None
-            logs = compose.spawn(command, subprocess.STDOUT)
+            logs = compose.spawn(command)
             if logs is not None:
                 followed.append(logs)
             return logs
@@ -746,7 +725,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", "/api/machine/act", lambda r: machine.act(r.body.get("id"))),
     ("GET", f"/api/playgrounds/{UNIT}/check",
      lambda r, pid: playgrounds.check(project.load(), pid, **at(r.query.get("place")))),
-    ("GET", f"/api/(addon|setup)s/{UNIT}/check", lambda r, kind, uid: check_unit(r, kind, uid)),
+    ("GET", f"/api/(addon|setup)s/{UNIT}/check", check_unit),
     ("GET", f"/api/playgrounds/{UNIT}/guide", lambda r, pid: {"markdown": playgrounds.guide(pid)}),
     ("GET", f"/api/playgrounds/{UNIT}/frame", frame),
     ("GET", f"/api/playgrounds/{UNIT}/terminal", terminal_stream),
@@ -773,7 +752,8 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", "/api/catalogs/import", lambda r: exports.receive(r.body.get("data"))),
     ("POST", "/api/kept-settings/delete", lambda r: kept_remove(r.body.get("folder"))),
     ("POST", "/api/catalogs/import/personal", lambda r: exports.to_personal(r.body.get("ticket"), allow=r.body.get("allow") is True)),
-    ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),
+    # Use the catalog version: the personal copy of an item the catalog now has gives its place to the catalog's
+    ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", lambda r, kind, uid: contribute.use_catalog_version(project.load(), kind, uid)),
     ("POST", f"/api/{KIND}s/{UNIT}/move", lambda r, kind, uid: moving.plan(kind, uid) if r.body.get("check")
      else moving.move(kind, uid, bool(r.body.get("together")), allow=r.body.get("allow") is True)),
     ("POST", f"/api/{KIND}s/{UNIT}/copy", lambda r, kind, uid: moving.copy_plan(kind, uid) if r.body.get("check")
@@ -800,7 +780,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     # Reading a platform sends it the token kept for it: a POST, so that only the page asks (the Lab UI's header). What
     # changes a platform reads it again, for the places
     ("POST", "/api/platforms", register_platform),
-    ("POST", f"/api/platforms/{ID}/check", check_platform),
+    ("POST", f"/api/platforms/{ID}/check", lambda r, pid: changed(pid, platforms.check(pid, project.load()))),
     ("POST", f"/api/platforms/{ID}/delete", delete_platform),
     ("POST", f"/api/platforms/{ID}/name", lambda r, pid: changed(pid, platforms.rename(pid, r.body.get("name")))),
     ("POST", f"/api/platforms/{ID}/token", lambda r, pid: changed(pid, platforms.replace_account_token(
@@ -819,11 +799,13 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", f"/api/(addon|playground)s/{UNIT}/containers/{DO}",
      lambda r, kind, uid, do: stack.unit_action(project.load(), kind, uid, do)),
     ("POST", f"/api/playgrounds/{UNIT}/start", start_playground),
-    ("POST", f"/api/playgrounds/{UNIT}/stop", stop_playground),
+    ("POST", f"/api/playgrounds/{UNIT}/stop", lambda r, pid: playgrounds.stop(project.load(), pid, bool(r.body.get("remove")), accepted(r))),
     ("POST", f"/api/playgrounds/{UNIT}/terminal", terminal_input),
     ("POST", f"/api/playgrounds/{UNIT}/terminal/close", terminal_close),
     ("POST", f"/api/playgrounds/{UNIT}/reseed", reseed_playground),
-    ("POST", "/api/stack/([a-z]+)", stack_action),
+    # An action of the platform; the Dashboard's Start all and Stop all say `core`: they follow where API Management runs
+    ("POST", "/api/stack/([a-z]+)", lambda r, name: stack.action(project.load(), name, for_core=bool(r.body.get("core")),
+                                                                 accept=accepted(r))),
     # Where API Management runs: This machine or a linked environment of a Cloud account. Starts and stops nothing
     ("POST", "/api/core", lambda r: core.choose(project.load(), r.body.get("place"))),
     # What an apply would recreate, of what is saved or with a change not saved yet: read only
@@ -917,7 +899,7 @@ class Handler(BaseHTTPRequestHandler):
                 return handler(self, *found.groups())
         raise paths.NotFound("Not found")
 
-    def read_json(self, limit=MAX_BODY):
+    def read_json(self, limit):
         size = self.headers.get("Content-Length") or "0"
         if not (size.isascii() and size.isdigit()):   # a negative number reads until the connection closes
             raise ValueError("The Content-Length must be a number of bytes")
@@ -1033,31 +1015,17 @@ def is_lab_ui(port):
         return False
 
 
-def warm_up():
-    """The lab read in the background, as the first state reads it: the page that opens a moment later finds it read. What
-    fails is said by the state the page asks for. Answers the thread."""
-    def read():
-        try:
-            snapshot()
-        except Exception:  # noqa: BLE001 - the state the page asks for says what failed
-            pass
-    thread = threading.Thread(target=read, name="lab-warm-up", daemon=True)
-    thread.start()
-    return thread
-
-
 def start_up():
     """What the Lab does once its port is bound in this order: what a stop left of a change of Personal is put right, the
     sweeper finishes what a stop left in the installs of the Lab and then in the folders of the catalogs that are linked (the
-    half copies a Share left), the intent of the first run is written and what has no copy is marked as downloading, the
-    background threads of the Lab start, and the lab is read once in the background (warm_up). Each step is local and fast
-    but the last ones, which return at once; a failure of one is said in a line and never keeps the Lab from serving, because
-    its row says what is wrong."""
+    half copies a Share left), the intent of the first run is written and what has no copy is marked as downloading, and the
+    background threads of the Lab start. Each step is local and fast but the last ones, which return at once; a failure of
+    one is said in a line and never keeps the Lab from serving, because its row says what is wrong."""
     for what, step in (("finishing what a stop left", service.recover),
                        ("finishing a change of Personal that a stop left", moving.recover_at_start),
                        ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
                        ("starting the download of catalogs", firstrun.start_worker),
-                       ("starting the check for new versions", updates.start_checking), ("reading the lab", warm_up)):
+                       ("starting the check for new versions", updates.start_checking)):
         try:
             step()
         except Exception as error:  # noqa: BLE001 - the Lab serves whatever these find

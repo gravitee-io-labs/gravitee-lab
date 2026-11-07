@@ -153,8 +153,6 @@ def stays(project):
     """What a reset does not reach: what the seeds created in the platforms, which is still there and still recorded,
     one line for each place that holds a record, "Stays: Acme Hostels in Development (My Account)"."""
     held = {pid: places.deployed(pid, playgrounds.created) for pid in project["playgrounds"]}
-    if not any(held.values()):
-        return []
     names = {record["id"]: record["name"] for record in platforms.read()}
     lines = []
     for pid, found in held.items():

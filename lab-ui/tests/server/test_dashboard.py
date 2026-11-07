@@ -1,5 +1,5 @@
 """dashboard: Docker's sizes and answers as `docker info`, `system df` and `stats` print them, the channels of a version, the
-products and the gateway of a platform against the versions a registry lists, the whole answer with its caches, and the load of
+products against the versions a registry lists, the whole answer with its caches, and the load of
 the containers. No Docker, no registry: what they would answer is given."""
 
 import json
@@ -222,31 +222,22 @@ class Products(Case):
         self.assertFalse(pending)
         self.assertEqual(rows[0]["latest"], "4.12.21")
 
-    def test_the_status_of_each_product(self):
-        containers = running(**{"apim-management-api": "4.12.20", "am-gateway": "4.13.0-alpha.7",
-                                "alert-engine": "3.0.2"})
-        dashboard.products(self.project, containers)
-        self.settle()
-        rows, pending = dashboard.products(self.project, containers)
-        self.assertFalse(pending)
-        self.assertEqual([(row["channel"], row["latest"], row["status"]) for row in rows], [
-            ("stable", "4.12.21", "newer"), ("pre-release", "4.13.0-alpha.7", "latest"), ("stable", "3.0.2", "latest")])
-
-    def test_a_pre_release_is_followed_along_its_own_channel(self):
-        containers = running(**{"apim-management-api": "4.13.0-alpha.3", "am-gateway": "4.13.0-alpha.7"})
-        dashboard.products(self.project, containers)
-        self.settle()
-        rows, _ = dashboard.products(self.project, containers)
-        self.assertEqual([(row["channel"], row["status"], row["latest"]) for row in rows[:2]],
-                         [("pre-release", "newer", "4.13.0-alpha.4"), ("pre-release", "latest", "4.13.0-alpha.7")])
-
-    def test_a_product_that_does_not_run_is_judged_by_the_version_configured(self):
-        dashboard.products(self.project, {})
-        self.settle()
-        rows, _ = dashboard.products(self.project, {})
-        self.assertEqual([(row["deployed"], row["deployed_state"], row["status"], row["latest"]) for row in rows], [
-            ("4.12.20", "configured", "newer", "4.12.21"), ("4.12.7", "configured", "newer", "4.12.8"),
-            ("3.0.2", "configured", "latest", "3.0.2")])
+    def test_the_status_of_each_product_by_what_it_runs_or_is_configured_with(self):
+        for containers, rows in (
+                # A release, and a pre-release followed along its own channel
+                (running(**{"apim-management-api": "4.12.20", "am-gateway": "4.13.0-alpha.7", "alert-engine": "3.0.2"}),
+                 [("4.12.20", "stable", "4.12.21", "newer"), ("4.13.0-alpha.7", "pre-release", "4.13.0-alpha.7", "latest"),
+                  ("3.0.2", "stable", "3.0.2", "latest")]),
+                (running(**{"apim-management-api": "4.13.0-alpha.3", "am-gateway": "4.13.0-alpha.7"}),
+                 [("4.13.0-alpha.3", "pre-release", "4.13.0-alpha.4", "newer"), ("4.13.0-alpha.7", "pre-release", "4.13.0-alpha.7", "latest"),
+                  ("3.0.2", "stable", "3.0.2", "latest")]),
+                # What does not run is judged by the version configured
+                ({}, [("4.12.20", "stable", "4.12.21", "newer"), ("4.12.7", "stable", "4.12.8", "newer"), ("3.0.2", "stable", "3.0.2", "latest")])):
+            dashboard.products(self.project, containers)
+            self.settle()
+            found, pending = dashboard.products(self.project, containers)
+            self.assertFalse(pending)
+            self.assertEqual([(row["deployed"], row["channel"], row["latest"], row["status"]) for row in found], rows)
 
     def test_the_registry_asked_is_the_one_the_project_names_by_default(self):
         dashboard.products(self.project, {})
@@ -294,7 +285,6 @@ class Read(Case):
         for prefix in ("local:dashboard:", "dashboard:", "docker:"):
             compose.CACHE.drop(prefix)
             self.addCleanup(compose.CACHE.drop, prefix)
-        self.patch(dashboard, "_flight", None)
         self.answers = {"info": (0, json.dumps(INFO), ""), "version": (0, "v5.4.0\n", ""), "df": (0, DF, "")}
         self.run = self.patch(dashboard.compose, "run", side_effect=lambda command, **more: self.answers[
             next(name for name, word in {"info": "info", "version": "version", "df": "system"}.items()
@@ -351,10 +341,11 @@ class Read(Case):
         self.assertTrue(found["pending"])   # asked for again
         self.assertEqual(found["docker"]["engine"], "29.7.2")   # the rest is there
         self.assertEqual([row["id"] for row in found["products"]], ["api-management", "access-management", "alert-engine"])
-        self.assertIsNone(dashboard.read(self.project)["data"])
+        again = dashboard.read({"groups": [], "addons": {}, "setups": {}, "playgrounds": {}, "services": {}})   # no registry to wait for
+        self.assertEqual((again["data"], again["pending"]), (None, True))
         self.assertEqual(self.asked("system"), 1, "the read under way is not started again")
         release.set()
-        waited(self, lambda: dashboard._flight.done())
+        waited(self, lambda: compose.CACHE.kept("local:dashboard:df", dashboard.DOCKER_TTL))
         found = dashboard.read(self.project)
         self.assertEqual(found["data"]["images"]["size"], 58_890_000_000)
         self.assertEqual(self.asked("system"), 1)
@@ -367,6 +358,12 @@ class Read(Case):
         found = dashboard.read(self.project, refresh=True)
         self.assertEqual(found["data"]["images"]["size"], 58_890_000_000)
         self.assertEqual(self.asked("system"), 2)
+
+    def test_what_the_read_found_is_the_answer_though_the_cache_lost_it_since(self):
+        # What is kept ends its minute while the rest is read: no data and nothing pending would never be asked for again
+        self.patch(dashboard, "products", side_effect=lambda *_: (compose.CACHE.drop("local:"), ([], False))[1])
+        found = dashboard.read(self.project)
+        self.assertEqual((found["data"]["images"]["size"], found["pending"]), (58_890_000_000, False))
 
     def test_a_job_that_ends_drops_what_docker_held(self):
         dashboard.read(self.project)

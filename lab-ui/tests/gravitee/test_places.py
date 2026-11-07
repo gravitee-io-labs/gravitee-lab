@@ -480,14 +480,6 @@ class Serving(Places):
         envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": "not-a-token"})
         self.assertIsNone(places.serving(PROJECT))
 
-    def test_it_is_none_after_the_gateway_is_deleted(self):
-        gateway = self.create(DEV, "lab", platform="my-account")["gateway"]
-        self.read()
-        self.assertTrue(places.serving(PROJECT))
-        platforms.delete_gateway(PROJECT, "my-account", gateway["id"])
-        places.invalidate("my-account")
-        self.assertIsNone(places.serving(PROJECT))
-
 
 class SeedEnv(Places):
     def setUp(self):

@@ -388,16 +388,15 @@ def run(cmd, timeout=120, cwd=None, env=None, environ=None, given=None):
 GRACE = 10
 
 
-def spawn(cmd, errors, env=None):
+def spawn(cmd, env=None):
     """A command started as run() starts one, for a caller that reads its output as it comes (a job, a log followed):
     from the project root, with no input, in a session of its own that the Lab UI ends as it exits (_end), its output
-    as text. `errors`: where its errors go, subprocess.STDOUT with its output or subprocess.DEVNULL. `env`: variables
-    set for it. None while the Lab UI exits: it is not started. The caller reads its lines, waits for it, then calls
-    release()."""
+    as text, its errors with it. `env`: variables set for it. None while the Lab UI exits: it is not started. The caller
+    reads its lines, waits for it, then calls release()."""
     if _ending:
         return None
     process = subprocess.Popen(cmd, cwd=ROOT, env={**environment(), "PWD": str(ROOT), **(env or {})},
-                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errors, encoding="utf-8",
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8",
                                errors="replace", bufsize=1, start_new_session=True)
     _running.add(process)
     if _ending:   # the Lab UI began to exit while it started: _end did not see it

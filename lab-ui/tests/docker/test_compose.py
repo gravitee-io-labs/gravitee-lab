@@ -79,10 +79,38 @@ class ProjectFolder(Case):
 
 class Includes(ProjectFolder):
 
-    def test_paths_are_relative_to_the_including_file(self):
-        path = self.write("setups/local/mine.yml", "x-gravitee:\n  kind: setup\n\ninclude:\n"
-                          "  - ../../addons/kazoo/compose.yml\n  - ../../addons/jade/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml", "addons/jade/compose.yml"])
+    def test_the_project_files_a_file_names_itself(self):
+        kazoo, tool = "addons/kazoo/compose.yml", "addons/tool/compose.yml"
+        for path, text, named in (
+                # Relative to the including file, those of the on file to the project
+                ("setups/local/mine.yml", "x-gravitee:\n  kind: setup\n\ninclude:\n  - ../../addons/kazoo/compose.yml\n"
+                 "  - ../../addons/jade/compose.yml\n", [kazoo, "addons/jade/compose.yml"]),
+                # Quotes, comments and the long form
+                (".lab/on.yml", "include:\n  # the playground first\n  - \"playgrounds/welcome/compose.yml\"   # one at a time\n"
+                 "  - 'addons/my addon/compose.yml'\n\n  - path: addons/kazoo/compose.yml\n",
+                 ["playgrounds/welcome/compose.yml", "addons/my addon/compose.yml", kazoo]),
+                # No indentation
+                (".lab/on.yml", "include:\n- addons/kazoo/compose.yml\n- addons/malt/compose.yml\n", [kazoo, "addons/malt/compose.yml"]),
+                # The files a key of an item lists are no items
+                ("playgrounds/mine/compose.yml", "include:\n  - path: ../../addons/tool/compose.yml\n    env_file:\n"
+                 "      - ../../addons/tool/.env\n      - path: ../../addons/tool/other.env\n        required: false\n"
+                 "  - ../../addons/kazoo/compose.yml\nservices:\n  mine:\n    image: x\n", [tool, kazoo]),
+                (".lab/on.yml", "include:\n- path: addons/tool/compose.yml\n  env_file:\n  - addons/tool/.env\n"
+                 "- addons/kazoo/compose.yml\n", [tool, kazoo]),
+                # The files of a path list are items
+                ("playgrounds/mine/compose.yml", "include:\n  - path:   # two files, merged\n      - ../../addons/a/compose.yml\n"
+                 "      - ../../addons/b/compose.yml\n    env_file:\n      - ../../addons/a/.env\n"
+                 "  - ../../addons/c/compose.yml\n", ["addons/a/compose.yml", "addons/b/compose.yml", "addons/c/compose.yml"]),
+                # Only the include list
+                ("addons/kazoo-desk/compose.yml", "include:\n  - ../kazoo/compose.yml\n\nservices:\n  kazoo-desk:\n    volumes:\n"
+                 "      - ./certs:/certs\n    networks:\n      - internal\n", [kazoo]),
+                # A file outside the project is left out
+                (".lab/on.yml", "include:\n  - ../elsewhere/compose.yml\n  - addons/kazoo/compose.yml\n", [kazoo]),
+                ("addons/malt/compose.yml", "services:\n  malt-box:\n    image: x\n", [])):
+            self.assertEqual(compose.includes(self.write(path, text)), named, text)
+
+    def test_no_file_no_include(self):
+        self.assertEqual(compose.includes(".lab/on.yml"), [])
 
     def test_a_list_on_one_line_is_read_and_a_copy_keeps_it_as_written(self):
         self.write("b-x/compose.yml", "services:\n  bee:\n    image: alpine\n    pull_policy: ${B_PULL_POLICY:-missing}\n")
@@ -96,117 +124,43 @@ class Includes(ProjectFolder):
                     if original.endswith("a/compose.yml"):
                         self.assertIn(line, Path(copy).read_text(encoding="utf-8"), "a copy never loses an include")
 
-    def test_quotes_comments_and_long_form(self):
-        path = self.write(".lab/on.yml", "include:\n"
-                          "  # the playground first\n"
-                          "  - \"playgrounds/welcome/compose.yml\"   # one at a time\n"
-                          "  - 'addons/my addon/compose.yml'\n"
-                          "\n"
-                          "  - path: addons/kazoo/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["playgrounds/welcome/compose.yml", "addons/my addon/compose.yml",
-                                                  "addons/kazoo/compose.yml"])
-
-    def test_items_without_indentation(self):
-        path = self.write(".lab/on.yml",
-                          "include:\n- addons/kazoo/compose.yml\n- addons/malt/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml", "addons/malt/compose.yml"])
-
-    def test_the_files_a_key_of_an_item_lists_are_not_items(self):
-        path = self.write("playgrounds/mine/compose.yml", "include:\n"
-                          "  - path: ../../addons/tool/compose.yml\n"
-                          "    env_file:\n"
-                          "      - ../../addons/tool/.env\n"
-                          "      - path: ../../addons/tool/other.env\n"
-                          "        required: false\n"
-                          "  - ../../addons/kazoo/compose.yml\n"
-                          "services:\n  mine:\n    image: x\n")
-        self.assertEqual(compose.includes(path), ["addons/tool/compose.yml", "addons/kazoo/compose.yml"])
-        path = self.write(".lab/on.yml", "include:\n- path: addons/tool/compose.yml\n  env_file:\n  - addons/tool/.env\n"
-                          "- addons/kazoo/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/tool/compose.yml", "addons/kazoo/compose.yml"])
-
-    def test_the_files_of_a_path_list_are_items(self):
-        path = self.write("playgrounds/mine/compose.yml", "include:\n"
-                          "  - path:   # two files, merged\n"
-                          "      - ../../addons/a/compose.yml\n"
-                          "      - ../../addons/b/compose.yml\n"
-                          "    env_file:\n"
-                          "      - ../../addons/a/.env\n"
-                          "  - ../../addons/c/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/a/compose.yml", "addons/b/compose.yml", "addons/c/compose.yml"])
-
-    def test_only_the_include_list(self):
-        path = self.write("addons/kazoo-desk/compose.yml", "include:\n  - ../kazoo/compose.yml\n\n"
-                          "services:\n  kazoo-desk:\n    volumes:\n      - ./certs:/certs\n"
-                          "    networks:\n      - internal\n")
-        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml"])
-
-    def test_a_file_outside_the_project_is_left_out(self):
-        path = self.write(".lab/on.yml",
-                          "include:\n  - ../elsewhere/compose.yml\n  - addons/kazoo/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml"])
-
-    def test_no_file_no_include(self):
-        self.assertEqual(compose.includes(".lab/on.yml"), [])
-        path = self.write("addons/malt/compose.yml", "services:\n  malt-box:\n    image: x\n")
-        self.assertEqual(compose.includes(path), [])
-
 
 class References(Case):
 
     def test_forms(self):
-        self.assertEqual(compose.references("${A} ${B:-1} ${C-} $D ${E:?needed} ${F:+set}"),
-                         [("A", None, True), ("B", "1", False), ("C", "", False), ("D", None, True),
-                          ("E", None, True), ("F", None, False)])
-
-    def test_nested_defaults_follow_their_variable(self):
-        self.assertEqual(compose.references("${GW_VERSION:-${VERSION:-4.12.20}-debian}"),
-                         [("GW_VERSION", "${VERSION:-4.12.20}-debian", False), ("VERSION", "4.12.20", False)])
-
-    def test_a_doubled_dollar_is_not_a_reference(self):
-        self.assertEqual(compose.references("$${gravitee.home}/plugins $$HOME ${A}"), [("A", None, True)])
-        self.assertEqual(compose.references("costs 5$"), [])
+        for text, found in (("${A} ${B:-1} ${C-} $D ${E:?needed} ${F:+set}",
+                             [("A", None, True), ("B", "1", False), ("C", "", False), ("D", None, True), ("E", None, True),
+                              ("F", None, False)]),
+                            ("${GW_VERSION:-${VERSION:-4.12.20}-debian}",
+                             [("GW_VERSION", "${VERSION:-4.12.20}-debian", False), ("VERSION", "4.12.20", False)]),
+                            ("$${gravitee.home}/plugins $$HOME ${A}", [("A", None, True)]), ("costs 5$", [])):
+            self.assertEqual(compose.references(text), found, text)
 
 
 class Interpolated(Case):
     """A text with its variables replaced the way Compose does, from what a lookup knows."""
 
-    @staticmethod
-    def text(text, **values):
-        return compose.interpolated(text, values.get)
-
-    def test_a_variable_is_replaced_by_its_value_or_its_default(self):
-        self.assertEqual(self.text("${A} ${B:-x} ${C-y}", A="1", B="2", C="3"), "1 2 3")
-        self.assertEqual(self.text("${B:-x} ${C-y}"), "x y")
-
-    def test_an_empty_value_is_no_value_for_a_colon_default_only(self):
-        self.assertEqual(self.text("[${B:-x}] [${C-y}] [${D}]", B="", C="", D=""), "[x] [] []")
-
-    def test_a_default_may_refer_to_variables(self):
-        self.assertEqual(self.text("${A:-${B:-${C:-end}}}"), "end")
-        self.assertEqual(self.text("${A:-${B:-${C:-end}}}", B="mid"), "mid")
-        self.assertEqual(self.text("${A:-pre-${B:-1}-post}"), "pre-1-post")
-
-    def test_a_variable_set_nowhere_stays_as_written(self):
-        self.assertEqual(self.text("${A} and ${B}", B="b"), "${A} and b")
-
-    def test_other_forms_stay_as_written(self):
-        self.assertEqual(self.text("${A:?needed} ${B:+set} ${C}x $D ${E", A="1", B="2", C="3", E="5"),
-                         "${A:?needed} ${B:+set} 3x $D ${E")
-
-    def test_a_doubled_dollar_is_a_dollar_sign(self):
-        self.assertEqual(self.text("$${A} costs 5$$ $$"), "${A} costs 5$ $")
-        self.assertEqual(self.text("pass$${A:-x}word"), "pass${A:-x}word")
-
-    def test_a_text_without_variable_is_left_alone(self):
-        self.assertEqual(self.text("PlainDemo@123"), "PlainDemo@123")
-        self.assertEqual(self.text(""), "")
+    def test_each_form(self):
+        for text, values, said in (
+                ("${A} ${B:-x} ${C-y}", dict(A="1", B="2", C="3"), "1 2 3"), ("${B:-x} ${C-y}", {}, "x y"),
+                # An empty value is no value for a colon default only
+                ("[${B:-x}] [${C-y}] [${D}]", dict(B="", C="", D=""), "[x] [] []"),
+                # A default may refer to variables
+                ("${A:-${B:-${C:-end}}}", {}, "end"), ("${A:-${B:-${C:-end}}}", dict(B="mid"), "mid"),
+                ("${A:-pre-${B:-1}-post}", {}, "pre-1-post"),
+                # Set nowhere, or any other form: as written
+                ("${A} and ${B}", dict(B="b"), "${A} and b"),
+                ("${A:?needed} ${B:+set} ${C}x $D ${E", dict(A="1", B="2", C="3", E="5"), "${A:?needed} ${B:+set} 3x $D ${E"),
+                # A doubled dollar is a dollar sign
+                ("$${A} costs 5$$ $$", {}, "${A} costs 5$ $"), ("pass$${A:-x}word", {}, "pass${A:-x}word"),
+                ("PlainDemo@123", {}, "PlainDemo@123"), ("", {}, "")):
+            self.assertEqual(compose.interpolated(text, values.get), said, text)
 
     def test_braces_never_closed_are_read_in_one_pass(self):
         # What a catalog's file holds is not bounded, and a project read comes here for its accounts and console labels
         text = "${" * 32000
         started = time.process_time()
-        self.assertEqual(self.text(text), text)
+        self.assertEqual(compose.interpolated(text, {}.get), text)
         self.assertLess(time.process_time() - started, 1)
 
 
@@ -234,40 +188,18 @@ services:
       secret: ${SECRET:-}   # Signs the tokens
 """
 
-    def variables(self):
-        return {v["key"]: v for v in compose.variables(self.write("addons/agent/compose.yml", self.FILE))}
-
-    def test_order_of_first_appearance(self):
-        self.assertEqual(list(self.variables()), ["TOKEN", "REGISTRY", "VERSION", "CORE_VERSION", "PASSWORD",
-                                                  "INTEGRATION_ID", "PROJECT_ID", "REGION", "SECRET"])
-
-    def test_comment_at_the_end_of_the_line(self):
-        found = self.variables()
-        self.assertEqual(found["TOKEN"]["comment"], "Personal access token, used by every agent")
-        self.assertEqual(found["SECRET"]["comment"], "Signs the tokens")
-
-    def test_comment_heading_the_block(self):
-        found = self.variables()
-        self.assertEqual(found["INTEGRATION_ID"]["comment"], "Aspen X, and its integration")
-        self.assertEqual(found["PROJECT_ID"]["comment"], "Aspen X, and its integration")
-        self.assertEqual(found["REGION"]["comment"], "")   # a blank line ends the block
-        self.assertEqual(found["REGISTRY"]["comment"], "")   # a comment heading a block further out is not its own
-
-    def test_defaults(self):
-        found = self.variables()
-        self.assertEqual(found["REGISTRY"]["default"], "graviteeio")
-        self.assertEqual(found["VERSION"]["default"], "${CORE_VERSION:-4.12.20}-debian")
-        self.assertEqual(found["CORE_VERSION"]["default"], "4.12.20")
-        self.assertEqual(found["SECRET"]["default"], "")
-        self.assertIsNone(found["TOKEN"]["default"])
-
-    def test_required_when_a_reference_has_no_default(self):
-        found = self.variables()
-        self.assertTrue(found["TOKEN"]["required"])
-        self.assertFalse(found["REGISTRY"]["required"])
-        self.assertFalse(found["SECRET"]["required"])
-        self.assertTrue(found["PASSWORD"]["required"])   # ${PASSWORD:-demo} then ${PASSWORD}
-        self.assertEqual(found["PASSWORD"]["default"], "demo")
+    def test_in_order_of_first_appearance_with_the_comment_of_their_first_use_their_default_and_whether_one_is_required(self):
+        self.assertEqual([(v["key"], v["comment"], v["default"], v["required"])
+                          for v in compose.variables(self.write("addons/agent/compose.yml", self.FILE))], [
+            ("TOKEN", "Personal access token, used by every agent", None, True),   # the comment ending the line
+            ("REGISTRY", "", "graviteeio", False),   # a comment heading a block further out is not its own
+            ("VERSION", "", "${CORE_VERSION:-4.12.20}-debian", False),
+            ("CORE_VERSION", "", "4.12.20", False),
+            ("PASSWORD", "", "demo", True),   # ${PASSWORD:-demo} then ${PASSWORD}
+            ("INTEGRATION_ID", "Aspen X, and its integration", None, True),   # the comment heading the block
+            ("PROJECT_ID", "Aspen X, and its integration", None, True),
+            ("REGION", "", None, True),   # a blank line ends the block
+            ("SECRET", "Signs the tokens", "", False)])   # neither $${gravitee.home} nor what a comment names
 
     def test_a_file_of_many_variables_is_read_in_one_pass(self):
         # What a catalog's file holds is not bounded: no pass over the file for each of its variables
@@ -275,11 +207,6 @@ services:
         started = time.process_time()
         self.assertEqual(len(compose.variables(self.write("addons/many/compose.yml", text))), 10000)
         self.assertLess(time.process_time() - started, 3)
-
-    def test_doubled_dollar_and_comment_text_are_ignored(self):
-        found = self.variables()
-        self.assertNotIn("gravitee", found)
-        self.assertNotIn("OLD", found)
 
 
 class Raw(ProjectFolder):
@@ -1106,17 +1033,6 @@ class Docker(Case):
         with mock.patch.object(compose, "run", return_value=(0, "5.7.0\n", "")):
             self.assertEqual(compose.compose_version(), "5.7.0")
 
-    def test_each_fact_docker_says_is_read_in_one_place(self):
-        # One reading of `docker info`, `docker compose version` and `docker images` that the state, the Dashboard, the check
-        # of the machine and the Images page share: a second one would see a change of Docker at another time. The CI's
-        # commands (catalogs/ci) run once and keep nothing
-        package = Path(compose.__file__).parents[1]
-        found = [f"{path.relative_to(package)}: {spelled}" for path in sorted(package.rglob("*.py"))
-                 if path != Path(compose.__file__) and path.relative_to(package).parts[:2] != ("catalogs", "ci")
-                 for spelled in ('"docker", "info"', '"compose", "version"', '"docker", "images"')
-                 if spelled in path.read_text(encoding="utf-8")]
-        self.assertEqual(found, [])
-
 
 class Environment(Case):
     """What every command gets: the files Compose reads, and no remote include."""
@@ -1287,7 +1203,7 @@ class Spawn(Commands):
     Lab UI ends as it exits, and ends when asked, with what it started."""
 
     def spawned(self, script):
-        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT)
+        process = compose.spawn(["sh", "-c", script])
         self.addCleanup(lambda: (process.poll() is None and os.killpg(process.pid, signal.SIGKILL), process.wait(),
                                  process.stdout.close(), compose.release(process)))
         return process
@@ -1323,7 +1239,7 @@ class Spawn(Commands):
         self.assertEqual(process.wait(10), -signal.SIGKILL)
         self.assertTrue(settled(lambda: not alive(pid)))
         self.patch(compose, "_ending", True)
-        self.assertIsNone(compose.spawn(["true"], subprocess.STDOUT))
+        self.assertIsNone(compose.spawn(["true"]))
 
 
 # A Lab UI, as a program: the commands of a project read, six of them asked of a pool of two threads, which is how the

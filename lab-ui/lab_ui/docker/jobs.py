@@ -4,7 +4,6 @@ that starts or stops it."""
 
 import json
 import re
-import subprocess
 import threading
 import time
 import uuid
@@ -468,7 +467,7 @@ class Job:
         start = len(self.lines)
         try:
             # In the project's folder, its errors with its output: what it printed last is why it failed
-            process = compose.spawn(_json(cmd) if pull else cmd, subprocess.STDOUT, env=env)
+            process = compose.spawn(_json(cmd) if pull else cmd, env=env)
         except OSError:
             raise JobFailed(f"{cmd[0]} could not be run") from None
         if process is None:

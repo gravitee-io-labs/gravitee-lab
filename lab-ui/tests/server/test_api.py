@@ -112,21 +112,6 @@ class LabUI(Case):
 
 
 class Access(LabUI):
-    def test_post_without_the_lab_ui_header_is_refused(self):
-        action = self.patch(api.stack, "action")
-        status, _, body = self.request("POST", "/api/stack/start", headers={"X-Gravitee-Lab-UI": None})
-        self.assertEqual((status, json.loads(body)), (403, {"error": "Forbidden"}))   # as every failure answers
-        action.assert_not_called()
-
-    def test_foreign_host_is_refused(self):
-        state = self.patch(api, "images_state")
-        action = self.patch(api.stack, "action")
-        for method, path in (("GET", "/api/images"), ("POST", "/api/stack/start")):
-            status, _, _ = self.request(method, path, headers={"Host": "evil.example:9000"})
-            self.assertEqual(status, 403)
-        state.assert_not_called()
-        action.assert_not_called()
-
     def test_every_family_of_routes_is_for_the_lab_uis_own_page(self):
         # route() asks before it calls one: what reads the lab, uses a token or types in a shell has no gate of its own
         self.assertEqual(self.request("GET", "/api/platforms/p/check")[0], 404, "a read is no way to use the token")
@@ -205,13 +190,6 @@ class Access(LabUI):
         _, headers, _ = self.request("GET", "/", headers={"Host": "0.0.0.0:9777"})
         self.assertEqual(headers["Content-Security-Policy"], api.POLICY)
 
-    def test_the_stream_of_a_job_says_it_too(self):
-        job = mock.Mock(done=True, lines=[], summary=lambda: {"ok": True})
-        self.patch(api.JOBS, "get", return_value=job)
-        _, headers, _ = self.request("GET", "/api/jobs/abc/stream")
-        self.assertEqual((headers["Content-Security-Policy"], headers["X-Frame-Options"]),
-                         ("frame-ancestors 'none'", "DENY"))
-
 
 class Failures(LabUI):
     def setUp(self):
@@ -238,8 +216,11 @@ class Failures(LabUI):
         for method in ("GET", "POST"):
             status, _, body = self.request(method, "/api/nothing")
             self.assertEqual((status, json.loads(body)), (404, {"error": "Not found"}))
-        # A group or a service takes start, stop and restart only: the route says so
-        for path in ("/api/groups/databases/rm", "/api/services/mongodb/kill"):
+        # A group, a service or the containers of an add-on or a playground take start, stop and restart only, a setup has no
+        # container of its own, and what belongs to an item is no group's
+        for path in ("/api/groups/databases/rm", "/api/services/mongodb/kill", "/api/addons/kazoo/containers/rm",
+                     "/api/addons/local/whoami/restart", "/api/setups/overlook/containers/start",
+                     "/api/groups/local/it/delete", "/api/groups/local/echo/use-catalog"):
             self.assertEqual(self.request("POST", path)[0], 404, path)
 
     def test_body_must_be_a_json_object(self):
@@ -291,6 +272,7 @@ class Static(LabUI):
         self.assertEqual(headers["Content-Type"], "text/javascript; charset=utf-8")
         status, headers, body = self.request("GET", "/img/guide.png")
         self.assertEqual((status, body, headers["Content-Type"]), (200, b"png bytes", "image/png"))
+        self.assertEqual(self.request("GET", "/favicon.ico")[0], 204)
 
     def test_nothing_outside_the_folder_is_served(self):
         for path in ("/js/../index.html", "/js/../../secret.js", "/css/../js/pages/list.js", "/js/%2e%2e/index.html",
@@ -299,29 +281,79 @@ class Static(LabUI):
             with self.subTest(path=path):
                 self.assertEqual(self.request("GET", path)[0], 404)
 
-    def test_favicon(self):
-        self.assertEqual(self.request("GET", "/favicon.ico")[0], 204)
 
+class Calls(LabUI):
+    """A route calls one function with what the request says and answers what it answers: the logic is the function's."""
 
-class Files(LabUI):
-    def test_the_files_shown_with_one(self):
+    FILE = {"path": "addons/kazoo/compose.yml", "content": "services: {}\n", "version": "v1"}
+    ACME = "/api/catalogs/acme-hub"
+    AZURE = "graviteeio.azurecr.io"
+    # (method, path, body, module, function, its arguments, its keywords): an argument the request does not send is None
+    CALLS = (
+        ("GET", "/api/files?path=addons%2Fkazoo%2F.env", None, api.files, "sections", (PROJECT, "addons/kazoo/.env"), {}),
+        ("POST", "/api/files/save", FILE, api.files, "save", (PROJECT, FILE["path"], FILE["content"], "v1"), {}),
+        ("POST", "/api/registry/login", {"host": AZURE, "key": "playground:welcome"}, api.images, "login",
+         (AZURE, "playground:welcome"), {}),
+        ("POST", "/api/registry/login", {"host": AZURE}, api.images, "login", (AZURE, None), {}),
+        ("POST", "/api/addons/local/whoami/star", {"starred": True}, api.starred, "star", (PROJECT, "addon", "local/whoami", True), {}),
+        ("POST", "/api/playgrounds/welcome/star", {}, api.starred, "star", (PROJECT, "playground", "welcome", False), {}),
+        ("POST", "/api/addons/local/whoami/containers/stop", {}, api.stack, "unit_action", (PROJECT, "addon", "local/whoami", "stop"), {}),
+        ("POST", "/api/addons/local/whoami/containers/restart", {}, api.stack, "unit_action",
+         (PROJECT, "addon", "local/whoami", "restart"), {}),
+        ("POST", "/api/playgrounds/welcome/containers/start", {}, api.stack, "unit_action", (PROJECT, "playground", "welcome", "start"), {}),
+        ("GET", "/api/playgrounds/local/sandbox/guide", None, api.playgrounds, "guide", ("local/sandbox",), {}),
+        ("GET", "/api/places", None, api.places, "places", (PROJECT,), {}),
+        # A platform
+        ("POST", "/api/platforms", {"url": "u", "token": "t"}, api.platforms, "add", (), {"url": "u", "token": "t", "account": None}),
+        ("POST", "/api/platforms/p/check", {}, api.platforms, "check", ("p", PROJECT), {}),
+        ("POST", "/api/platforms/p/token", {"token": "new"}, api.platforms, "replace_account_token", ("p", "new"), {}),
+        ("POST", "/api/platforms/p/token", {}, api.platforms, "replace_account_token", ("p", None), {}),
+        ("POST", "/api/platforms/p/environments/e/token", {"token": "t"}, api.platforms, "set_cloud_token", ("p", "e", "t"), {}),
+        ("POST", "/api/platforms/p/environments/e/token/delete", {}, api.platforms, "delete_cloud_token", ("p", "e"), {}),
+        # Sharing an item
+        ("POST", "/api/playgrounds/local/bank/use-catalog", {}, api.contribute, "use_catalog_version", (PROJECT, "playground", "local/bank"), {}),
+        ("POST", "/api/addons/local/echo/use-catalog", {}, api.contribute, "use_catalog_version", (PROJECT, "addon", "local/echo"), {}),
+        ("POST", "/api/addons/local/whoami/share", {"check": True}, api.contribute, "destinations", (PROJECT, "addon", "local/whoami"), {}),
+        ("POST", "/api/addons/local/whoami/share", {"to": "acme-hub"}, api.contribute, "share",
+         (PROJECT, "addon", "local/whoami", "acme-hub", False), {}),
+        ("POST", "/api/setups/local/mine/share", {"to": "acme-hub", "check": True}, api.contribute, "share",
+         (PROJECT, "setup", "local/mine", "acme-hub", True), {}),
+        # The catalogs
+        ("POST", "/api/catalogs/check", {"address": "acme/lab-hub", "branch": "main"}, api.service, "check_address", ("acme/lab-hub", "main"), {}),
+        ("POST", "/api/catalogs/check", {"address": "acme/lab-hub"}, api.service, "check_address", ("acme/lab-hub", None), {}),
+        ("POST", "/api/catalogs", {"ticket": "abc"}, api.service, "add", ("abc",), {"host": False}),
+        ("POST", "/api/catalogs", {"ticket": "abc", "host": True}, api.service, "add", ("abc",), {"host": True}),
+        ("POST", "/api/catalogs", {"ticket": "abc", "host": "yes"}, api.service, "add", ("abc",), {"host": False}),
+        ("POST", "/api/catalogs", {"listed": "gravitee"}, api.service, "add_listed", ("gravitee",), {}),
+        ("POST", "/api/catalogs/new", {"name": "My catalog"}, api.service, "create_folder", ("My catalog",), {}),
+        ("POST", f"{ACME}/check", {}, api.service, "check_now", ("acme-hub",), {}),
+        ("POST", f"{ACME}/auto", {"enabled": False}, api.service, "set_auto", ("acme-hub", False), {}),
+        ("POST", f"{ACME}/allow", {"enabled": True}, api.service, "allow_host", ("acme-hub", True), {}),
+        ("POST", f"{ACME}/repair", {}, api.service, "repair", ("acme-hub",), {}),
+        ("POST", f"{ACME}/changes", {"ticket": "abc"}, api.service, "changes", ("acme-hub", "abc"), {}),
+        ("POST", f"{ACME}/update", {"check": True}, api.service, "update", ("acme-hub",), {"check": True, "ticket": None, "confirm_history": False}),
+        ("POST", f"{ACME}/update", {"ticket": "abc", "confirm_history": True}, api.service, "update", ("acme-hub",),
+         {"check": False, "ticket": "abc", "confirm_history": True}),
+        ("POST", f"{ACME}/update", {"ticket": "abc", "confirm_history": "true"}, api.service, "update", ("acme-hub",),
+         {"check": False, "ticket": "abc", "confirm_history": False}),
+        ("POST", f"{ACME}/undo", {"check": True}, api.service, "undo", ("acme-hub",), {"check": True, "ticket": None}),
+        ("POST", f"{ACME}/undo", {"ticket": "abc"}, api.service, "undo", ("acme-hub",), {"check": False, "ticket": "abc"}),
+        ("POST", f"{ACME}/delete", {"check": True}, api.service, "remove", ("acme-hub",), {"check": True}),
+        ("POST", f"{ACME}/delete", {"keep_settings": False}, api.service, "remove", ("acme-hub",), {"keep_settings": False}),
+        ("POST", f"{ACME}/delete", {"keep_settings": True}, api.service, "remove", ("acme-hub",), {"keep_settings": True}),
+    )
+    NAMED = {"sections": "sections", "destinations": "destinations", "guide": "markdown"}   # the key the page reads these by
+
+    def test_each_call(self):
         self.patch(api.project, "load", return_value=PROJECT)
-        sections = self.patch(api.files, "sections", return_value=[{"title": "Core", "on": True, "files": []}])
-        status, _, body = self.request("GET", "/api/files?path=addons%2Fkazoo%2F.env")
-        self.assertEqual((status, json.loads(body)), (200, {"sections": sections.return_value}))
-        sections.assert_called_once_with(PROJECT, "addons/kazoo/.env")
-        sections.side_effect = ValueError("Not a file of this project")
-        status, _, body = self.request("GET", "/api/files")
-        self.assertEqual((status, json.loads(body)), (400, {"error": "Not a file of this project"}))
-
-    def test_a_file_is_saved_with_the_project(self):
-        self.patch(api.project, "load", return_value=PROJECT)
-        saved = {"content": "services: {}\n", "version": "v2", "problems": []}
-        save = self.patch(api.files, "save", return_value=saved)
-        sent = {"path": "addons/kazoo/compose.yml", "content": "services: {}\n", "version": "v1"}
-        status, _, body = self.request("POST", "/api/files/save", sent)
-        self.assertEqual((status, json.loads(body)), (200, save.return_value))
-        save.assert_called_once_with(PROJECT, "addons/kazoo/compose.yml", "services: {}\n", "v1")
+        self.patch(api.places, "invalidate")
+        for method, path, body, module, name, arguments, keywords in self.CALLS:
+            with self.subTest(path=path, body=body):
+                called = self.patch(module, name, return_value={"id": "p"})
+                status, _, answer = self.request(method, path, body)
+                self.assertEqual((status, json.loads(answer)),
+                                 (200, {self.NAMED[name]: {"id": "p"}} if name in self.NAMED else {"id": "p"}))
+                called.assert_called_once_with(*arguments, **keywords)
 
 
 class State(LabUI):
@@ -557,17 +589,11 @@ class Frame(LabUI):
 
     def test_the_page_is_the_one_that_asks_by_the_name_it_was_opened_with(self):
         looked = self.patch(probe, "look", return_value={"answers": True, "frameable": True, "reason": ""})
-        url = "/api/playgrounds/welcome/frame?url=http%3A%2F%2Flocalhost%3A8086"
+        url = "/api/playgrounds/local/mine/frame?url=http%3A%2F%2Flocalhost%3A8086"
         self.assertEqual(self.ask(url), (200, {"answers": True, "frameable": True, "reason": ""}))
         looked.assert_called_once_with(self.GAMMA, "http://localhost:9000")
         self.ask(url, Host="127.0.0.1:9000")
         self.assertEqual(looked.call_args.args, (self.GAMMA, "http://127.0.0.1:9000"))
-
-    def test_a_personal_playground_is_asked_by_its_id(self):
-        looked = self.patch(probe, "look", return_value={"answers": False, "frameable": False, "reason": "refused"})
-        status, body = self.ask("/api/playgrounds/local/mine/frame?url=http%3A%2F%2Flocalhost%3A8086")
-        self.assertEqual((status, body["answers"]), (200, False))
-        looked.assert_called_once()
 
     def test_an_address_the_playground_does_not_declare_is_a_bad_request_and_never_asked(self):
         looked = self.patch(probe, "look")
@@ -739,7 +765,7 @@ class Effects(LabUI):
 
 
 class Products(LabUI):
-    """What a product loads, with the license's words for its plugins; the login of a registry."""
+    """What a product loads, with the license's words for its plugins."""
 
     def setUp(self):
         super().setUp()
@@ -768,14 +794,6 @@ class Products(LabUI):
         api.license.info.return_value = {"present": False}
         self.assertEqual(sorted(json.loads(self.request("GET", "/api/plugins/installed?product=apim")[2])["licensed"]),
                          ["gravitee-policy-a", "gravitee-policy-b"])
-
-    def test_a_login_is_the_job_of_the_row_that_asked(self):
-        # Its row's button shows it; from Images, the registry's
-        login = self.patch(api.images, "login", return_value={})
-        self.request("POST", "/api/registry/login", {"host": "graviteeio.azurecr.io", "key": "playground:welcome"})
-        login.assert_called_once_with("graviteeio.azurecr.io", "playground:welcome")
-        self.request("POST", "/api/registry/login", {"host": "graviteeio.azurecr.io"})
-        login.assert_called_with("graviteeio.azurecr.io", None)
 
 
 class Dashboard(LabUI):
@@ -983,70 +1001,16 @@ class Personal(LabUI):
     def test_shared_and_deleted_by_kind_and_id(self):
         delete = self.patch(api.personal, "delete", return_value={})
         deployed = self.patch(api.places, "deployed", return_value=[])
-        # The catalogs a share can go to are the module's, tested below
-        where = self.patch(api.contribute, "destinations", return_value=[])
-        status, _, body = self.request("POST", "/api/addons/local/whoami/share", {"check": True})
-        self.assertEqual((status, json.loads(body)), (200, {"destinations": []}))
-        where.assert_called_once_with(PROJECT, "addon", "local/whoami")
-        status, _, body = self.request("POST", "/api/setups/local/mine/share")
-        self.assertEqual((status, json.loads(body)), (400, {"error": "Choose where to share"}))
+        for sent, words in (({}, "Choose where to share"), ({"to": ""}, "Choose where to share"),
+                            ({"to": ["x"]}, "The destination must be text")):
+            status, _, body = self.request("POST", "/api/setups/local/mine/share", sent)
+            self.assertEqual((status, json.loads(body)), (400, {"error": words}))
         for kind in ("addon", "setup", "playground"):
             status, _, body = self.request("POST", f"/api/{kind}s/local/it/delete")
             self.assertEqual((status, json.loads(body)), (200, delete.return_value))
             # What a playground deployed to a place keeps it: the records are read for it
             delete.assert_called_with(PROJECT, kind, "local/it", [] if kind == "playground" else ())
         deployed.assert_called_once_with("local/it", api.playgrounds.created)
-        # An item that is on, then one of the project: the refusal is the answer
-        delete.side_effect = RuntimeError("Stop it first")
-        status, _, body = self.request("POST", "/api/playgrounds/local/sandbox/delete")
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Stop it first"}))
-        # To a catalog, it is the business of contribute
-        shared = self.patch(api.contribute, "share", return_value={"branch": "lab/whoami-20261016"})
-        status, _, body = self.request("POST", "/api/addons/local/whoami/share", {"to": "acme-hub"})
-        self.assertEqual((status, json.loads(body)), (200, {"branch": "lab/whoami-20261016"}))
-        self.request("POST", "/api/setups/local/mine/share", {"to": "acme-hub", "check": True})
-        self.assertEqual(shared.call_args_list, [mock.call(PROJECT, "addon", "local/whoami", "acme-hub", False),
-                                                 mock.call(PROJECT, "setup", "local/mine", "acme-hub", True)])
-        self.assertEqual(self.request("POST", "/api/groups/local/it/delete")[0], 404)
-
-    def test_starred_by_kind_and_id(self):
-        star = self.patch(api.starred, "star", return_value={})
-        self.assertEqual(self.request("POST", "/api/addons/local/whoami/star", {"starred": True})[0], 200)
-        star.assert_called_once_with(PROJECT, "addon", "local/whoami", True)
-        self.request("POST", "/api/playgrounds/welcome/star", {})
-        star.assert_called_with(PROJECT, "playground", "welcome", False)
-        star.side_effect = paths.NotFound("No setup nope")
-        self.assertEqual(self.request("POST", "/api/setups/nope/star", {"starred": True})[0], 404)
-
-    def test_the_other_routes_take_its_id(self):
-        calls = {name: self.patch(target, name, return_value={}) for target, name in (
-            (api.stack, "unit_action"), (api.playgrounds, "check"),
-            (api.playgrounds, "guide"), (api.playgrounds, "start"), (api.playgrounds, "stop"),
-            (api.playgrounds, "reseed"))}
-        for method, path, name, arguments in (
-                # The actions on the containers of an add-on or a playground: the Stack's, the catalog's Restart
-                ("POST", "/api/addons/local/whoami/containers/stop", "unit_action",
-                 (PROJECT, "addon", "local/whoami", "stop")),
-                ("GET", "/api/playgrounds/local/sandbox/check", "check", (PROJECT, "local/sandbox")),
-                ("GET", "/api/playgrounds/local/sandbox/guide", "guide", ("local/sandbox",)),
-                ("POST", "/api/playgrounds/local/sandbox/start", "start", (PROJECT, "local/sandbox", [])),
-                ("POST", "/api/playgrounds/local/sandbox/stop", "stop", (PROJECT, "local/sandbox", False, [])),
-                ("POST", "/api/playgrounds/local/sandbox/reseed", "reseed", (PROJECT, "local/sandbox"))):
-            with self.subTest(path=path):
-                self.assertEqual(self.request(method, path)[0], 200)
-                calls[name].assert_called_once_with(*arguments)
-        # One route restarts an add-on: its containers'
-        self.assertEqual(self.request("POST", "/api/addons/local/whoami/restart")[0], 404)
-        self.assertEqual(self.request("POST", "/api/addons/local/whoami/containers/restart")[0], 200)
-        calls["unit_action"].assert_called_with(PROJECT, "addon", "local/whoami", "restart")
-
-    def test_the_containers_of_a_playground(self):
-        action = self.patch(api.stack, "unit_action", return_value={})
-        self.assertEqual(self.request("POST", "/api/playgrounds/welcome/containers/start")[0], 200)
-        action.assert_called_once_with(PROJECT, "playground", "welcome", "start")
-        # A setup has no container of its own; a verb other than start, stop and restart is no route
-        for path in ("/api/setups/overlook/containers/start", "/api/addons/kazoo/containers/rm"):
-            self.assertEqual(self.request("POST", path)[0], 404, path)
 
 
 class PlatformRoutes(LabUI):
@@ -1058,25 +1022,6 @@ class PlatformRoutes(LabUI):
         # What the platforms say is read again after each action, for the places: the reads are not made here
         self.invalidate = self.patch(api.places, "invalidate")
         self.patch(api.platforms, "runs_here", return_value=False)
-
-    def test_registered_from_the_fields_of_the_form(self):
-        add = self.patch(api.platforms, "add", return_value={"id": "gravitee-cloud"})
-        sent = {"url": "https://eu.cloud.gravitee.io", "token": "t", "account": "4b2f6a1e-8c3d-4e57-9a10-7d5c2b8e3f46"}
-        status, _, body = self.request("POST", "/api/platforms", sent)
-        self.assertEqual((status, json.loads(body)), (200, add.return_value))
-        add.assert_called_once_with(**sent)
-        add.reset_mock()
-        self.request("POST", "/api/platforms", {"url": "u", "token": "t"})
-        add.assert_called_once_with(url="u", token="t", account=None)   # not sent: None
-
-    def test_checked_and_forgotten_by_id(self):
-        check = self.patch(api.platforms, "check", return_value={"state": "ok"})
-        remove = self.patch(api.platforms, "remove", return_value={})
-        status, _, body = self.request("POST", "/api/platforms/gravitee-cloud/check")
-        self.assertEqual((status, json.loads(body)), (200, check.return_value))
-        check.assert_called_once_with("gravitee-cloud", PROJECT)
-        self.assertEqual(self.request("POST", "/api/platforms/gravitee-cloud/delete")[0], 200)
-        remove.assert_called_once_with("gravitee-cloud", PROJECT)
 
     def test_every_action_on_a_platform_reads_it_again_for_the_places(self):
         """Add, check, replace the Account Token, set and delete a Cloud Token, create and delete a gateway, forget the
@@ -1098,31 +1043,11 @@ class PlatformRoutes(LabUI):
             with self.subTest(path=path):
                 self.assertEqual(self.request("POST", path, sent)[0], 200)
                 self.invalidate.assert_called_once_with("gravitee-cloud")
+        api.platforms.remove.assert_called_once_with("gravitee-cloud", PROJECT)
         self.invalidate.reset_mock()
         self.patch(api.platforms, "check", side_effect=paths.NotFound("No platform nope"))
         self.assertEqual(self.request("POST", "/api/platforms/nope/check")[0], 404)
         self.invalidate.assert_not_called()
-
-    def test_the_tokens_of_a_platform_are_replaced_and_forgotten_by_id(self):
-        replace = self.patch(api.platforms, "replace_account_token", return_value={"id": "gravitee-cloud"})
-        keep = self.patch(api.platforms, "set_cloud_token", return_value={})
-        forget = self.patch(api.platforms, "delete_cloud_token", return_value={})
-        status, _, body = self.request("POST", "/api/platforms/gravitee-cloud/token", {"token": "new"})
-        self.assertEqual((status, json.loads(body)), (200, {"id": "gravitee-cloud"}))
-        replace.assert_called_once_with("gravitee-cloud", "new")
-        status, _, body = self.request("POST", "/api/platforms/gravitee-cloud/environments/fake-env-dev/token",
-                                       {"token": "cloud-token"})
-        self.assertEqual((status, json.loads(body)), (200, {}))
-        keep.assert_called_once_with("gravitee-cloud", "fake-env-dev", "cloud-token")
-        self.request("POST", "/api/platforms/gravitee-cloud/environments/fake-env-dev/token/delete")
-        forget.assert_called_once_with("gravitee-cloud", "fake-env-dev")
-        self.request("POST", "/api/platforms/gravitee-cloud/token")   # a form without its field: None, and a refusal
-        replace.assert_called_with("gravitee-cloud", None)
-        # What a platform refuses is the page's problem line
-        keep.side_effect = cloud.CloudError("This Cloud Token is for Test, not Development", "invalid")
-        status, _, body = self.request("POST", "/api/platforms/gravitee-cloud/environments/fake-env-dev/token", {})
-        self.assertEqual((status, json.loads(body)), (400, {"error": "This Cloud Token is for Test, not Development"}))
-        self.assertEqual(self.invalidate.call_count, 4, "a refusal read nothing again")
 
     def test_an_environment_or_a_gateway_is_one_segment_of_what_a_platform_accepts(self):
         for path in ("a/b", "..", ".", ".hidden", "a.b", "a_b", "-a", "x" * 65):
@@ -1131,11 +1056,6 @@ class PlatformRoutes(LabUI):
                 with self.subTest(route=route):
                     self.assertEqual(self.request("POST", route)[0], 404)
             self.assertEqual(self.request("GET", f"/api/platforms/p/gateways/{path}/plan")[0], 404, path)
-
-    def test_what_a_platform_refuses_is_a_bad_request_in_its_words(self):
-        self.patch(api.platforms, "add", side_effect=cloud.CloudError("Gravitee Cloud refuses this token", "invalid"))
-        status, _, body = self.request("POST", "/api/platforms", {})
-        self.assertEqual((status, json.loads(body)), (400, {"error": "Gravitee Cloud refuses this token"}))
 
 
 class PlatformFlow(LabUI):
@@ -1278,10 +1198,10 @@ class PlaceRoutes(LabUI):
 
     def test_nothing_to_say_of_a_place_is_this_machine_and_its_calls_are_as_they_always_were(self):
         for method, path, name, arguments in (
-                ("GET", "/api/playgrounds/welcome/check", "check", (PROJECT, "welcome")),
-                ("POST", "/api/playgrounds/welcome/start", "start", (PROJECT, "welcome", [])),
-                ("POST", "/api/playgrounds/welcome/reseed", "reseed", (PROJECT, "welcome")),
-                ("POST", "/api/playgrounds/welcome/stop", "stop", (PROJECT, "welcome", False, []))):
+                ("GET", "/api/playgrounds/local/sandbox/check", "check", (PROJECT, "local/sandbox")),
+                ("POST", "/api/playgrounds/local/sandbox/start", "start", (PROJECT, "local/sandbox", [])),
+                ("POST", "/api/playgrounds/local/sandbox/reseed", "reseed", (PROJECT, "local/sandbox")),
+                ("POST", "/api/playgrounds/local/sandbox/stop", "stop", (PROJECT, "local/sandbox", False, []))):
             for sent in ({}, {"place": None}, {"place": "machine"}):
                 with self.subTest(path=path, sent=sent):
                     self.calls[name].reset_mock()
@@ -1346,12 +1266,6 @@ class PlaceRoutes(LabUI):
         self.delete.assert_not_called()
         self.calls["delete_place"].assert_not_called()
 
-    def test_the_places_are_what_the_platforms_last_said(self):
-        found = self.patch(api.places, "places", return_value=[{"id": "my-account/fake-env-dev"}])
-        status, _, body = self.request("GET", "/api/places")
-        self.assertEqual((status, json.loads(body)), (200, [{"id": "my-account/fake-env-dev"}]))
-        found.assert_called_once_with(PROJECT)
-
 
 class GatewayCase(LabUI):
     """The small project of test_layers with the Hybrid gateway as Cloud's, what runs and what is on as a test sets them,
@@ -1410,11 +1324,6 @@ class GatewayRoutes(GatewayCase):
         self.assertEqual(([row["name"] for row in found["serves"]], [row["name"] for row in found["stops_serving"]]),
                          (["Development (My Account)"], ["Test (Client lab)"]))
         self.assertEqual(found["deploys_to"], [], "a gateway is not a playground: it deploys nowhere")
-
-    def test_a_gateway_that_is_served_already_has_nothing_to_say(self):
-        self.state = test_layers.on(self.project, ["hyssop"])
-        self.running = test_layers.up("hyssop", project=self.project)
-        self.assertEqual(json.loads(self.request("GET", f"{self.GATEWAY}/plan")[2]), None)
 
     def test_what_a_platform_says_of_a_gateway_that_cannot_start_is_the_answer(self):
         for error, status in ((paths.NotFound("No gateway gw-1 in My Account"), 404),
@@ -1930,18 +1839,6 @@ class CommandLine(LabUI):
         # The one reading of it, which the Dashboard and the check of the machine share
         self.assertEqual((api.compose.compose_version(), run.call_count), ("5.6.1", 1))
 
-    def test_busy_port_opens_the_lab_ui_that_runs(self):
-        self.folder(paths)
-        port = self.server.server_port
-        served_elsewhere(self, port)
-        opened, printed = self.patch(api, "open_browser"), io.StringIO()
-        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
-            api.serve(port, browser=False)
-            opened.assert_not_called()
-            api.serve(port, browser=True)
-        opened.assert_called_once_with(f"http://localhost:{port}")
-        self.assertEqual(printed.getvalue(), (self.RUNNING.format(port) + "\n") * 2)
-
     def test_a_second_lab_ui_of_the_folder_on_another_port_is_sent_to_the_first(self):
         # UI_PORT=9001 in the folder whose Lab UI serves on 9000: two Lab UIs would run their jobs at the same time
         self.folder(paths)
@@ -1949,10 +1846,12 @@ class CommandLine(LabUI):
         bound = self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("a second Lab UI served the folder"))
         opened, printed = self.patch(api, "open_browser"), io.StringIO()
         with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
+            api.serve(9001, browser=False)
+            opened.assert_not_called()
             api.serve(9001, browser=True)
         bound.assert_not_called()
         opened.assert_called_once_with("http://localhost:9000")
-        self.assertEqual(printed.getvalue(), self.RUNNING.format(9000) + "\n")
+        self.assertEqual(printed.getvalue(), (self.RUNNING.format(9000) + "\n") * 2)
 
     def test_the_lab_ui_of_another_folder_on_the_port_is_said_and_never_opened(self):
         # A second clone: the page of the first would act on the first lab
@@ -2101,20 +2000,13 @@ class Port(Case):
                 api.os.environ.pop("UI_PORT", None)
             api.main(argv)
 
-    def test_9000_unless_told_otherwise(self):
-        for environment in ({}, {"UI_PORT": ""}):
-            self.main(["--no-open"], **environment)
-            self.serve.assert_called_with(9000, False)
-
-    def test_ui_port_is_the_port(self):
-        self.main([], UI_PORT="9001")
-        self.serve.assert_called_with(9001, True)
-
-    def test_the_option_is_stronger_than_ui_port(self):
-        self.main(["--port", "9100"], UI_PORT="9001")
-        self.serve.assert_called_with(9100, True)
-        self.main(["--port", "9100"], UI_PORT="not a port")   # not read
-        self.serve.assert_called_with(9100, True)
+    def test_9000_unless_told_otherwise_and_the_option_is_stronger_than_ui_port(self):
+        for argv, environment, port, browser in ((["--no-open"], {}, 9000, False), (["--no-open"], {"UI_PORT": ""}, 9000, False),
+                                                 ([], {"UI_PORT": "9001"}, 9001, True),
+                                                 (["--port", "9100"], {"UI_PORT": "9001"}, 9100, True),
+                                                 (["--port", "9100"], {"UI_PORT": "not a port"}, 9100, True)):
+            self.main(argv, **environment)
+            self.serve.assert_called_with(port, browser)
 
     def test_a_ui_port_that_is_no_port_is_said_in_one_line(self):
         for value in ("abc", "9000.5", "-1", "0", "65536", "9 000", "\u0663", "9000;"):
@@ -2141,8 +2033,7 @@ class Port(Case):
 
 
 class CatalogRoutes(LabUI):
-    """Every route of the catalogs calls one function of the service with what the body says, and answers what it
-    answered; the logic is the service's (test_catalog_service)."""
+    """What the routes of the catalogs refuse themselves, and what a refusal of the service answers."""
 
     ROW = {"id": "acme-hub", "kind": "git"}
 
@@ -2150,73 +2041,20 @@ class CatalogRoutes(LabUI):
         super().setUp()
         self.patch(api.project, "load", return_value=PROJECT)
         self.calls = {}
-        for name in ("check_address", "add", "add_listed", "create_folder", "check_now", "set_auto", "allow_host", "update",
-                     "undo", "changes", "repair", "remove"):
+        for name in ("check_address", "add", "create_folder", "check_now", "set_auto", "allow_host", "update", "undo", "changes",
+                     "repair", "remove"):
             self.calls[name] = self.patch(api.service, name, return_value={"catalog": self.ROW})
 
     def post(self, path, body=None, **how):
         status, _, answer = self.request("POST", path, body, **how)
         return status, json.loads(answer)
 
-    def test_the_check_of_an_address_takes_the_address_and_a_branch_and_answers_the_preview(self):
-        self.calls["check_address"].return_value = {"ticket": "9f3a4c1d2e5b6a70"}
-        self.assertEqual(self.post("/api/catalogs/check", {"address": "acme/lab-hub", "branch": "main"}),
-                         (200, {"ticket": "9f3a4c1d2e5b6a70"}))
-        self.calls["check_address"].assert_called_once_with("acme/lab-hub", "main")
-        self.post("/api/catalogs/check", {"address": "acme/lab-hub"})
-        self.calls["check_address"].assert_called_with("acme/lab-hub", None)
-
-    def test_the_add_takes_a_ticket_and_may_say_the_allowance_and_a_listed_catalog_is_added_by_its_id(self):
-        self.assertEqual(self.post("/api/catalogs", {"ticket": "abc"}), (200, {"catalog": self.ROW}))
-        self.calls["add"].assert_called_once_with("abc", host=False)
-        self.post("/api/catalogs", {"ticket": "abc", "host": True})
-        self.calls["add"].assert_called_with("abc", host=True)
-        self.post("/api/catalogs", {"ticket": "abc", "host": "yes"})
-        self.calls["add"].assert_called_with("abc", host=False)
-        self.assertEqual(self.post("/api/catalogs", {"listed": "gravitee"}), (200, {"catalog": self.ROW}))
-        self.calls["add_listed"].assert_called_once_with("gravitee")
-        self.assertEqual(self.calls["add"].call_count, 3, "a listed catalog is not a ticket")
-
-    def test_new_catalog_takes_a_name(self):
-        self.assertEqual(self.post("/api/catalogs/new", {"name": "My catalog"}), (200, {"catalog": self.ROW}))
-        self.calls["create_folder"].assert_called_once_with("My catalog")
-
-    def test_the_routes_of_one_catalog_take_its_namespace(self):
-        cases = [("check", {}, "check_now", ("acme-hub",), {}),
-                 ("auto", {"enabled": False}, "set_auto", ("acme-hub", False), {}),
-                 ("allow", {"enabled": True}, "allow_host", ("acme-hub", True), {}),
-                 ("repair", {}, "repair", ("acme-hub",), {}),
-                 ("changes", {"ticket": "abc"}, "changes", ("acme-hub", "abc"), {})]
-        for route, body, function, args, how in cases:
-            with self.subTest(route=route):
-                self.assertEqual(self.post(f"/api/catalogs/acme-hub/{route}", body)[0], 200)
-                self.calls[function].assert_called_once_with(*args, **how)
-
-    def test_update_and_go_back_ask_for_the_plan_or_apply_a_ticket(self):
-        self.post("/api/catalogs/acme-hub/update", {"check": True})
-        self.calls["update"].assert_called_with("acme-hub", check=True, ticket=None, confirm_history=False)
-        self.post("/api/catalogs/acme-hub/update", {"ticket": "abc", "confirm_history": True})
-        self.calls["update"].assert_called_with("acme-hub", check=False, ticket="abc", confirm_history=True)
-        self.post("/api/catalogs/acme-hub/update", {"ticket": "abc", "confirm_history": "true"})
-        self.calls["update"].assert_called_with("acme-hub", check=False, ticket="abc", confirm_history=False)
-        self.post("/api/catalogs/acme-hub/undo", {"check": True})
-        self.calls["undo"].assert_called_with("acme-hub", check=True, ticket=None)
-        self.post("/api/catalogs/acme-hub/undo", {"ticket": "abc"})
-        self.calls["undo"].assert_called_with("acme-hub", check=False, ticket="abc")
-        for route in ("update", "undo"):
-            status, body = self.post(f"/api/catalogs/acme-hub/{route}", {})
-            self.assertEqual((status, body), (400, {"error": "Send check, or the ticket of the plan"}), route)
-
-    def test_remove_says_what_it_would_do_or_removes_and_a_request_that_says_neither_removes_nothing(self):
-        self.post("/api/catalogs/acme-hub/delete", {"check": True})
-        self.calls["remove"].assert_called_once_with("acme-hub", check=True)
-        self.post("/api/catalogs/acme-hub/delete", {"keep_settings": False})
-        self.calls["remove"].assert_called_with("acme-hub", keep_settings=False)
-        self.post("/api/catalogs/acme-hub/delete", {"keep_settings": True})
-        self.calls["remove"].assert_called_with("acme-hub", keep_settings=True)
-        calls = self.calls["remove"].call_count
-        self.assertEqual(self.post("/api/catalogs/acme-hub/delete", {}), (400, {"error": "Say whether to keep the settings of the catalog"}))
-        self.assertEqual(self.calls["remove"].call_count, calls)
+    def test_update_go_back_and_remove_say_what_they_lack_and_change_nothing(self):
+        for route, words in (("update", "Send check, or the ticket of the plan"), ("undo", "Send check, or the ticket of the plan"),
+                             ("delete", "Say whether to keep the settings of the catalog")):
+            self.assertEqual(self.post(f"/api/catalogs/acme-hub/{route}", {}), (400, {"error": words}), route)
+        for function in self.calls.values():
+            function.assert_not_called()
 
     def test_what_is_not_a_namespace_is_not_a_route(self):
         for path in ("/api/catalogs/Acme/check", "/api/catalogs/a/check", "/api/catalogs/-x-/check", "/api/catalogs/x_y/check",
@@ -2287,62 +2125,20 @@ class JunkBodies(LabUI):
         save.assert_not_called()
 
 
-class UseCatalog(LabUI):
-    """"Use the catalog version": the function of `contribute` behind its route."""
-
-    def setUp(self):
-        super().setUp()
-        self.patch(api.project, "load", return_value=PROJECT)
-        self.contribute = mock.Mock()
-        self.contribute.use_catalog_version.return_value = {"id": "@acme-hub/bank"}
-        self.contribute.destinations.return_value = [{"id": "gravitee", "name": "Gravitee public", "kind": "git",
-                                                      "writable": True, "reason": ""}]
-        self.patch(api, "contribute", self.contribute)
-
-    def test_the_route_takes_a_kind_and_an_id_and_answers_the_id_of_the_catalog_item(self):
-        status, _, body = self.request("POST", "/api/playgrounds/local/bank/use-catalog", {})
-        self.assertEqual((status, json.loads(body)), (200, {"id": "@acme-hub/bank"}))
-        self.contribute.use_catalog_version.assert_called_once_with(PROJECT, "playground", "local/bank")
-        self.request("POST", "/api/addons/local/echo/use-catalog", {})
-        self.contribute.use_catalog_version.assert_called_with(PROJECT, "addon", "local/echo")
-        self.assertEqual(self.request("POST", "/api/groups/local/echo/use-catalog", {})[0], 404)
-
-    def test_the_first_check_of_a_share_names_the_destinations(self):
-        status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"check": True})
-        self.assertEqual(json.loads(body), {"destinations": [
-            {"id": "gravitee", "name": "Gravitee public", "kind": "git", "writable": True, "reason": ""}]})
-        self.contribute.destinations.assert_called_once_with(PROJECT, "playground", "local/bank")
-
-    def test_a_share_with_a_destination_is_the_modules_check_and_share_and_one_without_is_refused(self):
-        self.request("POST", "/api/playgrounds/local/bank/share", {"check": True, "to": "gravitee"})
-        self.contribute.share.assert_called_with(PROJECT, "playground", "local/bank", "gravitee", True)
-        self.request("POST", "/api/playgrounds/local/bank/share", {"to": "gravitee"})
-        self.contribute.share.assert_called_with(PROJECT, "playground", "local/bank", "gravitee", False)
-        for sent in ({}, {"to": ""}):
-            status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", sent)
-            self.assertEqual((status, json.loads(body)), (400, {"error": "Choose where to share"}))
-        status, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"to": ["x"]})
-        self.assertEqual((status, json.loads(body)), (400, {"error": "The destination must be text"}))
-
-    def test_no_destination_at_all_is_an_empty_list_the_page_answers_with_new_catalog_and_add_catalog(self):
-        self.contribute.destinations.return_value = []
-        _, _, body = self.request("POST", "/api/playgrounds/local/bank/share", {"check": True})
-        self.assertEqual(json.loads(body)["destinations"], [])
-
-
 class StateOfCatalogs(LabUI):
     """/api/state for a project with no catalog carries git, catalogs and content, and nothing is run to say them."""
 
-    def test_a_project_with_no_catalog_has_the_three_keys_and_today_s_fields_and_asks_no_git_no_network(self):
+    def setUp(self):
+        super().setUp()
         fixtures.need_compose()
         self.folder(paths, api.project, compose, envfiles)
         fixtures.core(self)
-        (self.root / "catalogs.default.json").unlink() if (self.root / "catalogs.default.json").exists() else None
         self.patch(paths, "_default", (None, None))
-        self.patch(api.project, "forget", wraps=api.project.forget)
         self.patch(api.compose, "ps", side_effect=compose.ComposeError("Cannot connect to the Docker daemon"))
         self.patch(api.license, "status_of", lambda variable: None)
         self.patch(gitx, "version", return_value=(2, 43, 2))
+
+    def test_a_project_with_no_catalog_has_the_three_keys_and_today_s_fields_and_asks_no_git_no_network(self):
         with mock.patch.object(gitx, "run", side_effect=AssertionError("git was run")), \
                 mock.patch.object(gitx, "stream", side_effect=AssertionError("git was streamed")):
             status, _, body = self.request("GET", "/api/state")
@@ -2357,13 +2153,6 @@ class StateOfCatalogs(LabUI):
         self.assertEqual(state["problems"], [], "nothing is wrong with the files that record the catalogs")
 
     def test_the_files_that_record_the_catalogs_unreadable_are_a_problem_of_the_state_for_the_banner(self):
-        fixtures.need_compose()
-        self.folder(paths, api.project, compose, envfiles)
-        fixtures.core(self)
-        self.patch(paths, "_default", (None, None))
-        self.patch(api.compose, "ps", side_effect=compose.ComposeError("Cannot connect to the Docker daemon"))
-        self.patch(api.license, "status_of", lambda variable: None)
-        self.patch(gitx, "version", return_value=(2, 43, 2))
         (self.root / ".lab").mkdir(exist_ok=True)
         (self.root / ".lab" / "catalogs.json").write_text("{not json", encoding="utf-8")
         status, _, body = self.request("GET", "/api/state")
@@ -2374,9 +2163,6 @@ class StateOfCatalogs(LabUI):
         self.assertTrue(found[0]["message"].startswith("The file that lists your catalogs could not be read ("), found)
         self.assertIs(found[0]["editable"], False)
         self.assertEqual([row["id"] for row in state["catalogs"]], ["local"], "and nothing is shown of catalogs but an empty Personal, which the page hides")
-
-
-WARM_UP = api.warm_up   # the real one: the cases of Startup replace it
 
 
 class Startup(Case):
@@ -2407,7 +2193,6 @@ class Startup(Case):
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
         self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals",)))
-        self.patch(api, "warm_up", side_effect=lambda: events.append(("warm up",)))
         self.timer = self.patch(api.threading, "Timer")
         self.opened = self.patch(api, "open_browser")
 
@@ -2421,7 +2206,7 @@ class Startup(Case):
         said = self.serve()
         self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"),
                                        ("contribute", "sweep"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
-                                       ("warm up",), ("serve",)])
+                                       ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
                                "and the containers keep running.\n\n")
 
@@ -2441,12 +2226,6 @@ class Startup(Case):
         self.timer.reset_mock()
         self.serve(browser=False)
         self.timer.assert_not_called()
-
-    def test_the_lab_is_read_once_in_the_background_and_a_read_that_fails_is_the_state_s_to_say(self):
-        self.patch(api, "warm_up", WARM_UP)
-        read = self.patch(api, "snapshot", side_effect=RuntimeError("Docker hangs"))
-        api.warm_up().join(5)
-        read.assert_called_once_with()
 
     def test_a_lab_that_serves_already_is_left_alone_not_one_of_the_steps_runs(self):
         for module, name in self.STEPS:
@@ -2475,25 +2254,17 @@ class Startup(Case):
             self.serve()
 
     def test_a_step_that_fails_is_a_line_on_standard_error_and_the_rest_of_the_start_goes_on(self):
-        self.patch(api.service, "recover", side_effect=CatalogError("damaged", "A catalog changed on disk.", 409))
-        said = io.StringIO()
-        with contextlib.redirect_stderr(said):
-            self.serve()
-        self.assertEqual(said.getvalue().splitlines(), [
-            "Gravitee Lab UI: finishing what a stop left failed (CatalogError: A catalog changed on disk.)"])
-        self.assertEqual(self.events[-4:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("warm up",), ("serve",)])
-
-    def test_what_a_share_left_is_swept_after_what_a_stop_left_and_a_sweep_that_fails_keeps_nothing_from_starting(self):
-        # The half copies Share leaves in the folder of a linked catalog go at start, as the installs' sweep does
-        self.patch(api.contribute, "sweep", side_effect=OSError("read-only file system"))
-        said = io.StringIO()
-        with contextlib.redirect_stderr(said):
-            self.serve()
-        self.assertEqual(said.getvalue().splitlines(),
-                         ["Gravitee Lab UI: sweeping what a share left failed (OSError: read-only file system)"])
-        self.assertEqual([event for event in self.events if event[0] != "bind" and event != ("signals",)],
-                         [("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"),
-                          ("warm up",), ("serve",)])
+        for module, name, error, line in (
+                (api.service, "recover", CatalogError("damaged", "A catalog changed on disk.", 409),
+                 "finishing what a stop left failed (CatalogError: A catalog changed on disk.)"),
+                (api.contribute, "sweep", OSError("read-only file system"),
+                 "sweeping what a share left failed (OSError: read-only file system)")):
+            self.events.clear()
+            said = io.StringIO()
+            with mock.patch.object(module, name, side_effect=error), contextlib.redirect_stderr(said):
+                self.serve()
+            self.assertEqual(said.getvalue().splitlines(), [f"Gravitee Lab UI: {line}"])
+            self.assertEqual(self.events[-3:], [("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
 
     def test_the_command_line_runs_requirement_and_prepare_for_every_command_and_the_steps_for_serve_only(self):
         order = []

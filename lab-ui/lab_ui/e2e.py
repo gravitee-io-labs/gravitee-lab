@@ -78,34 +78,21 @@ class Step:
         self.name, self.ok, self.detail, self.seconds = name, ok, detail, seconds
 
 
-def example(built, ns=None):
-    """An item of the project written as it is asked for, to show how: the first playground, else the first add-on or setup
-    that is shared (of catalog `ns`, when one is given). None when the project has none."""
-    for kind in ("playground", "addon", "setup"):
-        for uid, unit in sorted(((built or {}).get(f"{kind}s") or {}).items()):
-            if not paths.personal(uid) and (ns is None or unit.get("catalog") == ns):
-                return f"{kind}:{uid}"
-    return None
-
-
-def parse(text, built=None):
+def parse(text):
     """The kind and id of an item from `kind:id`, any id of the Lab: `name` for the first catalog, `@catalog/name` for the
     others, `local/name` for this machine. ValueError, saying how to write it, for what is none (the text is never repeated:
-    it may come from a form anyone fills). Only the form is judged, never whether the item exists. `built` (the project)
-    gives the example of the message."""
+    it may come from a form anyone fills). Only the form is judged, never whether the item exists."""
     kind, _, uid = text.partition(":") if isinstance(text, str) and len(text) <= NAME_LIMIT else ("", "", "")
     uid = paths.canonical(uid)   # @<first catalog>/name is how a person may write name
     if kind not in paths.KINDS or not paths.is_id(uid):
-        shown = example(built)
-        raise ValueError(f"Name the item as kind:id, kind being {', '.join(paths.KINDS)}"
-                         + (f", for example {shown}" if shown else ""))
+        raise ValueError(f"Name the item as kind:id, kind being {', '.join(paths.KINDS)}")
     return kind, uid
 
 
 def target(text, built):
     """The kind and id of an item from `kind:id` (`parse`): the item has to be one of the project `built`, of any catalog. What
     belongs to this machine (`local/`) is never run here: this is the check of what is shared."""
-    kind, uid = parse(text, built)
+    kind, uid = parse(text)
     if paths.personal(uid):
         raise ValueError(f"{kind}:{uid} belongs to this machine: only what is shared with the project is run")
     if uid not in built[f"{kind}s"]:
@@ -115,9 +102,7 @@ def target(text, built):
 
 def image_variables(built):
     """The variables the images of the project are written with (`${APIM_VERSION:-4.13}`): the only ones a set of versions
-    may set. None for a project that lists no services, which is not one the Lab UI builds."""
-    if "services" not in built:
-        return None
+    may set."""
     return {key for service in built["services"].values() for key, _, _ in compose.references(service.get("raw_image") or "")}
 
 
@@ -162,13 +147,13 @@ def keep_on_file():
     return restore
 
 
-def clean_machine(shell=compose.run, name=None):
+def clean_machine():
     """What a machine that is free for a run holds of the lab: nothing. Containers and volumes of the project, whatever their
     state, are what a person left, and the run removes everything it made at its end: it will not remove theirs. Returns
     the reason it is not free, or None."""
-    name = name or compose.project_name()
+    name = compose.project_name()
     for what, command in (("containers", ["docker", "ps", "-aq"]), ("volumes", ["docker", "volume", "ls", "-q"])):
-        rc, out, err = shell([*command, "--filter", f"label=com.docker.compose.project={name}"], timeout=30)
+        rc, out, err = compose.run([*command, "--filter", f"label=com.docker.compose.project={name}"], timeout=30)
         if rc != 0:
             return f"Docker does not answer: {(err or out).strip().splitlines()[-1] if (err or out).strip() else 'no reason given'}"
         if out.strip():
@@ -577,17 +562,15 @@ def named(words, built, ns):
         except ValueError:
             kind = uid = None
         if kind is None or paths.personal(uid) or not exists(f"{kind}:{uid}", built, ns):
-            hint = example(built, ns)
-            raise PlanError(f"{shortened(word)} is not a shared item of {ns}: name it kind:id"
-                            + (f", for example {hint}" if hint else ""))
+            raise PlanError(f"{shortened(word)} is not a shared item of {ns}: name it kind:id")
         found.append(f"{kind}:{uid}")
     return list(dict.fromkeys(found))
 
 
-def shortened(text, limit=60):
+def shortened(text):
     """Text from anywhere as one quoted line that can be printed: cut, and in quotes, so that it starts with no `::`."""
     text = " ".join(str(text).split())
-    return repr(text if len(text) <= limit else text[:limit - 1] + "…")
+    return repr(text if len(text) <= 60 else text[:59] + "…")
 
 
 def jobs(items, sets):
