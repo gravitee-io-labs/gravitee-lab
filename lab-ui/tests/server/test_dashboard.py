@@ -341,10 +341,11 @@ class Read(Case):
         self.assertTrue(found["pending"])   # asked for again
         self.assertEqual(found["docker"]["engine"], "29.7.2")   # the rest is there
         self.assertEqual([row["id"] for row in found["products"]], ["api-management", "access-management", "alert-engine"])
-        self.assertIsNone(dashboard.read(self.project)["data"])
+        again = dashboard.read({"groups": [], "addons": {}, "setups": {}, "playgrounds": {}, "services": {}})   # no registry to wait for
+        self.assertEqual((again["data"], again["pending"]), (None, True))
         self.assertEqual(self.asked("system"), 1, "the read under way is not started again")
         release.set()
-        waited(self, lambda: compose.CACHE.kept(dashboard.USAGE, dashboard.DOCKER_TTL))
+        waited(self, lambda: compose.CACHE.kept("local:dashboard:df", dashboard.DOCKER_TTL))
         found = dashboard.read(self.project)
         self.assertEqual(found["data"]["images"]["size"], 58_890_000_000)
         self.assertEqual(self.asked("system"), 1)
@@ -357,6 +358,12 @@ class Read(Case):
         found = dashboard.read(self.project, refresh=True)
         self.assertEqual(found["data"]["images"]["size"], 58_890_000_000)
         self.assertEqual(self.asked("system"), 2)
+
+    def test_what_the_read_found_is_the_answer_though_the_cache_lost_it_since(self):
+        # What is kept ends its minute while the rest is read: no data and nothing pending would never be asked for again
+        self.patch(dashboard, "products", side_effect=lambda *_: (compose.CACHE.drop("local:"), ([], False))[1])
+        found = dashboard.read(self.project)
+        self.assertEqual((found["data"]["images"]["size"], found["pending"]), (58_890_000_000, False))
 
     def test_a_job_that_ends_drops_what_docker_held(self):
         dashboard.read(self.project)

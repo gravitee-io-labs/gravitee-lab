@@ -16,7 +16,6 @@ from ..docker import compose, images
 from ..library import project as projects
 from ..library.versions import judge, channel, latest, order, parse
 
-USAGE = "local:dashboard:df"   # what Docker holds, in the cache
 DOCKER_TTL = 60       # seconds what Docker holds is kept: a quick back and forth does not read it again
 DF_WAIT = 0.4         # seconds a read lasts at the most for what Docker holds, the slow one, before the page is drawn without it
 LATEST_TTL = 3600     # seconds the versions a registry lists are kept
@@ -84,7 +83,7 @@ def _usage():
             raise compose.ComposeError(err.strip() or "Docker did not say what it holds")
         return {**found, "read_at": int(time.time())}
     try:
-        return compose.CACHE.get(USAGE, DOCKER_TTL, ask)
+        return compose.CACHE.get("local:dashboard:df", DOCKER_TTL, ask)
     except compose.ComposeError:
         return None
 
@@ -190,7 +189,8 @@ def read(project, refresh=False):
     if refresh:
         compose.CACHE.drop("local:dashboard:")
         compose.CACHE.drop("docker:")
-    reading = threading.Thread(target=_usage, daemon=True)   # a read under way is waited for, not made again (compose.Cache)
+    found = []   # what a thread of its own read: a read under way is waited for, not made again (compose.Cache)
+    reading = threading.Thread(target=lambda: found.append(_usage()), daemon=True)
     reading.start()
     with ThreadPoolExecutor(max_workers=3) as pool:
         asked = [pool.submit(_asked, compose.docker_info), pool.submit(_asked, compose.compose_version),
@@ -202,8 +202,8 @@ def read(project, refresh=False):
     if down or why:
         docker["error"] = down or why
     rows, pending = products(project, containers)
-    return {"docker": docker, "data": compose.CACHE.kept(USAGE, DOCKER_TTL), "products": rows,
-            "pending": pending or reading.is_alive()}
+    pending = pending or not found   # before what it read: one that ends between the two is asked for again
+    return {"docker": docker, "data": found[0] if found else None, "products": rows, "pending": pending}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
