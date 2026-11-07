@@ -8,6 +8,7 @@ them: the kind, the tags saved and running (and whether the one saved is `older`
 the settings, the services a cause is about."""
 
 from . import versions
+from .project import tag
 
 SHOWN = 3   # names a line spells out before it counts the rest
 
@@ -16,18 +17,12 @@ def why(service, container, cause, settings=()):
     """The cause of one service that runs behind what is saved, `cause` being model.lateness()'s answer for it:
     {kind: tag, saved, running}, {kind: image, tag, built} or {kind: config, settings}. `container`: what ps()
     says of it. An image that Docker names by its id (a tag that a pull moved) tells no tag: it is a newer image."""
-    running = _tag(container.get("image"))
+    running = tag(container.get("image") or "")
     if running and service["tag"] and running != service["tag"]:
         return {"kind": "tag", "saved": service["tag"], "running": running}
     if cause == "image":
         return {"kind": "image", "tag": service["tag"], "built": bool(service["built"])}
     return {"kind": "config", "settings": list(settings)}
-
-
-def _tag(image):
-    image = image or ""
-    last = image.split("/")[-1]
-    return last.split(":")[-1] if ":" in last and "@sha256:" not in image and not image.startswith("sha256:") else ""
 
 
 def spelled(items):

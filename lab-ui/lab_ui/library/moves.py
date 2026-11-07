@@ -577,16 +577,5 @@ def merge(origin: str, home: str, everywhere: bool = False) -> list:
 
 
 def _personal_files():
-    """The compose files of the items of this machine, which `.lab/catalogs/local` holds: an add-on's and a
-    playground's compose.yml, a setup's file. A folder of a kind may be a link to the person's own folder."""
-    base, found = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL, []
-    for kind in ("addon", "playground", "setup"):
-        folder = base / f"{kind}s"
-        if not folder.is_dir():
-            continue
-        for name in sorted(os.listdir(folder)):
-            if kind == "setup" and name.endswith(".yml"):
-                found.append(folder / name)
-            elif kind != "setup":
-                found.append(folder / name / "compose.yml")
-    return found
+    """The compose files of the items of this machine, relative to the project."""
+    return [file for file in paths.files() if file.startswith(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/")]

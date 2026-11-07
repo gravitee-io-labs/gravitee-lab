@@ -574,18 +574,15 @@ class Elsewhere(Moves):
     """A rename that fails for a right or a filesystem: only the rename of the source is made to fail, so that the Lab's
     own files are still written."""
 
-    def refusing(self, source, error):
-        """A patch of `os.rename` that raises `error` for the rename of `source` and for no other."""
+    def failing(self, source, error):
+        """Has `os.rename` raise `error` for the rename of `source` and for no other."""
         real = os.rename
 
         def rename(src, dst, *more, **how):
             if str(src) == str(self.root / source):
                 raise error
             return real(src, dst, *more, **how)
-        return mock.patch.object(moves.os, "rename", rename)
-
-    def failing(self, source, error):
-        self.start(self.refusing(source, error))
+        self.patch(moves.os, "rename", rename)
 
     def tree(self):
         self.put("playgrounds/shop/.state/created.json", '{"a": 1}\n', 0o640)

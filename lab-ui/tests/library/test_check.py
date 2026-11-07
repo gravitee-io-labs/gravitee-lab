@@ -1230,7 +1230,7 @@ class Linking(Case):
     def test_the_folder_is_the_catalog_of_its_id_inside_and_nothing_of_it_is_left_outside(self):
         before = self.taken()
         with check.temporary_link(self.folder_of, "partner") as linked:
-            self.assertEqual((linked.ns, linked.lab, linked.folder), ("partner", self.root, self.folder_of))
+            self.assertEqual((linked.lab, linked.folder), (self.root, self.folder_of))
             self.assertNotEqual(linked.root, self.root)
             self.assertEqual(paths.ROOT, linked.root)
             self.assertTrue(os.path.islink(linked.root / ".lab/catalogs/partner"))

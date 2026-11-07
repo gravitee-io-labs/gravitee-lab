@@ -25,7 +25,6 @@ import shutil
 import stat
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -1274,16 +1273,11 @@ def folder_summary(folder):
 
 
 class Linked(NamedTuple):
-    """A folder read as the Lab reads a catalog: its namespace, the project folder it is linked into (temporary), the Lab's own
-    project folder, and the folder as it is."""
-    ns: str
+    """A folder read as the Lab reads a catalog: the project folder it is linked into (temporary), the Lab's own project folder,
+    and the folder as it is."""
     root: Path
     lab: Path
     folder: Path
-
-
-def _utc():
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def _lay_out(project_folder, lab):
@@ -1332,13 +1326,13 @@ def temporary_link(folder, ns, needs=(), audiences=None):
                     os.symlink(os.path.realpath(installed), holder / paths.CATALOGS_DIR / one["id"], target_is_directory=True)
             os.symlink(os.fspath(folder), holder / paths.CATALOGS_DIR / ns, target_is_directory=True)
             registry.write_config({"schema": 1, "catalogs": [*entries, {"id": ns, "kind": "folder", "path": os.fspath(folder),
-                                                                       "added": _utc(), **({"host": True} if host else {})}]})
+                                                                       **({"host": True} if host else {})}]})
             registry.write_lock({"schema": 1, "catalogs": locks})
             for name, audience in (audiences or {}).items():
                 registry.set_lock(name, audience=audience)
             forget()
             try:
-                yield Linked(ns, holder, lab, Path(folder))
+                yield Linked(holder, lab, Path(folder))
             finally:
                 forget()
     finally:

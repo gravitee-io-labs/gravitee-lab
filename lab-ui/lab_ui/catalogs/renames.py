@@ -262,7 +262,7 @@ def _compose_files():
     """The compose files whose includes the Lab follows: those of the items of this machine, and those of the playgrounds
     imported from a file, which are the Lab's own copies. The files of a catalog are its owners', and a linked folder is its
     author's: neither is written."""
-    found = list(moves._personal_files())
+    found = [paths.ROOT / file for file in moves._personal_files()]
     for entry in registry.entries():
         if registry.imported(entry["id"]):
             base = paths.ROOT / paths.CATALOGS_DIR / entry["id"]
@@ -311,8 +311,8 @@ def _retarget(files, step):
 def _copies(old_uid, new_uid, step):
     """The person's copies of the item say whose copy they are by its new id (`x-gravitee.copy_of`)."""
     pattern = re.compile(_COPY_OF.format(re.escape(old_uid)), re.M)
-    for file in moves._personal_files():
-        if file.is_symlink() or not file.is_file():
+    for file in (paths.ROOT / one for one in moves._personal_files()):
+        if file.is_symlink():
             continue
         try:
             text = file.read_text(encoding="utf-8")
