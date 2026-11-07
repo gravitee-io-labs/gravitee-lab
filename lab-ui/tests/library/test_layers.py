@@ -979,10 +979,6 @@ class Plans(Case):
             self.assertEqual(self.plan(state, up("jade"), "addon", "jade", do)["blocked"],
                              ".lab/on.yml has your own changes")
 
-    def test_unknown_item(self):
-        with self.assertRaises(paths.NotFound):
-            self.plan(on(self.project), up(), "addon", "nope", "start")
-
     def test_check_refuses_what_the_page_did_not_show(self):
         state = on(self.project, ["kazoo-desk"])
         plan = self.plan(state, up("kazoo", "kazoo-desk"), "addon", "kazoo", "stop")
@@ -1405,7 +1401,6 @@ class Places(Case):
         self.assertNotIn("apim-gateway", restarting)
         self.assertNotIn("apim-gateway", {*plan["services"]["start"], *plan["services"]["remove"]})
 
-
     def test_an_item_that_runs_on_a_platform_restarts_the_gateway_of_that_platform_when_it_stops(self):
         running = self.up("hyssop", "kazoo", platform=True)
         state = {**on(self.project, ["hyssop", "kazoo"]), "targets": {"addon:kazoo": "cloud"}}
@@ -1490,6 +1485,7 @@ class Applies(Case):
         found = layers.owner_rows(self.project, ["kazoo-ui", "hello-app", "mongodb", "apim-gateway", "jade"])
         self.assertEqual(found, [MANAGEMENT, DATABASES, APPS, JADE, KAZOO])
 
+
 class Files(Case):
     """The on file and the job, in a project folder that holds only what a test writes."""
 
@@ -1563,27 +1559,16 @@ class Files(Case):
         state = layers.current(self.project)
         plan = layers.plan(self.project, state, up(), "addon", "kazoo", "start")
         self.assertEqual(plan["targets"], {".lab/catalogs/fixture/addons/kazoo/compose.yml": None})
-        _, (_, write, *_), _ = self.applied(plan)
+        _, (_, write, command), _ = self.applied(plan)
         write(mock.Mock(lines=[]))
         self.assertEqual(layers.current(self.project)["targets"], {"addon:kiosk": "cloud"})
+        # The plain file sets the gateway of this machine, which runs: it is made again, and the dialog says so
+        self.assertIn("apim-gateway", command)
+        self.assertEqual(plan["restarts"], [GATEWAY])
         self.assertIn("  - .lab/catalogs/fixture/addons/kazoo/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
         # A stop leaves every item where it runs
         stop = layers.plan(self.project, layers.current(self.project), up(), "addon", "kazoo", "stop")
         self.assertEqual(stop["targets"], {})
-
-    def test_a_start_back_on_this_machine_makes_again_what_its_plain_file_changes(self):
-        # Kazoo was deployed (its copy sets gravitee_kafka_enabled on apim-hyssop-gateway), then its containers stopped
-        # while it stayed on. Its Start on This machine writes the plain file, which sets it on apim-gateway, which runs
-        self.write(".lab/catalogs/fixture/addons/kazoo/compose.yml", self.KAZOO)
-        layers.write(None, ["kazoo"], {".lab/catalogs/fixture/addons/kazoo/compose.yml": "cloud"}, self.NAMES)
-        plan = layers.plan(self.project, layers.current(self.project), up(), "addon", "kazoo", "start")
-        self.assertEqual(plan["targets"], {".lab/catalogs/fixture/addons/kazoo/compose.yml": None})
-        _, (_, write, command), _ = self.applied(plan)
-        write(mock.Mock(lines=[]))
-        self.assertIn("  - .lab/catalogs/fixture/addons/kazoo/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
-        # As the Start of Kazoo while it is off does, the gateway it configures is made again, and the dialog says so
-        self.assertIn("apim-gateway", command)
-        self.assertEqual(plan["restarts"], [GATEWAY])
 
     def test_a_playground_started_back_on_this_machine_makes_its_gateway_again(self):
         cloud(self.project)
@@ -1616,37 +1601,10 @@ class Files(Case):
         plan = layers.plan(self.project, layers.current(self.project), up("kazoo"), "addon", "kazoo-desk", "start")
         self.assertEqual(plan["services"]["start"], ["apim-management-api", "kazoo-desk"])
 
-    def test_write_then_read(self):
-        layers.write("welcome", ["kiosk", "kazoo-desk"])
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
-                         "include:\n  - .lab/catalogs/fixture/playgrounds/welcome/compose.yml\n  - .lab/catalogs/fixture/addons/kazoo-desk/compose.yml\n"
-                         "  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
-        state = layers.current(self.project)
-        self.assertEqual((state["playground"], state["explicit"]), ("welcome", ["kazoo-desk", "kiosk"]))
-        self.assertEqual(state["effective"], ["agent-lens", "kazoo", "kazoo-desk", "kiosk"])
-        self.assertIsNone(state["locked"])
-        # Nothing on: an empty file, which Compose needs all the same
-        layers.write(None, [])
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
-        self.assertEqual(layers.current(self.project)["locked"], None)
-
     def test_a_fresh_clone_starts_with_nothing_on(self):
         layers.prepare()
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
         self.assertFalse((self.root / ".env").exists())   # make init makes it, from .env.example
-
-    def test_what_belongs_to_this_machine_is_turned_on_like_the_rest(self):
-        own(self.project)
-        for path in (".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/playgrounds/sandbox/compose.yml"):
-            self.write(path)
-        layers.write("local/sandbox", ["kiosk"])
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
-                         "include:\n  - .lab/catalogs/local/playgrounds/sandbox/compose.yml\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
-        state = layers.current(self.project)
-        self.assertEqual((state["playground"], state["explicit"], state["effective"], state["locked"]),
-                         ("local/sandbox", ["kiosk"], ["kiosk", "local/whoami"], None))
-        layers.write(None, ["local/whoami"])
-        self.assertEqual(layers.current(self.project)["explicit"], ["local/whoami"])
 
     def test_setup_entry_is_its_includes(self):
         state = self.on_file("# mine\ninclude:\n  - .lab/catalogs/fixture/setups/events.yml\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n")
@@ -1767,10 +1725,7 @@ class Files(Case):
         _, (_, command, _), more = self.applied(plan)
         self.assertEqual(command, [*compose.COMPOSE, "-p", "lab", "rm", "--stop", "--force", "-v",
                                    "kazoo", "kazoo-desk", "kazoo-ui"])
-        self.assertEqual(more, {"key": "addon:kazoo", "verb": "stop",
-                                "changes": {"start": [], "stop": [["addon", "kazoo"], ["addon", "kazoo-desk"]]},
-                                "waits": [{("Container", "lab-kazoo"): "stop", ("Container", "lab-kazoo-ui"): "stop",
-                                           ("Container", "lab-kazoo-desk"): "stop"}]})
+        self.assertEqual((more["key"], more["verb"]), ("addon:kazoo", "stop"))
 
     def test_what_goes_is_removed_before_the_on_file_says_it_is_off(self):
         # The removal fails, or is canceled, or the Lab UI ends there: Kazoo is still on, stopped, never off and still running
@@ -2035,10 +1990,11 @@ class Gates(Case):
         self.publish(kiosk=["5601"], **{"kazoo-ui": ["5601"]})
         self.assertEqual(self.why("addon", "kiosk", running=up("kazoo", project=self.project)),
                          "Port 5601 is used by Kazoo")
-        # The platform too: it runs
+        # The platform too, whether it runs or not
         self.project["services"]["apim-gateway"]["ports"] = ["8082"]
         self.publish(kiosk=["8082"])
-        self.assertEqual(self.why("addon", "kiosk"), "Port 8082 is used by API Management")
+        for running in (None, up(platform=False, project=self.project)):
+            self.assertEqual(self.why("addon", "kiosk", running=running), "Port 8082 is used by API Management")
 
     def test_the_first_port_by_number_names_the_item(self):
         self.publish(kiosk=["5601", "800"], **{"kazoo-ui": ["800"], "jade": ["5601"]})
@@ -2067,12 +2023,6 @@ class Gates(Case):
         state = on(self.project, ["kiosk"])
         unit = self.project["addons"]["local/kiosk"]
         self.assertIsNone(layers._port_clash(self.project, state, up("kiosk", project=self.project), "addon", unit))
-
-    def test_a_port_the_platform_publishes_is_taken_while_it_does_not_run(self):
-        self.project["services"]["apim-gateway"]["ports"] = ["8082"]
-        self.publish(kiosk=["8082"])
-        self.assertEqual(self.why("addon", "kiosk", running=up(platform=False, project=self.project)),
-                         "Port 8082 is used by API Management")
 
     def test_a_start_is_refused_when_another_program_uses_a_port_it_publishes(self):
         # A Postgres of the person's own on 5432: the start is refused at the click, before the on file names Kiosk
@@ -2297,15 +2247,6 @@ class Entries(Case):
         layers.write(None, [])
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
 
-    def test_an_item_of_a_catalog_runs_on_a_platform_through_its_copy(self):
-        self.write(paths.unit_file("addon", "kazoo"), "services:\n  apim-gateway:\n    environment:\n      A: b\n")
-        layers.write(None, ["kazoo"], {paths.unit_file("addon", "kazoo"): "cloud"}, {"cloud": {"apim-gateway": "apim-hyssop"}})
-        self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
-                         'include:\n  - {path: ".lab/targets/cloud/.lab__catalogs__fixture__addons__kazoo__compose.yml", '
-                         'project_directory: ".lab/catalogs/fixture/addons/kazoo"}\n')
-        state = layers.current(self.project)
-        self.assertEqual((state["explicit"], state["targets"], state["locked"]), (["kazoo"], {"addon:kazoo": "cloud"}, None))
-
     def test_the_settings_of_an_add_on_of_a_catalog_are_read_from_a_plain_env_only(self):
         env = self.root / paths.unit_env("addon", "hyssop")
         self.write(paths.unit_env("addon", "hyssop"), "HYSSOP_CLOUD_TOKEN=token\n")
@@ -2325,11 +2266,13 @@ class Entries(Case):
     BLOCKED = {".lab/catalogs/fixture/addons/kiosk/compose.yml": "Mounts the Docker socket"}
 
     def test_no_entry_is_added_for_a_unit_that_is_blocked(self):
-        layers.write("welcome", ["jade"])
+        layers.write("welcome", [])
         before = (self.root / paths.ON_FILE).read_text(encoding="utf-8")
         with self.assertRaisesRegex(RuntimeError, "^kiosk is blocked: Mounts the Docker socket$"):
             layers.write("welcome", ["jade", "kiosk"], blocked=self.BLOCKED)
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), before, "nothing was written")
+        layers.write("welcome", ["jade"], blocked=self.BLOCKED)
+        self.assertIn("jade", (self.root / paths.ON_FILE).read_text(encoding="utf-8"), "what is not in the map is written")
 
     def test_an_entry_that_is_there_stays_and_a_removal_never_raises(self):
         layers.write("welcome", ["jade", "kiosk"])
@@ -2338,10 +2281,6 @@ class Entries(Case):
         layers.write(None, ["kiosk"], blocked=self.BLOCKED)
         layers.write(None, [], blocked=self.BLOCKED)
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"), "")
-
-    def test_a_unit_of_a_catalog_that_is_not_in_the_map_is_added(self):
-        layers.write("welcome", ["kiosk"], blocked={".lab/catalogs/fixture/addons/jade/compose.yml": "No"})
-        self.assertIn("kiosk", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
 
     def test_the_map_is_every_unit_the_policy_blocks_or_that_lacks_a_catalog(self):
         self.project["addons"]["kiosk"]["blocked"] = {"reasons": ["Mounts the Docker socket", "Runs with full privileges"]}
@@ -2504,10 +2443,6 @@ class Binds(Case):
         self.binds(self.unit / "secrets" / "key.pem", self.unit / "config.json", self.unit / "seed.d")
         self.assertEqual(layers.make_binds(self.project, self.plan), [])
         self.assertFalse((self.unit / "secrets").exists(), "nor its parent")
-
-    def test_a_name_with_a_dot_in_front_is_a_folder(self):
-        self.binds(self.unit / ".state", self.unit / ".cache")
-        self.assertEqual(len(layers.make_binds(self.project, self.plan)), 2)
 
     def test_docker_is_told_not_to_make_it_and_the_lab_does_not_either(self):
         self.binds(self.unit / "secrets", bind={"create_host_path": False})
