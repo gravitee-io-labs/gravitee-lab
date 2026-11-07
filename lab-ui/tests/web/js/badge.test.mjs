@@ -435,5 +435,3 @@ test("a popover may end with one button that leads somewhere; the others are as 
   assert.equal(hostile.querySelectorAll("img, script").length, 0);
   assert.equal(hostile.querySelectorAll("a").length, 1);
 });
-
-// --- The verb of a repair ---------------------------------------------------------------------------------------------------------

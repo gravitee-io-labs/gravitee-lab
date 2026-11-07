@@ -55,8 +55,6 @@ test("the divider knows which end of its travel it is at", () => {
   assert.equal(edge(600, limits(1000)), "min");   // no room to move: the minimum is also the maximum, and the minimum says so
 });
 
-const tab = (id) => ({ id });
-
 test("a UI is looked at once its tab shows, and again while it shows a notice", () => {
   assert.equal(looksAt({ opened: false, status: "" }), true);
   assert.equal(looksAt({ opened: true, status: "refused" }), true);

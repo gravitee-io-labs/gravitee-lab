@@ -193,7 +193,6 @@ test("every hybrid gateway of an account is listed: the one that runs here first
   assert.equal(status([gateway({ here: true }), gateway({ id: "g2" }), gateway({ id: "g3", environmentId: "env-prod" })]).gateway.count, 2);
 });
 
-
 test("a number of gateways is said in words: none, one, several", () => {
   assert.deepEqual([0, 1, 2, 12].map(gatewayCount), ["No gateway", "1 gateway", "2 gateways", "12 gateways"]);
 });
