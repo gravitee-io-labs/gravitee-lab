@@ -246,10 +246,10 @@ class Playgrounds(Case):
         welcome = self.project["playgrounds"]["welcome"]
         welcome["requires"] = {"license": ["apim-en-message-reactor"]}
         feed = {"api": {"name": "Batch status", "listeners": [{"entrypoints": [{"type": "sse"}]}],
-                        "endpointGroups": [{"type": "solace", "endpoints": [{"type": "solace"}]}]}}
+                        "endpointGroups": [{"type": "sorrel", "endpoints": [{"type": "sorrel"}]}]}}
         for name, text in {"apim/apis/own.json": {"api": {"name": "Own", "listeners": [{"entrypoints": [{"type": "sse"}]}]}},
-                           "environments/novo-nordisk/apis/batch-status.json": feed,
-                           "environments/moderna/apis/batch-status.json": feed}.items():
+                           "environments/north-meadow/apis/batch-status.json": feed,
+                           "environments/mallard/apis/batch-status.json": feed}.items():
             self.write(f".lab/catalogs/fixture/playgrounds/welcome/seed/{name}", json.dumps(text))
         installed = {"feature_by_id": {"sse": "apim-en-entrypoint-sse"}}
         self.project["products"] = {"API Management": {}}
@@ -259,11 +259,11 @@ class Playgrounds(Case):
             "apim-en-message-reactor": [],
             "apim-en-entrypoint-sse": ["Own: sse", "Batch status: sse"]}, []))
         # Once installed it is found in the APIs of the environments, each API named once
-        installed["feature_by_id"]["solace"] = "apim-en-endpoint-solace"
+        installed["feature_by_id"]["sorrel"] = "apim-en-endpoint-sorrel"
         self.assertEqual(playgrounds._features(self.project, welcome), ({
             "apim-en-message-reactor": [],
             "apim-en-entrypoint-sse": ["Own: sse", "Batch status: sse"],
-            "apim-en-endpoint-solace": ["Batch status: solace"]}, []))
+            "apim-en-endpoint-sorrel": ["Batch status: sorrel"]}, []))
 
     def test_a_seed_file_that_is_a_link_or_a_pipe_or_huge_is_no_definition_of_an_api(self):
         welcome = self.project["playgrounds"]["welcome"]

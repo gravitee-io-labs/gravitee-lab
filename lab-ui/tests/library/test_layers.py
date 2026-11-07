@@ -215,8 +215,8 @@ class Sets(Case):
 class ServiceOf(Case):
 
     SERVICES = {
-        "apelor-portal-beam": {"raw_image": "${PORTAL_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-portal-ui:${PORTAL_VERSION:-${APIM_VERSION:-4}}",
-                                "tag": "4", "registry": "graviteeio", "owner": {"name": "Apelor Bio"}},
+        "almond-portal-beet": {"raw_image": "${PORTAL_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-portal-ui:${PORTAL_VERSION:-${APIM_VERSION:-4}}",
+                                "tag": "4", "registry": "graviteeio", "owner": {"name": "Almond Bio"}},
         "apim-gateway": {"raw_image": "${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4}-debian}".join(["graviteeio/apim-gateway:", ""]),
                          "tag": "4-debian", "registry": None, "owner": {"name": "API Management"}},
         "apim-management-api": {"raw_image": "graviteeio/apim-management-api:${APIM_VERSION:-4}", "tag": "4", "registry": None,
@@ -228,7 +228,7 @@ class ServiceOf(Case):
         project = {"services": self.SERVICES}
         self.assertEqual(layers.service_of(project, "APIM_VERSION")[0], "apim-management-api")
         self.assertEqual(layers.saved_setting(project, "APIM_VERSION"), ("4", "API Management"))
-        self.assertEqual(layers.service_of(project, "PORTAL_VERSION")[0], "apelor-portal-beam")
+        self.assertEqual(layers.service_of(project, "PORTAL_VERSION")[0], "almond-portal-beet")
         self.assertEqual(layers.service_of(project, "APIM_GATEWAY_VERSION")[0], "apim-gateway")
 
     def test_a_variable_that_only_defaults_another_one_still_finds_a_service(self):

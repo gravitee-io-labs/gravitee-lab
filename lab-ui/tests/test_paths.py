@@ -26,12 +26,12 @@ class SeedApis(Case):
     def test_the_apis_of_a_seed_are_found_in_the_platforms_folder_and_in_each_environment(self):
         root = self.folder(files=dict.fromkeys((
             "seed/apim/apis/b.json", "seed/apim/apis/a.json", "seed/apim/apis/notes.txt", "seed/apim/settings.yaml",
-            "seed/environments/novo-nordisk/apis/batch-status.json", "seed/environments/beam/apis/sample-requests.json",
-            "seed/environments/beam/applications/app.yaml", "seed/environments/beam/portal/apis/deeper.json",
-            "seed/environments/beam/apis/nested/deeper.json", "seed/am/apis/z.json"), ""))
+            "seed/environments/north-meadow/apis/batch-status.json", "seed/environments/beet/apis/sample-requests.json",
+            "seed/environments/beet/applications/app.yaml", "seed/environments/beet/portal/apis/deeper.json",
+            "seed/environments/beet/apis/nested/deeper.json", "seed/am/apis/z.json"), ""))
         self.assertEqual(self.found(root), [
             "seed/am/apis/z.json", "seed/apim/apis/a.json", "seed/apim/apis/b.json",
-            "seed/environments/beam/apis/sample-requests.json", "seed/environments/novo-nordisk/apis/batch-status.json"])
+            "seed/environments/beet/apis/sample-requests.json", "seed/environments/north-meadow/apis/batch-status.json"])
 
     def test_a_folder_without_a_seed_has_no_api(self):
         root = self.folder(files={"compose.yml": "", "seed/controls.yaml": ""})

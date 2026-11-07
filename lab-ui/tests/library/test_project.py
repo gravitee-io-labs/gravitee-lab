@@ -1593,15 +1593,15 @@ class Gathered(AsOwn):
             return json.dumps({"api": {"listeners": [{"entrypoints": [{"type": entrypoint}]}], "endpointGroups": groups}})
         self.folder(paths, project, files={
             ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/one.json": api("http-proxy", "http-proxy"),
-            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/novo-nordisk/apis/feed.json": api("sse", "solace"),
-            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beam/apis/feed.json": api("webhook", "solace"),
-            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beam/apis/broken.json": "not json",
-            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beam/apis/list.json": "[]",
-            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beam/apis/text.json": '{"api": "text", "plans": 3}',
-            ".lab/catalogs/local/playgrounds/sandbox/seed/environments/moderna/apis/feed.json": api("websocket"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/north-meadow/apis/feed.json": api("sse", "sorrel"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beet/apis/feed.json": api("webhook", "sorrel"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beet/apis/broken.json": "not json",
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beet/apis/list.json": "[]",
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beet/apis/text.json": '{"api": "text", "plans": 3}',
+            ".lab/catalogs/local/playgrounds/sandbox/seed/environments/mallard/apis/feed.json": api("websocket"),
             ".lab/catalogs/fixture/playgrounds/none/compose.yml": ""})
         self.assertEqual(project._seed_uses("welcome"), {
-            "entrypoint": ["http-proxy", "sse", "webhook"], "endpoint": ["http-proxy", "solace"], "policy": [],
+            "entrypoint": ["http-proxy", "sse", "webhook"], "endpoint": ["http-proxy", "sorrel"], "policy": [],
             "resource": []})
         # What is no JSON object is said to be no definition: the license's checks name it
         self.assertEqual([(file.name, definition is None) for file, definition in project.seed_definitions("welcome")],
@@ -2922,7 +2922,7 @@ class ReadAgain(Case):
         self.edited(file, json.dumps(definition), 3)
         self.assertIn("rate-limit", project.loaded()[1]["uses"]["local/sandbox"]["policy"])
         # A file the seed adds deeper down is seen too: an environment of its own
-        self.edited(".lab/catalogs/local/playgrounds/sandbox/seed/environments/beam/apis/beam.json",
+        self.edited(".lab/catalogs/local/playgrounds/sandbox/seed/environments/beet/apis/beet.json",
                     json.dumps({"api": {"listeners": [{"entrypoints": [{"type": "sse"}]}]}}), 4)
         self.assertIn("sse", project.loaded()[1]["uses"]["local/sandbox"]["entrypoint"])
         # And what the seed reads of this machine's settings, whose token a place does not hand it (N02)
@@ -3312,30 +3312,30 @@ class Catalog(Case):
                 self.assertEqual(self.gamma(built, None, [uid]), [("Gamma Console", self.DEEP)])
 
     def test_a_console_a_unit_adds_on_a_service_of_the_core_shows_while_it_is_on(self):
-        unit = member("local", "addon", "beam", ["beam-svc"])
+        unit = member("local", "addon", "beet", ["beet-svc"])
         given = catalog_inputs([unit])
-        given["raw"][unit[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.beam.name": "Beam",
-                                                                         "io.gravitee.console.beam.url": "http://localhost:8099"}}
+        given["raw"][unit[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.beet.name": "Beet",
+                                                                         "io.gravitee.console.beet.url": "http://localhost:8099"}}
         built = project.build(given)
         self.assertEqual(self.gamma(built, None, [], tabs=False), [])
-        self.assertEqual(self.gamma(built, None, ["local/beam"], tabs=False), [("Beam", "http://localhost:8099")])
+        self.assertEqual(self.gamma(built, None, ["local/beet"], tabs=False), [("Beet", "http://localhost:8099")])
 
     def test_the_units_that_are_on_change_a_tab_on_a_console_of_the_core_key_by_key_in_the_order_of_the_on_file(self):
         # The playground names the console and an add-on that is on points it: both hold, as Compose merges them
-        named, pointed = member("local", "playground", "lumen", ["lumen-web"]), member("local", "addon", "beam", ["beam-svc"])
+        named, pointed = member("local", "playground", "lumen", ["lumen-web"]), member("local", "addon", "beet", ["beet-svc"])
         given = catalog_inputs([named, pointed])
         given["raw"][project.CORE_FILE]["services"]["apim-gateway"]["labels"].update(
             {"io.gravitee.console.gamma.name": "Gamma Console", "io.gravitee.console.gamma.url": "http://localhost:8086"})
         given["raw"][named[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.gamma.name": "Gamma"}}
         given["raw"][pointed[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.gamma.url": self.DEEP}}
         built = project.build(given)
-        self.assertEqual(self.gamma(built, "local/lumen", ["local/beam"]), [("Gamma", self.DEEP)])
-        self.assertEqual(self.gamma(built, None, ["local/beam"]), [("Gamma Console", self.DEEP)])
+        self.assertEqual(self.gamma(built, "local/lumen", ["local/beet"]), [("Gamma", self.DEEP)])
+        self.assertEqual(self.gamma(built, None, ["local/beet"]), [("Gamma Console", self.DEEP)])
         self.assertEqual(self.gamma(built, "local/lumen"), [("Gamma", "http://localhost:8086")])
         # Two that set the same key: the first in the on file wins, the playground before the add-ons, the add-ons by id
         given["raw"][named[0]]["services"]["apim-gateway"]["labels"]["io.gravitee.console.gamma.url"] = "http://localhost:8086/mine"
         built = project.build(given)
-        self.assertEqual(self.gamma(built, "local/lumen", ["local/beam"]), [("Gamma", "http://localhost:8086/mine")])
+        self.assertEqual(self.gamma(built, "local/lumen", ["local/beet"]), [("Gamma", "http://localhost:8086/mine")])
 
     def test_a_unit_of_a_catalog_never_points_a_console_of_the_core_off_this_machine(self):
         built = project.build(self.pointed("first", "https://phish.example/login"))

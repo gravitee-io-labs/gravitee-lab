@@ -469,16 +469,16 @@ class Items(Machine):
     def test_the_apis_of_the_environments_a_seed_adds_are_json_objects_too(self):
         root = self.folder(files={
             "seed/apim/apis/one.json": '{"api": {"name": "One"}}',
-            "seed/environments/beam/environment.yaml": "id: beam\nname: Beam\n",
-            "seed/environments/beam/apis/sample-requests.json": '{"api": {"name": "Sample requests"}}',
-            "seed/environments/beam/apis/broken.json": "{",
-            "seed/environments/moderna/environment.yaml": "id: moderna\nname: Moderna\n",
-            "seed/environments/moderna/apis/list.json": "[]",
-            "seed/environments/moderna/portal/apis/not-an-export.json": "not json"})
+            "seed/environments/beet/environment.yaml": "id: beet\nname: Beet\n",
+            "seed/environments/beet/apis/sample-requests.json": '{"api": {"name": "Sample requests"}}',
+            "seed/environments/beet/apis/broken.json": "{",
+            "seed/environments/mallard/environment.yaml": "id: mallard\nname: Mallard\n",
+            "seed/environments/mallard/apis/list.json": "[]",
+            "seed/environments/mallard/portal/apis/not-an-export.json": "not json"})
         self.assertEqual(list(check._seed(root)), [
-            "seed/environments/beam/apis/broken.json is not valid JSON: "
+            "seed/environments/beet/apis/broken.json is not valid JSON: "
             "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
-            "seed/environments/moderna/apis/list.json must hold a JSON object"])
+            "seed/environments/mallard/apis/list.json must hold a JSON object"])
 
 
 PORTAL_COMMAND = ["/bin/sh", "-c", "sed -i -e '/X-Frame-Options/d' -e \"s|self|& {pages}|\" x; sh /run.sh"]
