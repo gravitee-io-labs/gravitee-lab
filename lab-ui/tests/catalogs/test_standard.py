@@ -339,6 +339,11 @@ class Rendering(unittest.TestCase):
             self.assertIn(text, files["addons/hello/compose.yml"].decode())
         self.assertIn("MY_SHOP_HELLO_VERSION", files["addons/hello/README.md"].decode())
 
+    def test_the_makefile_includes_the_standard_and_the_standard_has_the_targets(self):
+        self.assertTrue(render()["Makefile"].decode().startswith("include .catalog/standard.mk\n"))
+        mk = render()[".catalog/standard.mk"].decode()
+        self.assertIn(".PHONY: dev check ci index upgrade settings release explain", mk)
+
     def test_the_folder_catalog_is_five_things_and_a_license(self):
         files = standard.render_new({"local": True, "id": "mine", "name": "Mine"})
         self.assertEqual(sorted(files), [".gitignore", "LICENSE", "Makefile", "README.md", "addons/hello/README.md",
