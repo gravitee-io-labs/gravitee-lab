@@ -44,8 +44,8 @@ Everything the Lab installs is under the three folders. A file the Lab never ins
 leaves your machine in an installed copy. A unit folder is a unit only with its `compose.yml`.
 
 The folder of an add-on or a playground, and the file of a setup, is named after the item's `x-gravitee.name`: in lower case,
-every run of characters other than `a-z` and `0-9` becomes one dash, with no dash at either end. *Event Streams Management with
-Kafka* is `playgrounds/event-streams-management-with-kafka/`, *Kafka streams* is `setups/kafka-streams.yml`. The Lab UI's **New
+every run of characters other than `a-z` and `0-9` becomes one dash, with no dash at either end. *Acme Shop:
+streams* is `playgrounds/acme-shop-streams/`, *Acme streams* is `setups/acme-streams.yml`. The Lab UI's **New
 add-on**, **New setup** and **New playground** name the folder so, and `catalog.py check` refuses an item that is named otherwise
 (`ST23`). The folder is the item's id, so a name you change later is a rename of the folder too: see
 [Renaming an item](#renaming-an-item).
@@ -75,17 +75,17 @@ are for older Gravitee Labs: leave them to `catalog.py`, which keeps them true (
 
 ## Renaming an item
 
-An item's folder is named after its name: lowercase, with each run of other characters as one dash (`Kiosk browser` is
-`addons/kiosk-browser`). To rename an item, rename its folder, its name and its own settings, and say what you renamed in
+An item's folder is named after its name: lowercase, with each run of other characters as one dash (`Acme console` is
+`addons/acme-console`). To rename an item, rename its folder, its name and its own settings, and say what you renamed in
 `catalog.yml`:
 
 ```yaml
 x-gravitee-catalog:
   renamed:
     items:              # kind:old: kind:new
-      addon:kiosk: addon:kiosk-browser
+      addon:acme: addon:acme-console
     settings:           # OLD: NEW, in the .env of the catalog's items
-      KIOSK_TOKEN: KIOSK_BROWSER_TOKEN
+      ACME_TOKEN: ACME_CONSOLE_TOKEN
 ```
 
 A person who updates to that release keeps everything under the new name: the item's `.env`, `secrets/` and `.state/` move to

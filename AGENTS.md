@@ -22,8 +22,9 @@ project, people and AI agents alike. The process (branches, pull requests, CI) i
 | `docs/` | For people: [installation.md](docs/installation.md) (prerequisites, first start, licenses, stop and remove), [lab-ui.md](docs/lab-ui.md), [configuration.md](docs/configuration.md), [playgrounds.md](docs/playgrounds.md) (writing a playground), [troubleshooting.md](docs/troubleshooting.md), [maintaining.md](docs/maintaining.md) (moving or forking the repository, the one-time GitHub settings), [cloud.md](docs/cloud.md) (using Gravitee Cloud with the Lab) |
 | `README.md`, `CONTRIBUTING.md`, `SECURITY.md` | What the lab is and where to start; the contribution process; the vulnerability policy and what the lab exposes |
 | `LICENSE`, `NOTICE` | AGPL-3.0, and the attribution term that NOTICE adds |
+| `contract.lock`, `catalogs.default.json` | What [the contract](docs/contract.md) pins; the catalog the Lab is set up with |
 | `.github/` | CI, the end-to-end workflow (`e2e.yml`, with the scripts that plan its jobs and check that images exist), the workflow that publishes the seeder's image, the Compose action, issue and pull request templates, Dependabot, and `tests/` for the Makefile, the scripts, the workflows' rules and the Compose conventions |
-| `.agents/skills/<name>/SKILL.md` | A skill: what an AI agent follows to create an add-on, a setup or a playground, to share a personal one, or to prepare a pull request |
+| `.agents/skills/<name>/SKILL.md` | A skill: what an AI agent follows to create an add-on, a setup, a playground or a catalog, to share a personal one, or to prepare a pull request |
 | `.claude/skills/<name>/SKILL.md` | The stub that Claude Code reads: the skill's `name` and `description`, then one line that sends to the skill |
 | `AGENTS.md`, `CLAUDE.md`, `.gemini/settings.json` | The guide of a folder; next to each, a `CLAUDE.md` holding the single line `@AGENTS.md`; the setting that makes Gemini CLI read `AGENTS.md` |
 | `ruff.toml`, `.editorconfig`, `.gitattributes`, `.gitignore` | Lint settings, editor settings, LF line endings, what git ignores |
@@ -45,9 +46,9 @@ the id `local/<id>`, so `local` is not an id. An item of a catalog is read only 
 the default catalog, `@<catalog>/<id>` for another.
 
 - A personal item and a catalog item sit at the same depth, so the same relative paths work in both. An add-on includes an
-  add-on of its catalog as `../kafka/compose.yml`, a setup as `../addons/kafka/compose.yml` and a playground as
-  `../../addons/kafka/compose.yml`; one of another catalog, such as the default one, is
-  `../../../<catalog id>/addons/kafka/compose.yml` from an add-on; a playground's seed builds `../../../../../seeder`.
+  add-on of its catalog as `../<id>/compose.yml`, a setup as `../addons/<id>/compose.yml` and a playground as
+  `../../addons/<id>/compose.yml`; one of another catalog, such as the default one, is
+  `../../../<catalog id>/addons/<id>/compose.yml` from an add-on; a playground's seed builds `../../../../../seeder`.
   [The format of the units](docs/units.md) gives the depth of each kind.
 - An item of a catalog includes what its catalog holds, or what the catalogs it declares in `requires.catalogs` hold, and never
   a personal item, because what a catalog holds runs on any machine. A personal item includes what it wants.
@@ -82,7 +83,7 @@ the default catalog, `@<catalog>/<id>` for another.
   which sets nothing: the core's consoles say the password their image comes with. A console whose password is a
   setting says that setting.
 - **Seeds use endpoints, not container names.** Seed files hold `${VAR}` for every address and the seed service sets
-  them, because the seeder reads every endpoint from its settings. `make test` fails on a literal address.
+  them, because the seeder reads every endpoint from its settings. `seedlint`, in the CI of a catalog, fails on a literal address.
 - **Names.** An id is lowercase letters, digits and dashes. Service names are global to the project, because services
   of one name in two files merge: a playground's services carry its prefix (`shop-api`, not `api`), and an add-on's the
   name of what they run (`kafka-ui`, `smtp4dev`). Prefix an item's own settings with its id (`ACME_SHOP_*`,
