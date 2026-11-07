@@ -51,7 +51,6 @@ PLATFORMS = ("linux/amd64", "linux/arm64")
 MODULES = ("e2e",)
 LICENSES = {"agpl-3.0-only": "AGPL-3.0-only", "apache-2.0": "Apache-2.0", "mit": "MIT"}
 SHOWN = 80                             # characters of a stranger's word that a message shows
-LOG_LINES = 50                         # the lines of the Lab's own log that a moved pin brings
 
 MARKER = re.compile(r"# Managed by the Lab catalog standard (\d{1,3}): change it with catalog\.py upgrade, in a pull request a "
                     r"maintainer reads\.")
@@ -742,20 +741,6 @@ def latest_release(lab, git=None) -> str:
     return commit if _COMMIT.fullmatch(commit) else ""
 
 
-def lab_log(lab, old: str, new: str) -> List[str]:
-    """The Lab's own log of `lab-ui` and `.github` between two pins: at most LOG_LINES lines, each cut and made safe for a
-    terminal. Empty when the Lab checkout does not hold both commits."""
-    try:
-        result = gitx.run(["log", "--oneline", "--no-decorate", "-n", str(LOG_LINES), f"{old}..{new}", "--", "lab-ui", ".github"],
-                          cwd=str(lab), timeout=30)
-    except (gitx.CatalogError, OSError):
-        return []
-    if result.code != 0:
-        return []
-    lines = [printable(gitx.redact(line))[:200].strip() for line in result.out.decode("utf-8", "replace").splitlines()]
-    return [line for line in lines if line][:LOG_LINES]
-
-
 def _derived(tree, state: Declared, options: dict) -> dict:
     """The parameters `--adopt` renders the missing seeded files with, read from the repository: `catalog.yml` for the id, the
     name, the description, the license and the registry; the `*` line of CODEOWNERS (or `--maintainers`) for the owners; the
@@ -784,19 +769,19 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
         files       [{path, action, class, why, content}], action one of add, update, current, owned
         owned       the paths the catalog owns (no marker): skipped, listed
         notes       [{level, summary, manual, settings}] for the levels the repository has not reached
-        lab         {repository, old, new, compare, log}: the Lab pin, and what moving it brings
+        lab         {repository, old, new, compare}: the Lab pin, and what moving it brings
         refused     "" or why nothing can be done (the plan has no files then)
         pending     whether anything would be written
 
     `options`: lab_ref (40 hex: the new pin), adopt, with (modules), maintainers / lab_repository (for what adopt adds),
-    lab (the Lab checkout: SD11 and the log of a moved pin are asked of it), legacy_lab (when the key is there, catalog.yml gets
+    lab (the Lab checkout: SD11 is asked of it), legacy_lab (when the key is there, catalog.yml gets
     the lines older Gravitee Labs read, made true: `schema`, and `lab` as given, or as the file has it when None). Pure:
-    it reads the tree and runs `git log` in the Lab checkout; it writes nothing."""
+    it reads the tree and asks the Lab checkout; it writes nothing."""
     options = dict(options or {})
     adopt = bool(options.get("adopt"))
     state = declared(tree)
     plan: dict = {"level": LEVEL, "have": state.level, "files": [], "owned": [], "notes": [], "refused": "", "pending": False,
-                  "lab": {"repository": "", "old": "", "new": "", "compare": "", "log": []}, "name": ""}
+                  "lab": {"repository": "", "old": "", "new": "", "compare": ""}, "name": ""}
 
     def refuse(why: str) -> dict:
         plan["refused"] = why
@@ -887,11 +872,8 @@ def upgrade_plan(tree, options: Optional[dict] = None) -> dict:
     plan["pending"] = any(each["action"] in (ADD, UPDATE) for each in files)
     plan["notes"] = [{"level": number, **data["notes"][str(number)]} for number in range((state.level or 0) + 1, LEVEL + 1)]
     moved = bool(ref_new) and old.get("ref") not in (None, ref_new)
-    plan["lab"] = {"repository": repo, "old": old.get("ref") or "", "new": ref if moved else "", "compare": "", "log": []}
-    if moved:
-        plan["lab"]["compare"] = f"https://github.com/{repo}/compare/{old['ref']}...{ref}"
-        if lab_checkout is not None:
-            plan["lab"]["log"] = lab_log(lab_checkout, old["ref"], ref)
+    plan["lab"] = {"repository": repo, "old": old.get("ref") or "", "new": ref if moved else "",
+                   "compare": f"https://github.com/{repo}/compare/{old['ref']}...{ref}" if moved else ""}
     return plan
 
 
@@ -1153,7 +1135,6 @@ def describe(plan: dict) -> str:
     lab = plan["lab"]
     if lab["new"]:
         lines += ["", f"The Lab pin moves from {lab['old'][:7]} to {lab['new'][:7]}. What it brings:", f"  {lab['compare']}"]
-        lines += [f"  {each}" for each in lab["log"]]
     if not plan["pending"]:
         lines += ["", "Nothing to upgrade"]
     return "\n".join(lines)
