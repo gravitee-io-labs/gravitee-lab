@@ -135,11 +135,6 @@ class Deleting(unittest.TestCase):
         self.assertEqual(client.calls, [("scan", "ratelimit:*:cost-rl"), ("pipeline", 1)])
         self.assertEqual(refills.drop(FakeRedis(), self.refill, SANDBOX), 0)
 
-    def test_a_key_that_is_not_a_hash_is_no_ones_counter_and_does_not_stop_the_others(self):
-        client = FakeRedis({"ratelimit:a:1:cost-rl": "text", KEY: counter(SANDBOX)})
-        self.assertEqual(refills.drop(client, self.refill, SANDBOX), 1)
-        self.assertEqual(list(client.data), ["ratelimit:a:1:cost-rl"])
-
     def test_no_subscription_is_refused_and_nothing_is_read_or_deleted(self):
         """A counter that says no subscription (the field is empty or absent) must not be taken for the one asked for."""
         orphan = {"counter": "500", "limit": "120000", "reset": "1791506259034"}

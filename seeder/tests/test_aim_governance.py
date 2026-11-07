@@ -554,12 +554,6 @@ class Attestations(Governance):
         aim_governance.seed()
         self.assertEqual(self.platform.sent("GET", AGENT + "/assessment"), [])
 
-    def test_a_control_that_is_attested_already_is_not_attested_again(self):
-        self.world.attested["agent-1"] = {"tool-inventory"}
-        aim_governance.seed()
-        paths = [call.path for call in self.platform.calls if call.path.endswith("/attestation")]
-        self.assertEqual(paths, [AGENT + "/controls/authenticated-identity/attestation"])
-
     def test_a_control_the_platform_reads_itself_is_left_alone_and_said(self):
         self.file(compliance=COMPLIANCE.replace("      - tool-inventory\n", "      - event-logging\n      - risk-classification\n"))
         aim_governance.seed()

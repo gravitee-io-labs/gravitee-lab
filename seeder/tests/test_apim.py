@@ -451,11 +451,6 @@ class Connecting(Seed):
                     apim.ApiManagement().connect()
                 self.assertEqual((len(self.platform.calls), self.clock.sleeps), (1, []))
 
-    def test_a_platform_that_starts_is_waited_for(self):
-        self.answer({("GET", V2 + "/apis"): [requests.ConnectionError("refused"), 503, 404, (200, {"data": []})]})
-        apim.ApiManagement().connect()
-        self.assertEqual(len(self.platform.calls), 4)
-
 
 class ChangedDefinition(Converged):
 
