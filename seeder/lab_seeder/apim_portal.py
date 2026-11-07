@@ -357,7 +357,7 @@ class Folder:
                                                       f"listings/ and {DOCS}/"))
         theme, portal = seed_file(*self.parts, "portal", "theme.yaml"), seed_file(*self.parts, "portal", "portal.yaml")
         overview, details = seed_file(*self.parts, "portal", OVERVIEW), seed_file(*self.parts, "portal", DETAILS)
-        pages, listings = files(*self.parts, "portal", "pages"), files(*self.parts, "portal", "listings")
+        pages, listings = (files(*self.parts, "portal", name) for name in ("pages", "listings"))
         docs = files(*self.parts, "portal", DOCS, suffixes=(".yaml", ".yml"))
         for path in sorted((folder / DOCS).iterdir()) if (folder / DOCS).is_dir() else []:
             if path.is_file() and not path.name.startswith(".") and path not in docs:

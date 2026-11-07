@@ -4,7 +4,6 @@ Also what keeps the fake platform the other tests build on from passing a call i
 
 import json
 import os
-import re
 import subprocess
 import sys
 import threading
