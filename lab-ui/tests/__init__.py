@@ -36,6 +36,14 @@ class Case(unittest.TestCase):
             self.write(path, text)
         return self.root
 
+    def refusal(self, code, call, *args, **how):
+        """The refusal of this code that `call(*args, **how)` ends in."""
+        from lab_ui.catalogs.registry import CatalogError   # here and not above: a test package with no catalogs imports this
+        with self.assertRaises(CatalogError) as raised:
+            call(*args, **how)
+        self.assertEqual(raised.exception.code, code)
+        return raised.exception
+
     def write(self, path, text=""):
         """A file of the folder written, with the folders it is in: answers its path."""
         file = self.root / path

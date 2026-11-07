@@ -350,7 +350,7 @@ class Retrying(Served, Case):
         """The attempt, with the row and the content as the page reads them at every step of the commit: [(step, row state key,
         content key)]."""
         seen = []
-        self.patch(install, "STEP", lambda step: seen.append((step, self.row()["state"]["key"], firstrun.content({})["key"])))
+        self.patch(install, "STEP", lambda step: seen.append((step, self.row()["state"]["key"], firstrun.content()["key"])))
         firstrun.provision(self.ns)
         return seen
 
@@ -680,13 +680,16 @@ class Holds(Seam):
 # Add: the check, the ticket, the commit
 # ---------------------------------------------------------------------------------------------------------------------
 
-def held_elsewhere(lock) -> bool:
-    """Whether another thread cannot take `lock` now, which is to say that this one holds it."""
+def held_elsewhere() -> bool:
+    """Whether another thread cannot take the lock of the catalogs now, which is to say that this one holds it."""
+    def ask():
+        with contextlib.suppress(registry.CatalogError), registry.flock(wait=0):
+            free.append(True)
     free = []
-    thread = threading.Thread(target=lambda: free.append(lock.acquire(blocking=False)) or (free[0] and lock.release()))
+    thread = threading.Thread(target=ask)
     thread.start()
     thread.join()
-    return free == [False]
+    return not free
 
 
 class Check(Seam):
@@ -735,7 +738,7 @@ class Check(Seam):
         real, seen = bare.fetch, {}
 
         def fetch(address, branch, store_path, **how):
-            seen["lock"] = held_elsewhere(registry.LOCK)
+            seen["lock"] = held_elsewhere()
             seen["flock"] = registry.flock(wait=0)
             with seen["flock"]:
                 pass
@@ -1664,7 +1667,7 @@ class Checking(Seam):
         real = bare.fetch
 
         def fetch(*args, **how):
-            seen["lock"] = held_elsewhere(registry.LOCK)
+            seen["lock"] = held_elsewhere()
             return real(*args, **how)
         self.patch(bare, "fetch", fetch)
         service.check_now("partner")
@@ -2526,7 +2529,7 @@ class Removing(Seam):
         self.assertEqual(lines_of(raised.exception), ("busy", 409, f"{line}."))
         self.assertIsNotNone(registry.entry("partner"), "nothing was removed")
 
-    def test_remove_keeps_the_settings_by_default_and_leaves_a_marker_and_forgets_the_catalog(self):
+    def test_remove_keeps_the_settings_by_default_and_forgets_the_catalog(self):
         env = self.base / "addons" / "ledger" / ".env"
         env.write_text("PARTNER_LEDGER_CURRENCY=USD\n", encoding="utf-8")
         answer = service.remove("partner")
@@ -2535,7 +2538,6 @@ class Removing(Seam):
         self.assertNotIn("partner", registry.read_lock()["catalogs"])
         self.assertFalse(registry.store_dir("partner").exists())
         self.assertEqual(env.read_text(encoding="utf-8"), "PARTNER_LEDGER_CURRENCY=USD\n")
-        self.assertTrue((self.base / install.MARKER).is_file())
         self.assertFalse((self.base / "addons" / "ledger" / "compose.yml").exists())
         row = next((one for one in service.describe(*project.loaded()) if one.get("id") == "partner"), None)
         self.assertIsNone(row)
@@ -2635,7 +2637,7 @@ class Repairing(Seam):
         real = bare.fetch
 
         def fetch(*args, **how):
-            seen["lock"] = held_elsewhere(registry.LOCK)
+            seen["lock"] = held_elsewhere()
             return real(*args, **how)
         self.patch(bare, "fetch", fetch)
         service.repair("partner")

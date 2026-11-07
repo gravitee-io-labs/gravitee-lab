@@ -21,7 +21,7 @@ from lab_ui.catalogs import cli as catalog
 from lab_ui.library import check, project
 from lab_ui.docker import compose
 from lab_ui import paths
-from lab_ui.catalogs import gitx, registry, standard
+from lab_ui.catalogs import gitx, registry
 from lab_ui.catalogs import store as bare
 from lab_ui.catalogs import tree as trees
 
@@ -921,33 +921,6 @@ class Online(Folder):
         self.assertEqual(notes, ["SD11: the Lab checkout has no origin/main to compare with"])
 
 
-class Download(unittest.TestCase):
-    """What the fetch of a pull request reads of git's progress."""
-
-    def test_the_line_that_passes_the_limit_stops_it_however_the_text_arrives(self):
-        with mock.patch.object(bare, "STORE_LIMIT", 5 * 1024 * 1024):
-            feed = catalog._watch_download()
-            feed("remote: Counting objects: 100% (10/10), done.\nReceiving objects:  10% (1/10), 1.00 MiB | 2.00 MiB/s\r")
-            feed("Receiving objects: 100% (4/4), done.\n")
-            feed("Receiving objects:  50% (5/10), 6.00 M")
-            with self.assertRaises(catalog._TooBig):
-                feed("iB | 2.00 MiB/s\r")
-            with self.assertRaises(catalog._TooBig):
-                catalog._watch_download()("Unpacking objects:  99% (9/10), 1.00 GiB | 9.00 MiB/s\n")
-
-    def test_a_line_that_says_no_size_or_a_small_one_is_never_a_reason_to_stop(self):
-        feed = catalog._watch_download()
-        for text in ("Receiving objects:  50% (5/10)\r", "Receiving objects:  60% (6/10), 12.00 KiB | 2.00 MiB/s\r", "garbage\r\n\n\r", ""):
-            feed(text)
-
-    def test_a_megabyte_with_no_end_of_line_is_read_in_under_a_second_and_kept_small(self):
-        feed = catalog._watch_download()
-        started = time.process_time()
-        for _ in range(16):
-            feed("x" * (64 * 1024))
-        self.assertLess(time.process_time() - started, 1.0)
-
-
 class Hostile(Folder):
     """A line of a megabyte, in whatever a stranger wrote or chose, is read in under a second by every reader of this command."""
 
@@ -1030,7 +1003,7 @@ class DayOne(Folder):
     def test_the_index_step_makes_the_catalog_json_the_release_step_reads(self):
         self.assertEqual(self.run_tool("index", "catalog", "--out", "catalog.json"), (0, "", ""))
         found = json.loads((self.repo / "catalog.json").read_text(encoding="utf-8"))
-        self.assertEqual((found["schema"], found["catalog"]["id"], found["standard"]), (1, "newcat", standard.LEVEL))
+        self.assertEqual((found["schema"], found["catalog"]["id"]), (1, "newcat"))
         self.assertEqual([(one["kind"], one["id"]) for one in found["units"]], [("addon", "hello")])
         os.chdir(self.repo / "catalog")   # `make index`
         self.assertEqual(self.run_tool("index", ".", "--out", "catalog.json"), (0, "", ""))

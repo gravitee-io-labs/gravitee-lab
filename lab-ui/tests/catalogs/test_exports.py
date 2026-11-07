@@ -929,8 +929,8 @@ class Untrusted(Case):
         self.assertEqual(self.personal("playgrounds/evil/secrets/key").read_text(), "the person's key\n", "where it had none")
         self.assertTrue((kept / "playgrounds/evil/.env").is_file(), "what did not go anywhere is not deleted")
 
-    def test_a_marker_in_the_file_keeps_nothing(self):
-        preview = exports.receive(evil_zip(playground=evil_playground(privileged=False), extra={"evil/.kept": b""}))
+    def test_a_preview_that_was_forgotten_leaves_nothing(self):
+        preview = exports.receive(evil_zip(playground=evil_playground(privileged=False)))
         service.forget(preview["ticket"])
         exports._sweep()
         self.assertFalse((paths.ROOT / exports.IMPORTS_DIR / "evil").exists())

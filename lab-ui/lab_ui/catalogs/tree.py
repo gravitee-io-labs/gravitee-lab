@@ -89,8 +89,6 @@ def _mode_of(info: os.stat_result) -> str:
         return "120000"
     if stat.S_ISREG(info.st_mode):
         return "100755" if info.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH) else "100644"
-    if stat.S_ISDIR(info.st_mode):
-        return "040000"
     return "%06o" % (stat.S_IFMT(info.st_mode),)
 
 
@@ -426,14 +424,13 @@ class History:
     (no hook, no file system monitor). Merges show no diff of their own: the commits they bring do. What cannot be read
     (a base git does not know, a history over LOG_LIMIT) is `note`, never an empty answer taken for a clean one."""
 
-    def __init__(self, repo=None, base: Optional[str] = None, head: str = "HEAD", git_dir=None, limit: int = LOG_LIMIT):
+    def __init__(self, repo=None, base: Optional[str] = None, head: str = "HEAD", git_dir=None):
         if repo is None and git_dir is None:
             raise ValueError("a history needs a repository or a git directory")
         self.repo = os.path.realpath(str(repo)) if repo is not None else None
         self.git_dir = os.path.abspath(str(git_dir)) if git_dir is not None else None
         self.base = _revision(base) if base else None
         self.head = _revision(head)
-        self.limit = limit
         self.note = ""
         self._commits: Optional[List[Commit]] = None
         self._diff: Optional[str] = None
@@ -446,7 +443,7 @@ class History:
         args = (["--git-dir", self.git_dir] if self.git_dir else []) + [
             "-c", "core.quotePath=false", "log", *options, "--end-of-options", self.range]
         try:
-            result = gitx.run(args, cwd=None if self.git_dir else self.repo, env=QUIET, timeout=LOG_SECONDS, limit=self.limit)
+            result = gitx.run(args, cwd=None if self.git_dir else self.repo, env=QUIET, timeout=LOG_SECONDS, limit=LOG_LIMIT)
         except gitx.OutputLimit:
             self.note = "the history is too large to read in full"
             return None

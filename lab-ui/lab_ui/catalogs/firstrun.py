@@ -2,11 +2,11 @@
 
 `reconcile` writes the intent, `.lab/catalogs.json`, from the tracked default file when the file does not exist, and marks
 every git catalog that has no copy as downloading, in memory, before any network is touched: the first `/api/state`
-already says so. `provision` is the Add pipeline of 9.1 with no ticket and no preview, for a catalog the engine lists: the
+already says so. `provision` is the pipeline of an Add with no ticket and no preview, for a catalog the engine lists: the
 tracked address, the audience, a fetch that reports how far it is, the checks
 that the repository is the catalog expected, the newest version this Lab reads, the stage and `install.commit_add`.
 `start_worker` runs the thread: it downloads what has no copy, retries a failure at 15 s, 1 min, 5 min and then every 30
-min (a click on Try again starts the schedule again), and makes the background check of 9.2 (`service.check_all`) on its
+min (a click on Try again starts the schedule again), and makes the background check (`service.check_all`) on its
 schedule.
 
 Three rules run through it. A download never holds the catalogs lock for its network steps: git runs with no lock, and
@@ -45,14 +45,13 @@ _progress = threading.Lock()   # the only shared state the worker writes
 
 OPT_OUT = "LAB_NO_FIRST_RUN"   # set to 1: no intent written, no thread (for tests and tools)
 
-STALL, CAP = 30.0, 600.0   # a fetch ends after this many seconds without a byte, and after this many in all
 SCHEDULE = (15.0, 60.0, 300.0)   # seconds before the first, second and third automatic retry of a failure
 LATER = 1800.0   # then every 30 minutes
 FIRST_CHECK = 5.0   # seconds after the start before the first check of the installed catalogs
 CHECK_EVERY, JITTER = 6 * 3600.0, 600.0   # then every six hours, with up to ten minutes added
 NAP = 60.0   # the longest the worker sleeps: it then looks again at what has no copy, in case a person edited the file
 # Where each phase of a download starts and ends in the number the bar draws: the probe, the fetch (git's own
-# percentage fills it), the stage (the judge of 9.1 is the project's, when it reads what was installed) and the commit
+# percentage fills it), the stage (the judge is the project's, when it reads what was installed) and the commit
 PHASES = {"probe": (0.02, 0.05), "fetch": (0.05, 0.85), "stage": (0.85, 0.97), "commit": (0.97, 1.0)}
 
 # The lines of the first start that are not the ones of the catalogue of errors: nobody asked for this catalog, so "then add it again" would be
@@ -208,7 +207,7 @@ def _failure(ns: str, held: dict) -> Optional[str]:
     return one.get("error") or (said[0] if said and one.get("pending") else None)
 
 
-def content(inputs: dict) -> dict:
+def content() -> dict:
     """What the state says of the content, from the disk and from memory, never from the network:
     {key, line, code, progress, address, offer}. `key` is `ready` when a catalog has a copy or a folder catalog is there;
     else `downloading` while a git catalog has an attempt a person can see, or has not failed yet (one that is under way,
@@ -220,13 +219,9 @@ def content(inputs: dict) -> dict:
     entries = registry.entries()
     held = registry.read_lock()["catalogs"]
     with _progress:
-        seen = {ns: dict(one) for ns, one in PROGRESS.items() if isinstance(one, dict)}
+        seen = dict(PROGRESS)
     answer = {"key": "none", "line": "", "code": None, "progress": None, "address": "", "offer": None}
-    folders = [entry for entry in entries if entry["kind"] == "folder"]
-    rows = inputs.get("catalogs") if isinstance(inputs, dict) and isinstance(inputs.get("catalogs"), dict) else None
-    if folders and rows is None:
-        rows = registry.inputs()
-    here = any((rows or {}).get(entry["id"], {}).get("state") == "linked" for entry in folders)
+    here = any(entry["kind"] == "folder" and registry.install_dir(entry["id"]).is_dir() for entry in entries)
     git = [entry for entry in entries if entry["kind"] == "git"]
     copies = any((held.get(entry["id"]) or {}).get("pin") for entry in git)
     waiting = [entry for entry in git if not (held.get(entry["id"]) or {}).get("pin")]
@@ -236,7 +231,8 @@ def content(inputs: dict) -> dict:
         answer["key"] = "ready"
     elif running:
         found = running[0]
-        answer.update(key="downloading", address=_shown(found), progress=_fraction(seen, running))
+        answer.update(key="downloading", address=_shown(found),
+                      progress=next((seen[entry["id"]]["fraction"] for entry in running if entry["id"] in seen), None))
     elif failed:
         found = failed[0]
         error = _failure(found["id"], held)
@@ -255,24 +251,11 @@ def _shown(entry: dict) -> str:
     return registry.display_address(defaults.effective(entry)[0] or "")
 
 
-def _fraction(seen: dict, running: List[dict]) -> Optional[float]:
-    """How far the first download that has a number is, else None."""
-    for entry in running:
-        value = (seen.get(entry["id"]) or {}).get("fraction")
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return float(value)
-    return None
-
-
 # ---------------------------------------------------------------- one download
 
 def _contract() -> dict:
     """The level this Lab reads: its lock's (understood.levels); 1 and 1 without a lock."""
     return understood.levels() or {"contract": 1, "contract_min": 1}
-
-
-def _forget_stage(ns: str) -> None:
-    shutil.rmtree(registry.stage_dir(ns), ignore_errors=True)
 
 
 def _stand_in(ns: str, entry: Optional[dict], row: Optional[dict]) -> dict:
@@ -305,8 +288,7 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
     own = entry is not None
     store_path = registry.store_dir(ns) if own else registry.new_store_dir(secrets.token_hex(8))
     try:
-        tip = bare.fetch(address, remote["branch"], store_path, stall=STALL, cap=CAP,
-                         progress=lambda fraction: _set(ns, "fetch", fraction))
+        tip = bare.fetch(address, remote["branch"], store_path, progress=lambda fraction: _set(ns, "fetch", fraction))
         roots = bare.roots(store_path, tip)
         contract = _contract()
         offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
@@ -324,14 +306,14 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
             _set(ns, "commit", 0.0)
             install.commit_add(staged, address, remote["branch"], audience, roots, meta=meta, host=False)
         except Exception:
-            _forget_stage(ns)
+            shutil.rmtree(registry.stage_dir(ns), ignore_errors=True)
             raise
     except Exception:
         if not own:
             shutil.rmtree(store_path, ignore_errors=True)   # a store no catalog owns is garbage
         raise
     try:   # the catalog is installed: a note that cannot be written is the first check's to make, not a failure
-        if commit != tip or tip_state != "ok":   # the tip needs a newer Lab: the row says so at once (9.2 case B)
+        if commit != tip or tip_state != "ok":   # the tip needs a newer Lab: the row says so at once
             registry.set_lock(ns, seen={"target": commit, "update": False, "tip": tip_state, "version": meta["version"]})
     except (CatalogError, OSError, ValueError):
         pass
@@ -362,7 +344,7 @@ def _ending(error: BaseException) -> bool:
 
 def _record(ns: str, error: CatalogError) -> None:
     """The failure of an attempt in the lock (`error`), where the Catalogs row and the content read it, and in the same
-    write the flag of the commit it began (`pending`, set at step 14b): an attempt that failed after it is over, and a
+    write the flag of the commit it began (`pending`): an attempt that failed after it is over, and a
     flag left standing would keep the row at Downloading for good, with the failure hidden behind it. Nothing for a
     catalog with no entry, for one that has a copy by now (another process finished what this one failed at: a stale
     failure would mark a good install), and nothing while the Lab UI ends (the flag then stays, for `recover()`). What
@@ -378,17 +360,9 @@ def _record(ns: str, error: CatalogError) -> None:
 
 
 def _row(ns: str) -> dict:
-    """The row of a catalog as the state draws it, from the disk alone. The install is done when this is asked, so a
-    row that cannot be drawn is no failure of the download: the little one the disk gives is returned instead."""
-    try:
-        from . import service   # here and not above: the worker calls this module
-        return next(one for one in service.describe({}, {}) if one.get("id") == ns and one.get("kind") != "progress")
-    except Exception:  # noqa: BLE001 - see above
-        held = registry.lock_of(ns)
-        found = registry.inputs().get(ns) or {}
-        return {"id": ns, "kind": "git", "name": found.get("name") or ns, "version": found.get("version"),
-                "commit": (held.get("pin") or "")[:7] or None, "error": held.get("error"),
-                "state": {"key": found.get("state") or "uptodate"}}
+    """The row of a catalog as the state draws it, from the disk alone."""
+    from . import service   # here and not above: the worker calls this module
+    return next(one for one in service.describe({}, {}) if one.get("id") == ns and one.get("kind") != "progress")
 
 
 def provision(ns: str) -> dict:
@@ -397,7 +371,7 @@ def provision(ns: str) -> dict:
     Nothing happens for a catalog that has a copy. A failure is a CatalogError in the words of the first start, written in the lock
     too (`error`), where the row and the content read it. An automatic retry shows nothing meanwhile: `PROGRESS` holds
     only the attempts a person can see. The network steps hold no lock; `install.commit_add` takes them for the
-    commit, and its write of the lock (step 16) is the commit point."""
+    commit, and its write of the lock is the commit point."""
     if not isinstance(ns, str) or not re.fullmatch(paths.NS, ns):
         raise ValueError(f"not a catalog id: {ns!r}")
     try:
@@ -453,24 +427,11 @@ class Worker:
     def __init__(self, clock: Callable[[], float] = time.monotonic):
         self.clock = clock
         self.stop = threading.Event()
-        self.nudge = threading.Event()
+        self.nudge = threading.Event()   # a click on Try again: the schedule starts again, and what has no copy is attempted now
         self.thread = None
         self.failures = 0   # attempts that failed in a row, for the schedule
         self.retry_at = None   # when the next automatic attempt is due, None while none is waiting
         self.check_at = clock() + FIRST_CHECK
-        self._clicked = False
-        self._mutex = threading.Lock()
-
-    def wake(self) -> None:
-        """A click on Try again: the schedule starts again, and what has no copy is attempted now."""
-        with self._mutex:
-            self._clicked = True
-        self.nudge.set()
-
-    def _click(self) -> bool:
-        with self._mutex:
-            clicked, self._clicked = self._clicked, False
-        return clicked
 
     def _download(self, clicked: bool) -> None:
         """One round: every catalog with no copy, in order, when none is waiting for its turn."""
@@ -519,8 +480,9 @@ class Worker:
 
     def tick(self) -> float:
         """What is due now, and the seconds until something is due again."""
-        clicked = self._click()
+        clicked = self.nudge.is_set()
         if clicked:
+            self.nudge.clear()
             self.failures, self.retry_at = 0, None
         self._download(clicked)
         if not self.stop.is_set():
@@ -537,27 +499,20 @@ class Worker:
                 print(f"Gravitee Lab UI: the download of catalogs failed ({type(error).__name__}: {error})", file=sys.stderr)
                 wait = NAP
             self.nudge.wait(max(wait, 0.01))
-            self.nudge.clear()
 
 
 _worker = None
-_started = threading.Lock()
 
 
 def start_worker() -> None:
-    """Starts the one background thread of the Lab, a daemon: it provisions what has no copy, and then makes the
-    background check. A second call does nothing while the thread
-    runs. Nothing with LAB_NO_FIRST_RUN set."""
+    """Starts the one background thread of the Lab, a daemon, once a start: it provisions what has no copy, and then makes the
+    background check. Nothing with LAB_NO_FIRST_RUN set."""
     global _worker
     if opted_out():
         return
-    with _started:
-        if _worker is not None and _worker.thread is not None and _worker.thread.is_alive():
-            return
-        worker = Worker()
-        worker.thread = threading.Thread(target=worker.run, name="lab-first-run", daemon=True)
-        _worker = worker
-        worker.thread.start()
+    _worker = Worker()
+    _worker.thread = threading.Thread(target=_worker.run, name="lab-first-run", daemon=True)
+    _worker.thread.start()
 
 
 def wake() -> None:
@@ -565,5 +520,5 @@ def wake() -> None:
     worker."""
     worker = _worker
     if worker is not None:
-        worker.wake()
+        worker.nudge.set()
 

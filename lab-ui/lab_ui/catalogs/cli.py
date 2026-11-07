@@ -695,31 +695,11 @@ def _write_unit_file(root, tree, entry):
         handle.write(data)
 
 
-class _TooBig(Exception):
-    """The download of a pull request went past what the Lab accepts of a repository."""
-
-
-def _watch_download():
-    """What `fetch` is given to read the progress of the download as it arrives (the same line as the Lab's own fetch reads,
-    store.parse_progress): it raises _TooBig as soon as git says it has received more than the store may hold, which stops git
-    there. A pull request of a stranger's fork is a hostile repository: its size is not left to be looked at after the whole of it
-    was written."""
-    pending = [""]
-
-    def feed(text):
-        *finished, pending[0] = re.split(r"[\r\n]", pending[0] + text)
-        pending[0] = pending[0][-2048:]
-        for line in finished:
-            parsed = bare.parse_progress(line)
-            if parsed is not None and parsed[1] is not None and parsed[1] > bare.STORE_LIMIT:
-                raise _TooBig()
-    return feed
-
-
 def _pull(spec, target, stack, notes):
     """Fetches a pull request of the origin into a bare store of this run (hooks and file system monitor off, every object
-    checked) and reads it from git objects (`GitTree`): no checkout, so no hook, no filter driver and no Makefile of the pull
-    request can run. Its history is the commits since the merge base with the origin's main. The files the Lab would install
+    checked), stopped as soon as git says it has received more than a store may hold: a pull request of a stranger's fork is a
+    hostile repository. It reads it from git objects (`GitTree`): no checkout, so no hook, no filter driver and no Makefile of the
+    pull request can run. Its history is the commits since the merge base with the origin's main. The files the Lab would install
     (store.selected: no link, no special file) are written in a temporary folder, for Compose to read."""
     if target.kind != "folder":
         raise Usage("--pr reads a pull request of the origin of a folder, not an added catalog")
@@ -737,8 +717,8 @@ def _pull(spec, target, stack, notes):
         fetched = gitx.stream(["--git-dir", str(store), "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true",
                                "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "fetch", "--progress", "--no-tags",
                                "--no-recurse-submodules", "--", address.url, f"+refs/pull/{number}/head:refs/lab/pr",
-                               "+refs/heads/main:refs/lab/base"], env=gitx.address_env(address), on_stderr=_watch_download())
-    except _TooBig:
+                               "+refs/heads/main:refs/lab/base"], env=gitx.address_env(address), on_stderr=bare._Download(None).feed)
+    except bare._TooBig:
         raise gitx.fail("too_large", address) from None
     if fetched.code != 0:
         problem = gitx.classify(fetched.err, address)

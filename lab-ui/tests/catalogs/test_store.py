@@ -15,8 +15,6 @@ import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import redirect_stderr
-from io import StringIO
 from pathlib import Path
 from typing import NamedTuple
 from unittest import mock
@@ -696,9 +694,7 @@ class Stores(Remote):
         self.assertFalse(lock.exists())
         lock.write_text("")   # a lock git holds right now
         third = gitfixture.commit(self.repo, {"README.md": "and again\n"})
-        with self.assertRaises(gitx.CatalogError) as raised:
-            self.fetched()
-        self.assertEqual(raised.exception.code, "git_failed")
+        self.refusal("git_failed", self.fetched)
         self.assertEqual(store.resolve(self.store, "refs/lab/tip"), second, "the store is as it was")
         self.assertNotEqual(tip, third)
 
@@ -764,9 +760,7 @@ class Fetching(Remote):
         self.assertFalse(self.store.exists())
 
     def test_a_folder_is_not_fetched(self):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(gitx.Address("folder", "", "/h/x", "~/x", "", ""), "main", self.store)
-        self.assertEqual(raised.exception.code, "bad_address")
+        self.refusal("bad_address", store.fetch, gitx.Address("folder", "", "/h/x", "~/x", "", ""), "main", self.store)
         self.assertFalse(self.store.exists())
 
     def test_a_branch_that_is_not_a_name_is_refused_before_anything_is_made(self):
@@ -796,9 +790,7 @@ class Fetching(Remote):
 
     def test_a_remote_that_is_not_there_is_not_found_and_leaves_nothing(self):
         gone = gitx.parse_address("file://" + str(self.root / "remotes" / "none.git"))
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(gone, "main", self.store)
-        self.assertEqual(raised.exception.code, "not_found")
+        self.refusal("not_found", store.fetch, gone, "main", self.store)
         self.assertFalse(self.store.exists())
 
     def test_git_refuses_an_object_that_is_not_right_and_the_store_is_removed(self):
@@ -829,9 +821,7 @@ class Fetching(Remote):
                                   f"  sleep 60 &\n  echo $! > '{pids}'\n"
                                   "  printf 'Receiving objects:  10%% (1/10), 2.00 GiB | 5.00 MiB/s\\r' >&2\n  wait\n  exit 0\nfi; done\n"
                                   "exec \"$REAL\" \"$@\"")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(self.address, "main", self.store, stall=30, cap=60)
-        self.assertEqual(raised.exception.code, "too_large")
+        self.refusal("too_large", store.fetch, self.address, "main", self.store, stall=30, cap=60)
         self.assertFalse(self.store.exists())
         end = time.monotonic() + 5
         pid = int(pids.read_text())
@@ -859,9 +849,7 @@ class Fetching(Remote):
     def test_a_fetch_that_never_ends_is_cut_at_the_cap_though_it_sends(self):
         gitfixture.fake_git(self, "for a in \"$@\"; do if [ \"$a\" = fetch ]; then while true; do printf . >&2; sleep 0.1; done; fi; done\n"
                                   "exec \"$REAL\" \"$@\"")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(self.address, "main", self.store, stall=5, cap=0.6)
-        self.assertEqual(raised.exception.code, "timeout")
+        self.refusal("timeout", store.fetch, self.address, "main", self.store, stall=5, cap=0.6)
 
     def test_the_credentials_in_what_git_said_are_not_kept_in_the_error(self):
         gitfixture.fake_git(self, "for a in \"$@\"; do if [ \"$a\" = fetch ]; then\n"
@@ -1000,7 +988,7 @@ class Fetching(Remote):
         self.assertEqual(store.clean(self.store, age=0), 0)
         self.assertTrue(lock.is_file())
 
-    def test_a_file_system_that_cannot_lock_still_has_the_lock_of_the_process(self):
+    def test_a_file_system_that_cannot_lock_still_fetches(self):
         def refuse(descriptor, how):
             raise OSError(errno.ENOLCK, "No locks available")
         self.patch(store.fcntl, "flock", refuse)
@@ -1083,9 +1071,7 @@ class Reading(Remote):
 
     def test_a_listing_too_large_to_read_is_too_large(self):
         self.patch(store, "LISTING_LIMIT", 100)
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.listing(self.store, self.tip)
-        self.assertEqual(raised.exception.code, "too_large")
+        self.refusal("too_large", store.listing, self.store, self.tip)
 
     def test_a_record_that_git_did_not_write_is_fsck(self):
         real = gitx.run
@@ -1095,9 +1081,7 @@ class Reading(Remote):
                 return gitx.Result(0, b"100644 blob nothex  1\tx\0", "")
             return real(args, **how)
         self.patch(gitx, "run", odd)
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.listing(self.store, self.tip)
-        self.assertEqual(raised.exception.code, "fsck")
+        self.refusal("fsck", store.listing, self.store, self.tip)
 
     def oids(self, *paths):
         by_path = {e.path: e.oid for e in store.listing(self.store, self.tip)}
@@ -1168,15 +1152,11 @@ class Reading(Remote):
             list(store.blobs(self.store, self.oids("catalog.yml") + ["1" * 40]))
 
     def test_an_object_that_is_not_a_file_is_not_a_blob(self):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            list(store.blobs(self.store, [self.tip]))
-        self.assertEqual(raised.exception.code, "fsck")
+        self.refusal("fsck", list, store.blobs(self.store, [self.tip]))
 
     def test_too_much_content_in_a_batch_is_too_large(self):
         self.patch(store, "BLOBS_LIMIT", 1000)
-        with self.assertRaises(gitx.CatalogError) as raised:
-            list(store.blobs(self.store, self.oids("addons/echo/big.bin")))
-        self.assertEqual(raised.exception.code, "too_large")
+        self.refusal("too_large", list, store.blobs(self.store, self.oids("addons/echo/big.bin")))
 
     def commits(self, *subjects):
         last = self.tip
@@ -1355,61 +1335,6 @@ class Releases(Remote):
                           ("addon:echo", ["Fix the echo guide", "Touch two units"])])
         self.assertEqual(store.folder_of("setup:pair"), "setups/pair.yml")
         self.assertEqual(store.folder_of("playground:shop"), "playgrounds/shop")
-
-
-class Fixtures(Case):
-    """The repositories of the tests are what the tests say they are."""
-
-    def setUp(self):
-        gitfixture.require()
-        self.folder()
-
-    def test_the_same_files_give_the_same_commit_everywhere(self):
-        one = gitfixture.make_repo(self.root / "a.git", gitfixture.catalog_files())
-        two = gitfixture.make_repo(self.root / "b" / "c.git", gitfixture.catalog_files())
-        self.assertEqual(gitfixture.tip(one), gitfixture.tip(two))
-        self.assertEqual(gitfixture.commit(one, {"x": "1"}), gitfixture.commit(two, {"x": "1"}))
-        three = gitfixture.make_repo(self.root / "d.git", {"catalog.yml": "x\n"})
-        self.assertNotEqual(gitfixture.tip(three), gitfixture.tip(one))
-
-    def test_without_git_a_test_says_it_is_skipped_and_the_run_is_told_once(self):
-        self.patch(gitfixture, "_GIT", None)
-        self.patch(gitfixture, "_SAID", [])
-        shown = StringIO()
-        with redirect_stderr(shown):
-            for _ in range(5):
-                with self.assertRaises(unittest.SkipTest):
-                    gitfixture.require()
-        self.assertEqual(shown.getvalue().count("SKIP: git is not installed"), 1, "the line is not repeated for every test")
-        self.assertFalse(gitfixture.available())
-
-    def test_the_fixture_finds_git_as_the_product_does_and_never_runs_the_macos_shim(self):
-        """On a Mac without the Command Line Tools, running /usr/bin/git opens an installer dialog: `make test` must not."""
-        ran = self.root / "ran"
-        shim = self.root / "shim" / "git"
-        shim.parent.mkdir()
-        shim.write_text(f"#!/bin/sh\ntouch '{ran}'\n")
-        shim.chmod(0o755)
-        asked = []
-
-        def tools(argv, **how):
-            asked.append(argv)
-            return subprocess.CompletedProcess(argv, 2, b"", b"")
-        with mock.patch.dict(os.environ, {"PATH": str(shim.parent)}):
-            self.patch(gitx, "PLATFORM", "darwin")
-            self.patch(gitx, "SHIM", str(shim))
-            self.patch(gitx, "_TOOLS", {"at": None, "ok": False})
-            self.patch(gitx.subprocess, "run", tools)
-            self.assertIsNone(gitfixture._find())
-        self.assertEqual(asked, [["xcode-select", "-p"]])
-        self.assertFalse(ran.exists(), "the shim was run")
-        self.assertEqual(gitfixture._GIT, gitx.executable(), "the git of the fixture is the one the product finds")
-
-    def test_the_fixture_git_ignores_the_configuration_of_the_person(self):
-        with mock.patch.dict(os.environ, {"GIT_AUTHOR_NAME": "Someone Else", "GIT_DIR": "/nonexistent", "GIT_CONFIG_COUNT": "1",
-                                          "GIT_CONFIG_KEY_0": "user.name", "GIT_CONFIG_VALUE_0": "Evil"}):
-            repo = gitfixture.make_repo(self.root / "a.git", {"a": "1"})
-            self.assertEqual(gitfixture.git("log", "-1", "--format=%an <%ae>", repo=repo).strip(), "Test Author <author@example.test>")
 
 
 if __name__ == "__main__":

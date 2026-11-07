@@ -14,7 +14,6 @@ import hashlib
 import os
 import re
 import shutil
-import threading
 import time
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
@@ -92,8 +91,6 @@ class _TooBig(Exception):
 
 # The file in a store that a fetch holds a lock on (`flock`). Not a `*.lock`: `clean` removes those
 FETCH_LOCK = "lab-fetch.flock"
-_FETCHING = {}
-_FETCHING_LOCK = threading.Lock()
 
 
 def _dir(store) -> str:
@@ -234,7 +231,7 @@ def _flock(store, deadline, address):
                         raise fail("timeout", address) from None
                     time.sleep(0.05)
                 except OSError:
-                    return None   # a file system that cannot lock: the lock of this process is all there is
+                    return None   # a file system that cannot lock: a fetch that meets another fails, and is tried again
             try:
                 keep = os.stat(path).st_ino == os.fstat(descriptor).st_ino
             except OSError:
@@ -251,22 +248,14 @@ def _exclusive(store, wait, address=None):
     """One fetch at a time into a store, for up to `wait` seconds of waiting, then `timeout`. Two fetches into one store
     at the same time fail one of them (`cannot lock ref refs/lab/tip`) when the remote has news, and the second one
     cleans up what the first is writing. The network steps of the Lab hold no other lock, so a check in the
-    background and a Check again by hand can meet: they take turns, here for the threads of this process and by `flock`
-    for the other processes (the command line)."""
-    key = os.path.realpath(str(store))
-    with _FETCHING_LOCK:
-        turn = _FETCHING.setdefault(key, threading.Lock())
-    deadline = time.monotonic() + max(wait, 0)
-    if not turn.acquire(timeout=max(wait, 0)):
-        raise fail("timeout", address)
-    descriptor = None
+    background and a Check again by hand can meet: they take turns by `flock`, which two descriptors of one process wait on
+    as two processes do (the command line)."""
+    descriptor = _flock(str(store), time.monotonic() + max(wait, 0), address)
     try:
-        descriptor = _flock(str(store), deadline, address)
         yield
     finally:
         if descriptor is not None:
             os.close(descriptor)
-        turn.release()
 
 
 def fetch(address: gitx.Address, branch: Optional[str], store, stall: float = 30, cap: float = 600,

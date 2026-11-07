@@ -19,22 +19,20 @@ back, a Repair and the first download of a listed catalog by `catalogs.lock`, a 
 Update, Go back or Repair is finished (the store holds every object), a pending Add is finished when the install and the
 store are whole and otherwise undone, a Remove is finished by the sweeper. `STEP` is the hook a test sets to stop a run
 between two steps: it is called with the label of the step about to be taken, and what it raises ends the run there.
-A folder that holds no manifest is never judged by the names of its files (a name the patterns do not know, `data/` or
-`certs/ca.txt`, would read as content that nobody keeps): the marker `.kept` is written before the manifest goes (a Remove,
-a download undone, a working copy linked) and into a folder that has no manifest before it is moved aside or restored
-from, so whatever a stop leaves is all the machine's. A start without git goes on: an operation under way keeps its
-record for a start that has git.
+A folder that holds no manifest holds only what is the machine's, whatever its files are called: the manifest goes after
+the files it lists, so a stop leaves a manifest and what it still lists, or the machine's alone. A start without git goes on:
+an operation under way keeps its record for a start that has git.
 
 Labels, in order. stage: begin, written. add: begin, manifest, store, pending, install, file (for each file of a merge),
 rename, placed, lock, config, done. update, undo and repair: pending, apply, removed (each), file (each), manifest,
 rename, lock, done. The renames a catalog declares (`renames.follow`) say rename:entry, :on, :include, :copy,
-:settings before each change, between rename and the step after it. remove: config, store, files, marker,
-vacate, lock, stars, done. shadow: record, move (each), install, link, config, lock, done. unshadow: record, link,
+:settings before each change, between rename and the step after it. remove: config, store, files, lock,
+stars, done. shadow: record, move (each), install, link, config, lock, done. unshadow: record, link,
 install, then apply, file, removed and manifest of the repair it makes, move (each), config, lock, done. recover: begin,
-pending, sweep, tidy, done.
+pending, sweep, done.
 
-The locks are the catalogs lock and the advisory lock of the other processes (`registry.LOCK`, `registry.flock`), then
-`project.exclusive()` around the steps that change what a reader reads, in that order (, rule 11)."""
+The locks are the advisory lock of the catalogs (`registry.flock`), then `project.exclusive()` around the steps that change
+what a reader reads, in that order."""
 
 import contextlib
 import hashlib
@@ -46,7 +44,7 @@ import stat
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
+from typing import Dict, Iterable, List, NamedTuple, Optional, Set
 
 from ..docker import compose
 from ..library import moves, starred
@@ -62,10 +60,8 @@ STEP = None
 # function nothing is asked
 CONTAINERS = None
 
-MARKER = ".kept"   # left by a Remove that kept the settings (rule 12): exactly the machine files and this
 SHADOW = ".shadow-{ns}.json"   # beside the installs: the machine entries a working copy took
-LAB_FILES = (MARKER, paths.MANIFEST)   # the Lab's own files at the top of an install: neither content nor machine
-AGE = 24 * 3600.0   # a stage, a store being added, a partial or a share folder older than this is a leftover (rule 12)
+AGE = 24 * 3600.0   # a stage, a store being added, a partial or a share folder older than this is a leftover
 MAX_FILE = 4 * 1024 * 1024   # a file is read whole to be hashed: the filter keeps content under 2 MB
 MANIFEST_LIMIT = 32 * 1024 * 1024   # as the registry reads one
 DEEP = 40   # how far down an install is looked into for its machine files
@@ -76,7 +72,6 @@ READ_MEMORY = 256   # the versions whose reading `unknown_at` keeps: each is a c
 
 _NS = re.compile(paths.NS)
 _REMOVED = re.compile(r"\.removed-({ns})-([0-9]{{8}}T[0-9]{{6}}Z)".format(ns=paths.NS))
-_SHA = re.compile(r"[0-9a-f]{40}")
 _SECRET_DIRS = (".state", "secrets")
 _DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
@@ -101,8 +96,7 @@ def _transient(error) -> bool:
     not be read now (`renames_unread`), Docker could not say what has containers (`docker_unknown`), or the Lab UI is ending. Such an error never marks a
     catalog damaged and never drops what says an operation is under way: the next start has git, and finishes it."""
     detail = getattr(error, "detail", None) or {}
-    return getattr(error, "code", None) in ("git_missing", "git_old", "docker_missing", "unread", "timeout", "renames_unread",
-                                            "docker_unknown") \
+    return getattr(error, "code", None) in ("git_missing", "timeout", "renames_unread", "docker_unknown") \
         or gitx.ENDING in str(detail.get("output") or "")
 
 
@@ -136,13 +130,6 @@ def _utc():
 
 def _compact(offset=0):
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time() + offset))
-
-
-@contextlib.contextmanager
-def _guard():
-    """The two locks of an operation, in their order: this process's, then the other processes'."""
-    with registry.LOCK, registry.flock():
-        yield
 
 
 def _exclusive():
@@ -212,7 +199,7 @@ def _open_dir(root, parts, create, follow_root=False) -> Optional[int]:
                 except FileExistsError:
                     pass
                 below = os.open(part, _DIR, dir_fd=fd)
-                os.fchmod(below, 0o755)   # whatever the umask: the Lab UI writes a .env beside a unit (rule 7)
+                os.fchmod(below, 0o755)   # whatever the umask: the Lab UI writes a .env beside a unit
             except OSError as error:   # a link (ELOOP) or a file (ENOTDIR)
                 raise Unsafe(f"{part} is not a folder: {error.strerror}", _owner(root)) from None
             os.close(fd)
@@ -339,11 +326,6 @@ def _remove_tree(path) -> int:
                 except OSError:
                     left += 1
     return left
-
-
-def _clear(path):
-    """What stands at `path` removed, a link as a link; a folder that cannot be removed wholly is left."""
-    _remove_tree(path)
 
 
 def _safe(rel) -> bool:
@@ -473,7 +455,7 @@ def _write_stage(target, store_path, kept) -> Dict[str, str]:
     """Writes the files `kept` of a store into the fresh folder `target` (replacing what stood there), catalog.yml first
     so that the id is known, every file with `safe_write` and read-only. Answers {path: sha256}. A failure removes the
     folder it made; a stop (not an error) leaves it, which is what the sweeper is for."""
-    _clear(target)
+    _remove_tree(target)
     os.makedirs(os.path.dirname(os.fspath(target)), exist_ok=True)
     os.mkdir(target, 0o755)
     os.chmod(target, 0o755)
@@ -488,7 +470,7 @@ def _write_stage(target, store_path, kept) -> Dict[str, str]:
         if len(shas) != len(ordered):   # a store that gave fewer files than it listed is not a store
             raise gitx.fail("fsck", output="fewer files than listed")
     except Exception:
-        _clear(target)
+        _remove_tree(target)
         raise
     return shas
 
@@ -503,13 +485,12 @@ def stage(address: gitx.Address, ns: str, store: Optional[Path], commit: str, ke
     that does not know its namespace yet; `rename_stage` gives it one). For git, every file of `kept` (what
     `store.selected` kept of the listing of `commit` in `store`) is written with `safe_write`, catalog.yml first,
     read-only; nothing is run, no hook, no filter, no checkout. For a folder the stage is a link to the folder: nothing
-    is copied. A stage that an earlier attempt left is replaced, and the leftovers older than a day are swept first
-    (rule 12). `ignored` is the number of files the filter left out, kept for the manifest."""
+    is copied. A stage that an earlier attempt left is replaced, and the leftovers older than a day are swept first. `ignored` is the number of files the filter left out, kept for the manifest."""
     target = registry.stage_dir(ns)
     _sweep_stale()
     _step("stage:begin")
     if address.kind == "folder":
-        _clear(target)
+        _remove_tree(target)
         os.makedirs(os.path.dirname(os.fspath(target)), exist_ok=True)
         if not _real_dir(address.path):
             raise gitx.fail("folder_missing", address, path=address.display)
@@ -533,7 +514,7 @@ def rename_stage(staged: Staged, ns: str) -> Staged:
     target = registry.stage_dir(ns)
     if os.path.abspath(staged.path) == os.path.abspath(target):
         return staged._replace(ns=ns)
-    _clear(target)
+    _remove_tree(target)
     os.rename(staged.path, target)
     return staged._replace(ns=ns, path=target)
 
@@ -554,10 +535,7 @@ def walk(folder: str) -> list:
         count += 1
         if count > WALK_LIMIT:
             raise gitx.fail("too_large")
-        if stat.S_ISDIR(info.st_mode):
-            if rel.count("/") >= 10:   # deeper than a catalog goes: one entry that the filter counts as too deep
-                found.append(bare.Entry("100644", "0" * 40, 0, rel + "/" + "d/" * 2 + "x"))
-                continue
+        if stat.S_ISDIR(info.st_mode) and rel.count("/") < 10:   # deeper than a catalog goes, and than a path can say, it is one entry
             try:
                 todo[0:0] = sorted(f"{rel}/{name}" for name in os.listdir(os.path.join(folder, rel)))
             except OSError:
@@ -582,24 +560,23 @@ def machine_name(rel) -> bool:
             or (name.startswith(".env.") and name != ".env.example") or name.endswith(bare.KEY_SUFFIXES))
 
 
-def _scan(root, listed: Optional[Set[str]]) -> Tuple[int, List[str], bool]:
-    """(how many content files, the machine entries, whether there are any) of an install folder. The machine entries
-    are the top-most paths that hold no content: a file, a link, or a folder whose files are all machine. `listed` is
-    the set of content paths (the manifest's); None for a folder with no manifest, where a name tells, and anything that
-    is not a machine name counts as content. A `.state` or `secrets` folder is one entry and is not looked into. A link
-    is a file."""
+def _scan(root, listed: Optional[Set[str]]) -> List[str]:
+    """The machine entries of a folder: the top-most paths that hold no content, a file, a link, or a folder whose files are all
+    the machine's. `listed` is the set of content paths; None for a folder of a person's own, where a name tells, and anything
+    that is not a machine name counts as content. A `.state` or `secrets` folder is one entry and is not looked into. A link is a
+    file."""
     root = os.fspath(root)
 
     def look(rel, depth):
-        content, tops, machine = 0, [], False
+        content, tops = 0, []
         here = os.path.join(root, rel) if rel else root
         try:
             names = sorted(os.listdir(here))
         except OSError:   # what cannot be listed cannot be vouched for
-            return 0, [rel] if rel else [], True
+            return 0, [rel] if rel else []
         for name in names:
             path = f"{rel}/{name}" if rel else name
-            if not rel and name in LAB_FILES:
+            if path == paths.MANIFEST:
                 continue
             info = _lstat(os.path.join(root, path))
             if info is None:
@@ -607,19 +584,16 @@ def _scan(root, listed: Optional[Set[str]]) -> Tuple[int, List[str], bool]:
             if stat.S_ISDIR(info.st_mode):
                 if name.lower() in _SECRET_DIRS or depth >= DEEP:
                     tops.append(path)
-                    machine = True
                     continue
-                inner, below, any_machine = look(path, depth + 1)
+                inner, below = look(path, depth + 1)
                 content += inner
-                tops += [path] if inner == 0 and any_machine else below
-                machine = machine or any_machine
+                tops += [path] if inner == 0 and below else below
             elif (path not in listed) if listed is not None else machine_name(path):
                 tops.append(path)
-                machine = True
             else:
                 content += 1
-        return content, tops, machine
-    return look("", 0)
+        return content, tops
+    return look("", 0)[1]
 
 
 def _manifest_in(root, ns) -> Optional[dict]:
@@ -632,76 +606,41 @@ def _manifest_in(root, ns) -> Optional[dict]:
         return None
 
 
-def _listed(ns, root) -> Optional[Set[str]]:
-    """The content paths of the folder `root` of catalog `ns`: its manifest's files; nothing is content in a folder that
-    holds the `.kept` marker and no manifest; None when nothing says (a name tells)."""
+def _listed(ns, root) -> Set[str]:
+    """The content paths of the folder `root` of catalog `ns`: its manifest's files. A folder with no manifest holds none, so
+    nothing in it is ever deleted as content."""
     found = _manifest_in(root, ns)
-    if found is not None:
-        return set(found["files"])
-    return set() if os.path.lexists(os.path.join(root, MARKER)) else None
+    return set(found["files"]) if found else set()
 
 
 def _machine(ns, root) -> List[str]:
     """The machine entries of an install folder (`_scan`)."""
-    return _scan(root, _listed(ns, root))[1]
+    return _scan(root, _listed(ns, root))
 
 
-def _mark(root) -> None:
-    """Writes the marker `.kept` into the folder `root`: from then on every entry of it is the machine's, whatever its
-    name. A folder that holds neither a manifest nor the marker is judged by names (`machine_name`), and a name the
-    patterns do not know (`data/`, `certs/ca.txt`) reads as content that is nobody's to keep: so the marker is written
-    before the manifest that vouched for the folder goes, and a folder that no manifest vouches for gets it before it is
-    moved or emptied. Idempotent."""
-    paths.write_atomic(Path(root) / MARKER, "", mode=0o600)
-
-
-def _vouch(ns, root) -> None:
-    """Marks a folder that no manifest vouches for and that holds no marker yet: nothing in it is judged by its name
-    from then on (`_mark`)."""
-    if _manifest_in(root, ns) is None and not os.path.lexists(os.path.join(root, MARKER)):
-        _mark(root)
-
-
-def _vacate(ns, root, keep_marker=False) -> None:
-    """Removes the content files an install folder lists, its manifest and, unless `keep_marker`, its marker, and the
-    folders that held only them: what is left is the machine's. Idempotent."""
-    found = _manifest_in(root, ns)
-    rels = [rel for rel in (found["files"] if found else ()) if _safe(rel)]
+def _vacate(ns, root) -> None:
+    """Removes the content files an install folder lists, then its manifest, and the folders that held only them: what is left
+    is the machine's. Idempotent."""
+    rels = [rel for rel in _listed(ns, root) if _safe(rel)]
     for rel in rels:
         _unlink(root, rel)
     _unlink(root, paths.MANIFEST)
-    if not keep_marker:
-        _unlink(root, MARKER)
     _prune(root, rels)
 
 
-def _leave(ns, root, label=None, vacating=None) -> bool:
-    """Takes the content out of an install folder and leaves what is the machine's, with the marker that says so, which
-    is written first (after the step `label`) so that a stop between the manifest going and the marker coming never
-    leaves a folder that names must judge. The step `vacating` follows the marker: a stop there leaves a marked folder
-    whose content is still in it, which the sweeper empties. A folder with no manifest and no marker is marked and its
-    content is not taken out: nothing says what is content in it. The folder goes when nothing is left. Answers whether
-    something stays. Idempotent."""
-    protect = _listed(ns, root) is None or bool(_machine(ns, root))
-    if protect:
-        if label:
-            _step(label)
-        _mark(root)
-        if vacating:
-            _step(vacating)
-    _vacate(ns, root, keep_marker=protect)
-    if protect and _machine(ns, root):
+def _leave(ns, root) -> bool:
+    """Takes the content out of an install folder and leaves what is the machine's. The folder goes when nothing is left. Answers
+    whether something stays. Idempotent."""
+    _vacate(ns, root)
+    if _machine(ns, root):
         return True
-    _clear(root)
+    _remove_tree(root)
     return False
 
 
 def _aside(ns, root) -> str:
     """Renames an install folder that cannot be merged to `.removed-<ns>-<utc>` beside it, where its machine files wait
-    for the next Add, and answers the new path. The newest of these is merged into the install at an Add (rule 12). A
-    folder that no manifest vouches for is marked first (`_mark`): nothing in it is judged by its name, so what
-    `_restore` cannot place stays where it is and the folder is never deleted with a file of the person's in it."""
-    _vouch(ns, root)
+    for the next Add, and answers the new path. The newest of these is merged into the install at an Add."""
     offset = 0
     while True:
         target = os.path.join(os.path.dirname(os.fspath(root)), f".removed-{ns}-{_compact(offset)}")
@@ -723,10 +662,10 @@ def _removed_dirs(ns) -> List[str]:
     return [os.path.join(base, name) for _, name in sorted(found)]
 
 
-def _move_in(source, root, rel, moved):
+def _move_in(source, root, rel):
     """Moves `source/rel` to `root/rel`, never over what is there. A folder that is in both places (a unit's folder that
     holds the new content on one side and the machine's files on the other) is merged entry by entry, except a `.state`
-    or `secrets` folder, which only moves whole; a conflict stays where it was. Adds the paths it moved to `moved`."""
+    or `secrets` folder, which only moves whole; a conflict stays where it was."""
     here, target = os.path.join(source, rel), os.path.join(root, rel)
     if not os.path.lexists(target):
         try:
@@ -735,33 +674,27 @@ def _move_in(source, root, rel, moved):
             return
         try:
             os.rename(here, _parts(rel)[-1], dst_dir_fd=directory)
-            moved.append(rel)
         except OSError:   # a folder only root can move: it stays, and is not lost
             pass
         finally:
             os.close(directory)
     elif _real_dir(here) and _real_dir(target) and os.path.basename(rel).lower() not in _SECRET_DIRS:
         for child in sorted(os.listdir(here)):
-            _move_in(source, root, f"{rel}/{child}", moved)
+            _move_in(source, root, f"{rel}/{child}")
 
 
-def _restore(ns, root) -> List[str]:
+def _restore(ns, root) -> None:
     """Moves the machine entries of the newest `.removed-<ns>-<utc>` folder into the install `root`, each to the path it
     had, never over what is there (a conflict stays where it was). The folder is removed when nothing of the machine is
-    left in it. Idempotent: run again after a stop, it moves what is left. Answers the paths it moved."""
+    left in it. Idempotent: run again after a stop, it moves what is left."""
     removed = _removed_dirs(ns)
     if not removed or not _real_dir(root):
-        return []
-    folder, moved = removed[-1], []
-    try:
-        _vouch(ns, folder)   # one a person or an older run made: what it holds is theirs, not judged by names
-    except OSError:   # a folder the Lab cannot mark is left as it is: nothing is moved out of it or deleted from it
-        return []
+        return
+    folder = removed[-1]
     for rel in _machine(ns, folder):
-        _move_in(folder, root, rel, moved)
+        _move_in(folder, root, rel)
     if not _machine(ns, folder):
-        _clear(folder)
-    return moved
+        _remove_tree(folder)
 
 
 def _target(ns, kept) -> str:
@@ -770,19 +703,16 @@ def _target(ns, kept) -> str:
     install listed (a Remove that kept the settings, a half-made install: the stage is merged into it in place, and the
     machine files never move). Anything else a folder holds, or any path in the way, sends the folder aside first
     (`_aside`): nothing is ever deleted or overwritten for lack of knowing what it is. A link or a file is never
-    replaced: it is `name_taken`. A stop in the merge leaves a folder with no manifest and no marker, which the sweeper
-    sets aside marked, so the units of a half-made install are not seen and the machine's files are not lost."""
+    replaced: it is `name_taken`. A stop in the merge leaves a folder with no manifest, which the sweeper sets aside, so the
+    units of a half-made install are not seen and the machine's files are not lost."""
     root = registry.install_dir(ns)
     info = _lstat(root)
     if info is None:
         return "rename"
     if not stat.S_ISDIR(info.st_mode):
         raise taken(ns)
-    listed = _listed(ns, root)
-    content = _scan(root, listed)[0]
-    known = _manifest_in(root, ns)
-    going = set(known["files"]) if known else set()
-    if (listed is None and content) or any(_in_the_way(root, entry.path, going, going) for entry in kept):
+    going = _listed(ns, root)
+    if any(_in_the_way(root, entry.path, going, going) for entry in kept):
         _aside(ns, root)
         return "rename"
     _vacate(ns, root)
@@ -827,20 +757,11 @@ def not_expected(called=None) -> CatalogError:
                         "update, then try again.", 409)
 
 
-def _check_meta(ns, meta, called=None):
-    if meta.get("id") != ns:
-        raise not_expected(called)
-
-
-def _address_name(address) -> Optional[str]:
-    """How the lines of the catalogue of errors name the repository or folder at an address."""
-    return (address.repo or address.display or None) if address is not None else None
-
-
 def _entry_name(entry) -> Optional[str]:
     """The same for a catalog the machine has: from the address its entry holds."""
     try:
-        return _address_name(gitx.parse_address(entry["url"] if entry["kind"] == "git" else entry["path"]))
+        address = gitx.parse_address(entry["url"] if entry["kind"] == "git" else entry["path"])
+        return address.repo or address.display or None
     except (CatalogError, KeyError, TypeError):
         return registry.display_address(str(entry.get("url") or entry.get("path") or "")) or None
 
@@ -856,7 +777,7 @@ def _config_with(entry):
 
 
 def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], audience: str, roots: list,
-               meta: Optional[dict] = None, host: bool = False) -> dict:
+               meta: dict, host: bool = False) -> dict:
     """The install of a catalog, with the first download of a listed catalog (whose entry exists already) as the same
     pipeline. Under the locks: the namespace is still free and the stage is what was judged (every file has the id and
     the mode git gave it, no other file is there); the manifest is written into the stage; the store is renamed to
@@ -865,26 +786,20 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
     the stage is renamed to the install (or merged into the folder a Remove that kept the settings left, and the machine
     files of the newest `.removed-<ns>-*` are moved in); the lock is written with the pin and `pending` null (the commit
     point of a download); `catalogs.json` gets the entry (the commit point of an Add). `meta` is the validated catalog.yml
-    of the stage (read when not given), `branch` the one the remote resolved (None or "" for the default one), `roots` the
+    of the stage, `branch` the one the remote resolved (None or "" for the default one), `roots` the
     root commits seen at the fetch. A folder stage is renamed to the link and recorded. Answers {entry, lock}."""
     ns = staged.ns
-    if audience not in ("public", "private") or not all(isinstance(one, str) and _SHA.fullmatch(one) for one in roots):
-        raise ValueError("an audience is public or private, and the roots are commit ids")   # before anything is made
-    with _guard():
+    with registry.flock():
         _step("add:begin")
         entry, held = registry.entry(ns), registry.lock_of(ns)
         _free(ns, entry, held, address)
         if not _real_dir(staged.path) and not os.path.islink(staged.path):
             raise CatalogError("ticket_expired", "This took too long. Start again.", 409)
-        if staged.kind == "git":
-            if staged.store is None or not _SHA.fullmatch(staged.commit or ""):
-                raise ValueError("a git stage needs its store and its commit")
-            shas = _audit(staged.path, staged.kept)   # what was judged is what is installed
-        if meta is None:
-            meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address)
-        _check_meta(ns, meta, _address_name(address))
+        if meta.get("id") != ns:
+            raise not_expected(address.repo or address.display)
         if staged.kind == "folder":
-            return _commit_folder(staged, address, entry, audience, meta, host)
+            return _commit_folder(staged, address, audience, meta, host)
+        shas = _audit(staged.path, staged.kept)   # what was judged is what is installed
         tip = bare.resolve(staged.store, "refs/lab/tip")
         if tip is None:
             raise bare.MissingObject("refs/lab/tip")
@@ -893,7 +808,7 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
         _step("add:store")
         final = registry.store_dir(ns)
         if os.path.abspath(staged.store) != os.path.abspath(final):
-            _clear(final)   # a store left by an attempt that never became a catalog
+            _remove_tree(final)   # a store left by an attempt that never became a catalog
             os.rename(staged.store, final)
         _step("add:pending")
         registry.set_lock(ns, pin=None, previous=None, tip=tip, roots=sorted(roots), audience=audience,
@@ -934,12 +849,11 @@ def _place(ns, staged):
         _step("add:file")
         safe_replace(Path(stage_dir) / entry.path, Path(root) / entry.path)
     safe_replace(Path(stage_dir) / paths.MANIFEST, Path(root) / paths.MANIFEST)
-    _clear(stage_dir)
-    _unlink(root, MARKER)
+    _remove_tree(stage_dir)
     _restore(ns, root)   # a folder the sweeper renamed, beside the one a Remove left
 
 
-def _commit_folder(staged, address, entry, audience, meta, host):
+def _commit_folder(staged, address, audience, meta, host):
     """The Add of a folder catalog: the stage is a link, renamed to `.lab/catalogs/<ns>`, then the lock and the entry.
     """
     ns = staged.ns
@@ -958,13 +872,11 @@ def _commit_folder(staged, address, entry, audience, meta, host):
     _step("add:lock")
     registry.set_lock(ns, pin=None, previous=None, tip=None, roots=[], audience=audience, installed=None, checked=None,
                       error=None, pending=None, **_lock_fields(meta))
-    row = entry
-    if entry is None:
-        _step("add:config")
-        row = {"id": ns, "kind": "folder", "path": address.path, "added": _utc()}
-        if host:
-            row["host"] = True
-        _config_with(row)
+    _step("add:config")
+    row = {"id": ns, "kind": "folder", "path": address.path, "added": _utc()}
+    if host:
+        row["host"] = True
+    _config_with(row)
     _step("add:done")
     return {"entry": row, "lock": registry.lock_of(ns)}
 
@@ -1080,17 +992,6 @@ def _need(ns, commit):
     return store_path
 
 
-def _unreadable(meta, contract, entry) -> Optional[CatalogError]:
-    """The refusal (`lab_new`, `lab_old`) when the version staged is written for a level this Lab does not read, by the strict
-    reading of its catalog.yml: `searched` chooses a commit from a tolerant reading that may be unsure of the level (an anchor,
-    a number spelled another way) and takes such a version for one this Lab may read, so this is where it is known. None
-    for a Lab whose level the caller did not give."""
-    if not isinstance(contract, dict):
-        return None
-    return manifest.compat_error(meta["lab"], contract.get("contract", 1), contract.get("contract_min", 1),
-                                 defaults.listed(entry))
-
-
 _versions = {}   # (store, commit, what this Lab reads) -> what that version uses that this Lab does not read
 _versions_lock = threading.Lock()
 
@@ -1108,7 +1009,7 @@ def probe(store_path, commit):
         _write_stage(target, store_path, kept)
         yield ns
     finally:
-        _clear(target)
+        _remove_tree(target)
 
 
 def unknown_at(store_path, commit) -> Optional[list]:
@@ -1170,12 +1071,12 @@ def readable(store_path):
 def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     """The plan of an update, for the files: `{"upToDate": True}` when `target` is the pin or changes nothing installable;
     else the plan. The candidate tree is staged in full at `.stage-<ns>` for the caller to judge. The plan: {ns, op
-    (update, or undo when `target` is `lock.previous`), from, to, tip, name, version, lab, adds, updates, removes (unit
+    (update, or undo when `target` is `lock.previous`), from, to, version, adds, updates, removes (unit
     keys `kind:name`), renamed ({kind:old: kind:new}: the items it renames, which are in neither adds nor removes), files
     {add, change, remove}, touched (what changed in each unit, `store.changed_parts`), rewritten,
     held (the changed or removed units that are on), release (the version of the release `target` is, or None), whatsnew
     (what is new in the units it changes, adds or removes, unit by unit, as the notes of a release say it: `store.notes`,
-    each subject once), ignored, kept (the files written), stage, meta (the validated catalog.yml of the candidate), context}.
+    each subject once), ignored, kept (the files written), meta (the validated catalog.yml of the candidate), context}.
     `rewritten`: the history is not the one installed (the roots differ, or the pin is not an ancestor of the target; for a
     Go back, the two are not one history); or `context["moved"]`,
     the release installed is a tag the owners moved to the target since, which an update does not take silently either. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
@@ -1184,7 +1085,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     has a key this Lab does not read (`lab_new`: it needs a newer Gravitee Lab), the staged folder cleared. The
     plan is applied by `apply_update`, which asks again."""
     context = dict(context or {})
-    with _guard():
+    with registry.flock():
         _git_entry(ns)
         _settle(ns)
         held, old = registry.lock_of(ns), registry.manifest(ns)
@@ -1205,13 +1106,16 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
             meta = manifest.read_catalog(os.path.relpath(registry.stage_dir(ns) / manifest.FILE, paths.ROOT), published=True)
             if meta["id"] != ns:
                 raise not_expected(_entry_name(registry.entry(ns)))
-            refusal = _unreadable(meta, context.get("contract"), registry.entry(ns))
+            # `searched` chose from a tolerant reading that may be unsure of the level: the strict one is where it is known
+            contract = context.get("contract")
+            refusal = manifest.compat_error(meta["lab"], contract["contract"], contract["contract_min"],
+                                            defaults.listed(registry.entry(ns))) if contract else None
             if refusal is not None:
                 raise refusal
             if manifest.unread(meta):   # a published catalog: what this Lab does not read in it needs a newer Gravitee Lab
                 raise manifest.not_understood(manifest.unread(meta))
         except CatalogError:
-            _clear(registry.stage_dir(ns))   # what was refused is not left to be installed
+            _remove_tree(registry.stage_dir(ns))   # what was refused is not left to be installed
             raise
         before = old["units"]
         moved = renames.resolve(renames.declared_at(store_path, held["pin"]), renames.declared(meta), op == "undo")
@@ -1229,11 +1133,10 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
         news = _whatsnew(store_path, held["pin"], target, updates + adds + removes + sorted(renamed) + sorted(renamed.values())) \
             if op == "update" else []
         touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
-        return {"ns": ns, "op": op, "from": held["pin"], "to": target, "tip": held.get("tip"), "name": meta["name"],
-                "version": meta["version"], "lab": meta["lab"], "adds": adds, "updates": updates, "removes": removes,
-                "renamed": renamed,
+        return {"ns": ns, "op": op, "from": held["pin"], "to": target, "version": meta["version"], "adds": adds,
+                "updates": updates, "removes": removes, "renamed": renamed,
                 "files": files, "touched": touched, "rewritten": rewritten, "held": _held(ns, updates + removes, context),
-                "release": manifest.release_of(store_path, target, meta["version"]), "whatsnew": news, "ignored": ignored, "kept": kept, "stage": os.fspath(registry.stage_dir(ns)),
+                "release": manifest.release_of(store_path, target, meta["version"]), "whatsnew": news, "ignored": ignored, "kept": kept,
                 "meta": meta, "context": context}
 
 
@@ -1311,7 +1214,7 @@ def apply_update(ns: str, plan: dict, confirm_history: bool = False) -> None:
     installed version did not list where the new one now has a file) is `damaged` before anything is touched; but for a
     regular file that is the very file the new version writes there (what an update that failed halfway left, and a Repair
     to the old pin did not take away): it is taken over."""
-    with _guard():
+    with registry.flock():
         _git_entry(ns)
         _settle(ns)
         held = registry.lock_of(ns)
@@ -1342,7 +1245,7 @@ def apply_update(ns: str, plan: dict, confirm_history: bool = False) -> None:
 
 
 def _roll(ns, frm, to, label, meta=None):
-    """Steps 11 to 13b of an update from `frm` to `to` (`frm` equal to `to` is a repair), for a lock that is pending:
+    """The end of an update from `frm` to `to` (`frm` equal to `to` is a repair), for a lock that is pending:
     the install is brought to the files of `to`, then the lock commits, with the root commits of `to` when the pin moves:
     a history the person confirmed (`history_changed`) is the history of the catalog from then on, and the next check and
     the next plan compare with it. Idempotent, and what `recover()` runs again for a pending operation: it judges the
@@ -1356,7 +1259,10 @@ def _roll(ns, frm, to, label, meta=None):
         if len(roots) <= ROOTS_LIMIT:
             change["roots"] = roots   # the history the person confirmed is the history now pinned
     found = movable(ns, frm, to, label)
-    _converge(ns, to, kept, ignored, label, examine_all=frm == to, then=lambda: _follow(ns, found, label))
+    prepared = _prepared(ns, to, kept, ignored)
+    with _exclusive():   # what follows the files (the renames), that a reader must see with them
+        _apply(ns, to, kept, label, prepared)
+        _follow(ns, found, label)
     if meta is not None:
         fields = _lock_fields(meta)
     else:
@@ -1366,7 +1272,7 @@ def _roll(ns, frm, to, label, meta=None):
         fields["release"] = manifest.release_of(store_path, to, fields.get("version"))
     _step(f"{label}:lock")
     registry.set_lock(ns, pin=to, installed=_utc(), error=None, pending=None, **change, **fields)
-    _clear(registry.stage_dir(ns))
+    _remove_tree(registry.stage_dir(ns))
     _step(f"{label}:done")
 
 
@@ -1395,27 +1301,17 @@ def _same(path, entry) -> bool:
 
 
 def _prepared(ns, commit, kept, ignored):
-    """The staging folder of `ns` made to hold exactly `kept` (the one the plan made when it is still intact, else it is
-    written again from the store, which gives the same bytes) and the manifest for it: (the folder, the document)."""
+    """The staging folder of `ns` written with exactly `kept`, the same bytes each time, and the manifest for it: (the folder,
+    the document)."""
     stage_dir = registry.stage_dir(ns)
-    shas = None
-    if os.path.lexists(stage_dir):
-        try:
-            shas = _audit(stage_dir, kept)
-        except CatalogError:
-            shas = None
-    if shas is None:
-        shas = _write_stage(stage_dir, registry.store_dir(ns), kept)
-    return stage_dir, _document(ns, commit, kept, ignored, shas)
+    return stage_dir, _document(ns, commit, kept, ignored, _write_stage(stage_dir, registry.store_dir(ns), kept))
 
 
-def _apply(ns, commit, kept, label, examine_all, prepared):
+def _apply(ns, commit, kept, label, prepared):
     """Brings the install of `ns` to exactly the files `kept` of `commit` from the staging folder `prepared` made, and
     writes its manifest last. The caller holds the project lock. Only the files that differ are replaced, each in one
-    step: those that changed since the manifest the install has, or all of them when `examine_all` (a repair, a manifest
-    that already says `commit`, or none). The files the old manifest listed and `kept` does not are deleted first, and
-    the folders they leave empty, so that a file that becomes a folder finds its place free. A file that is not listed
-    anywhere is the machine's and is not touched."""
+    step. The files the old manifest listed and `kept` does not are deleted first, and the folders they leave empty, so that a
+    file that becomes a folder finds its place free. A file that is not listed anywhere is the machine's and is not touched."""
     stage_dir, document = prepared
     root, old, wanted = registry.install_dir(ns), registry.read_manifest(ns), {entry.path: entry for entry in kept}
     _step(f"{label}:apply")
@@ -1424,18 +1320,12 @@ def _apply(ns, commit, kept, label, examine_all, prepared):
         os.chmod(root, 0o755)
     elif not _real_dir(root):
         raise Unsafe("the install is not a folder", ns)
-    if examine_all or old is None or old["commit"] == commit:
-        examine = set(wanted)
-    else:
-        examine = {path for path, entry in wanted.items()
-                   if _rec(old["files"], path).get("oid") != entry.oid
-                   or _rec(old["files"], path).get("mode") != entry.mode}
     gone = sorted(set(old["files"]) - set(wanted)) if old else []
     for path in gone:   # first, so that a file that becomes a folder, or a folder a file, finds its place free
         _step(f"{label}:removed")
         _unlink(root, path)
     _prune(root, gone)
-    for path in sorted(examine):
+    for path in sorted(wanted):
         if not _same(os.path.join(root, path), wanted[path]):
             _step(f"{label}:file")
             safe_replace(Path(stage_dir) / path, Path(root) / path)
@@ -1455,16 +1345,6 @@ def _moving(ns, store_path, frm, to, label):
     return found, base
 
 
-def _converge(ns, commit, kept, ignored, label, examine_all, then=None):
-    """`_prepared`, then `_apply` under the project lock, and `then` under it too: what follows the files, that a reader must
-    see with them (the renames)."""
-    prepared = _prepared(ns, commit, kept, ignored)
-    with _exclusive():
-        _apply(ns, commit, kept, label, examine_all, prepared)
-        if then is not None:
-            then()
-
-
 def _follow(ns, found, label):
     """The renames of a version, followed once its files are in place (`renames.follow`), under the project lock: the on
     file never names a file the install no longer has."""
@@ -1481,7 +1361,7 @@ def repair(ns: str) -> None:
     is cleared. A file the manifest does not list is the machine's and stays. It runs as an update from the pin to the
     pin, so a stop in the middle is finished by `recover()`. When the store lacks an object it raises `fsck`
     (`store.MissingObject`): the caller fetches again and repairs again. Nothing to do for a folder catalog."""
-    with _guard():
+    with registry.flock():
         entry = registry.entry(ns)
         if entry is None:
             raise ValueError(f"{ns} is not a catalog of this machine")
@@ -1534,16 +1414,15 @@ def unit_key(path):
 def remove(ns: str, keep_settings: bool = True) -> dict:
     """The removal of a catalog, after the caller has checked `held` and `breaks`: the entry leaves `catalogs.json` (the commit point), the
     store is deleted, then the install: with `keep_settings` the files its manifest lists are deleted with the folders
-    they leave empty and the machine files stay, with the marker `.kept` that tells the sweeper to leave them (a folder
-    with none is removed); without, the whole folder is removed, and what cannot be removed (files Docker made as root)
-    is counted and reported. The lock entry and the stars of its units go. A folder catalog loses its link and nothing
+    they leave empty and the machine files stay (a folder with none is removed); without, the whole folder is removed, and what
+    cannot be removed (files Docker made as root) is counted and reported. The lock entry and the stars of its units go. A folder catalog loses its link and nothing
     else: the author's folder is never touched. Answers {"warning": the line of `removed_partial` or None}. Idempotent:
     run again after a stop, it finishes. `linked` for a git catalog that a working copy stands in for; `held` ("Turn off
     {name} first.") when the on file turns on a unit of it, directly or through an item of another catalog: the caller
     asks the same of what is up, which only it can see."""
     if not isinstance(ns, str) or ns == paths.LOCAL or not _NS.fullmatch(ns):
         raise ValueError(f"{ns!r} is not a catalog")
-    with _guard():
+    with registry.flock():
         entry, held = registry.entry(ns), registry.lock_of(ns)
         if entry is not None and (held.get("shadowed") or (entry["kind"] == "folder" and entry.get("shadows"))):
             raise CatalogError("linked", LINKED, 409)
@@ -1567,13 +1446,15 @@ def remove(ns: str, keep_settings: bool = True) -> dict:
         root, warning = os.fspath(registry.install_dir(ns)), None
         with _exclusive():
             _step("remove:store")
-            _clear(registry.store_dir(ns))
-            _clear(registry.stage_dir(ns))
+            _remove_tree(registry.store_dir(ns))
+            _remove_tree(registry.stage_dir(ns))
             _step("remove:files")
             if os.path.islink(root):
                 os.unlink(root)   # the link and nothing it points to
-            elif _real_dir(root):
-                warning = _take_out(ns, root, keep_settings)
+            elif keep_settings and _real_dir(root):
+                _leave(ns, root)
+            elif _real_dir(root) and _remove_tree(root):
+                warning = PARTIAL.format(id=ns)
         _step("remove:lock")
         registry.drop_lock(ns)
         _step("remove:stars")
@@ -1582,20 +1463,6 @@ def remove(ns: str, keep_settings: bool = True) -> dict:
             starred.moved(kind, name if ns == default else f"@{ns}/{name}")
         _step("remove:done")
         return {"warning": warning}
-
-
-def _take_out(ns, root, keep_settings) -> Optional[str]:
-    """The install folder of a catalog that left: its content (and, without `keep_settings`, everything). Answers the
-    warning for what could not be removed."""
-    if keep_settings:
-        # judged while the manifest still says what is content: the rest is the machine's
-        _leave(ns, root, "remove:marker", "remove:vacate")
-        return None
-    if _remove_tree(root):
-        with contextlib.suppress(OSError):
-            _mark(root)   # what is left waits for an Add, as the line says
-        return PARTIAL.format(id=ns)
-    return None
 
 
 # ---------------------------------------------------------------- a working copy in place of a git install
@@ -1638,12 +1505,9 @@ def shadow(ns: str, folder: str) -> dict:
     marked `shadowed` (the store and the pin stay). What is done is recorded in `.shadow-<ns>.json` first, so that a
     stop is finished by `recover()` and `unshadow` knows what to take back. The caller refuses while an item is on or
     up; this refuses what the on file turns on. Answers {"moved": [...], "kept": [...], "folder": path}."""
-    with _guard():
-        entry, held = registry.entry(ns), registry.lock_of(ns)
-        if entry is None:
-            raise ValueError(f"{ns} is not a catalog of this machine")
-        if entry["kind"] != "git" or held.get("shadowed"):
-            raise CatalogError("linked", LINKED, 409)
+    with registry.flock():
+        _git_entry(ns)
+        entry = registry.entry(ns)
         _settle(ns)
         if not registry.lock_of(ns).get("pin") or registry.manifest(ns) is None:
             raise Unsafe("the install does not read", ns)
@@ -1703,7 +1567,7 @@ def _shadow_run(ns, record) -> dict:
     with _exclusive():   # the install, the link, the entry and the lock change together for a reader
         if _real_dir(root):
             _step("shadow:install")
-            if _leave(ns, root):   # what could not be moved waits aside, marked
+            if _leave(ns, root):   # what could not be moved waits aside
                 _aside(ns, root)
         _step("shadow:link")
         if _lstat(root) is None:
@@ -1735,7 +1599,7 @@ def unshadow(ns: str) -> dict:
     {"moved": [...]}. The working copy is never touched but for the entries taken back. A store that does not hold the
     pin (the cache was cleared: it is disposable) is `fsck` before anything is written, with the link in place: the
     caller fetches the address in `entry["shadows"]` into the store of the catalog and unlinks again."""
-    with _guard():
+    with registry.flock():
         entry = registry.entry(ns)
         if entry is None or entry["kind"] != "folder" or not entry.get("shadows"):
             raise ValueError(f"{ns} is not a git catalog that a working copy stands in for")
@@ -1764,7 +1628,7 @@ def _unshadow_run(ns, record) -> dict:
         if os.path.islink(root):
             os.unlink(root)
         _step("unshadow:install")
-        _apply(ns, held["pin"], kept, "unshadow", True, prepared)
+        _apply(ns, held["pin"], kept, "unshadow", prepared)
         for one in record["moves"]:
             if one["result"] not in ("moved", "copied"):
                 continue
@@ -1784,7 +1648,7 @@ def _unshadow_run(ns, record) -> dict:
         registry.write_config(config)
         _step("unshadow:lock")
         registry.set_lock(ns, shadowed=None)
-    _clear(registry.stage_dir(ns))
+    _remove_tree(registry.stage_dir(ns))
     with contextlib.suppress(FileNotFoundError):
         os.unlink(_record_file(ns))
     _step("unshadow:done")
@@ -1814,16 +1678,12 @@ def _finish(ns):
     """Finishes or undoes the operation `lock.pending` names. An Update, a Go back or a Repair is finished: the
     store holds every object, so the files are brought to `to` again and the lock commits. A download (an Add whose
     entry exists) is finished when the install and the store are whole, else its files are removed (the machine's stay)
-    and the pending flag cleared, so that the download starts again from nothing. An Add with no entry never committed:
-    it is garbage, which the sweeper removes. What cannot be finished marks the catalog damaged, which Repair clears."""
-    pending = registry.lock_of(ns).get("pending")
-    if not pending:
-        return
+    and the pending flag cleared, so that the download starts again from nothing. (An Add with no entry never committed: it
+    is garbage, which `recover` leaves to the sweeper.) What cannot be finished marks the catalog damaged, which Repair clears."""
+    pending = registry.lock_of(ns)["pending"]
     op, frm, to = pending["op"], pending["from"], pending["to"]
     _step("recover:pending")
     if op == "add":
-        if registry.entry(ns) is None:
-            return
         root = os.fspath(registry.install_dir(ns))
         if _complete(ns, to):
             _restore(ns, root)
@@ -1831,12 +1691,11 @@ def _finish(ns):
                 _follow(ns, renames.between(registry.store_dir(ns), None, to), "add")
             now = _utc()
             registry.set_lock(ns, pin=to, previous=None, installed=now, checked=now, error=None, pending=None)
-            _unlink(root, MARKER)
-            _clear(registry.stage_dir(ns))
+            _remove_tree(registry.stage_dir(ns))
         else:
             if _real_dir(root):
                 _leave(ns, root)
-            _clear(registry.stage_dir(ns))
+            _remove_tree(registry.stage_dir(ns))
             registry.set_lock(ns, pin=None, pending=None, error=None)
         return
     try:
@@ -1856,16 +1715,10 @@ def _age(path) -> float:
     return time.time() - info.st_mtime if info else 0.0
 
 
-def _namespaces(names):
-    """The names in a listing of `.lab/catalogs` that can be a catalog's folder: a namespace, and not `local`."""
-    return [name for name in names if _NS.fullmatch(name) and name != paths.LOCAL]
-
-
-def _sweep_stale() -> List[Tuple[str, str]]:
-    """The leftovers of rule 12 that age alone judges, which need no lock because nothing that old is in use: the
+def _sweep_stale() -> None:
+    """The leftovers that age alone judges, which need no lock because nothing that old is in use: the
     staging folders and the `*.partial` files of `.lab/catalogs`, and the stores being added, older than a day (`AGE`).
     """
-    done = []
     base = os.path.join(paths.ROOT, paths.CATALOGS_DIR)
     cache = os.path.join(paths.ROOT, registry.STORE_DIR)
     for folder, wanted in ((base, lambda name: name.startswith(".stage-") or name.endswith(".partial")),
@@ -1876,29 +1729,23 @@ def _sweep_stale() -> List[Tuple[str, str]]:
             continue
         for name in names:
             if wanted(name) and _age(os.path.join(folder, name)) > AGE:
-                _clear(os.path.join(folder, name))
-                done.append(("swept", name))
-    return done
+                _remove_tree(os.path.join(folder, name))
 
 
-def sweep() -> List[Tuple[str, str]]:
-    """Under the locks: `_sweep_stale`, the `.share-*` folders Share leaves in an install older than
-    a day, and the install folders that have no entry in `catalogs.json`, each judged: left alone when it holds the
-    marker `.kept` (when it still holds its manifest too, a Remove stopped before it took the content out, and the
-    content is taken out: "emptied"), or when its id is listed and it holds only machine files (settings waiting for an
-    Add); removed when it holds nothing but what its manifest lists; renamed `.removed-<ns>-<utc>` when it holds
-    anything else, marked first if no manifest vouches for it. `local` is never swept, a link is never followed, and no
-    install is touched while the file that lists the catalogs cannot be read, so a damaged file never turns every
-    install into garbage. Answers [(what was done, the name)]."""
-    with _guard():
-        done = _sweep_stale()
+def sweep() -> None:
+    """Under the locks: `_sweep_stale`, the `.share-*` folders Share leaves in an install older than a day, and the install
+    folders that have no entry in `catalogs.json` (`_sweep_install`). `local` is never swept, a link is never followed, and no
+    install is touched while the file that lists the catalogs cannot be read, so a damaged file never turns every install into
+    garbage."""
+    with registry.flock():
+        _sweep_stale()
         if registry.config_problem():
-            return done
+            return
         base = os.path.join(paths.ROOT, paths.CATALOGS_DIR)
         try:
-            names = _namespaces(sorted(os.listdir(base)))
+            names = [name for name in sorted(os.listdir(base)) if _NS.fullmatch(name) and name != paths.LOCAL]
         except OSError:
-            return done
+            return
         have = {one["id"] for one in registry.entries()}
         for name in names:
             root = os.path.join(base, name)
@@ -1906,46 +1753,34 @@ def sweep() -> List[Tuple[str, str]]:
                 continue
             try:
                 if name not in have:
-                    done += _sweep_install(name, root)
+                    _sweep_install(name, root)
                     continue
                 inside = sorted(os.listdir(root))
             except OSError:   # a folder the Lab cannot read or rename is left for the person
                 continue
             for one in inside:
                 if one.startswith(".share-") and _age(os.path.join(root, one)) > AGE:
-                    _clear(os.path.join(root, one))
-                    done.append(("swept", f"{name}/{one}"))
-        return done
+                    _remove_tree(os.path.join(root, one))
 
 
-def _sweep_install(ns, root) -> List[Tuple[str, str]]:
-    """Rule 12 for one install folder with no entry."""
-    if os.path.lexists(os.path.join(root, MARKER)):
-        if _manifest_in(root, ns) is None:
-            return []
-        _leave(ns, root)   # a Remove that kept the settings stopped before it took the content out: it is finished
-        return [("emptied", ns)]
-    found = _manifest_in(root, ns)
-    listed = set(found["files"]) if found else None
-    content, _, machine = _scan(root, listed)
-    if not machine and (found is not None or content == 0):
-        _clear(root)
-        return [("removed", ns)]
-    if listed is None and content == 0 and defaults.listed({"id": ns, "kind": "git"}):
-        return []
-    _aside(ns, root)
-    return [("renamed", ns)]
+def _sweep_install(ns, root) -> None:
+    """One install folder with no entry. One with no manifest that shows units is a half-made install: it goes aside
+    whole, for `paths` lists such a folder by what it holds. From any other, what its manifest lists goes, and what is left is the
+    machine's, which waits for an Add."""
+    if _manifest_in(root, ns) is None and any(paths.names(ns, kind) for kind in paths.KINDS):
+        _aside(ns, root)
+    else:
+        _leave(ns, root)
 
 
 def recover() -> None:
     """At the start of the Lab (after the bind), under the locks: finishes the operations the lock
-    says are under way, finishes a shadow link or its reversal, removes what a stop left (rule 12: `sweep`, the lock
-    entries and the stores that have no entry in `catalogs.json`) and removes the
-    markers of the folders a catalog has been added into. Everything is idempotent and judged by the disk, so a stop inside it is finished by the next. The trouble of
+    says are under way, finishes a shadow link or its reversal, and removes what a stop left (`sweep`, the lock
+    entries and the stores that have no entry in `catalogs.json`). Everything is idempotent and judged by the disk, so a stop inside it is finished by the next. The trouble of
     one catalog never ends the start, and neither does a start without git (state `needs_git`): an operation under way
     keeps its record. It raises `busy` when another process holds the lock
     for longer than the wait."""
-    with _guard():
+    with registry.flock():
         _step("recover:begin")
         problem = registry.config_problem()
         for ns in sorted(registry.read_lock()["catalogs"]):
@@ -1968,22 +1803,7 @@ def recover() -> None:
         sweep()
         if not problem:
             _orphans()
-        _step("recover:tidy")
-        for entry in registry.entries():
-            try:
-                _tidy(entry)
-            except TROUBLE:   # tried again at the next start
-                continue
         _step("recover:done")
-
-
-def _tidy(entry):
-    """The last of `recover()` for one catalog: the marker of a folder a catalog has been added into removed."""
-    held = registry.lock_of(entry["id"])
-    if entry["kind"] != "git" or not held.get("pin") or held.get("pending"):
-        return
-    if registry.manifest(entry["id"]) is not None:
-        _unlink(registry.install_dir(entry["id"]), MARKER)
 
 
 def _orphans():
@@ -2000,4 +1820,4 @@ def _orphans():
         return
     for name in stores:
         if name.endswith(".git") and _NS.fullmatch(name[:-4]) and name[:-4] not in have:
-            _clear(os.path.join(cache, name))
+            _remove_tree(os.path.join(cache, name))

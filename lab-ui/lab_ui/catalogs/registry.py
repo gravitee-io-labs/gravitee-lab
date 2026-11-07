@@ -8,11 +8,10 @@ kept for the Catalogs page (`config_problem`), never a crash. The only read that
 read, so that a damaged file is never mistaken for a first run. Writes are atomic (`paths.write_atomic`, mode 0600), and
 a file the Lab cannot read is kept aside (`<name>.bad-<utc>`) before it is replaced, never overwritten.
 
-Every function reads `paths.ROOT` at call time and keeps no path of its own. Two locks serialize the writers: `LOCK` for
-the threads of this process and an advisory lock on `.lab/catalogs.flock` for the other processes, the command line and
-a second Lab. `flock()` takes both, LOCK first, so that whoever holds the advisory lock holds LOCK as well and no two
-threads can wait for each other. The order is always LOCK, then the advisory lock, then the project lock. A reader takes
-neither: it reads whole files and tolerates a pair that is half written. What a read accepts, a write can store back.
+Every function reads `paths.ROOT` at call time and keeps no path of its own. An advisory lock on `.lab/catalogs.flock`
+(`flock()`) serializes the writers: the threads of this process, the command line and a second Lab. The order is always this
+lock, then the project lock. A reader takes neither: it reads whole files and tolerates a pair that is half written. What a
+read accepts, a write can store back.
 
 A git install is trusted only through its manifest: a unit is a unit of the catalog only if
 `.installed.json` lists it, and the manifest is valid only for the commit the lock pins, or for the one an operation
@@ -35,8 +34,6 @@ from typing import Iterable, Optional
 
 from .. import paths
 
-LOCK = threading.RLock()
-
 SCHEMA = 1
 LOCAL = paths.LOCAL
 KINDS = paths.KINDS
@@ -56,7 +53,7 @@ ENTRIES_LIMIT, SUGGESTIONS_MAX = 200, 50
 # A file changed this recently is read again whatever its stamp says: two writes within one tick of the clock can leave
 # the same modification time, size and inode number
 RACY = 2.0
-# How deep a JSON document of the Lab may nest: the formats of are 5 deep, and a newer Lab's keys are kept
+# How deep a JSON document of the Lab may nest: its formats are 5 deep, and a newer Lab's keys are kept
 DEPTH_LIMIT = 64
 
 # The keys of an entry of catalogs.json that this Lab reads; any other is a newer Lab's and is kept as it is
@@ -69,7 +66,7 @@ _VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 _STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})")
 _CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 
-# The state of a catalog that its last failure names (the keys of), by the code of the catalogue of errors
+# The state of a catalog that its last failure names, by the code of the catalogue of errors
 FAILURES = {
     "git_missing": "needs_git", "git_old": "needs_git", "docker_missing": "needs_docker",
     "no_access": "noaccess", "not_found": "noaccess", "ssh_denied": "noaccess", "host_key": "noaccess",
@@ -96,8 +93,8 @@ class CatalogError(Exception):
 
 # ---------------------------------------------------------------- locks
 
-# The advisory locks this thread holds, by file, with a depth: flock(2) would block a thread on a second descriptor of
-# a file it already holds
+# The advisory locks this thread holds, by file: flock(2) would block a thread on a second descriptor of a file it already
+# holds
 _held = threading.local()
 
 
@@ -136,35 +133,23 @@ def _acquire(path, wait):
 
 @contextlib.contextmanager
 def flock(wait: Optional[float] = None):
-    """Holds LOCK and then the advisory lock on `.lab/catalogs.flock` (the other processes of this machine are kept
-    out), for up to `wait` seconds of waiting for both (FLOCK_WAIT when not given, 0 to try once), else the change is
-    `busy`. LOCK is taken here, first: a thread that holds the advisory lock holds LOCK too, so it can go on to call a
-    writer while another thread of this process waits for the lock, and neither waits for the other. A thread that
-    holds it takes it again at no cost, so a function may take it whether its caller did or not (`with LOCK, flock()`
-    works as well). Where the lock file cannot be made, LOCK is all there is."""
+    """Holds the advisory lock on `.lab/catalogs.flock`, for up to `wait` seconds of waiting (FLOCK_WAIT when not given, 0 to
+    try once), else the change is `busy`. Another thread waits as another process does: flock(2) goes by the open file. A
+    thread that holds it takes it again at no cost, so a function may take it whether its caller did or not. Where the lock file
+    cannot be made there is nothing to hold."""
     path = str(Path(paths.ROOT) / FLOCK_FILE)
-    held = _held.__dict__.setdefault("held", {})
+    held = _held.__dict__.setdefault("held", set())
     if path in held:
-        held[path] += 1
-        try:
-            yield
-        finally:
-            held[path] -= 1
+        yield
         return
-    deadline = time.monotonic() + (FLOCK_WAIT if wait is None else wait)
-    if not LOCK.acquire(timeout=max(0.0, deadline - time.monotonic())):
-        raise busy()
+    descriptor = _acquire(path, FLOCK_WAIT if wait is None else wait)
+    held.add(path)
     try:
-        descriptor = _acquire(path, max(0.0, deadline - time.monotonic()))
-        held[path] = 1
-        try:
-            yield
-        finally:
-            del held[path]
-            if descriptor is not None:
-                os.close(descriptor)   # closing the descriptor releases the lock
+        yield
     finally:
-        LOCK.release()
+        held.discard(path)
+        if descriptor is not None:
+            os.close(descriptor)   # closing the descriptor releases the lock
 
 
 # ---------------------------------------------------------------- reading files
@@ -481,8 +466,8 @@ def _dump(document):
 
 def _set_aside(file):
     """Keeps the file `file` as `<name>.bad-<utc>` (with a number if that name is taken) before a write replaces it. A
-    regular file is linked, not moved (copied where links are not allowed): until the write succeeds the file is still
-    where it was, so a write that fails never turns a damaged file into a missing one, which would read as a first run.
+    regular file is copied, not moved: until the write succeeds the file is still where it was, so a write that fails never
+    turns a damaged file into a missing one, which would read as a first run.
     Anything else (a folder, a link, a pipe) is moved. The person's file is never overwritten: when it cannot be kept,
     the write fails."""
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -499,10 +484,7 @@ def _set_aside(file):
     if not regular:
         os.rename(file, target)
         return target
-    try:
-        os.link(file, target)
-    except OSError:
-        shutil.copyfile(file, target)
+    shutil.copy(file, target)   # with its mode: a file edited by hand can hold an address with a token
     return target
 
 
@@ -544,7 +526,7 @@ def write_config(config: dict) -> None:
     first kept as `catalogs.json.bad-<utc>`, never overwritten, so a hand edit that went wrong is kept for the person.
     Refuses (ValueError) what would not read back as given: an entry with no valid id, a reserved id that is not listed,
     a repeated id; and an address with a user name (bad_address_secret). The allowance of a listed catalog is not
-    written (it is implied). Reading the file again is the caller's, under LOCK and flock, as any change of catalogs."""
+    written (it is implied). Reading the file again is the caller's, under the flock, as any change of catalogs."""
     text = _dump(_checked_config(config))
     with flock():
         _write(CONFIG_FILE, text, _load_config()[1])
@@ -599,7 +581,7 @@ def _pending(value):
 
 
 def _lock_entry(raw, strict):
-    """A lock entry with every field of of the type it has. A field that is not (a file edited by hand, a
+    """A lock entry with every field of the type it has. A field that is not (a file edited by hand, a
     newer Lab's) reads as its blank when `strict` is False, and is a ValueError when it is True (a write). Keys this Lab
     does not know are kept."""
     found = _blank()
@@ -657,7 +639,7 @@ def _lock_entry(raw, strict):
 
 
 def read_lock() -> dict:
-    """.lab/catalogs.lock as {"schema": 1, "catalogs": {ns: entry}}, every entry with all the fields of (a
+    """.lab/catalogs.lock as {"schema": 1, "catalogs": {ns: entry}}, every entry with all its fields (a
     field that cannot be read is its blank). Empty when the file does not exist, and empty with `config_problem()`
     saying why when it cannot be read."""
     return _load_lock()[0]
@@ -699,7 +681,7 @@ def lock_of(ns: str) -> dict:
 
 def set_lock(ns: str, **fields) -> dict:
     """Sets fields of the lock entry of `ns` (made if it has none) and writes the file: read, change and write under
-    LOCK and flock, so that two changes never lose one another, in this process or in another. A field set to None is
+    the flock, so that two changes never lose one another, in this process or in another. A field set to None is
     its blank (`shadowed`: removed). Answers the new entry."""
     if not _namespace(ns):
         raise ValueError(f"not a namespace: {ns!r}")
@@ -779,7 +761,7 @@ def check_namespace(ns: str, taken: Iterable[str] = (), listed: Iterable[str] = 
 # ---------------------------------------------------------------- the manifest and the units
 
 def _load_manifest(ns):
-    """The loader of a manifest for `_cached`: the parsed document when it has the shape of and names this
+    """The loader of a manifest for `_cached`: the parsed document when it has the shape of a manifest and names this
     catalog, else None."""
     def load(data):
         value, why = _json(data)
@@ -801,7 +783,7 @@ def _load_manifest(ns):
 
 def _installed(ns):
     """The manifest of the install of `ns` as it is cached (read only), whatever commit it is for: it names this
-    catalog, sits in a real directory (a link would lead anywhere) and is a regular file of the shape of.
+    catalog, sits in a real directory (a link would lead anywhere) and is a regular file of that shape.
     None otherwise."""
     if not _namespace(ns):
         return None
@@ -832,7 +814,7 @@ def read_manifest(ns: str) -> Optional[dict]:
 
 
 def manifest(ns: str) -> Optional[dict]:
-    """.installed.json of the git install `ns`, a new copy, when it is valid: the document of that names
+    """.installed.json of the git install `ns`, a new copy, when it is valid: the document that names
     this catalog, in a real directory, whose `commit` is the pin of the lock (or, while the operation that is installing
     it is not finished, the commit that operation names: a reader never sees a catalog flash as damaged between two
     writes). None otherwise: that is a Damaged catalog, not an error."""
@@ -1013,8 +995,8 @@ def _git_url(text):
 def scan(data):
     """What the x-gravitee-catalog block of a catalog.yml says of the catalog, for display and for dependencies: {id,
     name, description, version, lab, host_access (only when true), requires_catalogs: {ns: {name, url, min}}}, a requirement's url being the address
-    of a git repository or None. The block is the one shows (a mapping, two spaces deep, or one line of
-    flow); this is not a YAML parser, it reads that shape and nothing else, and what it does not understand it leaves
+    of a git repository or None. The block is written as a mapping, two spaces deep, or one line of
+    flow; this is not a YAML parser, it reads that shape and nothing else, and what it does not understand it leaves
     out: the strict reading of a catalog (manifest.read_catalog, at Add) has the last word. A file with no block it can
     find, or one that is not YAML, is {}."""
     try:
