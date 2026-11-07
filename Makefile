@@ -142,7 +142,7 @@ urls: python-ok ## Print what is on and the URL of every console
 # The seeder's dependencies (requests, redis) need Python 3.10; the Lab UI itself runs on 3.9. The Python of a .venv that is
 # there is asked first, else the one that would make it, so that no .venv is made with one too old.
 setup: ## Make .venv for the seeder's tests and make lint (needs Python 3.10 or later)
-	@python=$(PYTHON3); [ ! -d .venv ] || python=.venv/bin/python; \
+	@python="$(PYTHON3)"; [ ! -d .venv ] || python=.venv/bin/python; \
 	$$python -c 'import sys; sys.exit(sys.version_info < (3, 10))' || { \
 		echo "The seeder needs Python 3.10 or later, $$python is: $$($$python -V 2>&1)"; \
 		echo "Remove .venv if it has that Python, then run make setup with a newer python3 (for example PYTHON3=python3.12 make setup)"; exit 1; }; \
