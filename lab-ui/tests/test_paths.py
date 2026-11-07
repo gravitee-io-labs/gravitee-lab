@@ -282,7 +282,6 @@ class DefaultNamespace(OnDisk):
         self.assertIsNone(paths.default_ns())
 
 
-
 class InCatalogs(OnDisk):
     """Every unit sits in the folder of a catalog."""
 
