@@ -971,6 +971,15 @@ class ApiTools(Catalog):
         common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", "studio-1", digest="x")
         self.assertEqual(self.run_seed(), [])
 
+    def test_tools_that_changed_are_deleted_with_their_source_and_imported_again(self):
+        self.run_seed()
+        old = next(iter(self.world.sources))
+        self.world.apis["api-1"]["operations"].append("listRates")
+        self.assertEqual(self.run_seed(), [("DELETE", f"/catalog/sources/{old}"),
+                                           ("POST", "/catalog/mcp-tools/_importFromApis")])
+        self.assertEqual(len(self.world.of_kind("mcp-tool")), 3)
+        self.assertEqual([x["id"] for x in self.records("api-tools")], list(self.world.sources))
+
     def test_tools_replaced_whose_answer_was_lost_are_the_seeds_at_the_next_run(self):
         self.run_seed()
         self.world.apis["api-1"]["operations"].append("listRates")

@@ -323,6 +323,16 @@ class Tailoring(Tools):
         self.assertIn("Studio 'Customer desk' deleted: it is made again from the new tools", self.output())
         self.assertEqual(self.run_seed(), [])
 
+    def test_a_new_schema_and_a_new_hint_each_replace_the_tools(self):
+        self.run_seed()
+        changes = {"inputSchema": REFUND.replace("minimum: 1", "minimum: 5"),
+                   "annotations": REFUND.replace("destructiveHint: true", "destructiveHint: false")}
+        for what, text in changes.items():
+            with self.subTest(what):
+                self.seed_files({"aim/api-tools/orders.yaml": text})
+                self.assertEqual([m for m, _ in self.run_seed()], ["DELETE", "POST"])
+                self.assertEqual(self.run_seed(), [])
+
     def test_the_tools_of_an_api_that_changed_are_replaced_and_keep_the_words_of_the_file(self):
         self.run_seed()
         self.world.apis["orders"]["tools"][3]["gatewayMapping"]["http"]["path"] = "/orders/:orderId/refund"

@@ -1052,6 +1052,16 @@ class Subscriptions(Studios):
         self.file(PLAIN.replace("fga: false", "fga: false\ndescription: Another").replace(
             "description: Every operation of the APIs, one tool each\n", ""))
 
+    def test_a_lost_answer_after_it_is_the_seeds_at_the_next_run(self):
+        self.seed()
+        self.changed()
+        self.answer_lost(("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")), self.world.subscribe)
+        self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
+                         ["Steward on 13 tools → Kazoo operations (Copilots)"], "a note before the request")
+        self.seed()
+        live = [s["id"] for s in self.world.subscriptions.values() if s["status"] == "ACCEPTED"]
+        self.assertEqual([(x["id"], x["api"]) for x in common.created() if x["kind"] == "subscription"], [(live[0], "studio-2")])
+
     def test_the_studio_deleted_takes_the_records_of_its_subscriptions(self):
         self.seed()
         self.changed()

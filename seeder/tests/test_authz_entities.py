@@ -363,6 +363,14 @@ class Strangers(Case):
             authz.seed()
         self.assertEqual(len(self.bulk_calls()), 1, "nothing more was saved")
 
+    def test_an_entity_the_seed_made_and_someone_gave_another_source_is_put_back(self):
+        authz.seed()
+        self.world.entities["C-2001"]["source"] = "someone"
+        self.platform.calls.clear()
+        authz.seed()
+        self.assertEqual(self.world.bulks[-1], ["C-2001"])
+        self.assertEqual(self.world.entities["C-2001"]["source"], "orchid")
+
     def test_the_ids_that_are_asked_after_are_asked_fifty_at_a_time(self):
         self.seed_files({"authz/entities.yaml": customers_and_orders(60)})   # 120 entities
         authz.seed()

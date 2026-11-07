@@ -495,6 +495,14 @@ class ChangedDefinition(Converged):
         self.assertIn("rest-id", self.apim.apis)
         self.assertEqual((self.record("Open API")["digest"], self.keys()), (before, keys))
 
+    def test_an_update_that_fails_for_another_reason_stops_the_seed_and_keeps_the_digest(self):
+        before = self.record("Open API")["digest"]
+        self.platform.add({("PUT", V2 + "/apis/rest-id/_import/definition"): (400, {"message": "invalid plan"})})
+        self.edit("apim/apis/rest.json", lambda text: text.replace('"name": "Open API"', '"name": "Open API", "description": "new"'))
+        with self.assertRaisesRegex(common.SeedError, "API Open API: HTTP 400"):
+            self.run_seed()
+        self.assertEqual(self.record("Open API")["digest"], before)
+
 
 class Renamed(Converged):
     """An API found by its id or its path whose file gives it another name is the same API."""
@@ -679,6 +687,12 @@ class StartingTheLessonsOver(ControlledConverged):
         self.assertEqual(self.run_seed(), [("POST", V2 + "/apis/llm-id/deployments")])
         self.assertTrue(self.deployed())
 
+    def test_a_step_someone_saved_on_without_deploying_is_off_again_and_deployed(self):
+        self.switch("request", "Prompt guard rails", True)
+        self.apim.apis["llm-id"]["deploymentState"] = "NEED_REDEPLOY"
+        self.assertEqual(self.run_seed(), IN_PLACE)
+        self.assertEqual(self.steps(), UNPROTECTED)
+
     def test_a_step_no_control_names_is_left_as_someone_made_it(self):
         self.switch("request", "Semantic cache", False)
         self.assertEqual(self.run_seed(), [])
@@ -692,6 +706,12 @@ class StartingTheLessonsOver(ControlledConverged):
         self.assertEqual(self.steps(), UNPROTECTED)
         self.assertIn("! ACME LLM: control guard: no request step named 'Prompt guard rails'", self.output())
         self.assertEqual(self.run_seed(), [])
+
+    def test_a_flow_someone_deleted_is_a_proxy_imported_again_from_its_file(self):
+        self.apim.apis["llm-id"]["flows"] = []
+        changes = self.run_seed()
+        self.assertIn(("DELETE", V2 + "/apis/llm-id"), changes)
+        self.assertEqual(self.steps(), UNPROTECTED)
 
     def refuse_the_update(self, *answers):
         """A guard rail someone switched on, and a platform that answers the update of the entity with `answers` (a status,
