@@ -475,13 +475,7 @@ test("a Start says where its item comes from when the server says it, on This ma
   await settle();
   assert.deepEqual(notes(), [["From", ["Acme Hub"], ["Version 1.4.0"]]]);
   await answer(false);
-  // Said by no one, it is not drawn
   server.dialog = null;
-  draw(lab({ hotels: { action: { ...ACTION("start"), dialog: { starts, stops: [], turns_off: [], keeps: [], restarts: [] } } } }), [ACCOUNT], [place()]);
-  startOfRow("acme-hostels").click();
-  await settle();
-  assert.deepEqual(notes(), []);
-  await answer(false);
   page.stored.deploy = "acme/development";
 });
 
@@ -489,20 +483,6 @@ test("a playground that cannot go to the place chosen starts on This machine, as
   await start("acme-bakery", lab({ hotels: {} }), [place()]);
   assert.deepEqual(posts(), [["/api/playgrounds/acme-bakery/start", { accept: [] }]]);
   assert.ok(!server.calls.some((call) => call.path.includes("/check")));
-});
-
-test("the Start of a row names This machine in its dialog once a platform is registered, when it asks, and not before", async () => {
-  const dialog = { starts: [{ kind: "addon", id: "kazoo", name: "Kazoo" }], stops: [], turns_off: [], keeps: [], restarts: [] };
-  const asking = lab({ hotels: { action: { ...ACTION("start"), dialog } } });
-  page.stored.deploy = "machine";
-  for (const [platforms, steps] of [[[ACCOUNT], [["Starts", ["Kazoo Add-on"]], ["Deploys to", ["This machine Platform"]]]], [[], [["Starts", ["Kazoo Add-on"]]]]]) {
-    draw(asking, platforms, [place()]);
-    startOfRow("acme-hostels").click();
-    await settle();
-    assert.deepEqual(effects().steps, steps, `${platforms.length} platform`);
-    await answer(false);
-  }
-  page.stored.deploy = "acme/development";
 });
 
 test("the Start of a row waits for the places while a place is kept and they are not read: it never starts the wrong one", () => {

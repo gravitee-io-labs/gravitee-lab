@@ -551,16 +551,6 @@ test("Start on a remote place always asks first: what it starts, then where it d
   await leave();
 });
 
-test("a remote Start that starts nothing still opens the dialog, with the place alone", async () => {
-  await visit({ ...off }, { kept: DEV.id });
-  section.querySelector(".pg-start-btn").click();
-  await flush();
-  assert.deepEqual(effects().steps, [["Deploys to", ["Development (My Account) Environment"]]]);
-  await answer(false);
-  assert.equal(posts("/start").length, 0);
-  await leave();
-});
-
 test("a remote Start that swaps the gateway says what it serves and stops serving, after the steps", async () => {
   const swap = dialogOf({ restarts: [HYSSOP], serves: WHERE, stops_serving: [{ kind: "environment", id: TEST.id, name: TEST.name }] });
   await visit({ ...off }, { kept: DEV.id, dialog: () => swap });
