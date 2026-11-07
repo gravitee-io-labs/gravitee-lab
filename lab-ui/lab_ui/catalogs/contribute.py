@@ -123,25 +123,12 @@ def _catalog(ns, rows):
     return entry, row
 
 
-_CATALOG_YML = {}   # ns -> (the stamp of its catalog.yml, what the Lab reads in it)
-
-
 def _yml(ns) -> dict:
-    """The validated catalog.yml of an added catalog ({} when it cannot be read: its own review is the real gate), read again
-    when the file changes."""
-    relative = f"{paths.CATALOGS_DIR}/{ns}/{registry.CATALOG_FILE}"
+    """The validated catalog.yml of an added catalog ({} when it cannot be read: its own review is the real gate)."""
     try:
-        info = os.stat(paths.ROOT / relative)
-    except OSError:
+        return manifest.read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{registry.CATALOG_FILE}")
+    except CatalogError:
         return {}
-    held = _CATALOG_YML.get(ns)
-    if not held or held[0] != (info.st_mtime_ns, info.st_size):
-        try:
-            found = manifest.read_catalog(relative)
-        except CatalogError:
-            found = {}
-        held = _CATALOG_YML[ns] = ((info.st_mtime_ns, info.st_size), found)
-    return held[1]
 
 
 def _takes(ns, row) -> bool:

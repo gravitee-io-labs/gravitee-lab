@@ -59,7 +59,6 @@ class Base(Case):
         self.person()
         self.patch(gitx, "_ending", False)
         self.patch(contribute, "_PROBES", {})
-        self.patch(contribute, "_CATALOG_YML", {})
         self.patch(contribute, "_today", lambda: DAY)
         # The repositories of these tests are folders, which a stranger may read: as an anonymous probe would find a private host
         self.audience = self.patch(contribute, "_audience_now", mock.Mock(return_value="private"))
@@ -232,20 +231,10 @@ class Destinations(Seam):
         self.assertEqual(found, {"fixture": "Includes Scratch, which is not in Fixture catalog.",
                                  "partner": "Includes Scratch, which is not in Partner fixture."})
 
-    def test_what_catalog_yml_says_is_read_again_only_when_the_file_changes(self):
-        self.patch(contribute, "_yml", REAL_YML)
-        read = self.patch(contribute.manifest, "read_catalog", return_value={"contribute": "none"})
-        for _ in range(3):
-            self.assertEqual({one["id"]: one["reason"] for one in contribute.destinations(self.units, "addon", "local/scratch")}["partner"],
-                             "Partner fixture does not take contributions from the Lab.")
-        self.assertEqual(read.call_count, 2, "once for each repository")
-        file = self.root / ".lab/catalogs/partner/catalog.yml"
-        file.chmod(0o644)
-        file.write_text(file.read_text() + "# a new line\n")
-        read.return_value = {"contribute": "pull-request"}
-        found = {one["id"]: one["reason"] for one in contribute.destinations(self.units, "addon", "local/scratch")}
-        self.assertNotIn("contributions", found["partner"])
-        self.assertEqual(read.call_count, 3)
+    def test_a_catalog_that_says_it_takes_no_contributions_says_so(self):
+        self.yml["partner"] = {"contribute": "none"}
+        self.assertEqual({one["id"]: one["reason"] for one in contribute.destinations(self.units, "addon", "local/scratch")}["partner"],
+                         "Partner fixture does not take contributions from the Lab.")
 
     def test_a_catalog_yml_that_cannot_be_read_is_no_refusal(self):
         self.patch(contribute, "_yml", REAL_YML)
