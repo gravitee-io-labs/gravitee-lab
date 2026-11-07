@@ -1166,10 +1166,11 @@ class Whole(Case):
         self.assertEqual(settings.LEVEL, found.level)
 
     def test_the_text_is_the_table_of_the_standard(self):
-        text = settings.render(Scene("user-private-free").audit())
-        lines = text.splitlines()
+        found = Scene("user-private-free").audit()
+        lines = settings.render(found).splitlines()
         self.assertEqual(f"Catalog standard {settings.LEVEL} for acme/lab-hub (private, user-owned)", lines[0])
         have = {re.sub(r"\s+", " ", line).strip() for line in lines}
+        self.assertEqual(set(), {f"{f.status} {f.id} {f.title}" for f in found} - have)      # a row for each finding, whatever its status
         self.assertIn("n.a. repo.forking Nobody forks a private repository", have)
         self.assertIn("why: the repository belongs to a user", have)
         self.assertIn("fix: PATCH repos/acme/lab-hub", have)
