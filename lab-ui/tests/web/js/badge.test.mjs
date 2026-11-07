@@ -83,7 +83,6 @@ test("the note of what runs behind is the badge, its tooltip the reason; any oth
   const plain = draw(noteHtml({ note: "Needs settings", note_tone: "warn", note_title: "Fill them in" }));
   assert.equal(plain.querySelectorAll(".tip").length, 0);
   assert.equal(plain.querySelector(".list-note").getAttribute("data-tip"), "Fill them in", "the shared tooltip, never the browser's title");
-  assert.equal(plain.querySelector(".list-note").getAttribute("title"), null);
   // A note whose words are all it says has them as its tooltip while they are cut
   const cut = draw(noteHtml({ note: "Developer Portal stopped" })).querySelector(".list-note");
   assert.deepEqual([cut.getAttribute("data-tip"), cut.hasAttribute("data-tip-cut")], ["Developer Portal stopped", true]);

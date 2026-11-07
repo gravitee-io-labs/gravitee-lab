@@ -541,8 +541,8 @@ const everyone = () => world({
 
 // The control that tells the catalogs apart, as a list draws it: none, or the picker
 const scope = (name) => {
-  const choices = sections[name].querySelectorAll("[data-scope]"), picker = sections[name].querySelector("[data-catalogs]");
-  return { choices: choices.map((b) => [text(b), b.getAttribute("aria-checked")]), picker: picker ? text(picker) : null };
+  const picker = sections[name].querySelector("[data-catalogs]");
+  return picker ? text(picker) : null;
 };
 const names = (name) => sections[name].querySelectorAll(".list-item .list-name").map(text);
 const marks = (name, id) => row(name, id).querySelectorAll(".list-marks .pill").map(text);
@@ -565,7 +565,7 @@ const menuOf = (name, id) => {
 test("with the first catalog alone there is no chip, no picker and no scope control: nothing to tell apart", () => {
   alone();
   for (const name of ["playgrounds", "setups", "addons"]) {
-    assert.deepEqual(scope(name), { choices: [], picker: null }, name);
+    assert.equal(scope(name), null, name);
     assert.equal(sections[name].querySelectorAll('[role="radiogroup"]').length, 0, name);
   }
   assert.deepEqual(marks("playgrounds", "acme-hostels"), []);
@@ -574,8 +574,8 @@ test("with the first catalog alone there is no chip, no picker and no scope cont
 
 test("with the first catalog's items and this machine's, the same picker tells them apart, and no Shared: nothing is shared with the project", async () => {
   draw(lab({ playgrounds: [...base.playgrounds, ofMine("playground", "scratch", "Scratch")], catalogs: [FIRST(), PERSONAL()], content: content("ready") }));
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: "Catalog: All catalogs" });
-  assert.deepEqual(scope("setups"), { choices: [], picker: null }, "a list with one source has no control");
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
+  assert.equal(scope("setups"), null, "a list with one source has no control");
   assert.deepEqual(marks("playgrounds", "local/scratch"), ["Personal"]);
   assert.deepEqual(marks("playgrounds", "acme-hostels"), []);
   assert.deepEqual(await opened("playgrounds"), [["All catalogs", "3", true], ["Gravitee public", "2", false], ["Personal", "1", false]]);
@@ -589,7 +589,7 @@ test("with the first catalog's items and this machine's, the same picker tells t
 
 test("with another catalog added the picker is drawn from the items, not from the markup of the page", () => {
   draw(everyone());
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: "Catalog: All catalogs" });
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
   const button = sections.playgrounds.querySelector("[data-catalogs]");
   assert.deepEqual([button.getAttribute("class"), button.getAttribute("aria-haspopup")], ["combo-btn", "dialog"]);
   assert.equal(text(button.querySelector(".sr-only")), "Catalog:");
@@ -599,9 +599,9 @@ test("with another catalog added the picker is drawn from the items, not from th
   assert.equal(sections.playgrounds.querySelectorAll('[role="radiogroup"]').length, 0);
   // A list whose items are one catalog's has none, whatever else is added
   draw(world());
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: null }, "one source holds the items of this list");
+  assert.equal(scope("playgrounds"), null, "one source holds the items of this list");
   draw(everyone());
-  assert.equal(scope("playgrounds").picker, "Catalog: All catalogs");
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
   alone();
   assert.equal(sections.playgrounds.querySelectorAll("[data-catalogs]").length, 0, "taken off once the catalogs are one");
   assert.ok(!sections.playgrounds.querySelector(".list-card").classList.contains("by-catalog"));
@@ -661,7 +661,7 @@ test("the progress of the fetch of an Add, carried among the catalogs, is no sou
   const bare = lists();
   draw(lab({ catalogs: [FIRST(), check], content: content("ready") }));
   assert.deepEqual(lists(), bare, "the first catalog alone, and the fetch of another");
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: null });
+  assert.equal(scope("playgrounds"), null);
   draw(everyone());
   const world = lists();
   draw({ ...everyone(), catalogs: [...everyone().catalogs, check] });

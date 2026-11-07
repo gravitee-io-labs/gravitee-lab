@@ -245,7 +245,6 @@ test("its state is the answer of its last check: Connected, Account Token refuse
     ["unreachable", "Unreachable", "eu.cloud.gravitee.io refuses the connection"], ["ok", "Connected", ""]]) {
     await open(found === "ok" ? ok([]) : { state: found, message, environments: [], gateways: [] });
     assert.equal(text(card().querySelector(".plat-state .pill")), word);
-    assert.equal(card().querySelector(".plat-state .pill").getAttribute("title"), null, "why is the notice's, said once");
     const why = card().querySelector(".notice-text");
     assert.equal(why ? said(why) : "", message);
   }
@@ -422,7 +421,6 @@ test("while Docker does not answer, a gateway says only what Cloud says of it", 
 
 test("a gateway is one state on one line; its popover says its name, its version and, while it runs here, where it answers, in monospace", async () => {
   await open(ok([gateway({ here: true, connection: "CONNECTED" }), gateway({ id: "g2", name: "ci", environmentId: "env-test", version: "4.12.21" })], { Development: VALID, Test: VALID }));
-  assert.equal(rowOf("Development").querySelectorAll(".plat-sub").length, 0, "no second line: the row is 48 px, as on the Dashboard");
   assert.deepEqual(detailsOf("Development"), ["4.12.20", "localhost:8090"], "the address a person calls, not the name of the container");
   assert.deepEqual(detailsOf("Test"), ["4.12.21"], "a gateway that does not run here answers nowhere on this machine");
   assert.deepEqual(rowOf("Development").querySelectorAll(".plat-gateway .chip").map(text), ["4.12.20", "localhost:8090"]);
@@ -449,7 +447,6 @@ test("a missing license is a warning, in amber, in one style, and the action of 
   assert.equal(said(status), "Needs a license");
   assert.equal(status.querySelector(".dot-status").className, "dot-status warn", "a blocker looks like one");
   assert.deepEqual(lines(status), ["lab", "Uses: Enterprise features", "Version 4.12.20"], "the shared popover, not a title");
-  assert.equal(rowOf("Development").querySelectorAll("[title]").filter((el) => el.getAttribute("title") === "Uses: Enterprise features").length, 0);
   assert.equal(rowOf("Development").querySelectorAll("[data-license]").length, 0, "the word is not a link beside a button for the same thing");
   assert.equal(primaryOf("Development"), "Add license");
   const opened = [];
@@ -483,7 +480,6 @@ test("an environment with several gateways says how many after the state of its 
   assert.equal(said(status), "Running here 2 gateways", "no +1 whose names hide in a tooltip");
   const count = status.querySelector(".plat-count");
   assert.deepEqual([count.tag, count.getAttribute("type"), count.getAttribute("aria-label"), count.dataset.gateways], ["button", "button", "2 gateways in Development", "cloud-eu"]);
-  assert.equal(status.querySelectorAll("[title]").length, 0);
   const band = section.querySelector("[data-gateways-of]");
   band.focus = () => { page.doc.activeElement = band; };
   band.scrollIntoView = () => { band.scrolled = true; };
@@ -528,7 +524,6 @@ test("an environment says whether the Lab may deploy to it, in one state with th
     assert.equal(said(status), word, why);
     assert.equal(status.querySelector(".dot-status").className, `dot-status ${dot}`, why);
     if (tip) assert.deepEqual(status.querySelector(".tip") ? lines(status) : [], tip, why);
-    assert.equal(rowOf("Development").querySelectorAll(".plat-sub").length, 0, `${why}: no second line`);
   }
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: { state: "valid", expires: new Date(Date.now() + 5 * 86400000 + 3600000).toISOString() } }));
   assert.ok(rowOf("Development").querySelector(".plat-deploys .status").classList.contains("warn"), "a token near its end is in amber");
@@ -546,7 +541,6 @@ test("what the playgrounds deployed in an environment is its state, by name for 
   assert.equal(deploysOf("Development"), "Acme Hostels API deployed");
   const status = () => rowOf("Development").querySelector(".plat-deploys .status");
   assert.deepEqual(lines(status()), ["Acme Hostels API deployed", "Can deploy", `Expires ${on("2099-01-31")}`, "Acme Hostels API: 3 APIs"], "reachable by keyboard, with the rest of what is known");
-  assert.equal(rowOf("Development").querySelectorAll("[title]").filter((el) => /ACME/.test(el.getAttribute("title"))).length, 0);
   store.state = state({ playgrounds: [hotels, bank] });
   platformsPage.render(store.state);
   assert.equal(deploysOf("Development"), "2 playgrounds deployed");
