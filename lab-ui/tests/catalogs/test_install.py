@@ -616,9 +616,7 @@ class Staging(Base):
         folder = self.folder_catalog("partner")
         address = gitx.parse_address(str(folder))
         (folder / "catalog.yml").unlink()
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.stage(address, "partner", None, "", [])
-        self.assertEqual(raised.exception.code, "folder_not_catalog")
+        self.refusal(lambda: install.stage(address, "partner", None, "", []), "folder_not_catalog")
         shutil.rmtree(folder)
         self.refusal(lambda: install.stage(address, "partner", None, "", []), "folder_missing")
 
@@ -626,9 +624,8 @@ class Staging(Base):
         folder = self.folder_catalog("partner")
         address = gitx.parse_address(str(folder))
         with mock.patch("os.symlink", side_effect=OSError("not permitted")):
-            with self.assertRaises(registry.CatalogError) as raised:
-                install.stage(address, "partner", None, "", [])
-        self.assertEqual((raised.exception.code, raised.exception.message),
+            error = self.refusal(lambda: install.stage(address, "partner", None, "", []))
+        self.assertEqual((error.code, error.message),
                          ("symlink_unsupported", "The Lab cannot link folders on this system. Use WSL 2."))
 
     def test_the_audit_refuses_an_extra_file_a_link_an_extra_folder_a_missing_file_and_another_mode(self):
@@ -691,9 +688,8 @@ class Walking(Base):
     def test_a_folder_with_too_many_entries_is_too_large(self):
         folder = self.folder_catalog("partner")
         with mock.patch.object(install, "WALK_LIMIT", 3):
-            with self.assertRaises(registry.CatalogError) as raised:
-                install.walk(str(folder))
-        self.assertEqual(raised.exception.code, "too_large")
+            error = self.refusal(lambda: install.walk(str(folder)))
+        self.assertEqual(error.code, "too_large")
 
     def test_a_tree_deeper_than_a_catalog_goes_is_counted_not_followed(self):
         folder = self.folder_catalog("partner")
@@ -765,10 +761,9 @@ class Adding(Base):
     def test_the_same_catalog_cannot_be_added_twice(self):
         self.add("partner")
         staged, address, roots = self.prepare("partner", store_ns="partner")
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
-        self.assertEqual((raised.exception.code, raised.exception.status), ("already_added", 409))
-        self.assertEqual(raised.exception.message, "Already added as Partner fixture.")
+        error = self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner")))
+        self.assertEqual((error.code, error.status), ("already_added", 409))
+        self.assertEqual(error.message, "Already added as Partner fixture.")
         self.intact("partner")
 
     def test_the_same_address_under_another_name_cannot_be_added_twice(self):
@@ -785,9 +780,8 @@ class Adding(Base):
     def test_a_ticket_whose_stage_is_gone_is_expired(self):
         staged, address, roots = self.prepare("partner")
         shutil.rmtree(staged.path)
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.commit_add(staged, address, "main", "public", roots, meta_of("partner"))
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: install.commit_add(staged, address, "main", "public", roots, meta_of("partner")))
+        self.assertEqual((error.code, error.message),
                          ("ticket_expired", "This took too long. Start again."))
         self.nothing("partner")
 
@@ -1073,9 +1067,8 @@ class Updating(Base):
                                       (0, {"contract": 1, "contract_min": 1}, "lab_old")):
             with self.subTest(level=level, contract=contract):
                 target = self.advance({"catalog.yml": self.version("2.1.0").replace("lab: 1", f"lab: {level}"), **AUDIT})
-                with self.assertRaises(registry.CatalogError) as raised:
-                    install.plan_update("partner", target, {"contract": contract})
-                self.assertEqual(raised.exception.code, code)
+                error = self.refusal(lambda: install.plan_update("partner", target, {"contract": contract}))
+                self.assertEqual(error.code, code)
                 self.assertFalse(registry.stage_dir("partner").exists(), "what was refused is not left to be installed")
                 self.assertEqual(self.content("partner"), {"catalog.yml", "addons/ledger/README.md", "addons/ledger/compose.yml"})
         target = self.advance({"catalog.yml": self.version("2.2.0").replace("lab: 1", "lab: 2"), **AUDIT})
@@ -1191,9 +1184,8 @@ class Updating(Base):
         plan = install.plan_update("partner", target)
         self.assertEqual(plan["held"], ["addon:ledger"])
         before = self.tree("partner")
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.apply_update("partner", plan)
-        self.assertEqual((raised.exception.code, raised.exception.status, raised.exception.message),
+        error = self.refusal(lambda: install.apply_update("partner", plan))
+        self.assertEqual((error.code, error.status, error.message),
                          ("held", 409, "Turn off ledger first."))
         self.assertEqual(self.tree("partner"), before)
         self.assertIsNone(registry.lock_of("partner")["pending"], "nothing was started")
@@ -1233,9 +1225,8 @@ class Updating(Base):
         target = self.advance({"addons/ledger/README.md": "Changed\n"})
         plan = install.plan_update("partner", target)
         install.apply_update("partner", plan)
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.apply_update("partner", plan)
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: install.apply_update("partner", plan))
+        self.assertEqual((error.code, error.message),
                          ("ticket_expired", "This took too long. Start again."))
         self.intact("partner")
 
@@ -1256,9 +1247,8 @@ class Updating(Base):
         target = self.rewrite()
         plan = install.plan_update("partner", target)
         self.assertTrue(plan["rewritten"])
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.apply_update("partner", plan)
-        self.assertEqual((raised.exception.code, raised.exception.status, raised.exception.message),
+        error = self.refusal(lambda: install.apply_update("partner", plan))
+        self.assertEqual((error.code, error.status, error.message),
                          ("history_changed", 409, "This catalog was rewritten or moved. Confirm to update anyway."))
         self.assertEqual(registry.lock_of("partner")["pin"], self.first)
         self.assertIsNone(registry.lock_of("partner")["pending"])
@@ -1359,9 +1349,8 @@ class Updating(Base):
         plan = install.plan_update("partner", target)
         self.assertEqual(plan["files"]["add"], ["addons/ledger/NOTES.md"])
         before = self.tree("partner")
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.apply_update("partner", plan)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("damaged", 409))
+        error = self.refusal(lambda: install.apply_update("partner", plan))
+        self.assertEqual((error.code, error.status), ("damaged", 409))
         self.assertEqual(self.tree("partner"), before, "nothing was touched")
         self.assertIsNone(registry.lock_of("partner")["pending"], "nothing was started")
         self.assertEqual(registry.lock_of("partner")["pin"], self.first)
@@ -1397,9 +1386,8 @@ class Updating(Base):
     def test_a_catalog_that_a_working_copy_stands_in_for_cannot_be_updated(self):
         target = self.advance({"addons/ledger/README.md": "Changed\n"})
         install.shadow("partner", str(self.folder_catalog("partner")))
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.plan_update("partner", target)
-        self.assertEqual((raised.exception.code, raised.exception.message), ("linked", install.LINKED))
+        error = self.refusal(lambda: install.plan_update("partner", target))
+        self.assertEqual((error.code, error.message), ("linked", install.LINKED))
 
     def test_a_damaged_install_is_repaired_before_it_is_updated(self):
         (Path(paths.ROOT) / ".lab/catalogs/partner/.installed.json").unlink()
@@ -1549,9 +1537,8 @@ class Verifying(Base):
 
     def test_a_catalog_with_no_manifest_the_pin_accepts_is_damaged(self):
         (self.base / ".installed.json").unlink()
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.verify("fixture", ["addon:echo"])
-        self.assertEqual((raised.exception.code, raised.exception.status), ("damaged", 409))
+        error = self.refusal(lambda: install.verify("fixture", ["addon:echo"]))
+        self.assertEqual((error.code, error.status), ("damaged", 409))
 
     def test_a_manifest_that_lists_a_path_out_of_the_install_is_no_reason_to_read_it(self):
         found = json.loads((self.base / ".installed.json").read_text(encoding="utf-8"))
@@ -1644,9 +1631,8 @@ class Removing(Base):
     def test_a_catalog_with_a_unit_that_is_on_is_not_removed(self):
         self.write(".lab/on.yml", "include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n")
         before = self.tree("partner")
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.remove("partner")
-        self.assertEqual((raised.exception.code, raised.exception.message), ("held", "Turn off ledger first."))
+        error = self.refusal(lambda: install.remove("partner"))
+        self.assertEqual((error.code, error.message), ("held", "Turn off ledger first."))
         self.assertEqual(self.tree("partner"), before)
         self.assertIsNotNone(registry.entry("partner"))
 
@@ -1910,17 +1896,14 @@ class Shadowing(Base):
 
     def test_an_item_that_is_on_holds_the_link_back(self):
         self.write(".lab/on.yml", "include:\n  - .lab/catalogs/partner/addons/ledger/compose.yml\n")
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.shadow("partner", str(self.folder))
-        self.assertEqual((raised.exception.code, raised.exception.message), ("held", "Turn off ledger first."))
+        error = self.refusal(lambda: install.shadow("partner", str(self.folder)))
+        self.assertEqual((error.code, error.message), ("held", "Turn off ledger first."))
         self.assertEqual(self.tree("partner"), self.before)
         self.assertFalse((Path(paths.ROOT) / ".lab/catalogs/.shadow-partner.json").exists())
 
     def test_a_folder_that_declares_another_id_is_not_linked(self):
         wrong = self.folder_catalog("lab-new", "wrong")
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.shadow("partner", str(wrong))
-        self.assertEqual(raised.exception.code, "catalog_invalid")
+        self.refusal(lambda: install.shadow("partner", str(wrong)), "catalog_invalid")
         self.assertEqual(self.tree("partner"), self.before)
         (wrong / "catalog.yml").unlink()
         self.refusal(lambda: install.shadow("partner", str(wrong)), "folder_not_catalog")
@@ -2570,10 +2553,9 @@ class Failing(Base):
                 make(place)
                 before = self.tree("partner")
                 plan = install.plan_update("partner", target)
-                with self.assertRaises(registry.CatalogError) as raised:
-                    install.apply_update("partner", plan)
-                self.assertEqual(raised.exception.code, "damaged")
-                self.assertEqual(raised.exception.detail["why"], "addons/audit/README.md is in the way of addons/audit/README.md")
+                error = self.refusal(lambda: install.apply_update("partner", plan))
+                self.assertEqual(error.code, "damaged")
+                self.assertEqual(error.detail["why"], "addons/audit/README.md is in the way of addons/audit/README.md")
                 self.assertEqual(self.tree("partner"), before, "nothing was replaced")
                 self.assertEqual((registry.lock_of("partner")["pin"], registry.lock_of("partner")["pending"]), (self.first, None))
                 if place.is_dir() and not place.is_symlink():

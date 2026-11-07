@@ -764,10 +764,9 @@ class WithCompose(Case):
 
     def test_a_file_with_a_syntax_error_is_invalid(self):
         name = self.put("x-gravitee-catalog:\n  id: [unclosed\n")
-        with self.assertRaises(registry.CatalogError) as raised:
-            manifest.read_catalog(name)
-        self.assertEqual((raised.exception.code, raised.exception.message), ("catalog_invalid", "catalog.yml: it could not be read."))
-        self.assertTrue(raised.exception.detail["output"])
+        error = self.refusal(lambda: manifest.read_catalog(name))
+        self.assertEqual((error.code, error.message), ("catalog_invalid", "catalog.yml: it could not be read."))
+        self.assertTrue(error.detail["output"])
 
     def test_a_variable_is_not_replaced(self):
         name = self.put("x-gravitee-catalog:\n  schema: 1\n  id: acme-hub\n  name: ${HOME}\n  description: B\n  version: 1.0.0\n  lab: 1\n")
@@ -917,14 +916,12 @@ class History(Case):
 
     def test_a_tip_with_no_catalog_file_is_not_a_catalog(self):
         self.push({"catalog.yml": None})
-        with self.assertRaises(registry.CatalogError) as raised:
-            self.levels()
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: self.levels())
+        self.assertEqual((error.code, error.message),
                          ("not_catalog", "this repository has no catalog.yml, so it is not a catalog."))
-        with self.assertRaises(registry.CatalogError) as raised:
-            self.levels(address=self.address)
-        self.assertEqual(raised.exception.code, "not_catalog")
-        self.assertIn(self.address.repo or self.address.display, raised.exception.message)
+        error = self.refusal(lambda: self.levels(address=self.address))
+        self.assertEqual(error.code, "not_catalog")
+        self.assertIn(self.address.repo or self.address.display, error.message)
 
     def test_a_tip_the_store_does_not_hold_is_the_damage_a_fetch_repairs(self):
         self.push({"README.md": "x\n"})

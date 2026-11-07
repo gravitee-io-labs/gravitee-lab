@@ -149,11 +149,10 @@ class Grammar(Case):
                  "bad_address_secret": "Remove the user name and token from the address. Git uses the sign-in of this machine."}
         for text, code in REFUSED.items():
             with self.subTest(repr(text)[:60]):
-                with self.assertRaises(gitx.CatalogError) as raised:
-                    gitx.parse_address(text)
-                self.assertEqual((raised.exception.code, raised.exception.status), (code, 400))
-                self.assertEqual(raised.exception.message, lines[code])
-                self.assertEqual(raised.exception.detail, {}, "a token typed by mistake does not come back")
+                error = self.refusal(lambda: gitx.parse_address(text))
+                self.assertEqual((error.code, error.status), (code, 400))
+                self.assertEqual(error.message, lines[code])
+                self.assertEqual(error.detail, {}, "a token typed by mistake does not come back")
 
     def test_an_address_is_parsed_to_itself_again(self):
         """What the lab stores is `url`: reading it back gives the same address, so that a stored catalog is the one that
@@ -601,10 +600,9 @@ class Running(Case):
         self.assertIsNone(gitx.version())
         with mock.patch.object(gitx.subprocess, "Popen", side_effect=AssertionError("ran")):
             for call in (lambda: gitx.run(["status"]), lambda: gitx.stream(["fetch"]), gitx.require):
-                with self.assertRaises(gitx.CatalogError) as raised:
-                    call()
-                self.assertEqual((raised.exception.code, raised.exception.status), ("git_missing", 400))
-                self.assertEqual(raised.exception.message, "Git is not installed. Install it, then add the catalog again.")
+                error = self.refusal(call)
+                self.assertEqual((error.code, error.status), ("git_missing", 400))
+                self.assertEqual(error.message, "Git is not installed. Install it, then add the catalog again.")
 
 
 # The programs the next class runs in a Python of their own: a Lab UI that exits while git runs. `pids` (argv[1]) is the
@@ -768,10 +766,9 @@ class Version(Case):
         gitfixture.fake_git(self, "echo 'git version 2.25.0'")
         self.assertEqual(gitx.require(), (2, 25, 0))
         gitfixture.fake_git(self, "echo 'git version 2.20.1'")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.require()
-        self.assertEqual((raised.exception.code, raised.exception.status), ("git_old", 400))
-        self.assertEqual(raised.exception.message,
+        error = self.refusal(gitx.require)
+        self.assertEqual((error.code, error.status), ("git_old", 400))
+        self.assertEqual(error.message,
                          "Git 2.20.1 is too old. Install Git 2.25 or later, then add the catalog again.")
         self.patch(gitx, "MINIMUM", (2, 20))
         self.assertEqual(gitx.require(), (2, 20, 1))
@@ -1035,9 +1032,8 @@ class Remote(Case):
         self.assertNotEqual(gitx.ls_remote(self.address, "release/1.x")["head"], gitx.ls_remote(self.address)["head"])
 
     def test_a_branch_the_remote_lacks_is_branch_missing(self):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.ls_remote(self.address, "nope")
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: gitx.ls_remote(self.address, "nope"))
+        self.assertEqual((error.code, error.message),
                          ("branch_missing", "hub has no branch nope. Check the name, or leave it empty for the default."))
 
     def test_a_branch_that_is_not_a_name_is_refused_before_git_runs(self):
@@ -1153,9 +1149,8 @@ class Remote(Case):
 
     def test_a_time_limit_is_a_timeout_error(self):
         gitfixture.fake_git(self, "sleep 30")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.ls_remote(self.address, timeout=0.4)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("timeout", 502))
+        error = self.refusal(lambda: gitx.ls_remote(self.address, timeout=0.4))
+        self.assertEqual((error.code, error.status), ("timeout", 502))
 
 
 class Stranger(Case):
@@ -1196,9 +1191,8 @@ class Stranger(Case):
     def asked(self, anonymous):
         """The Authorization headers of the requests of one question (None: a request without one), and the error."""
         del self.headers[:]
-        with self.assertRaises(gitx.CatalogError) as raised:
-            gitx.ls_remote(self.address, anonymous=anonymous)
-        return list(self.headers), raised.exception.code
+        error = self.refusal(lambda: gitx.ls_remote(self.address, anonymous=anonymous))
+        return list(self.headers), error.code
 
     def sign_in_with(self, config=None, netrc=None, system=None):
         if system:   # what /etc/gitconfig, or Homebrew's, would say, which any program of the person may have written

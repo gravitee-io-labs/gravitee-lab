@@ -749,9 +749,8 @@ class Places(Disk):
 class Namespaces(Disk):
 
     def refused(self, ns, **how):
-        with self.assertRaises(registry.CatalogError) as raised:
-            registry.check_namespace(ns, **how)
-        return raised.exception
+        error = self.refusal(lambda: registry.check_namespace(ns, **how))
+        return error
 
     def test_a_namespace_is_accepted(self):
         for ns in ("acme-hub", "ab", "a1", "a-b", "x" * 24, "partner-bank", "a0-0b"):

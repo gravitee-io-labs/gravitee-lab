@@ -273,9 +273,8 @@ class Rejections(Case):
         self.assertEqual(store.overflows(GOOD + big), [store.Overflow("addon:big", "files", 2001, 2000)])
         self.assertEqual(store.overflows(GOOD + big[:-1]), [], "2000 files fit")
         self.assertEqual(coded(*big[:-1]), [])
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.selected(GOOD + big)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("too_large", 400))
+        error = self.refusal(lambda: store.selected(GOOD + big))
+        self.assertEqual((error.code, error.status), ("too_large", 400))
 
         heavy = unit_of_25("heavy") + [entry("addons/heavy/one.txt", size=1)]
         self.assertEqual([(e.path, code) for e, code in coded(*heavy)], [(e.path, "ST10") for e in heavy])
@@ -744,9 +743,8 @@ class Fetching(Remote):
         self.assertEqual(store.fetch(self.address, " main ", self.root / "stores" / "padded.git"), gitfixture.tip(self.repo))
 
     def test_a_branch_the_remote_lacks_leaves_no_new_store_and_keeps_an_old_one(self):
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(self.address, "nope", self.store)
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: store.fetch(self.address, "nope", self.store))
+        self.assertEqual((error.code, error.message),
                          ("branch_missing", "hub has no branch nope. Check the name, or leave it empty for the default."))
         self.assertFalse(self.store.exists(), "a store made by a failed first try is removed")
         tip = self.fetched()
@@ -761,11 +759,10 @@ class Fetching(Remote):
 
     def test_git_refuses_an_object_that_is_not_right_and_the_store_is_removed(self):
         broken = gitfixture.make_dotgit_repo(self.root / "remotes" / "dotgit.git")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(gitx.parse_address(gitfixture.url(broken)), "main", self.store)
-        self.assertEqual((raised.exception.code, raised.exception.message),
+        error = self.refusal(lambda: store.fetch(gitx.parse_address(gitfixture.url(broken)), "main", self.store))
+        self.assertEqual((error.code, error.message),
                          ("fsck", "This repository is damaged. Ask its owners to check it."))
-        self.assertIn("hasDotgit", raised.exception.detail["output"])
+        self.assertIn("hasDotgit", error.detail["output"])
         self.assertFalse(self.store.exists())
 
     def test_a_store_over_the_limit_is_removed_and_the_catalog_refused(self):
@@ -774,10 +771,9 @@ class Fetching(Remote):
         for existing in (False, True):
             if existing:
                 store.init(self.store)
-            with self.assertRaises(gitx.CatalogError) as raised:
-                store.fetch(gitx.parse_address(gitfixture.url(big)), "main", self.store)
-            self.assertEqual((raised.exception.code, raised.exception.status), ("too_large", 400))
-            self.assertEqual(raised.exception.message,
+            error = self.refusal(lambda: store.fetch(gitx.parse_address(gitfixture.url(big)), "main", self.store))
+            self.assertEqual((error.code, error.status), ("too_large", 400))
+            self.assertEqual(error.message,
                              "This catalog is larger than the Lab accepts. Ask its owners to make it smaller.")
             self.assertFalse(self.store.exists(), "the store is removed")
 
@@ -805,10 +801,9 @@ class Fetching(Remote):
                                   "exec \"$REAL\" \"$@\"")
         address = gitx.parse_address("https://git.example.test/team/hub.git")
         started = time.monotonic()
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(address, "main", self.store, stall=0.4, cap=60)
+        error = self.refusal(lambda: store.fetch(address, "main", self.store, stall=0.4, cap=60))
         self.assertLess(time.monotonic() - started, 30)   # the fake git sleeps 60: a stall that is ignored still fails
-        self.assertEqual((raised.exception.code, raised.exception.status, raised.exception.message),
+        self.assertEqual((error.code, error.status, error.message),
                          ("timeout", 502, "git.example.test did not answer in time. Try again."))
         self.assertFalse(self.store.exists())
 
@@ -821,10 +816,9 @@ class Fetching(Remote):
         gitfixture.fake_git(self, "for a in \"$@\"; do if [ \"$a\" = fetch ]; then\n"
                                   "  echo \"fatal: unable to access 'https://user:s3cr3t@git.example.test/team/hub.git/': Could not resolve host: git.example.test\" >&2\n"
                                   "  exit 128; fi; done\nexec \"$REAL\" \"$@\"")
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(gitx.parse_address("https://git.example.test/team/hub.git"), "main", self.store)
-        self.assertEqual(raised.exception.code, "unreachable")
-        self.assertNotIn("s3cr3t", raised.exception.detail["output"])
+        error = self.refusal(lambda: store.fetch(gitx.parse_address("https://git.example.test/team/hub.git"), "main", self.store))
+        self.assertEqual(error.code, "unreachable")
+        self.assertNotIn("s3cr3t", error.detail["output"])
 
     def test_fetches_into_one_store_at_the_same_time_take_turns(self):
         """A check in the background and a Check again by hand meet when the remote has news: one of the two used to fail
@@ -895,9 +889,8 @@ class Fetching(Remote):
 
     def test_a_fetch_waits_for_another_process_that_is_fetching_into_the_same_store(self):
         process = self.holder()
-        with self.assertRaises(gitx.CatalogError) as raised:
-            store.fetch(self.address, "main", self.store, stall=0.2, cap=0.3)
-        self.assertEqual((raised.exception.code, raised.exception.status), ("timeout", 502))
+        error = self.refusal(lambda: store.fetch(self.address, "main", self.store, stall=0.2, cap=0.3))
+        self.assertEqual((error.code, error.status), ("timeout", 502))
         self.assertFalse((self.store / "HEAD").exists(), "a fetch that did not run made nothing")
         answers = []
         thread = threading.Thread(target=lambda: answers.append(store.fetch(self.address, "main", self.store)))
