@@ -347,7 +347,6 @@ class Calls(LabUI):
     def test_each_call(self):
         self.patch(api.project, "load", return_value=PROJECT)
         self.patch(api.places, "invalidate")
-        self.patch(api.platforms, "runs_here", return_value=False)
         for method, path, body, module, name, arguments, keywords in self.CALLS:
             with self.subTest(path=path, body=body):
                 called = self.patch(module, name, return_value={"id": "p"})
