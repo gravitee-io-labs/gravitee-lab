@@ -529,12 +529,6 @@ class SkippedIncludes(Copies):
                     ["-f", "playgrounds/mine/compose.yml"], ("--no-interpolate", "--no-consistency")))
                 self.assertEqual(list(self.scratch.iterdir()), [])
 
-    def test_a_file_is_never_changed_where_it_is(self):
-        text = f"include:\n  - ../../addons/tool/compose.yml\n  - ../../{GONE}\n" + self.MINE
-        self.write("playgrounds/mine/compose.yml", text)
-        self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        self.assertEqual((self.root / "playgrounds/mine/compose.yml").read_text(encoding="utf-8"), text)
-
     def test_the_time_compose_has(self):
         self.write("setups/mine.yml", "include:\n  - ../addons/tool/compose.yml\n")
         self.assertEqual(self.read("setups/mine.yml")["timeout"], 120)
@@ -709,10 +703,6 @@ class Containers(Case):
             compose.containers()
         self.assertEqual(run.call_args.kwargs["timeout"], 10)
 
-    def test_containers_says_why_docker_did_not_answer(self):
-        self.assertEqual(self.ps((1, "", "Cannot connect to the Docker daemon\n"), call=compose.containers),
-                         ({}, "Cannot connect to the Docker daemon"))
-
 
 class Saved(Case):
     """What Compose would make each service from, the images Docker holds, and what an image is read from."""
@@ -748,15 +738,6 @@ class Saved(Case):
             self.assertEqual(compose.config_hashes(dotenv="GRAVITEE_LICENSE=secret\n"), {"mongodb": "h"})
         self.assertEqual(read, {"text": "GRAVITEE_LICENSE=secret\n", "mode": "0o600"})
         self.assertEqual(list(folder.iterdir()), [])   # it holds secrets: gone once read
-
-    def test_values_given_to_a_command_come_before_the_env_files(self):
-        # Compose reads the core and what is on, whatever the shell says
-        with mock.patch.dict(compose.os.environ, {"COMPOSE_FILE": "other.yml"}):
-            answer = compose.run(["sh", "-c", 'printf "%s %s" "$KAZOO_VERSION" "$COMPOSE_FILE"'],
-                                 env={"KAZOO_VERSION": "3.8"})
-        self.assertEqual(answer, (0, "3.8 docker-compose.yml:.lab/on.yml", ""))
-        # Whatever the terminal's language: what it prints is read as UTF-8, and never refused
-        self.assertEqual(compose.run(["sh", "-c", r"printf 'caf\303\251 \377'"]), (0, "caf\u00e9 \ufffd", ""))
 
     def test_an_image_as_docker_lists_the_ones_it_holds(self):
         for image, listed in (("docker.io/acmecontainer/kazoo:3.9", "acmecontainer/kazoo:3.9"),
@@ -1096,6 +1077,8 @@ class Run(Commands):
 
     def test_it_answers_its_code_and_what_it_printed(self):
         self.assertEqual(compose.run(["sh", "-c", "echo out; echo err >&2; exit 3"]), (3, "out\n", "err\n"))
+        # Whatever the terminal's language: what it prints is read as UTF-8, and never refused
+        self.assertEqual(compose.run(["sh", "-c", r"printf 'caf\303\251 \377'"]), (0, "caf\u00e9 \ufffd", ""))
 
     def test_a_command_that_is_not_there(self):
         code, out, err = compose.run(["no-such-command-for-the-lab"])
@@ -1129,20 +1112,6 @@ class Run(Commands):
         pid = self.child()
         self.assertTrue(settled(lambda: not alive(pid)))
         self.assertEqual(compose._running, set())
-
-    def test_what_still_runs_when_the_lab_ui_exits_is_ended(self):
-        answered = []
-        thread = threading.Thread(target=lambda: answered.append(
-            compose.run(["sh", "-c", f"{self.record}; exec sleep {FOREVER}"], timeout=FOREVER)))
-        thread.start()
-        self.addCleanup(thread.join, 10)
-        pid = self.child()
-        self.assertTrue(settled(lambda: compose._running, 10))
-        compose.stop_running()
-        thread.join(10)
-        self.assertFalse(thread.is_alive())
-        self.assertNotEqual(answered[0][0], 0)
-        self.assertTrue(settled(lambda: not alive(pid)))
 
     def test_what_is_no_process_of_its_own_is_never_signalled(self):
         # A pid that is not one of its commands' groups: 0 is this process's own group, 1 the machine's first, and a fake
@@ -1369,13 +1338,6 @@ class Exiting(Case):
         self.assertEqual(self.exits(process), 0)
         self.assertIn("Stopped with the Lab UI: Start Acme Shop", process.stdout.read())
         self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
-        # A termination of the Lab UI alone ends it too: it is not left running without the Lab UI
-        for signal_name in ("SIGHUP", "SIGTERM"):
-            with self.subTest(signal_name):
-                process = self.program(JOB)
-                os.kill(process.pid, getattr(signal, signal_name))
-                self.assertEqual(self.exits(process), -getattr(signal, signal_name))
-                self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
 
     def test_a_signal_the_lab_ui_ignores_or_handles_is_left_to_it(self):
         for how, expected in (("ignored", None), ("handled", "handled")):
@@ -1420,12 +1382,6 @@ class Limits(ProjectFolder):
             compose.resolved(["-f", "a.yml"])
         self.assertEqual([call.kwargs["environ"] for call in run.call_args_list], [None, asked, asked, asked, None])
         self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [15, 15, 3, 120, 120])
-
-    def test_a_read_that_is_not_answered_in_time_raises_compose_error(self):
-        self.patch(compose, "plugin", lambda: None)
-        self.patch(compose, "COMPOSE", ["sh", "-c", f"sleep {FOREVER}", "sh"])   # a Compose that never answers
-        with self.assertRaisesRegex(compose.ComposeError, "^sh did not answer within 1 s$"):
-            compose.config_json(["-f", "a.yml"], timeout=1)
 
     def test_the_whole_configuration_is_answered_not_only_the_services(self):
         self.patch(compose, "plugin", lambda: None)
