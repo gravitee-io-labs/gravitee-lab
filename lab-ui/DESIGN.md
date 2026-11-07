@@ -610,8 +610,8 @@ What the server decides and the page shows. A name in backticks is the code to r
     Turns off, Starts, Restarts (recreated to take the changes), one line per item with its kind (Platform, Playground,
     Add-on, Container), then what it Keeps (`effectsDialog`, `planRows`). With a choice (a playground's Stop, keeping or
     deleting what its seed created), the steps come once, then the choice.
-  - A deploy to a place besides This machine always asks, because it does more than the item, and its plan has no
-    service of the core ([Places and Deploy to](#places-and-deploy-to)).
+  - A deploy to a place besides This machine always asks, because it does more than the item, and its plan names of the
+    core only what the item needs ([Places and Deploy to](#places-and-deploy-to)).
   - The page sends back what it showed (`accept`, each row as `<kind>:<id>`). The server makes the plan again and
     refuses to stop or turn off anything else ("Would also turn off Mail server").
   - The platform's Start and Apply say first what they start beyond the core and what they make again
@@ -1073,9 +1073,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   token alone. A deploy is blocked until *Replace Account Token* (in the card's connection, and in its block, checked against the Account
   ID that was kept; the record, the Cloud Tokens and the kept gateway tokens stay). Cloud does not say revoked or
   expired, so the state reads *Account Token refused* for both.
-- **No license of the organization is read or judged**, and no sharding tag. Cloud's license model is not the one the
-  local images give, so a judgment would be wrong. A deploy that Cloud refuses shows
-  the seed's last line. The gateways that Cloud hosts are ignored; only hybrid ones are listed.
+- A deploy that Cloud refuses shows the seed's last line. The gateways that Cloud hosts are ignored; only hybrid ones are listed.
 - Its page (`js/pages/platforms.js`) is a card for each account, built to answer three questions about an environment and
   nothing else: does a gateway of it run on this machine, may the Lab deploy into it and what did it deploy, and what is the
   one thing to do next. It was a table of accounts that opened on eight near-identical empty lines for four environments (a
@@ -1289,18 +1287,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   *Set up a gateway in <place> first*. The state carries `deploys_to`, the kinds a playground's files let it go to
   (what does not depend on an environment); each place carries `cannot`, the first reason of each
   playground that cannot go there, which the picker and the server's refusal use. The reasons, the first that
-  applies, are exact strings:
-
-  | Reason | When |
-  |---|---|
-  | *Nothing to deploy* | No seed service, or no seed folder |
-  | *Needs Access Management* | `seed/` holds `am/`, or `requires.images` names an Access Management image, and no gateway of scope `AM` is there |
-  | *Needs Gamma* | `seed/` holds `aim/` or `authz/` |
-  | *Needs API Management 4.13* | `requires.images` asks for a later version of API Management than the environment's oldest gateway runs |
-  | *Needs plugins on the gateway* | `requires.plugins` lists a plugin and the gateway add-on mounts no plugins folder |
-  | *Changes this machine's gateway* | An overlay of a core service by the playground, or by an add-on or setup it brings |
-  | *Its apps use this machine's gateway* | An app, or a service of an add-on it brings, depends on a core service; or an app calls a core service or a gateway |
-  | *Needs more than API Management* | Any other seed content: `openfga/`, `controls.yaml`, `refills.yaml`; or a seeded product the environment runs that a deploy does not fill |
+  applies, are in [the table of a deploy](../docs/playgrounds.md#deploying-to-gravitee-cloud).
 
 - **The picker** is the Combo (single choice, 32 px, search only past 8 options) in the head of every playground's page,
   drawn while at least one platform is registered. Its text is *Deploy to <place>*, cut with an ellipsis and whole in its
@@ -1329,14 +1316,12 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
     the playground's add-ons and apps.
   - *Already in place*: *Connected*, *Valid*, *Running*.
 
-  The lines of the core never appear: the core is not part of the start. They are read again when the window comes back,
-  as today.
+  The lines of the core never appear. They are read again when the window comes back.
 - **A dialog always opens for a remote place**, even when nothing starts, because the action does more than the item.
   Numbered steps in the job's order: *Stops* (another playground, because one runs at a time), *Starts*, *Restarts* (the
   Hybrid gateway, only when it swaps, with the notes *Serves* and *Stops serving*), then *Deploys to* with the place
-  (kind label *Environment*; for *This machine* of a playground that has other places, *Platform*). No row names a service
-  of the core: the plan of a remote place is the plan of a lab without it (`layers._remote_view`), tested over every
-  service name of the core. The phases are Add-ons, Apps and services, Gateway (waits for the platform to say the
+  (kind label *Environment*; for *This machine* of a playground that has other places, *Platform*). Of the core, it names only what the item needs: the plan of a remote place is the plan of a lab with those services alone
+  (`layers._remote_view`, `local_needs`). The phases are Add-ons, Apps and services, Gateway (waits for the platform to say the
   gateway is connected, 2 minutes at most, then fails with *Hybrid gateway did not connect to Gravitee Cloud*) and Seed;
   never Platform or Plugins.
 - **The seed of a remote place runs apart**: `docker compose run --rm --no-deps -e NAME ... <seed> [--remove]`. The
