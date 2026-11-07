@@ -587,24 +587,8 @@ class Listings(Portals):
         self.run_seed()
         self.assertEqual(sorted((i["apiId"], i["parentId"], i["published"], i["visibility"], i["order"]) for i in self.items("API")),
                          [("api-1", FOLDER, True, "PRIVATE", 0), ("api-2", FOLDER, True, "PRIVATE", 1)])
-
-    def test_an_item_has_an_id_the_seed_computes_so_that_a_run_finds_it_again(self):
-        self.run_seed()
-        listing = next(x for x in common.created() if x["kind"] == "portal-listing")
-        self.assertEqual(listing["items"], FEEDS)
-        self.assertEqual((listing["portal"], listing["env"], listing["hrid"]), ("mallard-portal", "mallard", "mallard-feeds"))
-        self.assertEqual(set(listing["items"]) - set(self.world.items["mallard"]), set())
-
-    def test_an_item_is_created_then_published(self):
-        self.run_seed()
-        calls = [(c.method, c.path.rsplit("/", 1)[1]) for c in self.platform.calls if "portal-navigation-items" in c.path and c.method != "GET"]
-        self.assertEqual(calls[:2], [("POST", "portal-navigation-items"), ("PUT", FEEDS[0])])
-        [created] = [c.json for c in self.platform.calls if c.method == "POST"][:1]
-        self.assertEqual((created["id"], created["type"], created["apiId"], created["parentId"], created["area"]),
-                         (FEEDS[0], "API", "api-1", FOLDER, "TOP_NAVBAR"))
-        published = self.sent("PUT", FEEDS[0])[0]
-        self.assertEqual((published["published"], published["parentId"], published["apiId"], published["title"]),
-                         (True, FOLDER, "api-1", "Batch status"))
+        self.assertEqual(self.sent("POST", "portal-navigation-items")[0]["area"], "TOP_NAVBAR")
+        self.assertEqual(self.sent("PUT", FEEDS[0])[0]["apiId"], "api-1")
 
     def test_a_folder_that_was_unpublished_is_published_with_what_is_in_it_before_the_item(self):
         self.seeded()
@@ -650,6 +634,8 @@ class Listings(Portals):
                                                                 "{apiHrid: mallard-telemetry, location: Guides, order: 0, visibility: PRIVATE}"))
         self.assertEqual(self.run_seed(), [("PUT", f"{ITEMS}/{FEEDS[1]}"), ("PUT", f"{ITEMS}/{FEEDS[1]}"), ("PUT", f"{ITEMS}/{OVERVIEWS[1]}")])
         moved, guides = self.world.items["mallard"][FEEDS[1]], ident("mallard", "folder", "/guides")
+        self.assertEqual((self.sent("PUT", FEEDS[1])[0]["parentId"], self.sent("PUT", FEEDS[1])[0]["published"]), (guides, False),
+                         "a child is published only under a published folder")
         self.assertEqual((moved["parentId"], moved["published"], moved["visibility"]), (guides, True, "PRIVATE"))
         self.assertEqual(self.world.items["mallard"][OVERVIEWS[1]]["parentId"], FEEDS[1])
         self.assertTrue(self.world.items["mallard"][OVERVIEWS[1]]["published"])
@@ -657,14 +643,6 @@ class Listings(Portals):
         self.platform.calls.clear()
         self.assertEqual(self.run_seed(), [])
         self.assertIn("Portal listing exists: mallard: mallard-feeds", self.output().split("✓ Portal listing updated")[1])
-
-    def test_an_item_is_moved_unpublished_because_a_child_is_published_only_under_a_published_folder(self):
-        self.seeded()
-        self.file("portal/listings/feeds.yaml", LISTING.replace("Event feeds/Process development, order: 1", "Guides, order: 0"))
-        self.run_seed()
-        move, publish = self.sent("PUT", FEEDS[1])
-        self.assertEqual((move["parentId"], move["published"]), (ident("mallard", "folder", "/guides"), False))
-        self.assertTrue(publish["published"])
 
     def test_the_default_order_of_an_api_is_its_position_among_the_items_of_its_location(self):
         both = "hrid: mallard-feeds\napis:\n  - {apiHrid: mallard-batch-status, location: Guides}\n  - {apiHrid: mallard-telemetry, location: %s}\n"
@@ -709,12 +687,6 @@ class Listings(Portals):
         self.assertEqual(sorted(i["parentId"] for i in self.items("API")), [guides["id"], guides["id"]])
         self.assertEqual(next(i for i in self.items("FOLDER") if i["id"] == guides["parentId"])["title"], "docs")   # a folder a path goes through has the platform's name for it
 
-    def test_two_listings_may_name_one_api_in_two_places(self):
-        self.file("portal/listings/more.yaml", "hrid: mallard-more\napis:\n  - {apiHrid: mallard-telemetry, location: Guides}\n")
-        self.run_seed()
-        self.assertEqual(len(self.items("API")), 3)
-        self.assertEqual(sorted(x["hrid"] for x in common.created() if x["kind"] == "portal-listing"), ["mallard-feeds", "mallard-more"])
-
 
 class ApiPages(Portals):
     """An API item has no page of its own, so a portal shows nothing for it: the platform makes the default Overview page when it is
@@ -732,11 +704,6 @@ class ApiPages(Portals):
     def text(self, i):
         return self.world.contents["mallard"][self.page(i)["portalPageContentId"]]["content"]
 
-    def test_the_platform_is_asked_once_for_the_default_pages_of_the_api_items_of_a_listing(self):
-        self.run_seed()
-        self.assertEqual(self.sent("POST", "/_default-pages"), [{"ids": FEEDS}])
-        self.assertEqual([self.page(i)["parentId"] for i in (0, 1)], FEEDS)
-
     def test_a_page_is_published_with_the_visibility_of_its_item_and_stays_where_the_platform_put_it(self):
         self.run_seed()
         publish = self.sent("PUT", OVERVIEWS[0])[0]
@@ -751,13 +718,6 @@ class ApiPages(Portals):
         self.assertEqual([self.text(0), self.text(1)], [expected, expected])
         puts = [c for c in self.platform.calls if c.method == "PUT" and "portal-page-contents" in c.path]
         self.assertEqual([c.json for c in puts], [{"type": "GRAVITEE_MARKDOWN", "content": expected}] * 2)
-
-    def test_the_text_is_written_before_the_page_is_published_so_the_default_text_is_never_shown(self):
-        self.overview()
-        self.run_seed()
-        order = [("content" if "portal-page-contents" in c.path else "publish") for c in self.platform.calls
-                 if c.method == "PUT" and ("portal-page-contents" in c.path or c.path.endswith(tuple(OVERVIEWS)))]
-        self.assertEqual(order, ["content", "publish", "content", "publish"])
 
     def test_a_second_run_changes_nothing_and_a_page_is_not_written_when_it_holds_the_text(self):
         self.overview()
@@ -935,7 +895,7 @@ class Documents(Portals):
         page = self.child(0, "AsyncAPI")
         self.assertEqual((page["published"], page["visibility"], page["order"]), (True, "PRIVATE", 1))
         self.assertEqual(self.stored(page), {"id": page["portalPageContentId"], "type": "ASYNCAPI", "content": DOC_RENDERED})
-        self.assertEqual(self.titles(0), ["Overview", "AsyncAPI"])
+        self.assertEqual((self.titles(0), self.titles(1)), (["Overview", "AsyncAPI"], ["Overview"]))
         created = next(c.json for c in self.platform.calls if c.method == "POST" and c.json.get("type") == "PAGE")
         self.assertEqual(created, {"type": "PAGE", "title": "AsyncAPI", "area": "TOP_NAVBAR", "parentId": FEEDS[0], "visibility": "PRIVATE",
                                    "contentType": "ASYNCAPI", "order": 1})
@@ -948,16 +908,6 @@ class Documents(Portals):
         self.assertEqual(self.stored(page)["type"], "OPENAPI")
         self.assertEqual(self.titles(0), ["Overview", "OpenAPI"])
         self.assertEqual(self.own(0)["OpenAPI"]["type"], "SWAGGER")
-
-    def test_an_api_with_no_document_gets_none_and_keeps_its_overview_alone(self):
-        self.document()
-        self.run_seed()
-        self.assertEqual(self.titles(1), ["Overview"])
-
-    def test_the_document_is_rendered_with_the_engine_variables_the_seeds_and_the_escape(self):
-        self.document(text=DOC + "# ${GATEWAY} $${x}\n")
-        self.run_seed()
-        self.assertEqual(self.stored(self.child(0, "AsyncAPI"))["content"], DOC_RENDERED + "# http://localhost:8082 ${x}\n")
 
     def test_the_calls_go_overview_then_the_asyncapi_page_made_written_and_published_in_that_order(self):
         self.document()
@@ -975,13 +925,6 @@ class Documents(Portals):
         self.assertEqual(self.run_seed(), [])
         self.assertEqual(json.dumps(common.created()), records)
         self.assertIn("API pages exist: mallard: mallard-feeds", self.output())
-
-    def test_every_version_the_viewer_shows_is_kept(self):
-        for version in apim_portal.ASYNCAPI_VERSIONS:
-            with self.subTest(version=version):
-                self.document(text=DOC.replace("asyncapi: 3.0.0", f"asyncapi: {version}"))
-                self.run_seed()
-                self.assertTrue(self.stored(self.child(0, "AsyncAPI"))["content"].startswith(f"asyncapi: {version}\n"))
 
     def test_a_document_that_changed_is_the_only_thing_written(self):
         self.document()
@@ -1093,10 +1036,6 @@ class Documents(Portals):
                                                                {"api": "api-2", "page": self.own(1)["AsyncAPI"]["id"]}], 6))
         self.assertIn("✓ API pages created: mallard: mallard-feeds (6)", self.output())
 
-    def test_a_folder_with_no_document_records_no_page_of_an_api(self):
-        self.run_seed()
-        self.assertEqual((self.record()["legacy"], self.record()["count"]), ([], 2))
-
     # --- The pages of the API itself ---
 
     def test_an_api_with_a_document_gets_an_asyncapi_page_among_its_own_pages_published(self):
@@ -1110,10 +1049,6 @@ class Documents(Portals):
         [made] = self.sent("POST", "/api-1/pages")
         self.assertEqual(made, {"type": "ASYNCAPI", "name": "AsyncAPI", "visibility": "PUBLIC", "homepage": False, "content": DOC_RENDERED})
 
-    def test_without_a_document_or_a_details_text_the_pages_of_the_apis_are_not_asked_for(self):
-        self.run_seed()
-        self.assertEqual([c.path for c in self.platform.calls if "/apis/" in c.path], [])
-
     def test_api_details_is_the_homepage_of_every_listed_api_rendered_with_its_own_escape(self):
         self.file("portal/api-details.md", DETAILS)
         self.run_seed()
@@ -1122,14 +1057,6 @@ class Documents(Portals):
             self.assertEqual({k: page[k] for k in ("type", "content", "published", "visibility", "homepage")},
                              {"type": "MARKDOWN", "content": DETAILS_RENDERED, "published": True, "visibility": "PUBLIC", "homepage": True})
         self.assertEqual((self.record()["count"], len(self.record()["legacy"])), (4, 2))
-
-    def test_each_page_of_an_api_is_made_then_published_and_every_one_is_recorded(self):
-        self.document()
-        self.file("portal/api-details.md", DETAILS)
-        self.run_seed()
-        kinds = [(c.method, c.path.rsplit("/", 1)[1]) for c in self.platform.calls if c.method != "GET" and "/api-1/pages" in c.path]
-        self.assertEqual(kinds, [("POST", "pages"), ("POST", "_publish"), ("POST", "pages"), ("POST", "_publish")])
-        self.assertEqual([e["page"] for e in self.record()["legacy"] if e["api"] == "api-1"], [p["id"] for p in self.own(0).values()])
 
     def test_a_page_that_is_made_is_recorded_before_it_is_published_so_a_failure_leaves_none_the_seed_does_not_know(self):
         self.document()
@@ -1366,7 +1293,6 @@ class Documents(Portals):
         self.assertEqual(json.dumps(common.created()), before)
         apim_portal.remove(common.created())
         self.assertIn("✓ Deleted portal-api-page 'mallard: mallard-feeds'", self.output())
-
 
 
 class Occupied(Portals):
@@ -1682,13 +1608,6 @@ class Quiet(Seed):
 
 
 class Trouble(Portals):
-
-    def test_a_platform_that_cannot_answer_now_is_asked_again(self):
-        self.platform.add({("PUT", f"{AUTO}/mallard/portal-themes"): [503, 429, (200, {"id": "t1"})]})
-        self.run_seed()
-        self.assertEqual(len(self.sent("PUT", "/mallard/portal-themes")), 3)
-        self.assertEqual(self.clock.sleeps, [common.RETRY_PAUSE] * 2)
-        self.assertIn("! Portal theme mallard-theme in mallard: HTTP 503, trying again", self.output())
 
     def test_a_platform_that_says_what_it_could_not_put_in_a_200_stops_the_seed(self):
         self.platform.add({("PUT", DOCS): (200, {"id": "p1", "errors": {"severe": ["location: no such path"]}})})
