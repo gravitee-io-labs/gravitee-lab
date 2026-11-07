@@ -72,7 +72,6 @@ READ_MEMORY = 256   # the versions whose reading `unknown_at` keeps: each is a c
 
 _NS = re.compile(paths.NS)
 _REMOVED = re.compile(r"\.removed-({ns})-([0-9]{{8}}T[0-9]{{6}}Z)".format(ns=paths.NS))
-_SHA = re.compile(r"[0-9a-f]{40}")
 _SECRET_DIRS = (".state", "secrets")
 _DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
@@ -97,8 +96,7 @@ def _transient(error) -> bool:
     not be read now (`renames_unread`), Docker could not say what has containers (`docker_unknown`), or the Lab UI is ending. Such an error never marks a
     catalog damaged and never drops what says an operation is under way: the next start has git, and finishes it."""
     detail = getattr(error, "detail", None) or {}
-    return getattr(error, "code", None) in ("git_missing", "git_old", "docker_missing", "unread", "timeout", "renames_unread",
-                                            "docker_unknown") \
+    return getattr(error, "code", None) in ("git_missing", "timeout", "renames_unread", "docker_unknown") \
         or gitx.ENDING in str(detail.get("output") or "")
 
 
@@ -337,11 +335,6 @@ def _remove_tree(path) -> int:
     return left
 
 
-def _clear(path):
-    """What stands at `path` removed, a link as a link; a folder that cannot be removed wholly is left."""
-    _remove_tree(path)
-
-
 def _safe(rel) -> bool:
     try:
         _parts(rel)
@@ -469,7 +462,7 @@ def _write_stage(target, store_path, kept) -> Dict[str, str]:
     """Writes the files `kept` of a store into the fresh folder `target` (replacing what stood there), catalog.yml first
     so that the id is known, every file with `safe_write` and read-only. Answers {path: sha256}. A failure removes the
     folder it made; a stop (not an error) leaves it, which is what the sweeper is for."""
-    _clear(target)
+    _remove_tree(target)
     os.makedirs(os.path.dirname(os.fspath(target)), exist_ok=True)
     os.mkdir(target, 0o755)
     os.chmod(target, 0o755)
@@ -484,7 +477,7 @@ def _write_stage(target, store_path, kept) -> Dict[str, str]:
         if len(shas) != len(ordered):   # a store that gave fewer files than it listed is not a store
             raise gitx.fail("fsck", output="fewer files than listed")
     except Exception:
-        _clear(target)
+        _remove_tree(target)
         raise
     return shas
 
@@ -505,7 +498,7 @@ def stage(address: gitx.Address, ns: str, store: Optional[Path], commit: str, ke
     _sweep_stale()
     _step("stage:begin")
     if address.kind == "folder":
-        _clear(target)
+        _remove_tree(target)
         os.makedirs(os.path.dirname(os.fspath(target)), exist_ok=True)
         if not _real_dir(address.path):
             raise gitx.fail("folder_missing", address, path=address.display)
@@ -529,7 +522,7 @@ def rename_stage(staged: Staged, ns: str) -> Staged:
     target = registry.stage_dir(ns)
     if os.path.abspath(staged.path) == os.path.abspath(target):
         return staged._replace(ns=ns)
-    _clear(target)
+    _remove_tree(target)
     os.rename(staged.path, target)
     return staged._replace(ns=ns, path=target)
 
@@ -551,9 +544,6 @@ def walk(folder: str) -> list:
         if count > WALK_LIMIT:
             raise gitx.fail("too_large")
         if stat.S_ISDIR(info.st_mode):
-            if rel.count("/") >= 10:   # deeper than a catalog goes: one entry that the filter counts as too deep
-                found.append(bare.Entry("100644", "0" * 40, 0, rel + "/" + "d/" * 2 + "x"))
-                continue
             try:
                 todo[0:0] = sorted(f"{rel}/{name}" for name in os.listdir(os.path.join(folder, rel)))
             except OSError:
@@ -645,7 +635,7 @@ def _leave(ns, root) -> bool:
     _vacate(ns, root)
     if _machine(ns, root):
         return True
-    _clear(root)
+    _remove_tree(root)
     return False
 
 
@@ -705,7 +695,7 @@ def _restore(ns, root) -> None:
     for rel in _machine(ns, folder):
         _move_in(folder, root, rel)
     if not _machine(ns, folder):
-        _clear(folder)
+        _remove_tree(folder)
 
 
 def _target(ns, kept) -> str:
@@ -768,20 +758,11 @@ def not_expected(called=None) -> CatalogError:
                         "update, then try again.", 409)
 
 
-def _check_meta(ns, meta, called=None):
-    if meta.get("id") != ns:
-        raise not_expected(called)
-
-
-def _address_name(address) -> Optional[str]:
-    """How the lines of the catalogue of errors name the repository or folder at an address."""
-    return (address.repo or address.display or None) if address is not None else None
-
-
 def _entry_name(entry) -> Optional[str]:
     """The same for a catalog the machine has: from the address its entry holds."""
     try:
-        return _address_name(gitx.parse_address(entry["url"] if entry["kind"] == "git" else entry["path"]))
+        address = gitx.parse_address(entry["url"] if entry["kind"] == "git" else entry["path"])
+        return address.repo or address.display or None
     except (CatalogError, KeyError, TypeError):
         return registry.display_address(str(entry.get("url") or entry.get("path") or "")) or None
 
@@ -797,7 +778,7 @@ def _config_with(entry):
 
 
 def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], audience: str, roots: list,
-               meta: Optional[dict] = None, host: bool = False) -> dict:
+               meta: dict, host: bool = False) -> dict:
     """The install of a catalog, with the first download of a listed catalog (whose entry exists already) as the same
     pipeline. Under the locks: the namespace is still free and the stage is what was judged (every file has the id and
     the mode git gave it, no other file is there); the manifest is written into the stage; the store is renamed to
@@ -806,26 +787,20 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
     the stage is renamed to the install (or merged into the folder a Remove that kept the settings left, and the machine
     files of the newest `.removed-<ns>-*` are moved in); the lock is written with the pin and `pending` null (the commit
     point of a download); `catalogs.json` gets the entry (the commit point of an Add). `meta` is the validated catalog.yml
-    of the stage (read when not given), `branch` the one the remote resolved (None or "" for the default one), `roots` the
+    of the stage, `branch` the one the remote resolved (None or "" for the default one), `roots` the
     root commits seen at the fetch. A folder stage is renamed to the link and recorded. Answers {entry, lock}."""
     ns = staged.ns
-    if audience not in ("public", "private") or not all(isinstance(one, str) and _SHA.fullmatch(one) for one in roots):
-        raise ValueError("an audience is public or private, and the roots are commit ids")   # before anything is made
     with _guard():
         _step("add:begin")
         entry, held = registry.entry(ns), registry.lock_of(ns)
         _free(ns, entry, held, address)
         if not _real_dir(staged.path) and not os.path.islink(staged.path):
             raise CatalogError("ticket_expired", "This took too long. Start again.", 409)
-        if staged.kind == "git":
-            if staged.store is None or not _SHA.fullmatch(staged.commit or ""):
-                raise ValueError("a git stage needs its store and its commit")
-            shas = _audit(staged.path, staged.kept)   # what was judged is what is installed
-        if meta is None:
-            meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address)
-        _check_meta(ns, meta, _address_name(address))
+        if meta.get("id") != ns:
+            raise not_expected(address.repo or address.display)
         if staged.kind == "folder":
-            return _commit_folder(staged, address, entry, audience, meta, host)
+            return _commit_folder(staged, address, audience, meta, host)
+        shas = _audit(staged.path, staged.kept)   # what was judged is what is installed
         tip = bare.resolve(staged.store, "refs/lab/tip")
         if tip is None:
             raise bare.MissingObject("refs/lab/tip")
@@ -834,7 +809,7 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
         _step("add:store")
         final = registry.store_dir(ns)
         if os.path.abspath(staged.store) != os.path.abspath(final):
-            _clear(final)   # a store left by an attempt that never became a catalog
+            _remove_tree(final)   # a store left by an attempt that never became a catalog
             os.rename(staged.store, final)
         _step("add:pending")
         registry.set_lock(ns, pin=None, previous=None, tip=tip, roots=sorted(roots), audience=audience,
@@ -875,11 +850,11 @@ def _place(ns, staged):
         _step("add:file")
         safe_replace(Path(stage_dir) / entry.path, Path(root) / entry.path)
     safe_replace(Path(stage_dir) / paths.MANIFEST, Path(root) / paths.MANIFEST)
-    _clear(stage_dir)
+    _remove_tree(stage_dir)
     _restore(ns, root)   # a folder the sweeper renamed, beside the one a Remove left
 
 
-def _commit_folder(staged, address, entry, audience, meta, host):
+def _commit_folder(staged, address, audience, meta, host):
     """The Add of a folder catalog: the stage is a link, renamed to `.lab/catalogs/<ns>`, then the lock and the entry.
     """
     ns = staged.ns
@@ -898,13 +873,11 @@ def _commit_folder(staged, address, entry, audience, meta, host):
     _step("add:lock")
     registry.set_lock(ns, pin=None, previous=None, tip=None, roots=[], audience=audience, installed=None, checked=None,
                       error=None, pending=None, **_lock_fields(meta))
-    row = entry
-    if entry is None:
-        _step("add:config")
-        row = {"id": ns, "kind": "folder", "path": address.path, "added": _utc()}
-        if host:
-            row["host"] = True
-        _config_with(row)
+    _step("add:config")
+    row = {"id": ns, "kind": "folder", "path": address.path, "added": _utc()}
+    if host:
+        row["host"] = True
+    _config_with(row)
     _step("add:done")
     return {"entry": row, "lock": registry.lock_of(ns)}
 
@@ -1020,17 +993,6 @@ def _need(ns, commit):
     return store_path
 
 
-def _unreadable(meta, contract, entry) -> Optional[CatalogError]:
-    """The refusal (`lab_new`, `lab_old`) when the version staged is written for a level this Lab does not read, by the strict
-    reading of its catalog.yml: `searched` chooses a commit from a tolerant reading that may be unsure of the level (an anchor,
-    a number spelled another way) and takes such a version for one this Lab may read, so this is where it is known. None
-    for a Lab whose level the caller did not give."""
-    if not isinstance(contract, dict):
-        return None
-    return manifest.compat_error(meta["lab"], contract.get("contract", 1), contract.get("contract_min", 1),
-                                 defaults.listed(entry))
-
-
 _versions = {}   # (store, commit, what this Lab reads) -> what that version uses that this Lab does not read
 _versions_lock = threading.Lock()
 
@@ -1048,7 +1010,7 @@ def probe(store_path, commit):
         _write_stage(target, store_path, kept)
         yield ns
     finally:
-        _clear(target)
+        _remove_tree(target)
 
 
 def unknown_at(store_path, commit) -> Optional[list]:
@@ -1110,12 +1072,12 @@ def readable(store_path):
 def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     """The plan of an update, for the files: `{"upToDate": True}` when `target` is the pin or changes nothing installable;
     else the plan. The candidate tree is staged in full at `.stage-<ns>` for the caller to judge. The plan: {ns, op
-    (update, or undo when `target` is `lock.previous`), from, to, tip, name, version, lab, adds, updates, removes (unit
+    (update, or undo when `target` is `lock.previous`), from, to, version, adds, updates, removes (unit
     keys `kind:name`), renamed ({kind:old: kind:new}: the items it renames, which are in neither adds nor removes), files
     {add, change, remove}, touched (what changed in each unit, `store.changed_parts`), rewritten,
     held (the changed or removed units that are on), release (the version of the release `target` is, or None), whatsnew
     (what is new in the units it changes, adds or removes, unit by unit, as the notes of a release say it: `store.notes`,
-    each subject once), ignored, kept (the files written), stage, meta (the validated catalog.yml of the candidate), context}.
+    each subject once), ignored, kept (the files written), meta (the validated catalog.yml of the candidate), context}.
     `rewritten`: the history is not the one installed (the roots differ, or the pin is not an ancestor of the target; for a
     Go back, the two are not one history); or `context["moved"]`,
     the release installed is a tag the owners moved to the target since, which an update does not take silently either. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
@@ -1145,13 +1107,16 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
             meta = manifest.read_catalog(os.path.relpath(registry.stage_dir(ns) / manifest.FILE, paths.ROOT), published=True)
             if meta["id"] != ns:
                 raise not_expected(_entry_name(registry.entry(ns)))
-            refusal = _unreadable(meta, context.get("contract"), registry.entry(ns))
+            # `searched` chose from a tolerant reading that may be unsure of the level: the strict one is where it is known
+            contract = context.get("contract")
+            refusal = manifest.compat_error(meta["lab"], contract["contract"], contract["contract_min"],
+                                            defaults.listed(registry.entry(ns))) if contract else None
             if refusal is not None:
                 raise refusal
             if manifest.unread(meta):   # a published catalog: what this Lab does not read in it needs a newer Gravitee Lab
                 raise manifest.not_understood(manifest.unread(meta))
         except CatalogError:
-            _clear(registry.stage_dir(ns))   # what was refused is not left to be installed
+            _remove_tree(registry.stage_dir(ns))   # what was refused is not left to be installed
             raise
         before = old["units"]
         moved = renames.resolve(renames.declared_at(store_path, held["pin"]), renames.declared(meta), op == "undo")
@@ -1169,11 +1134,10 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
         news = _whatsnew(store_path, held["pin"], target, updates + adds + removes + sorted(renamed) + sorted(renamed.values())) \
             if op == "update" else []
         touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
-        return {"ns": ns, "op": op, "from": held["pin"], "to": target, "tip": held.get("tip"), "name": meta["name"],
-                "version": meta["version"], "lab": meta["lab"], "adds": adds, "updates": updates, "removes": removes,
-                "renamed": renamed,
+        return {"ns": ns, "op": op, "from": held["pin"], "to": target, "version": meta["version"], "adds": adds,
+                "updates": updates, "removes": removes, "renamed": renamed,
                 "files": files, "touched": touched, "rewritten": rewritten, "held": _held(ns, updates + removes, context),
-                "release": manifest.release_of(store_path, target, meta["version"]), "whatsnew": news, "ignored": ignored, "kept": kept, "stage": os.fspath(registry.stage_dir(ns)),
+                "release": manifest.release_of(store_path, target, meta["version"]), "whatsnew": news, "ignored": ignored, "kept": kept,
                 "meta": meta, "context": context}
 
 
@@ -1309,7 +1273,7 @@ def _roll(ns, frm, to, label, meta=None):
         fields["release"] = manifest.release_of(store_path, to, fields.get("version"))
     _step(f"{label}:lock")
     registry.set_lock(ns, pin=to, installed=_utc(), error=None, pending=None, **change, **fields)
-    _clear(registry.stage_dir(ns))
+    _remove_tree(registry.stage_dir(ns))
     _step(f"{label}:done")
 
 
@@ -1483,8 +1447,8 @@ def remove(ns: str, keep_settings: bool = True) -> dict:
         root, warning = os.fspath(registry.install_dir(ns)), None
         with _exclusive():
             _step("remove:store")
-            _clear(registry.store_dir(ns))
-            _clear(registry.stage_dir(ns))
+            _remove_tree(registry.store_dir(ns))
+            _remove_tree(registry.stage_dir(ns))
             _step("remove:files")
             if os.path.islink(root):
                 os.unlink(root)   # the link and nothing it points to
@@ -1689,7 +1653,7 @@ def _unshadow_run(ns, record) -> dict:
         registry.write_config(config)
         _step("unshadow:lock")
         registry.set_lock(ns, shadowed=None)
-    _clear(registry.stage_dir(ns))
+    _remove_tree(registry.stage_dir(ns))
     with contextlib.suppress(FileNotFoundError):
         os.unlink(_record_file(ns))
     _step("unshadow:done")
@@ -1719,16 +1683,12 @@ def _finish(ns):
     """Finishes or undoes the operation `lock.pending` names. An Update, a Go back or a Repair is finished: the
     store holds every object, so the files are brought to `to` again and the lock commits. A download (an Add whose
     entry exists) is finished when the install and the store are whole, else its files are removed (the machine's stay)
-    and the pending flag cleared, so that the download starts again from nothing. An Add with no entry never committed:
-    it is garbage, which the sweeper removes. What cannot be finished marks the catalog damaged, which Repair clears."""
-    pending = registry.lock_of(ns).get("pending")
-    if not pending:
-        return
+    and the pending flag cleared, so that the download starts again from nothing. (An Add with no entry never committed: it
+    is garbage, which `recover` leaves to the sweeper.) What cannot be finished marks the catalog damaged, which Repair clears."""
+    pending = registry.lock_of(ns)["pending"]
     op, frm, to = pending["op"], pending["from"], pending["to"]
     _step("recover:pending")
     if op == "add":
-        if registry.entry(ns) is None:
-            return
         root = os.fspath(registry.install_dir(ns))
         if _complete(ns, to):
             _restore(ns, root)
@@ -1736,11 +1696,11 @@ def _finish(ns):
                 _follow(ns, renames.between(registry.store_dir(ns), None, to), "add")
             now = _utc()
             registry.set_lock(ns, pin=to, previous=None, installed=now, checked=now, error=None, pending=None)
-            _clear(registry.stage_dir(ns))
+            _remove_tree(registry.stage_dir(ns))
         else:
             if _real_dir(root):
                 _leave(ns, root)
-            _clear(registry.stage_dir(ns))
+            _remove_tree(registry.stage_dir(ns))
             registry.set_lock(ns, pin=None, pending=None, error=None)
         return
     try:
@@ -1760,11 +1720,6 @@ def _age(path) -> float:
     return time.time() - info.st_mtime if info else 0.0
 
 
-def _namespaces(names):
-    """The names in a listing of `.lab/catalogs` that can be a catalog's folder: a namespace, and not `local`."""
-    return [name for name in names if _NS.fullmatch(name) and name != paths.LOCAL]
-
-
 def _sweep_stale() -> None:
     """The leftovers of rule 12 that age alone judges, which need no lock because nothing that old is in use: the
     staging folders and the `*.partial` files of `.lab/catalogs`, and the stores being added, older than a day (`AGE`).
@@ -1779,7 +1734,7 @@ def _sweep_stale() -> None:
             continue
         for name in names:
             if wanted(name) and _age(os.path.join(folder, name)) > AGE:
-                _clear(os.path.join(folder, name))
+                _remove_tree(os.path.join(folder, name))
 
 
 def sweep() -> None:
@@ -1793,7 +1748,7 @@ def sweep() -> None:
             return
         base = os.path.join(paths.ROOT, paths.CATALOGS_DIR)
         try:
-            names = _namespaces(sorted(os.listdir(base)))
+            names = [name for name in sorted(os.listdir(base)) if _NS.fullmatch(name) and name != paths.LOCAL]
         except OSError:
             return
         have = {one["id"] for one in registry.entries()}
@@ -1810,7 +1765,7 @@ def sweep() -> None:
                 continue
             for one in inside:
                 if one.startswith(".share-") and _age(os.path.join(root, one)) > AGE:
-                    _clear(os.path.join(root, one))
+                    _remove_tree(os.path.join(root, one))
 
 
 def _sweep_install(ns, root) -> None:
@@ -1870,4 +1825,4 @@ def _orphans():
         return
     for name in stores:
         if name.endswith(".git") and _NS.fullmatch(name[:-4]) and name[:-4] not in have:
-            _clear(os.path.join(cache, name))
+            _remove_tree(os.path.join(cache, name))

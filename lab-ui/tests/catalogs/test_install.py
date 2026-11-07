@@ -723,7 +723,7 @@ class Walking(Base):
                 install.walk(str(folder))
         self.assertEqual(raised.exception.code, "too_large")
 
-    def test_a_tree_deeper_than_a_catalog_goes_is_counted_not_followed(self):
+    def test_a_tree_deeper_than_a_catalog_goes_is_counted_and_not_kept(self):
         folder = self.folder_catalog("partner")
         deep = folder / "addons" / "ledger"
         for _ in range(12):
@@ -798,15 +798,6 @@ class Adding(Base):
         staged, address, roots = self.prepare("partner")
         install.commit_add(staged, address, "", "public", roots, meta_of("partner"))
         self.assertNotIn("branch", registry.entry("partner"))
-
-    def test_an_audience_or_roots_that_cannot_be_recorded_are_refused_before_anything_is_made(self):
-        staged, address, roots = self.prepare("partner")
-        for audience, bad_roots in (("secret", roots), ("public", ["x"]), ("public", [None]), (None, roots)):
-            with self.assertRaises(ValueError):
-                install.commit_add(staged, address, "main", audience, bad_roots, meta_of("partner"))
-        self.assertTrue(staged.path.is_dir())
-        self.assertFalse(registry.store_dir("partner").exists())
-        self.assertEqual(registry.read_lock()["catalogs"], {})
 
     def test_the_choice_to_use_the_machine_is_stored_for_a_catalog_that_is_not_listed(self):
         staged, address, roots = self.prepare("partner")
@@ -1231,8 +1222,8 @@ class Updating(Base):
                 self.assertEqual(self.content("partner"), {"catalog.yml", "addons/ledger/README.md", "addons/ledger/compose.yml"})
         target = self.advance({"catalog.yml": self.version("2.2.0").replace("lab: 1", "lab: 2"), **AUDIT})
         plan = install.plan_update("partner", target, {"contract": {"contract": 2, "contract_min": 1}})
-        self.assertEqual((plan["lab"], plan["version"]), (2, "2.2.0"), "a Lab that reads the level takes it")
-        self.assertEqual(install.plan_update("partner", target)["lab"], 2, "and one whose level the caller gave not is not asked")
+        self.assertEqual((plan["meta"]["lab"], plan["version"]), (2, "2.2.0"), "a Lab that reads the level takes it")
+        self.assertEqual(install.plan_update("partner", target)["meta"]["lab"], 2, "and one whose level the caller gave not is not asked")
 
     def test_a_rename_into_an_item_the_installed_version_has_already_is_no_rename(self):
         with mock.patch.dict(os.environ, {"HOME": REAL_HOME}):
@@ -1273,12 +1264,11 @@ class Updating(Base):
         self.assertEqual((plan["adds"], plan["updates"], plan["removes"]), (["addon:audit"], ["addon:ledger"], []))
         self.assertEqual(plan["files"], {"add": ["addons/audit/README.md", "addons/audit/compose.yml"],
                                          "change": ["addons/ledger/README.md", "catalog.yml"], "remove": []})
-        self.assertEqual((plan["name"], plan["version"], plan["lab"]), ("Partner fixture", "2.1.0", 1))
+        self.assertEqual((plan["meta"]["name"], plan["version"], plan["meta"]["lab"]), ("Partner fixture", "2.1.0", 1))
         self.assertEqual(plan["whatsnew"], ["Add the audit add-on"])
         self.assertEqual(plan["touched"], {"addon:audit": ["README.md", "compose.yml"], "addon:ledger": ["README.md"]})
         self.assertEqual((plan["rewritten"], plan["held"]), (False, []))
-        self.assertEqual(plan["stage"], str(registry.stage_dir("partner")))
-        self.assertEqual({entry.path for entry in plan["kept"]}, set(install._audit(plan["stage"], plan["kept"])))
+        self.assertEqual({entry.path for entry in plan["kept"]}, set(install._audit(registry.stage_dir("partner"), plan["kept"])))
         self.assertEqual(self.content("partner"), {"catalog.yml", "addons/ledger/README.md", "addons/ledger/compose.yml"},
                          "a plan changes nothing that is installed")
 
@@ -1424,10 +1414,10 @@ class Updating(Base):
     def test_a_stage_changed_after_the_plan_is_not_what_is_installed(self):
         target = self.advance({"addons/ledger/README.md": "Changed\n"})
         plan = install.plan_update("partner", target)
-        evil = Path(plan["stage"]) / "addons/ledger/compose.yml"
+        evil = registry.stage_dir("partner") / "addons/ledger/compose.yml"
         evil.chmod(0o644)
         evil.write_text("services: {evil: {privileged: true}}\n", encoding="utf-8")
-        (Path(plan["stage"]) / "addons/ledger/payload.sh").write_text("rm -rf\n", encoding="utf-8")
+        (registry.stage_dir("partner") / "addons/ledger/payload.sh").write_text("rm -rf\n", encoding="utf-8")
         install.apply_update("partner", plan)
         self.intact("partner")
         now = self.tree("partner")
@@ -2330,7 +2320,7 @@ class WithCompose(Base):
         staged, address, roots = self.prepare("partner")
         meta = REAL_READ(os.path.relpath(staged.path / "catalog.yml", paths.ROOT))
         self.assertEqual((meta["id"], meta["name"], meta["version"], meta["lab"]), ("partner", "Partner fixture", "2.0.0", 1))
-        install.commit_add(staged, address, "main", "public", roots)
+        install.commit_add(staged, address, "main", "public", roots, meta)
         self.intact("partner")
         self.assertEqual(registry.lock_of("partner")["name"], "Partner fixture")
         target = self.remotes["partner"].commit({"addons/ledger/README.md": "Changed\n"})
@@ -2339,20 +2329,6 @@ class WithCompose(Base):
         self.assertEqual((plan["updates"], plan["meta"]["id"]), (["addon:ledger"], "partner"))
         install.apply_update("partner", plan)
         self.intact("partner")
-
-    def test_a_catalog_file_compose_cannot_read_is_refused_before_anything_is_installed(self):
-        files = {**gitfixture.catalog_files("broken"), "catalog.yml": "x-gravitee-catalog:\n  id: [unclosed\n"}
-        repo = gitfixture.make_repo(self.home / "broken.git", files)
-        address = gitx.parse_address(gitfixture.url(repo))
-        store_path = registry.new_store_dir("5e6f")
-        tip = bare.fetch(address, None, store_path)
-        kept, ignored = bare.selected(bare.listing(store_path, tip))
-        staged = install.stage(address, "broken", store_path, tip, kept, ignored)
-        with self.assertRaises(registry.CatalogError) as raised:
-            install.commit_add(staged, address, "main", "public", [])
-        self.assertEqual(raised.exception.code, "catalog_invalid")
-        self.assertFalse(registry.install_dir("broken").exists())
-        self.assertIsNone(registry.entry("broken"))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
