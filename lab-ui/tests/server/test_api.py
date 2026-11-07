@@ -11,7 +11,6 @@ import json
 import os
 import queue
 import re
-import signal
 import socket
 import subprocess
 import sys
@@ -21,7 +20,6 @@ import types
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
-from pathlib import Path
 from urllib.error import URLError
 
 import lab_ui
@@ -35,7 +33,7 @@ from lab_ui.catalogs import gitx, trust
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker.jobs import Job, JobFailed, Jobs, awaited
 
-from .. import Case, fake_cloud, fixtures, gitfixture
+from .. import Case, fake_cloud, fixtures
 
 from ..library import test_layers
 from ..gravitee.test_cloud import serving
@@ -2189,7 +2187,7 @@ class Startup(Case):
         self.patch(api, "ThreadingHTTPServer", Server)
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
-        self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals",)))
+        self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals", *others)))
         self.timer = self.patch(api.threading, "Timer")
         self.opened = self.patch(api, "open_browser")
 
@@ -2201,8 +2199,9 @@ class Startup(Case):
 
     def test_the_port_is_bound_first_then_the_steps_in_order_and_then_the_page_is_served(self):
         said = self.serve()
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"), ("moving", "recover_at_start"),
-                                       ("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
+        # A closed terminal ends the git of the downloads too (gitx.stop_running, handed over to what owns the signals)
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals", gitx.stop_running), ("service", "recover"),
+                                       ("moving", "recover_at_start"), ("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
                                "and the containers keep running.\n\n")
 
@@ -2296,73 +2295,6 @@ class Startup(Case):
             api.main(["--no-open", "--port", "9123"])
         served.assert_called_once()
         self.assertEqual(said.getvalue(), "")
-
-
-# A Lab UI of its own, for Signals: argv[1] is the file the fake git writes its process id to, argv[2] the port
-SIGNALED_LAB = """
-import os, sys, threading, time
-from lab_ui.catalogs import gitx
-from lab_ui.server import api
-
-def started():
-    end = time.monotonic() + 20
-    while not os.path.exists(sys.argv[1]) and time.monotonic() < end:
-        time.sleep(0.02)
-    time.sleep(0.2)
-    print("ready", flush=True)
-
-def starting():
-    threading.Thread(target=gitx.run, args=(["fetch"],), kwargs={"timeout": 120}, daemon=True).start()
-    threading.Thread(target=started, daemon=True).start()
-
-api.start_up = starting
-api.address = lambda url, then: None
-api._serve(int(sys.argv[2]), False)
-"""
-
-
-class Signals(Case):
-    """A Lab UI that is hung up (its terminal closed) or terminated ends the git it runs."""
-
-    def setUp(self):
-        self.pids = self.folder() / "pids"
-        gitfixture.fake_git(self, f"echo $$ >> '{self.pids}'\nexec sleep 40")
-
-    def lab(self):
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
-        if self.pids.exists():
-            self.pids.unlink()
-        process = subprocess.Popen([sys.executable, "-c", SIGNALED_LAB, str(self.pids), str(port)],
-                                   cwd=Path(__file__).resolve().parents[2], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
-        self.addCleanup(process.communicate)
-        self.addCleanup(process.kill)
-        self.assertEqual(process.stdout.readline().strip(), b"ready", "the Lab UI did not start git")
-        (pid,) = [int(line) for line in self.pids.read_text().split()]
-        self.addCleanup(self.signaled, pid, signal.SIGKILL)
-        return process, pid
-
-    @staticmethod
-    def signaled(pid, number):
-        """Whether the process was there to be signaled."""
-        try:
-            os.kill(pid, number)
-            return True
-        except ProcessLookupError:
-            return False
-
-    def test_a_hang_up_or_a_termination_ends_the_git_of_the_download(self):
-        for number in (signal.SIGHUP, signal.SIGTERM):
-            with self.subTest(signal=number.name):
-                process, pid = self.lab()
-                process.send_signal(number)
-                self.assertEqual(process.wait(30), -number)
-                end = time.monotonic() + 5
-                while self.signaled(pid, 0) and time.monotonic() < end:
-                    time.sleep(0.05)
-                self.assertFalse(self.signaled(pid, 0), f"git was left running after {number.name}")
 
 
 class DockerDown(Case):
