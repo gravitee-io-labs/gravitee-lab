@@ -1,5 +1,5 @@
 """dashboard: Docker's sizes and answers as `docker info`, `system df` and `stats` print them, the channels of a version, the
-products and the gateway of a platform against the versions a registry lists, the whole answer with its caches, and the load of
+products against the versions a registry lists, the whole answer with its caches, and the load of
 the containers. No Docker, no registry: what they would answer is given."""
 
 import json
@@ -294,7 +294,6 @@ class Read(Case):
         for prefix in ("local:dashboard:", "dashboard:", "docker:"):
             compose.CACHE.drop(prefix)
             self.addCleanup(compose.CACHE.drop, prefix)
-        self.patch(dashboard, "_flight", None)
         self.answers = {"info": (0, json.dumps(INFO), ""), "version": (0, "v5.4.0\n", ""), "df": (0, DF, "")}
         self.run = self.patch(dashboard.compose, "run", side_effect=lambda command, **more: self.answers[
             next(name for name, word in {"info": "info", "version": "version", "df": "system"}.items()
@@ -354,7 +353,7 @@ class Read(Case):
         self.assertIsNone(dashboard.read(self.project)["data"])
         self.assertEqual(self.asked("system"), 1, "the read under way is not started again")
         release.set()
-        waited(self, lambda: dashboard._flight.done())
+        waited(self, lambda: compose.CACHE.kept(dashboard.USAGE, dashboard.DOCKER_TTL))
         found = dashboard.read(self.project)
         self.assertEqual(found["data"]["images"]["size"], 58_890_000_000)
         self.assertEqual(self.asked("system"), 1)

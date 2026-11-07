@@ -1,6 +1,5 @@
 """What the Dashboard reads that the state does not hold: the Gravitee products here against the latest version of
-their channel in the registry, the gateway a platform of the Cloud runs here against the latest stable one, and Docker.
-What runs and what is on is the state's (`/api/state`), which the page draws live. What Docker says of
+their channel in the registry, and Docker. What runs and what is on is the state's (`/api/state`), which the page draws live. What Docker says of
 itself and of its Compose is what the state reads (compose.docker_info, compose_version), what it holds is kept for a
 minute and the registry's answers for an hour; the load of the containers comes from a `docker stats --no-stream` that the
 pages following it share."""
@@ -11,13 +10,13 @@ import os
 import re
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
-from concurrent.futures import TimeoutError as Slow
+from concurrent.futures import ThreadPoolExecutor
 
 from ..docker import compose, images
 from ..library import project as projects
 from ..library.versions import judge, channel, latest, order, parse
 
+USAGE = "local:dashboard:df"   # what Docker holds, in the cache
 DOCKER_TTL = 60       # seconds what Docker holds is kept: a quick back and forth does not read it again
 DF_WAIT = 0.4         # seconds a read lasts at the most for what Docker holds, the slow one, before the page is drawn without it
 LATEST_TTL = 3600     # seconds the versions a registry lists are kept
@@ -85,29 +84,9 @@ def _usage():
             raise compose.ComposeError(err.strip() or "Docker did not say what it holds")
         return {**found, "read_at": int(time.time())}
     try:
-        return compose.CACHE.get("local:dashboard:df", DOCKER_TTL, ask)
+        return compose.CACHE.get(USAGE, DOCKER_TTL, ask)
     except compose.ComposeError:
         return None
-
-
-_flight, _flying = None, threading.Lock()   # the one read of what Docker holds that is under way
-
-
-def _usage_flight(fresh=False):
-    """The future of `_usage`: the read under way, else a new one in a thread of its own, so that a read of the page
-    can leave without it (`DF_WAIT`) and the next finds it done. `fresh`: read again, whatever is under way."""
-    global _flight
-    with _flying:
-        if fresh or _flight is None or _flight.done():
-            flight = _flight = Future()
-
-            def run():
-                try:
-                    flight.set_result(_usage())
-                except Exception as error:  # noqa: BLE001 - whatever it is, the read that waits for it says it
-                    flight.set_exception(error)
-            threading.Thread(target=run, daemon=True).start()
-        return _flight
 
 
 def _asked(ask):
@@ -211,21 +190,20 @@ def read(project, refresh=False):
     if refresh:
         compose.CACHE.drop("local:dashboard:")
         compose.CACHE.drop("docker:")
-    flight = _usage_flight(refresh)
+    reading = threading.Thread(target=_usage, daemon=True)   # a read under way is waited for, not made again (compose.Cache)
+    reading.start()
     with ThreadPoolExecutor(max_workers=3) as pool:
         asked = [pool.submit(_asked, compose.docker_info), pool.submit(_asked, compose.compose_version),
                  pool.submit(compose.containers)]
     (info, why), (version, _), (containers, down) = (future.result() for future in asked)
-    try:
-        data, slow = flight.result(timeout=None if refresh else max(0, DF_WAIT - (time.monotonic() - began))), False
-    except Slow:
-        data, slow = None, True
+    reading.join(None if refresh else max(0, DF_WAIT - (time.monotonic() - began)))
     docker = {"engine": None, "compose": version, "os": None, "cpus": None, "memory": None,
               **{key: value for key, value in (info or {}).items() if key != "root"}}
     if down or why:
         docker["error"] = down or why
     rows, pending = products(project, containers)
-    return {"docker": docker, "data": data, "products": rows, "pending": pending or slow}
+    return {"docker": docker, "data": compose.CACHE.kept(USAGE, DOCKER_TTL), "products": rows,
+            "pending": pending or reading.is_alive()}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
