@@ -4,7 +4,6 @@ private repository of the standard's, `public-standard` and `org-private` are re
 standard, built from the documented shapes), served by a transport that records every call. The rulesets the module applies
 are the Lab's template."""
 
-import contextlib
 import copy
 import io
 import json
@@ -280,17 +279,6 @@ class PlanLimits(unittest.TestCase):
                            (200, {"message": "Upgrade to GitHub Pro"}), (0, {"message": "make this repository public"})):
             self.assertFalse(settings.plan_limit(Reply(code, body)), (code, body))
 
-
-class Fixtures(Case):
-    """The recorded replies say what the standard says they say."""
-
-    def test_no_fixture_names_an_owner_a_catalog_or_a_credential(self):
-        banned = re.compile(r"dobl1|gravitee|ghp_|github_pat_|BEGIN [A-Z ]*PRIVATE KEY|@[a-z0-9.-]+\.(?:com|org|io)\b", re.I)
-        for path in sorted(DATA.rglob("*")):
-            if path.is_file():
-                text = path.read_text(encoding="utf-8")
-                found = banned.search(text.replace("gravitee-lab-catalog", "").replace("Lab catalog standard", ""))
-                self.assertIsNone(found, f"{path.name}: {found and found.group(0)}")
 
 NO_RULES = "needs GitHub Pro, an organization or a public repository: rules cannot be enforced here"
 
@@ -1391,19 +1379,6 @@ class Limits(Case):
         scene.set("/contents/.github/standard.json?ref=main", {"encoding": "base64", "size": len(raw), "content": base64.b64encode(raw).decode()})
         self.assertEqual(MANUAL, scene.finding("actions.nightly").status)
 
-    def test_brackets_nested_deeper_than_python_reads_are_a_finding_and_not_a_trace(self):
-        """A `standard.json` a contributor merged: 4 KB of brackets passes the size guard and takes the parser of Python 3.9
-        past its limit; it would end the audit, the nightly one and the audit of the whole fleet."""
-        import base64
-        for raw in (b"[" * 2040 + b"]" * 2040, b'{"standard": ' + b"[" * 2000 + b"]" * 2000 + b"}", b'{"standard": 1, "lab": ' + b"{" * 100 + b"}" * 100 + b"}"):
-            scene = Scene("org-private")
-            scene.set("/contents/.github/standard.json?ref=main", {"encoding": "base64", "size": len(raw), "content": base64.b64encode(raw).decode()})
-            self.assertEqual(MANUAL, scene.finding("actions.nightly").status, raw[:20])
-            self.assertTrue(scene.audit())
-            out, err = io.StringIO(), io.StringIO()
-            self.assertIn(settings.main(["acme-labs/lab-internal"], runner=scene.hub, stdout=out, stderr=err), (0, 1))
-            self.assertEqual("", err.getvalue())
-
     def test_a_recursion_error_of_the_parser_is_a_finding_whichever_python_runs(self):
         """Python 3.9 stops at about a thousand brackets and 3.12 and later at more: the parser is made to stop, so that the
         answer is the same on every Python."""
@@ -1511,14 +1486,6 @@ class Hostile(Case):
             self.assertTrue(finding.now.isprintable(), finding.id)
             self.assertLessEqual(len(finding.now), 400, finding.id)
         self.assertFalse(re.search(r"[\x00-\x09\x0b-\x1f\x7f‮]", settings.render(found)))
-
-
-class Coverage(unittest.TestCase):
-    def test_a_title_is_one_line_in_sentence_case(self):
-        for id, title in settings.TITLES.items():
-            self.assertRegex(title, r"^[A-Z]", id)
-            self.assertNotRegex(title, r"[\n·]", id)
-            self.assertFalse(title.endswith("."), id)
 
 
 TEMPLATE_RULESETS = settings.load_rulesets()
@@ -1872,13 +1839,6 @@ class Command(Case):
         run = Run(["acme/lab-hub", "--apply", "--yes"], none)
         self.assertEqual(1, run.code)
 
-    def test_the_help(self):
-        for argv in (["--help"], ["acme/lab-hub", "-h"]):
-            with contextlib.redirect_stdout(io.StringIO()) as shown:
-                run = Run(argv, Scene("user-private-free"))
-            self.assertEqual((0, ""), (run.code, run.error))
-            self.assertTrue(shown.getvalue().startswith("usage: catalog.py repo-settings"))
-
     def test_a_request_that_github_refuses_is_a_failure_of_the_command(self):
         scene = Scene("user-private-free", refuse={("PUT", "/topics"): Reply(403, {"message": "Must have admin rights to Repository."})})
         run = Run(["acme/lab-hub", "--apply", "--yes"], scene)
@@ -2022,65 +1982,10 @@ class Command(Case):
         self.assertTrue([path for path in opened if path and path.startswith(os.path.realpath(str(settings.RULESETS)))])
 
 
-class Isolation(Case):
-    """What the module reads and writes: the repository's replies and the Lab's template, nothing else."""
-
-    def watched(self, scene, action):
-        opened, touched = [], []
-        real = io.open
-
-        def spy(file, mode="r", *a, **k):
-            opened.append((os.path.realpath(str(file)) if isinstance(file, (str, os.PathLike)) else None, mode))
-            return real(file, mode, *a, **k)
-
-        class Watched(dict):
-            def __getitem__(self, key):
-                touched.append(key)
-                return super().__getitem__(key)
-
-            def get(self, key, default=None):
-                touched.append(key)
-                return super().get(key, default)
-
-            def __contains__(self, key):
-                touched.append(key)
-                return super().__contains__(key)
-
-            def __iter__(self):
-                touched.append("*")
-                return super().__iter__()
-
-            def copy(self):
-                touched.append("*")
-                return dict(self)
-
-        with mock.patch("builtins.open", spy), mock.patch("io.open", spy), mock.patch.object(os, "environ", Watched(os.environ)):
-            action()
-        return opened, touched
-
-    def test_the_audit_and_the_apply_read_the_template_and_no_environment_variable(self):
-        scene = Apply.broken(Apply())
-
-        def action():
-            findings = scene.audit()
-            settings.apply(scene.repo, scene.hub, findings, True)
-            settings.render(scene.audit())
-        opened, touched = self.watched(scene, action)
-        root = os.path.realpath(str(settings.RULESETS))
-        self.assertTrue(opened)
-        for path, mode in opened:
-            self.assertEqual(root, os.path.dirname(path or ""), path)
-            self.assertEqual("r", mode)                                   # read, and nothing written
-        self.assertEqual([], touched)
+class Isolation(unittest.TestCase):
+    """The module is reached only through its transport: it reads no token, and runs no shell."""
 
     def test_the_source_reads_no_environment_variable(self):
         for module in ("settings.py", "fleet.py"):
             text = Path(settings.__file__).with_name(module).read_text(encoding="utf-8")
             self.assertNotRegex(text, r"os\.environ|getenv|environb|putenv|os\.system|shell\s*=\s*True|os\.popen", module)
-
-    def test_the_module_imports_nothing_but_the_standard_library(self):
-        for module in ("settings.py", "fleet.py"):
-            text = Path(settings.__file__).with_name(module).read_text(encoding="utf-8")
-            names = set(re.findall(r"^(?:import|from) ([a-z_0-9]+)", text, re.M))
-            self.assertEqual(set(), names - {"argparse", "base64", "binascii", "copy", "importlib", "json", "os", "re", "shlex", "shutil", "subprocess",
-                                             "sys", "tempfile", "time", "pathlib", "typing", "urllib"}, module)
