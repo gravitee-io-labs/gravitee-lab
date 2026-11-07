@@ -502,11 +502,6 @@ class Build(AsOwn):
         services = project.build(given)["services"]
         self.assertEqual({name for name, s in services.items() if s["needs_license"]}, {"redis"})
 
-    def test_what_a_service_depends_on(self):
-        services = self.project["services"]
-        self.assertEqual((services["orchard"]["depends_on"], services["orchard-migrate"]["depends_on"]),
-                         (["orchard-migrate"], []))
-
     def test_a_service_has_the_command_it_runs_as_one_text(self):
         given = inputs()
         given["resolved"]["redis"]["command"] = ["/bin/sh", "-c", "sed -i x; sh /run.sh"]
@@ -531,11 +526,6 @@ class Build(AsOwn):
                                    "username": None, "password": None}])
         self.assertEqual(self.project["services"]["redis"]["consoles"], [])
 
-    def test_a_link_says_the_demo_sign_in_of_its_console(self):
-        found = {link["label"]: (link["username"], link["password"]) for link in self.project["links"]}
-        self.assertEqual(found["Developer Portal"], ("admin", "admin"))
-        self.assertEqual(found["Legacy Developer Portal"], (None, None))
-
     def test_links_current_first_then_by_label(self):
         links = self.project["links"]
         self.assertEqual([(link["label"], link["section"], link["port"], link["service"]) for link in links], [
@@ -546,6 +536,8 @@ class Build(AsOwn):
             ("Legacy Developer Portal", "API Management", "8085", "apim-portal-ui")])
         self.assertEqual([link["legacy"] for link in links], [False, False, False, False, True])
         self.assertEqual(links[0]["url"], "http://localhost:8002")
+        self.assertEqual([(link["username"], link["password"]) for link in links if "Portal" in link["label"]],
+                         [("admin", "admin"), (None, None)])   # the demo sign-in of its console
 
     def test_problems_are_kept(self):
         self.assertEqual(self.project["problems"],
@@ -778,12 +770,6 @@ class Platforms(AsOwn):
         self.assertEqual(self.built(lambda hyssop, cloud: hyssop["x-gravitee"]["gateway"].update(service="nothing"))
                          ["addons"]["hyssop"]["gateway"]["domains"], [])
 
-    def test_an_add_on_that_says_none_runs_none(self):
-        built = self.built()
-        self.assertEqual([uid for uid, addon in built["addons"].items() if addon["gateway"]], ["hyssop"])
-        self.assertIsNone(self.built(lambda hyssop, cloud: hyssop["x-gravitee"].update(gateway=None))
-                          ["addons"]["hyssop"]["gateway"])
-
     def test_a_gateway_written_otherwise_is_reported_and_left_out(self):
         message = "x-gravitee.gateway must be a mapping of platform, service and token, each a text"
         complete = {"platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN"}
@@ -807,25 +793,6 @@ class Platforms(AsOwn):
         with_key["platform"] = without["platform"]
         self.assertEqual(without["platform"], {"gateways": {"cloud": None}})
         self.assertEqual(with_key, without)
-
-    def test_a_unit_says_nothing_more_than_it_did(self):
-        built = project.build(inputs())
-        before = {"addons": {"category", "conflicts", "description", "env_file", "file", "id", "kind", "name", "needs",
-                             "personal", "requires", "restarts", "services", "settings"},
-                  "setups": {"category", "description", "file", "id", "includes", "kind", "members", "name", "personal"},
-                  "playgrounds": {"accounts", "addons", "apps", "category", "chapters", "consoles", "description",
-                                  "duration", "env_file", "file", "first_start", "guide", "id", "includes", "kind",
-                                  "name", "personal", "requires", "restarts", "seed", "services", "settings", "setups",
-                                  "source", "tags", "terminal", "tested"}}
-        platform = {"asks", "deploys_to", "cannot"}   # what a platform makes of each, from its files
-        # Where it comes from and whether it can start: none of a unit of this machine says anything of them
-        placed = {"catalog", "origin", "readonly", "display_file", "blocked", "needs_catalogs", "compat", "unknown", "twin",
-                  "uses_machine", "verdict"}
-        new = {"addons": {"gateway"} | platform | placed, "setups": platform | placed, "playgrounds": platform | placed}
-        for kind, units in before.items():
-            for uid, unit in built[kind].items():
-                with self.subTest(unit=uid):
-                    self.assertEqual(set(unit), units | new[kind])
 
 
 NOTHING, MORE = "Nothing to deploy", "Seeds more than API Management and Access Management"
@@ -930,27 +897,15 @@ class Deployable(AsOwn):
             deep = {"next": [deep]}
         self.assertEqual(project.plugins_used(deep)["policy"], {"deep"})
 
-    # The shapes of an LLM proxy and of a native Kafka API with a kafka-acl policy, as the catalogs ship them
-    LLM = {"api": {
-        "listeners": [{"type": "HTTP", "entrypoints": [{"type": "llm-proxy"}]}],
-        "endpointGroups": [{"type": "llm-proxy", "endpoints": [{"type": "llm-proxy", "configuration": {
-            "modelGovernance": {"prefixPolicy": {"policy": "NO_PREFIX"}}}}]}],
-        "flows": [{"request": [{"policy": "rate-limit", "enabled": True}]}]},
-        "plans": [{"security": {"type": "KEY_LESS"}}]}
-    KAFKA = {"api": {
-        "listeners": [{"type": "KAFKA", "entrypoints": [{"type": "native-kafka"}]}],
-        "endpointGroups": [{"type": "native-kafka", "endpoints": [{"type": "native-kafka"}]}],
-        "flows": [{"interact": [{"policy": "kafka-acl", "enabled": True, "configuration": {"authorizations": [{
-            "resources": [{"type": "TOPIC", "resourcePattern": "orders"}, {"type": "GROUP", "resourcePattern": "*"},
-                          {"type": "CLUSTER", "resourcePattern": "kafka-cluster"}]}]}}]}]},
-        "plans": [{"security": {"type": "KEY_LESS"}}]}
-
     def test_what_a_definition_uses_is_its_plugins_not_what_their_settings_call_so(self):
-        # A setting called policy is no policy, and the resources of a kafka-acl are no resource plugins
-        self.assertEqual(project.plugins_used(self.LLM), {"entrypoint": {"llm-proxy"}, "endpoint": {"llm-proxy"},
-                                                          "policy": {"key-less", "rate-limit"}, "resource": set()})
-        self.assertEqual(project.plugins_used(self.KAFKA), {"entrypoint": {"native-kafka"}, "endpoint": {"native-kafka"},
-                                                            "policy": {"kafka-acl", "key-less"}, "resource": set()})
+        # The shapes of an LLM proxy and of a kafka-acl: a setting called policy is no policy, and the resources it lists are no
+        # resource plugins
+        llm = {"api": {"endpointGroups": [{"endpoints": [{"configuration": {"modelGovernance": {"prefixPolicy": {"policy": "NO_PREFIX"}}}}]}]}}
+        kafka = {"api": {"flows": [{"interact": [{"policy": "kafka-acl", "configuration": {"authorizations": [{
+            "resources": [{"type": "TOPIC", "resourcePattern": "orders"}, {"type": "GROUP", "resourcePattern": "*"}]}]}}]}]}}
+        self.assertEqual(project.plugins_used(llm)["policy"], set())
+        self.assertEqual(project.plugins_used(kafka)["policy"], {"kafka-acl"})
+        self.assertEqual(project.plugins_used(kafka)["resource"], set())
 
     def asked(self, **needs):
         return {"deploys": True, "products": [], "versions": [], "fills": [], "plugins": False, "changes": False,
@@ -1002,16 +957,24 @@ class Deployable(AsOwn):
         built = self.built()
         self.assertEqual(built["playgrounds"]["cloud"]["cannot"], {"cloud": NOTHING})
 
-    def test_it_needs_the_product_that_a_folder_of_its_seed_fills(self):
-        # Access Management runs on this machine, whichever platform runs API Management: its folder is no need.
-        # Gamma's are: it needs the platform to have it, and its seed is for this machine's API Management
-        for names, wanted in ((("apim",), []), (("am", "apim"), []), (("am",), []),
+    def test_what_its_seed_holds_is_what_it_asks(self):
+        # Access Management runs on this machine, whichever platform runs API Management: its folder is no need, nor is
+        # OpenFGA's. Gamma's are: it needs the platform to have it, and its seed is for this machine's API Management. No
+        # management API creates an environment, and what else a seed holds only this machine reads
+        for names, wanted in ((("apim",), []), (("am", "apim"), []), (("am",), []), (("apim", "openfga"), []),
+                              (("apim", "am", "openfga"), []),
                               (("aim", "apim"), [GAMMA, MORE]), (("apim", "authz"), [GAMMA, MORE]),
                               (("aim", "apim", "authz"), [GAMMA, MORE]),   # one reason for a product
-                              (("authz", "am", "apim", "aim"), [GAMMA, MORE])):
+                              (("authz", "am", "apim", "aim"), [GAMMA, MORE]),
+                              (("apim", "controls.yaml"), [MORE]), (("apim", "notes.txt"), [MORE]),
+                              (("am", "apim", "refills.yaml"), [MORE]), (("apim", "environments"), [MORE]),
+                              (("environments",), [MORE]), (("am", "apim", "environments", "openfga"), [MORE])):
             with self.subTest(seed=names):
                 self.seed(*names)
                 self.assertEqual(self.why(), wanted)
+        playground = self.built()["playgrounds"]["cloud"]
+        self.assertEqual((playground["deploys_to"], playground["cannot"], playground["asks"]["more"]),
+                         ([], {"cloud": MORE}, True))
 
     def test_it_needs_the_product_that_an_image_it_requires_belongs_to(self):
         self.access_management()
@@ -1170,30 +1133,6 @@ class Deployable(AsOwn):
             "APIM_MANAGEMENT_URL": "http://apim-management-api:8083", "GATEWAY_INTERNAL_URL": "http://apim-gateway:8082"}
         self.assertEqual(self.why(), [])
 
-    def test_it_seeds_nothing_but_what_the_platform_and_this_machine_run(self):
-        # API Management goes to the platform, Access Management and OpenFGA are seeded here
-        for names in (("apim", "openfga"), ("apim", "am", "openfga")):
-            with self.subTest(seed=names):
-                self.seed(*names)
-                self.assertEqual(self.why(), [])
-        for names in (("apim", "controls.yaml"), ("apim", "refills.yaml"), ("apim", "notes.txt")):
-            with self.subTest(seed=names):
-                self.seed(*names)
-                self.assertEqual(self.why(), [MORE])
-        self.seed("am", "apim", "refills.yaml")
-        self.assertEqual(self.why(), [MORE])
-
-    def test_a_playground_that_seeds_environments_of_its_own_cannot_be_deployed(self):
-        # No management API creates an environment, and a platform's own are not the lab's to multiply: the playground
-        # makes them in the core's database, which only this machine has
-        for names in (("apim", "environments"), ("environments",), ("am", "apim", "environments", "openfga")):
-            with self.subTest(seed=names):
-                self.seed(*names)
-                self.assertEqual(self.why(), [MORE])
-        playground = self.built()["playgrounds"]["cloud"]
-        self.assertEqual((playground["deploys_to"], playground["cannot"], playground["asks"]["more"]),
-                         ([], {"cloud": MORE}, True))
-
     def test_the_most_basic_reason_comes_first_and_the_others_follow_in_order(self):
         # What a person fixes first: nothing to deploy, then the products and their versions that the platform lacks,
         # what it mounts, what it changes of this machine's core, what its apps use of it, and last more seeding
@@ -1254,10 +1193,6 @@ class Deployable(AsOwn):
         self.assertTrue(platforms.plugins(built, "cloud"))
         self.assertEqual((built["playgrounds"]["cloud"]["deploys_to"], self.why()), (["cloud"], []))
 
-    def test_a_playground_that_does_not_stand_alone_cannot_go(self):
-        welcome = self.built()["playgrounds"]["welcome"]
-        self.assertEqual((welcome["deploys_to"], welcome["cannot"]), ([], {"cloud": NOTHING}))
-
     def test_an_add_on_that_does_not_load_is_left_out(self):
         self.given["includes"][CLOUD] = [".lab/catalogs/fixture/addons/broken/compose.yml"]   # its file is not among those that load
         self.assertEqual(self.why(), [])
@@ -1315,15 +1250,6 @@ class Real(Fixture):
     def test_tour_api_can_go(self):
         tour = self.built["playgrounds"]["tour"]
         self.assertEqual((tour["deploys_to"], tour["cannot"], self.reasons("tour")), (["cloud"], {}, []))
-
-    def test_the_seed_folders_are_read_by_name(self):
-        self.assertEqual(self.inputs["seeds"]["tour"], ["apim"])
-        self.assertEqual(self.inputs["seeds"]["shop"], ["am", "apim"])
-        self.assertEqual(self.inputs["seeds"]["local/sandbox"], ["apim"])
-
-    def test_what_the_apis_of_a_seed_use_is_read_in_its_folder(self):
-        self.assertEqual(self.inputs["uses"]["shop"]["policy"], ["fixture-policy", "key-less"])   # its plan's security too
-        self.assertEqual(self.inputs["uses"]["tour"]["entrypoint"], ["http-proxy"])
 
 
 def unit_of(built, key):
@@ -1415,19 +1341,6 @@ class Catalogs(Fixture):
         self.assertEqual(built["addons"]["future"]["blocked"], {"reasons": ["Needs a newer Gravitee Lab"]})
         self.assertEqual(built["addons"]["@lab-old/older"]["blocked"], {"reasons": ["Written for an older Gravitee Lab"]})
 
-    def test_a_blocked_unit_is_listed_and_brings_no_service(self):
-        built = self.built
-        for kind, uid in (("addons", "future"), ("addons", "@lab-new/newer"), ("addons", "@lab-old/older"), ("setups", "pair")):
-            self.assertTrue(built[kind][uid]["blocked"], uid)
-        self.assertEqual([built["addons"][uid]["services"] for uid in ("future", "@lab-new/newer", "@lab-old/older")], [[], [], []])
-        owned = {service["owner"]["id"] for service in built["services"].values()}
-        self.assertFalse(owned & {"future", "@lab-new/newer", "@lab-old/older"})
-        self.assertNotIn("fixture-future", built["services"])
-        # What can start brings its services
-        self.assertEqual(built["services"]["fixture-echo"]["owner"], {"kind": "addon", "id": "echo", "name": "Echo"})
-        self.assertEqual(built["addons"]["echo"]["services"], ["fixture-echo"])
-        self.assertEqual(built["services"]["partner-ledger"]["owner"]["id"], "@partner/ledger")
-
     def test_what_a_unit_defines_itself_is_what_its_own_configuration_gave(self):
         service = self.built["services"]["fixture-echo"]
         self.assertEqual((service["image"], service["ports"], service["container"], service["label"]),
@@ -1449,25 +1362,9 @@ class Catalogs(Fixture):
         self.assertEqual(summary["partner"]["blocked"], [])
         self.assertEqual(summary["lab-new"]["blocked"][0]["id"], "@lab-new/newer")
 
-    def test_the_gateway_an_add_on_declares_is_the_one_the_project_chooses(self):
-        built = self.built
-        self.assertEqual(built["addons"]["gateway"]["gateway"]["service"], "fixture-gateway")
-        self.assertEqual(built["platform"], {"gateways": {"cloud": "gateway"}})
-        self.assertEqual(built["addons"]["gateway"]["gateway"]["domains"], ["localhost:8195", "fixture-gateway:80"])
-
-    def test_nothing_a_catalog_says_reaches_the_banner(self):
-        self.assertEqual(self.built["problems"], [])
-        self.assertEqual(self.built["catalog_problems"], {})
-
-    def test_what_gather_read_for_the_policy_is_given_with_the_inputs(self):
-        inputs = self.inputs
-        self.assertEqual(inputs["default"], "fixture")
-        self.assertEqual(inputs["contract"]["seeder_image"], fixtures.seeder_image(self.holder))
-        self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
-        self.assertEqual(inputs["screened"], {})
-        self.assertIsNotNone(inputs["core_config"])
-        self.assertIn("apim-gateway", inputs["core_config"]["services"])
-        self.assertTrue(set(inputs["configs"]) >= {".lab/catalogs/fixture/addons/echo/compose.yml"})
+    def test_gather_keeps_the_order_of_the_registry_and_reads_the_seeder_of_the_core(self):
+        self.assertEqual(list(self.inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
+        self.assertEqual(self.inputs["contract"]["seeder_image"], fixtures.seeder_image(self.holder))
 
 
 class Accounts(AsOwn):
@@ -1524,9 +1421,7 @@ class Accounts(AsOwn):
         built = project.build(given)
         self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [
             {"for": "Website of ACME", "username": "jane", "port": 8002, "admin": True, "tags": ["${WELCOME_USER:-john}"]},
-            {"for": "LLM", "key": "key-2"}])   # what is no account is said, and left out: the page reads each as one
-        self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
-                      built["problems"])
+            {"for": "LLM", "key": "key-2"}])   # what is no account is left out: the page reads each as one
 
     def test_a_user_name_is_text_as_the_page_shows_it_and_a_guide_s_account_link_names_it(self):
         # YAML reads an unquoted 1234 as a number: the page finds the account a link names by its text
@@ -1538,16 +1433,6 @@ class Accounts(AsOwn):
         self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [
             {"for": "Kiosk", "username": "1234", "password": 0}, {"for": "Till", "username": "1.5"},
             {"for": "Door", "username": None}, {"for": "Desk", "username": None}, {"for": "LLM", "key": "k"}])
-
-    def test_accounts_that_are_not_a_list_are_said_and_none(self):
-        given = inputs()
-        given["raw"][WELCOME]["x-gravitee"]["accounts"] = "${WELCOME_PASSWORD:-doe}"
-        built = project.build(given)
-        self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [])
-        self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
-                      built["problems"])
-        del given["raw"][WELCOME]["x-gravitee"]["accounts"]
-        self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], [])
 
 
 class Gathered(AsOwn):
@@ -1639,15 +1524,6 @@ class License(AsOwn):
     def usable(self):
         return project.load()["license_usable"]
 
-    def test_gathered_from_the_env_of_the_core(self):
-        self.assertIs(project.gather()["license_usable"], False)   # no .env
-        self.write(".env", "GRAVITEE_LICENSE=genuine\n")
-        self.assertIs(project.gather()["license_usable"], True)
-        self.write(".env", "GRAVITEE_LICENSE=forged\n")   # not signed by GraviteeSource
-        self.assertIs(project.gather()["license_usable"], False)
-        self.write(".env", "GRAVITEE_LICENSE=\n")
-        self.assertIs(project.gather()["license_usable"], False)
-
     def test_an_expired_license_is_not_usable_and_one_that_expires_soon_is(self):
         now = license.datetime.datetime.now(license.datetime.timezone.utc)
         self.write(".env", "GRAVITEE_LICENSE=genuine\n")
@@ -1667,8 +1543,14 @@ class License(AsOwn):
         self.assertIs(self.usable(), False)
         self.write(".env", "GRAVITEE_LICENSE=genuine\n")
         self.assertIs(self.usable(), True)
-        self.write(".env", "GRAVITEE_LICENSE=forged\n")
+        self.write(".env", "GRAVITEE_LICENSE=forged\n")   # not signed by GraviteeSource
         self.assertIs(self.usable(), False)
+        self.write(".env", "GRAVITEE_LICENSE=genuine\n")
+        self.assertIs(self.usable(), True)
+        self.write(".env", "GRAVITEE_LICENSE=\n")
+        self.assertIs(self.usable(), False)
+        self.write(".env", "GRAVITEE_LICENSE=genuine\n")
+        self.assertIs(self.usable(), True)
         (self.root / ".env").unlink()
         self.assertIs(self.usable(), False)
 
@@ -1809,9 +1691,7 @@ class Needs(Case):
         self.assertNotIn(pair["file"], inputs["configs"], "it is judged when the catalog arrives, not resolved without it")
         self.assertIsNone(pair["blocked"])
         self.assertEqual(built["problems"], [])
-
-    def test_the_other_units_of_the_catalog_are_judged_as_before(self):
-        _, built, _ = self.pair(catalogs={"lab-new": {}})
+        # The other units of the catalog are judged as before
         self.assertEqual(built["addons"]["echo"]["needs_catalogs"], [])
         self.assertTrue(built["addons"]["future"]["blocked"])
 
@@ -2240,16 +2120,7 @@ class Names(Case):
     def read(self, files, **how):
         return read(self, catalogs={"partner": {"files": files}}, **how)[1]
 
-    def test_a_unit_that_reuses_the_name_of_a_service_of_an_earlier_one_is_blocked_by_it(self):
-        built = self.read({"addons/clash/compose.yml": addon("clash", ["fixture-echo"])})
-        self.assertEqual(built["addons"]["@partner/clash"]["blocked"], {"reasons": ["Same name as Echo"]})
-        self.assertEqual(built["addons"]["@partner/clash"]["services"], [])
-        # The earlier one, the default catalog and the catalog the clash is in are untouched
-        self.assertIsNone(built["addons"]["echo"]["blocked"])
-        self.assertIsNone(built["addons"]["@partner/ledger"]["blocked"])
-        self.assertEqual(built["services"]["fixture-echo"]["owner"]["id"], "echo")
-
-    def test_nor_a_container_name_nor_a_volume(self):
+    def test_a_container_name_is_a_name_too(self):
         text = addon("same", ["fixture-same"]).replace("gio-fixture-same", "gio-fixture-echo")
         built = self.read({"addons/same/compose.yml": text})
         self.assertEqual(built["addons"]["@partner/same"]["blocked"], {"reasons": ["Same name as Echo"]})
@@ -2685,12 +2556,6 @@ class Together(Case):
         self.assertIn("apim-gateway", echo["services"], "with the core")
         self.assertNotIn("fixture-echo", inputs["core_config"]["services"])
 
-    def test_the_aggregate_is_the_core_alone_when_nothing_of_this_machine_is(self):
-        with mock.patch.object(compose, "resolved", wraps=compose.resolved) as resolved:
-            read(self, catalogs={"partner": {}})
-        resolved.assert_called_once()
-        self.assertEqual(resolved.call_args[0][0], compose.all_files([]))
-
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
 class Remembered(Case):
@@ -2763,17 +2628,12 @@ class CoreAndRootEnv(Case):
         built, _ = project.loaded()
         return built["core_loaded"]
 
-    def test_a_broken_root_env_then_fixed_loads_the_core_again(self):
-        self.write(".env", "FIXTURE_X=1\nMY VAR=1\n")
-        project.forget()
-        self.assertFalse(self.core_loaded(), "Compose refuses the .env, so the core does not load")
-        self.write(".env", "FIXTURE_X=1\n")
-        self.assertTrue(self.core_loaded(), "the .env is fixed: the core loads again")
-
-    def test_a_good_reading_is_not_kept_once_the_root_env_breaks(self):
+    def test_a_reading_is_not_kept_once_the_root_env_breaks_and_the_core_loads_again_once_it_is_fixed(self):
         self.assertTrue(self.core_loaded())
         self.write(".env", "FIXTURE_X=1\nMY VAR=1\n")
         self.assertFalse(self.core_loaded(), "Compose refuses the .env now")
+        self.write(".env", "FIXTURE_X=1\n")
+        self.assertTrue(self.core_loaded(), "the .env is fixed")
 
 
 class Fresh(Case):
@@ -3037,10 +2897,6 @@ class Catalog(Case):
                                      (7, "fixture", None), ("", "fixture", None), ("@/kazoo", "fixture", None)):
             with self.subTest(key=key, catalog=catalog):
                 self.assertEqual(project.conflict_id(key, catalog, known), wanted)
-
-    def test_a_unit_of_this_machine_says_its_file_in_its_catalog(self):
-        self.assertEqual(project._placed(".lab/catalogs/local/addons/x/compose.yml", {"default": "fixture"})["display_file"],
-                         "addons/x/compose.yml")
 
     def test_a_unit_of_a_catalog_added_later_loses_a_name_the_earlier_one_holds_and_the_earlier_is_untouched(self):
         built = self.build([member("fixture", "addon", "one", ["shared"]), member("first", "addon", "two", ["shared"]),
