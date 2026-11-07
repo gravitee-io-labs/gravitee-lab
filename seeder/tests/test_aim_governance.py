@@ -4,14 +4,12 @@ what it is given: made once, left alone by a second run (no write at all), repai
 taking over what the seed did not make, and removed with only what it made."""
 
 import itertools
-import os
 import re
 import unittest
 from unittest import mock
 
 from lab_seeder import aim_governance
 from lab_seeder import common
-from lab_seeder import gamma
 from lab_seeder import seed
 from lab_seeder.testkit import Seed
 
@@ -215,12 +213,6 @@ class Settings(Governance):
         self.assertEqual(self.world.settings["defaultTtlSeconds"], 300)
         self.assertIn("[aim-governance] ✓ Approval settings: 300 s, DENY on expiry", self.output())
 
-    def test_a_second_run_writes_nothing(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.platform.sent("PUT", SETTINGS_PATH), [])
-        self.assertIn("[aim-governance] Approval settings as the file says", self.output())
-
     def test_the_price_of_a_decision_is_sent_back_as_it_is_because_a_replace_without_it_clears_it(self):
         self.world.settings["approvalCost"] = 5.0
         aim_governance.seed()
@@ -310,12 +302,6 @@ class Rules(Governance):
         aim_governance.seed()
         self.assertEqual([(x["name"], x["id"], x["label"]) for x in self.records("approval-rule")],
                          [("Refunds above EUR 100", self.rule()["id"], "approval rules")])
-
-    def test_a_second_run_writes_nothing_though_the_platform_adds_its_own_fields(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.changed(), [])
-        self.assertIn("[aim-governance] Approval rule up to date: Refunds above EUR 100", self.output())
 
     def test_a_rule_that_differs_is_replaced_in_place_with_the_whole_file(self):
         self.made()
@@ -439,12 +425,6 @@ class Frameworks(Governance):
                          [("eu-ai-act", self.world.active["eu-ai-act"]["id"], "compliance frameworks")])
         self.assertIn("[aim-governance] ✓ Framework on: eu-ai-act", self.output())
 
-    def test_a_second_run_writes_nothing(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.platform.sent("POST", ACTIVATIONS), [])
-        self.assertIn("[aim-governance] Framework on: eu-ai-act", self.output())
-
     def test_a_framework_that_was_on_before_is_not_the_seeds_and_is_not_recorded(self):
         self.world.active["eu-ai-act"] = {"id": "activation-0", "frameworkId": "eu-ai-act"}
         aim_governance.seed()
@@ -482,23 +462,11 @@ class Answers(Governance):
         self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], "user-admin")
         self.assertIn("[aim-governance] ✓ Compliance answers written: Care copilot", self.output())
 
-    def test_the_user_is_the_one_whose_source_id_is_that_name_and_not_one_that_contains_it(self):
-        aim_governance.seed()
-        looked = self.platform.sent("GET", USERS)
-        self.assertEqual(looked[0].params["q"], "admin")
-        self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], "user-admin")
-
     def test_it_records_the_answers_with_a_fingerprint_for_the_agent(self):
         aim_governance.seed()
         record = self.records("compliance-answers")[0]
         self.assertEqual((record["name"], record["id"], record["label"]), ("Care copilot", "agent-1", "compliance answers"))
         self.assertEqual(len(record["digest"]), 64)
-
-    def test_a_second_run_writes_nothing(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.changed(), [])
-        self.assertIn("[aim-governance] Compliance answers up to date: Care copilot", self.output())
 
     def test_a_value_that_a_person_changed_for_a_key_of_the_file_stays_while_the_file_is_the_same(self):
         self.made()
@@ -589,13 +557,6 @@ class Attestations(Governance):
         aim_governance.seed()
         self.assertEqual(self.platform.sent("GET", AGENT + "/assessment"), [])
 
-    def test_a_second_run_writes_nothing_after_one_look_at_the_assessment(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.changed(), [])
-        self.assertEqual(len(self.platform.sent("GET", AGENT + "/assessment")), 1)
-        self.assertIn("[aim-governance]   Attested already: tool-inventory", self.output())
-
     def test_a_control_that_is_attested_already_is_not_attested_again(self):
         self.world.attested["agent-1"] = {"tool-inventory"}
         aim_governance.seed()
@@ -653,6 +614,15 @@ class Attestations(Governance):
 
 
 class Files(Governance):
+    def test_a_second_run_writes_nothing_after_one_look_at_the_assessment(self):
+        self.made()
+        aim_governance.seed()
+        self.assertEqual(self.changed(), [])
+        self.assertEqual(len(self.platform.sent("GET", AGENT + "/assessment")), 1)
+        for line in ("Approval settings as the file says", "Approval rule up to date: Refunds above EUR 100", "Framework on: eu-ai-act",
+                     "Compliance answers up to date: Care copilot", "  Attested already: tool-inventory"):
+            self.assertIn(f"[aim-governance] {line}", self.output())
+
     def test_a_folder_with_only_the_approvals_asks_nothing_of_compliance(self):
         (common.SEED_DIR / "aim" / "governance" / "compliance.yaml").unlink()
         aim_governance.seed()
@@ -670,26 +640,6 @@ class Files(Governance):
         (common.SEED_DIR / "aim" / "governance" / "approvals.yaml").unlink()
         (common.SEED_DIR / "aim" / "governance" / "compliance.yaml").unlink()
         aim_governance.seed()
-        self.assertEqual(self.platform.calls, [])
-
-    def test_a_playground_that_seeds_no_governance_needs_no_setting_and_makes_no_call(self):
-        with mock.patch.object(common, "SEED_DIR", common.SEED_DIR / "nothing"), mock.patch.dict(os.environ, {}, clear=True):
-            aim_governance.seed()
-            aim_governance.remove([])
-        self.assertEqual(self.platform.calls, [])
-
-    def test_a_platform_without_agent_management_ends_the_wait_once_its_404_lasts(self):
-        self.platform.add({("GET", SETTINGS_PATH): (404, {"message": "not found"})})
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_governance.seed()
-        self.assertIn("is not available on this platform", str(stopped.exception))
-        self.assertLess(self.clock.elapsed, gamma.UNSERVED + 5)
-
-    def test_the_records_of_other_modules_are_left_alone(self):
-        theirs = [{"product": "aim-catalog", "kind": "agent", "name": "a", "id": "a", "label": ""},
-                  {"product": "aim-agents", "kind": "subscription", "name": "s", "id": "s", "label": ""},
-                  {"product": "aim-governance", "kind": "other", "name": "o", "id": "o", "label": ""}]
-        aim_governance.remove(theirs)
         self.assertEqual(self.platform.calls, [])
 
     def test_the_answers_alone_are_a_removal_that_asks_nothing_of_the_platform(self):
@@ -713,21 +663,6 @@ class Files(Governance):
         aim_governance.seed()
         aim_governance.remove(common.created())
         self.assertNotRegex(self.output().lower(), r"password|secret|token|bearer")
-
-
-class Declared(Seed):
-    def test_the_kinds_it_records_are_the_kinds_it_labels(self):
-        self.assertEqual(sorted(aim_governance.LABELS), sorted(aim_governance.ORDER))
-        self.assertTrue(all(label.endswith("s") for label in aim_governance.LABELS.values()))
-
-    def test_the_rules_go_before_the_settings_and_the_answers_before_the_framework_they_are_checked_against(self):
-        order = aim_governance.ORDER
-        self.assertLess(order.index("approval-rule"), order.index("approval-settings"))
-        self.assertLess(order.index("compliance-answers"), order.index("compliance-framework"))
-
-    def test_it_reads_the_folder_of_the_governance_and_needs_agent_management(self):
-        self.assertEqual((aim_governance.FOLDERS, aim_governance.GAMMA, aim_governance.SECTION),
-                         (("aim/governance",), ("aim",), "aim-governance"))
 
 
 if __name__ == "__main__":

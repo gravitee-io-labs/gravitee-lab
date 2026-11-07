@@ -20,7 +20,7 @@ A module is one file of `lab_seeder/`, registered in `lab_seeder/seed.py`.
 | `PATHS` | Optional and local to a module: the API path of each kind it records. The engine does not read it |
 
 A new module is imported in `lab_seeder/seed.py` and added to `AFTER_AM`, which fixes where it runs; a removal runs the modules in
-reverse. Its tests go in `tests/test_<module>.py`, using `Seed` from `tests/__init__.py`.
+reverse. Its tests go in `tests/test_<module>.py`, using `Seed` from `lab_seeder/testkit.py`.
 
 ## Idempotency and the record
 
@@ -154,7 +154,7 @@ playground's seed service sets the variables. `make test` fails on a literal add
 
 Run `make setup`, then `make test`. `make setup` makes `.venv` with `requests`, `pyyaml` and `redis` (Python 3.10 or
 later). `make test` runs the Lab UI's tests and the tooling's, then these when those three import; otherwise it prints
-"Seeder tests skipped", and a skip is not a pass. The tests run against a fake platform (`tests/__init__.py`) and check
+"Seeder tests skipped", and a skip is not a pass. The tests run against a fake platform (`lab_seeder/testkit.py`) and check
 the sample seed files. Run directly (`python -m unittest discover -s seeder/tests -t seeder`), the tests
 that hold the fake Redis to the real `redis` library skip when it is missing.
 

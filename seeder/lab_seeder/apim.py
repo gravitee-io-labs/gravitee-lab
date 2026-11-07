@@ -65,7 +65,7 @@ import requests
 
 from . import controls
 from . import common
-from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, created, excerpt, files, folders, forget, later, load, log, making,
+from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, contains, created, excerpt, files, folders, forget, load, log, making,
                      owned, parallel, pause, together, record, recorded, seed_file, setting, unmade, wait_until)
 
 SECTION = "apim"
@@ -106,15 +106,8 @@ def merge(base, extra):
     return base
 
 
-def covers(live, wanted):
-    """Whether `live` holds everything `wanted` says: APIM adds what it defaults."""
-    if isinstance(wanted, dict):
-        return isinstance(live, dict) and all(covers(live.get(key), value) for key, value in wanted.items())
-    return live == wanted
-
-
 def digest_of(definition):
-    """What identifies a definition once its variables are replaced: the plans, flows and resources are part of it."""
+    """What identifies what the seed sends once its variables are replaced: of an API, the plans, flows and resources too."""
     return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
 
 
@@ -189,7 +182,7 @@ def lacking(state, members):
     adds roles of its own, which does not matter."""
     live = {(m.get("source"), m.get("sourceId")): m.get("roles") or {} for m in state.get("members") or []}
     return [m for m in members
-            if (m["source"], m["sourceId"]) not in live or not covers(live[(m["source"], m["sourceId"])], m.get("roles") or {})]
+            if (m["source"], m["sourceId"]) not in live or not contains(live[(m["source"], m["sourceId"])], m.get("roles") or {})]
 
 
 def choose(found, source_id, spec):
@@ -361,7 +354,7 @@ class ApiManagement:
         state = live.json() if live.status_code == 200 else None
         if state and not recorded(SECTION, "group", state["id"]) and not adopted(SECTION, "group", label, state["id"], hrid=hrid, **self.scope()):
             raise SeedError(f"Group {label}: the hrid is taken by a group the seed did not create")
-        if not state or not covers(state, {key: body[key] for key in ("name", "notifyMembers") if key in body}) or lacking(state, members):
+        if not state or not contains(state, {key: body[key] for key in ("name", "notifyMembers") if key in body}) or lacking(state, members):
             with making(SECTION, "group", "groups", label, missing=not state, hrid=hrid, **self.scope()):
                 written = self.automation.put("/groups", json=body, what=f"Group {label}").json()
                 severe = (written.get("errors") or {}).get("severe")
@@ -425,7 +418,7 @@ class ApiManagement:
         if "event_rules" in fields:
             fields["event_rules"] = [{"event": event} for event in fields["event_rules"]]
         entity = self.api.get(f"{self.v1}/configuration/groups/{group_id}").json()
-        if covers(entity, fields):
+        if contains(entity, fields):
             return
         body = {key: entity[key] for key in GROUP_UPDATE if key in entity}
         self.api.put(f"{self.v1}/configuration/groups/{group_id}", json={**body, **fields})
@@ -499,7 +492,7 @@ class ApiManagement:
         name, digest = self.scoped(plain), digest_of(definition)   # the file's: the mode is not part of it
         found = controls.of("api", plain) if self.own else None   # the controls name an API of seed/apim/
         wanted = self.as_mode_says(definition, found)
-        groups = self.groups_of(api.get("groups"), f"API {name}")   # the ids, or None when the file names none
+        groups = self.groups_of(api.get("groups"))   # the ids, or None when the file names none
         imported = self.named_groups(wanted, groups)
         live = self.live_api(api)
         mine = live and made_by_seed(live["id"])
@@ -527,14 +520,11 @@ class ApiManagement:
         self.restrict(api_id, groups, name)
         self.start(api_id)
 
-    def groups_of(self, hrids, what):
+    def groups_of(self, hrids):
         """The live ids of the groups an API or an application of an environment names by hrid, in the order it names them.
         None when it names none, or in the platform's own environment, whose files hold the groups as the platform knows them."""
         if self.own or not hrids:
             return None
-        missing = [hrid for hrid in hrids if hrid not in self.groups_by_hrid]
-        if missing:
-            raise SeedError(f"{what}: {', '.join(missing)} is no group of the environment {self.env}")
         return [self.groups_by_hrid[hrid]["id"] for hrid in hrids]
 
     def named_groups(self, definition, ids):
@@ -713,7 +703,7 @@ class ApiManagement:
         label = self.scoped(name)
         payload = {"name": name, "description": spec.get("description", ""),
                    "settings": spec.get("settings", {"app": {"type": "SIMPLE"}})}
-        groups = self.groups_of(spec.get("groups"), f"Application {label}")
+        groups = self.groups_of(spec.get("groups"))
         if groups is not None:
             payload["groups"] = groups
         found = self.find_application(name)
@@ -724,7 +714,7 @@ class ApiManagement:
             log(SECTION, f"✓ Application created: {label}")
         elif not recorded(SECTION, "application", found["id"]) and not adopted(SECTION, "application", label, found["id"], **self.scope()):
             raise SeedError(f"Application {label}: the name is taken by an application the seed did not create")
-        elif (covers({"description": found.get("description") or "", "settings": found.get("settings")},
+        elif (contains({"description": found.get("description") or "", "settings": found.get("settings")},
                      {"description": payload["description"], "settings": payload["settings"]})
               and (groups is None or set(found.get("groups") or []) == set(groups))):
             log(SECTION, f"Application exists: {label}")
@@ -786,7 +776,7 @@ class ApiManagement:
         if not wanted:
             return False
         live = self.api.get(f"{self.v2}/apis/{api_id}/subscriptions/{found['id']}").json()
-        if covers(live.get("consumerConfiguration"), wanted):
+        if contains(live.get("consumerConfiguration"), wanted):
             return False
         if not recorded(SECTION, "subscription", found["id"]):
             log(SECTION, f"! Subscription {label} is not one the seed made: its callback is left as it is")
@@ -1010,7 +1000,7 @@ def seed():
     together([lambda: seed_own(apim, settings, loaded, applications, subscriptions)]
              + [lambda each=each: seed_environment(*each) for each in zip(scopes, environments)])
     if common.waits_for_gateway():
-        later("the gateway", lambda: wait_for_gateway(apim, definitions))
+        wait_for_gateway(apim, definitions)
 
 
 def remove(records):

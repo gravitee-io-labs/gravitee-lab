@@ -36,8 +36,7 @@ from contextlib import nullcontext
 from urllib.parse import quote
 
 from . import controls
-from .am import contains
-from .common import (HttpError, SeedError, adopted, created, excerpt, files, forget, has_seed, items, load, log, making, notes, owned,
+from .common import (HttpError, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, items, load, log, making, notes, owned,
                      record, recorded, seed_file, unmade)
 from .gamma import CATALOG, LISTS, Gamma
 

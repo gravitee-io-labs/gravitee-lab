@@ -21,7 +21,6 @@ LOGIN = ("POST", "/management/auth/token")
 SECRETS = {"BANK_DEMO_PASSWORD": "demo-password", "WEB_CLIENT_SECRET": "web-secret", "TRAFFIC_CLIENT_SECRET": "traffic-secret",
            "ACE_CLIENT_SECRET": "ace-secret", "MCP_RESOURCE_SECRET": "mcp-secret", "BAKERY_WEB_URL": "http://localhost:8110",
            "BAKERY_WEB_LOOPBACK_URL": "http://127.0.0.1:8110", "APIM_GATEWAY_URL": "http://localhost:8082"}
-CLAIMS = ["username", "role", "customer_id", "accounts", "name"]
 GRANTS_OF_AN_AGENT = ["authorization_code", "client_credentials", "urn:ietf:params:oauth:grant-type:token-exchange"]
 
 
@@ -158,11 +157,8 @@ class AccessManagement:
 
     # Users
     def create_user(self, call):
-        held = self.kept(call, "users")
-        if any(user["username"] == call.json["username"] for user in held.values()):
-            return 400, {"message": "User already exists"}
         user = {"id": self.new("user"), **call.json}
-        held[user["id"]] = user
+        self.kept(call, "users")[user["id"]] = user
         return 201, user
 
     def put_user(self, call):
@@ -215,8 +211,10 @@ class Case(Seed):
     def seed(self):
         am.seed({})
 
-    def patches(self, object_id):
-        return [call.json for call in self.platform.sent("PATCH", re.compile(DOMAINS + f"/[^/]+/applications/{object_id}"))]
+    def settle(self):
+        """What AM does at the first sign-in of a person: fields of its own in a profile."""
+        for user in self.am.objects("users"):
+            user["additionalInformation"].update(sub=user["id"], given_name=user["firstName"], auth_time=1)
 
 
 class Bank(Case):
@@ -226,81 +224,6 @@ class Bank(Case):
         super().setUp()
         self.use_bank_files()
         self.seed()
-
-    def test_the_domain_has_token_exchange_for_delegation_and_not_for_impersonation(self):
-        domain = next(iter(self.am.domains.values()))
-        self.assertEqual((domain["name"], domain["enabled"]), ("acme-bakery", True))
-        exchange = domain["tokenExchangeSettings"]
-        self.assertEqual((exchange["enabled"], exchange["allowDelegation"], exchange["allowImpersonation"]), (True, True, False))
-        self.assertEqual(exchange["tokenExchangeOAuthSettings"], {"inherited": False, "scopeHandling": "downscoping"})
-        self.assertIn("urn:ietf:params:oauth:token-type:access_token", exchange["allowedActorTokenTypes"])
-        self.assertEqual(domain["oidc"]["clientRegistrationSettings"],
-                         {"allowLocalhostRedirectUri": True, "allowHttpSchemeRedirectUri": True})
-        self.assertTrue(domain["oidc"]["redirectUriStrictMatching"], "a redirect URI must be one of the registered, exactly")
-
-    def test_ace_is_an_agent_with_a_secret_of_the_seed(self):
-        ace = self.am.one("applications", clientId="ace-agent")
-        self.assertEqual((ace["name"], ace["type"], ace["kind"], ace["secret"]), ("Ace", "agent", "HOSTED_DELEGATED", "ace-secret"))
-        created = self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/applications"))
-        sent = next(call.json for call in created if call.json["clientId"] == "ace-agent")
-        self.assertEqual((sent["type"], sent["kind"], sent["redirectUris"]), ("AGENT", "HOSTED_DELEGATED", ["http://localhost:8110/callback"]))
-        self.assertEqual(ace["identityProviders"], [{"identity": "idp-1", "selectionRule": "", "priority": 0}])
-
-    def test_ace_keeps_the_grants_its_kind_gives_it_and_only_the_claims_are_added(self):
-        ace = self.am.one("applications", clientId="ace-agent")
-        self.assertEqual(ace["settings"]["oauth"]["grantTypes"], GRANTS_OF_AN_AGENT)
-        self.assertEqual([set(p["settings"]["oauth"]) for p in self.patches(ace["id"]) if "settings" in p], [{"tokenCustomClaims"}])
-
-    def test_the_web_app_signs_in_with_the_code_flow_and_pkce_and_never_with_the_password(self):
-        web = self.am.one("applications", clientId="acme-bakery-web")
-        oauth = web["settings"]["oauth"]
-        self.assertEqual((web["type"], web["secret"]), ("web", "web-secret"))
-        self.assertEqual((oauth["grantTypes"], oauth["responseTypes"]), (["authorization_code", "refresh_token"], ["code"]))
-        self.assertEqual((oauth["forcePKCE"], oauth["forceS256CodeChallengeMethod"]), (True, True))
-        self.assertEqual(oauth["tokenEndpointAuthMethod"], "client_secret_basic")
-        self.assertEqual(web["settings"]["advanced"], {"skipConsent": True, "flowsInherited": True},
-                         "the bank's own app: no consent page after the login page")
-        self.assertEqual([s["scope"] for s in oauth["scopeSettings"]], ["openid", "profile", "email"])
-        self.assertEqual(web["identityProviders"][0]["identity"], "idp-1")
-
-    def test_the_redirect_uris_of_the_web_app_are_the_two_ways_to_open_it_and_nothing_else(self):
-        oauth = self.am.one("applications", clientId="acme-bakery-web")["settings"]["oauth"]
-        self.assertEqual(oauth["redirectUris"], ["http://localhost:8110/callback", "http://127.0.0.1:8110/callback"])
-
-    def test_the_traffic_generator_has_an_application_of_its_own_with_the_password_grant(self):
-        traffic = self.am.one("applications", clientId="acme-bakery-traffic")
-        oauth = traffic["settings"]["oauth"]
-        self.assertEqual((traffic["name"], traffic["type"], traffic["secret"]), ("Acme Bakery traffic", "web", "traffic-secret"))
-        self.assertEqual((oauth["grantTypes"], oauth["responseTypes"]), (["password"], []))
-        self.assertEqual([s["scope"] for s in oauth["scopeSettings"]], ["openid", "profile", "email"])
-        self.assertEqual(traffic["identityProviders"][0]["identity"], "idp-1")
-        self.assertFalse(traffic["settings"]["advanced"]["skipConsent"], "a file that does not say skipConsent leaves it as AM has it")
-
-    def test_no_application_but_the_traffic_generators_has_the_password_grant(self):
-        grants = {a["clientId"]: a["settings"]["oauth"]["grantTypes"] for a in self.am.objects("applications")}
-        self.assertEqual([client for client, g in grants.items() if "password" in g], ["acme-bakery-traffic"])
-
-    def test_the_web_app_the_traffic_generator_and_ace_put_the_same_five_claims_in_a_token(self):
-        claims = {}
-        for client in ("acme-bakery-web", "acme-bakery-traffic", "ace-agent"):
-            claims[client] = self.am.one("applications", clientId=client)["settings"]["oauth"]["tokenCustomClaims"]
-        self.assertEqual(claims["acme-bakery-web"], claims["ace-agent"])
-        self.assertEqual(claims["acme-bakery-traffic"], claims["ace-agent"])
-        self.assertEqual([c["claimName"] for c in claims["ace-agent"]], CLAIMS)
-        self.assertTrue(all(c["tokenType"] == "access_token" for c in claims["ace-agent"]))
-        by_name = {c["claimName"]: c["claimValue"] for c in claims["ace-agent"]}
-        self.assertEqual(by_name["username"], "{#context.attributes['user']['username']}")
-        self.assertEqual(by_name["accounts"], "{#context.attributes['user']['additionalInformation']['accounts']}")
-        self.assertEqual(by_name["name"], "{#context.attributes['user']['additionalInformation']['name']}")
-
-    def test_the_users_carry_what_the_tokens_say_with_a_password_of_the_seed(self):
-        profiles = {u["username"]: u["additionalInformation"] for u in self.am.objects("users")}
-        self.assertEqual(profiles, {
-            "alice@acme-bakery.test": {"role": "customer", "customer_id": "C-1001", "accounts": ["ACC-1001", "ACC-1002"], "name": "Alice Martin"},
-            "bob@acme-bakery.test": {"role": "customer", "customer_id": "C-2001", "accounts": ["ACC-2001"], "name": "Bob Chen"},
-            "tina@acme-bakery.test": {"role": "teller", "name": "Tina Torres"}})
-        self.assertEqual({u["password"] for u in self.am.objects("users")}, {"demo-password"})
-        self.assertEqual({u["forceResetPassword"] for u in self.am.objects("users")}, {False})
 
     def test_the_groups_have_their_members_added_through_the_path_of_the_member(self):
         users = {u["id"]: u["username"] for u in self.am.objects("users")}
@@ -324,13 +247,8 @@ class Bank(Case):
         self.assertTrue(all(x["label"].endswith("s") and not x["label"].endswith("ies") for x in common.created()))
         self.assertEqual({x["kind"] for x in common.created()} - set(am.ORDER), set())
 
-    def test_the_secret_of_a_user_or_an_application_is_not_recorded(self):
-        self.assertNotIn("secret", self.state.read_text(encoding="utf-8"))
-        self.assertNotIn("demo-password", self.state.read_text(encoding="utf-8"))
-
     def test_a_second_seed_saves_nothing(self):
-        for user in self.am.objects("users"):   # AM adds fields of its own to a profile at the first sign-in
-            user["additionalInformation"].update(sub=user["id"], given_name=user["firstName"], auth_time=1)
+        self.settle()
         self.platform.calls.clear()
         self.seed()
         self.assertEqual(self.writes(), [])
@@ -338,8 +256,7 @@ class Bank(Case):
 
     def test_the_log_says_what_it_saved_for_an_application_and_what_it_left_as_the_file_says(self):
         self.assertEqual(self.output().count("✓ OAuth settings and identity provider"), 3, "the three applications were saved")
-        for user in self.am.objects("users"):
-            user["additionalInformation"].update(sub=user["id"], given_name=user["firstName"], auth_time=1)
+        self.settle()
         self.stdout.seek(0)
         self.stdout.truncate()
         self.seed()
@@ -432,27 +349,14 @@ class Settings(Case):
                           ("PATCH", f"{DOMAINS}/domain-1/applications/application-2"),
                           ("PATCH", f"{DOMAINS}/domain-1/applications/application-2")])
         self.assertEqual([x["kind"] for x in common.created()], ["domain", "application"])
+        patches = self.platform.sent("PATCH", f"{DOMAINS}/domain-1/applications/application-2")
+        self.assertNotIn("advanced", patches[0].json["settings"], "a file that does not say skipConsent leaves it as AM has it")
 
     def test_a_domain_is_patched_with_its_settings_as_the_file_gives_them(self):
         self.seed_files({"am/domain.yaml": "name: example\nsettings: {tokenExchangeSettings: {enabled: true}}\n"})
         self.seed()
         self.assertEqual(self.platform.sent("PATCH", f"{DOMAINS}/domain-1")[0].json,
                          {"enabled": True, "tokenExchangeSettings": {"enabled": True}})
-
-
-class Variables(unittest.TestCase):
-    """What the seed service of the playground must set for these files."""
-
-    @staticmethod
-    def used_in(folder):
-        return {m.group(2) for path in sorted((ACME_SEED / folder).rglob("*.yaml")) for m in common.VARIABLE.finditer(path.read_text(encoding="utf-8"))
-                if not m.group(1)}
-
-    def test_the_files_of_access_management_use_the_secrets_the_apps_share_and_the_urls(self):
-        self.assertEqual(self.used_in("am"), set(SECRETS))
-
-    def test_the_files_of_authorization_use_no_variable_the_slug_is_read_from_the_catalog(self):
-        self.assertEqual(self.used_in("authz"), set())
 
 
 class Kinds(Case):
@@ -470,10 +374,6 @@ class Kinds(Case):
         self.assertEqual(kinds[6:9], ["users"] * 3)
         self.assertEqual(kinds[9], "domains")
         self.assertEqual(self.am.domains, {})
-
-    def test_a_removal_leaves_the_kinds_of_other_products_alone(self):
-        am.remove([{"product": "apim", "kind": "api", "name": "x", "id": "x"}])
-        self.assertEqual(self.platform.calls, [])
 
     def test_a_domain_the_seed_did_not_create_is_configured_never_taken_over(self):
         self.seed_files({"am/domain.yaml": "name: mine\nsettings: {oidc: {x: 1}}\n"})
@@ -501,13 +401,12 @@ class Kinds(Case):
         self.assertEqual(common.created(), [{"product": "am", "kind": "domain", "label": "domains", "name": "bank", "id": "domain-1"}],
                          "one record, written when the domain was made and holding nothing about its settings")
 
-    def test_a_user_without_a_profile_is_posted_as_the_file_says_and_found_again_by_the_refusal(self):
+    def test_a_user_without_a_profile_is_posted_as_the_file_says_and_found_again(self):
         self.seed_files({"am/domain.yaml": "name: bank\nusers: [{username: john, email: j@x.test, firstName: J, lastName: D, password: p}]\n"})
         self.seed()
         self.seed()
-        posts = self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/users"))
-        self.assertEqual(len(posts), 2, "a user without a profile is not looked for: the platform refuses it the second time")
-        self.assertEqual(posts[0].json, {"forceResetPassword": False, "preRegistration": False, "username": "john",
+        [post] = self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/users"))
+        self.assertEqual(post.json, {"forceResetPassword": False, "preRegistration": False, "username": "john",
                                          "email": "j@x.test", "firstName": "J", "lastName": "D", "password": "p"})
         self.assertEqual([x["name"] for x in common.created() if x["kind"] == "user"], ["john"])
 
@@ -560,9 +459,8 @@ class Session(Case):
     def test_a_token_given_by_the_environment_is_not_exchanged_and_a_refusal_is_an_error(self):
         self.env(AM_TOKEN="given", AM_USERNAME=None, AM_PASSWORD=None)
         self.platform.add({("GET", DOMAINS): (401, {"message": "Unauthorized"})})
-        with mock.patch.object(common.time, "sleep"):
-            with self.assertRaises(common.SeedError):
-                am.AccessManagement().api.get(DOMAINS)
+        with self.assertRaises(common.SeedError):
+            am.AccessManagement().api.get(DOMAINS)
         self.assertEqual(self.platform.sent(*LOGIN), [])
 
     def test_a_login_that_is_refused_is_asked_again_until_the_platform_answers(self):

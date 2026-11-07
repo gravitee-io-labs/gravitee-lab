@@ -66,7 +66,7 @@ from pathlib import Path
 import yaml
 
 from . import common
-from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, claimed, created, excerpt, files, items, load, log, making, owned,
+from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, claimed, contains, created, excerpt, files, items, load, log, making, owned,
                      parallel, record, recorded, seed_file, setting, text, unmade, wait_until)
 
 SECTION = "apim-portal"
@@ -119,15 +119,6 @@ def prefixes(path):
     """The path and each folder above it: the platform makes the folders a path goes through."""
     names = path.strip("/").split("/")
     return ["/" + "/".join(names[:i]) for i in range(1, len(names) + 1)]
-
-
-def covers(live, wanted):
-    """Whether `live` holds everything `wanted` says: the platform adds what it defaults and the ids it computes."""
-    if isinstance(wanted, dict):
-        return isinstance(live, dict) and all(covers(live.get(key), value) for key, value in wanted.items())
-    if isinstance(wanted, list):
-        return isinstance(live, list) and len(live) == len(wanted) and all(covers(a, b) for a, b in zip(live, wanted))
-    return live == wanted
 
 
 def shown(path):
@@ -346,31 +337,20 @@ def api_document(scope, path):
     read here, for what it needs to show."""
     document = scope.text(path)
     try:
-        spec = yaml.safe_load(document)
-    except yaml.YAMLError as e:
+        spec = common.parse_yaml(document, shown(path))
+    except (yaml.YAMLError, ValueError) as e:   # ValueError: a value that YAML reads as a date that is none
         raise SeedError(common.unreadable(shown(path), e)) from None
-    if isinstance(spec, dict) and spec.get("openapi") is not None and spec.get("asyncapi") is None:
-        info = spec.get("info")
-        if not isinstance(info, dict) or any(info.get(key) in (None, "") for key in ("title", "version")):
-            raise SeedError(f"{shown(path)}: info needs a title and a version")
-        if not isinstance(spec.get("paths"), dict) or not spec["paths"]:
-            raise SeedError(f"{shown(path)}: paths is missing or empty")
-        return "openapi", document
-    return "asyncapi", asyncapi(path, spec, document)
-
-
-def asyncapi(path, spec, document):
-    """The text of an AsyncAPI document, once it is one the portal shows."""
-    if not isinstance(spec, dict) or spec.get("asyncapi") is None:
+    if not isinstance(spec, dict) or (spec.get("asyncapi") is None and spec.get("openapi") is None):
         raise SeedError(f"{shown(path)}: it is no AsyncAPI or OpenAPI document: it has no asyncapi or openapi key")
-    if str(spec["asyncapi"]) not in ASYNCAPI_VERSIONS:
+    kind, body = ("openapi", "paths") if spec.get("asyncapi") is None else ("asyncapi", "channels")
+    if kind == "asyncapi" and str(spec["asyncapi"]) not in ASYNCAPI_VERSIONS:
         raise SeedError(f"{shown(path)}: asyncapi {spec['asyncapi']} is a version the portal does not show ({', '.join(ASYNCAPI_VERSIONS)})")
     info = spec.get("info")
     if not isinstance(info, dict) or any(info.get(key) in (None, "") for key in ("title", "version")):
         raise SeedError(f"{shown(path)}: info needs a title and a version")
-    if not isinstance(spec.get("channels"), dict) or not spec["channels"]:
-        raise SeedError(f"{shown(path)}: channels is missing or empty")
-    return document
+    if not isinstance(spec.get(body), dict) or not spec[body]:
+        raise SeedError(f"{shown(path)}: {body} is missing or empty")
+    return kind, document
 
 
 class Folder:
@@ -386,10 +366,6 @@ class Folder:
         self.docs = {}   # the AsyncAPI or OpenAPI text of the listed APIs that have one, by crossId
         self.kinds = {}   # the kind of each of those documents (DOC_KINDS), by crossId
         self.sources = {}   # the file each of those comes from, as a message names it
-
-    @property
-    def empty(self):
-        return not (self.theme or self.portal or self.pages or self.links or self.listings)
 
     def read(self):
         scope, folder = Scope(self.env, self.name), common.SEED_DIR.joinpath(*self.parts, "portal")
@@ -551,16 +527,13 @@ class Portals:
 
     def read(self, targets):
         """The portal files of every environment, read and checked before the first change."""
-        out, seen = [], set()
+        out = []
         for env, parts in targets:
             env = env or setting("APIM_ENV", "DEFAULT")
-            if env in seen:
-                raise SeedError(f"Environment {env}: its portal is in seed/apim/portal and in seed/environments/{env}/portal")
-            seen.add(env)
             named = seed_file(*parts, "environment.yaml")
             name = (load(named, provided={"ENV_ID": env}) if named else {}).get("name")
             folder = Folder(env, self.environment(env, name), parts).read()
-            if not folder.empty:
+            if folder.portal:
                 out.append(folder)
         return out
 
@@ -624,7 +597,7 @@ class Portals:
             if not recorded(SECTION, kind, found.json().get("id")) and not adopted(SECTION, kind, f"{env}: {hrid}", found.json().get("id"),
                                                                                   env=env, hrid=hrid, **extra):
                 raise SeedError(f"{what}: the hrid is taken by one the seed did not create")
-            if covers(found.json(), body):
+            if contains(found.json(), body):
                 log(SECTION, f"{one.capitalize()} exists: {env}: {hrid}")
                 return
             verb = "updated"
@@ -787,14 +760,17 @@ class Portals:
         platform changed."""
         env, api, base = folder.env, want["api"], f"{self.v2(folder.env)}/portal-navigation-items"
         title, kind, _ = DOC_KINDS[folder.kinds.get(api["crossId"], "asyncapi")]
-        page, doc = tree.child(item_id, title), folder.docs.get(want["api"]["crossId"])
-        if doc is None:
-            if page and page["id"] in before:
+        doc, changed = folder.docs.get(api["crossId"]), False
+        for other, *_ in DOC_KINDS.values():
+            page = tree.child(item_id, other)
+            if page and page["id"] in before and (doc is None or other != title):   # its document is gone or changed kind
                 self.ask(what, self.console, "DELETE", f"{base}/{page['id']}", passed=(404,))
                 tree.items.pop(page["id"], None)
-                return None, True
-            return None, False
-        changed = not page
+                changed = True
+        if doc is None:
+            return None, changed
+        page = tree.child(item_id, title)
+        changed |= not page
         if not page:
             page = self.ask(what, self.console, "POST", base, json={
                 "type": "PAGE", "title": title, "area": "TOP_NAVBAR", "parentId": item_id, "visibility": want["visibility"],

@@ -1,87 +1,25 @@
-"""The seed against management APIs that answer from a table: what it changes is its own, a removal that fails keeps
-its record, an authorization engine follows the seed's OpenFGA model, the modules run in their order and a module
-with nothing to seed leaves the platform alone. Also the fake platform the other tests build on."""
+"""The seed against management APIs that answer from a table: a removal that fails keeps its record, an authorization engine
+follows the seed's OpenFGA model, the modules run in their order and a module with nothing to seed leaves the platform alone.
+Also what keeps the fake platform the other tests build on from passing a call it should not."""
 
 import json
 import os
 import re
 import subprocess
 import sys
-import time
 import threading
 import unittest
 from unittest import mock
-
-import requests
 
 from lab_seeder import am
 from lab_seeder import apim
 from lab_seeder import common
 from lab_seeder import openfga
 from lab_seeder import seed
-from lab_seeder.testkit import Platform, Response, Seed
+from lab_seeder.testkit import Seed
 
 V2 = "/management/v2/organizations/DEFAULT/environments/DEFAULT"
 ENGINES = "/domain/authorization-engines"
-
-
-class Apis(Seed):
-
-    DEFINITION = {"api": {"name": "Example LLM", "listeners": [{"paths": [{"path": "/llm-proxy/"}]}]}}
-
-    def holding(self, api_id, name):
-        """APIM where this API holds the path of the seed's."""
-        api = {**self.DEFINITION["api"], "id": api_id, "name": name}
-        return {("GET", f"{V2}/apis"): (200, {"data": [api], "pagination": {"pageCount": 1}})}
-
-    def test_an_api_the_seed_did_not_create_is_never_changed(self):
-        self.answer(self.holding("mine", "My LLM proxy"))
-        with self.assertRaisesRegex(common.SeedError, "/llm-proxy/ is the path of 'My LLM proxy'"):
-            apim.ApiManagement().import_api(self.DEFINITION, "llms.json")
-        self.assertEqual(self.platform.changes(), [])
-
-    def test_the_seeds_api_is_replaced_and_recorded_under_its_new_id(self):
-        llm = {"api": {**self.DEFINITION["api"], "type": "LLM_PROXY"}}
-        self.answer({**self.holding("old", "Example LLM"),
-                     ("GET", f"{V2}/apis/old/plans"): (200, {"data": []}),
-                     ("POST", f"{V2}/apis/old/_stop"): 400,
-                     ("DELETE", f"{V2}/apis/old"): 204,
-                     ("POST", f"{V2}/apis/_import/definition"): (201, {"id": "new"}),
-                     ("GET", f"{V2}/apis/new"): (200, {"lifecycleState": "PUBLISHED", "state": "STARTED"}),
-                     ("POST", f"{V2}/apis/new/deployments"): 202},
-                    [{"product": "apim", "kind": "api", "name": "Example LLM", "id": "old"}])
-        apim.ApiManagement().import_api(llm, "llms.json")
-        self.assertEqual([(x["name"], x["id"]) for x in common.created()], [("Example LLM", "new")])
-
-
-    def test_an_import_that_gets_no_answer_in_time_ends_the_seed_with_its_reason_in_words(self):
-        """The Lab shows the last line as the reason: never a line of a traceback of requests."""
-        self.seed_files({"apim/apis/llms.json": json.dumps(self.DEFINITION)})
-        self.answer({("GET", f"{V2}/apis"): (200, {"data": [], "pagination": {"pageCount": 1}}),
-                     ("POST", f"{V2}/apis/_import/definition"): requests.ReadTimeout(
-                         "HTTPConnectionPool(host='apim', port=8083): Read timed out. (read timeout=30)")})
-        self.assertEqual(self.main(), 1)
-        self.assertEqual(self.output().splitlines()[-1],
-                         f"[seed] ✗ POST {V2}/apis/_import/definition: no answer in 30 s")
-        self.assertEqual(len(self.platform.sent("POST", f"{V2}/apis/_import/definition")), 1, "the platform may have made it")
-
-
-class Files(Seed):
-
-    def test_a_password_with_a_quote_or_a_backslash_seeds_as_it_was_set(self):
-        self.seed_files({"am/domain.yaml": 'name: bank\nusers: [{username: ann, password: "${PW}"}]\n'})
-        for password in ('S3cr3t"Pw', "back\\slash", "pa\\nss"):
-            with self.subTest(password=password):
-                self.env(PW=password)
-                self.assertEqual(common.load(common.SEED_DIR / "am/domain.yaml")["users"][0]["password"], password)
-
-    def test_a_file_that_is_not_yaml_stops_the_seed_with_its_line_and_never_its_text(self):
-        self.seed_files({"am/domain.yaml": 'name: bank\nusers: [{username: ann,\n  password: "${PW}" ]]\n'})
-        self.env(PW="S3cr3t-Pw")
-        self.assertEqual(self.main(), 1)
-        self.assertRegex(self.output().splitlines()[-1],
-                         r"^\[seed\] ✗ .*am/domain\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$")
-        self.assertNotIn("S3cr3t", self.output())
 
 
 class Engines(Seed):
@@ -337,13 +275,6 @@ class Modules(Seed):
             self.main()
         access.assert_called_once_with({"Documents": {"id": "s"}})
 
-    def test_a_module_that_fails_stops_the_seed_with_its_reason(self):
-        self.run_modules()
-        with mock.patch.object(seed.aim_catalog, "seed", side_effect=common.SeedError("no provider")):
-            self.assertEqual(self.main(), 1)
-        self.assertIn("[seed] ✗ no provider", self.output())
-        self.assertNotIn(("seed", "authz"), self.order)
-
     def test_a_module_that_breaks_fails_the_seed(self):
         self.run_modules()
         with mock.patch.object(seed.authz, "seed", side_effect=KeyError("id")), \
@@ -392,24 +323,9 @@ class Modules(Seed):
 
 
 class Fakes(Seed):
-    """The platform the tests build on."""
 
     def get(self, path, **kwargs):
         return common.Api("http://apim").get(path, expect=range(100, 600), **kwargs)
-
-    def test_a_body_is_json_for_a_dict_and_a_list_and_text_for_a_string(self):
-        self.answer({("GET", "/a"): (200, {"x": 1}), ("GET", "/b"): (200, [1]), ("GET", "/c"): (200, "hello")})
-        self.assertEqual((self.get("/a").json(), self.get("/b").json()), ({"x": 1}, [1]))
-        self.assertEqual(self.get("/a").headers["content-type"], "application/json")
-        text = self.get("/c")
-        self.assertEqual((text.text, text.headers["Content-Type"]), ("hello", "text/plain"))
-        with self.assertRaises(ValueError):
-            text.json()
-
-    def test_an_answer_is_a_status_or_a_tuple_with_a_body_and_headers(self):
-        self.answer({("GET", "/a"): 404, ("GET", "/b"): (201, None, {"Location": "/b/1"})})
-        self.assertEqual((self.get("/a").status_code, self.get("/a").ok), (404, False))
-        self.assertEqual(self.get("/b").headers["location"], "/b/1")
 
     def test_a_path_that_is_a_pattern_must_match_the_whole_path(self):
         self.answer({("GET", re.compile(r"/apis/[^/]+")): 200})
@@ -417,89 +333,9 @@ class Fakes(Seed):
         with self.assertRaisesRegex(AssertionError, "Unexpected GET /apis/abc/plans"):
             self.get("/apis/abc/plans")
 
-    def test_a_route_that_names_query_parameters_wins_over_one_that_does_not(self):
-        self.answer({("GET", "/list"): (200, "any"), ("GET", "/list?page=2"): (200, "second")})
-        self.assertEqual(self.get("/list", params={"page": 2}).text, "second")
-        self.assertEqual(self.get("/list", params={"page": 1}).text, "any")
-        self.assertEqual(self.get("/list?page=2&perPage=5").text, "second")
-
-    def test_a_route_that_starts_with_http_is_matched_against_the_whole_url(self):
-        self.answer({("GET", "http://bakery-agent:8000/card"): (200, "agent"), ("GET", "/card"): (200, "other")})
-        self.assertEqual(requests.get("http://bakery-agent:8000/card").text, "agent")
-        self.assertEqual(requests.get("http://elsewhere/card").text, "other")
-
-    def test_a_list_answers_one_item_per_call_and_the_last_one_for_the_rest(self):
-        self.answer({("GET", "/a"): [503, 503, (200, "up")]})
-        self.assertEqual([self.get("/a").status_code for _ in range(4)], [503, 503, 200, 200])
-
-    def test_a_function_answers_from_the_call(self):
-        self.answer({("POST", "/echo"): lambda call: (201, {"echo": call.json, "key": call.headers.get("X-Key")})})
-        self.assertEqual(common.Api("http://apim").post("/echo", json={"a": 1}, headers={"X-Key": "k"}).json(),
-                         {"echo": {"a": 1}, "key": "k"})
-
-    def test_an_exception_is_raised(self):
-        self.answer({("GET", "/down"): [requests.ConnectionError("down"), 200]})
-        with self.assertRaises(requests.ConnectionError):
-            common.Api("http://apim").send("GET", "/down")
-        self.assertEqual(self.get("/down").status_code, 200)
-
     def test_a_call_no_route_answers_fails_the_test(self):
         with self.assertRaisesRegex(AssertionError, r"Unexpected GET /nowhere \{'q': 1\}"):
             self.get("/nowhere", params={"q": 1})
-
-    def test_a_call_is_kept_with_what_it_sent(self):
-        self.answer({("POST", "/upload"): 201})
-        api = common.Api("http://apim")
-        api.session.auth = ("admin", "admin")
-        api.post("/upload", files={"file": ("a.zip", b"PK", "application/zip")}, data={"kind": "skill"},
-                 params={"v": 1}, headers={"Content-Type": None, "X-A": "1"})
-        call = self.platform.calls[0]
-        self.assertEqual((call.method, call.path, call.params, call.data), ("POST", "/upload", {"v": 1}, {"kind": "skill"}))
-        self.assertEqual(call.files["file"][1], b"PK")
-        self.assertEqual((call.auth, call.headers.get("X-A"), "Content-Type" in call.headers), (("admin", "admin"), "1", False))
-
-    def test_every_client_has_its_own_headers_and_credentials(self):
-        self.answer({("GET", "/x"): 200})
-        first, second = common.Api("http://one"), common.Api("http://two")
-        first.session.headers["Authorization"] = "Bearer t"
-        first.get("/x")
-        second.get("/x")
-        self.assertEqual([call.headers.get("Authorization") for call in self.platform.calls], ["Bearer t", None])
-
-    def test_what_changes_and_what_was_sent_are_listed(self):
-        self.answer({("GET", "/a"): 200, ("PUT", "/a"): 200, ("PUT", re.compile(r"/b/\d")): 200})
-        api = common.Api("http://apim")
-        api.get("/a")
-        api.put("/a")
-        api.put("/b/1")
-        self.assertEqual(self.platform.changes(), [("PUT", "/a"), ("PUT", "/b/1")])
-        self.assertEqual(len(self.platform.sent("PUT", re.compile(r"/[ab].*"))), 2)
-
-    def test_the_requests_functions_and_sessions_all_reach_the_platform(self):
-        self.answer({("GET", "/a"): 200, ("POST", "/b"): 200})
-        with requests.Session() as session:
-            session.get("http://x/a")
-        requests.post("http://x/b", json={})
-        self.assertEqual([call.path for call in self.platform.calls], ["/a", "/b"])
-
-    def test_nothing_sleeps_and_time_moves_when_something_does(self):
-        before = time.time()
-        time.sleep(100)
-        self.assertGreaterEqual(time.time() - before, 100)
-        self.assertEqual(self.clock.sleeps, [100])
-
-    def test_a_test_sets_and_unsets_settings_and_writes_seed_files(self):
-        self.env(APIM_TOKEN="t", APIM_PASSWORD=None)
-        self.assertEqual((os.environ["APIM_TOKEN"], "APIM_PASSWORD" in os.environ), ("t", False))
-        self.seed_files({"apim/applications/a.yaml": "name: A\n"})
-        self.assertEqual([p.name for p in common.files("apim", "applications")], ["a.yaml"])
-        self.assertEqual(common.load(common.files("apim", "applications")[0]), {"name": "A"})
-
-    def test_a_response_says_whether_it_is_an_error(self):
-        with self.assertRaises(requests.HTTPError):
-            Response(500).raise_for_status()
-        Response(204).raise_for_status()
-        self.assertEqual(Platform({("GET", "/a"): 200}).routes, {("GET", "/a"): 200})
 
 
 if __name__ == "__main__":

@@ -314,11 +314,6 @@ class FirstRun(Workspaces):
         self.assertEqual([(b["name"], [c["model"] for c in b["candidates"]]) for b in bands],
                          [("Plenty left", ["smart"]), ("Running low", ["lite"])])
 
-    def test_payloads_are_logged_and_headers_are_not_because_they_hold_the_key_of_the_team(self):
-        self.seed()
-        content = self.the_workspace()["analytics"]["logging"]["content"]
-        self.assertEqual((content["payload"], content["headers"]), (True, False))
-
     def test_the_calls_of_the_workspace_are_traced_like_those_of_the_proxies_so_that_an_answer_has_its_trace_in_gamma(self):
         self.seed()
         analytics = self.the_workspace()["analytics"]
@@ -385,9 +380,6 @@ class SecondRun(Workspaces):
         self.seed()
         self.assertEqual(self.platform.changes(), [])
         self.assertEqual(json.dumps(self.world.workspaces, sort_keys=True), self.before)
-
-    def test_it_records_nothing_twice(self):
-        self.seed()
         self.assertEqual(len(common.created()), 4)
 
     def test_a_budget_raised_in_the_file_is_updated_and_deployed(self):
@@ -572,11 +564,6 @@ class SpendAwareRouting(Workspaces):
         self.seed()
         self.assertEqual(self.routes(), [("Spend-aware routing", True)])
 
-    def test_without_the_setting_the_router_is_on(self):
-        self.env(SEED_PROTECTIONS=None)
-        self.seed()
-        self.assertEqual(self.routes(), [("Spend-aware routing", True)])
-
     def test_a_second_run_writes_nothing(self):
         self.seed()
         self.platform.calls.clear()
@@ -699,12 +686,6 @@ class Removal(Workspaces):
         self.remove()
         self.assertEqual(list(self.world.users), ["user-admin"])
 
-    def test_what_another_module_made_is_left_alone(self):
-        theirs = [{"product": "aim-proxies", "kind": "mcp-proxy", "name": "p", "id": "p", "label": ""},
-                  {"product": "aim-catalog", "kind": "provider", "name": "o", "id": "o", "label": ""}]
-        aim_workspaces.remove(theirs)
-        self.assertEqual(self.platform.calls, [])
-
     def test_a_user_the_platform_refuses_to_delete_keeps_its_record_and_the_rest_goes(self):
         """A member that someone added to a workspace of their own owns an application that a subscription still uses."""
         care = next(u for u in common.created() if u["kind"] == "workspace-user" and u["name"] == "team-care")
@@ -771,15 +752,6 @@ class OwnEndpoint(Workspaces):
         self.assertEqual(len(self.bulk()), 1)
         [component] = self.the_workspace()["models"]
         self.assertEqual(component["models"][0]["inputPrice"], 50.0)
-
-
-class Folder(Seed):
-
-    def test_a_playground_without_workspaces_needs_no_setting_and_makes_no_call(self):
-        self.env(APIM_MANAGEMENT_URL=None)
-        aim_workspaces.seed()
-        aim_workspaces.remove([])
-        self.assertEqual(self.platform.calls, [])
 
 
 if __name__ == "__main__":

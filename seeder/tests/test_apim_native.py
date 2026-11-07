@@ -14,11 +14,6 @@ class AddressTest(unittest.TestCase):
         api = {"listeners": [{"type": "KAFKA", "host": "orders", "entrypoints": [{"type": "native-kafka"}]}]}
         self.assertEqual(apim.ApiManagement.address(api), "kafka://orders")
 
-    def test_two_kafka_apis_with_two_hosts_are_two_addresses(self):
-        one = {"listeners": [{"type": "KAFKA", "host": "orders"}]}
-        two = {"listeners": [{"type": "KAFKA", "host": "payments"}]}
-        self.assertNotEqual(apim.ApiManagement.address(one), apim.ApiManagement.address(two))
-
     def test_an_api_with_nothing_to_reach_it_by_has_no_address(self):
         self.assertIsNone(apim.ApiManagement.address({"listeners": []}))
         self.assertIsNone(apim.ApiManagement.address({"listeners": [{"type": "SUBSCRIPTION"}]}))

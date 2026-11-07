@@ -22,8 +22,8 @@ what the file writes in place of what the page gave, to tailor the tool for a mo
     operations:
       - listOrders
       - id: createRefund
-        description: ...         # description, inputSchema and annotations replace those of the generated definition;
-        inputSchema: {...}       # referenceCost and referenceValue (USD, 0 or more) go in the extensions of the tool
+        description: ...         # description, inputSchema and annotations replace those of the generated definition
+        inputSchema: {...}
         annotations: {...}
 
 A file may say `needs: NAME`: the seed skips it, and says so, while the environment variable NAME is empty. A provider of a
@@ -40,19 +40,17 @@ it holds. A credential's secret is sent when it is created and again when the fi
 the playground's settings): its record keeps the fingerprint of the secret, never the secret.
 """
 
-import hashlib
 import io
-import json
 import os
 import re
 import zipfile
 
-import requests
 import yaml
 
 from . import aim_proxies
 from . import common
-from .common import Api, SeedError, excerpt, files, has_seed, load, log, owned, parallel, record, trouble, wait_until
+from .apim import digest_of
+from .common import Api, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
 from .gamma import CATALOG, WORKSPACES, Gamma
 
 SECTION = "aim-catalog"
@@ -73,19 +71,14 @@ PATHS = {"api-tools": "/catalog/sources", "agent": "/catalog/agents", "skill": "
 MANUAL = ("agent", "knowledge", "model")   # the kinds a manual source holds
 # Where a credential may be used from: Gamma asks for at least one and only records them, so the seed allows them all
 USAGE_SURFACES = ["LLM_PROXY", "AI_WORKSPACE", "AGENT", "MCP_PROXY", "WORKFLOW_TOOL"]
-STRATEGIES = {"api-key": "API_KEY", "bearer": "BEARER", "basic": "BASIC", "oauth2": "OAUTH2", "service-account": "SERVICE_ACCOUNT"}
 SLUG = re.compile(r"[a-z0-9_-]+")
 MCP_VERSION = "2025-11-25"   # asked at the start: the server answers with the version it speaks
 CARD_PATH = "/.well-known/agent-card.json"
 RISKS = ("negligible", "limited", "moderate", "high")   # what the catalog accepts as an agent's risk classification
-TOOL_PATH = "/catalog/mcp-tools"
-# What an operation of an api-tools file may write in place of what the OpenAPI page gave, and what each must be: the
-# keys of the tool's definition, then the references (USD) that the platform keeps in the extensions of the tool
+# What an operation of an api-tools file may write in place of what the OpenAPI page gave, and what each must be
 TAILORED = {"description": ("text", lambda v: isinstance(v, str) and bool(v.strip())),
             "inputSchema": ("a JSON schema", lambda v: isinstance(v, dict)),
             "annotations": ("a mapping of hints", lambda v: isinstance(v, dict))}
-REFERENCES = {key: ("a number, 0 or more", lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0)
-              for key in ("referenceCost", "referenceValue")}
 # What the catalog keeps of an agent card: it drops the rest
 CARD_FIELDS = ("name", "description", "url", "provider", "version", "documentationUrl", "capabilities",
                "defaultInputModes", "defaultOutputModes", "skills", "securitySchemes", "security")
@@ -118,10 +111,6 @@ def specs(folder, *keys):
         yield spec
 
 
-def fingerprint(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
-
-
 def own(kind, rows, what, name):
     """The row of the seed among those that have the key it wants, with its record: (None, None) when there is none. A row
     it did not create stops the seed, which names it and leaves it alone, unless it is the one row an earlier seed was making
@@ -135,13 +124,6 @@ def own(kind, rows, what, name):
     if found is None:
         raise SeedError(f"{what} exists and was not created by this playground: rename or delete it, the seed leaves it alone")
     return found, ours[found["id"]]
-
-
-def contains(actual, wanted):
-    """Whether `actual` has everything `wanted` says: the platform adds its own fields and stamps to what it stores."""
-    if isinstance(wanted, dict):
-        return isinstance(actual, dict) and all(k in actual and contains(actual[k], v) for k, v in wanted.items())
-    return actual == wanted
 
 
 # --- Credentials ----------------------------------------------------------------------------
@@ -159,7 +141,7 @@ def seed_credentials(aim):
     is then sent in an update of the credential. The providers that name it keep it, by its id."""
     for spec in specs("credentials", "name", "credentials"):
         name, secret = spec["name"], spec["credentials"]
-        digest = fingerprint({"credentials": secret, "service": spec.get("service")})
+        digest = digest_of({"credentials": secret, "service": spec.get("service")})
         found, ours = find_credential(aim, name, with_record=True)
         if found and ours.get("digest") == digest:
             say("credential", "up to date", name)
@@ -170,7 +152,7 @@ def seed_credentials(aim):
             record(SECTION, "credential", LABELS["credential"], name, found["id"], digest=digest)
             say("credential", "updated", name)
             continue
-        body = {"name": name, "strategy": STRATEGIES[secret["type"]], "credentials": secret,
+        body = {"name": name, "strategy": str(secret.get("type")).upper().replace("-", "_"), "credentials": secret,
                 "allowedUsageSurfaces": USAGE_SURFACES, **service}
         with common.making(SECTION, "credential", LABELS["credential"], name, missing=True):
             created = aim.post(PATHS["credential"], json=body).json()
@@ -242,21 +224,10 @@ def manual_source(aim, name):
     return found or aim.post("/catalog/sources", json={"sourceKind": "manual", "definition": {"type": "manual", "name": name}}).json()
 
 
-def with_stored(body, found, keep):
-    """What a replace sends: the body, and for each key of `keep` its mapping over the one the platform holds. A replace
-    drops what it does not send, and the catalog's metadata of an agent is also written by Compliance."""
-    sent = dict(body)
-    for key in keep:
-        merged = {**(found.get(key) or {}), **body.get(key, {})}
-        if merged:
-            sent[key] = merged
-    return sent
-
-
-def seed_item(aim, kind, spec, name, body, source, keep=()):
-    """Creates the item when it is missing, and replaces it, a PUT being a full replace, when what the seed sends
-    changed. The fingerprint is of the body alone: a key of `keep` that someone else wrote does not make the item
-    differ."""
+def seed_item(aim, kind, spec, name, body, source):
+    """Creates the item when it is missing, and replaces it when what the seed sends changed. A PUT is a full replace, so it
+    sends the file's `metadata` over what the platform holds, which Compliance also writes. The fingerprint is of the body
+    alone: metadata that someone else wrote does not make the item differ."""
     slug = spec["entityId"]
     if not SLUG.fullmatch(slug):
         raise SeedError(f"{slug}: an entity id is made of lower case letters, digits, - and _")
@@ -264,13 +235,14 @@ def seed_item(aim, kind, spec, name, body, source, keep=()):
     wanted = f"{kind}.{slug}"
     rows = [i for i in aim.rows(PATHS[kind], CATALOG) if i["entityId"] == wanted]
     found, ours = own(kind, rows, f"The {noun(kind)} '{wanted}'", name)
-    digest = fingerprint(body)
+    digest = digest_of(body)
     if found is None:
         with common.making(SECTION, kind, LABELS[kind], name, missing=True, source=spec["source"]):
             found, did = aim.post(PATHS[kind], json={**body, "entityId": slug}).json(), "created"
             record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
     elif ours.get("digest") != digest:
-        aim.put(f"{PATHS[kind]}/{found['id']}", json=with_stored(body, found, keep))
+        metadata = {**(found.get("metadata") or {}), **body.get("metadata", {})}
+        aim.put(f"{PATHS[kind]}/{found['id']}", json={**body, **({"metadata": metadata} if metadata else {})})
         record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
         did = "updated"
     else:
@@ -310,7 +282,7 @@ def catalog_card(card):
 def fetch_card(url):
     try:
         return Api(url).get(CARD_PATH).json()
-    except (SeedError, requests.RequestException, ValueError) as e:
+    except (SeedError, ValueError) as e:
         raise SeedError(f"The agent card of {url}: {e}")
 
 
@@ -337,7 +309,7 @@ def seed_agents(aim):
     cards = parallel(lambda spec: catalog_card(fetch_card(spec["url"])), asked)   # the cards are read together
     for spec, metadata, definition in zip(asked, metadata_of, cards):
         body = {"definition": definition, **({"metadata": metadata} if metadata else {})}
-        seed_item(aim, "agent", spec, definition["name"], body, manual_source(aim, spec["source"]), keep=("metadata",))
+        seed_item(aim, "agent", spec, definition["name"], body, manual_source(aim, spec["source"]))
 
 
 # --- MCP servers: discovered from here, because the platform's own discovery refuses private addresses ---------
@@ -346,7 +318,7 @@ class McpServer:
     """Just enough of the MCP protocol, over streamable HTTP, to list what a server offers."""
 
     def __init__(self, url):
-        self.url, self.api = url, Api(url)
+        self.url, self.api = url, Api(url, SECTION)
         self.api.session.headers["Accept"] = "application/json, text/event-stream"
         self.headers = {"MCP-Protocol-Version": MCP_VERSION}
 
@@ -354,22 +326,14 @@ class McpServer:
         body = {"jsonrpc": "2.0", "method": method, "params": params or {}}
         if not notification:
             body["id"] = 1
-        try:
-            answer = self.api.send("POST", "", json=body, headers=self.headers, timeout=30)
-        except requests.RequestException as e:
-            raise SeedError(f"MCP {method} at {self.url}: {trouble(e, 30)}") from None
-        if answer.status_code >= 400:
-            raise SeedError(f"MCP {method} at {self.url}: HTTP {answer.status_code} {excerpt(answer.text, 200)}")
+        answer = self.api.post("", json=body, headers=self.headers, what=f"MCP {method} at {self.url}")
         if "Mcp-Session-Id" in answer.headers:
             self.headers["Mcp-Session-Id"] = answer.headers["Mcp-Session-Id"]
         if notification:
             return None
-        if "json" in answer.headers.get("Content-Type", ""):
-            payload = answer.json()
-        else:   # an event stream: the answer is its data line
-            payload = next((json.loads(line[5:]) for line in answer.text.splitlines() if line.startswith("data:")), None)
+        payload = aim_proxies.jsonrpc(answer)
         if not payload or "result" not in payload:
-            raise SeedError(f"MCP {method} at {self.url}: no result in {str(payload or answer.text)[:200]}")
+            raise SeedError(f"MCP {method} at {self.url}: no result in {excerpt(payload or answer.text, 200)}")
         return payload["result"]
 
     def listing(self, key):
@@ -431,7 +395,7 @@ def seed_mcp_servers(aim):
         rows = [s for s in aim.rows(PATHS["mcp-server"], CATALOG)
                 if s["entityId"] == spec["entityId"] or s.get("extensions", {}).get("endpoint") == spec["endpoint"]]
         found, ours = own("mcp-server", rows, f"The MCP server '{spec['name']}' ({spec['endpoint']})", spec["name"])
-        digest = fingerprint({"endpoint": spec["endpoint"], "discovered": discovered})   # the endpoint is stored with the import
+        digest = digest_of({"endpoint": spec["endpoint"], "discovered": discovered})   # the endpoint is stored with the import
         if found is None or ours.get("digest") != digest:
             found = import_server(aim, spec, discovered, found, digest)
         else:
@@ -453,7 +417,10 @@ def skill_files(folder):
     texts = {path.relative_to(folder).as_posix(): path.read_text(encoding="utf-8") for path in sorted(folder.rglob("*"))
              if path.is_file() and not path.name.startswith(".")}
     head = re.match(r"---\n(.*?)\n---", texts.get("SKILL.md", ""), re.S)
-    meta = yaml.safe_load(head.group(1)) if head else None
+    try:
+        meta = common.parse_yaml(head.group(1), f"{folder.name}/SKILL.md") if head else None
+    except (yaml.YAMLError, ValueError) as e:   # ValueError: a value that YAML reads as a date that is none
+        raise SeedError(common.unreadable(f"{folder.name}/SKILL.md", e)) from None
     if not isinstance(meta, dict) or not meta.get("name") or not meta.get("description"):
         raise SeedError(f"{folder.name}/SKILL.md must start with a front matter that gives a name and a description")
     return texts, meta["name"]
@@ -477,7 +444,7 @@ def seed_skills(aim):
         texts, name = skill_files(path)
         rows = [s for s in aim.rows(PATHS["skill"], CATALOG) if s["entityId"] == f"skill.{name}"]
         found, ours = own("skill", rows, f"The skill '{name}'", name)
-        digest = fingerprint(texts)
+        digest = digest_of(texts)
         if found and ours.get("digest") == digest:
             say("skill", "up to date", name)
             continue
@@ -521,13 +488,12 @@ def release_studios(aim):
 def checked(name, operation, overrides):
     """What a file writes in place of an operation's generated tool, checked now: the platform validates a tool when it
     is saved, after the tools of the API were replaced."""
-    rules = {**TAILORED, **REFERENCES}
-    unknown = [key for key in overrides if key not in rules]
+    unknown = [key for key in overrides if key not in TAILORED]
     if unknown:
         raise SeedError(f"The operation {operation} of '{name}' cannot say {', '.join(map(str, unknown))}: "
-                        f"only id, {', '.join(rules)}")
+                        f"only id, {', '.join(TAILORED)}")
     for key, value in overrides.items():
-        wanted, valid = rules[key]
+        wanted, valid = TAILORED[key]
         if not valid(value):
             raise SeedError(f"The operation {operation} of '{name}': {key} must be {wanted}")
     return overrides
@@ -559,9 +525,10 @@ def operations_of(spec):
 
 def tools_of(name, api_id, generated, operations):
     """What the import takes for an API, in the order of the file: {apiId, gatewayMapping, definition}, the definition
-    without its output schema. An operation with something written for it carries it as `tailoring`, which the import
-    does not take."""
-    problems = "; ".join(e["message"] for e in generated["errors"])
+    without its output schema and with the words the file writes for a model. They are not saved after the import, because
+    API Management 4.13.1 refuses every save of a tool made from an API ("parentId is required for this kind": such a tool has
+    no parent server)."""
+    problems = excerpt("; ".join(e["message"] for e in generated["errors"]))
     names = [t["toolDefinition"]["name"] for t in generated["tools"]]
     if operations is None:
         if generated["errors"] or not generated["tools"]:
@@ -579,52 +546,9 @@ def tools_of(name, api_id, generated, operations):
             raise SeedError(f"The OpenAPI page of '{name}' has no operation {', '.join(missing)}: it has "
                             f"{', '.join(names) or 'none'}")
         chosen = [(by_name[operation], overrides) for operation, overrides in operations]
-    tools = []
-    for tool, overrides in chosen:
-        entry = {"apiId": api_id, "gatewayMapping": tool["gatewayMapping"],
-                 "definition": {k: v for k, v in tool["toolDefinition"].items() if k != "outputSchema"}}
-        tools.append({**entry, "tailoring": overrides} if overrides else entry)
-    return tools
-
-
-def import_entry(tool):
-    """What the import takes for a tool: the words the file writes for a model are part of the definition it is imported
-    with. They are not saved after the import, because API Management 4.13.1 refuses every save of a tool made from an
-    API ("parentId is required for this kind": such a tool has no parent server)."""
-    entry = {k: v for k, v in tool.items() if k != "tailoring"}
-    words = {k: v for k, v in (tool.get("tailoring") or {}).items() if k in TAILORED}
-    if words:
-        entry["definition"] = {**entry["definition"], **words}
-    return entry
-
-
-def tailor(aim, name, imported, tools):
-    """Writes into the imported tools the references their file gives, which go in the extensions of a tool and which
-    the import does not take. A save replaces the tool, so it sends back the tool as it was read: the source, the
-    entity id, the definition, and the extensions, which hold the mapping to the API."""
-    stored = {t["definition"]["name"]: t for t in imported}
-    count = 0
-    for tool in tools:
-        overrides, operation = tool.get("tailoring"), tool["definition"]["name"]
-        if not overrides:
-            continue
-        if operation not in stored:
-            raise SeedError(f"The platform did not give back the tool {operation} of '{name}'")
-        count += 1
-        if not any(k in overrides for k in REFERENCES):
-            continue
-        try:
-            current = aim.get(f"{TOOL_PATH}/{stored[operation]['id']}").json()
-            definition = {k: v for k, v in current["definition"].items() if k != "outputSchema"}
-            definition.update({k: overrides[k] for k in TAILORED if k in overrides})
-            extensions = {**(current.get("extensions") or {}),
-                          **{k: overrides[k] for k in REFERENCES if k in overrides}}
-            aim.put(f"{TOOL_PATH}/{current['id']}",
-                    json={"sourceId": current["sourceId"], "entityId": current["entityId"], "definition": definition,
-                          "extensions": extensions, "metadata": current.get("metadata") or {}})
-        except SeedError as e:   # the platform's refusal does not say which tool it was
-            raise SeedError(f"The tool {operation} of '{name}' could not be tailored: {e}") from e
-    return count
+    return [{"apiId": api_id, "gatewayMapping": tool["gatewayMapping"],
+             "definition": {**{k: v for k, v in tool["toolDefinition"].items() if k != "outputSchema"}, **overrides}}
+            for tool, overrides in chosen]
 
 
 def api_source(aim, name):
@@ -653,16 +577,14 @@ def seed_api_tools(aim):
     What the file asks counts as a change of the API: another list of operations, or other words written for a tool,
     are a new fingerprint, and the tools are replaced. They could be edited in place, but a studio keeps a copy of each
     tool it was made with: a tool edited in place would leave the studio serving the old words, where a replacement
-    releases the studios, which are made again from the new tools. The words are part of the import (import_entry); the
-    references (REFERENCES) are written right after it, and the tools are recorded without their fingerprint until they
-    are: a seed that stops between the two replaces the tools on its next run."""
+    releases the studios, which are made again from the new tools."""
     # Every file is read first: one that asks what cannot be done stops the seed before anything changes
     asked = [(spec["api"], operations_of(spec)) for spec in specs("api-tools", "api")]
     for name, operations in asked:
         api = api_source(aim, name)
         generated = aim.post("/catalog/api-tools/_generateCapabilities", json={"apiIds": [api["id"]]}).json()["data"][0]
         tools = tools_of(name, api["id"], generated, operations)
-        digest = fingerprint(tools)
+        digest = digest_of(tools)
         sources = aim.rows("/catalog/sources", CATALOG, sourceKind="apim.api")
         source = next((s for s in sources if s["definition"].get("apiId") == api["id"]), None)
         found, ours = own("api-tools", [source] if source else [], f"The tools of the API '{name}'", name)
@@ -673,15 +595,11 @@ def seed_api_tools(aim):
             release_studios(aim)
             aim.delete(f"{PATHS['api-tools']}/{found['id']}")
             common.forget(ours)   # gone: its import is noted
-        body = {"sources": [{"apiId": api["id"], "apiName": name}],
-                "tools": [import_entry(t) for t in tools]}
+        body = {"sources": [{"apiId": api["id"], "apiName": name}], "tools": tools}
         with common.making(SECTION, "api-tools", LABELS["api-tools"], name, missing=True):
             imported = aim.post("/catalog/mcp-tools/_importFromApis", json=body).json()["data"]
-            record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"])
-        tailored = tailor(aim, name, imported, tools)
-        record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"], digest=digest)
-        say("api-tools", "replaced" if found else "imported",
-            f"{name} ({len(imported)} tools{f', {tailored} tailored' if tailored else ''})")
+            record(SECTION, "api-tools", LABELS["api-tools"], name, imported[0]["sourceId"], digest=digest)
+        say("api-tools", "replaced" if found else "imported", f"{name} ({len(imported)} tools)")
 
 
 # --- The module -----------------------------------------------------------------------------

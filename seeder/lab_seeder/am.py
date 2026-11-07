@@ -25,8 +25,8 @@ file's: it is never generated, read back or logged.
 import json
 import os
 
-from .common import (REFUSED, Api, SeedError, adopted, excerpt, files, forget, items, load, log, making, owned, pending, record, recorded,
-                     seed_file, setting, unmade, wait_until)
+from .common import (REFUSED, Api, SeedError, adopted, contains, files, forget, items, load, log, making, owned, record, recorded,
+                     seed_file, setting, wait_until)
 
 SECTION = "am"
 # What it records, dependents first
@@ -39,15 +39,6 @@ SCOPE_APPROVAL_SECONDS = 300
 # The kinds of agent that AM starts with `private_key_jwt`; a file that gives one a secret has it sign in with it
 KEYED_KINDS = ("HOSTED_DELEGATED", "AUTONOMOUS")
 SCOPES_PER_PAGE = 50   # AM answers no more, whatever the request asks
-
-
-def contains(actual, wanted):
-    """Whether `actual` holds everything `wanted` says: the platform adds defaults and ids of its own."""
-    if isinstance(wanted, dict):
-        return isinstance(actual, dict) and all(k in actual and contains(actual[k], v) for k, v in wanted.items())
-    if isinstance(wanted, list):
-        return isinstance(actual, list) and len(actual) == len(wanted) and all(contains(a, w) for a, w in zip(actual, wanted))
-    return actual == wanted
 
 
 def same_scopes(actual, wanted):
@@ -278,38 +269,13 @@ class AccessManagement:
     # --- Users ----------------------------------------------------------------------------
 
     def user(self, spec):
+        """A user, created when missing, then its profile (`additionalInformation`, which the tokens carry) made to hold what the
+        file says. AM adds fields of its own to it at the first sign-in, which are kept."""
         spec = {key: value for key, value in spec.items() if key != "optional"}   # the seed's flag, not a user's field
-        if "additionalInformation" in spec:
-            self._user_with_profile(spec)
-            return
-        username = spec["username"]
-        found = self._find_user(username) if pending(SECTION, "user", username) else None   # the answer an earlier seed lost
-        if found and adopted(SECTION, "user", username, found["id"], domain=self.domain_id):
-            log(SECTION, f"User exists: {username}")
-            return
-        with making(SECTION, "user", "users", username, domain=self.domain_id):
-            r = self.api.post(f"{self.domain_url}/users", expect=(200, 201, 202, 400), json={
-                "forceResetPassword": False, "preRegistration": False, **spec})
-            if r.status_code == 400:
-                unmade(SECTION, "user", username)
-                if "already exists" not in r.text.lower():
-                    raise SeedError(f"User '{username}': {excerpt(r.text, 300)}")
-            else:
-                record(SECTION, "user", "users", username, r.json()["id"], domain=self.domain_id)
-        log(SECTION, f"{'✓ User created' if r.status_code != 400 else 'User exists'}: {username}")
-
-    def _find_user(self, username):
-        users = items(self.api.get(f"{self.domain_url}/users", params={"q": username, "size": 50}).json())
-        return next((u for u in users if u["username"] == username), None)
-
-    def _user_with_profile(self, spec):
-        """A user whose profile (`additionalInformation`) the tokens carry: created when missing, then its profile made to
-        hold what the file says. AM adds fields of its own to it at the first sign-in, which are kept."""
-        username, profile = spec["username"], spec["additionalInformation"]
-        found = self._find_user(username)
-        if found:
-            user = self.api.get(f"{self.domain_url}/users/{found['id']}").json()
-            adopted(SECTION, "user", username, found["id"], domain=self.domain_id)
+        username, profile = spec["username"], spec.get("additionalInformation")
+        user = self._find_user(username)
+        if user:
+            adopted(SECTION, "user", username, user["id"], domain=self.domain_id)
             log(SECTION, f"User exists: {username}")
         else:
             body = {k: v for k, v in spec.items() if k != "additionalInformation"}
@@ -318,12 +284,18 @@ class AccessManagement:
                     "forceResetPassword": False, "preRegistration": False, **body}).json()
                 record(SECTION, "user", "users", username, user["id"], domain=self.domain_id)
             log(SECTION, f"✓ User created: {username}")
-        current = user.get("additionalInformation") or {}
+        if profile is None:
+            return
+        current = self.api.get(f"{self.domain_url}/users/{user['id']}").json().get("additionalInformation") or {}
         if not contains(current, profile):
             self.api.put(f"{self.domain_url}/users/{user['id']}", json={
                 "email": spec["email"], "firstName": spec["firstName"], "lastName": spec["lastName"],
                 "additionalInformation": {**current, **profile}})
             log(SECTION, f"  ✓ Profile of {username}")
+
+    def _find_user(self, username):
+        users = items(self.api.get(f"{self.domain_url}/users", params={"q": username, "size": 50}).json())
+        return next((u for u in users if u["username"] == username), None)
 
     # --- Groups ---------------------------------------------------------------------------
 

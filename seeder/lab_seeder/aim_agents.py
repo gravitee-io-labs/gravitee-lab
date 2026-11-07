@@ -58,8 +58,6 @@ UNSERVED = ("The agent '{name}': this platform has no application for an agent o
             "(/catalog/agents/{{id}}/application), which the keys identity and access of seed/aim/agents need: they work on the "
             "amp-demo build, not on API Management 4.13.1. There, give the agent an application of seed/apim/applications whose "
             "client_id is its client ID in Access Management, and subscribe it to the plan of the studio")
-# What closing a subscription answers when it is done: or closed already (400), or gone with its studio (404)
-CLOSED = (200, 202, 204, 400, 404)
 # What detaching an identity answers when there is nothing to do or to reach: no identity attached (409), the agent or
 # its application gone (404), Access Management out of reach (502)
 DETACHED = (200, 404, 409, 502)
@@ -354,9 +352,9 @@ def remove(records):
     for x in mine:
         if x["kind"] == "subscription":
             if x.get("via") == apim.SECTION:   # to an API of seed/apim, closed where it was made
-                agents.g.v2.post(f"/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED, idempotent=True)
+                agents.g.v2.post(f"/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=apim.ENDED, idempotent=True)
             else:
-                agents.aim.post(f"/mcp-proxies/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED, idempotent=True)
+                agents.aim.post(f"/mcp-proxies/{x['api']}/subscriptions/{x['id']}/_close", expect=apim.ENDED, idempotent=True)
             forget(x)
             log(SECTION, f"✓ Closed subscription '{x['name']}'")
         else:

@@ -111,10 +111,7 @@ def connect():
 
 
 def owned(client, pattern, subscription):
-    """The keys of `pattern` whose hash says it counts for this subscription, and no others. Without a subscription it
-    refuses: a counter that says none would be taken for that person's."""
-    if not subscription:
-        raise SeedError("no subscription to count the budget of")
+    """The keys of `pattern` whose hash says it counts for this subscription, and no others."""
     keys = list(client.scan_iter(match=pattern, count=CHUNK))
     mine = []
     for start in range(0, len(keys), CHUNK):

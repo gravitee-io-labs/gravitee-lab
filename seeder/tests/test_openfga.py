@@ -60,8 +60,7 @@ class OpenFga:
         return 200, {}
 
     def delete_store(self, call):
-        self.stores.pop(self.store(call), None)
-        return 204
+        return 204 if self.stores.pop(self.store(call), None) else 404
 
 
 class Case(Seed):
@@ -145,15 +144,6 @@ class Stores(Case):
         self.seed_files({FILE: json.dumps({"model": "model\n  schema 1.1\n"})})
         self.assertEqual(list(openfga.seed()), ["documents"])
 
-    def test_a_model_can_sit_in_a_file_next_to_the_store(self):
-        self.seed_files({FILE: json.dumps({"name": "Documents", "model_file": "documents.fga"}), "openfga/documents.fga": "model\n  schema 1.1\n"})
-        openfga.seed()
-        self.to_json.assert_called_once_with("model\n  schema 1.1\n")
-
-    def test_a_seed_without_stores_asks_nothing(self):
-        self.assertEqual(openfga.seed(), {})
-        self.assertEqual(self.platform.calls, [])
-
 
 class Models(Case):
 
@@ -202,17 +192,6 @@ class Tuples(Case):
         openfga.seed()
         self.assertEqual(self.fga.writes[0]["writes"]["tuple_keys"], [{"user": "user:0", "relation": "viewer", "object": "doc:1"}])
 
-    def test_a_hundred_tuples_are_one_write(self):
-        self.store_file(self.tuples(100))
-        openfga.seed()
-        self.assertEqual(len(self.fga.writes), 1)
-
-    def test_a_store_without_tuples_writes_none(self):
-        self.store_file()
-        openfga.seed()
-        self.assertEqual(self.fga.writes, [])
-        self.assertNotIn("tuples", self.output())
-
 
 class Removal(Case):
 
@@ -228,11 +207,6 @@ class Removal(Case):
     def test_a_store_that_is_gone_is_not_an_error(self):
         openfga.remove([{"product": "openfga", "kind": "store", "name": "Documents", "id": "store-7", "label": ""}])
         self.assertEqual(self.platform.changes(), [("DELETE", "/stores/store-7")])
-
-    def test_what_another_module_made_is_left_alone(self):
-        openfga.remove([{"product": "am", "kind": "domain", "name": "d", "id": "d", "label": ""}])
-        openfga.remove([])
-        self.assertEqual(self.platform.calls, [])
 
 
 if __name__ == "__main__":

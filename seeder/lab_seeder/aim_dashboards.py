@@ -7,8 +7,7 @@ what the gateway reports.
 """
 
 from . import gamma
-from .aim_workspaces import subset
-from .common import HttpError, SeedError, adopted, files, forget, has_seed, load, log, making, owned, record, recorded
+from .common import HttpError, SeedError, adopted, contains, files, forget, has_seed, load, log, making, owned, record, recorded
 
 SECTION = "aim-dashboards"
 # The folder of the seed it owns
@@ -39,7 +38,7 @@ class Dashboards:
             log(SECTION, f"✓ Dashboard created: {title}")
         elif not recorded(SECTION, "dashboard", dashboard_id) and not adopted(SECTION, "dashboard", title, dashboard_id):
             raise SeedError(f"Dashboard {title}: {dashboard_id} is the id of a dashboard the seed did not create")
-        elif not subset(content, stored.json()):
+        elif not contains(stored.json(), content):
             module = stored.json().get("module")   # one that has a module keeps it
             self.api.put(f"/dashboards/{dashboard_id}", json={**content, **({"module": module} if module else {})},
                          headers={"If-Match": "*"})   # whatever revision is stored

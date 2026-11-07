@@ -31,7 +31,7 @@ changed them since, and switches the frameworks off. The answers and the attesta
 aim_catalog deletes.
 """
 
-from .aim_catalog import fingerprint
+from .apim import digest_of
 from .common import SeedError, adopted, created, forget, has_seed, items, load, log, making, owned, record, seed_file
 from .gamma import CATALOG, Gamma
 
@@ -263,7 +263,7 @@ class Governance:
         agent = self.agent(slug)
         name, base = agent["definition"]["name"], f"/compliance/agents/{agent['id']}"
         values = self.values(entry.get("metadata") or {})
-        digest, earlier, assessment = fingerprint(values), stored("compliance-answers", agent["id"]), None
+        digest, earlier, assessment = digest_of(values), stored("compliance-answers", agent["id"]), None
         if values and (earlier is None or earlier.get("digest") != digest):
             assessment = self.aim.put(f"{base}/metadata", json={"values": values}).json()
             record(SECTION, "compliance-answers", LABELS["compliance-answers"], name, agent["id"], digest=digest)

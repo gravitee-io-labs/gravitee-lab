@@ -18,8 +18,8 @@ on *Re-seed*, and runs `seed.py --remove` for *Delete what it created*. The serv
 | Where | What |
 |---|---|
 | `lab_seeder/` | The seeder: one module for each thing it seeds, the helpers they share (`common.py`, `controls.py`, `refills.py`, `gamma.py`), the lint of seed files (`seedlint.py`) and the kit of the tests (`testkit.py`) |
-| `seed.py` | The command the image runs: it calls `lab_seeder.seed.main` |
-| `seedlint.py`, `testkit.py` | The paths a catalog reads the lint and the kit at (`python lab/seeder/seedlint.py`, `from testkit import Seed`): each one hands over to the module of the package |
+| `seed.py` | The command the image runs, and the path a playground's own entrypoint script runs (`python seed.py`): it calls `lab_seeder.seed.main` |
+| `seedlint.py` | The path a catalog runs the lint at (`python lab/seeder/seedlint.py`): it hands over to the module of the package |
 | `tests/` | The tests, and the invented samples they read (`fixtures/samples/`) |
 | `Dockerfile`, `requirements.txt` | The image |
 | `README.md`, `AGENTS.md` | This page, and the guide of an agent that works here |
@@ -65,9 +65,8 @@ be independent, it makes at the same time:
   until the platform lists it.
 - **Waits.** The seed does not wait for the gateway: what the management API holds is what the seed made, and the gateway takes
   it within seconds. `SEED_WAIT_GATEWAY=1` brings the waits back (every API served, the protections and the budgets in force, a
-  chat through every LLM proxy), put off to the end of the seed (`common.later`) so the modules that do not need them go on
-  meanwhile. What the seed must wait for to be right stays: an API that is replaced leaves the gateway before it is imported
-  again, a user that a group has just made is looked for until the platform lists it, and with `AM_GATEWAY_URL` the AM gateway
+  chat through every LLM proxy). What the seed must wait for to be right stays: an API that is replaced leaves the gateway
+  before it is imported again, a user that a group has just made is looked for until the platform lists it, and with `AM_GATEWAY_URL` the AM gateway
   serves the domain and knows each application that has a secret, which a service that starts after the seed signs in with
   at once.
 - **Load.** `SEED_WORKERS` (4 by default) is the number of requests in flight at any moment, whatever the number of steps that

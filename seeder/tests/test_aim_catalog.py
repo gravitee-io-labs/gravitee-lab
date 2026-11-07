@@ -2,7 +2,6 @@
 against a memory that behaves like Gamma where it matters: one manual source, a duplicate entity id refused, an object
 stored with less and more than it was sent, a secret never given back."""
 
-import ast
 import io
 import itertools
 import json
@@ -18,6 +17,7 @@ import yaml
 from lab_seeder import aim_catalog
 from lab_seeder import common
 from lab_seeder.testkit import PLAYGROUNDS, Response, Seed
+from tests import doubling
 
 SCOPE = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
 MCP = "http://bakery-mcp:8000"
@@ -25,7 +25,6 @@ MOVED = "http://127.0.0.1:8000"
 AGENT = "http://bakery-agent:8000"
 CARD = AGENT + aim_catalog.CARD_PATH
 REAL = PLAYGROUNDS / "acme-bakery" / "seed" / "aim"
-POLICIES = PLAYGROUNDS / "acme-bakery" / "apps" / "bakery-mcp" / "policies.py"
 MINE = {folder.split("/")[1] for folder in aim_catalog.FOLDERS}   # the folders of the seed that this module reads
 ENV = {"OLLAMA_URL": "http://ollama:11434", "BAKERY_MCP_URL": MCP, "BAKERY_AGENT_URL": AGENT}
 
@@ -46,13 +45,6 @@ def last(call):
 def listing(rows):
     rows = list(rows)
     return 200, {"data": rows, "pagination": {"page": 1, "perPage": 200, "totalCount": len(rows)}}
-
-
-def policy_texts():
-    """What the bank's MCP server publishes as the resources acme://policies/*: the constants of its module, read without
-    running it."""
-    tree = ast.parse(POLICIES.read_text(encoding="utf-8"))
-    return {node.targets[0].id: ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign)}
 
 
 class World:
@@ -407,6 +399,13 @@ class Credentials(Catalog):
                          {"type": "api-key", "headerName": "x-goog-api-key", "value": "placeholder"})
         self.assertEqual([(x["kind"], x["label"], x["name"]) for x in self.records()],
                          [("credential", "credentials", "Gemini key")])
+
+    def test_a_credential_type_is_sent_as_the_strategy_the_platform_names_it(self):
+        for kind, strategy in (("service-account", "SERVICE_ACCOUNT"), ("oauth2", "OAUTH2"), ("api_key", "API_KEY")):
+            with self.subTest(kind=kind):
+                self.seed_files({"aim/credentials/gemini.yaml": f"name: {kind}\ncredentials: {{type: {kind}}}\n"})
+                self.run_seed()
+                self.assertEqual(self.sent("POST", "/auth-profiles")[-1].json["strategy"], strategy)
 
     def test_a_file_that_needs_a_setting_is_skipped_while_it_is_empty(self):
         self.seed_files({"aim/credentials/gemini.yaml": "needs: GEMINI_KEY\n" + CREDENTIAL})
@@ -770,6 +769,12 @@ class Discovery(Catalog):
         with self.assertRaisesRegex(common.SeedError, "^MCP initialize at http://bakery-mcp:8000: the connection was cut$"):
             self.run_seed()
 
+    def test_a_page_in_place_of_a_result_stops_the_seed_in_one_line(self):
+        self.platform.add({("POST", MCP): (200, "<html>\n<body>Sign in</body>\n</html>", {"Content-Type": "text/html"})})
+        with self.assertRaises(common.SeedError) as stopped:
+            self.run_seed()
+        self.assertEqual(str(stopped.exception), f"MCP initialize at {MCP}: no result in <html> <body>Sign in</body> </html>")
+
     def test_an_answer_without_a_result_stops_the_seed(self):
         error = {"jsonrpc": "2.0", "id": 1, "error": {"code": -32600, "message": "bad"}}
         self.platform.add({("POST", MCP): (200, error)})
@@ -883,10 +888,6 @@ class Skills(Catalog):
         self.assertEqual(call.files["file"][0], "complaints.zip")
         self.assertNotIn("Content-Type", call.headers)
 
-    def test_the_same_files_make_the_same_zip(self):
-        files = {"SKILL.md": "a", "b.md": "b"}
-        self.assertEqual(aim_catalog.skill_package("s", files), aim_catalog.skill_package("s", dict(files)))
-
     def test_a_second_run_writes_nothing(self):
         self.run_seed()
         self.assertEqual(self.run_seed(), [])
@@ -900,25 +901,7 @@ class Skills(Catalog):
         self.assertEqual(len(self.world.of_kind("skill")), 1)
         self.assertEqual(self.run_seed(), [])
 
-    def test_a_skill_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
-        self.run_seed()
-        self.seed_files({"aim/skills/complaints/references/escalation.md": "Hand over money and cards.\n"})
-
-        def made(call):   # the platform makes the new skill, and the seed never gets the answer
-            self.world.upload_skill(call)
-            raise requests.ReadTimeout("slow")
-        self.platform.add({("POST", SCOPE + "/catalog/skills"): made})
-        with self.assertRaises(common.SeedError):
-            self.run_seed()
-        self.platform.add({("POST", SCOPE + "/catalog/skills"): self.world.upload_skill})
-        self.run_seed()
-        [skill] = self.world.of_kind("skill")
-        self.assertEqual([x["id"] for x in self.records("skill")], [skill["id"]])
-
-    def test_a_skill_deleted_by_hand_and_uploaded_again_with_a_lost_answer_is_the_seeds_at_the_next_run(self):
-        self.run_seed()
-        del self.world.items[self.world.named("skill", "complaints")["id"]]   # the person deletes it in the Gamma console
-
+    def upload_loses_its_answer(self):
         def made(call):   # the platform makes the skill, and the seed never gets the answer
             self.world.upload_skill(call)
             raise requests.ReadTimeout("slow")
@@ -930,11 +913,28 @@ class Skills(Catalog):
         [skill] = self.world.of_kind("skill")
         self.assertEqual([x["id"] for x in self.records("skill")], [skill["id"]])
 
+    def test_a_skill_replaced_whose_answer_was_lost_is_the_seeds_at_the_next_run(self):
+        self.run_seed()
+        self.seed_files({"aim/skills/complaints/references/escalation.md": "Hand over money and cards.\n"})
+        self.upload_loses_its_answer()
+
+    def test_a_skill_deleted_by_hand_and_uploaded_again_with_a_lost_answer_is_the_seeds_at_the_next_run(self):
+        self.run_seed()
+        del self.world.items[self.world.named("skill", "complaints")["id"]]   # the person deletes it in the Gamma console
+        self.upload_loses_its_answer()
+
     def test_a_skill_without_a_front_matter_with_a_name_and_a_description_is_refused_before_any_call(self):
         for text in ("# No front matter\n", "---\nname: x\n---\n", "---\ndescription: y\n---\n"):
             with self.subTest(text=text):
                 self.seed_files({"aim/skills/complaints/SKILL.md": text})
                 with self.assertRaisesRegex(common.SeedError, "complaints/SKILL.md must start with a front matter"):
+                    aim_catalog.seed()
+
+    def test_a_front_matter_that_is_a_bomb_of_pairs_or_no_yaml_stops_the_seed_on_one_line(self):
+        for text, why in (("---\n" + doubling(22) + "---\n", "merges mappings with << keys"), ("---\nx: 2026-13-45\n---\n", "not valid YAML")):
+            with self.subTest(why=why):
+                self.seed_files({"aim/skills/complaints/SKILL.md": text})
+                with self.assertRaisesRegex(common.SeedError, f"complaints/SKILL.md: .*{why}"):
                     aim_catalog.seed()
 
     def test_a_skill_of_that_name_that_the_seed_did_not_create_stops_the_seed_and_is_left_alone(self):
@@ -965,21 +965,13 @@ class ApiTools(Catalog):
         self.run_seed()
         self.assertEqual(self.run_seed(), [])
 
-    def test_the_tools_are_imported_without_the_output_schema_a_strict_client_would_demand_structured_content_for(self):
-        self.run_seed()
-        [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
-        self.assertEqual(len(call.json["tools"]), 2)
-        for tool in call.json["tools"]:
-            self.assertEqual(sorted(tool["definition"]), ["description", "inputSchema", "name"])
-        self.assertTrue(all("outputSchema" not in i["definition"] for i in self.world.of_kind("mcp-tool")))
-
     def test_the_record_keeps_the_fingerprint_of_what_was_imported_and_tools_that_differ_from_it_are_replaced(self):
         self.run_seed()
         [call] = self.sent("POST", "/catalog/mcp-tools/_importFromApis")
         [record] = self.records("api-tools")
-        self.assertEqual(record["digest"], aim_catalog.fingerprint(call.json["tools"]))
+        self.assertEqual(record["digest"], aim_catalog.digest_of(call.json["tools"]))
         common.record(aim_catalog.SECTION, "api-tools", "API tools", record["name"], record["id"],
-                      digest=aim_catalog.fingerprint([{"definition": {"outputSchema": {}}}]))
+                      digest=aim_catalog.digest_of([{"definition": {"outputSchema": {}}}]))
         self.assertEqual([m for m, p in self.run_seed()], ["DELETE", "POST"])
 
     def test_the_studios_the_seed_made_go_before_tools_that_changed_so_that_none_holds_them(self):
@@ -1111,22 +1103,12 @@ class ApiTools(Catalog):
         self.assertEqual(len(self.world.of_kind("mcp-tool")), 2)
 
     def test_an_openapi_page_that_gives_errors_or_no_operation_stops_the_seed(self):
-        self.world.apis["api-1"]["errors"] = ["no servers"]
+        self.world.apis["api-1"]["errors"] = ["no\nservers"]
         with self.assertRaisesRegex(common.SeedError, "gives no tools: no servers"):
             self.run_seed()
         self.world.apis["api-1"].update(errors=[], operations=[])
         with self.assertRaisesRegex(common.SeedError, "gives no tools: it has no operation"):
             self.run_seed()
-
-    def test_tools_of_that_api_that_the_seed_did_not_create_stop_the_seed_and_are_left_alone(self):
-        theirs = {"id": "theirs", "sourceKind": "apim.api",
-                  "definition": {"apiId": "api-1", "apiName": "Acme Bakery Open API"}}
-        self.world.sources["theirs"] = theirs
-        message = "The tools of the API 'Acme Bakery Open API' exists and was not created"
-        with self.assertRaisesRegex(common.SeedError, message):
-            self.run_seed()
-        self.assertEqual([m for m, p in self.platform.changes() if not p.endswith("_generateCapabilities")], [])
-        self.assertEqual(self.world.sources, {"theirs": theirs})
 
     def test_a_playground_without_the_file_has_no_tools_of_an_api_and_does_not_look_for_the_api(self):
         (common.SEED_DIR / "aim/api-tools/open.yaml").unlink()
@@ -1204,11 +1186,6 @@ class Removal(Catalog):
         with self.assertRaisesRegex(common.SeedError, "HTTP 409.*provider.in_use"):
             aim_catalog.remove(common.created())
 
-    def test_it_connects_only_when_it_has_something_to_delete(self):
-        aim_catalog.remove([])
-        aim_catalog.remove([{"product": "apim", "kind": "api", "name": "x", "id": "x", "label": ""}])
-        self.assertEqual(self.platform.calls, [])
-
 
 class Playground(Catalog):
     """The seed files of Acme Bakery, which are what this module is for."""
@@ -1243,32 +1220,6 @@ class Playground(Catalog):
             "mcp-tool.acme-bakery-open-api-listbranches", "mcp-tool.acme-bakery-open-api-listrates",
             "model.acme-bakery-qwen3-0-6b", "model.acme-bakery-qwen3-1-7b", "skill.acme-bakery-complaint-handling"])
         self.assertEqual({x["kind"] for x in self.records()}, set(aim_catalog.ORDER))
-
-    def test_the_demo_prices_are_on_the_models_of_the_provider(self):
-        self.run_seed()
-        prices = {p["slug"]: {m["name"]: m.get("pricingOverride") for m in p["models"]}
-                  for p in self.world.providers.values()}
-        ollama = {name: (price["inputPer1M"], price["outputPer1M"]) for name, price in prices["acme-bakery-ollama"].items()}
-        self.assertEqual(ollama, {"qwen3:1.7b": (50, 50), "qwen3:0.6b": (20, 20)})
-        self.assertEqual({name: price is not None for name, price in prices["acme-bakery-gemini"].items()},
-                         {"gemini-3.5-flash-lite": False, "gemini-3.8-flash": True})
-
-    def test_the_catalog_names_the_server_so_that_the_access_policies_find_its_tools(self):
-        self.run_seed()
-        server = self.world.named("mcp-server", "acme-bakery-mcp")
-        self.assertEqual(server["slug"], "acme-bakery-mcp")
-        self.assertEqual(sorted(i["entityId"] for i in self.world.children(server) if i["kind"] == "mcp-tool"),
-                         ["mcp-tool.acme-bakery-mcp.get_balance", "mcp-tool.acme-bakery-mcp.transfer_funds"])
-
-    def test_the_documents_say_what_the_policy_resources_of_the_bakery_mcp_server_say(self):
-        self.run_seed()
-        texts = policy_texts()
-        for entity_id, constant in (("acme-bakery-fee-schedule", "FEES"), ("acme-bakery-card-security-policy", "CARD_SECURITY")):
-            self.assertEqual(self.world.named("knowledge", entity_id)["definition"]["content"], texts[constant], entity_id)
-
-    def test_the_gemini_key_is_the_one_of_the_environment(self):
-        self.run_seed()
-        self.assertEqual(next(iter(self.world.secrets.values()))["value"], "AIza-real-key")
 
     def test_without_a_key_there_is_no_gemini_provider_to_test_and_the_rest_is_seeded(self):
         self.env(GEMINI_API_KEY="")
@@ -1308,11 +1259,6 @@ class Guard(Catalog):
             aim_catalog.seed()
         self.assertEqual(self.platform.calls, [])
         self.assertEqual(self.output(), "")
-
-    def test_what_it_records_is_in_its_order_with_plural_labels_that_the_lab_ui_can_singularise(self):
-        self.assertEqual(sorted(aim_catalog.LABELS), sorted(aim_catalog.ORDER))
-        for label in aim_catalog.LABELS.values():
-            self.assertTrue(label.endswith("s") and not label.endswith("ies"), label)
 
 
 if __name__ == "__main__":

@@ -54,7 +54,6 @@ def log(section, message):
 
 WORKERS = 1
 STOP = threading.Event()   # set by the first failure
-_failures = []
 _gate = threading.BoundedSemaphore(1)
 _state = threading.RLock()   # held by whoever reads what the seed created, changes it and writes it back
 
@@ -68,22 +67,6 @@ def configure(workers=None):
         raise SeedError("SEED_WORKERS is a number of requests") from None
     _gate = threading.BoundedSemaphore(WORKERS)
     STOP.clear()
-    _failures.clear()
-    _later.clear()
-    _deferring[0] = False
-
-
-def stop(error):
-    """Records the first failure and tells every other step to stop."""
-    with _state:
-        if not _failures and not isinstance(error, Stopped):
-            _failures.append(error)
-        STOP.set()
-
-
-def failure():
-    """The first failure of the seed, or None."""
-    return _failures[0] if _failures else None
 
 
 def check():
@@ -99,11 +82,11 @@ def pause(seconds):
 
 
 def guarded(function, *args):
-    """function(*args); an error ends the seed for everyone, and is the one reported when it is the first."""
+    """function(*args); an error ends the seed for everyone."""
     try:
         return function(*args)
-    except BaseException as error:
-        stop(error)
+    except BaseException:
+        STOP.set()
         raise
 
 
@@ -120,8 +103,6 @@ def parallel(function, items):
         error = future.exception()
         if error is not None and not isinstance(error, Stopped):
             raise error
-    if STOP.is_set():
-        raise failure() or SeedError("the seed was stopped")
     return [future.result() for future in futures]
 
 
@@ -137,30 +118,6 @@ def together(jobs):
     """Calls each of `jobs`, no argument, at the same time as SEED_WORKERS allows: steps of different kinds that do not depend on
     one another."""
     return parallel(lambda job: job(), jobs)
-
-
-_later = []
-_deferring = [False]
-
-
-def defer_waits():
-    """From now on `later` puts a wait off to the end of the seed (seed.py asks for it; a module run alone waits where it is)."""
-    _deferring[0] = True
-
-
-def later(what, function):
-    """A wait that nothing else depends on, put off to the end of the seed, where all of them are made at the same time, so that
-    the steps that do not need it go on meanwhile. Made at once when the seed does not defer them."""
-    if _deferring[0]:
-        _later.append((what, function))
-    else:
-        function()
-
-
-def run_later():
-    pending = list(_later)
-    _later.clear()
-    parallel(lambda each: each[1](), pending)
 
 
 def excerpt(text, limit=500):
@@ -361,27 +318,6 @@ def parse_yaml(text, path="the text", fill=None):
         loader.dispose()
 
 
-def parse_yaml_all(text, path="the text", fill=None):
-    """`list(yaml.safe_load_all(text))`, with the guard of `parse_yaml` for a text of several documents: the pairs the loader
-    would copy for all of them are counted together, and a text that asks for more than COPIED is a MergeError before any
-    document is built. A document is composed once, and the count is of that."""
-    loader = _Loader(text)
-    try:
-        roots, total = [], 0
-        while loader.check_node():
-            root = loader.get_node()
-            if "<<" in text or "!" in text:
-                total += _copied(root)
-                if total > COPIED:
-                    raise MergeError(f"{path}: {MERGES}")
-            roots.append(root)
-        for root in roots if fill else ():
-            fill(root, loader)
-        return [loader.construct_document(root) for root in roots]
-    finally:
-        loader.dispose()
-
-
 STR = "tag:yaml.org,2002:str"
 
 
@@ -417,19 +353,17 @@ def unreadable(path, error):
     return f"{path}: it is not valid YAML once its variables are replaced" + (f" (line {mark.line + 1})" if mark else "")
 
 
-def render_yaml(text, path, provided=None, every=False):
-    """A YAML file read as a document (or the list of the documents of it, `every`), with the variables replaced in each of
-    its strings, as `render_json` does for JSON: a value with a quote, a backslash or a line break arrives as it was set and
-    leaves the file around it as it is. A file that is no YAML until its variables are replaced is replaced as text. YAML that
-    would make the loader copy millions of pairs for its merge keys is a MergeError, and a file that is no YAML says at which
-    line, never what it holds."""
-    parse = parse_yaml_all if every else parse_yaml
+def render_yaml(text, path, provided=None):
+    """A YAML file read as a document, with the variables replaced in each of its strings, as `render_json` does for JSON: a
+    value with a quote, a backslash or a line break arrives as it was set and leaves the file around it as it is. A file that
+    is no YAML until its variables are replaced is replaced as text. YAML that would make the loader copy millions of pairs for
+    its merge keys is a MergeError, and a file that is no YAML says at which line, never what it holds."""
     missing = set()
     try:
-        loaded = parse(text, path, _filler(missing, provided))
+        loaded = parse_yaml(text, path, _filler(missing, provided))
     except yaml.YAMLError:
         try:
-            return parse(render(text, path, provided=provided), path)
+            return parse_yaml(render(text, path, provided=provided), path)
         except (yaml.YAMLError, ValueError) as e:
             raise SeedError(unreadable(path, e)) from e
     except ValueError as e:   # a value that YAML reads as a date that is none
@@ -615,6 +549,15 @@ def items(data):
     if isinstance(data, dict):
         return data.get("data", data.get("content", []))
     return data or []
+
+
+def contains(live, wanted):
+    """Whether `live` holds everything `wanted` says: the platform adds defaults, ids and stamps of its own, which are not a change."""
+    if isinstance(wanted, dict):
+        return isinstance(live, dict) and all(contains(live.get(key), value) for key, value in wanted.items())
+    if isinstance(wanted, list):
+        return isinstance(live, list) and len(live) == len(wanted) and all(contains(a, b) for a, b in zip(live, wanted))
+    return live == wanted
 
 
 # --- What the seed created ---------------------------------------------------------------

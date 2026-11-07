@@ -37,7 +37,7 @@ PHASES = ("request", "response")
 FILE = "controls.yaml"
 
 _matched = set()    # the controls whose target a module has found
-_changed = []       # when the seed last deployed something a control changed
+_changed = []       # when the seed last wrote something the gateway has to pick up
 
 
 class Missing(SeedError):
@@ -234,12 +234,12 @@ def named(controls):
 # --- Waiting for the gateway -------------------------------------------------------------------
 
 def touched():
-    """Something a control changed was deployed just now: the gateway has it after its next synchronizations."""
+    """Something the gateway has to pick up was written just now: it has it after its next synchronizations."""
     _changed[:] = [time.time()]
 
 
 def settle():
-    """Waits until the gateway has had two synchronizations since the last deployment of a control."""
+    """Waits until the gateway has had two synchronizations since the last of those writes."""
     if _changed and waits_for_gateway():
         ready = _changed[0] + 2 * float(setting("GATEWAY_SYNC_SECONDS", "5")) + 1
         pause(max(0.0, ready - time.time()))

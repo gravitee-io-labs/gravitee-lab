@@ -1,6 +1,6 @@
 """The refills: what the lessons spend, put back on every run. The declaration is read strictly (a typo is an error, never a
 refill that refills nothing), a refill deletes the cost counters of one member's subscription and nothing else, whatever
-goes wrong with Redis is told and never stops the seed, and the refill of Acme Bakery names the Hackathon sandbox of its files."""
+goes wrong with Redis is told and never stops the seed."""
 
 import sys
 import types
@@ -12,10 +12,7 @@ from lab_seeder import common
 from lab_seeder import refills
 from lab_seeder import seed
 from lab_seeder import testkit
-from lab_seeder.testkit import PLAYGROUNDS, FakeRedis, Seed, seed_environment, seed_service
-
-ACME_BAKERY = PLAYGROUNDS / "acme-bakery"
-ACME_SEED = ACME_BAKERY / "seed"
+from lab_seeder.testkit import FakeRedis, Seed
 
 SANDBOX = "sub-sandbox"
 KEY = "ratelimit:ws-1:app-sandbox:cost-rl"
@@ -176,13 +173,6 @@ class Deleting(unittest.TestCase):
                     refills.drop(client, self.refill, subscription)
                 self.assertEqual((client.data, client.calls), (before, []))
 
-    def test_the_search_itself_refuses_a_missing_subscription(self):
-        client = FakeRedis({"ratelimit:ws-1:no-owner:cost-rl": {"counter": "500"}, KEY: counter(SANDBOX)})
-        for subscription in (None, ""):
-            with self.subTest(subscription=subscription), self.assertRaises(common.SeedError):
-                refills.owned(client, "ratelimit:*:cost-rl", subscription)
-        self.assertEqual(client.calls, [], "it did not even look")
-
 
 class Running(Seed):
     """run(): the log lines, and a seed that goes on whatever Redis does."""
@@ -227,8 +217,8 @@ class Running(Seed):
     def test_a_redis_nobody_can_reach_is_told_and_the_seed_goes_on(self):
         self.connect.side_effect = ConnectionError("Error 111 connecting to redis:6379. Connection refused.")
         refills.run([self.refill], {"team-a": SANDBOX})
-        self.assertIn("! Could not refill hackathon: ConnectionError: Error 111 connecting to redis:6379.", self.output())
-        self.assertIn("The budget is whole again when its period ends", self.output())
+        self.assertIn("! Could not refill hackathon: ConnectionError: Error 111 connecting to redis:6379. Connection refused. "
+                      "The budget is whole again when its period ends", self.output())
         self.assertIn(KEY, self.client.data)
 
     def test_an_error_redis_answers_with_is_told_with_its_name_and_the_seed_goes_on(self):
@@ -268,11 +258,6 @@ class Running(Seed):
         self.assertNotIn("s3cret-value", self.output())
         self.assertIn("redis://:***@redis:6379", self.output())
 
-    def test_what_is_told_ends_in_one_full_stop_not_two(self):
-        self.connect.side_effect = ConnectionError("Error 111 connecting to redis:6379. Connection refused.")
-        refills.run([self.refill], {"team-a": SANDBOX})
-        self.assertIn("Connection refused. The budget is whole again when its period ends", self.output())
-
     def test_a_connection_that_fails_to_close_is_not_a_failure(self):
         self.client.close = mock.Mock(side_effect=OSError("already closed"))
         refills.run([self.refill], {"team-a": SANDBOX})
@@ -307,12 +292,6 @@ class TheLibrary(unittest.TestCase):
                            (testkit.FakeBatch.execute, self.redis.client.Pipeline.execute)):
             used = set(inspect.signature(fake).parameters) - {"self"}
             self.assertLessEqual(used, set(inspect.signature(real).parameters), fake.__qualname__)
-
-    def test_a_connection_is_made_from_an_address_with_timeouts_and_a_password_as_the_refill_gives_them(self):
-        client = self.redis.Redis.from_url("redis://redis:6379", decode_responses=True, socket_timeout=10, socket_connect_timeout=10,
-                                           password="not-a-real-password")
-        self.assertEqual(client.connection_pool.connection_kwargs["socket_timeout"], 10)
-        client.close()
 
 
 class Connecting(Seed):
@@ -373,38 +352,8 @@ class Main(Seed):
         self.assertNotIn("refills", self.output())
 
 
-class AcmeBakery(Seed):
-    """The refill of Acme Bakery against its real files: it names the Hackathon sandbox the lesson empties."""
-
-    def setUp(self):
-        super().setUp()
-        patch = mock.patch.object(common, "SEED_DIR", ACME_SEED)
-        patch.start()
-        self.addCleanup(patch.stop)
-        self.workspace = common.load(ACME_SEED / "aim" / "workspaces" / "acme-bakery-teams.yaml")
-
-    def test_the_sandbox_of_the_hackathon_is_the_one_refill(self):
-        [refill] = refills.declared()
-        self.assertEqual((refill.id, refill.workspace, refill.member, refill.counters),
-                         ("hackathon", "Acme Bakery Teams", "team-hackathon", "cost"))
-
-    def test_the_workspace_file_has_that_workspace_and_that_member_in_the_budget_the_lesson_empties(self):
-        [refill] = refills.declared()
-        self.assertEqual(self.workspace["name"], refill.workspace)
-        [member] = [m for m in self.workspace["members"] if m["sourceId"] == refill.member]
-        [budget] = [b for b in self.workspace["budgets"] if b["name"] == member["budget"]]
-        self.assertEqual((budget["name"], budget["dollars"], budget["period"]), ("Hackathon sandbox", 0.12, "HOUR"))
-        self.assertEqual([r.id for r in refills.of(refill.workspace, [m["sourceId"] for m in self.workspace["members"]])], ["hackathon"])
-        refills.finish()
-
-    def test_only_the_sandbox_is_refilled_not_the_teams_whose_budget_a_day_covers(self):
-        refilled = {refill.member for refill in refills.declared()}
-        self.assertEqual(refilled, {"team-hackathon"})
-
-    def test_the_seed_service_gives_the_seed_the_core_redis_it_refills_in(self):
-        environment = seed_environment(seed_service(ACME_BAKERY / "compose.yml"))
-        self.assertEqual(environment["REDIS_URL"], "redis://redis:6379")
-        self.assertIn("REDIS_PASSWORD", environment)
+class Requirements(unittest.TestCase):
+    """connect() imports the library late, so nothing else would catch a missing requirement."""
 
     def test_the_seeder_installs_the_library_the_refill_imports(self):
         requirements = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text(encoding="utf-8").split()

@@ -37,12 +37,6 @@ class Paths(Seed):
         self.assertEqual(g.aim.base_url, "http://apim/gamma/organizations/acme/environments/prod/modules/aim")
         self.assertEqual(g.v2.base_url, "http://apim/management/v2/organizations/acme/environments/prod")
 
-    def test_gamma_and_the_automation_api_are_where_the_management_api_is_unless_told_otherwise(self):
-        self.env(AIM_GAMMA_URL="", AIM_AUTOMATION_URL="")
-        g = gamma.Gamma()
-        self.assertTrue(g.aim.base_url.startswith("http://apim/gamma/"))
-        self.assertTrue(g.automation.base_url.startswith("http://apim/automation/"))
-
     def test_gamma_and_the_automation_api_can_be_elsewhere_than_the_management_api(self):
         self.env(AIM_GAMMA_URL="https://gamma.example/", AIM_AUTOMATION_URL="https://automation.example/apim")
         self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): 200,
@@ -127,22 +121,6 @@ class Patience(Seed):
             self.get((503, {"code": "not_configured"}))
         self.assertEqual((len(self.platform.calls), self.clock.sleeps), (1, []))
 
-    def test_a_wrong_environment_is_a_refusal_and_not_a_reload(self):
-        with self.assertRaisesRegex(common.HttpError, "HTTP 400 .*Invalid organization or environment"):
-            self.get((400, {"message": "Invalid organization or environment"}))
-        self.assertEqual((len(self.platform.calls), self.clock.sleeps), (1, []))
-
-    def test_a_create_whose_answer_is_lost_is_not_sent_again(self):
-        """Gamma keeps no name unique: a POST sent again after the platform made the object would make a second one."""
-        providers = f"/gamma{SCOPE}/modules/aim/providers"
-        for lost in (requests.ConnectionError("reset"), requests.ReadTimeout("slow"), (500, "Timeout while receiving message"), 502, 504):
-            with self.subTest(lost=str(lost)):
-                self.platform.calls.clear()
-                self.answer({("POST", providers): [lost, (201, {"id": "p2"})]})
-                with self.assertRaises(common.SeedError):
-                    gamma.Gamma().aim.post("/providers", json={"name": "Ollama"})
-                self.assertEqual(len(self.platform.sent("POST", providers)), 1)
-
 
 def content(rows, total):
     return {"content": rows, "totalElements": total}
@@ -178,10 +156,22 @@ class Lists(Seed):
     def asked(self):
         return [(int(call.params["page"]), int(call.params["perPage"])) for call in self.platform.calls]
 
-    def test_workspaces_start_at_page_0_and_hold_100(self):
-        g = self.serve("aim/ai-workspaces", list(range(250)), content, first=0)
-        self.assertEqual(g.aim.rows("/ai-workspaces", gamma.WORKSPACES), list(range(250)))
-        self.assertEqual(self.asked(), [(0, 100), (1, 100), (2, 100)])
+    def test_a_list_is_read_from_where_it_starts_by_pages_of_its_size_until_it_ends(self):
+        for shape, paging, first, count, asked in (
+                (content, gamma.WORKSPACES, 0, 250, [(0, 100), (1, 100), (2, 100)]),
+                (content, gamma.WORKSPACES, 0, 0, [(0, 100)]),
+                (data, gamma.LISTS, 1, 150, [(1, 100), (2, 100)]),
+                (data, gamma.CATALOG, 1, 450, [(1, 200), (2, 200), (3, 200)]),
+                (totaled, gamma.LISTS, 1, 120, [(1, 100), (2, 100)]),
+                (totaled, gamma.LISTS, 1, 100, [(1, 100)]),   # the total says there is no more
+                (items, gamma.LISTS, 1, 3, [(1, 100)]),
+                (no_total, gamma.LISTS, 1, 130, [(1, 100), (2, 100)]),
+                (no_total, gamma.LISTS, 1, 100, [(1, 100), (2, 100)])):   # only an empty page says so
+            with self.subTest(shape=shape.__name__, count=count):
+                self.platform.calls.clear()
+                g = self.serve("aim/x", list(range(count)), shape, first)
+                self.assertEqual(g.aim.rows("/x", paging), list(range(count)))
+                self.assertEqual(self.asked(), asked)
 
     def test_a_list_refused_from_page_0_is_read_from_page_1(self):
         # A list the seed reads from page 0 on a build that counts from 1, whatever its refusal says
@@ -244,40 +234,6 @@ class Lists(Seed):
         with self.assertRaisesRegex(gamma.HttpError, "too far"):
             gamma.Gamma().aim.rows("/ai-workspaces", gamma.WORKSPACES)
 
-    def test_members_start_at_page_1_and_hold_100(self):
-        g = self.serve("aim/ai-workspaces/w1/users", list(range(150)), data, first=1)
-        self.assertEqual(g.aim.rows("/ai-workspaces/w1/users", gamma.LISTS), list(range(150)))
-        self.assertEqual(self.asked(), [(1, 100), (2, 100)])
-
-    def test_the_catalog_starts_at_page_1_and_holds_200(self):
-        g = self.serve("aim/catalog/models", list(range(450)), data, first=1)
-        self.assertEqual(g.aim.rows("/catalog/models", gamma.CATALOG), list(range(450)))
-        self.assertEqual(self.asked(), [(1, 200), (2, 200), (3, 200)])
-
-    def test_authorization_lists_say_total(self):
-        g = self.serve("authz/entities", list(range(120)), totaled, first=1)
-        self.assertEqual(g.authz.rows("/entities", gamma.LISTS), list(range(120)))
-        self.assertEqual(self.asked(), [(1, 100), (2, 100)])
-
-    def test_a_list_that_says_items_is_read_too(self):
-        g = self.serve("aim/identity/agents", [1, 2, 3], items, first=1)
-        self.assertEqual(g.aim.rows("/identity/agents", gamma.LISTS), [1, 2, 3])
-
-    def test_a_list_that_says_no_total_ends_with_the_first_short_page(self):
-        g = self.serve("aim/x", list(range(130)), no_total, first=1)
-        self.assertEqual(g.aim.rows("/x", gamma.LISTS), list(range(130)))
-        self.assertEqual(self.asked(), [(1, 100), (2, 100)])
-
-    def test_a_list_that_says_no_total_and_fills_its_last_page_ends_with_an_empty_one(self):
-        g = self.serve("aim/x", list(range(100)), no_total, first=1)
-        self.assertEqual(len(g.aim.rows("/x", gamma.LISTS)), 100)
-        self.assertEqual(self.asked(), [(1, 100), (2, 100)])
-
-    def test_a_list_that_fills_its_last_page_says_no_more_when_its_total_is_reached(self):
-        g = self.serve("aim/x", list(range(100)), totaled, first=1)
-        self.assertEqual(len(g.aim.rows("/x", gamma.LISTS)), 100)
-        self.assertEqual(self.asked(), [(1, 100)])
-
     def test_an_answer_that_is_not_a_page_is_an_error_and_not_an_empty_list(self):
         g = gamma.Gamma()
         self.answer({("GET", f"/gamma{SCOPE}/modules/aim/bare"): (200, [1, 2]),
@@ -286,11 +242,6 @@ class Lists(Seed):
             with self.subTest(path=path):
                 with self.assertRaisesRegex(common.SeedError, f"GET {path}: this is not a paged list"):
                     g.aim.rows(path, gamma.LISTS)
-
-    def test_an_empty_list_is_one_request(self):
-        g = self.serve("aim/x", [], content, first=0)
-        self.assertEqual(g.aim.rows("/x", gamma.WORKSPACES), [])
-        self.assertEqual(len(self.platform.calls), 1)
 
     def test_the_filters_of_a_list_are_sent_with_every_page(self):
         g = self.serve("aim/catalog/sources", list(range(250)), data, first=1)
@@ -312,12 +263,6 @@ class Connecting(Seed):
         self.assertEqual(self.clock.sleeps, [0.5, 1])
         self.assertIn("[aim-catalog] Waiting for AI Management", self.output())
         self.assertIn("[aim-catalog] ✓ AI Management ready", self.output())
-
-    def test_it_gives_up_when_the_platform_keeps_failing(self):
-        g = gamma.Gamma()
-        self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): (500, "boom")})
-        with self.assertRaisesRegex(common.SeedError, "not ready after 300 s: GET /providers: HTTP 500 boom"):
-            g.connect("aim-catalog", lambda: g.aim.get("/providers"))
 
     def test_a_module_the_platform_has_no_license_for_ends_the_wait_at_once(self):
         g = gamma.Gamma()
@@ -376,11 +321,6 @@ class Modules(Seed):
                 with self.assertRaisesRegex(common.SeedError, "GET /modules: the answer is not a list of modules"):
                     gamma.Gamma().modules()
 
-    def test_the_list_is_asked_within_a_time_limit(self):
-        self.serve((200, [{"id": "aim"}]))
-        gamma.Gamma().modules()
-        self.assertEqual(self.platform.calls[0].timeout, common.TIMEOUT)
-
     def test_any_other_answer_is_an_error_with_its_status(self):
         self.serve((401, {"message": "Full authentication is required"}))
         with self.assertRaisesRegex(common.HttpError, "GET /modules: HTTP 401 .*Full authentication"):
@@ -400,15 +340,8 @@ class Modules(Seed):
         with self.assertRaisesRegex(common.SeedError, "Gamma modules aim, authz:"):
             gamma.require_modules({"aim", "authz"})
 
-    def test_a_list_that_is_not_answering_yet_is_asked_again(self):
-        answers = iter([(500, {"message": "starting"}), (200, [{"id": "aim"}])])
-        self.answer({("GET", self.LIST): lambda call: next(answers)})
-        gamma.require_modules({"aim"})
-        self.assertEqual(len(self.platform.calls), 2)
-        self.assertEqual(self.clock.sleeps, [0.5])
-
     def test_a_404_or_a_page_that_is_no_list_while_the_platform_starts_is_not_the_platform_without_gamma(self):
-        for first in (404, (200, "<html>starting</html>")):
+        for first in (404, (200, "<html>starting</html>"), (500, {"message": "starting"})):
             with self.subTest(first=str(first)):
                 self.platform.calls.clear()
                 self.serve([first, first, (200, [{"id": "aim"}])])

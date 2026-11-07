@@ -40,20 +40,15 @@ an API: apim.subscribe, the one way that takes a custom key), and again for a st
 already (accepted, pending or paused) is left as it is, but for one the seed made and left pending, which it accepts.
 """
 
-import hashlib
 import json
 import os
 import re
-from urllib.parse import urlsplit
-
-import requests
 
 from . import controls
 from . import gamma
-from .aim_workspaces import subset
-from .apim import ENDED, accept, find_application, held_subscription, merge, subscribe
-from .common import (OK, Api, SeedError, adopted, created, files, forget, has_seed, load, log, making, owned, record, recorded,
-                     setting, trouble, wait_until, waits_for_gateway)
+from .apim import ENDED, UNSUPPORTED, accept, digest_of, find_application, held_subscription, merge, subscribe
+from .common import (OK, Api, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, load, log, making, owned, record,
+                     recorded, setting, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
 # The folders of the seed it owns
@@ -77,9 +72,7 @@ V4_PLAN_READ_ONLY = ("id", "apiId", "createdAt", "updatedAt", "publishedAt", "cl
 # The flows the platform writes when the switches of a studio are turned on, and the policies a flow edit looks for
 FGA_FLOW, APPROVAL_FLOW = "FGA Authorization", "Human approval"
 PEP, ASSIGN, APPROVAL = "authz-pep", "policy-assign-attributes", "human-approval"
-KINDS = {"subscription": "subscription to an MCP studio", "mcp-proxy": "MCP proxy", "studio": "MCP studio"}
-# What a platform answers for a write of a studio's tools it does not offer: the studio is made again instead
-UNSUPPORTED = (404, 405, 501)
+KINDS = {"mcp-proxy": "MCP proxy", "studio": "MCP studio"}
 # The keys of a studio's file that give its protocol versions, one of the two: which one depends on the build
 VERSION_KEYS = ("supportedProtocolVersions", "protocolVersion")
 # What a subscription of a studio's file may say
@@ -126,26 +119,10 @@ def slugify(text):
 
 
 def jsonrpc(answer):
-    """The message of a JSON-RPC answer, plain or as the data line of an event stream."""
-    if "event-stream" in answer.headers.get("Content-Type", ""):
-        return json.loads(next(line[5:] for line in answer.text.splitlines() if line.startswith("data:")))
-    return answer.json()
-
-
-def split(url):
-    """An address as the origin a client is made for and the path it calls."""
-    parts = urlsplit(url)
-    return f"{parts.scheme}://{parts.netloc}", parts.path
-
-
-def one_line(text):
-    """A message on one line: the Lab UI shows the last line the seed printed as the reason it stopped, and the
-    body of an error answer spreads over many."""
-    return " ".join(str(text).split())
-
-
-def digest(body):
-    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+    """The message of a JSON-RPC answer, plain or as the data line of an event stream: None when it has no such line."""
+    if "json" in answer.headers.get("Content-Type", ""):
+        return answer.json()
+    return next((json.loads(line[5:]) for line in answer.text.splitlines() if line.startswith("data:")), None)
 
 
 def pairs(value):
@@ -165,10 +142,6 @@ def flow_of(api, name, studio):
     return flow
 
 
-def position(steps, step):
-    return next(i for i, s in enumerate(steps) if s is step)
-
-
 def authorization_flow(api, authorization, studio):
     """The 'FGA Authorization' flow made to read the call: an assign-attributes step before the check puts the call's
     arguments where the check can read them, and the check is given the attributes of the person and the context it
@@ -186,16 +159,16 @@ def authorization_flow(api, authorization, studio):
         if step is None:
             step = {"name": "Call arguments", "description": "Makes the arguments of the call readable by the authorization check",
                     "enabled": True, "policy": ASSIGN, "configuration": wanted}
-            steps.insert(position(steps, check), step)
+            steps.insert(steps.index(check), step)
             changed = True
         else:
-            if not subset(wanted, step.get("configuration")) or not step.get("enabled", True):
+            if not contains(step.get("configuration"), wanted) or not step.get("enabled", True):
                 step["configuration"] = {**(step.get("configuration") or {}), **wanted}
                 step["enabled"] = True
                 changed = True
-            if position(steps, step) > position(steps, check):
+            if steps.index(step) > steps.index(check):
                 steps.remove(step)
-                steps.insert(position(steps, check), step)
+                steps.insert(steps.index(check), step)
                 changed = True
     configuration = check.setdefault("configuration", {})
     for key, entries in (("subjectPropertiesExpr", pairs(authorization.get("subject"))),
@@ -258,7 +231,6 @@ def read_authorization(spec, studio):
     resolution = (authorization or {}).get("agentIdentityResolution")
     if resolution is not None and not isinstance(resolution, bool):
         raise SeedError(f"MCP studio {studio}: authorization.agentIdentityResolution is true or false")
-    return authorization
 
 
 def of_studio(api_id):
@@ -367,7 +339,7 @@ class McpProxies:
                 found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
                 record(SECTION, "mcp-proxy", "MCP proxy APIs", name, found["id"], hrid=hrid)
             log(SECTION, f"✓ MCP proxy created: {name}")
-        elif not subset(public(automation), found):
+        elif not contains(found, public(automation)):
             found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
             log(SECTION, f"✓ MCP proxy updated: {name}")
         api_id = found["id"]
@@ -385,7 +357,7 @@ class McpProxies:
             plan = next((p for p in live if p["name"] == name and p["status"] == "PUBLISHED"), None)
             if plan is None:
                 raise SeedError(f"MCP proxy {api_id}: the plan {name} is not published")
-            if not subset(keys, plan["security"]["configuration"]):
+            if not contains(plan["security"]["configuration"], keys):
                 plan["security"]["configuration"].update(keys)
                 self.g.v2.put(f"/apis/{api_id}/plans/{plan['id']}", json={k: v for k, v in plan.items() if k not in PLAN_READ_ONLY})
                 changed = True
@@ -400,8 +372,8 @@ class McpProxies:
         def waits(group):
             return ((group.get("sharedConfiguration") or {}).get("http") or {}).get("readTimeout") == timeout
 
-        if (subset(templates, api.get("responseTemplates") or {}) and all(waits(g) for g in api["endpointGroups"])
-                and subset(analytics, api.get("analytics") or {})):
+        if (contains(api.get("responseTemplates") or {}, templates) and all(waits(g) for g in api["endpointGroups"])
+                and contains(api.get("analytics") or {}, analytics)):
             return False
         api["responseTemplates"] = {**(api.get("responseTemplates") or {}), **templates}
         api["analytics"] = merge(api.get("analytics") or {}, analytics)
@@ -413,7 +385,7 @@ class McpProxies:
 
     def versions(self, api_id, spec):
         wanted = {key: spec[key] for key in ("supportedProtocolVersions", "endpointProtocolVersions")}
-        if subset(wanted, self.g.aim.get(f"/mcp-proxies/{api_id}").json()):
+        if contains(self.g.aim.get(f"/mcp-proxies/{api_id}").json(), wanted):
             return False
         self.g.aim.put(f"/mcp-proxies/{api_id}/protocol-versions", json=wanted)
         return True
@@ -439,13 +411,12 @@ class McpProxies:
         def offered(user):
             sign_in = {"grant_type": "password", "username": user["username"], "password": user["password"],
                        "scope": "openid profile email"}
-            origin, endpoint = split(token["url"])
-            access = Api(origin).post(endpoint, data=sign_in, auth=(token["client"], token["secret"]),
-                                      headers={"Content-Type": None}, timeout=15).json()["access_token"]
+            access = Api(token["url"]).post("", data=sign_in, auth=(token["client"], token["secret"]), what=f"POST {token['url']}",
+                                            headers={"Content-Type": None}, timeout=15).json()["access_token"]
             headers = {"Authorization": f"Bearer {access}", "Accept": "application/json, text/event-stream"}
             answer = Api(gateway).post(path, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
                                        headers=headers, timeout=15)
-            tools, wanted = jsonrpc(answer)["result"]["tools"], user["tools"]
+            tools, wanted = ((jsonrpc(answer) or {}).get("result") or {}).get("tools", []), user["tools"]
             if isinstance(wanted, dict):
                 wanted = wanted["protected" if controls.protected() else "unprotected"]
             if len(tools) != wanted:
@@ -456,7 +427,7 @@ class McpProxies:
                 try:
                     offered(user)
                 except SeedError as e:
-                    raise SeedError(one_line(f"{user['username']}: {e}")) from None
+                    raise SeedError(excerpt(f"{user['username']}: {e}")) from None
 
         what = f"{spec['automation']['name']} on the gateway ({path})"
         wait_until(SECTION, what, check, int(setting("GATEWAY_READY_TIMEOUT", "300")))
@@ -514,7 +485,7 @@ class McpProxies:
         body = {"name": name, "description": spec.get("description"), "contextPath": path, **protocol_versions(spec),
                 "plans": [spec["plan"]],
                 "specification": {"tools": self.tools(spec["tools"]), "promptIds": [], "resourceIds": []}}
-        wanted = digest(body)
+        wanted = digest_of(body)
         found, recomposed = self.kept(name, path, wanted, body)
         if found is None:
             with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
@@ -639,7 +610,7 @@ class McpProxies:
                                  for u in spec.get("upstreamAuth") or []]}
         if "description" in spec:
             body["description"] = spec["description"]
-        wanted = digest(body)
+        wanted = digest_of(body)
         found, changed = self.kept(name, path, wanted, body)
         if found is None:
             with making(SECTION, "studio", "MCP studios", name, missing=True, contextPath=path):
@@ -648,13 +619,13 @@ class McpProxies:
             log(SECTION, f"✓ MCP studio created: {name}")
             changed = True
         api_id = found["id"]
-        changed = self.access(api_id, name, access) or changed
+        changed = self.access(api_id, access) or changed
         changed = self.checks(api_id, name, spec) or changed   # after the tools: writing them may rebuild the check's flow
         self.deploy(api_id, changed)
         self.subscribe(api_id, name, subscriptions)
         self.wait_served(spec)
 
-    def access(self, api_id, studio, access):
+    def access(self, api_id, access):
         """The plan of the agents is published, then the registration plan is closed. The registration plan is what the
         platform needs to register the studio in Access Management, and it lets in any token and attributes the call to no
         one: once the plan of the agents holds, it only lets an unknown caller through. Closed already is nothing to do."""
@@ -671,7 +642,7 @@ class McpProxies:
             self.g.v2.post(f"/apis/{api_id}/plans/{plan['id']}/_publish")
             log(SECTION, f"  ✓ Plan '{agents['name']}' published")
             changed = True
-        elif plan["security"]["type"] != "JWT" or not subset(security["configuration"], plan["security"]["configuration"]):
+        elif plan["security"]["type"] != "JWT" or not contains(plan["security"]["configuration"], security["configuration"]):
             body = {k: v for k, v in plan.items() if k not in V4_PLAN_READ_ONLY}
             body["security"] = {"type": "JWT", "configuration": {**plan["security"]["configuration"], **security["configuration"]}}
             self.g.v2.put(f"/apis/{api_id}/plans/{plan['id']}", json=body)
@@ -727,11 +698,7 @@ class McpProxies:
             "protocolVersion": str(spec.get("protocolVersion") or spec["supportedProtocolVersions"][0]), "capabilities": {}, "clientInfo": {"name": "gravitee-lab-seed", "version": "1.0"}}}
 
         def check():
-            try:
-                answer = Api(gateway).send("POST", path, json=hello, timeout=15,
-                                           headers={"Accept": "application/json, text/event-stream"})
-            except requests.RequestException as e:
-                raise SeedError(trouble(e, 15)) from None
+            answer = Api(gateway).send("POST", path, json=hello, timeout=15, headers={"Accept": "application/json, text/event-stream"})
             if answer.status_code != 401:
                 raise SeedError(f"HTTP {answer.status_code} without a token, 401 expected")
 
