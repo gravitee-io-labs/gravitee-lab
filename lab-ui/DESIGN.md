@@ -1314,8 +1314,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   never Platform or Plugins.
 - **The seed of a remote place runs apart**: `docker compose run --rm --no-deps -e NAME ... <seed> [--remove]`. The
   values are in the process environment of that one command and go by name, never in the command, which is a line of the
-  job. They are the seeder's own settings (`APIM_MANAGEMENT_URL`, `APIM_MANAGEMENT_PATH`, `APIM_TOKEN`, `APIM_ORG`,
-  `APIM_ENV`, `APIM_GATEWAY_URL`, `GATEWAY_INTERNAL_URL`, `STATE_DIR`): the seeder is unchanged and there is no
+  job. They are the seeder's own settings (`places.seed_env`, [the list](../docs/playgrounds.md#deploying-to-gravitee-cloud)): the seeder is unchanged and there is no
   vocabulary of its own. The local seed container, its exit state and its record are never read or written by it. A
   failed seed fails the job with its last line (`[seed] ✗ ...`).
 - **The records are per place**: `playgrounds/<id>/.state/created.json` for *This machine*, the only one Reset empties,

@@ -263,9 +263,9 @@ gateway mounts what the Hybrid gateway add-on mounts. The Lab gives the first re
 - The seed service may depend on the core: it runs apart from it for Gravitee Cloud, and its `depends_on` are for *This
   machine*.
 - A deploy gives the seed the seeder's [settings](#settings) for that place, in the environment of that one run, over
-  those its service sets: `APIM_MANAGEMENT_URL`, `APIM_MANAGEMENT_PATH`, `APIM_TOKEN`, `APIM_ORG`, `APIM_ENV`,
-  `APIM_GATEWAY_URL` (`http://localhost:8090`), `GATEWAY_INTERNAL_URL` (`http://apim-hybrid-gateway:8082`) and
-  `STATE_DIR`. The token goes by name (`-e APIM_TOKEN`), never as a value on the command line.
+  those its service sets: `APIM_MANAGEMENT_URL`, `AIM_AUTOMATION_URL`, `AIM_GAMMA_URL`, `APIM_MANAGEMENT_PATH`,
+  `APIM_PORTAL_PATH`, `APIM_TOKEN`, `APIM_ORG`, `APIM_ENV`, `APIM_GATEWAY_URL` (`http://localhost:8090`),
+  `GATEWAY_INTERNAL_URL` (`http://apim-hybrid-gateway:8082`) and `STATE_DIR`. The token goes by name (`-e APIM_TOKEN`), never as a value on the command line.
 - The seed service mounts `./.state:/state`, as every seed does: the record of each place is kept under it, apart from
   *This machine*'s ([What it records](#what-it-records)).
 - The guide names both gateways in its calls, `localhost:8082` for *This machine* and `localhost:8090` for Gravitee Cloud,
