@@ -22,7 +22,7 @@ const ADDON = (more) => ({ id: "hyssop", name: "Hybrid gateway", state: { key: "
   action: { do: "stop", enabled: true, reason: null }, gateway: { platform: "cloud", service: "apim-hyssop-gateway" }, ...more });
 const STOPPED = { state: { key: "stopped" }, action: { do: "start", enabled: true, reason: null } };
 const dayFrom = (days) => new Date(Date.now() + days * 86400000 + 3600000).toISOString();   // and an hour, which the test takes to run
-const lab = (state = {}) => { store.state = { blind: false, addons: [ADDON()], playgrounds: [], ...state }; };
+const lab = (state = {}) => { store.state = { blind: false, addons: [ADDON()], playgrounds: [], platform: { gateways: { cloud: "hyssop" } }, ...state }; };
 const status = (gateways = [], token, more = {}, check = {}) => environmentStatus(PLATFORM, { gateways, ...check }, { ...ENV, token: token || ENV.token, ...more });
 const VALID = { state: "valid", expires: "2099-01-31T00:00:00Z" };
 const brief = (found) => [found.gateway.key, found.gateway.word, found.deploy.key, found.deploy.word, found.action?.do ?? null];
@@ -339,7 +339,7 @@ test("a number of gateways is said in words: none, one, several", () => {
 const served = (gateways, more = {}) => { store.state = { blind: false, addons: [ADDON(), ADDON({ id: "other", name: "Other gateway" })], playgrounds: [],
   platform: { gateways }, content: content("ready"), catalogs: [FIRST()], core: { place: "machine", chosen: false, group: { id: "api-management", name: "API Management" } }, ...more }; };
 
-test("the add-on that runs the gateways of a platform is the one the server names, whatever else declares a gateway; without a word of the server it is the one that declares it", () => {
+test("the add-on that runs the gateways of a platform is the one the server names, whatever else declares a gateway", () => {
   served({ cloud: "other" });
   assert.equal(addonOf(PLATFORM).id, "other", "not the first that declares one, nor the one alphabetically first");
   served({ cloud: null });
@@ -348,10 +348,6 @@ test("the add-on that runs the gateways of a platform is the one the server name
   assert.equal(addonOf(PLATFORM), undefined, "an id the state does not list is none");
   served({});
   assert.equal(addonOf(PLATFORM), undefined, "a kind the server does not list has none");
-  lab();
-  assert.equal(addonOf(PLATFORM).id, "hyssop", "a state that does not say, as before the catalogs: the add-on that declares one");
-  store.state = { ...store.state, platform: { gateways: "somewhere" } };
-  assert.equal(addonOf(PLATFORM).id, "hyssop", "a field that is no list of kinds says nothing");
   store.state = null;
   assert.equal(addonOf(PLATFORM), undefined);
 });
@@ -429,15 +425,12 @@ test("the Cloud controls say why they cannot be used: no gateway add-on, then th
   assert.equal(gatewayWhy(), "No catalog added");
   served({ cloud: "hyssop" }, { content: content("downloading") });
   assert.equal(gatewayWhy(), "", "an add-on that is there runs a gateway, whatever the catalogs are doing");
-  served(undefined);
-  assert.equal(gatewayWhy(), "", "a state that does not say holds nothing");
-  assert.deepEqual([cloud().hasAttribute("aria-disabled"), cloud().hasAttribute("data-why")], [false, false]);
 });
 
 test("wherever an add-on is named for a platform, nothing holds its gateway for want of one: the entries of the environment's menu that create a gateway have no hold to make", () => {
   // The menu of an environment (pages/platforms.js) offers Create gateway and Replace gateway only with the add-on found by addonOf, and
   // asks nothing of gatewayWhy: this is what lets it not. No state of the contract has an add-on named and the hold of a missing one.
-  const states = [undefined, null, {}, { cloud: null }, { cloud: "hyssop" }, { cloud: "other" }, { cloud: "gone" }, { cloud: "" }, { cloud: 0 }, { cloud: "hyssop", other: "other" }];
+  const states = [{}, { cloud: null }, { cloud: "hyssop" }, { cloud: "other" }, { cloud: "gone" }, { cloud: "" }, { cloud: 0 }, { cloud: "hyssop", other: "other" }];
   for (const content_ of ["ready", "downloading", "failed", "none"]) {
     for (const gateways of states) {
       served(gateways, { content: content(content_) });

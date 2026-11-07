@@ -66,7 +66,7 @@ const { License } = await import("../../../web/js/dialogs/license.js");
 const { openCreateGateway, openCloudToken } = await import("../../../web/js/dialogs/platform.js");
 const RUNNING = { key: "running", label: "Running", running: true };
 const state = (more = {}) => ({ blind: false, wait: "", docker: { error: null }, services: { "apim-hyssop-gateway": { state: RUNNING } }, playgrounds: [],
-  addons: [ADDON()], setups: [], job: null, links: [], categories: [], platform: { groups: [] }, ...more });
+  addons: [ADDON()], setups: [], job: null, links: [], categories: [], platform: { groups: [], gateways: { cloud: "hyssop" } }, ...more });
 store.state = state();
 
 const section = page.doc.createElement("section");

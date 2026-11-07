@@ -138,7 +138,7 @@ function lab({ core = "running", groups, links = LINKS, platform = {}, extra = {
     platform: { name: "Gravitee platform", state, progress: null, groups: found, containers: { running: core === "running" ? 7 : 0, total: 7 }, file: "docker-compose.yml",
       env_file: ".env", settings: [], start: { needed: core !== "running", starts: [], restarts: [], enabled: true, reason: null, dialog: null },
       apply: { needed: false, restarts: [], starts: [], dialog: null }, behind: [], restart: { needed: core === "running", enabled: true, reason: null },
-      update: { needed: core === "running", enabled: true, reason: null, dialog: null }, reset_turns_off: null, ...platform },
+      update: { needed: core === "running", enabled: true, reason: null, dialog: null }, reset_turns_off: null, gateways: { cloud: runs ? "hyssop" : null }, ...platform },
     playgrounds: [item("playground", "acme-bakery", "Acme Bakery")],
     setups: [item("setup", "events", "Event Streams", { members: [] }), item("setup", "tracing", "Tracing", { members: [] })],
     addons: [...(addons || [running("addon", "jade", "Jade", { services: ["jade"], links: [LINKS[3]] }), item("addon", "kazoo", "Kazoo"), item("addon", "malt", "Malt server")]),

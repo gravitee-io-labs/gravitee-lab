@@ -529,11 +529,8 @@ test("with API Management in the Cloud, Start all waits while no add-on can run 
   assert.deepEqual(head(cloud({}, { cloud: "hyssop" }, stuck)), { shown: true, off: true, why: "Set up a gateway in Development first" });
   // ... and the catalogs' reason comes first, since it is the cause
   assert.equal(head(cloud({}, none, stuck)).why, "Needs a gateway add-on");
-  // This machine's Start all is never held by it, and a state that does not say what runs a gateway holds nothing
+  // This machine's Start all is never held by it
   assert.deepEqual(head(cloud({}, none, { ...CLOUD, place: "machine" })), { shown: true, off: false, why: "" });
-  const old = cloud();
-  delete old.platform.gateways;
-  assert.deepEqual(head(old), { shown: true, off: false, why: "" });
   // Held, then free once an add-on can: the same button
   store.state = lab();
 });

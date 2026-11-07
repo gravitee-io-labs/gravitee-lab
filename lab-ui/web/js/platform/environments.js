@@ -10,21 +10,16 @@ export const hybrid = (gateway) => gateway.type === "HYBRID";
 
 // The add-on that runs the hybrid gateways of a platform here. The server chooses it (`state.platform.gateways`, an add-on id by kind of
 // platform, null when none can: one that is blocked, needs a catalog or is not compatible is not a candidate), so that the page never
-// scans. A state that does not say, as before the catalogs, has it looked for: the add-on that declares a gateway for its kind.
-export function addonOf(platform) {
-  const chosen = store.state?.platform?.gateways;
-  if (chosen && typeof chosen === "object") return store.item("addon", chosen[platform.kind]);
-  return store.state?.addons?.find((addon) => addon.gateway?.platform === platform.kind);
-}
+// scans.
+export const addonOf = (platform) => store.item("addon", store.state?.platform.gateways?.[platform.kind]);
 
-// Why no add-on can be named for a kind of platform, when the server says that none runs it: null while one does, and for a state that does
-// not say. {ready, why, extra}: with the content of the catalogs there, `why` is "Needs a gateway add-on"; with it on its way or missing it
-// is the reason the lists give (downloading, the failure line, no catalog) and `extra` the button that mends it, which is never put as a
-// lack of add-on for a catalog that simply is not there.
+// Why no add-on can be named for a kind of platform, when the server says that none runs it: null while one does. {ready, why, extra}: with
+// the content of the catalogs there, `why` is "Needs a gateway add-on"; with it on its way or missing it is the reason the lists give
+// (downloading, the failure line, no catalog) and `extra` the button that mends it, which is never put as a lack of add-on for a catalog that
+// simply is not there.
 const NEEDS_ADDON = "Needs a gateway add-on";
 export function gatewayGap(kind) {
-  const chosen = store.state?.platform?.gateways;
-  if (!chosen || typeof chosen !== "object" || chosen[kind]) return null;
+  if (store.state?.platform.gateways?.[kind]) return null;
   const { ready, why, extra } = contentLead(store.state);
   return ready ? { ready, why: NEEDS_ADDON, extra: "" } : { ready, why: why || NEEDS_ADDON, extra };
 }
