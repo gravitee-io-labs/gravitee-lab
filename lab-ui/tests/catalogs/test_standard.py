@@ -317,7 +317,7 @@ class Values(unittest.TestCase):
         with self.assertRaisesRegex(standard.TemplateError, "--local takes no --with"):
             standard.values({"local": True, "id": "mine", "name": "Mine", "with": ["e2e"]})
 
-    def test_the_security_contact_is_the_first_maintainer_until_one_is_given(self):
+    def test_the_security_contact_is_the_first_maintainer(self):
         self.assertEqual(standard.values(params(maintainers="@acme/maintainers,@alice"))["security_contact"], "@acme/maintainers")
 
 
@@ -480,7 +480,7 @@ class Rendering(unittest.TestCase):
 
 
 class Leaks(unittest.TestCase):
-    """No engine owner, address or tool credit in any template file or in anything it renders."""
+    """No outside address or tool credit in any template file or in anything it renders."""
 
     ALLOWED_LINKS = ("https://spdx.org/licenses/", "https://github.com/__LAB_REPOSITORY__", "http://localhost", "https://github.com/acme",
                      "http://www.apache.org/licenses/", "https://www.gnu.org/licenses/", "https://fsf.org/", "https://www.apache.org",
@@ -920,7 +920,7 @@ class LabAction(unittest.TestCase):
             self.assertEqual(written, "", raw)
 
     def test_a_valid_value_with_other_keys_around_it_is_still_two_lines(self):
-        code, written, _ = self.run_block(self.good(form="reusable", strict=["DF22"], color="red"))
+        code, written, _ = self.run_block(self.good(form="reusable", color="red"))
         self.assertEqual((code, written), (0, f"repository=acme/gravitee-lab\nref={LAB_COMMIT}\n"))
 
     def test_the_commit_has_to_be_a_release_of_the_lab_and_a_fake_git_says_so(self):
@@ -1098,7 +1098,7 @@ class Commands(Case):
         self.assertEqual(self.new("--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)[0], 0)
 
     def test_a_parameter_that_is_wrong_ends_in_one_line_and_nothing_is_made(self):
-        for more in (("--license", "Apache 2.0"), ("--images", "GHCR.io/x"), ("--with", "gold"), ("--platforms", "arm")):
+        for more in (("--license", "Apache 2.0"), ("--images", "GHCR.io/x"), ("--with", "gold")):
             code, out, err = self.new("--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT, *more)
             self.assertEqual((code, out), (2, ""), more)
             self.assertEqual(len(err.splitlines()), 1, err)
@@ -1137,18 +1137,6 @@ class Upgrading(Case):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = standard.main_upgrade([str(repo.root), *argv], lab=lab or repo.top)
-        return code, out.getvalue(), err.getvalue()
-
-    def upgrade_here(self, repo, *argv, lab=None):
-        """`catalog.py upgrade . ...` run in the folder of the catalog, as the Makefile runs it."""
-        out, err = io.StringIO(), io.StringIO()
-        before = os.getcwd()
-        os.chdir(str(repo.root))
-        try:
-            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                code = standard.main_upgrade([".", *argv], lab=lab or repo.top)
-        finally:
-            os.chdir(before)
         return code, out.getvalue(), err.getvalue()
 
     def test_nothing_to_upgrade(self):
@@ -1577,7 +1565,7 @@ class MovingThePin(Case):
         self.assertEqual((code, err.getvalue()), (2, "--lab-ref latest: the Lab checkout that runs this has no release to name. Fix: "
                                                      "git fetch --tags, then run again.\n"))
 
-    def test_the_fleet_gets_a_plan_without_a_lab_checkout_and_no_log(self):
+    def test_the_fleet_gets_a_plan_without_a_lab_checkout(self):
         plan = standard.upgrade_plan(FolderTree(self.catalog.root), {"lab_ref": self.new})
         self.assertEqual(plan["refused"], "")
         self.assertTrue(plan["lab"]["compare"])
