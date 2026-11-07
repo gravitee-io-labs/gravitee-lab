@@ -244,11 +244,6 @@ def plan(kind, uid):
     return {**answers, "used_by": _name(units, users[0]) if users else ""}
 
 
-def _folder_of(ns):
-    entry = registry.entry(ns) or {}
-    return Path(entry.get("path") or "")
-
-
 def move(kind, uid, together, allow=False):
     """Moves the item, and with `together` what it brings from its import that nothing else uses, to Personal; `allow`: the person
     allowed what takes more of this machine, which nothing judges there. Answers {moved: [{kind, id}], id, warning}. A change of
@@ -269,7 +264,7 @@ def move(kind, uid, together, allow=False):
         if uses and not allow:
             raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to move it to Personal.")
         ns = paths.origin(uid)
-        source = _folder_of(ns)
+        source = Path((registry.entry(ns) or {}).get("path") or "")
         table = [(f"{paths.CATALOGS_DIR}/{ns}/{_rel(k, _slug(one))}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}")
                  for k, one in moving]
 

@@ -56,6 +56,7 @@ from ..docker import images
 from ..library import moves, project
 from . import contribute, defaults, kept, manifest, meta as block, moving, registry, resolve, service, standard
 from . import store as bare
+from .moving import STUCK, _rel, _slug
 from .registry import CatalogError
 
 IMPORTS_DIR = paths.IMPORTS_DIR   # where an imported playground's catalog is kept: the Lab's own folder
@@ -77,10 +78,6 @@ def _fail(code, message, status=400):
 # ---------------------------------------------------------------------------------------------------------------------
 # What an export carries
 # ---------------------------------------------------------------------------------------------------------------------
-
-def _slug(uid):
-    return uid.rsplit("/", 1)[-1]
-
 
 def _as_id(text):
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")[:24].strip("-")
@@ -246,10 +243,9 @@ def _catalog_yml(text, gathered):
         row, url = rows.get(ns) or {}, _address(ns)
         if url is None:   # a catalog with no Git address cannot be named as needed: another Lab will say what it lacks
             continue
-        version = row.get("version") if re.fullmatch(r"\d+\.\d+\.\d+", str(row.get("version") or "")) else "0.1.0"
-        needed += [f"      {ns}:", f'        name: "{row.get("name") or ns}"', f"        url: {url}", f"        min: {version}"]
+        needed.append((ns, row.get("name") or ns, url, _least(row.get("version"))))
     if needed:
-        text = text.rstrip("\n") + "\n  requires:\n    catalogs:\n" + "\n".join(needed) + "\n"
+        text = _requires(text, needed)
     if gathered["shared"]:
         text = text.rstrip("\n") + "\n  shared_settings:\n" + "".join(f"    - {name}\n" for name in gathered["shared"])
     # The lines of older Labs, true for the files in the archive: an export that carries a private label is one they refuse cleanly,
@@ -319,10 +315,6 @@ def _zip(root: Path, top: str) -> bytes:
     return out.getvalue()
 
 
-def _row(kind, uid, units):
-    return {"kind": kind, "id": uid, "name": units[kind][uid]["name"]}
-
-
 def _judge(root: Path):
     """What another Lab will make of the archive: the preview of the Add of its folder, made here and let go at once."""
     preview = service.check_address(str(root))
@@ -347,7 +339,7 @@ def _plan(gathered, preview):
             break
         dropped |= freed
     return {"name": gathered["name"], "file": f"{gathered['ns']}.zip",
-            "carries": [_row(kind, uid, units) for kind, uid in gathered["carried"]],
+            "carries": [{"kind": kind, "id": uid, "name": units[kind][uid]["name"]} for kind, uid in gathered["carried"]],
             "needs": [{"id": ns, "name": (rows.get(ns) or {}).get("name") or ns} for ns in gathered["needs"]],
             "problems": gathered["problems"],
             "private": gathered["private"],
@@ -553,8 +545,9 @@ def _said_origins(folder: Path):
     return [one for one in items if isinstance(one, dict)] if isinstance(items, list) else []
 
 
-def _rel(kind, item):
-    return f"setups/{item}.yml" if kind == "setup" else f"{kind}s/{item}"
+def _least(version):
+    """The version a catalog that needs this one asks for at least: one that says three numbers, else the first there is."""
+    return version if re.fullmatch(r"\d+\.\d+\.\d+", str(version or "")) else "0.1.0"
 
 
 def _requires(text, needed):
@@ -580,8 +573,7 @@ def _reuse(folder: Path, top):
         if url is None or item not in registry.units_of(ns).get(kind, ()) or not (folder / rel).exists():
             continue
         held = registry.lock_of(ns)
-        least = held.get("version") if re.fullmatch(r"\d+\.\d+\.\d+", str(held.get("version") or "")) else "0.1.0"
-        needed[ns] = (ns, str(held.get("name") or ns).replace('"', "'"), url, least)
+        needed[ns] = (ns, str(held.get("name") or ns).replace('"', "'"), url, _least(held.get("version")))
         table.append((f"{paths.CATALOGS_DIR}/{top}/{rel}", f"{paths.CATALOGS_DIR}/{ns}/{rel}"))
         gone.append(rel)
         reused.append({"name": str(one.get("name") or item), "catalog": str(held.get("name") or ns)})
@@ -882,9 +874,6 @@ def _leftover(archive, top):
                                     f"folder {IMPORTS_DIR}/{top} with administrator rights, then import it again.", 409)
 
 
-PARTIAL = "Some files were created by Docker and could not be deleted. Remove the folder {where} with administrator rights."
-
-
 def forget_folder(entry, keep_settings=True):
     """The files of an imported playground's catalog go when the catalog is removed: they are the Lab's, in .lab/imports. With
     `keep_settings` the person's settings, secrets and state of its items go first to a folder of their own (`KEPT_DIR`), bound
@@ -905,7 +894,7 @@ def forget_folder(entry, keep_settings=True):
     if failed:
         return NOT_KEPT.format(paths=", ".join(f"{area}/{item}/{name}" for area, item, name in
                                                ((*rel.split("/", 1), name) for rel, name in failed)), where=f"{IMPORTS_DIR}/{ns}")
-    return PARTIAL.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None
+    return STUCK.format(where=f"{IMPORTS_DIR}/{folder.name}") if os.path.lexists(where) else None
 
 
 NOT_KEPT = ("The settings of {paths} could not be kept and are still in {where}: copy them out, then remove that folder with "

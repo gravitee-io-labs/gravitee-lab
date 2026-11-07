@@ -1221,10 +1221,6 @@ FIXES = {"public": "make sure its repository is private, then share again.",
          "unknown": "check the network, then share again."}   # what the person does, by what the stranger's question got
 
 
-def _maybe_public(row, audience):
-    return _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
-
-
 def _holds_private(items):
     """Whether any of the items of Personal (or of a catalog) `items` ([(kind, id)]) holds private content, as origins() says of its
     file where it is; one Compose cannot read is taken to."""
@@ -1473,7 +1469,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     if address is not None and row["audience"] != "public" and _holds_private([(kind, uid), *[(k, one) for k, one, _, _ in members]]):
         audience, probed = _audience_now(address), (dict(entry), _history(to))
         if audience != "private":
-            raise _maybe_public(row, audience)
+            raise _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
     with registry.flock():
         copy = collect(kind, slug, to, moved=moved)
         along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]

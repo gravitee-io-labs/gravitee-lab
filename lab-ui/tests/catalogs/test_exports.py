@@ -1135,7 +1135,7 @@ class Untrusted(Case):
 
 class SettleFails(Case):
     """Import to Personal of an item that replaces one of Personal, when bringing the person's files to the new one fails: the
-    swap that holds them is never deleted, and the next change finishes it."""
+    swap that holds them is never deleted, and the next start of the Lab UI finishes it."""
 
     setUp = RoundTrip.setUp
 
