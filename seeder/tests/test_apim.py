@@ -749,7 +749,7 @@ class StartingTheLessonsOver(ControlledConverged):
                 self.assertNotIn(common.RETRY_PAUSE, self.clock.sleeps[slept:], "no wait for a retry, only the one for the gateway")
 
     def test_any_other_refusal_of_a_4xx_stops_the_seed_with_the_message_of_the_platform_and_replaces_nothing(self):
-        for status in (400, 403, 409, 422):
+        for status in (400, 401, 403, 409, 410, 412, 415, 422):
             with self.subTest(status=status):
                 self.setUp()
                 self.run_seed()
@@ -765,7 +765,9 @@ class StartingTheLessonsOver(ControlledConverged):
 
     def test_a_platform_that_cannot_answer_for_a_moment_is_asked_again_and_the_api_is_not_replaced(self):
         """It reloads for a while after a change of its settings: the connection is refused or reset, or the answer is too slow."""
-        for failures in ((503,), (requests.ReadTimeout("slow"), 429, requests.ConnectionError("reset"))):
+        for failures in ((503,), (502, 503), (500, 504, 429), (429, 429, 429, 429), (requests.ConnectionError("refused"),),
+                         (requests.ReadTimeout("slow"), requests.ConnectionError("reset")),
+                         (requests.ConnectTimeout("no route"), 503, requests.exceptions.ChunkedEncodingError("cut"))):
             with self.subTest(failures=[type(f).__name__ if isinstance(f, Exception) else f for f in failures]):
                 self.setUp()
                 self.run_seed()
@@ -780,7 +782,7 @@ class StartingTheLessonsOver(ControlledConverged):
                 self.assertIn(f"! API ACME LLM: {said}, trying again", self.output())
 
     def test_a_platform_that_stays_busy_stops_the_seed_after_a_few_tries_and_leaves_the_api_where_it_is(self):
-        for failure in (503, requests.ConnectionError("refused")):
+        for failure in (500, 502, 503, 504, 429, requests.ConnectionError("refused"), requests.ReadTimeout("slow")):
             with self.subTest(failure=str(failure)):
                 self.setUp()
                 self.run_seed()
@@ -815,17 +817,17 @@ class StartingTheLessonsOver(ControlledConverged):
     def test_a_management_api_that_reloads_around_the_update_is_asked_again_and_the_api_is_not_replaced(self):
         """A read just before the update and a deployment just after it are asked again like the update: a connection that fails there
         does not end the seed, and the saved API does not stay undeployed."""
-        failures = (503, requests.ReadTimeout("slow"))
-        for failing, deployments in ((self.reads_failing, 1), (self.deployments_failing, len(failures) + 1)):
-            with self.subTest(failing=failing.__name__):
-                self.setUp()
-                self.run_seed()
-                failing(*failures)
-                slept = len(self.clock.sleeps)
-                self.assertEqual(self.run_seed(), [("PUT", V2 + "/apis/llm-id")] + [("POST", V2 + "/apis/llm-id/deployments")] * deployments)
-                self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures))
-                self.assertEqual(self.steps(), UNPROTECTED)
-                self.assertEqual(self.apim.apis["llm-id"]["deploymentState"], "DEPLOYED")
+        for failures in ((requests.ConnectionError("reset"),), (503, requests.ReadTimeout("slow")), (429, 502, 500)):
+            for failing, deployments in ((self.reads_failing, 1), (self.deployments_failing, len(failures) + 1)):
+                with self.subTest(failing=failing.__name__, failures=[type(f).__name__ if isinstance(f, Exception) else f for f in failures]):
+                    self.setUp()
+                    self.run_seed()
+                    failing(*failures)
+                    slept = len(self.clock.sleeps)
+                    self.assertEqual(self.run_seed(), [("PUT", V2 + "/apis/llm-id")] + [("POST", V2 + "/apis/llm-id/deployments")] * deployments)
+                    self.assertEqual(self.clock.sleeps[slept:], [common.RETRY_PAUSE] * len(failures))
+                    self.assertEqual(self.steps(), UNPROTECTED)
+                    self.assertEqual(self.apim.apis["llm-id"]["deploymentState"], "DEPLOYED")
 
     def test_a_read_or_a_deployment_that_gets_no_answer_or_a_refusal_stops_the_seed_and_replaces_nothing(self):
         for failing in (self.reads_failing, self.deployments_failing):
@@ -842,6 +844,14 @@ class StartingTheLessonsOver(ControlledConverged):
                     self.assertEqual([c for c in self.platform.calls[before:] if c.method == "DELETE"], [])
                     if failing == self.reads_failing:
                         self.assertEqual([c for c in self.platform.calls[before:] if c.method != "GET"], [])
+
+    def test_a_refusal_after_a_busy_answer_is_still_a_refusal(self):
+        self.refuse_the_update(503, requests.ConnectionError("reset"), 400)
+        digest, before, since = self.record("ACME LLM")["digest"], self.updates(), len(self.platform.calls)
+        with self.assertRaisesRegex(common.SeedError, r"^API ACME LLM: HTTP 400 "):
+            self.run_seed()
+        self.assertEqual(self.updates() - before, 3, "asked again twice, and not a fourth time")
+        self.api_untouched(digest, since)
 
     def test_an_api_that_does_not_run_is_started_with_its_controls_put_back_and_deployed_once(self):
         self.switch("request", "Prompt guard rails", True)
