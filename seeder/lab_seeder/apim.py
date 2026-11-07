@@ -219,8 +219,6 @@ class ApiManagement:
         root = setting("AIM_AUTOMATION_URL", setting("APIM_MANAGEMENT_URL"))
         self.automation = Api(f"{root}/automation/organizations/{self.org}/environments/{self.env}", SECTION)
         self.automation.session = self.api.session   # one login for every address
-        self.known = None   # the APIs of the environment, listed once and kept up to date as this seed makes them (apis())
-        self.listing = threading.Lock()   # held while `known` is read or changed
         self.groups_by_hrid = {}   # hrid -> {"id", "name"} of the groups of this environment, as groups() finds or makes them
         self.waiting = {}   # (source, sourceId) -> the entry of users.yaml of a user the platform has no row for yet
 
@@ -429,21 +427,6 @@ class ApiManagement:
 
     # --- APIs -----------------------------------------------------------------------------
 
-    def apis(self):
-        """The APIs of the environment: listed the first time they are asked for, then as this seed leaves them. The steps that
-        import at the same time wait for the one list, which no other step of the seed waits for."""
-        with self.listing:
-            if self.known is None:
-                self.known = self.all_apis()
-            return list(self.known)
-
-    def remember(self, api_id, definition, name, gone=None):
-        """What the list of the environment holds after an API was made (and `gone` was dropped)."""
-        with self.listing:
-            if self.known is not None:
-                self.known = [a for a in self.known if a.get("id") not in (api_id, gone)]
-                self.known.append({"id": api_id, "name": name, "listeners": definition.get("api", definition).get("listeners", [])})
-
     def all_apis(self):
         out, page = [], 1
         while True:
@@ -478,7 +461,7 @@ class ApiManagement:
             if r.status_code == 200:
                 return r.json()
         address = self.address(api)
-        return next((a for a in self.apis() if address and self.address(a) == address), None)
+        return next((a for a in self.all_apis() if address and self.address(a) == address), None)
 
     def import_api(self, definition, file_name):
         api = definition.get("api", {})
@@ -624,7 +607,6 @@ class ApiManagement:
     def create(self, definition, name, digest):
         api_id = self.imported(definition, name)
         record(SECTION, "api", "APIs", name, api_id, digest=digest, **self.scope())
-        self.remember(api_id, definition, name)
         log(SECTION, f"✓ API imported: {name}")
         return api_id
 
@@ -649,7 +631,6 @@ class ApiManagement:
         with common.held():   # read, changed and written back by this step alone
             forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "api", live["id"])])
             record(SECTION, "api", "APIs", name, api_id, digest=digest, **self.scope())
-        self.remember(api_id, definition, name, gone=live["id"])
         return api_id
 
     def until_dropped(self, name, path):
