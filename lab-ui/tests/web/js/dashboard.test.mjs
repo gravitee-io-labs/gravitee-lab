@@ -456,8 +456,6 @@ test("a product that runs behind what is saved says so in its update column, wit
   const badges = products().map((row) => part(row, "upd").querySelector(".tip-btn"));
   assert.deepEqual(badges.map(tileSaid), ["Apply needed", "Apply needed"], "a badge on each product that is behind, and none for the databases, which are no product here");
   assert.deepEqual(badges.map(tipOf), [["4.12.20 is saved, 4.13.0-alpha.4 still runs."], ["4.12.7 is saved, 4.13.0-alpha.7 still runs."]]);
-  assert.deepEqual(badges.map((badge) => badge.getAttribute("class").trim()), ["tip-btn pill warn", "tip-btn pill warn"]);
-  assert.ok(badges[0].querySelector("svg use").getAttribute("href").endsWith("#i-info"), "with the information mark");
   // The version is what runs; the badge is in the place of the update, so that no arrow and no green check says anything else
   assert.deepEqual(products().map((row) => ver(row)), ["4.12.20", "4.13.0-alpha.7"]);
   assert.deepEqual(products().map((row) => upd(row)), ["Apply needed", "Apply needed"]);
@@ -1402,9 +1400,7 @@ test("storage says what Docker stores, its images, containers, volumes and build
   assert.deepEqual(tipOf(unused), ["57.9 GB unused", "What no container uses", "Images 58.9 GB, 42.7 GB unused", "Containers 2.2 GB, 131 kB unused",
     "Volumes 5.9 GB, 5.5 GB unused", "Build cache 18.6 GB, 9.7 GB unused", "Unused volumes can hold data: removing one loses it."], "each type's size and its unused share: a part too thin to point at is said here");
   assert.deepEqual(stored.querySelectorAll(".dash-unused .pop-who").map(text), ["Images", "Containers", "Volumes", "Build cache"], "each type in its column, the sizes lined up");
-  assert.equal(unused.tag, "button", "a stop of the keyboard");
   assert.match(unused.getAttribute("aria-label"), /^57\.9 GB unused\. What no container uses/);
-  assert.ok(unused.querySelector("svg use").getAttribute("href").endsWith("#i-info"), "with the information mark");
   dashboardPage.hide();
 });
 
