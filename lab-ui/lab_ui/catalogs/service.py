@@ -563,11 +563,8 @@ def problems():
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _contract():
-    """The level of this Lab, its lock's (understood.levels) else the core file's, and the seeder image the core file names:
-    {contract, contract_min, seeder_image}."""
-    found = project.loaded()[1].get("contract")
-    return {"contract": 1, "contract_min": 1, "seeder_image": "", **(found if isinstance(found, dict) else {}),
-            **(understood.levels() or {})}
+    """The level this Lab reads: its lock's (understood.levels); 1 and 1 without a lock."""
+    return understood.levels() or {"contract": 1, "contract_min": 1}
 
 
 def _row_of_candidate(meta, kind, audience, listed, host, ignored, units):

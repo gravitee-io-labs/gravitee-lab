@@ -247,8 +247,6 @@ def run(root, options: Optional[Options] = None) -> Result:
     found = _against_base(found, root, options, base, ctx, skipped)
     if options.soft:
         found = [each._replace(severity=WARNING) if each.severity == ERROR else each for each in found]
-    found.sort(key=lambda each: (FAMILIES.index(family(each.code)) if family(each.code) in FAMILIES else len(FAMILIES), each.path,
-                                 each.line, each.code, each.message))
     return Result(found, list(dict.fromkeys(skipped)), base, commits, _header(base, commits, options, history, ctx, lost))
 
 
