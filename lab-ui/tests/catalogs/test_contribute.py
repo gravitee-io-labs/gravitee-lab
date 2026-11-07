@@ -1314,29 +1314,6 @@ class Copied(Seam):
         self.assertTrue((real / "playgrounds/bank/compose.yml").is_file())
         self.assertTrue((self.root / ".lab/catalogs/lab-new").is_symlink())
 
-    def test_a_half_copy_a_stop_left_in_a_folder_is_swept_when_it_is_old_and_nothing_else_is_touched(self):
-        outside = self.root.parent / "outside-the-sweep"
-        outside.mkdir(exist_ok=True)
-        self.addCleanup(shutil.rmtree, outside, True)
-        (outside / "mine.txt").write_text("mine")
-        old = time.time() - 2 * 24 * 3600
-        for ns, kind, name, text in (("lab-new", "addons", ".share-old", "half"), ("lab-new", "addons", ".share-new", "half"),
-                                     ("lab-new", "playgrounds", ".share-also-old", "half"), ("lab-new", "addons", "kept", "mine"),
-                                     ("lab-new", "addons", ".hidden-old", "mine"), ("fixture", "addons", ".share-old", "theirs")):
-            self.write(f".lab/catalogs/{ns}/{kind}/{name}/compose.yml", text)
-        self.write(".lab/catalogs/lab-new/setups/.share-mine.yml", "half")
-        os.symlink(outside, self.target / "addons/.share-link")
-        for place in ("lab-new/addons/.share-old", "lab-new/playgrounds/.share-also-old", "lab-new/addons/kept",
-                      "lab-new/addons/.hidden-old", "fixture/addons/.share-old", "lab-new/setups/.share-mine.yml"):
-            os.utime(self.root / ".lab/catalogs" / place, (old, old))
-        os.utime(self.target / "addons/.share-link", (old, old), follow_symlinks=False)
-        self.assertEqual(contribute.sweep(), ["lab-new/addons/.share-link", "lab-new/addons/.share-old",
-                                              "lab-new/setups/.share-mine.yml", "lab-new/playgrounds/.share-also-old"])
-        self.assertEqual(sorted(path.name for path in (self.target / "addons").iterdir()), [".hidden-old", ".share-new", "kept", "newer"])
-        self.assertTrue((self.root / ".lab/catalogs/fixture/addons/.share-old").is_dir(), "an install of the Lab is its sweeper's")
-        self.assertEqual((outside / "mine.txt").read_text(), "mine", "a link is removed and never followed")
-        self.assertEqual(contribute.sweep(), [])
-
     def demo(self):
         """Demo, a playground of this machine that includes Notes, an add-on of this machine (the person's copy of one, it says) that
         includes Newer of the folder."""

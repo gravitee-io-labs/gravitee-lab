@@ -19,7 +19,7 @@ inside an install.
 A catalog that is a repository gets a branch: the files go in a commit built with plumbing in the catalog's bare store (no
 working tree, no hook) on top of the tip just fetched, as the person (their `user.name` and `user.email`, no trailer, no
 tool), and pushed to `lab/<name>-<yyyymmdd>`, never forced, never to the default branch. A refused push leaves the item where
-it was. A folder catalog gets a plain copy of the same files (`sweep` removes the half copy a stop leaves). `moved` and
+it was. A folder catalog gets a plain copy of the same files (the next share of the item clears the half copy a stop leaves). `moved` and
 `use_catalog_version` are the other half: once the catalog has the item and the person has updated, the item of this machine
 and the catalog's are the same item, and this replaces the first by the second, taking its settings along; what else
 its folder holds is set aside in `.lab/migration/kept/`, and nothing is deleted while anything could not be moved.
@@ -53,7 +53,6 @@ LOAD_WAIT = 20   # seconds Compose has to load a copy alone with the core
 # minutes), the fetch of the tip, the question of the names of the branches, the push
 FETCH_CAP, LIST_WAIT, PUSH_WAIT = 40, 15, 40
 NAME_LIMIT = 60   # characters of an item's name that go into a subject or a line
-SWEEP_AGE = 24 * 3600.0   # seconds after which a half copy in a person's folder is a leftover
 # Registries everyone pulls from: the host of one of them says nothing of a private catalog, and its images are in public items
 PUBLIC_REGISTRIES = frozenset({"docker.io", "index.docker.io", "registry-1.docker.io", "ghcr.io", "quay.io", "gcr.io",
                                "registry.k8s.io", "k8s.gcr.io", "mcr.microsoft.com", "public.ecr.aws", "registry.gitlab.com"})
@@ -1003,35 +1002,6 @@ def _clear(path):
         os.unlink(path)
     elif os.path.isdir(path):
         shutil.rmtree(path, ignore_errors=True)
-
-
-def sweep() -> List[str]:
-    """Swept at start, for the folder catalogs: the half copies `_copy_into` leaves in a person's folder when the
-    Lab is stopped between writing and renaming (`<folder>/<kind>s/.share-<name>`, hidden, never an item) that are older than a
-    day are removed, without following a link. `install.sweep` looks inside the installs of the Lab, which a folder is not.
-    Answers the places removed, `<catalog id>/<kind>s/<name>`."""
-    done = []
-    for ns, row in registry.inputs().items():
-        if ns == LOCAL or row["kind"] != "folder" or row["state"] != "linked":
-            continue
-        root = os.path.realpath(registry.install_dir(ns))
-        for kind in paths.KINDS:
-            base = os.path.join(root, f"{kind}s")
-            if os.path.islink(base):
-                continue
-            try:
-                names = sorted(os.listdir(base))
-            except OSError:
-                continue
-            for name in names:
-                try:
-                    old = time.time() - os.lstat(os.path.join(base, name)).st_mtime > SWEEP_AGE
-                except OSError:
-                    continue
-                if old and name.startswith(".share-"):
-                    _clear(os.path.join(base, name))
-                    done.append(f"{ns}/{kind}s/{name}")
-    return done
 
 
 # ---------------------------------------------------------------------------------------------------------------------
