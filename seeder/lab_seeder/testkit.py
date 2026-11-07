@@ -49,6 +49,7 @@ except ImportError as e:
 from . import common
 from . import controls
 from . import refills
+from . import versions
 from . import seed
 
 SETTINGS = {"APIM_MANAGEMENT_URL": "http://apim", "APIM_USERNAME": "admin", "APIM_PASSWORD": "admin",
@@ -59,6 +60,12 @@ SETTINGS = {"APIM_MANAGEMENT_URL": "http://apim", "APIM_USERNAME": "admin", "API
 # content of a catalog
 SAMPLES = seedlint.SAMPLES
 PLAYGROUNDS = SAMPLES
+
+# What the platform answers at the start of a seed (versions.read) unless a test says otherwise: it is reachable and says no
+# version, so the seed adapts to what it answers
+UNSAID = {("GET", "/management/v2/organizations/DEFAULT/environments/DEFAULT/apis"): (200, {"data": [], "pagination": {"pageCount": 1}}),
+          ("GET", "/management/organizations/DEFAULT/environments/DEFAULT/instances"): (200, {"content": []}),
+          ("GET", "/management/platform/plugins/reporters"): (200, [])}
 
 
 # --- The platform -----------------------------------------------------------------------
@@ -283,7 +290,7 @@ class Seed(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.state = Path(folder.name) / "created.json"
-        self.platform, self.clock, self.stdout = Platform({}), Clock(), io.StringIO()
+        self.platform, self.clock, self.stdout = Platform(UNSAID), Clock(), io.StringIO()
         patches = [mock.patch.object(common, "STATE_FILE", self.state),
                    mock.patch.object(common, "SEED_DIR", Path(folder.name) / "seed"),
                    mock.patch.object(requests, "Session", self.platform.session),
@@ -295,6 +302,7 @@ class Seed(unittest.TestCase):
             self.addCleanup(patch.stop)
         controls.reset()
         refills.reset()
+        versions._found.clear()
         common.configure(1)   # in order, with no earlier failure: a test that runs steps together asks for `workers` (below)
         self.addCleanup(common.configure, 1)
 

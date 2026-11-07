@@ -956,11 +956,31 @@ in `.env`, then run `make all`.
 - Gamma has no upsert and keeps no name unique. A module looks each object up by name, slug or id, writes it only when it
   differs, records only what it created, and stops, naming it, when it finds one it did not create.
 
+### Versions of Gravitee
+
+The seed reads the versions of API Management and Access Management at its start, with its own credentials: API Management
+says it for the gateways that report to it, Access Management for the plugins it ships with. Its first line says each, and
+how the seed treats it:
+
+- **A release** (`4.13.3`) is seeded by its version: what changed from one release to the next is in the table below, and
+  the seeder fills **4.12 and later** releases. Below 4.12 the seed stops before it changes anything.
+- **A build that is no release** (`4.13.0-amp-demo-SNAPSHOT`, a master build), or a platform that says no version (a Cloud
+  environment with no gateway yet), is seeded by what it answers: [What differs from one build to
+  another](#what-differs-from-one-build-to-another). Nothing is promised for it.
+
+| What changed | Product | First release |
+|---|---|---|
+| The Gamma modules: AI Management, Authorization Management | API Management | 4.13.0 |
+
+A change between releases is a row here and an entry of `CHANGES` in `seeder/lab_seeder/versions.py`, which the modules ask
+by its name, and a test keeps the two equal. Which release a playground was tested on is its `x-gravitee.tested`, which
+the catalogs' *Gravitee versions* workflow moves forward each night.
+
 ### What differs from one build to another
 
-The seeder reads no version. It does what the platform answers, and a seed file writes what its build takes: the
-playground says which build that is (`requires.images`). This table is what the seeder knows of them, and a row goes with
-the code it names once no build that the Lab runs needs it.
+For a build that is no release, the seeder does what the platform answers, and a seed file writes what its build takes:
+the playground says which build that is (`requires.images`). This table is what the seeder knows of them, and a row goes
+with the code it names once no build that the Lab runs needs it.
 
 | What differs | Builds | What the seed file writes | What the seeder does |
 |---|---|---|---|
