@@ -11,7 +11,7 @@ export const HOSTILE = '<img src=x onerror="boom()">';
 export const HOSTILE_QUOTED = `"><script>boom()</script>'`;
 
 // A state key: the server writes its word, tone, reason and next step
-export const STATE = (key, label, tone = "muted", reason = "", next = "") => ({ key, label, tone, reason, next, whatsnew: [] });
+const STATE = (key, label, tone = "muted", reason = "", next = "") => ({ key, label, tone, reason, next, whatsnew: [] });
 
 // Every key of the catalogs' states, the "machine" one apart (the row of Personal has it: PERSONAL), in the order of the table of 1.3
 export const STATES = {
