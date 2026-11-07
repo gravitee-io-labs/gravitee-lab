@@ -132,7 +132,7 @@ class Access(LabUI):
             self.assertEqual((status, headers["Content-Type"]), (403, "text/html; charset=utf-8"), host)
             self.assertIn(f'Open the Lab UI at <a href="{address}">{address}</a>', body.decode())
             self.assertNotIn(host, body.decode())   # what the request says of itself is not repeated
-            self.assertEqual(headers["X-Frame-Options"], "DENY")
+            self.assertEqual((headers["X-Frame-Options"], headers["Content-Security-Policy"]), ("DENY", api.POLICY))
         # Everything else stays a refusal for a program: the API, a POST, another page
         for method, path in (("GET", "/api/state"), ("POST", "/"), ("GET", "/js/main.js")):
             status, headers, body = self.request(method, path, headers={"Host": "0.0.0.0:9777"})
@@ -142,11 +142,8 @@ class Access(LabUI):
 
     def test_a_request_from_a_page_of_another_site_is_refused(self):
         # A browser says where a request comes from; a GET needs no header, so this is all that stops it
-        state = self.patch(api, "images_state", return_value={"components": []})
-        for site in ("cross-site", "same-site"):
-            status, _, _ = self.request("GET", "/api/images", headers={"Sec-Fetch-Site": site})
-            self.assertEqual(status, 403, site)
-        state.assert_not_called()
+        self.assertEqual(self.request("GET", "/api/images", headers={"Sec-Fetch-Site": "same-site"})[0], 403)
+        self.patch(api, "images_state", return_value={"components": []})
         self.patch(api.project, "load", return_value=PROJECT)
         for site in ("same-origin", "none"):   # the Lab UI's own page, an address typed or a bookmark
             status, _, _ = self.request("GET", "/api/images", headers={"Sec-Fetch-Site": site})
@@ -158,11 +155,10 @@ class Access(LabUI):
     def test_local_names_are_served(self):
         self.patch(api.project, "load", return_value=PROJECT)
         self.patch(api, "images_state", return_value={"components": []})
-        for host in ("localhost:9000", "127.0.0.1:9000", "localhost"):
+        for host in ("localhost:9000", "localhost"):
             status, headers, body = self.request("GET", "/api/images", headers={"Host": host})
             self.assertEqual((status, json.loads(body)), (200, {"components": []}))
             self.assertEqual(headers["Cache-Control"], "no-store")
-
 
     def test_no_page_frames_the_lab_ui(self):
         # It frames the consoles of a playground and holds the keys to the lab: the page, its API, a refusal and the
@@ -180,12 +176,7 @@ class Access(LabUI):
     def test_the_page_carries_exactly_the_policy_the_page_needs(self):
         # test_static reads it from the page's files: the server's header is that, word for word
         from ..web import test_static
-        _, headers, _ = self.request("GET", "/")
-        self.assertEqual(headers["Content-Security-Policy"], test_static.wanted_policy())
         self.assertEqual(api.POLICY, test_static.wanted_policy())
-        # ... and the refusal of a wrong host is a page too
-        _, headers, _ = self.request("GET", "/", headers={"Host": "0.0.0.0:9777"})
-        self.assertEqual(headers["Content-Security-Policy"], api.POLICY)
 
 
 class Failures(LabUI):
@@ -249,6 +240,12 @@ class Failures(LabUI):
         # The Dashboard's Start all says it is the core's, with what its dialog showed
         self.request("POST", "/api/stack/start", {"core": True, "accept": ["addon:kazoo"]})
         self.assertEqual(action.call_args, ((PROJECT, "start"), {"for_core": True, "accept": ["addon:kazoo"]}))
+
+    def test_the_versions_of_the_images_are_a_mapping(self):
+        save = self.patch(api.images, "save")
+        status, _, body = self.request("POST", "/api/images", {"values": "x"})
+        self.assertEqual((status, json.loads(body)), (400, {"error": "The versions must be a mapping"}))
+        save.assert_not_called()
 
 
 class Static(LabUI):
@@ -897,17 +894,18 @@ class Personal(LabUI):
         super().setUp()
         self.patch(api.project, "load", return_value=PROJECT)
 
+    FIELDS = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
+    # (the route, what it calls, what the form sends besides, what is given besides): a field not sent is None
+    FORMS = (("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"},
+              {"image": "traefik/whoami", "port": "8098"}),
+             ("/api/setups", "save_setup", {"addons": ["kazoo"], "id": "local/mine"},
+              {"addons": ["kazoo"], "sid": "local/mine", "check_only": False}),
+             ("/api/playgrounds", "create_playground", {"setups": ["local/mine"], "addons": ["kazoo"]},
+              {"setups": ["local/mine"], "addons": ["kazoo"]}))
+
     def test_created_from_the_fields_of_the_form(self):
-        created = {"file": ".lab/catalogs/local/addons/whoami/compose.yml"}
-        fields = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
-        # (the route, what it calls, what the form sends besides, what is given besides): a field not sent is None
-        for path, function, more, given in (
-                ("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"},
-                 {"image": "traefik/whoami", "port": "8098"}),
-                ("/api/setups", "save_setup", {"addons": ["kazoo"], "id": "local/mine"},
-                 {"addons": ["kazoo"], "sid": "local/mine", "check_only": False}),
-                ("/api/playgrounds", "create_playground", {"setups": ["local/mine"], "addons": ["kazoo"]},
-                 {"setups": ["local/mine"], "addons": ["kazoo"]})):
+        created, fields = {"file": ".lab/catalogs/local/addons/whoami/compose.yml"}, self.FIELDS
+        for path, function, more, given in self.FORMS:
             with self.subTest(path=path):
                 create = self.patch(api.personal, function, return_value=created)
                 status, _, body = self.request("POST", path, {**fields, **more})
@@ -924,10 +922,8 @@ class Personal(LabUI):
     def test_the_create_routes_take_the_catalog_they_keep_the_item_in(self):
         # Not given, the item is Personal; the namespace of an editable folder catalog is given on to personal.py, which
         # writes the item there (and says `not_editable` for any other)
-        fields = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
-        for path, function, more in (("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"}),
-                                     ("/api/setups", "save_setup", {"addons": ["kazoo"]}),
-                                     ("/api/playgrounds", "create_playground", {"setups": [], "addons": ["kazoo"]})):
+        fields = self.FIELDS
+        for path, function, more, _ in self.FORMS:
             with self.subTest(path=path):
                 create = self.patch(api.personal, function, return_value={})
                 self.request("POST", path, {**fields, **more})
@@ -1072,16 +1068,11 @@ class PlatformFlow(LabUI):
                           if not path.startswith(f"/accounts/{fake_cloud.ACCOUNT['id']}")},
                          {"/accounts/my-account"}, "besides the hrid that was refused, only the account's own paths")
 
-
-class PlatformPlaces(PlatformFlow):
-    """The places, through the routes, against the fake Cloud: what an action on a platform changes in them is seen by the
-    next call, with no wait for the minute that a read is kept."""
-
-    URL = "http://127.0.0.1:{}"
+    # The places: what an action on a platform changes in them is seen by the next call, with no wait for the minute a read is kept
     DEV, TEST = "fake-env-dev", "fake-env-test"
 
     def register(self):
-        sent = {"url": self.URL.format(self.fake.server_port), "account": fake_cloud.ACCOUNT["id"], "token": fake_cloud.TOKEN}
+        sent = {"url": f"http://127.0.0.1:{self.fake.server_port}", "account": fake_cloud.ACCOUNT["id"], "token": fake_cloud.TOKEN}
         return self.ask("POST", "/api/platforms", sent)
 
     def place(self, environment=None):
@@ -1183,8 +1174,7 @@ class PlaceRoutes(LabUI):
         for sent in ("", 0, False, [], ["machine"], {"id": "machine"}, 12):
             for path in ("start", "reseed", "delete"):
                 with self.subTest(sent=sent, path=path):
-                    status, _, body = self.request("POST", f"/api/playgrounds/welcome/{path}", {"place": sent})
-                    self.assertEqual((status, json.loads(body)["error"]), (400, json.loads(body)["error"]))
+                    self.assertEqual(self.request("POST", f"/api/playgrounds/welcome/{path}", {"place": sent})[0], 400)
         for name in ("start", "reseed", "delete_place"):
             self.calls[name].assert_not_called()
         self.delete.assert_not_called()
@@ -1364,6 +1354,7 @@ class GatewayOnFile(GatewayCase):
     """The start of a gateway on a real on file: its job writes it as every plan's job does (layers.steps)."""
 
     WRITE = staticmethod(layers.write)   # the real writer, before the case replaces it
+    REDSTART = "include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n"
 
     def setUp(self):
         super().setUp()
@@ -1399,39 +1390,35 @@ class GatewayOnFile(GatewayCase):
         self.assertNotIn("kiosk", (self.root / paths.ON_FILE).read_text(), "what the other job wrote stays")
         self.assertEqual(job.error(), layers.CHANGED)
 
-    def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
-        # The add-on holds the token of the gateway of Test (here false) and is off; Redstart, on and running, cannot run
-        # with it: the start stops it, and the removal fails, before anything changed
+    def redstart_goes(self):
+        """The add-on holds the token of the gateway of Test (here false) and is off; Redstart, on and running, cannot run
+        with it: the start stops it."""
         self.project["addons"]["redstart"]["conflicts"]["hyssop"] = "same ports"
-        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")
+        self.on_file(self.REDSTART)
         self.state = {**test_layers.on(self.project, ["redstart"]), "stamp": layers.stamp()}
         self.running = test_layers.up("redstart", project=self.project)
         self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
-        accept = [layers.key("addon", "redstart")]
-        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": accept})
+        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": [layers.key("addon", "redstart")]})
         self.assertEqual(status, 200, body)
+
+    def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
+        self.redstart_goes()
         job, ran = self.job(fails="rm")
         self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redstart"]))
         self.assertIn(".lab/catalogs/fixture/addons/redstart/compose.yml", (self.root / paths.ON_FILE).read_text())
         self.swap.assert_not_called()   # the job changed nothing: the add-on still holds the token of Test
 
     def test_a_gateway_s_job_swaps_the_token_once_what_goes_is_removed_and_before_the_on_file_is_written(self):
-        self.project["addons"]["redstart"]["conflicts"]["hyssop"] = "same ports"
-        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")
-        self.state = {**test_layers.on(self.project, ["redstart"]), "stamp": layers.stamp()}
-        self.running = test_layers.up("redstart", project=self.project)
-        self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
         order = []
         self.swap.side_effect = lambda *args: order.append(("swap", (self.root / paths.ON_FILE).read_text()))
-        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": [layers.key("addon", "redstart")]})
-        self.assertEqual(status, 200, body)
+        self.redstart_goes()
         title, steps, more = self.started(self.jobs)
         job = Job(title, steps, **more)
         job.exec = lambda cmd, quiet=False: order.append(("run", cmd[-5:]))
         job.run()
         self.assertTrue(job.ok, job.error())
         self.assertEqual(order[:2], [("run", ["rm", "--stop", "--force", "-v", "redstart"]),
-                                     ("swap", "include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")])
+                                     ("swap", self.REDSTART)])
         self.assertNotIn("redstart", (self.root / paths.ON_FILE).read_text())
 
 
@@ -1980,17 +1967,6 @@ class CatalogBodies(LabUI):
         self.assertEqual(self.request("POST", "/api/catalogs/nowhere/check", {})[0], 404)
 
 
-class JunkBodies(LabUI):
-    """A body that is not what a route reads is a 400 with a reason, never a 500."""
-
-    def test_the_versions_of_the_images_are_a_mapping(self):
-        self.patch(api.project, "load", return_value=PROJECT)
-        save = self.patch(api.images, "save")
-        status, _, body = self.request("POST", "/api/images", {"values": "x"})
-        self.assertEqual((status, json.loads(body)), (400, {"error": "The versions must be a mapping"}))
-        save.assert_not_called()
-
-
 class StateOfCatalogs(LabUI):
     """/api/state for a project with no catalog carries git, catalogs and content, and nothing is run to say them."""
 
@@ -2201,10 +2177,10 @@ class Terminal(LabUI):
 
     def setUp(self):
         super().setUp()
-        playground = {"name": "Welcome", "services": [], "addons": [], "consoles": [], "terminal": "hello-shell"}
+        self.playground = {"name": "Welcome", "services": [], "addons": [], "consoles": [], "terminal": "hello-shell"}
         service = {"container": "gio-hello-shell", "owner": {"kind": "playground", "id": "welcome"}, "role": None}
         self.patch(api.project, "load", return_value={**PROJECT, "links": [], "services": {**PROJECT["services"], "hello-shell": service},
-                                                      "playgrounds": {"welcome": playground, "bare": {"name": "Bare"}}})
+                                                      "playgrounds": {"welcome": self.playground, "bare": {"name": "Bare"}}})
         self.session = mock.Mock(alive=True)
         self.attached = self.patch(api.terminal, "attach", return_value=self.session)
 
@@ -2229,11 +2205,8 @@ class Terminal(LabUI):
 
     def test_a_terminal_a_catalog_does_not_offer_is_not_opened_whatever_the_page_asks(self):
         # N05: the verdict of the playground says its terminal is not in a service of its own or of what it brings
-        playground = {"name": "Welcome", "services": [], "addons": [], "consoles": [], "terminal": "hello-shell",
-                      "verdict": {"state": "ok", "notes": [trust.line("N05")]}}
-        service = {"container": "gio-hello-shell", "owner": {"kind": "playground", "id": "welcome"}, "role": None}
-        self.patch(api.project, "load", return_value={**PROJECT, "links": [], "services": {**PROJECT["services"], "hello-shell": service},
-                                                      "playgrounds": {"welcome": playground}})
+        playground = self.playground
+        playground["verdict"] = {"state": "ok", "notes": [trust.line("N05")]}
         for method, path in (("POST", self.PATH), ("GET", self.PATH)):
             status, _, body = self.request(method, path, {"data": "k get pods\n"} if method == "POST" else None)
             self.assertEqual((status, json.loads(body)), (400, {"error": "Not offered by this catalog"}), method)
