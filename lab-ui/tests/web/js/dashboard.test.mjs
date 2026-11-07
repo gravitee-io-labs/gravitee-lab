@@ -113,7 +113,7 @@ const LINKS = [
   link("APIM Console", 8084, "apim-ui", "API Management"),
   link("Developer Portal", 8085, "apim-portal", "API Management"),
   link("Jade", 16686, "jade", "Observability"),
-  link("Mail server", 5080, "mail", "Mail", { up: false }),
+  link("Malt server", 5080, "malt", "Malt", { up: false }),
   link("Classic Developer Portal", 8082, "apim-portal", "API Management", { legacy: true }),
 ];
 
@@ -133,7 +133,7 @@ function lab({ core = "running", groups, links = LINKS, platform = {}, extra = {
     group("databases", "Databases", ["mongodb"], state, { version: null, product: null }),
   ];
   return {
-    blind: false, wait: "", docker: { error: null, warning: null }, license: null, products: [], categories: ["Observability", "Mail"], job: null, problems: [],
+    blind: false, wait: "", docker: { error: null, warning: null }, license: null, products: [], categories: ["Observability", "Malt"], job: null, problems: [],
     links, services, content: content("ready"),
     platform: { name: "Gravitee platform", state, progress: null, groups: found, containers: { running: core === "running" ? 7 : 0, total: 7 }, file: "docker-compose.yml",
       env_file: ".env", settings: [], start: { needed: core !== "running", starts: [], restarts: [], enabled: true, reason: null, dialog: null },
@@ -141,7 +141,7 @@ function lab({ core = "running", groups, links = LINKS, platform = {}, extra = {
       update: { needed: core === "running", enabled: true, reason: null, dialog: null }, reset_turns_off: null, ...platform },
     playgrounds: [item("playground", "acme-bakery", "Acme Bakery")],
     setups: [item("setup", "events", "Event Streams", { members: [] }), item("setup", "tracing", "Tracing", { members: [] })],
-    addons: [...(addons || [running("addon", "jade", "Jade", { services: ["jade"], links: [LINKS[3]] }), item("addon", "kazoo", "Kazoo"), item("addon", "mail", "Mail server")]),
+    addons: [...(addons || [running("addon", "jade", "Jade", { services: ["jade"], links: [LINKS[3]] }), item("addon", "kazoo", "Kazoo"), item("addon", "malt", "Malt server")]),
       ...(runs ? [hyssop(runs === "up")] : [])],
     ...more,
   };
@@ -521,7 +521,7 @@ test("the consoles of a product are those of its own services that run: a button
   assert.deepEqual(entries(), [["APIM Console", "http://localhost:8084", "_blank"], ["Developer Portal", "http://localhost:8085", "_blank"],
     ["Classic Developer Portal", "http://localhost:8082", "_blank"]]);
   assert.equal(page.ids.menu.querySelectorAll(".menu-sep").length, 1);
-  assert.doesNotMatch(text(block("products")), /Jade|Mail server/, "a tool is on its own row of the catalog");
+  assert.doesNotMatch(text(block("products")), /Jade|Malt server/, "a tool is on its own row of the catalog");
   assert.equal(section.querySelectorAll(".dash-consoles").length, 0, "and there is no row of consoles apart");
   // A console that does not run is not offered, and a link of a playground or an add-on is never a product's
   const own = { label: "Acme Bakery docs", url: "http://localhost:8110/docs", port: "8110", service: "bakery-web", section: "Playground", legacy: false, up: true };
@@ -641,14 +641,14 @@ test("the card is named for what it holds, and what is on comes first, a playgro
   await open({ state: lab({
     playgrounds: [running("playground", "acme-bakery", "Acme Bakery", { starred: true }), item("playground", "hotels", "Acme Hostels", { starred: true })],
     setups: [running("setup", "events", "Event Streams"), item("setup", "tracing", "Tracing")],
-    addons: [running("addon", "jade", "Jade"), waiting("addon", "kazoo", "Kazoo"), item("addon", "mail", "Mail server", { starred: true }), item("addon", "kiosk", "Kiosk")],
+    addons: [running("addon", "jade", "Jade"), waiting("addon", "kazoo", "Kazoo"), item("addon", "malt", "Malt server", { starred: true }), item("addon", "kiosk", "Kiosk")],
   }) });
   assert.equal(text(block("catalog").parent.querySelector(".card-head h2")), "Playgrounds, setups and add-ons");
-  assert.deepEqual(catalog().map((row) => text(row.querySelector("a"))), ["Acme Bakery", "Event Streams", "Jade", "Kazoo", "Acme Hostels", "Mail server"]);
+  assert.deepEqual(catalog().map((row) => text(row.querySelector("a"))), ["Acme Bakery", "Event Streams", "Jade", "Kazoo", "Acme Hostels", "Malt server"]);
   assert.deepEqual(catalog().map((row) => row.querySelector(".dash-kind use").getAttribute("href")), ["#i-flask", "#i-layers", "#i-addons", "#i-addons", "#i-flask", "#i-addons"]);
   // A name leads to the page of the item: its row in its list, a playground's own page
   assert.deepEqual(catalog().map((row) => row.querySelector("a").getAttribute("href")), ["#/playgrounds/acme-bakery", "#/setups/events", "#/addons/jade", "#/addons/kazoo",
-    "#/playgrounds/hotels", "#/addons/mail"]);
+    "#/playgrounds/hotels", "#/addons/malt"]);
   // Its state is one component for every state, a dot and its word: Running, Stopped, Off. What does not run is a muted word.
   assert.deepEqual(catalog().map((row) => [text(row.querySelector(".dash-sub-line .status")), row.querySelector(".dash-sub-line .dot-status").getAttribute("class"), cls(row.querySelector(".status")).includes("muted")]),
     [["Running", "dot-status running", false], ["Running", "dot-status running", false], ["Running", "dot-status running", false], ["Stopped", "dot-status stopped", true],
@@ -671,17 +671,17 @@ test("a row has no Open: what opens an item is its own page, which its name lead
 
 test("an item's Start or Stop is its list's, on its own key, and one that waits for its settings says so, its key icon opening them", async () => {
   await open({ state: lab({ addons: [running("addon", "jade", "Jade"), item("addon", "kazoo", "Kazoo", { starred: true }),
-    item("addon", "mail", "Mail server", { starred: true, settings: ["MAIL_PASSWORD"], action: ACTION("start", { enabled: false, reason: "Needs settings: MAIL_PASSWORD" }) }),
+    item("addon", "malt", "Malt server", { starred: true, settings: ["MALT_PASSWORD"], action: ACTION("start", { enabled: false, reason: "Needs settings: MALT_PASSWORD" }) }),
     item("addon", "kiosk", "Kiosk", { starred: true, action: ACTION("start", { enabled: false, reason: "Wait for Start Jade" }) })] }) });
   const buttons = catalog().map((row) => row.querySelector("button[data-act]"));
   // The lists' own button, its word on it, the same width in every row: never an icon alone for an action that says nothing else, and
   // never another action in its place
   assert.deepEqual(buttons.map((button) => [button.dataset.actFor, text(button.querySelector(".pbtn-face")), button.getAttribute("class").includes("act")]),
-    [["addon:jade", "Stop", true], ["addon:kazoo", "Start", true], ["addon:mail", "Start", true], ["addon:kiosk", "Start", true]]);
+    [["addon:jade", "Stop", true], ["addon:kazoo", "Start", true], ["addon:malt", "Start", true], ["addon:kiosk", "Start", true]]);
   assert.deepEqual(buttons.map((button) => button.querySelector("use").getAttribute("href")), ["#i-stop", "#i-play", "#i-play", "#i-play"]);
-  assert.deepEqual([isOff(buttons[2]), offWhy(buttons[2])], [true, "Needs settings: MAIL_PASSWORD"], "it waits for its settings, and says which");
+  assert.deepEqual([isOff(buttons[2]), offWhy(buttons[2])], [true, "Needs settings: MALT_PASSWORD"], "it waits for its settings, and says which");
   const key = catalog()[2].querySelector(".dash-set [data-settings]");
-  assert.equal(key.getAttribute("aria-label"), "Settings Mail server", "its settings are the key of its slot, named");
+  assert.equal(key.getAttribute("aria-label"), "Settings Malt server", "its settings are the key of its slot, named");
   assert.ok(isOff(buttons[3]), "one that cannot start says why");
   assert.equal(offWhy(buttons[3]), "Wait for Start Jade");
   buttons[0].click();
@@ -850,7 +850,7 @@ const names = () => catalog().map((row) => text(row.querySelector("a")));
 test("a search looks through the whole catalog as the lists' do, by name, description, category, tag and member, whatever runs or is starred", async () => {
   await open({ state: lab({ playgrounds: [item("playground", "acme-bakery", "Acme Bakery", { description: "Open banking for a retail bank", tags: ["Fraud"] })],
     setups: [item("setup", "events", "Event Streams", { category: "Messaging", members: [{ id: "kazoo", name: "Kazoo" }] })],
-    addons: [running("addon", "jade", "Jade", { category: "Observability" }), item("addon", "kazoo", "Kazoo", { description: "Events with Jade in mind" }), item("addon", "mail", "Mail server")] }) });
+    addons: [running("addon", "jade", "Jade", { category: "Observability" }), item("addon", "kazoo", "Kazoo", { description: "Events with Jade in mind" }), item("addon", "malt", "Malt server")] }) });
   assert.deepEqual(names(), ["Jade"], "by default what runs and what is starred");
   await typeIn("jad");
   assert.deepEqual(names(), ["Jade", "Kazoo"], "the name and the description, what runs first");
@@ -874,10 +874,10 @@ test("the kind picker keeps one kind, and Running and Starred narrow what is on 
   await open({ state: lab({
     playgrounds: [running("playground", "acme-bakery", "Acme Bakery"), item("playground", "hotels", "Acme Hostels", { starred: true })],
     setups: [item("setup", "events", "Event Streams"), waiting("setup", "tracing", "Tracing")],
-    addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "kazoo", "Kazoo"), item("addon", "mail", "Mail server", { starred: true })],
+    addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "kazoo", "Kazoo"), item("addon", "malt", "Malt server", { starred: true })],
   }) });
   const checked = () => section.querySelectorAll(".toggle-chip input").filter((box) => box.checked).map((box) => text(box.parent));
-  assert.deepEqual(names(), ["Acme Bakery", "Tracing", "Jade", "Acme Hostels", "Mail server"], "what is on, then what is starred");
+  assert.deepEqual(names(), ["Acme Bakery", "Tracing", "Jade", "Acme Hostels", "Malt server"], "what is on, then what is starred");
   assert.deepEqual(checked(), []);
   toggle("[data-running]", true);
   assert.deepEqual(names(), ["Acme Bakery", "Jade"], "what runs: a setup that waits for the platform does not");
@@ -886,16 +886,16 @@ test("the kind picker keeps one kind, and Running and Starred narrow what is on 
   assert.deepEqual(names(), ["Jade"], "what runs and is starred");
   assert.deepEqual(checked(), ["Running", "Starred"]);
   toggle("[data-running]", false);
-  assert.deepEqual(names(), ["Jade", "Acme Hostels", "Mail server"], "what is starred");
+  assert.deepEqual(names(), ["Jade", "Acme Hostels", "Malt server"], "what is starred");
   assert.equal(localStorage.getItem("list-starred:dashboard"), "1", "Starred is chosen once, as on the lists");
   await pick("[data-kind]", "Add-ons");
-  assert.deepEqual(names(), ["Jade", "Mail server"]);
+  assert.deepEqual(names(), ["Jade", "Malt server"]);
   assert.equal(text(section.querySelector("[data-kind] .value")), "Add-ons");
   toggle("[data-starred]", false);
   assert.equal(localStorage.getItem("list-starred:dashboard"), "");
-  assert.deepEqual(names(), ["Jade", "Mail server"], "what is on and starred of the kind");
+  assert.deepEqual(names(), ["Jade", "Malt server"], "what is on and starred of the kind");
   await typeIn("e");
-  assert.deepEqual(names(), ["Jade", "Kazoo", "Mail server", "Hybrid gateway"], "a search in a kind looks through all of its kind");
+  assert.deepEqual(names(), ["Jade", "Kazoo", "Malt server", "Hybrid gateway"], "a search in a kind looks through all of its kind");
   await pick("[data-kind]", "All kinds");
   assert.equal(catalog().length, 8, "the first page of the whole catalog");
   await typeIn("");
@@ -2027,7 +2027,7 @@ test("with reduced motion no animation runs: the chart is drawn when a sample co
 test("no text of the page separates with a dot, a bullet or a slash, in any state", async () => {
   const everything = [
     { body: dashboard() },
-    { state: lab({ platform: { containers: { running: 3, total: 7 } }, addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "mail", "Mail server", { starred: true })] }),
+    { state: lab({ platform: { containers: { running: 3, total: 7 } }, addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "malt", "Malt server", { starred: true })] }),
       listed: [PLATFORM], checks: { "cloud-eu": check([gateway({ here: true }), gateway({ id: "g2", environmentId: "env-production", connection: "NOT_CONNECTED" })]) } },
     { state: lab({ blind: true, docker: { error: "Cannot connect to the Docker daemon" }, wait: "Docker is not reachable", core: "absent" }),
       body: dashboard({ docker: { engine: null, compose: null, os: null, cpus: null, memory: null, error: "Cannot connect to the Docker daemon" }, data: null }),

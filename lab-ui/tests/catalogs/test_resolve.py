@@ -40,13 +40,13 @@ class Closure(Case):
 
     def test_a_unit_then_its_setups_then_its_add_ons_sorted(self):
         units = {"playground": {"bank": {"setups": ["pair"], "includes": ["kazoo", "jade"]}},
-                 "setup": {"pair": {"includes": ["mail", "kazoo"]}},
-                 "addon": {"kazoo": {"needs": ["base"]}, "jade": {}, "mail": {}, "base": {}}}
+                 "setup": {"pair": {"includes": ["malt", "kazoo"]}},
+                 "addon": {"kazoo": {"needs": ["base"]}, "jade": {}, "malt": {}, "base": {}}}
         self.assertEqual(resolve.closure(units, "playground", "bank"),
                          [("playground", "bank"), ("setup", "pair"), ("addon", "base"), ("addon", "jade"), ("addon", "kazoo"),
-                          ("addon", "mail")])
-        self.assertEqual(resolve.closure(units, "setup", "pair"), [("setup", "pair"), ("addon", "base"), ("addon", "kazoo"), ("addon", "mail")])
-        self.assertEqual(resolve.closure(units, "addon", "mail"), [("addon", "mail")])
+                          ("addon", "malt")])
+        self.assertEqual(resolve.closure(units, "setup", "pair"), [("setup", "pair"), ("addon", "base"), ("addon", "kazoo"), ("addon", "malt")])
+        self.assertEqual(resolve.closure(units, "addon", "malt"), [("addon", "malt")])
 
     def test_a_cycle_ends_the_walk(self):
         units = {"addon": {"a": {"needs": ["b"]}, "b": {"needs": ["c"]}, "c": {"needs": ["a", "b"]}}}

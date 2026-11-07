@@ -872,7 +872,7 @@ export function originLink(item) {
 export const serviceVersion = (service) => (service.built ? "local build" : bareTag(service.running_tag || service.tag || ""));
 
 // How another container of the lab reaches a service: its name and the port inside it, not the one published ("In the
-// lab: smtp4dev:80"), which the endpoint of an API made in a platform's console needs. Said only while a platform is
+// lab: malt-box:80"), which the endpoint of an API made in a platform's console needs. Said only while a platform is
 // registered, for a service that publishes a port (`targets`: the port inside it, by the one published).
 function inLab(service) {
   if (!store.platforms.length) return "";

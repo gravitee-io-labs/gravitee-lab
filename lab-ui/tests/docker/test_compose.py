@@ -108,8 +108,8 @@ class Includes(ProjectFolder):
 
     def test_items_without_indentation(self):
         path = self.write(".lab/on.yml",
-                          "include:\n- addons/kazoo/compose.yml\n- addons/mail/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml", "addons/mail/compose.yml"])
+                          "include:\n- addons/kazoo/compose.yml\n- addons/malt/compose.yml\n")
+        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml", "addons/malt/compose.yml"])
 
     def test_the_files_a_key_of_an_item_lists_are_not_items(self):
         path = self.write("playgrounds/mine/compose.yml", "include:\n"
@@ -148,7 +148,7 @@ class Includes(ProjectFolder):
 
     def test_no_file_no_include(self):
         self.assertEqual(compose.includes(".lab/on.yml"), [])
-        path = self.write("addons/mail/compose.yml", "services:\n  smtp4dev:\n    image: x\n")
+        path = self.write("addons/malt/compose.yml", "services:\n  malt-box:\n    image: x\n")
         self.assertEqual(compose.includes(path), [])
 
 
@@ -723,17 +723,17 @@ class Containers(Case):
     def test_inspect_tells_a_memory_kill_and_the_recent_restarts(self):
         def started(seconds_ago):
             return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
-        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kiosk", "kazoo", "mail")]
+        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kiosk", "kazoo", "malt")]
         inspected = "\n".join([f"/gio-kiosk|false|3|{started(20)}|h1|sha256:k", f"/gio-kazoo|true|4|{started(3600)}||",
-                               "", "error: no such object: gio-mail"])
+                               "", "error: no such object: gio-malt"])
         found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
         self.assertEqual({name: (c["oom"], c["restarts"]) for name, c in found.items()},
                          {"kiosk": (False, 3),     # restarted, and again 20 s ago
                           "kazoo": (True, 0),       # its last restart is an hour old
-                          "mail": (False, 0)})      # removed since it was listed
+                          "malt": (False, 0)})      # removed since it was listed
         # The configuration Compose made it from, and the image it runs: what runs behind what is saved is told so
         self.assertEqual({name: (c["config_hash"], c["image_id"]) for name, c in found.items()},
-                         {"kiosk": ("h1", "sha256:k"), "kazoo": (None, None), "mail": (None, None)})
+                         {"kiosk": ("h1", "sha256:k"), "kazoo": (None, None), "malt": (None, None)})
         self.assertNotIn("variable", found["kiosk"])   # not asked: not read
 
     def test_a_container_that_restarted_while_what_it_needs_warmed_up_and_runs_since_is_stable(self):
@@ -935,7 +935,7 @@ class Retargeted(ProjectFolder):
             self.assertIn(kept, [line.strip() for line in found])
 
     def test_a_copy_includes_copies_in_place_of_the_files(self):
-        text = ("include:\n  - ../kazoo/compose.yml   # what it needs\n  - path: ../mail/compose.yml\n"
+        text = ("include:\n  - ../kazoo/compose.yml   # what it needs\n  - path: ../malt/compose.yml\n"
                 "\nservices:\n  console:\n    volumes:\n      - ../kazoo/compose.yml:/x\n")
         self.write("addons/console/compose.yml", text)
         found = compose.retargeted("addons/console/compose.yml", text,

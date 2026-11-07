@@ -651,14 +651,14 @@ test("a Deploy at work says so on its button, with the verb of its job", async (
 const LINES = [{ name: "My Account", state: "ok", detail: "Connected", target: { kind: "platform", id: "my-account" } },
   { name: "Hybrid gateway", state: "warn", detail: "None in Development", fix: "gateway" },
   { name: "Cloud Token", state: "warn", detail: "Not set", fix: "token" },
-  { name: "Mail server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "smtp" }, file: "addons/smtp/.env" }];
+  { name: "Malt server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "smtp" }, file: "addons/smtp/.env" }];
 const lines = () => section.querySelectorAll(".pg-prep-item").map((li) => [text(li.querySelector(".pg-prep-name")),
   li.classList.contains("warn") ? "needs you" : li.classList.contains("auto") ? "start" : "in place", li.querySelectorAll(".pg-prep-action .icon-btn").map((b) => b.getAttribute("data-tip"))]);
 
 test("Before you start is read for the place, and a line that a form answers offers it: a plus for the gateway, a key for the Cloud Token", async () => {
   await visit({ ...off }, { kept: DEV.id, places: [BARE, TEST, OTHER, SLOW], checks: (query) => (query ? LINES : []) });
   assert.deepEqual(lines(), [["Hybrid gateway", "needs you", ["Create hybrid gateway"]], ["Cloud Token", "needs you", ["Add Cloud Token"]],
-    ["Mail server", "needs you", ["Settings"]], ["My Account", "in place", []]]);
+    ["Malt server", "needs you", ["Settings"]], ["My Account", "in place", []]]);
   assert.equal(section.querySelector('.pg-prep-name a[href="#/cloud/my-account"]').textContent, "My Account", "the platform leads to its row");
   assert.deepEqual(buttons().at(-1), ["Start", "Set up a gateway in Development (My Account) first"]);
   await leave();
@@ -945,15 +945,15 @@ test("Details > Open holds a group named after each platform that has a record, 
 });
 
 test("a service's ports say how another container of the lab reaches it, only while a platform is registered", () => {
-  const service = { image: "rnwood/smtp4dev:3", tag: "3", running_tag: "3", built: false, ports: ["8025", "2525"], targets: { 8025: "80", 2525: "25" } };
+  const service = { image: "acmecontainer/malt-box:3", tag: "3", running_tag: "3", built: false, ports: ["8025", "2525"], targets: { 8025: "80", 2525: "25" } };
   const ports = (found, platforms) => {
-    store.state = { ...plain, platforms, services: { ...plain.services, smtp4dev: found } };
+    store.state = { ...plain, platforms, services: { ...plain.services, "malt-box": found } };
     const el = page.doc.createElement("div");
     el.innerHTML = serviceCells(found);
     return el.querySelector(".s-ports").getAttribute("data-tip");
   };
   assert.equal(ports(service, []), null, "none without a platform");
-  assert.equal(ports(service, [ACCOUNT]), "In the lab: smtp4dev:80, smtp4dev:25");
+  assert.equal(ports(service, [ACCOUNT]), "In the lab: malt-box:80, malt-box:25");
   assert.equal(ports({ ...service, ports: [] }, [ACCOUNT]), null, "a service that publishes no port has no address to give");
   assert.equal(ports({ ...service, targets: undefined }, [ACCOUNT]), null);
   store.state = plain;
