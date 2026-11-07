@@ -278,6 +278,9 @@ class Helpers(unittest.TestCase):
         self.assertIsNone(images.known("$X"))
         self.assertEqual("plain", images.known("plain"))
 
+    def test_where_the_catalog_publishes(self):
+        self.assertEqual("ghcr.io/acme/hub", images.publishes_to(" Acme/Hub "))
+
 
 class Hostile(unittest.TestCase):
 
