@@ -239,8 +239,9 @@ class Svg(unittest.TestCase):
                 self.assertEqual(["GD05"], [each.code for each in run(guides, {"docs/big.svg": f"<svg>{pad}{tail}</svg>"})])
         self.assertEqual([], run(guides, {"docs/huge.svg": f"<svg>{pad * 2}<script>x</script></svg>"}), "past 2 MB it is ST09's")
 
-    def test_gd05_a_plain_svg_passes(self):
+    def test_gd05_the_fixtures(self):
         self.assertEqual([], run(guides, {"docs/img/plain.svg": (DATA / "plain.svg").read_text()}))
+        self.assertEqual(["GD05"], [each.code for each in run(guides, {"docs/img/active.svg": (DATA / "active.svg").read_text()})])
 
     def test_gd05_a_script_spelled_in_odd_ways_is_one(self):
         for content in ("<svg><SCRIPT>x</SCRIPT></svg>", "<svg><Script\n>x</script></svg>", "<svg><a href=' java\tscript:x'><a/></svg>",
