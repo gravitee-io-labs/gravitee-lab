@@ -146,8 +146,8 @@ x-gravitee:
 A playground says the versions it was built and checked on, not the ones it asks for at least (`requires.images`). A version it lists
 there is also enough for its minimum. Only a release (`4.13.7`) is taken as it is: any other version (a pre-release such as
 `4.13.0-alpha.5`, a demo build, `latest`) is not tested unless the playground names that very version, in `tested` or as the
-`requires.images` it asks for. Without a tested version to go to, the warning says to choose a release and Start offers only
-*Start anyway*. Gravitee changes things between versions, whatever its numbers say, and a playground that is not run on its versions may end on its
+`requires.images` it asks for. Without a tested version to go to, *Before you start* says to choose a release on the Images page,
+and Start starts on the images as they are. Gravitee changes things between versions, whatever its numbers say, and a playground that is not run on its versions may end on its
 seed after the whole setup. In a catalog of the standard, the nightly `versions.yml` tries each playground on the newest releases and
 writes the sets that work ([Gravitee versions](writing-a-catalog.md#gravitee-versions)): a set written by hand is the starting point. Each item is a set: what was checked together. The saved images are tested when they match
 every image of one set:
