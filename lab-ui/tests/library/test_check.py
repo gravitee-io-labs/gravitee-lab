@@ -459,27 +459,6 @@ class Items(Machine):
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": "## 1. One\n## 3. Three\n"}))),
                          ["guide.md: number its steps 1, 2, 3 in order, not 1, 3"])
 
-    def test_the_apis_a_seed_imports_are_json_objects(self):
-        root = self.folder(files={"seed/apim/apis/one.json": '{"api": {"name": "One"}}',
-                                  "seed/apim/apis/two.json": "not json", "seed/apim/apis/three.json": "[]"})
-        self.assertEqual(list(check._seed(root)), [
-            "seed/apim/apis/three.json must hold a JSON object",
-            "seed/apim/apis/two.json is not valid JSON: Expecting value: line 1 column 1 (char 0)"])
-
-    def test_the_apis_of_the_environments_a_seed_adds_are_json_objects_too(self):
-        root = self.folder(files={
-            "seed/apim/apis/one.json": '{"api": {"name": "One"}}',
-            "seed/environments/beet/environment.yaml": "id: beet\nname: Beet\n",
-            "seed/environments/beet/apis/sample-requests.json": '{"api": {"name": "Sample requests"}}',
-            "seed/environments/beet/apis/broken.json": "{",
-            "seed/environments/mallard/environment.yaml": "id: mallard\nname: Mallard\n",
-            "seed/environments/mallard/apis/list.json": "[]",
-            "seed/environments/mallard/portal/apis/not-an-export.json": "not json"})
-        self.assertEqual(list(check._seed(root)), [
-            "seed/environments/beet/apis/broken.json is not valid JSON: "
-            "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
-            "seed/environments/mallard/apis/list.json must hold a JSON object"])
-
 
 PORTAL_COMMAND = ["/bin/sh", "-c", "sed -i -e '/X-Frame-Options/d' -e \"s|self|& {pages}|\" x; sh /run.sh"]
 
@@ -508,7 +487,6 @@ class Playgrounds(Machine):
             core["x-gravitee"]["groups"] = ["API Management"]
         self.machine([inspector, welcome], core=platform, guides={"welcome": "## 1. One\n"}, **more)
         self.patch(check, "_guide", return_value=[])
-        self.patch(check, "_seed", return_value=[])
         return list(check._playground(self.built["playgrounds"]["welcome"], self.built))
 
     def test_its_consoles_are_services_it_runs_with_a_console_each_listed_once(self):
@@ -1944,25 +1922,18 @@ class Names(Case):
         self.assertEqual(check._read(self.root / "d"), "fine")
         self.assertIsNone(check._read(self.root / "nowhere"))
 
-    def test_a_guide_a_seed_or_a_table_that_is_a_link_is_never_followed_to_be_read(self):
+    def test_a_guide_that_is_a_link_is_never_followed_to_be_read(self):
         # What a catalog holds is the author's and, in CI, a stranger's: nothing the check reads leads out of the folder
         elsewhere = self.root / "elsewhere"
         elsewhere.mkdir()
         (elsewhere / "guide.md").write_text("## 2. Two\n", encoding="utf-8")
-        (elsewhere / "api.json").write_text("not json", encoding="utf-8")
-        (elsewhere / "README.md").write_text("| [Ghost](ghost/) | Gone |\n", encoding="utf-8")
         unit = self.root / "unit"
-        (unit / "seed/apim/apis").mkdir(parents=True)
+        unit.mkdir()
         (unit / "guide.md").symlink_to(elsewhere / "guide.md")
-        (unit / "seed/apim/apis/one.json").symlink_to(elsewhere / "api.json")
         self.assertEqual(list(check._guide(unit)), [])
-        self.assertEqual(list(check._seed(unit)), [])
         (unit / "guide.md").unlink()
         (unit / "guide.md").write_text("## 2. Two\n", encoding="utf-8")
         self.assertEqual(list(check._guide(unit)), ["guide.md: number its steps 1, 2, 3 in order, not 2"])
-        big = unit / "seed/apim/apis/big.json"
-        big.write_text(" " * (check.TEXT_LIMIT + 1), encoding="utf-8")
-        self.assertEqual(list(check._seed(unit)), [], "a file over 1 MB is not read: the line about its size is `_not_read`'s")
 
     def test_the_words_the_screen_reads_are_found_wherever_they_are_spelled(self):
         # Escapes of a double-quoted scalar spell a word too, and a flow include is no block list

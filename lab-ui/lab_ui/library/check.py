@@ -18,7 +18,6 @@ Lab itself, its `.lab/` and its `catalogs.json` are not touched. Compose reads w
 environment (`scrubbed`)."""
 
 import contextlib
-import json
 import os
 import posixpath
 import re
@@ -379,23 +378,6 @@ def _guide(folder, accounts=()):
             yield f"guide.md: account:{found} is no user of x-gravitee.accounts, so the page cannot show its sign-in"
 
 
-def _seed(folder):
-    """The API definitions the seed imports, those of the platform's environment and of each one it adds, are JSON
-    objects: the checks read the plugins they use."""
-    for file in paths.seed_apis(folder):
-        name = file.relative_to(folder).as_posix()
-        text = _read(file)
-        if text is None:   # a link, a pipe or a file too large: `_not_read` says so
-            continue
-        try:
-            definition = json.loads(text)
-        except ValueError as error:
-            yield f"{name} is not valid JSON: {error}"
-            continue
-        if not isinstance(definition, dict):
-            yield f"{name} must hold a JSON object"
-
-
 def _frameable(service):
     """Whether the Lab UI's pages may frame a console of the platform: its command lets them (x-ui-frames) and drops
     X-Frame-Options, which would refuse every page but its own, or a setting of its own names them as the pages that may."""
@@ -445,7 +427,7 @@ def _terminal(playground, project):
 
 
 def _playground(playground, project, inert=False):
-    """What a playground says of its guide, its UIs, what it requires, its seed. `inert`: it cannot start, so none of its
+    """What a playground says of its guide, its UIs, what it requires. `inert`: it cannot start, so none of its
     services is among the project's and what is asked of them cannot be."""
     if not playground["guide"]:
         yield "guide.md is missing next to it"
@@ -460,7 +442,6 @@ def _playground(playground, project, inert=False):
         if (folder / "seed").is_dir() and len(seeds) != 1:
             yield "seed/ needs one service with the label io.gravitee.role: seed"
     yield from _guide(folder, playground.get("accounts"))
-    yield from _seed(folder)
 
 
 def _unit(kind, uid, project, raw, context=None):
