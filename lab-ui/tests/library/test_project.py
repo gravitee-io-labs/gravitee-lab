@@ -451,6 +451,7 @@ class Build(AsOwn):
         self.assertEqual(playground["consoles"], ["acme-website"])
         self.assertEqual(playground["requires"], {"plugins": {"apim": ["gravitee-policy-interrupt"]}})
         self.assertEqual(playground["accounts"], [{"for": "Website", "username": "john", "password": "doe"}])
+        self.assertEqual((playground["env_file"], playground["settings"]), (".lab/catalogs/fixture/playgrounds/welcome/.env", []))
 
     def test_service_of_the_platform(self):
         gateway = self.project["services"]["apim-gateway"]

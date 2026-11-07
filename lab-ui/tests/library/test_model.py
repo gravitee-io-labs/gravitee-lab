@@ -1486,6 +1486,7 @@ class Catalogs(Built):
         self.assertEqual({key: item[key] for key in ROW}, {
             "origin": origin, "readonly": True, "display_file": "addons/kazoo/compose.yml", "blocked": None,
             "needs_catalogs": [], "compat": "new", "twin": {"id": "local/kazoo", "name": "Personal"}, "uses_machine": uses})
+        self.assertEqual(item["file"], self.project["addons"]["kazoo"]["file"], "the file the editor opens is not the path a person reads")
         self.assertNotIn("verdict", item, "the policy's whole verdict stays in the project")
         self.assertNotIn("catalog", item)
         json.dumps(item)
