@@ -1220,7 +1220,7 @@ class Upgrading(Case):
         code, out, err = self.upgrade(repo)
         self.assertEqual((code, err), (1, ""))
         self.assertIn("Will change\n  update   .github/workflows/ci.yml\n", out)
-        self.assertTrue(out.endswith("Nothing was written. To apply: run it again with --write (make upgrade WRITE=1).\n"), out)
+        self.assertTrue(out.endswith("Nothing was written. To apply: the same command with --write (with make: WRITE=1).\n"), out)
         self.assertIn("# x", (repo.root / ".github/workflows/ci.yml").read_text())
 
     def test_write_brings_the_files_to_the_level_and_a_second_run_has_nothing_to_do(self):

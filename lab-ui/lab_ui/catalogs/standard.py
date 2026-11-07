@@ -1185,7 +1185,7 @@ def main_upgrade(argv: List[str], lab: Optional[Path] = None) -> int:
         return 0
     if not args.write:
         _say("")
-        _say("Nothing was written. To apply: run it again with --write (make upgrade WRITE=1).")
+        _say("Nothing was written. To apply: the same command with --write (with make: WRITE=1).")
         return 1
     try:
         touched = [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE)]
