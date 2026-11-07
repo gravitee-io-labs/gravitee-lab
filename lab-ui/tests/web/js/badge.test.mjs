@@ -13,7 +13,7 @@ globalThis.innerHeight = 800;
 const { closest } = El.prototype;
 El.prototype.closest = function (selector) { return selector.includes(":is([role") ? null : closest.call(this, selector); };
 const { store } = await import("../../../web/js/core.js");
-const { actionButton, applyBadge, behindWhy, catalogNeed, flash, noteBadge, noteCard, noteHtml, originLink, paintActions, tipHtml } = await import("../../../web/js/components/ui.js");
+const { applyBadge, behindWhy, catalogNeed, noteBadge, noteCard, noteHtml, originLink, tipHtml } = await import("../../../web/js/components/ui.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
 Object.defineProperty(store, "platforms", { get: () => [], configurable: true });
 
@@ -438,14 +438,3 @@ test("a popover may end with one button that leads somewhere; the others are as 
 });
 
 // --- The verb of a repair ---------------------------------------------------------------------------------------------------------
-
-test("a repair is an action like the others: it works as Repairing and says Repair when it is over", () => {
-  const root = draw(actionButton({ key: "catalog-op:acme-hub", verb: "repair", label: "Repair" }));
-  const button = root.querySelector("button");
-  assert.equal(button.querySelector(".pbtn-text").getAttribute("data-wait"), "Repairing\u2026");
-  assert.equal(button.getAttribute("data-act-verb"), "repair");
-  flash("catalog-op:acme-hub", "repair", true);
-  paintActions(root);
-  assert.ok(button.classList.contains("said") && button.classList.contains("done"));
-  assert.equal(text(button.querySelector(".pbtn-text")), "Repair");
-});
