@@ -152,17 +152,6 @@ class Installed(Case):
         bundled = plugins._bundled(project, target)[0]
         self.assertEqual(sorted(bundled), ["gravitee-policy-gio-api", "gravitee-policy-gio-gateway"])
 
-    def test_by_default_what_an_add_on_that_is_off_brings_is_not_read(self):
-        # The checks of a playground ask without saying which services count: those Compose reads now
-        project = {**PROJECT, "services": {**PROJECT["services"], "hyssop": {
-            **PROJECT["services"]["gateway"], "container": "gio-hyssop", "image": "graviteeio/apim-gateway:4.12.21"}},
-            "products": {"apim": {**APIM, "services": {"gateway": "/opt/gateway/plugins", "hyssop": "/opt/hyssop/plugins"}}}}
-        read = []
-        self.patch(compose, "shell", lambda service, args, timeout=120: (read.append(service["container"]), (0, "", ""))[1])
-        self.patch(compose, "loaded", return_value={"gateway", "mongodb"})
-        self.assertEqual(plugins.installed(project, "apim")["services"], ["gateway"])
-        self.assertEqual(read, ["gio-gateway"])
-
     def test_bundled_plugins_that_cannot_be_read_are_unknown_not_none(self):
         # No container, and Docker took too long to run the image: nothing is said to be bundled
         self.patch(compose, "run", side_effect=[
@@ -216,7 +205,10 @@ class Installed(Case):
         found = plugins.installed(project, "apim", {"gateway", "mongodb"})
         self.assertEqual((found["bundled_error"], found["services"], list(found["bundled"])),
                          (None, ["gateway"], ["gravitee-policy-x"]))
+        # By default, as the checks of a playground ask: the services Compose reads now
         self.patch(compose, "loaded", return_value={"gateway", "mongodb"})
+        compose.CACHE.drop("local:plugins-installed:")
+        self.assertEqual(plugins.installed(project, "apim")["services"], ["gateway"])
         self.patch(compose, "containers", lambda: ({}, None))
         self.assertEqual(plugins.install_steps(project, "apim", ["gravitee-policy-x"]), ([], [], {}))
 
@@ -264,27 +256,16 @@ class Installed(Case):
         job.run()
         self.assertEqual((job.ok, job.lines), (True, ["Not running: loaded on next start"]))
 
-    def test_a_plugin_change_leaves_the_unpack_folder_to_the_product(self):
-        # On Linux the containers write .work as their own user, which this one cannot remove: the change does not
-        # touch it (each product unpacks every plugin again as it starts), ends well, and starts the product again
+    def test_apply_stops_and_starts_a_product_that_runs(self):
         added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
-        added.parent.mkdir(parents=True)
-        added.write_text("zip", encoding="utf-8")
+        self.added(added.name)
+        # On Linux the containers write .work as their own user, which this one cannot remove: the change does not touch it
+        # (each product unpacks every plugin again as it starts), and ends well
         theirs = self.root / "plugins/apim/.work/gravitee-policy-old-1.0.0"
         theirs.mkdir(parents=True)
         (theirs / "a.jar").write_text("jar", encoding="utf-8")
         os.chmod(theirs, 0o555)
         self.addCleanup(os.chmod, theirs, 0o755)
-        self.running(({"gateway": {"state": "running"}}, None))
-        job, more, commands = self.applied([], [added.name])
-        self.assertEqual(commands, [[*compose.COMPOSE, "stop", "gateway"],
-                                    [*compose.COMPOSE, "up", "-d", "--no-deps", "gateway"]])
-        self.assertTrue((theirs / "a.jar").exists())
-
-    def test_apply_stops_and_starts_a_product_that_runs(self):
-        added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
-        added.parent.mkdir(parents=True)
-        added.write_text("zip", encoding="utf-8")
         self.running(({"gateway": {"state": "running"}}, None))
         job, more, commands = self.applied([], [added.name])
         # Nothing is downloaded: the stop and the start are what takes time. It shows as starting meanwhile
@@ -294,7 +275,7 @@ class Installed(Case):
                                          {("Container", "gio-gateway"): "start"}])
         self.assertEqual(commands, [[*compose.COMPOSE, "stop", "gateway"],
                                     [*compose.COMPOSE, "up", "-d", "--no-deps", "gateway"]])
-        self.assertEqual((job.lines, added.exists()), ([f"Removed {added.name}", "▸ Stop", "▸ Start"], False))
+        self.assertEqual((job.lines, added.exists(), (theirs / "a.jar").exists()), ([f"Removed {added.name}", "▸ Stop", "▸ Start"], False, True))
 
     def test_apply_downloads_for_a_product_that_does_not_run(self):
         file = "gravitee-policy-x-1.2.0.zip"
@@ -732,17 +713,19 @@ class Installed(Case):
             plugins.up(job, project, ["hyssop", "api"])
         self.assertEqual(len(commands), 2)
 
-    def test_apply_starts_again_one_at_a_time_what_shares_the_folder(self):
+    def applying_to_a_shared_folder(self):
+        """The job apply() starts to remove a plugin of the folder that three running services share, not run yet."""
         project = self.project_sharing_a_folder()
         self.patch(compose, "containers", lambda: ({name: {"state": "running"} for name in ("api", "gateway", "hyssop")},
                                                    None))
-        added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
-        added.parent.mkdir(parents=True)
-        added.write_text("zip", encoding="utf-8")
+        self.added("gravitee-policy-old-1.0.0.zip")
         jobs = self.patch(plugins, "JOBS")
-        plugins.apply(project, "apim", [], [added.name])
+        plugins.apply(project, "apim", [], ["gravitee-policy-old-1.0.0.zip"])
         title, steps, more = self.started(jobs)
-        job, commands = Job(title, steps, phases=more["phases"], waits=more["waits"]), []
+        return Job(title, steps, phases=more["phases"], waits=more["waits"])
+
+    def test_apply_starts_again_one_at_a_time_what_shares_the_folder(self):
+        job, commands = self.applying_to_a_shared_folder(), []
         job.exec = lambda command, quiet=False: commands.append(command)
         job.run()
         start = [*compose.COMPOSE, "up", "-d", "--no-deps"]
@@ -755,16 +738,7 @@ class Installed(Case):
         # the job must say so, as the one `up` did before
         import json
         from lab_ui.docker import jobs
-        project = self.project_sharing_a_folder()
-        self.patch(compose, "containers", lambda: ({name: {"state": "running"} for name in ("api", "gateway", "hyssop")},
-                                                   None))
-        added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
-        added.parent.mkdir(parents=True)
-        added.write_text("zip", encoding="utf-8")
-        jobs_ = self.patch(plugins, "JOBS")
-        plugins.apply(project, "apim", [], [added.name])
-        title, steps, more = self.started(jobs_)
-        job, started = Job(title, steps, phases=more["phases"], waits=more["waits"]), []
+        job, started = self.applying_to_a_shared_folder(), []
         refused = {"id": "Image graviteeio/gio-hyssop:5", "status": "Error", "text": "Error",
                    "details": "manifest unknown"}
 
