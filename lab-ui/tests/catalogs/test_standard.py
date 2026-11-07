@@ -510,6 +510,15 @@ class Drift(Case):
         self.assertIn(".github/workflows/nightly.yml is from standard 1; this Lab has 9. Fix: catalog.py upgrade --write.",
                       [each.message for each in found])
 
+    def test_the_number_of_the_marker_is_the_only_thing_that_is_not_compared(self):
+        files = edited(render(), ".catalog/standard.mk", lambda text: text.replace("standard 9:", "standard 1:", 1))
+        self.assertEqual(self.check(files), [])
+        for change in (lambda text: text.replace("# Managed by the Lab catalog standard 9:", "# Managed by the Lab catalog standard 9 :", 1),
+                       lambda text: text.replace("standard 9: change", "standard 9: changed", 1),
+                       lambda text: text.replace("catalog standard 9", "catalog standard 99 3", 1)):
+            files = edited(render(), ".catalog/standard.mk", change)
+            self.assertNotEqual(self.check(files), [])
+
     def test_the_declared_level_tells_behind_from_edited(self):
         for declared, code in ((9, "SD02"), (1, "SD03")):
             files = edited(render(), ".github/workflows/ci.yml", lambda text: text + "# changed\n")
