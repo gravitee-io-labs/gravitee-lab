@@ -610,6 +610,12 @@ class Drift(Case):
         del files["Makefile"]
         self.assertEqual(where(self.check(files), "SD10"), ["Makefile"])
 
+    def test_a_file_a_level_changed_is_behind_below_it_and_edited_by_hand_at_it(self):
+        self.assertEqual([(each.code, each.severity, each.path) for each in self.check(at(8))],
+                         [("SD03", "warning", ".github/workflows/ci.yml")])
+        same = edited(render(), ".github/workflows/ci.yml", lambda text: text.replace("    name: Checks\n", ""))
+        self.assertEqual([(each.code, each.severity) for each in self.check(same)], [("SD02", "error")])
+
     def test_a_level_above_the_labs_is_sd05_once_and_no_file_is_compared(self):
         files = render()
         files[".github/standard.json"] = files[".github/standard.json"].replace(b'"standard": 9', b'"standard": 10')
