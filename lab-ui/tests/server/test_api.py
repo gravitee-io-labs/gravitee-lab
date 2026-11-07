@@ -2382,7 +2382,7 @@ class Startup(Case):
     touches nothing;
     `--check`, `--list` and `--e2e` run none of it."""
 
-    STEPS = (("service", "recover"), ("firstrun", "reconcile"), ("firstrun", "start_worker"))
+    STEPS = (("service", "recover"), ("moving", "recover_at_start"), ("firstrun", "reconcile"), ("firstrun", "start_worker"))
 
     def setUp(self):
         self.folder(paths)
@@ -2416,7 +2416,7 @@ class Startup(Case):
 
     def test_the_port_is_bound_first_then_the_steps_in_order_and_then_the_page_is_served(self):
         said = self.serve()
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"),
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"), ("moving", "recover_at_start"),
                                        ("firstrun", "reconcile"), ("firstrun", "start_worker"), ("warm up",), ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
                                "and the containers keep running.\n\n")
