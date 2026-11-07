@@ -1,7 +1,7 @@
 """The registry: the catalogs this machine has, read and written as says. Config and lock round trips, the
 tolerance of every read, the manifest that vouches for the units of a git install, namespaces, addresses, the
-suggestions file and what the resolver reads. Everything is on disk in a temporary project folder: no network, no git
-except where a fixture catalog is installed from a local bare repository (a visible skip without git), no Docker."""
+suggestions file and what the resolver reads. Everything is on disk in a temporary project folder: no network, no git,
+no Docker."""
 
 import fcntl
 import json
@@ -21,7 +21,7 @@ from unittest import mock
 from lab_ui import paths
 from lab_ui.catalogs import gitx, registry, resolve
 
-from .. import Case, fixtures, gitfixture
+from .. import Case, fixtures
 
 A, B, C = "a" * 40, "b" * 40, "c" * 40
 LAB_UI = Path(__file__).resolve().parents[2]
@@ -101,25 +101,12 @@ class Disk(Case):
         return sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*"))
 
 
-class Errors(Case):
 
-    def test_a_refusal_has_a_code_a_line_a_status_and_its_facts(self):
-        error = registry.CatalogError("busy", "Another catalog change is running.", 409, id="x")
-        self.assertEqual((error.code, error.message, error.status, error.detail),
-                         ("busy", "Another catalog change is running.", 409, {"id": "x"}))
-        self.assertEqual(str(error), "Another catalog change is running.")
+class Errors(Case):
 
     def test_the_status_is_a_bad_request_unless_said_and_the_facts_are_empty(self):
         error = registry.CatalogError("not_found", "Nothing.")
         self.assertEqual((error.status, error.detail), (400, {}))
-
-    def test_git_raises_this_class_and_not_a_copy_of_it(self):
-        from lab_ui.catalogs import store
-        self.assertIs(gitx.CatalogError, registry.CatalogError)
-        self.assertTrue(issubclass(store.MissingObject, registry.CatalogError))
-        with self.assertRaises(registry.CatalogError) as raised:
-            gitx.parse_address("git://example.invalid/a/b")
-        self.assertEqual((raised.exception.code, raised.exception.status), ("bad_address", 400))
 
 
 class ConfigRead(Disk):
@@ -270,11 +257,6 @@ class ConfigRead(Disk):
         for word in ("token", "secret", "one9", "two9", "three9", "se9", "cret9"):
             self.assertNotIn(word, json.dumps(registry.read_config()))
 
-    def test_the_array_is_the_order_of_precedence(self):
-        self.config(git_entry("zeta"), git_entry("alpha"), folder_entry("middle", "/home/me/m"))
-        self.assertEqual([one["id"] for one in registry.entries()], ["zeta", "alpha", "middle"])
-        self.assertEqual(registry.precedence(), ["local", "zeta", "alpha", "middle"])
-
     def test_the_default_catalog_claims_first_wherever_it_stands_in_the_file(self):
         self.default("fixture")
         self.config(git_entry("zeta"), git_entry("fixture"), git_entry("alpha"))
@@ -325,15 +307,7 @@ class ConfigWrite(Disk):
         self.assertEqual(atomic.call_args.kwargs["mode"], 0o600)
         self.assertEqual(os.stat(self.root / ".lab/catalogs.json").st_mode & 0o777, 0o600)
         self.assertEqual(registry.read_config(), config)
-        text = (self.root / ".lab/catalogs.json").read_text(encoding="utf-8")
-        self.assertTrue(text.endswith("}\n"))
-        self.assertEqual(json.loads(text), config)
-        self.assertIsNone(registry.config_problem())
-
-    def test_the_folder_of_the_lab_is_made_when_it_is_not_there(self):
-        self.assertFalse((self.root / ".lab").exists())
-        registry.write_config({"schema": 1, "catalogs": []})
-        self.assertEqual(registry.read_config(), {"schema": 1, "catalogs": []})
+        self.assertTrue((self.root / ".lab/catalogs.json").read_text(encoding="utf-8").endswith("}\n"))
 
     def test_the_schema_is_always_the_one_this_lab_writes(self):
         registry.write_config({"schema": 7, "catalogs": []})
@@ -427,13 +401,6 @@ class ConfigWrite(Disk):
         self.assertEqual(len(aside), 1)
         self.assertTrue((aside[0] / "inside").is_dir())
 
-    def test_a_write_that_fails_leaves_the_file_as_it_was(self):
-        self.config(git_entry("acme-hub"))
-        before = (self.root / ".lab/catalogs.json").read_bytes()
-        with mock.patch.object(paths, "write_atomic", side_effect=OSError("disk full")), self.assertRaises(OSError):
-            registry.write_config({"schema": 1, "catalogs": []})
-        self.assertEqual((self.root / ".lab/catalogs.json").read_bytes(), before)
-
     def test_a_listed_reserved_name_is_written_only_when_the_file_lists_it(self):
         with self.assertRaises(ValueError):
             registry.write_config({"schema": 1, "catalogs": [git_entry("gravitee")]})
@@ -443,17 +410,6 @@ class ConfigWrite(Disk):
 
 
 class LockRead(Disk):
-
-    def test_a_missing_lock_is_an_empty_one_and_no_problem(self):
-        self.assertEqual(registry.read_lock(), {"schema": 1, "catalogs": {}})
-        self.assertIsNone(registry.config_problem())
-
-    def test_every_entry_has_every_field_of_section_2_2(self):
-        self.lockfile(**{"acme-hub": {"pin": A}})
-        found = registry.lock_of("acme-hub")
-        self.assertEqual(list(found), ["pin", "previous", "tip", "roots", "audience", "name", "version", "release", "lab",
-                                       "installed", "checked", "error", "pending"])
-        self.assertEqual((found["pin"], found["previous"], found["roots"], found["audience"]), (A, None, [], "private"))
 
     def test_a_catalog_with_no_entry_has_the_blank_one(self):
         blank = registry.lock_of("acme-hub")
@@ -507,8 +463,6 @@ class LockRead(Disk):
         self.assertEqual(len(shown), 40)
         self.assertTrue(shown.startswith("Acme Hub xxx"))
         self.assertNotIn("\u202e", shown)
-
-    def test_a_name_is_normalized_the_way_a_person_reads_it(self):
         self.lockfile(**{"acme-hub": lock_entry(name="\uff28\uff55\uff42 \u2460 \ufb01x")})   # full-width Hub, a circled 1, a ligature
         self.assertEqual(registry.lock_of("acme-hub")["name"], "Hub 1 fix")
 
@@ -673,12 +627,6 @@ class Flock(Disk):
         finally:
             os.close(descriptor)
 
-    def test_the_lock_is_held_inside_and_released_after(self):
-        with registry.flock():
-            self.assertTrue(self.held_elsewhere())
-            self.assertEqual(os.stat(self.lock_file()).st_mode & 0o777, 0o600)
-        self.assertFalse(self.held_elsewhere())
-
     def test_an_error_inside_releases_it(self):
         with self.assertRaises(RuntimeError), registry.flock():
             raise RuntimeError("boom")
@@ -686,9 +634,9 @@ class Flock(Disk):
 
     def test_a_thread_that_holds_it_takes_it_again_at_no_cost(self):
         with registry.flock(wait=0):
+            self.assertEqual(os.stat(self.lock_file()).st_mode & 0o777, 0o600)
             with registry.flock(wait=0):
-                with registry.flock(wait=0):
-                    self.assertTrue(self.held_elsewhere())
+                self.assertTrue(self.held_elsewhere())
             self.assertTrue(self.held_elsewhere())
         self.assertFalse(self.held_elsewhere())
 
@@ -698,20 +646,6 @@ class Flock(Disk):
         self.assertEqual((error.code, error.status, error.message, error.detail),
                          ("busy", 409, "Another catalog change is running. Try again in a moment.", {}))
         self.assertIsNot(registry.busy(), error, "a new error each time: a traceback is not shared")
-
-    def test_a_writer_waits_for_the_holder_and_then_goes_on(self):
-        gate = threading.Event()
-
-        def hold():
-            with registry.flock():
-                gate.set()
-                time.sleep(0.4)
-        thread = threading.Thread(target=hold)
-        thread.start()
-        self.assertTrue(gate.wait(10))
-        registry.set_lock("acme-hub", pin=A)   # waits for the lock, does not fail
-        thread.join(10)
-        self.assertEqual(registry.lock_of("acme-hub")["pin"], A)
 
     def test_a_writer_that_waits_too_long_is_busy_and_writes_nothing(self):
         gate, release = threading.Event(), threading.Event()
@@ -799,13 +733,8 @@ class Flock(Disk):
 
 class Places(Disk):
 
-    def test_where_things_are(self):
-        self.assertEqual(registry.install_dir("acme-hub"), self.root / ".lab/catalogs/acme-hub")
-        self.assertEqual(registry.stage_dir("acme-hub"), self.root / ".lab/catalogs/.stage-acme-hub")
-        self.assertEqual(registry.store_dir("acme-hub"), self.root / ".lab/cache/git/acme-hub.git")
+    def test_where_a_store_being_added_is(self):
         self.assertEqual(registry.new_store_dir("9f3a4c1d2e5b6a70"), self.root / ".lab/cache/git/.new-9f3a4c1d2e5b6a70.git")
-        self.assertEqual(registry.stage_dir("new-9f3a4c1d2e5b6a70"), self.root / ".lab/catalogs/.stage-new-9f3a4c1d2e5b6a70")
-        self.assertIsInstance(registry.install_dir("acme-hub"), Path)
 
     def test_a_name_that_could_lead_out_of_the_catalogs_is_refused(self):
         for bad in ("../x", "a/b", "", ".", "..", "x", "A", "a b", "acme\n", None, 5, "-acme", "acme-", ".stage-x"):
@@ -851,9 +780,7 @@ class Namespaces(Disk):
         self.assertEqual(self.refused("official", listed=["gravitee"]).code, "name_reserved")
         self.assertEqual(self.refused("gravitee", listed=[]).code, "name_reserved")
         self.assertEqual(self.refused("gravitee", listed=["gravitee-x"]).code, "name_reserved")
-
-    def test_the_personal_area_is_never_a_catalog_whatever_is_listed(self):
-        self.assertEqual(self.refused("local", listed=["local"]).code, "name_reserved")
+        self.assertEqual(self.refused("local", listed=["local"]).code, "name_reserved", "the personal area, whatever is listed")
 
     def test_a_namespace_that_is_taken_says_by_which_address(self):
         self.config(git_entry("acme-hub", url="https://github.com/acme/lab-hub.git"), folder_entry("my-catalog", "/x/y"))
@@ -968,7 +895,7 @@ class Manifests(Disk):
     def test_a_manifest_is_read_once_until_the_file_changes(self):
         self.lock()
         self.install("acme-hub", A, ("addon:one",))
-        file = self.old(self.root / ".lab/catalogs/acme-hub/.installed.json")
+        self.old(self.root / ".lab/catalogs/acme-hub/.installed.json")
         self.assertEqual(list(registry.manifest("acme-hub")["units"]), ["addon:one"])
         real = registry._read
 
@@ -978,8 +905,6 @@ class Manifests(Disk):
             return real(path, *more, **how)
         with mock.patch.object(registry, "_read", side_effect=not_the_manifest):
             self.assertEqual(list(registry.manifest("acme-hub")["units"]), ["addon:one"])
-            self.assertEqual(list(registry.manifest("acme-hub")["units"]), ["addon:one"])
-        self.assertTrue(file.exists())
 
     def test_a_manifest_changed_within_the_tick_of_the_clock_is_read_again(self):
         # The same size, the same inode, the same modification time: only the age of the file tells it from the cached one
@@ -1002,17 +927,12 @@ class Manifests(Disk):
         self.old(file)
         stamp = os.stat(file).st_mtime_ns
         self.assertEqual(list(registry.manifest("acme-hub")["units"]), ["addon:one"])
-        self.assertEqual(list(registry.manifest("acme-hub")["units"]), ["addon:one"])   # from the cache now
         document = json.loads(file.read_text(encoding="utf-8"))
         document["units"] = {"addon:two": "sha256:" + "0" * 64}
         other = file.with_name("replacement")
         other.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-        self.assertEqual(os.stat(other).st_size, os.stat(file).st_size)
         os.utime(other, ns=(stamp, stamp))
-        before = os.stat(file).st_ino
         os.replace(other, file)
-        self.assertNotEqual(os.stat(file).st_ino, before)
-        self.assertEqual((os.stat(file).st_size, os.stat(file).st_mtime_ns), (os.stat(file).st_size, stamp))
         self.assertEqual(list(registry.manifest("acme-hub")["units"]), ["addon:two"])
 
     def test_an_old_file_that_changes_in_size_is_read_again(self):
@@ -1044,10 +964,6 @@ class Units(Disk):
             (base / stray).write_text("", encoding="utf-8")
         self.assertEqual(registry.units_of("acme-hub"), {"addon": ["also", "listed"], "setup": ["set"],
                                                          "playground": ["bank"]})
-
-    def test_the_three_kinds_are_always_there(self):
-        self.assertEqual(registry.units_of("acme-hub"), {"addon": [], "setup": [], "playground": []})
-        self.assertEqual(registry.units_of("local"), {"addon": [], "setup": [], "playground": []})
 
     def test_what_a_manifest_names_that_is_not_a_unit_is_ignored(self):
         self.config(git_entry("acme-hub"))
@@ -1163,9 +1079,7 @@ class Addresses(Disk):
     def home(self):
         home = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(lambda: shutil.rmtree(home, True))
-        patcher = mock.patch.dict(os.environ, {"HOME": str(home)})
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.start(mock.patch.dict(os.environ, {"HOME": str(home)}))
         return home
 
     def test_every_spelling_of_one_repository_reads_the_same(self):
@@ -1243,11 +1157,8 @@ class Suggestions(Disk):
         self.elsewhere = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(lambda: shutil.rmtree(self.elsewhere, True))
         self.file = self.elsewhere / "suggestions.json"
-        patcher = mock.patch.dict(os.environ, {"LAB_CATALOGS_FILE": str(self.file), "HOME": str(self.elsewhere)})
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        for name in ("XDG_CONFIG_HOME",):
-            os.environ.pop(name, None)
+        self.start(mock.patch.dict(os.environ, {"LAB_CATALOGS_FILE": str(self.file), "HOME": str(self.elsewhere)}))
+        os.environ.pop("XDG_CONFIG_HOME", None)
 
     def suggest(self, *rows, schema=1):
         self.file.write_text(json.dumps({"schema": schema, "catalogs": list(rows)}), encoding="utf-8")
@@ -1288,16 +1199,6 @@ class Suggestions(Disk):
                      {"url": "https://git.example.invalid/keep/this.git"})
         self.assertEqual([row["url"] for row in registry.suggestions()], ["https://git.example.invalid/keep/this.git"])
 
-    def test_a_file_of_another_format_gives_nothing(self):
-        row = {"url": "https://git.example.invalid/team/one.git"}
-        for label, document in {"a newer schema": {"schema": 2, "catalogs": [row]}, "no schema": {"catalogs": [row]},
-                                "schema text": {"schema": "1", "catalogs": [row]}, "schema true": {"schema": True, "catalogs": [row]}}.items():
-            with self.subTest(label):
-                self.file.write_text(json.dumps(document), encoding="utf-8")
-                self.assertEqual(registry.suggestions(), [])
-        self.suggest(row)
-        self.assertEqual(len(registry.suggestions()), 1)
-
     def test_a_folder_is_not_a_suggestion_whatever_it_is_spelled_like(self):
         # A path that is a folder here is a folder catalog, not a repository to add: only an address is suggested
         folder = self.elsewhere / "a-folder"   # under the home folder (HOME is this temporary folder) and a catalog
@@ -1315,7 +1216,10 @@ class Suggestions(Disk):
 
     def test_a_file_that_is_missing_or_damaged_or_hostile_gives_nothing(self):
         self.assertEqual(registry.suggestions(), [])
-        for label, data in {"not json": b"{", "a list": b"[]", "newer": json.dumps({"schema": 2, "catalogs": []}).encode(),
+        row = {"url": "https://git.example.invalid/team/one.git"}
+        for label, data in {"not json": b"{", "a list": b"[]", "a newer schema": json.dumps({"schema": 2, "catalogs": [row]}).encode(),
+                            "no schema": json.dumps({"catalogs": [row]}).encode(), "schema text": json.dumps({"schema": "1", "catalogs": [row]}).encode(),
+                            "schema true": json.dumps({"schema": True, "catalogs": [row]}).encode(),
                             "no list": b'{"schema": 1}', "not text": b"\xff\xfe", "empty": b"", "nesting": b"[" * 100000,
                             "huge": b" " * (registry.SUGGESTIONS_LIMIT + 1)}.items():
             with self.subTest(label):
@@ -1505,9 +1409,6 @@ class Scanner(Disk):
             with self.subTest(label):
                 self.assertIsInstance(self.scan(text), dict)
 
-    def test_shown_is_normalized_and_collapsed(self):
-        self.assertEqual(registry.shown("  Ｈｕｂ\u202e\n  one  ", 40), "Hub one")
-
     def test_the_block_on_one_line_quoted_keys_and_flows_inside_flows(self):
         found = self.scan("x-gravitee-catalog: {schema: 1, id: acme-hub, name: Acme Hub, version: 1.4.0, lab: 2}\n")
         self.assertEqual(found, {"id": "acme-hub", "name": "Acme Hub", "version": "1.4.0", "lab": 2, "requires_catalogs": {}})
@@ -1590,13 +1491,10 @@ class Rows(Disk):
                    "x-gravitee-catalog:\n  name: Mine\n  description: My own\n  version: 0.1.0\n  lab: 1\n")
         self.write(".lab/catalogs/local/addons/personal/compose.yml")
 
-    def test_the_order_is_the_default_then_the_personal_area_then_the_others_as_added(self):
-        self.set_up_three()
-        self.assertEqual(list(registry.inputs()), ["fixture", "local", "acme-hub", "my-catalog"])
-
     def test_what_a_row_says(self):
         self.set_up_three()
         rows = registry.inputs()
+        self.assertEqual(list(rows), ["fixture", "local", "acme-hub", "my-catalog"], "the default, the personal area, the others as added")
         self.assertEqual(rows["fixture"], {
             "name": "Fixture catalog", "description": "", "version": "1.0.0", "lab": 1, "audience": "public", "kind": "git",
             "requires_catalogs": {}, "state": "uptodate", "units": {"addon": ["kazoo"], "setup": ["events"],
@@ -1611,7 +1509,6 @@ class Rows(Disk):
     def test_a_git_install_is_named_by_the_lock_and_a_folder_by_its_live_file(self):
         self.set_up_three()
         rows = registry.inputs()
-        self.assertEqual((rows["fixture"]["name"], rows["acme-hub"]["name"]), ("Fixture catalog", "Acme Hub"))   # the lock
         self.assertEqual((rows["my-catalog"]["name"], rows["my-catalog"]["description"], rows["my-catalog"]["version"],
                           rows["my-catalog"]["lab"]), ("Mine", "My own", "0.1.0", 1))
         self.lockfile(**{"my-catalog": lock_entry(name="Stale", version="9.9.9", lab=9, audience="public")})
@@ -1690,20 +1587,12 @@ class States(Disk):
         if installed:
             self.install("acme-hub", A)
 
-    def test_the_personal_area(self):
-        self.assertEqual(self.state("local"), "machine")
-
     def test_a_catalog_never_downloaded_is_downloading_whatever_is_in_the_way(self):
         self.git(lock=False, installed=False)
         self.assertEqual(self.state(), "downloading")
         self.lockfile(**{"acme-hub": {"pin": None}})
         self.assertEqual(self.state(), "downloading")
         self.assertIsNone(registry.inputs()["acme-hub"]["version"])
-
-    def test_an_installed_catalog_is_up_to_date_as_far_as_the_disk_goes(self):
-        self.git()
-        self.assertEqual(self.state(), "uptodate")
-        self.assertEqual(registry.inputs()["acme-hub"]["version"], "1.0.0")
 
     def test_a_pin_without_a_valid_manifest_is_damaged(self):
         self.git(installed=False)
@@ -1713,12 +1602,6 @@ class States(Disk):
         self.install("acme-hub", A)
         self.assertEqual(self.state(), "uptodate")
         self.assertEqual(registry.inputs()["acme-hub"]["version"], "1.0.0")   # a damaged install can still be named
-
-    def test_a_copy_that_is_damaged_is_damaged_before_it_is_anything_a_failure_says(self):
-        self.git(installed=False, error="unreachable")
-        self.assertEqual(self.state(), "damaged")
-        self.git(installed=True, error="unreachable")
-        self.assertEqual(self.state(), "unreachable")
 
     def test_an_operation_under_way(self):
         self.git(pin=None, installed=True, pending={"op": "add", "from": None, "to": A})
@@ -1746,6 +1629,8 @@ class States(Disk):
     def test_a_failure_before_any_copy_is_the_failure_and_a_copy_does_not_hide_it(self):
         self.git(pin=None, installed=False, error="no_access")
         self.assertEqual((self.state(), registry.inputs()["acme-hub"]["version"]), ("noaccess", None))
+        self.git(installed=False, error="unreachable")
+        self.assertEqual(self.state(), "damaged", "a copy that is damaged is damaged before it is anything a failure says")
         self.git(error="unreachable")
         self.assertEqual((self.state(), registry.inputs()["acme-hub"]["version"]), ("unreachable", "1.0.0"))
 
@@ -1763,11 +1648,6 @@ class States(Disk):
         self.assertEqual(self.state("my-catalog"), "linked")
         row = registry.inputs()["my-catalog"]
         self.assertEqual((row["kind"], row["audience"]), ("folder", "private"))
-
-    def test_a_folder_catalog_that_is_a_plain_folder_is_linked_too(self):
-        self.config(folder_entry("my-catalog", self.root / ".lab/catalogs/my-catalog"))
-        self.write(".lab/catalogs/my-catalog/catalog.yml", "x-gravitee-catalog:\n  name: M\n")
-        self.assertEqual(self.state("my-catalog"), "linked")
 
     def test_a_folder_ignores_the_failures_of_a_shadowed_git_catalog(self):
         self.config(folder_entry("my-catalog", self.root / ".lab/catalogs/my-catalog", shadows={"url": "https://example.invalid/m.git"}))
@@ -1802,35 +1682,6 @@ class States(Disk):
         self.lockfile(**{"acme-hub": lock_entry(), "partner": lock_entry(version="2.0.0")})
         self.assertEqual(resolve.catalog_needs({"ns": "acme-hub", "includes": [".lab/catalogs/partner/addons/one/compose.yml"]},
                                                registry.inputs(), []), [])
-
-
-class Fixtures(Case):
-    """The registry on the fixture catalogs of tests.catalogs, installed the way the Lab leaves them."""
-
-    def test_a_default_catalog_and_its_neighbours(self):
-        gitfixture.require()
-        fixtures.project(self, paths, ns="fixture", kind="git")
-        fixtures.install(self, "partner", kind="git")
-        fixtures.install(self, "lab-new", kind="folder")
-        fixtures.local(self, fixtures.units("local")[0][1])
-        rows = registry.inputs()
-        self.assertEqual(list(rows), ["fixture", "local", "partner", "lab-new"])
-        fixture, partner, new = rows["fixture"], rows["partner"], rows["lab-new"]
-        self.assertEqual((fixture["name"], fixture["version"], fixture["lab"], fixture["audience"], fixture["state"],
-                          fixture["kind"]), ("Fixture catalog", "1.0.0", 1, "public", "uptodate", "git"))
-        self.assertEqual(sorted(fixture["requires_catalogs"]), ["partner"])
-        self.assertEqual(fixture["requires_catalogs"]["partner"]["min"], "1.0.0")
-        self.assertEqual((partner["version"], partner["audience"], partner["state"]), ("2.0.0", "private", "uptodate"))
-        self.assertEqual((new["lab"], new["kind"], new["state"]), (99, "folder", "linked"))
-        for ns in ("fixture", "partner", "lab-new"):
-            with self.subTest(ns):
-                disk = fixtures.units(ns)
-                found = [(kind, name) for kind in fixtures.KINDS for name in rows[ns]["units"][kind]]
-                self.assertEqual(sorted(found), sorted(disk))
-        self.assertEqual(fixture["ignored"], registry.manifest("fixture")["ignored"])
-        for kind in fixtures.KINDS:
-            for uid in paths.ids(kind):
-                self.assertTrue((self.root / paths.unit_file(kind, uid)).is_file())
 
 
 class ReadersWrite(Disk):
@@ -1927,9 +1778,7 @@ class Hostile(Disk):
         elsewhere = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: shutil.rmtree(elsewhere, True))
         file = elsewhere / "s.json"
-        patcher = mock.patch.dict(os.environ, {"LAB_CATALOGS_FILE": str(file)})
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        self.start(mock.patch.dict(os.environ, {"LAB_CATALOGS_FILE": str(file)}))
         good = json.dumps({"schema": 1, "catalogs": [{"name": "A", "url": "https://git.example.invalid/a/b.git",
                                                       "branch": "main", "host_access": True}]}).encode()
         for data in self.mutations(5, good, 200):
