@@ -30,7 +30,7 @@ function colors() {
 export class Shell {
   constructor(body, id, notice) {
     Object.assign(this, { body, id, notice, term: null, fit: null, source: null, offset: 0, ended: false, wanted: false, timer: null,
-      chain: Promise.resolve(), pending: "", sending: null, observer: null, themes: null });
+      chain: Promise.resolve(), observer: null, themes: null });
   }
 
   // The shell on screen, once its libraries are there; false when they are not
@@ -112,13 +112,7 @@ export class Shell {
   // What is typed goes to the shell, in the order it was typed; after the shell ended, a key starts a new one
   type(data) {
     if (this.ended) return void this.restart();
-    this.pending += data;
-    this.sending ||= setTimeout(() => {
-      const data = this.pending;
-      this.pending = "";
-      this.sending = null;
-      this.post({ data });
-    }, 0);
+    this.post({ data });
   }
 
   post(body) {
