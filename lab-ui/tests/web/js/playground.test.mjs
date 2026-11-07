@@ -890,10 +890,10 @@ test("a start on images it was not tested with is the start that switches them, 
   await answer(true);
   assert.deepEqual(await asked, { accept: ["version:APIM"], remove: false, switch: true });
   // Without switching: the start's own dialog, and nothing of the versions sent back
-  const kept = confirmStart(other, "Start", dialogOf({ stops: [{ kind: "addon", id: "kafka", name: "Kafka" }] }), { offer });
+  const kept = confirmStart(other, "Start", dialogOf({ stops: [{ kind: "addon", id: "kazoo", name: "Kazoo" }] }), { offer });
   await flush();
   await answer("alt");
-  assert.deepEqual(await kept, { accept: ["addon:kafka"], remove: false });
+  assert.deepEqual(await kept, { accept: ["addon:kazoo"], remove: false });
   // A switch that goes back says it in the danger tone, and its button is the dangerous one
   const back = { ...offer, versions: [], goes_back: [{ ...row, name: "API Management master-latest → 4.13.0-alpha.3" }] };
   const warned = confirmStart(other, "Start", dialogOf({}), { offer: back });

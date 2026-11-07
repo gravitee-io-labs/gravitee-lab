@@ -141,7 +141,7 @@ function lab({ core = "running", groups, links = LINKS, platform = {}, extra = {
       update: { needed: core === "running", enabled: true, reason: null, dialog: null }, reset_turns_off: null, ...platform },
     playgrounds: [item("playground", "acme-bakery", "Acme Bakery")],
     setups: [item("setup", "events", "Event Streams", { members: [] }), item("setup", "tracing", "Tracing", { members: [] })],
-    addons: [...(addons || [running("addon", "jade", "Jade", { services: ["jade"], links: [LINKS[3]] }), item("addon", "kafka", "Kafka"), item("addon", "mail", "Mail server")]),
+    addons: [...(addons || [running("addon", "jade", "Jade", { services: ["jade"], links: [LINKS[3]] }), item("addon", "kazoo", "Kazoo"), item("addon", "mail", "Mail server")]),
       ...(runs ? [hybrid(runs === "up")] : [])],
     ...more,
   };
@@ -641,13 +641,13 @@ test("the card is named for what it holds, and what is on comes first, a playgro
   await open({ state: lab({
     playgrounds: [running("playground", "acme-bakery", "Acme Bakery", { starred: true }), item("playground", "hotels", "Acme Hostels", { starred: true })],
     setups: [running("setup", "events", "Event Streams"), item("setup", "tracing", "Tracing")],
-    addons: [running("addon", "jade", "Jade"), waiting("addon", "kafka", "Kafka"), item("addon", "mail", "Mail server", { starred: true }), item("addon", "kiosk", "Kiosk")],
+    addons: [running("addon", "jade", "Jade"), waiting("addon", "kazoo", "Kazoo"), item("addon", "mail", "Mail server", { starred: true }), item("addon", "kiosk", "Kiosk")],
   }) });
   assert.equal(text(block("catalog").parent.querySelector(".card-head h2")), "Playgrounds, setups and add-ons");
-  assert.deepEqual(catalog().map((row) => text(row.querySelector("a"))), ["Acme Bakery", "Event Streams", "Jade", "Kafka", "Acme Hostels", "Mail server"]);
+  assert.deepEqual(catalog().map((row) => text(row.querySelector("a"))), ["Acme Bakery", "Event Streams", "Jade", "Kazoo", "Acme Hostels", "Mail server"]);
   assert.deepEqual(catalog().map((row) => row.querySelector(".dash-kind use").getAttribute("href")), ["#i-flask", "#i-layers", "#i-addons", "#i-addons", "#i-flask", "#i-addons"]);
   // A name leads to the page of the item: its row in its list, a playground's own page
-  assert.deepEqual(catalog().map((row) => row.querySelector("a").getAttribute("href")), ["#/playgrounds/acme-bakery", "#/setups/events", "#/addons/jade", "#/addons/kafka",
+  assert.deepEqual(catalog().map((row) => row.querySelector("a").getAttribute("href")), ["#/playgrounds/acme-bakery", "#/setups/events", "#/addons/jade", "#/addons/kazoo",
     "#/playgrounds/hotels", "#/addons/mail"]);
   // Its state is one component for every state, a dot and its word: Running, Stopped, Off. What does not run is a muted word.
   assert.deepEqual(catalog().map((row) => [text(row.querySelector(".dash-sub-line .status")), row.querySelector(".dash-sub-line .dot-status").getAttribute("class"), cls(row.querySelector(".status")).includes("muted")]),
@@ -670,14 +670,14 @@ test("a row has no Open: what opens an item is its own page, which its name lead
 });
 
 test("an item's Start or Stop is its list's, on its own key, and one that waits for its settings says so, its key icon opening them", async () => {
-  await open({ state: lab({ addons: [running("addon", "jade", "Jade"), item("addon", "kafka", "Kafka", { starred: true }),
+  await open({ state: lab({ addons: [running("addon", "jade", "Jade"), item("addon", "kazoo", "Kazoo", { starred: true }),
     item("addon", "mail", "Mail server", { starred: true, settings: ["MAIL_PASSWORD"], action: ACTION("start", { enabled: false, reason: "Needs settings: MAIL_PASSWORD" }) }),
     item("addon", "kiosk", "Kiosk", { starred: true, action: ACTION("start", { enabled: false, reason: "Wait for Start Jade" }) })] }) });
   const buttons = catalog().map((row) => row.querySelector("button[data-act]"));
   // The lists' own button, its word on it, the same width in every row: never an icon alone for an action that says nothing else, and
   // never another action in its place
   assert.deepEqual(buttons.map((button) => [button.dataset.actFor, text(button.querySelector(".pbtn-face")), button.getAttribute("class").includes("act")]),
-    [["addon:jade", "Stop", true], ["addon:kafka", "Start", true], ["addon:mail", "Start", true], ["addon:kiosk", "Start", true]]);
+    [["addon:jade", "Stop", true], ["addon:kazoo", "Start", true], ["addon:mail", "Start", true], ["addon:kiosk", "Start", true]]);
   assert.deepEqual(buttons.map((button) => button.querySelector("use").getAttribute("href")), ["#i-stop", "#i-play", "#i-play", "#i-play"]);
   assert.deepEqual([isOff(buttons[2]), offWhy(buttons[2])], [true, "Needs settings: MAIL_PASSWORD"], "it waits for its settings, and says which");
   const key = catalog()[2].querySelector(".dash-set [data-settings]");
@@ -711,7 +711,7 @@ test("under its name an item says what its list says of it: why it cannot start,
       running("playground", "api", "Acme Hostels API", note("Started by hand"))],
     setups: [],
     addons: [running("addon", "hybrid", "Hybrid gateway", note("Needs settings", { note_target: { kind: "addon", id: "hybrid" } }), { action: ACTION("stop") }),
-      running("addon", "kafka", "Kafka", note("Apply needed", { note_tone: "warn", note_title: "Kafka broker: its configuration changed since it started.", note_apply: true })),
+      running("addon", "kazoo", "Kazoo", note("Apply needed", { note_tone: "warn", note_title: "Kazoo broker: its configuration changed since it started.", note_apply: true })),
       running("addon", "jade", "Jade")],
   }) });
   // What the list says of an item is its badge after the name, as on the lists: never a line under the name. What keeps a Start from working
@@ -719,7 +719,7 @@ test("under its name an item says what its list says of it: why it cannot start,
   assert.equal(section.querySelectorAll(".dash-note").length, 0);
   const badge = (row) => row.querySelector(".dash-marks .pill");
   assert.deepEqual(catalog().map((row) => [text(row.querySelector("a")), badge(row) ? tileSaid(badge(row)) : ""]),
-    [["Acme Hostels API", "Started by hand"], ["Hybrid gateway", "Needs settings"], ["Kafka", "Apply needed"], ["Jade", ""], ["Acme Bakery", ""]]);
+    [["Acme Hostels API", "Started by hand"], ["Hybrid gateway", "Needs settings"], ["Kazoo", "Apply needed"], ["Jade", ""], ["Acme Bakery", ""]]);
   // A running add-on that lacks settings is stopped from its row: its badge leads to the settings, its button is its Stop
   assert.equal(text(catalog()[1].querySelector("button[data-act] .pbtn-face")), "Stop");
   // The reason a Start cannot be used is there to read, as well as on the button that is disabled: a keyboard cannot reach that
@@ -729,8 +729,8 @@ test("under its name an item says what its list says of it: why it cannot start,
   assert.ok(isOff(bank.querySelector("button[data-act]")));
   assert.equal(offWhy(bank.querySelector("button[data-act]")), why);
   // What is not applied is the badge of the other pages, with its reason
-  const kafka = catalog().find((row) => text(row.querySelector("a")) === "Kafka");
-  assert.deepEqual(tipOf(kafka.querySelector(".dash-marks .tip-btn")), ["Kafka broker: its configuration changed since it started."]);
+  const kazoo = catalog().find((row) => text(row.querySelector("a")) === "Kazoo");
+  assert.deepEqual(tipOf(kazoo.querySelector(".dash-marks .tip-btn")), ["Kazoo broker: its configuration changed since it started."]);
   dashboardPage.hide();
 });
 
@@ -778,7 +778,7 @@ test("a state is one component wherever the page says one: a dot and its word, t
 });
 
 test("a star that is turned takes its row with it: the focus goes to the search, where the keyboard can go on", async () => {
-  await open({ state: lab({ addons: [item("addon", "kafka", "Kafka", { starred: true })] }) });
+  await open({ state: lab({ addons: [item("addon", "kazoo", "Kazoo", { starred: true })] }) });
   const search = section.querySelector('[data-filter="q"]');
   let focused = 0;
   search.focus = () => { focused += 1; };
@@ -794,7 +794,7 @@ test("a star that is turned takes its row with it: the focus goes to the search,
 });
 
 test("a star is turned from here, and an item that starts or stops shows it in its state, with how far it is", async () => {
-  await open({ state: lab({ addons: [item("addon", "kafka", "Kafka", { starred: true }), item("addon", "jade", "Jade", { on: true, up: true, state: { key: "starting", label: "Starting", running: false }, progress: 0.4, action: ACTION("stop") })] }) });
+  await open({ state: lab({ addons: [item("addon", "kazoo", "Kazoo", { starred: true }), item("addon", "jade", "Jade", { on: true, up: true, state: { key: "starting", label: "Starting", running: false }, progress: 0.4, action: ACTION("stop") })] }) });
   const [starting, starred] = catalog();
   const status = starting.querySelector(".dash-sub-line .status");
   assert.equal(text(status), "Starting");
@@ -803,7 +803,7 @@ test("a star is turned from here, and an item that starts or stops shows it in i
   assert.equal(status.querySelector("[data-progress]").getAttribute("data-progress"), "addon:jade");
   starred.querySelector("[data-star]").click();
   await flush();
-  assert.deepEqual(server.calls.filter((call) => call.path.endsWith("/star")).map((call) => `${call.path} ${JSON.stringify(call.body)}`), ["/api/addons/kafka/star {\"starred\":false}"]);
+  assert.deepEqual(server.calls.filter((call) => call.path.endsWith("/star")).map((call) => `${call.path} ${JSON.stringify(call.body)}`), ["/api/addons/kazoo/star {\"starred\":false}"]);
   dashboardPage.hide();
 });
 
@@ -849,11 +849,11 @@ const names = () => catalog().map((row) => text(row.querySelector("a")));
 
 test("a search looks through the whole catalog as the lists' do, by name, description, category, tag and member, whatever runs or is starred", async () => {
   await open({ state: lab({ playgrounds: [item("playground", "acme-bakery", "Acme Bakery", { description: "Open banking for a retail bank", tags: ["Fraud"] })],
-    setups: [item("setup", "events", "Event Streams", { category: "Messaging", members: [{ id: "kafka", name: "Kafka" }] })],
-    addons: [running("addon", "jade", "Jade", { category: "Observability" }), item("addon", "kafka", "Kafka", { description: "Events with Jade in mind" }), item("addon", "mail", "Mail server")] }) });
+    setups: [item("setup", "events", "Event Streams", { category: "Messaging", members: [{ id: "kazoo", name: "Kazoo" }] })],
+    addons: [running("addon", "jade", "Jade", { category: "Observability" }), item("addon", "kazoo", "Kazoo", { description: "Events with Jade in mind" }), item("addon", "mail", "Mail server")] }) });
   assert.deepEqual(names(), ["Jade"], "by default what runs and what is starred");
   await typeIn("jad");
-  assert.deepEqual(names(), ["Jade", "Kafka"], "the name and the description, what runs first");
+  assert.deepEqual(names(), ["Jade", "Kazoo"], "the name and the description, what runs first");
   await typeIn("  RETAIL ");
   assert.deepEqual(names(), ["Acme Bakery"], "not by case, and what is off is found");
   assert.equal(text(catalog()[0].querySelector(".dash-sub-line .status")), "Off");
@@ -863,8 +863,8 @@ test("a search looks through the whole catalog as the lists' do, by name, descri
   assert.deepEqual(names(), ["Jade"], "the category");
   await typeIn("fraud");
   assert.deepEqual(names(), ["Acme Bakery"], "a tag");
-  await typeIn("kafka");
-  assert.deepEqual(names(), ["Event Streams", "Kafka"], "a member of a setup");
+  await typeIn("kazoo");
+  assert.deepEqual(names(), ["Event Streams", "Kazoo"], "a member of a setup");
   await typeIn("");
   assert.deepEqual(names(), ["Jade"], "an empty search is the default again");
   dashboardPage.hide();
@@ -874,7 +874,7 @@ test("the kind picker keeps one kind, and Running and Starred narrow what is on 
   await open({ state: lab({
     playgrounds: [running("playground", "acme-bakery", "Acme Bakery"), item("playground", "hotels", "Acme Hostels", { starred: true })],
     setups: [item("setup", "events", "Event Streams"), waiting("setup", "tracing", "Tracing")],
-    addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "kafka", "Kafka"), item("addon", "mail", "Mail server", { starred: true })],
+    addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "kazoo", "Kazoo"), item("addon", "mail", "Mail server", { starred: true })],
   }) });
   const checked = () => section.querySelectorAll(".toggle-chip input").filter((box) => box.checked).map((box) => text(box.parent));
   assert.deepEqual(names(), ["Acme Bakery", "Tracing", "Jade", "Acme Hostels", "Mail server"], "what is on, then what is starred");
@@ -895,7 +895,7 @@ test("the kind picker keeps one kind, and Running and Starred narrow what is on 
   assert.equal(localStorage.getItem("list-starred:dashboard"), "");
   assert.deepEqual(names(), ["Jade", "Mail server"], "what is on and starred of the kind");
   await typeIn("e");
-  assert.deepEqual(names(), ["Jade", "Kafka", "Mail server", "Hybrid gateway"], "a search in a kind looks through all of its kind");
+  assert.deepEqual(names(), ["Jade", "Kazoo", "Mail server", "Hybrid gateway"], "a search in a kind looks through all of its kind");
   await pick("[data-kind]", "All kinds");
   assert.equal(catalog().length, 8, "the first page of the whole catalog");
   await typeIn("");
@@ -903,16 +903,16 @@ test("the kind picker keeps one kind, and Running and Starred narrow what is on 
 });
 
 test("the filters are kept from one visit to the next, as the lists keep theirs", async () => {
-  await open({ state: lab({ addons: [running("addon", "jade", "Jade"), waiting("addon", "kafka", "Kafka", { starred: true })] }) });
+  await open({ state: lab({ addons: [running("addon", "jade", "Jade"), waiting("addon", "kazoo", "Kazoo", { starred: true })] }) });
   await typeIn("ka");
   toggle("[data-starred]", true);
-  assert.deepEqual(names(), ["Kafka"]);
+  assert.deepEqual(names(), ["Kazoo"]);
   dashboardPage.hide();
   dashboardPage.show();
   await flush();
   assert.equal(section.querySelector('[data-filter="q"]').value, "ka", "what was typed is there");
   assert.equal(section.querySelector("[data-starred]").checked, true);
-  assert.deepEqual(names(), ["Kafka"]);
+  assert.deepEqual(names(), ["Kazoo"]);
   toggle("[data-starred]", false);
   await typeIn("");
   dashboardPage.hide();
@@ -929,7 +929,7 @@ test("a search or a filter that finds nothing says so in the words of the lists,
   assert.equal(section.querySelector('[data-filter="q"]').value, "");
   assert.deepEqual(names(), ["Jade"]);
   // What is shown alone empties it: nothing running, nothing starred
-  await open({ state: lab({ addons: [waiting("addon", "kafka", "Kafka")] }) });
+  await open({ state: lab({ addons: [waiting("addon", "kazoo", "Kazoo")] }) });
   toggle("[data-running]", true);
   assert.equal(said(rows("catalog")[0]), "Nothing running");
   toggle("[data-running]", false);
@@ -940,14 +940,14 @@ test("a search or a filter that finds nothing says so in the words of the lists,
   // With a star somewhere in the kind, the same filter finds nothing among a search's matches: no matches, and a way out
   await typeIn("zzzz");
   assert.equal(said(rows("catalog")[0]), "Nothing starred", "as a list says it: none of the kind is starred");
-  await open({ state: lab({ addons: [item("addon", "kafka", "Kafka", { starred: true })] }) });
+  await open({ state: lab({ addons: [item("addon", "kazoo", "Kazoo", { starred: true })] }) });
   await pick("[data-kind]", "Add-ons");
   toggle("[data-running]", true);
   assert.equal(said(rows("catalog")[0]), "Nothing running");
   await typeIn("zzzz");
   assert.equal(said(rows("catalog")[0]), "Nothing running", "as a list says it");
   await typeIn("");
-  await open({ state: lab({ addons: [running("addon", "jade", "Jade"), item("addon", "kafka", "Kafka", { starred: true })] }) });
+  await open({ state: lab({ addons: [running("addon", "jade", "Jade"), item("addon", "kazoo", "Kazoo", { starred: true })] }) });
   toggle("[data-running]", true);
   toggle("[data-starred]", true);
   assert.equal(said(rows("catalog")[0]), "No matches Clear filters", "what runs and is starred: none, though some of each is");
@@ -961,7 +961,7 @@ test("a search or a filter that finds nothing says so in the words of the lists,
   assert.deepEqual([text(section.querySelector("[data-kind] .value")), section.querySelectorAll(".toggle-chip input").filter((box) => box.checked).length], ["All kinds", 0]);
   assert.equal(localStorage.getItem("list-starred:dashboard"), "");
   assert.equal(focused, 1);
-  assert.deepEqual(names(), ["Jade", "Kafka"], "what is on and what is starred");
+  assert.deepEqual(names(), ["Jade", "Kazoo"], "what is on and what is starred");
   dashboardPage.hide();
 });
 
@@ -987,7 +987,7 @@ test("the rows are paged as the lists' are: eight a page, the pager at the foot 
 });
 
 test("nothing on and nothing starred says so, and offers the playgrounds when there are any", async () => {
-  const none = { addons: [item("addon", "kafka", "Kafka")], playgrounds: [item("playground", "acme-bakery", "Acme Bakery")] };
+  const none = { addons: [item("addon", "kazoo", "Kazoo")], playgrounds: [item("playground", "acme-bakery", "Acme Bakery")] };
   await open({ state: lab(none) });
   assert.equal(rows("catalog").length, 1);
   assert.equal(said(rows("catalog")[0]), "Nothing running or starred Browse playgrounds");
@@ -996,22 +996,22 @@ test("nothing on and nothing starred says so, and offers the playgrounds when th
   await open({ state: lab({ ...none, playgrounds: [] }) });
   assert.equal(said(rows("catalog")[0]), "Nothing running or starred", "no playground, nowhere to send");
   // Docker does not answer: what is on is still the files'
-  await open({ state: lab({ blind: true, docker: { error: "x" }, wait: "Docker is not reachable", addons: [waiting("addon", "kafka", "Kafka")] }) });
-  assert.deepEqual(catalog().map((row) => [text(row.querySelector("a")), row.querySelectorAll(".dash-sub-line .status").length]), [["Kafka", 0]], "on, and nothing said of whether it runs");
+  await open({ state: lab({ blind: true, docker: { error: "x" }, wait: "Docker is not reachable", addons: [waiting("addon", "kazoo", "Kazoo")] }) });
+  assert.deepEqual(catalog().map((row) => [text(row.querySelector("a")), row.querySelectorAll(".dash-sub-line .status").length]), [["Kazoo", 0]], "on, and nothing said of whether it runs");
   // The core file does not load: what is on is not known
-  await open({ state: lab({ blind: true, docker: { error: null }, wait: "docker-compose.yml does not load", addons: [waiting("addon", "kafka", "Kafka")] }) });
+  await open({ state: lab({ blind: true, docker: { error: null }, wait: "docker-compose.yml does not load", addons: [waiting("addon", "kazoo", "Kazoo")] }) });
   assert.equal(said(rows("catalog")[0]), "docker-compose.yml does not load");
   dashboardPage.hide();
 });
 
 test("it is drawn again row by row: what did not change keeps its element, with its hover and its focus", async () => {
-  await open({ state: lab({ addons: [running("addon", "jade", "Jade"), waiting("addon", "kafka", "Kafka", { starred: true })] }) });
-  const [jade, kafka] = catalog(), product_ = rows("products")[0];
-  assert.equal(text(kafka.querySelector(".dash-sub-line .status")), "Stopped");
-  await move(lab({ addons: [running("addon", "jade", "Jade"), item("addon", "kafka", "Kafka", { starred: true })] }));
+  await open({ state: lab({ addons: [running("addon", "jade", "Jade"), waiting("addon", "kazoo", "Kazoo", { starred: true })] }) });
+  const [jade, kazoo] = catalog(), product_ = rows("products")[0];
+  assert.equal(text(kazoo.querySelector(".dash-sub-line .status")), "Stopped");
+  await move(lab({ addons: [running("addon", "jade", "Jade"), item("addon", "kazoo", "Kazoo", { starred: true })] }));
   assert.ok(catalog()[0] === jade && rows("products")[0] === product_, "the rows that said the same are the same elements");
-  assert.ok(catalog()[1] === kafka, "the element of a row that changed is kept, its content written");
-  assert.equal(text(kafka.querySelector(".dash-sub-line .status")), "Off");
+  assert.ok(catalog()[1] === kazoo, "the element of a row that changed is kept, its content written");
+  assert.equal(text(kazoo.querySelector(".dash-sub-line .status")), "Off");
   dashboardPage.hide();
 });
 
@@ -1590,7 +1590,7 @@ test("the versions are read again when the lab moves, once at a time, and not wh
   await flush();
   assert.equal(reads(), 1, "nothing moved");
   // What is on, or the count of containers, is the state's: it is drawn, nothing is read for it
-  await move(lab({ platform: { containers: { running: 3, total: 7 } }, addons: [running("addon", "jade", "Jade"), running("addon", "kafka", "Kafka")] }));
+  await move(lab({ platform: { containers: { running: 3, total: 7 } }, addons: [running("addon", "jade", "Jade"), running("addon", "kazoo", "Kazoo")] }));
   assert.equal(reads(), 1);
   // The platform stops, then starts: one read at a time, what moves meanwhile is read once
   let release;

@@ -21,7 +21,7 @@ from lab_ui.catalogs import trust
 
 from .. import Case, fixtures
 
-CORE, KAFKA, CONSOLE = "docker-compose.yml", ".lab/catalogs/fixture/addons/kafka/compose.yml", ".lab/catalogs/fixture/addons/kafka-desk/compose.yml"
+CORE, KAZOO, CONSOLE = "docker-compose.yml", ".lab/catalogs/fixture/addons/kazoo/compose.yml", ".lab/catalogs/fixture/addons/kazoo-desk/compose.yml"
 JADE, OPENFGA = ".lab/catalogs/fixture/addons/jade/compose.yml", ".lab/catalogs/fixture/addons/openfga/compose.yml"
 INSPECTOR = ".lab/catalogs/fixture/addons/agent-lens/compose.yml"
 EVENTS, MINE, WELCOME = ".lab/catalogs/fixture/setups/event-streams.yml", ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/fixture/playgrounds/welcome/compose.yml"
@@ -69,12 +69,12 @@ GATEWAY_IMAGE = ("${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-ga
                  ":${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}")
 
 # What an add-on's file defines shows again, merged in, in every file that includes it
-KAFKA_SERVICES = {
-    "kafka": service("docker.io/bitnamilegacy/kafka:${KAFKA_VERSION:-3.9}", "Kafka broker", ports=[port(9091)]),
-    "kafka-client": service("docker.io/bitnamilegacy/kafka:${KAFKA_VERSION:-3.9}", "Kafka client"),
-    "kafka-ui": service("provectuslabs/kafka-ui:latest", "Kafka UI", restart=None, ports=[port(8088, 8080)],
-                        labels={"io.gravitee.console.kafka-ui.name": "Kafka UI",
-                                "io.gravitee.console.kafka-ui.url": "http://localhost:8088"}),
+KAZOO_SERVICES = {
+    "kazoo": service("docker.io/acmecontainer/kazoo:${KAZOO_VERSION:-3.9}", "Kazoo broker", ports=[port(9091)]),
+    "kazoo-client": service("docker.io/acmecontainer/kazoo:${KAZOO_VERSION:-3.9}", "Kazoo client"),
+    "kazoo-ui": service("acmecontainer/kazoo-ui:latest", "Kazoo UI", restart=None, ports=[port(8088, 8080)],
+                        labels={"io.gravitee.console.kazoo-ui.name": "Kazoo UI",
+                                "io.gravitee.console.kazoo-ui.url": "http://localhost:8088"}),
     "apim-gateway": {"ports": [port(9092)], "environment": {"gravitee_kafka_enabled": "true"}},
 }
 INSPECTOR_SERVICES = {
@@ -127,23 +127,23 @@ RAW = {
                         "io.gravitee.console.portal.password": "admin"}),
         },
     },
-    KAFKA: {
-        "name": "kafka",
-        "x-gravitee": {"kind": "addon", "name": "Kafka", "category": "Event", "description": "Kafka broker"},
-        "services": KAFKA_SERVICES,
+    KAZOO: {
+        "name": "kazoo",
+        "x-gravitee": {"kind": "addon", "name": "Kazoo", "category": "Event", "description": "Kazoo broker"},
+        "services": KAZOO_SERVICES,
     },
     CONSOLE: {
-        "name": "kafka-desk",
-        "x-gravitee": {"kind": "addon", "name": "Kafka Desk", "category": "Gravitee Platform",
-                       "description": "Gravitee's console for Kafka"},
+        "name": "kazoo-desk",
+        "x-gravitee": {"kind": "addon", "name": "Kazoo Desk", "category": "Gravitee Platform",
+                       "description": "Gravitee's console for Kazoo"},
         "services": {
-            **KAFKA_SERVICES,
-            "kafka-desk": service(
-                "${KAFKA_DESK_REGISTRY:-graviteeio}/apim-kafka-desk:${KAFKA_DESK_VERSION:-4.9.0}",
-                "Kafka Desk", ports=[port(8080)], container_name="gio-kafka-desk",
-                labels={"io.gravitee.console.kafka-desk.name": "Kafka Desk",
-                        "io.gravitee.console.kafka-desk.url": "http://localhost:8080"}),
-            "apim-management-api": {"environment": {"gravitee_kafka_desk_enabled": "true"}},
+            **KAZOO_SERVICES,
+            "kazoo-desk": service(
+                "${KAZOO_DESK_REGISTRY:-graviteeio}/apim-kazoo-desk:${KAZOO_DESK_VERSION:-4.9.0}",
+                "Kazoo Desk", ports=[port(8080)], container_name="gio-kazoo-desk",
+                labels={"io.gravitee.console.kazoo-desk.name": "Kazoo Desk",
+                        "io.gravitee.console.kazoo-desk.url": "http://localhost:8080"}),
+            "apim-management-api": {"environment": {"gravitee_kazoo_desk_enabled": "true"}},
         },
     },
     JADE: {
@@ -161,7 +161,7 @@ RAW = {
         "x-gravitee": {"kind": "addon", "name": "OpenFGA", "category": "AI", "description": "Authorization"},
         "services": OPENFGA_SERVICES,
     },
-    EVENTS: {"x-gravitee": {"kind": "setup", "name": "Event streams", "category": "Event", "description": "Kafka"},
+    EVENTS: {"x-gravitee": {"kind": "setup", "name": "Event streams", "category": "Event", "description": "Kazoo"},
              "services": {}},
     MINE: {"x-gravitee": {"kind": "setup", "name": "My demo"}, "services": {}},
     WELCOME: {
@@ -193,8 +193,8 @@ IMAGES = {
     "apim-management-api": "graviteeio.azurecr.io/apim-management-api:4.13.0",
     "apim-portal-ui": "graviteeio.azurecr.io/apim-portal-ui:4.13.0",
     "apim-gateway": "graviteeio.azurecr.io/apim-gateway:4.13.0-debian",
-    "kafka": "docker.io/bitnamilegacy/kafka:3.9", "kafka-client": "docker.io/bitnamilegacy/kafka:3.9",
-    "kafka-desk": "localhost:5000/team/apim-kafka-desk:4.9.0", "jade": "jadetracing/jade:2.21.0",
+    "kazoo": "docker.io/acmecontainer/kazoo:3.9", "kazoo-client": "docker.io/acmecontainer/kazoo:3.9",
+    "kazoo-desk": "localhost:5000/team/apim-kazoo-desk:4.9.0", "jade": "jadetracing/jade:2.21.0",
     "openfga": "openfga/openfga:v1.21.0", "openfga-migrate": "openfga/openfga:v1.21.0",
 }
 
@@ -202,7 +202,7 @@ IMAGES = {
 def resolved():
     """One interpolated configuration of everything: each service once, images with their values."""
     services = {}
-    for path in (WELCOME, OPENFGA, INSPECTOR, JADE, CONSOLE, KAFKA, CORE):
+    for path in (WELCOME, OPENFGA, INSPECTOR, JADE, CONSOLE, KAZOO, CORE):
         for name, definition in RAW[path]["services"].items():
             if "image" in definition:
                 services[name] = dict(definition, image=IMAGES.get(name, definition["image"]))
@@ -213,7 +213,7 @@ def resolved():
 def inputs():
     return copy.deepcopy({
         "raw": RAW,
-        "includes": {CORE: [], KAFKA: [], CONSOLE: [KAFKA], JADE: [], INSPECTOR: [], OPENFGA: [],
+        "includes": {CORE: [], KAZOO: [], CONSOLE: [KAZOO], JADE: [], INSPECTOR: [], OPENFGA: [],
                      EVENTS: [CONSOLE], MINE: [JADE, CONSOLE], WELCOME: [OPENFGA, INSPECTOR]},
         "variables": {
             CORE: [variable("GRAVITEE_LICENSE", "", "Enterprise license"), variable("REDIS_VERSION", "8.10.1-alpine"),
@@ -221,10 +221,10 @@ def inputs():
                    variable("APIM_REGISTRY", "graviteeio"), variable("APIM_VERSION", "4.12.20"),
                    variable("APIM_GATEWAY_REGISTRY", "${APIM_REGISTRY:-graviteeio}"),
                    variable("APIM_GATEWAY_VERSION", "${APIM_VERSION:-4.12.20}-debian")],
-            CONSOLE: [variable("KAFKA_DESK_REGISTRY", "graviteeio"), variable("KAFKA_DESK_VERSION", "4.9.0"),
-                      variable("KAFKA_DESK_SECRET", "demo", "Signs the console's tokens"),
-                      variable("KAFKA_DESK_THEME", None, "Light or dark"), variable("GRAVITEE_LICENSE", "")],
-            KAFKA: [variable("KAFKA_VERSION", "3.9")],
+            CONSOLE: [variable("KAZOO_DESK_REGISTRY", "graviteeio"), variable("KAZOO_DESK_VERSION", "4.9.0"),
+                      variable("KAZOO_DESK_SECRET", "demo", "Signs the console's tokens"),
+                      variable("KAZOO_DESK_THEME", None, "Light or dark"), variable("GRAVITEE_LICENSE", "")],
+            KAZOO: [variable("KAZOO_VERSION", "3.9")],
         },
         "resolved": resolved(),
         "environ": {}, "env": {},   # the environment of the Lab UI, and the variables of each .env file
@@ -338,26 +338,26 @@ class Build(AsOwn):
 
     def test_own_services_leave_out_the_core_and_what_is_included(self):
         addons = self.project["addons"]
-        self.assertEqual(addons["kafka"]["services"], ["kafka", "kafka-client", "kafka-ui"])
-        self.assertEqual(addons["kafka-desk"]["services"], ["kafka-desk"])
-        self.assertEqual(addons["kafka-desk"]["needs"], ["kafka"])
-        self.assertEqual(addons["kafka"]["needs"], [])
+        self.assertEqual(addons["kazoo"]["services"], ["kazoo", "kazoo-client", "kazoo-ui"])
+        self.assertEqual(addons["kazoo-desk"]["services"], ["kazoo-desk"])
+        self.assertEqual(addons["kazoo-desk"]["needs"], ["kazoo"])
+        self.assertEqual(addons["kazoo"]["needs"], [])
 
     def test_restarts_are_the_core_services_a_file_changes_itself(self):
         addons = self.project["addons"]
-        self.assertEqual(addons["kafka"]["restarts"], ["apim-gateway"])
-        self.assertEqual(addons["kafka-desk"]["restarts"], ["apim-management-api"])   # the gateway is Kafka's
+        self.assertEqual(addons["kazoo"]["restarts"], ["apim-gateway"])
+        self.assertEqual(addons["kazoo-desk"]["restarts"], ["apim-management-api"])   # the gateway is Kazoo's
         self.assertEqual(addons["openfga"]["restarts"], [])
         self.assertEqual(self.project["playgrounds"]["welcome"]["restarts"], ["apim-gateway"])
 
     def test_a_core_service_that_two_includes_change_is_theirs(self):
-        # Merged, the gateway is neither Kafka's nor Jade's: what each of them sets is still not the file's
+        # Merged, the gateway is neither Kazoo's nor Jade's: what each of them sets is still not the file's
         given, demo = inputs(), ".lab/catalogs/fixture/playgrounds/demo/compose.yml"
         gateway = {"ports": [port(9092)], "environment": {"gravitee_kafka_enabled": "true",
                                                           "gravitee_services_opentelemetry_enabled": "true"}}
         given["raw"][demo] = {"x-gravitee": {"kind": "playground", "name": "Demo"},
-                              "services": {**KAFKA_SERVICES, **RAW[JADE]["services"], "apim-gateway": gateway}}
-        given["includes"][demo] = [KAFKA, JADE]
+                              "services": {**KAZOO_SERVICES, **RAW[JADE]["services"], "apim-gateway": gateway}}
+        given["includes"][demo] = [KAZOO, JADE]
         self.assertEqual(project.build(given)["playgrounds"]["demo"]["restarts"], [])
         gateway["environment"]["gravitee_groovy_whitelist_mode"] = "append"   # a setting of its own
         self.assertEqual(project.build(given)["playgrounds"]["demo"]["restarts"], ["apim-gateway"])
@@ -372,26 +372,26 @@ class Build(AsOwn):
         self.assertEqual(self.project["addons"]["jade"]["conflicts"], {})
 
     def test_settings_are_an_addons_own_variables(self):
-        settings = self.project["addons"]["kafka-desk"]["settings"]
+        settings = self.project["addons"]["kazoo-desk"]["settings"]
         self.assertEqual(settings, [
-            {"key": "KAFKA_DESK_SECRET", "default": "demo", "required": False,
+            {"key": "KAZOO_DESK_SECRET", "default": "demo", "required": False,
              "comment": "Signs the console's tokens", "secret": True},
-            {"key": "KAFKA_DESK_THEME", "default": None, "required": True, "comment": "Light or dark",
+            {"key": "KAZOO_DESK_THEME", "default": None, "required": True, "comment": "Light or dark",
              "secret": False}])
-        self.assertEqual(self.project["addons"]["kafka"]["settings"], [])   # KAFKA_VERSION belongs to Images
+        self.assertEqual(self.project["addons"]["kazoo"]["settings"], [])   # KAZOO_VERSION belongs to Images
 
     def test_setups(self):
         setups = self.project["setups"]
         self.assertEqual(list(setups), ["event-streams", "local/mine"])
-        self.assertEqual(setups["event-streams"]["includes"], ["kafka-desk"])
-        self.assertEqual(setups["event-streams"]["members"], ["kafka", "kafka-desk"])
+        self.assertEqual(setups["event-streams"]["includes"], ["kazoo-desk"])
+        self.assertEqual(setups["event-streams"]["members"], ["kazoo", "kazoo-desk"])
         self.assertFalse(setups["event-streams"]["personal"])
         mine = setups["local/mine"]
         self.assertEqual((mine["kind"], mine["name"], mine["category"], mine["description"], mine["file"]),
                          ("setup", "My demo", "", "", MINE))
         self.assertTrue(mine["personal"])
-        self.assertEqual(mine["includes"], ["jade", "kafka-desk"])
-        self.assertEqual(mine["members"], ["jade", "kafka", "kafka-desk"])
+        self.assertEqual(mine["includes"], ["jade", "kazoo-desk"])
+        self.assertEqual(mine["members"], ["jade", "kazoo", "kazoo-desk"])
 
     def test_what_belongs_to_this_machine_is_built_like_the_rest(self):
         given = inputs()
@@ -400,7 +400,7 @@ class Build(AsOwn):
         given["raw"][WHOAMI] = {"x-gravitee": {"kind": "addon", "name": "Whoami", "category": "Other"},
                                 "services": whoami}
         given["raw"][SANDBOX] = {"x-gravitee": {"kind": "playground", "name": "Sandbox"},
-                                 "services": {**whoami, **KAFKA_SERVICES, **RAW[JADE]["services"],
+                                 "services": {**whoami, **KAZOO_SERVICES, **RAW[JADE]["services"],
                                               **RAW[CONSOLE]["services"]}}
         given["includes"].update({WHOAMI: [], SANDBOX: [MINE, WHOAMI]})
         given["variables"][WHOAMI] = [variable("WHOAMI_VERSION", "v1.11"), variable("WHOAMI_NAME", None, "Its name")]
@@ -411,7 +411,7 @@ class Build(AsOwn):
                          (WHOAMI, ".lab/catalogs/local/addons/whoami/.env", ["whoami"]))
         self.assertEqual([setting["key"] for setting in addon["settings"]], ["WHOAMI_NAME"])
         self.assertEqual((playground["file"], playground["setups"], playground["addons"], playground["services"]),
-                         (SANDBOX, ["local/mine"], ["jade", "kafka", "kafka-desk", "local/whoami"], []))
+                         (SANDBOX, ["local/mine"], ["jade", "kazoo", "kazoo-desk", "local/whoami"], []))
         self.assertEqual(playground["chapters"], ["First step"])
         self.assertEqual(built["services"]["whoami"]["owner"],
                          {"kind": "addon", "id": "local/whoami", "name": "Whoami"})
@@ -427,7 +427,7 @@ class Build(AsOwn):
         playground = project.build(given)["playgrounds"]["welcome"]
         self.assertEqual(playground["setups"], ["event-streams"])
         self.assertEqual(playground["includes"], ["openfga", "agent-lens"])   # in the order of the file
-        self.assertEqual(playground["addons"], ["agent-lens", "kafka", "kafka-desk", "openfga"])
+        self.assertEqual(playground["addons"], ["agent-lens", "kazoo", "kazoo-desk", "openfga"])
         # What the setup's add-ons run and change is theirs
         self.assertEqual(playground["services"], ["acme-website", "hello-agent", "hello-seed"])
         self.assertEqual(playground["restarts"], ["apim-gateway"])
@@ -460,7 +460,7 @@ class Build(AsOwn):
         self.assertEqual(gateway["raw_image"], GATEWAY_IMAGE)
         self.assertEqual(gateway["image"], "graviteeio.azurecr.io/apim-gateway:4.13.0-debian")
         self.assertEqual((gateway["registry"], gateway["tag"]), ("graviteeio.azurecr.io", "4.13.0-debian"))
-        self.assertEqual(gateway["ports"], ["8082", "18082"])   # its own: 9092 is published by Kafka
+        self.assertEqual(gateway["ports"], ["8082", "18082"])   # its own: 9092 is published by Kazoo
         self.assertIsNone(gateway["image_tags"])
         self.assertEqual(self.project["services"]["mongodb"]["image_tags"], "library/mongo")
         self.assertEqual(self.project["services"]["redis"]["container"], "gio-redis")
@@ -477,10 +477,10 @@ class Build(AsOwn):
 
     def test_service_of_an_addon_and_of_a_playground(self):
         services = self.project["services"]
-        console = services["kafka-desk"]
-        self.assertEqual(console["owner"], {"kind": "addon", "id": "kafka-desk", "name": "Kafka Desk"})
+        console = services["kazoo-desk"]
+        self.assertEqual(console["owner"], {"kind": "addon", "id": "kazoo-desk", "name": "Kazoo Desk"})
         self.assertEqual((console["registry"], console["tag"]), ("localhost:5000/team", "4.9.0"))
-        self.assertEqual(services["kafka"]["owner"]["id"], "kafka")
+        self.assertEqual(services["kazoo"]["owner"]["id"], "kazoo")
         website = services["acme-website"]
         self.assertEqual(website["owner"], {"kind": "playground", "id": "welcome", "name": "Welcome"})
         self.assertEqual((website["built"], website["tag"], website["role"]), (True, "latest", None))
@@ -491,7 +491,7 @@ class Build(AsOwn):
     def test_one_shot_services(self):
         services = self.project["services"]
         oneshot = {name for name, s in services.items() if s["oneshot"]}
-        # Kafka UI has no restart policy, but it publishes a port; the Kafka client restarts unless stopped
+        # Kazoo UI has no restart policy, but it publishes a port; the Kazoo client restarts unless stopped
         self.assertEqual(oneshot, {"openfga-migrate", "hello-seed"})
 
     def test_a_service_says_whether_it_needs_a_license(self):
@@ -541,8 +541,8 @@ class Build(AsOwn):
         self.assertEqual([(link["label"], link["section"], link["port"], link["service"]) for link in links], [
             ("ACME Hello", "Playground", "8002", "acme-website"),
             ("Developer Portal", "API Management", "8085", "apim-portal-ui"),
-            ("Kafka Desk", "Gravitee Platform", "8080", "kafka-desk"),
-            ("Kafka UI", "Event", "8088", "kafka-ui"),
+            ("Kazoo Desk", "Gravitee Platform", "8080", "kazoo-desk"),
+            ("Kazoo UI", "Event", "8088", "kazoo-ui"),
             ("Legacy Developer Portal", "API Management", "8085", "apim-portal-ui")])
         self.assertEqual([link["legacy"] for link in links], [False, False, False, False, True])
         self.assertEqual(links[0]["url"], "http://localhost:8002")
@@ -581,17 +581,17 @@ class Degraded(AsOwn):
     def test_x_gravitee_that_is_not_a_mapping(self):
         # Compose does not look inside the block: the editor saves it, and the file must still open
         given = inputs()
-        given["raw"][KAFKA]["x-gravitee"] = "kafka"
+        given["raw"][KAZOO]["x-gravitee"] = "kazoo"
         given["raw"][JADE]["x-gravitee"] = ["addon"]
         given["raw"][CORE]["x-gravitee"] = "platform"
         built = project.build(given)
-        for file in (KAFKA, JADE, CORE):
+        for file in (KAZOO, JADE, CORE):
             self.assertIn({"file": file, "message": "x-gravitee must be a mapping"}, built["problems"])
-        kafka = built["addons"]["kafka"]
-        self.assertEqual((kafka["name"], kafka["category"], kafka["requires"], kafka["services"]),
-                         ("kafka", "", {}, ["kafka", "kafka-client", "kafka-ui"]))
+        kazoo = built["addons"]["kazoo"]
+        self.assertEqual((kazoo["name"], kazoo["category"], kazoo["requires"], kazoo["services"]),
+                         ("kazoo", "", {}, ["kazoo", "kazoo-client", "kazoo-ui"]))
         self.assertEqual((built["name"], built["groups"]), ("gravitee", []))
-        self.assertEqual(built["setups"]["event-streams"]["members"], ["kafka", "kafka-desk"])
+        self.assertEqual(built["setups"]["event-streams"]["members"], ["kazoo", "kazoo-desk"])
 
     def test_requires_that_is_not_a_mapping(self):
         given = inputs()
@@ -684,15 +684,15 @@ class Degraded(AsOwn):
 
     def test_a_name_that_is_a_number(self):
         given = inputs()
-        given["raw"][KAFKA]["x-gravitee"]["name"] = 2024
-        self.assertEqual(project.build(given)["addons"]["kafka"]["name"], "2024")
+        given["raw"][KAZOO]["x-gravitee"]["name"] = 2024
+        self.assertEqual(project.build(given)["addons"]["kazoo"]["name"], "2024")
 
     def test_without_the_interpolated_configuration(self):
         given = inputs()
         given["resolved"] = {}
         built = project.build(given)
         self.assertEqual(built["services"]["redis"]["image"], "redis:${REDIS_VERSION:-8.10.1-alpine}")
-        self.assertEqual(built["addons"]["kafka-desk"]["services"], ["kafka-desk"])
+        self.assertEqual(built["addons"]["kazoo-desk"]["services"], ["kazoo-desk"])
 
     def test_without_the_core_file(self):
         given = inputs()
@@ -701,7 +701,7 @@ class Degraded(AsOwn):
         built = project.build(given)
         self.assertEqual((built["core_loaded"], built["groups"], built["license_var"], built["products"]),
                          (False, [], None, {}))
-        self.assertEqual(built["addons"]["kafka"]["services"], ["kafka", "kafka-client", "kafka-ui", "apim-gateway"])
+        self.assertEqual(built["addons"]["kazoo"]["services"], ["kazoo", "kazoo-client", "kazoo-ui", "apim-gateway"])
 
     def test_the_services_of_a_playground_are_in_the_order_of_its_file_and_its_seed_is_last(self):
         # Not alphabetical: its author orders them, and the seed, which runs once at the end, comes after the apps
@@ -1038,11 +1038,11 @@ class Deployable(AsOwn):
         self.meta(requires={"images": {"APIM_VERSION": "4.13.0", "APIM_GATEWAY_VERSION": "4.14.0"}})
         self.assertEqual(self.why(), [LATER, "Needs API Management 4.14"])
         # The image of an add-on, or of nothing, is no product of the platform
-        self.meta(requires={"images": {"KAFKA_DESK_VERSION": "9.0.0", "NOTHING_VERSION": "9.0.0",
+        self.meta(requires={"images": {"KAZOO_DESK_VERSION": "9.0.0", "NOTHING_VERSION": "9.0.0",
                                        "MONGODB_VERSION": "9.0.0"}})
         self.assertEqual(self.why(), [])
-        self.given["raw"][KAFKA]["x-gravitee"]["name"] = "Gamma"   # named as a product, it is not a group of the core
-        self.meta(requires={"images": {"KAFKA_VERSION": "9.0.0"}})
+        self.given["raw"][KAZOO]["x-gravitee"]["name"] = "Gamma"   # named as a product, it is not a group of the core
+        self.meta(requires={"images": {"KAZOO_VERSION": "9.0.0"}})
         self.assertEqual(self.why(), [])
 
     def test_it_asks_for_no_plugin_of_a_platform_whose_gateway_mounts_none(self):
@@ -1067,7 +1067,7 @@ class Deployable(AsOwn):
     def test_nor_do_the_add_ons_it_brings(self):
         self.brings(OPENFGA)   # nothing of the core
         self.assertEqual(self.why(), [])
-        self.brings(OPENFGA, KAFKA)   # a port and a setting on the gateway: written for the gateway of the platform
+        self.brings(OPENFGA, KAZOO)   # a port and a setting on the gateway: written for the gateway of the platform
         self.assertEqual(self.why(), [])
         self.brings(OPENFGA, CONSOLE)   # a setting on the Management API, which is not here
         self.assertEqual(self.why(), [CHANGES])
@@ -1475,7 +1475,7 @@ class Accounts(AsOwn):
     root .env, then the playground's own, else the default the value gives. Compose reads them so: the root .env wins
     over the .env of an included file, which only applies where the root sets nothing."""
 
-    OWN, CORE_ENV, OTHER = ".lab/catalogs/fixture/playgrounds/welcome/.env", ".env", ".lab/catalogs/fixture/addons/kafka/.env"
+    OWN, CORE_ENV, OTHER = ".lab/catalogs/fixture/playgrounds/welcome/.env", ".env", ".lab/catalogs/fixture/addons/kazoo/.env"
 
     def password(self, text, environ, files):
         """The password of the playground's account, written `text`, with these variables in the environment and in
@@ -1500,7 +1500,7 @@ class Accounts(AsOwn):
                 (colon, to("shell"), {own: to("own"), root: to("core")}, "shell"),
                 (colon, {}, {own: to("own"), root: to("core")}, "core"),
                 (colon, {}, {own: to("own")}, "own"),
-                (colon, {}, {self.OTHER: to("kafka"), ".lab/catalogs/fixture/playgrounds/other/.env": to("other")}, "doe"),
+                (colon, {}, {self.OTHER: to("kazoo"), ".lab/catalogs/fixture/playgrounds/other/.env": to("other")}, "doe"),
                 (colon, {}, {own: to("")}, "doe"),
                 (colon, to(""), {}, "doe"),
                 (colon, {}, {root: to(""), own: to("own")}, "doe"),
@@ -1555,10 +1555,10 @@ class Gathered(AsOwn):
 
     def test_the_env_files_of_the_core_and_of_each_add_on_and_playground_are_read(self):
         self.folder(paths, project, envfiles, files={
-            CORE: "", KAFKA: "", WELCOME: "", EVENTS: "", ".env": "A=1\n", ".lab/catalogs/fixture/addons/kafka/.env": "B='two words'\n",
+            CORE: "", KAZOO: "", WELCOME: "", EVENTS: "", ".env": "A=1\n", ".lab/catalogs/fixture/addons/kazoo/.env": "B='two words'\n",
             ".lab/catalogs/fixture/playgrounds/welcome/.env": "WELCOME_PASSWORD=\"mine\"\n# comment\nEMPTY=\n"})
         self.assertEqual(project._env_values(), {
-            ".env": {"A": "1"}, ".lab/catalogs/fixture/addons/kafka/.env": {"B": "two words"},
+            ".env": {"A": "1"}, ".lab/catalogs/fixture/addons/kazoo/.env": {"B": "two words"},
             ".lab/catalogs/fixture/playgrounds/welcome/.env": {"WELCOME_PASSWORD": "mine", "EMPTY": ""}})
 
     def test_an_account_shows_a_change_of_an_env_file_the_next_time_the_project_is_loaded(self):
@@ -1731,27 +1731,27 @@ class Saved(AsOwn):
     """What each service of what is on is, as saved: the hashes Compose makes them from, the images their tags name."""
 
     def setUp(self):
-        self.folder(paths, project, files={CORE: "", KAFKA: ""})
+        self.folder(paths, project, files={CORE: "", KAZOO: ""})
         compose.CACHE.drop("config-hash:")
         self.addCleanup(compose.CACHE.drop, "config-hash:")
         self.hashes = self.patch(compose, "config_hashes", return_value={"mongodb": "h1", "redis": "h2"})
         self.held = self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "sha256:m",
-                                                                   "bitnamilegacy/kafka:3.9": "sha256:k"})
+                                                                   "acmecontainer/kazoo:3.9": "sha256:k"})
         self.project = {"core_loaded": True, "services": {
             "mongodb": {"image": "mongo:8.0.29"}, "redis": {"image": "redis:8"},
-            "kafka": {"image": "docker.io/bitnamilegacy/kafka:3.9"}, "app": {"image": ""}}}
+            "kazoo": {"image": "docker.io/acmecontainer/kazoo:3.9"}, "app": {"image": ""}}}
 
     def test_hashes_and_images(self):
         self.assertEqual(project.saved(self.project), {"hashes": {"mongodb": "h1", "redis": "h2"},
-                                                       "images": {"mongodb": "sha256:m", "kafka": "sha256:k"}})
+                                                       "images": {"mongodb": "sha256:m", "kazoo": "sha256:k"}})
 
     def test_the_hashes_are_asked_again_when_a_file_or_the_on_file_changes(self):
         project.saved(self.project)
         project.saved(self.project)
         self.assertEqual(self.hashes.call_count, 1)
-        self.write(".lab/on.yml", "include:\n  - .lab/catalogs/fixture/addons/kafka/compose.yml\n")   # what is on changed
+        self.write(".lab/on.yml", "include:\n  - .lab/catalogs/fixture/addons/kazoo/compose.yml\n")   # what is on changed
         project.saved(self.project)
-        self.write(KAFKA, "services: {}\n")
+        self.write(KAZOO, "services: {}\n")
         project.saved(self.project)
         self.assertEqual(self.hashes.call_count, 3)
         # What could not be had is asked again at the next ask, not minutes later: meanwhile what runs behind is not
@@ -2824,15 +2824,15 @@ class Fresh(Case):
 
     @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
     def test_with_no_default_file_the_units_of_this_machine_stay_and_no_other_folder_is_read(self):
-        unit = "x-gravitee: {kind: addon, name: Kafka}\nservices:\n  kafka:\n    image: busybox\n"
+        unit = "x-gravitee: {kind: addon, name: Kazoo}\nservices:\n  kazoo:\n    image: busybox\n"
         self.folder(paths, project, compose, envfiles, files={
             CORE: "name: lab\nx-gravitee: {name: Lab, groups: [Core]}\nservices:\n  core:\n    image: busybox\n    labels: "
                   "{io.gravitee.group: Core}\n",
-            "addons/kafka/compose.yml": unit, ".lab/catalogs/local/addons/kafka/compose.yml": unit})
+            "addons/kazoo/compose.yml": unit, ".lab/catalogs/local/addons/kazoo/compose.yml": unit})
         self.assertIsNone(paths.default_ns())
         built = project.build(project.gather())
-        self.assertEqual(list(built["addons"]), ["local/kafka"])
-        self.assertIsNone(built["addons"]["local/kafka"]["blocked"])
+        self.assertEqual(list(built["addons"]), ["local/kazoo"])
+        self.assertIsNone(built["addons"]["local/kazoo"]["blocked"])
 
 
 class Fingerprints(Case):
@@ -3033,36 +3033,36 @@ class Catalog(Case):
 
     def test_a_bare_key_of_conflicts_names_the_add_on_of_the_same_catalog_else_the_default_one_and_the_layers_find_it(self):
         twin = member("acme-hub", "addon", "twin", ["twin"], says={"conflicts": {
-            "echo": "both take 8191", "kafka": "same ports", "@fixture/jade": "x", "nothing": "", "local/mine": "y"}})
+            "echo": "both take 8191", "kazoo": "same ports", "@fixture/jade": "x", "nothing": "", "local/mine": "y"}})
         mine = member("local", "addon", "mine", ["mine"], says={"conflicts": {"jade": "z", "twin": "w"}})
-        units = [twin, mine, member("acme-hub", "addon", "echo", ["echo"]), member("fixture", "addon", "kafka", ["kafka"]),
+        units = [twin, mine, member("acme-hub", "addon", "echo", ["echo"]), member("fixture", "addon", "kazoo", ["kazoo"]),
                  member("fixture", "addon", "jade", ["jade"])]
         built = self.build(units, catalogs={"acme-hub": {"name": "Acme Hub"}})
         self.assertEqual(built["addons"]["@acme-hub/twin"]["conflicts"], {
-            "@acme-hub/echo": "both take 8191", "kafka": "same ports", "jade": "x", "nothing": "", "local/mine": "y"})
+            "@acme-hub/echo": "both take 8191", "kazoo": "same ports", "jade": "x", "nothing": "", "local/mine": "y"})
         self.assertEqual(built["addons"]["local/mine"]["conflicts"], {"jade": "z", "twin": "w"},
                          "a bare key of this machine's is the default catalog's: a unit of another catalog is named in full")
-        self.assertEqual(built["addons"]["kafka"]["conflicts"], {})
+        self.assertEqual(built["addons"]["kazoo"]["conflicts"], {})
         ids = sorted(built["addons"])
         self.assertEqual([(clash["a"], clash["b"], clash["reason"]) for clash in layers.conflicts(built, ids)], [
             ("@acme-hub/echo", "@acme-hub/twin", "both take 8191"), ("@acme-hub/twin", "jade", "x"),
-            ("@acme-hub/twin", "kafka", "same ports"), ("@acme-hub/twin", "local/mine", "y"), ("jade", "local/mine", "z")])
+            ("@acme-hub/twin", "kazoo", "same ports"), ("@acme-hub/twin", "local/mine", "y"), ("jade", "local/mine", "z")])
 
     def test_two_keys_of_conflicts_that_name_one_add_on_keep_the_first_reason_that_says_something(self):
         twin = member("acme-hub", "addon", "twin", ["twin"], says={"conflicts": {"echo": "", "@acme-hub/echo": "both take 8191",
-                                                                                "@fixture/kafka": "a", "kafka": "b"}})
-        built = self.build([twin, member("acme-hub", "addon", "echo", ["echo"]), member("fixture", "addon", "kafka", ["kafka"])],
+                                                                                "@fixture/kazoo": "a", "kazoo": "b"}})
+        built = self.build([twin, member("acme-hub", "addon", "echo", ["echo"]), member("fixture", "addon", "kazoo", ["kazoo"])],
                            catalogs={"acme-hub": {"name": "Acme Hub"}})
-        self.assertEqual(built["addons"]["@acme-hub/twin"]["conflicts"], {"@acme-hub/echo": "both take 8191", "kafka": "a"})
+        self.assertEqual(built["addons"]["@acme-hub/twin"]["conflicts"], {"@acme-hub/echo": "both take 8191", "kazoo": "a"})
 
     def test_conflict_id_is_the_one_definition_of_what_a_key_names(self):
-        known = {"jade", "kafka", "@acme-hub/ledger", "@acme-hub/kafka", "local/kafka", "local/mine"}
-        for key, catalog, wanted in (("kafka", "acme-hub", "@acme-hub/kafka"), ("jade", "acme-hub", "jade"),
-                                     ("ledger", "acme-hub", "@acme-hub/ledger"), ("ledger", "fixture", None), ("kafka", "fixture", "kafka"),
-                                     ("@fixture/kafka", "acme-hub", "kafka"), ("@acme-hub/kafka", "fixture", "@acme-hub/kafka"),
-                                     ("kafka", "local", "local/kafka"), ("mine", "local", "local/mine"), ("mine", "fixture", None),
-                                     ("local/mine", "acme-hub", "local/mine"), ("kafka", None, "kafka"), (None, "fixture", None),
-                                     (7, "fixture", None), ("", "fixture", None), ("@/kafka", "fixture", None)):
+        known = {"jade", "kazoo", "@acme-hub/ledger", "@acme-hub/kazoo", "local/kazoo", "local/mine"}
+        for key, catalog, wanted in (("kazoo", "acme-hub", "@acme-hub/kazoo"), ("jade", "acme-hub", "jade"),
+                                     ("ledger", "acme-hub", "@acme-hub/ledger"), ("ledger", "fixture", None), ("kazoo", "fixture", "kazoo"),
+                                     ("@fixture/kazoo", "acme-hub", "kazoo"), ("@acme-hub/kazoo", "fixture", "@acme-hub/kazoo"),
+                                     ("kazoo", "local", "local/kazoo"), ("mine", "local", "local/mine"), ("mine", "fixture", None),
+                                     ("local/mine", "acme-hub", "local/mine"), ("kazoo", None, "kazoo"), (None, "fixture", None),
+                                     (7, "fixture", None), ("", "fixture", None), ("@/kazoo", "fixture", None)):
             with self.subTest(key=key, catalog=catalog):
                 self.assertEqual(project.conflict_id(key, catalog, known), wanted)
 
@@ -3292,7 +3292,7 @@ class Catalog(Case):
             with self.subTest(ns, kind=kind):
                 built = project.build(self.pointed(ns, kind=kind))
                 on = (uid, []) if kind == "playground" else (None, [uid])
-                for playground, effective in ((None, []), ("other", ["kafka"]), on):
+                for playground, effective in ((None, []), ("other", ["kazoo"]), on):
                     self.assertEqual(self.gamma(built, playground, effective, tabs=False),
                                      [("Gamma Console", "http://localhost:8086")], "the core's, its setting read")
 
@@ -3301,7 +3301,7 @@ class Catalog(Case):
             with self.subTest(ns):
                 built = project.build(self.pointed(ns))
                 self.assertEqual(self.gamma(built), [("Gamma Console", "http://localhost:8086")], "the core's, its setting read")
-                self.assertEqual(self.gamma(built, "other", ["kafka"]), [("Gamma Console", "http://localhost:8086")])
+                self.assertEqual(self.gamma(built, "other", ["kazoo"]), [("Gamma Console", "http://localhost:8086")])
                 self.assertEqual(self.gamma(built, uid), [("Gamma Console", self.DEEP)], "on, it opens where it says")
 
     def test_an_add_on_changes_a_tab_on_a_console_of_the_core_while_it_is_on(self):

@@ -35,7 +35,7 @@ from ..gravitee.test_platforms import ADDON_ENV, DEV, TEST
 COMPOSE = compose.COMPOSE
 CORE = ("apim-gateway", "apim-management-api", "mongodb")
 # The services Docker checks the health of (test_jobs.Docker): ready once healthy, the others once they run
-HEALTH_CHECKED = {"apim-gateway", "apim-management-api", "mongodb", "kafka", "jade", "redpanda", "openfga",
+HEALTH_CHECKED = {"apim-gateway", "apim-management-api", "mongodb", "kazoo", "jade", "redpanda", "openfga",
                   "hybrid-gateway"}
 STARTED = "2026-10-03T12:00:00.000000000Z"   # when the seed's container last started, as Docker says it
 SEED_LOGS = ["docker", "logs", "-f", "--since", STARTED, "lab-seed"]   # its output since then, followed
@@ -1994,15 +1994,15 @@ class Deploying(Deploys):
         self.assertEqual((job.ok, job.error(), calls, self.written), (False, "Its token is not kept here", [], []))
 
     def test_a_unit_s_deploy_gives_the_gateway_this_place_s_token_once_what_goes_is_removed(self):
-        # deploy_unit: Redpanda cannot run with Kafka, which is on and runs: the deploy removes Kafka, then the gateway
+        # deploy_unit: Redpanda cannot run with Kazoo, which is on and runs: the deploy removes Kazoo, then the gateway
         # takes this place's token, then the on file is written and Compose starts what it names
         self.project["addons"]["redpanda"]["deploys_to"] = ["cloud"]
         self.ready()
         order = []
         self.patch(platforms, "swap_gateway", lambda *args: order.append("swap"))
         envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
-        self.state, self.containers = on(self.project, ["kafka"]), running("kafka", "kafka-ui")
-        playgrounds.deploy_unit(self.project, "addon", "redpanda", ["addon:kafka"], PLACE)
+        self.state, self.containers = on(self.project, ["kazoo"]), running("kazoo", "kazoo-ui")
+        playgrounds.deploy_unit(self.project, "addon", "redpanda", ["addon:kazoo"], PLACE)
         job, calls = self.execute(seen=lambda command, options: order.append("rm" if "rm" in command else "up"))
         self.assertEqual(order[:3], ["rm", "swap", "up"], (order, job.lines))
 

@@ -12,7 +12,7 @@ import { FIRST, catalog, gains, item, lab, origin } from "./fixtures.mjs";
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 
 const HUB = ".lab/catalogs/acme-hub/playgrounds/bank";
-const FIRSTS = ".lab/catalogs/gravitee/addons/kafka";
+const FIRSTS = ".lab/catalogs/gravitee/addons/kazoo";
 const MINE = ".lab/catalogs/local/addons/mine";
 const FOLDER = ".lab/catalogs/my-catalog/addons/own";
 
@@ -46,7 +46,7 @@ const state = () => lab({
   playgrounds: [playground(), item("playground", "personal", "Personal one", { file: ".lab/catalogs/local/playgrounds/personal/compose.yml", personal: true, ...gains({ personal: true }),
     display_file: ".lab/catalogs/local/playgrounds/personal/compose.yml" })],
   addons: [
-    item("addon", "kafka", "Kafka", { file: `${FIRSTS}/compose.yml`, display_file: "addons/kafka/compose.yml", readonly: true }),
+    item("addon", "kazoo", "Kazoo", { file: `${FIRSTS}/compose.yml`, display_file: "addons/kazoo/compose.yml", readonly: true }),
     item("addon", "own", "Own", { file: `${FOLDER}/compose.yml`, display_file: "addons/own/compose.yml", origin: origin({ id: "my-catalog", name: "My catalog" }) }),
     item("addon", "mine", "Mine", { file: `${MINE}/compose.yml`, display_file: `${MINE}/compose.yml`, personal: true }),
   ],
@@ -119,7 +119,7 @@ test("the guide of a playground of a catalog is read only too, by its own path i
 
 test("an item of the first catalog says that catalog's name, which its items do not carry", async () => {
   await open(`${FIRSTS}/compose.yml`);
-  assert.deepEqual(shown(), { path: "addons/kafka/compose.yml", dirty: false, readonly: true, readonlyWords: "Read only" });
+  assert.deepEqual(shown(), { path: "addons/kazoo/compose.yml", dirty: false, readonly: true, readonlyWords: "Read only" });
   assert.equal(offWhy($("#editor-save")), "Part of Gravitee public");
   store.state = { ...state(), catalogs: [] };
   await open(`${FIRSTS}/compose.yml`);

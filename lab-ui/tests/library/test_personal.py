@@ -40,8 +40,8 @@ class Folder(Case):
         self.containers = self.patch(compose, "containers", return_value=({}, None))
         self.project = lab()
         self.project["services"]["mongodb"]["ports"] = ["27017"]
-        # What `make check` finds published: Kafka adds a port to the gateway
-        self.patch(check, "publishers", lambda: {"27017": paths.CORE_FILE, "9092": f"{FIXTURE}/addons/kafka/compose.yml"})
+        # What `make check` finds published: Kazoo adds a port to the gateway
+        self.patch(check, "publishers", lambda: {"27017": paths.CORE_FILE, "9092": f"{FIXTURE}/addons/kazoo/compose.yml"})
         self.placed()
 
     def placed(self):
@@ -76,14 +76,14 @@ class Folder(Case):
 class Setups(Folder):
 
     def test_save_setup(self):
-        saved = personal.save_setup(self.project, "  My  demo ", " Kafka and traces ", ["kafka-desk", "jade"])
+        saved = personal.save_setup(self.project, "  My  demo ", " Kazoo and traces ", ["kazoo-desk", "jade"])
         self.assertEqual(saved, {"file": f"{LOCAL}/setups/my-demo.yml", "changes": [], "id": "local/my-demo"})
         self.assertEqual(self.text(saved["file"]),
-                         'x-gravitee:\n  kind: setup\n  name: "My demo"\n  description: "Kafka and traces"\n\n'
+                         'x-gravitee:\n  kind: setup\n  name: "My demo"\n  description: "Kazoo and traces"\n\n'
                          "include:\n  - ../../fixture/addons/jade/compose.yml\n"
-                         "  - ../../fixture/addons/kafka-desk/compose.yml\n")
+                         "  - ../../fixture/addons/kazoo-desk/compose.yml\n")
         self.assertEqual(compose.includes(saved["file"]),
-                         [f"{FIXTURE}/addons/jade/compose.yml", f"{FIXTURE}/addons/kafka-desk/compose.yml"])
+                         [f"{FIXTURE}/addons/jade/compose.yml", f"{FIXTURE}/addons/kazoo-desk/compose.yml"])
 
     def test_save_setup_keeps_characters_as_typed(self):
         # Compose's YAML refuses the escapes JSON gives a character outside the basic plane
@@ -160,7 +160,7 @@ class Setups(Folder):
             personal.save_setup(self.project, "Other name", "", ["kiosk"], sid="local/mine")
         self.assertEqual(self.tree(), before)
         # Saved under its name, it stays where the on file finds it
-        self.assertEqual(personal.save_setup(self.project, "Mine", "", ["kafka"], sid="local/mine"),
+        self.assertEqual(personal.save_setup(self.project, "Mine", "", ["kazoo"], sid="local/mine"),
                          {"file": MINE, "changes": [], "id": "local/mine"})
 
     def test_save_setup_refusals(self):
@@ -175,7 +175,7 @@ class Setups(Folder):
                 ("Demo", "kiosk", None, "The add-ons must be a list of ids"),
                 ("Demo", [5], None, "The add-ons must be a list of ids"),
                 ("Demo", ["jade", "agent-lens"], None, f"AI Agent Lens and Jade cannot .*: {EXPORTER}"),
-                ("Demo", ["kafka-desk", "redpanda"], None, "Kafka and Redpanda cannot run together"),
+                ("Demo", ["kazoo-desk", "redpanda"], None, "Kazoo and Redpanda cannot run together"),
                 ("Demo", ["kiosk"], "observability", "Only your own setups can be changed here"),
                 ("Mine", ["kiosk"], None, "Another setup has this name"),
                 ("Observability", ["kiosk"], None, "Another setup has this name"),
@@ -309,7 +309,7 @@ services:
                 ({"name": "x" * 61}, "Give the add-on a name of 60 characters at most"),
                 ({"name": "Local"}, "Choose another name than local"),
                 ({"name": "Echo"}, "Another add-on has this name"),
-                ({"name": "Kafka"}, "The project has a service named kafka"),
+                ({"name": "Kazoo"}, "The project has a service named kazoo"),
                 ({"name": "Mine"}, "Another add-on has this name"),
                 ({"name": "Mine", "catalog": "fixture"}, "Another add-on has this name"),
                 ({"name": "MongoDB"}, "The project has a service named mongodb"),
@@ -330,7 +330,7 @@ services:
                 ({"port": "0"}, "Give the port as 8098, or as 8098:80"),
                 ({"port": "27017"}, "Port 27017 is published by mongodb"),
                 # On the gateway, by the add-on
-                ({"port": "9092:80"}, "Port 9092 is published by Kafka")):
+                ({"port": "9092:80"}, "Port 9092 is published by Kazoo")):
             with self.subTest(fields=fields), self.assertRaisesRegex(ValueError, message):
                 self.create(**fields)
         self.assertEqual(self.tree(), before)
@@ -342,7 +342,7 @@ services:
 
     def test_what_compose_refuses_leaves_nothing(self):
         before = self.tree()
-        self.compose.return_value = (1, "", 'container name "gio-whoami" is already in use by service kafka\n')
+        self.compose.return_value = (1, "", 'container name "gio-whoami" is already in use by service kazoo\n')
         with self.assertRaisesRegex(ValueError, "Invalid compose file: container name .* already in use"):
             self.create()
         self.assertEqual(self.tree(), before)
@@ -358,7 +358,7 @@ class Playgrounds(Folder):
         self.own()
         (self.root / SANDBOX).unlink()
         (self.root / SANDBOX).parent.rmdir()
-        created = self.create(setups=["observability", "local/mine"], addons=["local/whoami", "kafka"])
+        created = self.create(setups=["observability", "local/mine"], addons=["local/whoami", "kazoo"])
         self.assertEqual(created, {"file": SANDBOX, "id": "local/sandbox"})
         self.assertEqual(self.text(SANDBOX), """x-gravitee:
   kind: playground
@@ -369,7 +369,7 @@ class Playgrounds(Folder):
 include:
   - ../../setups/mine.yml
   - ../../../fixture/setups/observability.yml
-  - ../../../fixture/addons/kafka/compose.yml
+  - ../../../fixture/addons/kazoo/compose.yml
   - ../../addons/whoami/compose.yml
 
 services: {}
@@ -380,12 +380,12 @@ services: {}
 
     def test_kept_in_a_folder_catalog_or_with_nothing_included(self):
         self.catalog("fixture")
-        created = self.create(category="Other", setups=["observability"], addons=["kafka"], catalog="fixture")
+        created = self.create(category="Other", setups=["observability"], addons=["kazoo"], catalog="fixture")
         self.assertEqual(created, {"file": f"{FIXTURE}/playgrounds/sandbox/compose.yml", "id": "sandbox"})
         self.assertEqual(self.text(created["file"]), 'x-gravitee:\n  kind: playground\n  name: "Sandbox"\n'
                          '  category: Other\n  description: "A place to try"\n\n'
                          "include:\n  - ../../setups/observability.yml\n"
-                         "  - ../../addons/kafka/compose.yml\n\nservices: {}\n")
+                         "  - ../../addons/kazoo/compose.yml\n\nservices: {}\n")
         self.create("Empty")
         self.assertNotIn("include", self.text(f"{LOCAL}/playgrounds/empty/compose.yml"))
 
@@ -456,8 +456,8 @@ class Deleted(Folder):
 
     def test_only_what_belongs_to_this_machine(self):
         before = self.tree()
-        for kind, uid, noun in (("addon", "kafka", "add-ons"), ("addon", "local/../kafka", "add-ons"),
-                                ("addon", "local/", "add-ons"), ("addon", "local/whoami/../../kafka", "add-ons"),
+        for kind, uid, noun in (("addon", "kazoo", "add-ons"), ("addon", "local/../kazoo", "add-ons"),
+                                ("addon", "local/", "add-ons"), ("addon", "local/whoami/../../kazoo", "add-ons"),
                                 ("setup", "observability", "setups"), ("setup", "local/../observability", "setups"),
                                 ("playground", "welcome", "playgrounds"), ("playground", "local", "playgrounds")):
             with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, f"Only your own {noun} can be deleted here"):

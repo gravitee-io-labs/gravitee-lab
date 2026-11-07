@@ -1441,7 +1441,7 @@ test("the version reads from the one installed to the new one when the catalog r
 });
 
 test("an item that is updated says what changed in it, the first three parts of its folder and how many more", async () => {
-  await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kafka", name: "Kafka", what: ["README.md"] },
+  await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kazoo", name: "Kazoo", what: ["README.md"] },
     { kind: "playground", id: "@acme-hub/bank", name: "Acme Bakery", what: ["README.md", "compose.yml", "guide/", "seed/", "tests/"] }] }));
   const updates = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Updates");
   assert.deepEqual(updates.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name .muted")), text(li.querySelector(".step-kind"))]),

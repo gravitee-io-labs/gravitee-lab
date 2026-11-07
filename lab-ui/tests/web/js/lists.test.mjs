@@ -30,7 +30,7 @@ const CANNOT = { "acme-bakery": "Needs Access Management" };   // what a place s
 const server = { calls: [], dialog: null };
 const JOB = { id: "ab12cd34", for: "playground:acme-hostels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // The groups of the Stack the page remembers open, and the place that was last chosen to deploy to (the default of every playground)
-const stored = { expanded: JSON.stringify({ "group:api-management": true, "addon:kafka": true }), deploy: "acme/development" };
+const stored = { expanded: JSON.stringify({ "group:api-management": true, "addon:kazoo": true }), deploy: "acme/development" };
 const page = installDom({ stored, fetch: async (path, options = {}) => {
   const call = { method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined };
   if (path !== "/api/state") server.calls.push(call);
@@ -84,20 +84,20 @@ const playground = (id, name, more = {}) => item("playground", id, name, { tags:
 // The lab with the core stopped, or running; `away`: an add-on of the lab runs. Acme Hostels deploys to a platform too.
 function lab({ away = false, core = "stopped", hotels = {}, ...more } = {}) {
   const gateway = service("gateway", core === "running" ? RUNNING : STOPPED);
-  const kafka = service("kafka", away ? RUNNING : STOPPED, { ports: ["9092", "9093"] });
+  const kazoo = service("kazoo", away ? RUNNING : STOPPED, { ports: ["9092", "9093"] });
   const group = { id: "api-management", name: "API Management", services: ["gateway"], state: gateway.state.running ? RUNNING : STOPPED, progress: null,
     version: "1", registry: null, registry_label: null, product: null, file: "docker-compose.yml", env_file: ".env", settings: [], brings: [], recreates: [], ...NONE };
   return {
     blind: false, wait: "", docker: { error: null, warning: null }, license: null, products: [], categories: [], job: null, problems: [],
-    links: [], services: { gateway, kafka }, content: content("ready"),
+    links: [], services: { gateway, kazoo }, content: content("ready"),
     platform: { name: "Gravitee platform", state: group.state, progress: null, groups: [group], file: "docker-compose.yml", env_file: ".env", settings: [],
       start: { needed: true, starts: [], restarts: [], enabled: true, reason: null, dialog: null }, apply: { needed: false }, behind: [],
       restart: { needed: core === "running", enabled: true, reason: null }, update: { needed: core === "running", enabled: true, reason: null, dialog: null },
       reset_turns_off: null },
     playgrounds: [playground("acme-hostels", "Acme Hostels", { created: [{ what: "APIs", count: 3 }], deploys_to: ["cloud"], ...hotels }),
       playground("acme-bakery", "Acme Bakery", { on: true, state: STOPPED })],
-    setups: [item("setup", "messaging", "Messaging", { members: [{ id: "kafka", name: "Kafka" }], includes: [] })],
-    addons: [item("addon", "kafka", "Kafka", { services: ["kafka"], needs: [], conflicts: {}, restarts: [], brings: [], recreates: [], on: away, up: away,
+    setups: [item("setup", "messaging", "Messaging", { members: [{ id: "kazoo", name: "Kazoo" }], includes: [] })],
+    addons: [item("addon", "kazoo", "Kazoo", { services: ["kazoo"], needs: [], conflicts: {}, restarts: [], brings: [], recreates: [], on: away, up: away,
       state: away ? RUNNING : OFF, action: ACTION(away ? "stop" : "start") })],
     ...more,
   };
@@ -169,7 +169,7 @@ function everything() {
   dom["banner: the core stopped, an add-on runs"] = drawn(banner());
   open("playgrounds", "acme-hostels");
   open("setups", "messaging");
-  open("addons", "kafka");
+  open("addons", "kazoo");
   draw(S1.away, [], REMEMBERED);
   for (const name of Object.keys(PAGES)) dom[name] = drawn(sections[name]);
   return dom;
@@ -463,13 +463,13 @@ test("a Start on images it was not tested with is the Start that switches them, 
 
 test("a Start says where its item comes from when the server says it, on This machine and on a place alike: one row among those that say what stays", async () => {
   const from = { from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" } };
-  const starts = [{ kind: "addon", id: "kafka", name: "Kafka" }];
+  const starts = [{ kind: "addon", id: "kazoo", name: "Kazoo" }];
   const notes = () => picks.querySelectorAll(".choice-row").map((row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text),
     row.querySelectorAll(".muted").map(text)]);
   // On a place, the dialog is the one the checks of that place read
   server.dialog = { starts, stops: [], turns_off: [], keeps: [], restarts: [], ...from };
   await start("acme-hostels", S1.calm, [place()]);
-  assert.deepEqual(effects().steps, [["Starts", ["Kafka Add-on"]], ["Deploys to", ["Development (My Account) Environment"]]]);
+  assert.deepEqual(effects().steps, [["Starts", ["Kazoo Add-on"]], ["Deploys to", ["Development (My Account) Environment"]]]);
   assert.deepEqual(notes(), [["From", ["Acme Hub"], ["Version 1.4.0"]]]);
   await answer(false);
   // On This machine, the one the state gives the row
@@ -496,10 +496,10 @@ test("a playground that cannot go to the place chosen starts on This machine, as
 });
 
 test("the Start of a row names This machine in its dialog once a platform is registered, when it asks, and not before", async () => {
-  const dialog = { starts: [{ kind: "addon", id: "kafka", name: "Kafka" }], stops: [], turns_off: [], keeps: [], restarts: [] };
+  const dialog = { starts: [{ kind: "addon", id: "kazoo", name: "Kazoo" }], stops: [], turns_off: [], keeps: [], restarts: [] };
   const asking = lab({ hotels: { action: { ...ACTION("start"), dialog } } });
   page.stored.deploy = "machine";
-  for (const [platforms, steps] of [[[ACCOUNT], [["Starts", ["Kafka Add-on"]], ["Deploys to", ["This machine Platform"]]]], [[], [["Starts", ["Kafka Add-on"]]]]]) {
+  for (const [platforms, steps] of [[[ACCOUNT], [["Starts", ["Kazoo Add-on"]], ["Deploys to", ["This machine Platform"]]]], [[], [["Starts", ["Kazoo Add-on"]]]]]) {
     draw(asking, platforms, [place()]);
     startOfRow("acme-hostels").click();
     await settle();
@@ -526,13 +526,13 @@ test("the note of an add-on that needs a hybrid gateway leads to the Gravitee Cl
   const withNote = needs({});
   withNote.addons[0] = { ...withNote.addons[0], note: "Needs a hybrid gateway", note_tone: "warn", note_target: { kind: "platform" } };
   draw(withNote, [ACCOUNT], [place()]);
-  const note = row("addons", "kafka").querySelector(".list-state .note");
+  const note = row("addons", "kazoo").querySelector(".list-state .note");
   assert.equal(note.tag, "a");
   assert.equal(note.getAttribute("href"), "#/cloud");
   assert.equal(text(note), "Needs a hybrid gateway");
   withNote.addons[0] = { ...withNote.addons[0], note_target: { kind: "platform", id: "acme" } };
   draw(withNote, [ACCOUNT], [place()]);
-  assert.equal(row("addons", "kafka").querySelector(".list-state .note").getAttribute("href"), "#/cloud/acme", "with an id, it is that platform's row");
+  assert.equal(row("addons", "kazoo").querySelector(".list-state .note").getAttribute("href"), "#/cloud/acme", "with an id, it is that platform's row");
 });
 
 // --- The catalogs ------------------------------------------------------------------------------------------------------------------------
@@ -557,7 +557,7 @@ const opening = (name, id) => { if (!row(name, id).classList.contains("open")) o
 const USES = [{ service: "k3s", what: ["runs privileged"], why: "Runs containerd and the kubelet" }];
 const everyone = () => world({
   playgrounds: [inHub("playground", "ledger-demo", "Ledger demo"), ofMine("playground", "scratch", "Scratch")],
-  setups: [inHub("setup", "duo", "Duo", { members: [{ id: "kafka", name: "Kafka" }], includes: [], note: "Needs a catalog", note_tone: "warn",
+  setups: [inHub("setup", "duo", "Duo", { members: [{ id: "kazoo", name: "Kazoo" }], includes: [], note: "Needs a catalog", note_tone: "warn",
     note_target: { kind: "catalog", id: null }, note_causes: [NEEDS.missing], action: { ...ACTION("start"), enabled: false, reason: "Needs the catalog Partner Bank" } })],
   addons: [inHub("addon", "mock-bank", "Mock bank", { note: "Blocked", note_tone: "err", note_causes: [BLOCKED],
     action: { ...ACTION("start"), enabled: false, reason: BLOCKED.reasons[0] } }), inHub("addon", "k3s", "Kubernetes", { uses_machine: USES })],
@@ -853,7 +853,7 @@ test("what an item takes of this machine is one pair of its opened row, in its a
 test("a list's address takes the id of any catalog's item, and a playground's own address is its page", () => {
   const hit = (target, hash) => target.pattern.exec(hash)?.slice(1);
   assert.deepEqual(hit(addonsPage, "#/addons"), [undefined]);
-  assert.deepEqual(hit(addonsPage, "#/addons/kafka"), ["kafka"]);
+  assert.deepEqual(hit(addonsPage, "#/addons/kazoo"), ["kazoo"]);
   assert.deepEqual(hit(setupsPage, "#/setups/local/mine"), ["local/mine"]);
   assert.deepEqual(hit(addonsPage, "#/addons/@acme-hub/mock-bank"), ["@acme-hub/mock-bank"]);
   assert.equal(hit(addonsPage, "#/addons/@acme-hub/"), undefined);

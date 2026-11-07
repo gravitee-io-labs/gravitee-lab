@@ -81,8 +81,8 @@ class Includes(ProjectFolder):
 
     def test_paths_are_relative_to_the_including_file(self):
         path = self.write("setups/local/mine.yml", "x-gravitee:\n  kind: setup\n\ninclude:\n"
-                          "  - ../../addons/kafka/compose.yml\n  - ../../addons/jade/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml", "addons/jade/compose.yml"])
+                          "  - ../../addons/kazoo/compose.yml\n  - ../../addons/jade/compose.yml\n")
+        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml", "addons/jade/compose.yml"])
 
     def test_a_list_on_one_line_is_read_and_a_copy_keeps_it_as_written(self):
         self.write("b-x/compose.yml", "services:\n  bee:\n    image: alpine\n    pull_policy: ${B_PULL_POLICY:-missing}\n")
@@ -102,14 +102,14 @@ class Includes(ProjectFolder):
                           "  - \"playgrounds/welcome/compose.yml\"   # one at a time\n"
                           "  - 'addons/my addon/compose.yml'\n"
                           "\n"
-                          "  - path: addons/kafka/compose.yml\n")
+                          "  - path: addons/kazoo/compose.yml\n")
         self.assertEqual(compose.includes(path), ["playgrounds/welcome/compose.yml", "addons/my addon/compose.yml",
-                                                  "addons/kafka/compose.yml"])
+                                                  "addons/kazoo/compose.yml"])
 
     def test_items_without_indentation(self):
         path = self.write(".lab/on.yml",
-                          "include:\n- addons/kafka/compose.yml\n- addons/mail/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml", "addons/mail/compose.yml"])
+                          "include:\n- addons/kazoo/compose.yml\n- addons/mail/compose.yml\n")
+        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml", "addons/mail/compose.yml"])
 
     def test_the_files_a_key_of_an_item_lists_are_not_items(self):
         path = self.write("playgrounds/mine/compose.yml", "include:\n"
@@ -118,12 +118,12 @@ class Includes(ProjectFolder):
                           "      - ../../addons/tool/.env\n"
                           "      - path: ../../addons/tool/other.env\n"
                           "        required: false\n"
-                          "  - ../../addons/kafka/compose.yml\n"
+                          "  - ../../addons/kazoo/compose.yml\n"
                           "services:\n  mine:\n    image: x\n")
-        self.assertEqual(compose.includes(path), ["addons/tool/compose.yml", "addons/kafka/compose.yml"])
+        self.assertEqual(compose.includes(path), ["addons/tool/compose.yml", "addons/kazoo/compose.yml"])
         path = self.write(".lab/on.yml", "include:\n- path: addons/tool/compose.yml\n  env_file:\n  - addons/tool/.env\n"
-                          "- addons/kafka/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/tool/compose.yml", "addons/kafka/compose.yml"])
+                          "- addons/kazoo/compose.yml\n")
+        self.assertEqual(compose.includes(path), ["addons/tool/compose.yml", "addons/kazoo/compose.yml"])
 
     def test_the_files_of_a_path_list_are_items(self):
         path = self.write("playgrounds/mine/compose.yml", "include:\n"
@@ -136,15 +136,15 @@ class Includes(ProjectFolder):
         self.assertEqual(compose.includes(path), ["addons/a/compose.yml", "addons/b/compose.yml", "addons/c/compose.yml"])
 
     def test_only_the_include_list(self):
-        path = self.write("addons/kafka-desk/compose.yml", "include:\n  - ../kafka/compose.yml\n\n"
-                          "services:\n  kafka-desk:\n    volumes:\n      - ./certs:/certs\n"
+        path = self.write("addons/kazoo-desk/compose.yml", "include:\n  - ../kazoo/compose.yml\n\n"
+                          "services:\n  kazoo-desk:\n    volumes:\n      - ./certs:/certs\n"
                           "    networks:\n      - internal\n")
-        self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml"])
+        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml"])
 
     def test_a_file_outside_the_project_is_left_out(self):
         path = self.write(".lab/on.yml",
-                          "include:\n  - ../elsewhere/compose.yml\n  - addons/kafka/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml"])
+                          "include:\n  - ../elsewhere/compose.yml\n  - addons/kazoo/compose.yml\n")
+        self.assertEqual(compose.includes(path), ["addons/kazoo/compose.yml"])
 
     def test_no_file_no_include(self):
         self.assertEqual(compose.includes(".lab/on.yml"), [])
@@ -723,27 +723,27 @@ class Containers(Case):
     def test_inspect_tells_a_memory_kill_and_the_recent_restarts(self):
         def started(seconds_ago):
             return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
-        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kiosk", "kafka", "mail")]
-        inspected = "\n".join([f"/gio-kiosk|false|3|{started(20)}|h1|sha256:k", f"/gio-kafka|true|4|{started(3600)}||",
+        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kiosk", "kazoo", "mail")]
+        inspected = "\n".join([f"/gio-kiosk|false|3|{started(20)}|h1|sha256:k", f"/gio-kazoo|true|4|{started(3600)}||",
                                "", "error: no such object: gio-mail"])
         found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
         self.assertEqual({name: (c["oom"], c["restarts"]) for name, c in found.items()},
                          {"kiosk": (False, 3),     # restarted, and again 20 s ago
-                          "kafka": (True, 0),       # its last restart is an hour old
+                          "kazoo": (True, 0),       # its last restart is an hour old
                           "mail": (False, 0)})      # removed since it was listed
         # The configuration Compose made it from, and the image it runs: what runs behind what is saved is told so
         self.assertEqual({name: (c["config_hash"], c["image_id"]) for name, c in found.items()},
-                         {"kiosk": ("h1", "sha256:k"), "kafka": (None, None), "mail": (None, None)})
+                         {"kiosk": ("h1", "sha256:k"), "kazoo": (None, None), "mail": (None, None)})
         self.assertNotIn("variable", found["kiosk"])   # not asked: not read
 
     def test_a_container_that_restarted_while_what_it_needs_warmed_up_and_runs_since_is_stable(self):
-        # Two restarts while Kafka started, then up for two minutes: not one that keeps restarting
+        # Two restarts while Kazoo started, then up for two minutes: not one that keeps restarting
         def started(seconds_ago):
             return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
-        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kafka-ui", "kiosk")]
-        inspected = "\n".join([f"/gio-kafka-ui|false|2|{started(120)}||", f"/gio-kiosk|false|2|{started(15)}||"])
+        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kazoo-ui", "kiosk")]
+        inspected = "\n".join([f"/gio-kazoo-ui|false|2|{started(120)}||", f"/gio-kiosk|false|2|{started(15)}||"])
         found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
-        self.assertEqual({name: c["restarts"] for name, c in found.items()}, {"kafka-ui": 0, "kiosk": 2})
+        self.assertEqual({name: c["restarts"] for name, c in found.items()}, {"kazoo-ui": 0, "kiosk": 2})
 
     def test_a_container_that_never_started_has_no_restarts(self):
         line = {"Service": "kiosk", "State": "created", "Name": "gio-kiosk"}
@@ -825,14 +825,14 @@ class Saved(Case):
     def test_values_given_to_a_command_come_before_the_env_files(self):
         # Compose reads the core and what is on, whatever the shell says
         with mock.patch.dict(compose.os.environ, {"COMPOSE_FILE": "other.yml"}):
-            answer = compose.run(["sh", "-c", 'printf "%s %s" "$KAFKA_VERSION" "$COMPOSE_FILE"'],
-                                 env={"KAFKA_VERSION": "3.8"})
+            answer = compose.run(["sh", "-c", 'printf "%s %s" "$KAZOO_VERSION" "$COMPOSE_FILE"'],
+                                 env={"KAZOO_VERSION": "3.8"})
         self.assertEqual(answer, (0, "3.8 docker-compose.yml:.lab/on.yml", ""))
         # Whatever the terminal's language: what it prints is read as UTF-8, and never refused
         self.assertEqual(compose.run(["sh", "-c", r"printf 'caf\303\251 \377'"]), (0, "caf\u00e9 \ufffd", ""))
 
     def test_an_image_as_docker_lists_the_ones_it_holds(self):
-        for image, listed in (("docker.io/bitnamilegacy/kafka:3.9", "bitnamilegacy/kafka:3.9"),
+        for image, listed in (("docker.io/acmecontainer/kazoo:3.9", "acmecontainer/kazoo:3.9"),
                               ("docker.io/library/mongo:8", "mongo:8"), ("mongo", "mongo:latest"),
                               ("localhost:5000/team/app", "localhost:5000/team/app:latest"),
                               ("graviteeio/apim-gateway:4.12-debian", "graviteeio/apim-gateway:4.12-debian")):
@@ -935,14 +935,14 @@ class Retargeted(ProjectFolder):
             self.assertIn(kept, [line.strip() for line in found])
 
     def test_a_copy_includes_copies_in_place_of_the_files(self):
-        text = ("include:\n  - ../kafka/compose.yml   # what it needs\n  - path: ../mail/compose.yml\n"
-                "\nservices:\n  console:\n    volumes:\n      - ../kafka/compose.yml:/x\n")
+        text = ("include:\n  - ../kazoo/compose.yml   # what it needs\n  - path: ../mail/compose.yml\n"
+                "\nservices:\n  console:\n    volumes:\n      - ../kazoo/compose.yml:/x\n")
         self.write("addons/console/compose.yml", text)
         found = compose.retargeted("addons/console/compose.yml", text,
-                                   {"addons/kafka/compose.yml": "addons/kafka/.compose.yml.effects.yml"})
-        self.assertEqual(found, text.replace("  - ../kafka/compose.yml ", "  - ../kafka/.compose.yml.effects.yml ", 1))
+                                   {"addons/kazoo/compose.yml": "addons/kazoo/.compose.yml.effects.yml"})
+        self.assertEqual(found, text.replace("  - ../kazoo/compose.yml ", "  - ../kazoo/.compose.yml.effects.yml ", 1))
         # What is not in the include list stays as written
-        self.assertIn("      - ../kafka/compose.yml:/x", found)
+        self.assertIn("      - ../kazoo/compose.yml:/x", found)
 
 
 class Shell(Case):

@@ -25,7 +25,7 @@ RUNNING = {"state": "running"}
 def project():
     """The small project of test_layers with the Hybrid gateway of Cloud and Hotels, whose app deploys there, shaped as the
     platform is: API Management (whose plugins folder is apim) needs MongoDB and Elasticsearch, Access Management needs
-    MongoDB, the Alert Engine needs nothing. Kiosk needs MongoDB; Kafka UI needs API Management's Management API."""
+    MongoDB, the Alert Engine needs nothing. Kiosk needs MongoDB; Kazoo UI needs API Management's Management API."""
     found = test_layers.lab()
     test_layers.licensed(found, True)
     found["groups"][0]["product"] = "apim"
@@ -42,12 +42,12 @@ def project():
     found["services"]["apim-management-api"]["depends_on"] = ["mongodb", "elasticsearch"]
     found["services"]["apim-gateway"]["depends_on"] = ["apim-management-api", "mongodb"]
     found["services"]["kiosk"]["depends_on"] = ["mongodb"]
-    found["services"]["kafka-ui"]["depends_on"] = ["kafka", "apim-management-api"]
+    found["services"]["kazoo-ui"]["depends_on"] = ["kazoo", "apim-management-api"]
     return found
 
 
 PROJECT = project()
-STATE = test_layers.on(PROJECT, explicit=["kafka", "kiosk"], playground="hotels")
+STATE = test_layers.on(PROJECT, explicit=["kazoo", "kiosk"], playground="hotels")
 
 
 class Core(Places):
@@ -153,14 +153,14 @@ class StartAll(Core):
         where = plan.call_args.kwargs["place"]
         self.assertEqual((plan.call_args.args[4:6], where["id"], where["gateway"]), (("hybrid", "start"), PLACE, "hybrid"))
         self.assertEqual(found["gateway_id"], made["id"])
-        self.assertEqual(found["others"], ["alert-engine", "am-gateway", "hotels-api", "kafka", "kiosk", "mongodb"],
+        self.assertEqual(found["others"], ["alert-engine", "am-gateway", "hotels-api", "kazoo", "kiosk", "mongodb"],
                          "the products that stay, MongoDB that one of them and Kiosk use, the playground's app and what is on;"
                          " never its seed")
         self.assertEqual([row["name"] for row in found["dialog"]["starts"]],
-                         ["Hybrid gateway", "Access Management", "mongodb", "Alert Engine", "Hotels apps", "Kiosk", "Kafka broker"])
+                         ["Hybrid gateway", "Access Management", "mongodb", "Alert Engine", "Hotels apps", "Kiosk", "Kazoo broker"])
         self.assertEqual(found["dialog"]["serves"], [{"kind": "environment", "id": PLACE, "name": DEVELOPMENT}])
-        self.assertEqual([row["name"] for row in found["dialog"]["not_started"]], ["API Management", "elasticsearch", "Kafka UI"],
-                         "API Management, Elasticsearch that only it uses, and Kafka UI that needs it")
+        self.assertEqual([row["name"] for row in found["dialog"]["not_started"]], ["API Management", "elasticsearch", "Kazoo UI"],
+                         "API Management, Elasticsearch that only it uses, and Kazoo UI that needs it")
         self.assertEqual(found["dialog"]["hints"], {"not_started": "API Management runs in Gravitee Cloud"})
         named = {row["id"] for part in layers.ROWS for row in found["dialog"][part]}
         self.assertFalse(named & {"apim-gateway", "apim-management-api", "elasticsearch", "api-management", "platform"},
@@ -208,15 +208,15 @@ class StartAll(Core):
 
     def test_what_runs_is_not_started_again(self):
         self.gateway()
-        running = ("apim-hybrid-gateway", "hybrid-redis", "hotels-api", "kafka", "kiosk", "mongodb", "am-gateway", "alert-engine")
+        running = ("apim-hybrid-gateway", "hybrid-redis", "hotels-api", "kazoo", "kiosk", "mongodb", "am-gateway", "alert-engine")
         found, _ = self.planned({name: RUNNING for name in running})
         self.assertEqual((found["others"], found["needed"]), ([], False))
 
     def test_stop_all_stops_what_start_all_starts_and_leaves_api_management(self):
         running = {name: RUNNING for name in ("apim-gateway", "elasticsearch", "mongodb", "am-gateway", "apim-hybrid-gateway",
-                                              "kafka", "kafka-ui")}
+                                              "kazoo", "kazoo-ui")}
         self.assertEqual(core.stopping(PROJECT, STATE, running),
-                         ["am-gateway", "apim-hybrid-gateway", "kafka", "kafka-ui", "mongodb"])
+                         ["am-gateway", "apim-hybrid-gateway", "kazoo", "kazoo-ui", "mongodb"])
         self.assertTrue(core.describe(PROJECT, STATE, running, None, None)["stop"]["needed"])
         self.assertEqual(core.stopping(PROJECT, STATE, {"apim-gateway": RUNNING, "elasticsearch": RUNNING}), [])
 

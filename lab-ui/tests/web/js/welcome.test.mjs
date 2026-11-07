@@ -41,7 +41,7 @@ const GROUPS = [["API Management", ["gamma-ui", "apim-management-ui"]], ["Access
 const LINKS = [
   { label: "AM Console", url: "http://localhost:8081", service: "am-management-ui", legacy: false, up: true, username: "admin", password: "adminadmin" },
   { label: "Gamma Console", url: "http://localhost:8086", service: "gamma-ui", legacy: false, up: true, username: "admin", password: "admin" },
-  { label: "Kafka UI", url: "http://localhost:8180", service: "kafka-ui", legacy: false, up: true },
+  { label: "Kazoo UI", url: "http://localhost:8180", service: "kazoo-ui", legacy: false, up: true },
   { label: "APIM Console", url: "http://localhost:8084", service: "apim-management-ui", legacy: true, up: true, username: "admin", password: "admin" },
 ];
 const START = { start: {} };   // the platform's Start, with no plan to confirm

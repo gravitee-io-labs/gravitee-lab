@@ -310,7 +310,7 @@ test("the output of the shell arrives as base64 and is read as bytes, the ones o
 });
 
 test("an action looks when its id starts with open-, and does otherwise", () => {
-  assert.equal(isLook("open-kafka-plans"), true);
+  assert.equal(isLook("open-kazoo-plans"), true);
   assert.equal(isLook("send-order"), false);
   assert.equal(isLook("reopen-it"), false);
 });

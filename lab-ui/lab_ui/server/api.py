@@ -228,8 +228,8 @@ def terminal_close(req, pid):
 
 def accepted(req):
     """What the page sends back of the rows its dialog showed (`accept`): a list of keys, "<kind>:<id>". Nothing sent is
-    nothing accepted. Anything else is a bad request: a text would be searched by pieces of it ("addon:kafka" is in
-    "addon:kafka-desk"), a mapping by its keys, and the gate that asks for what the page showed would take them for it."""
+    nothing accepted. Anything else is a bad request: a text would be searched by pieces of it ("addon:kazoo" is in
+    "addon:kazoo-desk"), a mapping by its keys, and the gate that asks for what the page showed would take them for it."""
     found = req.body.get("accept")
     if found is None:
         return []
@@ -241,7 +241,7 @@ def accepted(req):
 def switch(req, kind, uid, do):
     """Starts or stops an add-on or a setup. The plan is made again: it must not be blocked, and what it stops or
     turns off besides the item itself must be what the page showed and sent back in `accept`. The job is named as
-    its button: "Turn on Kiosk", "Turn off Kafka". A start that names a `place` runs the item there (it is
+    its button: "Turn on Kiosk", "Turn off Kazoo". A start that names a `place` runs the item there (it is
     playgrounds.deploy_unit's)."""
     p = project.load()
     place = place_of(req.body.get("place")) if do == "start" else None

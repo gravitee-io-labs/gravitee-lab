@@ -298,8 +298,8 @@ class ConfigRead(Disk):
                          [("fixture", True, "listed"), ("second", True, "listed"), ("acme-hub", False, "no")])
         self.lockfile(**{ns: lock_entry() for ns in ("fixture", "second", "acme-hub")})
         for ns in ("fixture", "second", "acme-hub"):
-            self.install(ns, A, ("addon:kafka",))
-        self.assertEqual([registry.units_of(ns)["addon"] for ns in ("fixture", "second", "acme-hub")], [["kafka"]] * 3)
+            self.install(ns, A, ("addon:kazoo",))
+        self.assertEqual([registry.units_of(ns)["addon"] for ns in ("fixture", "second", "acme-hub")], [["kazoo"]] * 3)
 
     def test_the_allowance_of_a_listed_catalog_is_implied_and_not_read(self):
         self.default("fixture")
@@ -1199,14 +1199,14 @@ class Units(Disk):
         self.default("fixture")
         self.config(git_entry("fixture"), git_entry("acme-hub"))
         self.lockfile(fixture=lock_entry(), **{"acme-hub": lock_entry()})
-        self.install("fixture", A, ("addon:kafka",))
+        self.install("fixture", A, ("addon:kazoo",))
         self.install("acme-hub", A, ("addon:listed", "playground:bank"))
         self.write(".lab/catalogs/fixture/addons/stray/compose.yml")
         self.write(".lab/catalogs/acme-hub/addons/rogue/compose.yml")
         self.write(".lab/catalogs/local/addons/mine/compose.yml")
-        self.assertEqual(paths.ids("addon"), ["kafka", "local/mine", "@acme-hub/listed"])
+        self.assertEqual(paths.ids("addon"), ["kazoo", "local/mine", "@acme-hub/listed"])
         self.assertEqual(paths.ids("playground"), ["@acme-hub/bank"])
-        self.assertEqual(paths.files(), [".lab/catalogs/fixture/addons/kafka/compose.yml",
+        self.assertEqual(paths.files(), [".lab/catalogs/fixture/addons/kazoo/compose.yml",
                                          ".lab/catalogs/local/addons/mine/compose.yml",
                                          ".lab/catalogs/acme-hub/addons/listed/compose.yml",
                                          ".lab/catalogs/acme-hub/playgrounds/bank/compose.yml"])
@@ -1665,7 +1665,7 @@ class Rows(Disk):
         self.config(git_entry("acme-hub"), git_entry("fixture"), folder_entry("my-catalog", self.root / ".lab/catalogs/my-catalog"))
         self.lockfile(**{"acme-hub": lock_entry(name="Acme Hub", version="1.4.0", lab=2, audience="private"),
                          "fixture": lock_entry(name="Fixture catalog", audience="public")})
-        self.install("fixture", A, ("addon:kafka", "setup:events", "playground:bank"), ignored=3)
+        self.install("fixture", A, ("addon:kazoo", "setup:events", "playground:bank"), ignored=3)
         self.install("acme-hub", A, ("addon:mock-bank",))
         self.write(".lab/catalogs/my-catalog/addons/mine/compose.yml")
         self.write(".lab/catalogs/my-catalog/catalog.yml",
@@ -1681,7 +1681,7 @@ class Rows(Disk):
         rows = registry.inputs()
         self.assertEqual(rows["fixture"], {
             "name": "Fixture catalog", "description": "", "version": "1.0.0", "lab": 1, "audience": "public", "kind": "git",
-            "requires_catalogs": {}, "state": "uptodate", "units": {"addon": ["kafka"], "setup": ["events"],
+            "requires_catalogs": {}, "state": "uptodate", "units": {"addon": ["kazoo"], "setup": ["events"],
                                                                     "playground": ["bank"]},
             "ignored": 3, "error": None, "pending": None, "listed": True, "host": "listed"})
         self.assertEqual((rows["acme-hub"]["name"], rows["acme-hub"]["version"], rows["acme-hub"]["lab"],
@@ -1729,7 +1729,7 @@ class Rows(Disk):
     def test_a_row_is_a_copy(self):
         self.set_up_three()
         registry.inputs()["fixture"]["units"]["addon"].append("x")
-        self.assertEqual(registry.inputs()["fixture"]["units"]["addon"], ["kafka"])
+        self.assertEqual(registry.inputs()["fixture"]["units"]["addon"], ["kazoo"])
 
     def test_the_allowance_is_listed_allowed_or_no(self):
         self.default("fixture")
@@ -1742,7 +1742,7 @@ class Rows(Disk):
     def test_a_folder_that_stands_in_for_a_listed_catalog_is_listed(self):
         self.default("fixture")
         self.config(folder_entry("fixture", self.root / ".lab/catalogs/fixture", shadows={"url": "https://example.invalid/fixture.git"}))
-        self.write(".lab/catalogs/fixture/addons/kafka/compose.yml")
+        self.write(".lab/catalogs/fixture/addons/kazoo/compose.yml")
         row = registry.inputs()["fixture"]
         self.assertEqual((row["kind"], row["state"], row["listed"], row["host"]), ("folder", "linked", True, "listed"))
 

@@ -980,9 +980,9 @@ class Repoint(Case):
         return moves.repoint(text, was, now, [(old, new)])
 
     def test_a_path_back_into_the_folder_stays_a_path(self):
-        text = "volumes:\n  - ../whoami/certs:/certs\n  - ${CERTS:-../../kafka/certs}:/kafka\n"
+        text = "volumes:\n  - ../whoami/certs:/certs\n  - ${CERTS:-../../kazoo/certs}:/kazoo\n"
         self.assertEqual(self.one(text, "addons/local/whoami", "addons/whoami", "addons/local/whoami", "addons/whoami"),
-                         "volumes:\n  - ./certs:/certs\n  - ${CERTS:-../kafka/certs}:/kafka\n")
+                         "volumes:\n  - ./certs:/certs\n  - ${CERTS:-../kazoo/certs}:/kazoo\n")
 
     def test_a_path_ends_where_a_variable_starts(self):
         text = ("volumes:\n  - ../../../plugins/${PRODUCT}:/opt/plugins\n  - ../../../${DATA_DIR:-data}/x:/data\n"
@@ -1000,12 +1000,12 @@ class Repoint(Case):
                                           "addons/whoami"), text)
 
     def test_the_items_of_a_list_of_paths_are_paths(self):
-        text = ("include:\n  - path:\n      - ../../kafka/compose.yml\n      - ../extra.yml\n"
-                "    env_file: ../../kafka/.env\nservices:\n  app:\n    environment:\n      - CONF=../conf\n"
+        text = ("include:\n  - path:\n      - ../../kazoo/compose.yml\n      - ../extra.yml\n"
+                "    env_file: ../../kazoo/.env\nservices:\n  app:\n    environment:\n      - CONF=../conf\n"
                 "    volumes:\n      - type: bind\n        source: ../data\n        bind:\n"
                 "          create_host_path: true\n      - ../certs:/certs\n    env_file:\n    - ../app.env\n")
         self.assertEqual(self.one(text, "addons/local/whoami", "addons/whoami", "addons/local/whoami", "addons/whoami"),
-                         text.replace("../../kafka", "../kafka").replace("../extra", "../local/extra")
+                         text.replace("../../kazoo", "../kazoo").replace("../extra", "../local/extra")
                          .replace("../data", "../local/data").replace("../certs", "../local/certs")
                          .replace("../app.env", "../local/app.env"))
 

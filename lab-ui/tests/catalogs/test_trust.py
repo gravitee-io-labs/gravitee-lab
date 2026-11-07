@@ -865,7 +865,7 @@ class Screen(Case):
                 ("include:\n  - ../a/compose.yml\ninclude:\n  - ../b/compose.yml\n", [a, b]),
                 # an `include:` that is no key is no include: prose in a quoted scalar, a comment, a word that ends in the key
                 ('x-gravitee: {description: "Does not include: files", name: x}\nservices: {}\n', []),
-                ("x-gravitee:\n  description: \"Does not include: kafka\"\n  label: 'Does include: Kafka (optional)'\nservices: {}\n", []),
+                ("x-gravitee:\n  description: \"Does not include: kazoo\"\n  label: 'Does include: Kazoo (optional)'\nservices: {}\n", []),
                 ("services:\n  a:\n    image: x # include: ../a/compose.yml\n    command: [\"sh\", \"-c\", \"include: ../a/compose.yml\"]\n", []),
                 ("x-include: ../a/compose.yml\nservices: {}\n", []),
                 # and a real one in each place a key may stand
@@ -1293,8 +1293,8 @@ class Settings(Golden):
 
     def test_t20_the_unit_and_what_it_brings_name_settings_of_a_listed_catalog_only(self):
         def edit(arguments):
-            arguments["unit"]["references"] = ["T20_DEMO_X", "KAFKA_X", "OTHER_X"]
-            arguments["context"]["closure_names"] = ["kafka"]
+            arguments["unit"]["references"] = ["T20_DEMO_X", "KAZOO_X", "OTHER_X"]
+            arguments["context"]["closure_names"] = ["kazoo"]
         arguments = self.args(CLEAN, listed=True)
         edit(arguments)
         arguments["unit"]["id"] = "@hostile/t20-demo"
@@ -1303,7 +1303,7 @@ class Settings(Golden):
         arguments = self.args(CLEAN)
         edit(arguments)
         arguments["unit"]["id"] = "@hostile/t20-demo"
-        self.assertEqual(trust.judge(**arguments)["reasons"], [line("T20", names="KAFKA_X, OTHER_X, T20_DEMO_X")])
+        self.assertEqual(trust.judge(**arguments)["reasons"], [line("T20", names="KAZOO_X, OTHER_X, T20_DEMO_X")])
 
     def test_t20_a_namespace_prefix_writes_dashes_as_underscores(self):
         for ns, name, ok in (("acme-hub", "ACME_HUB_X", True), ("acme-hub", "ACME_X", False), ("hostile", "HOSTILE_X", True)):

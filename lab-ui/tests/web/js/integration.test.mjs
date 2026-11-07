@@ -393,7 +393,7 @@ test("a dialog without that parameter is what it was: the first option chosen, i
 // --- Where an item comes from, in a plan -----------------------------------------------------------------------------------------------
 
 test("a plan says where its item comes from when the server says it: one row among those that say what it leaves, the catalog's name, its version as the hint", async () => {
-  const plan = { starts: [{ kind: "addon", id: "kafka", name: "Kafka" }], from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" },
+  const plan = { starts: [{ kind: "addon", id: "kazoo", name: "Kazoo" }], from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" },
     keeps: [{ kind: "addon", id: "redis", name: "Redis" }], deploys_to: [{ kind: "environment", id: "machine", name: "This machine" }] };
   const rows = ui.planRows(plan);
   assert.deepEqual(rows.map((row) => row.label), ["Stops", "Turns off", "Starts", "Changes versions", "Goes back", "Restarts", "Loses its license", "Deploys to", "From", "Keeps", "Serves", "Stops serving", "Not started"]);
@@ -404,13 +404,13 @@ test("a plan says where its item comes from when the server says it: one row amo
   assert.deepEqual(ui.planRows({ starts: plan.starts }).find((row) => row.label === "From").items, [], "no catalog said: no row");
   assert.deepEqual(ui.planRows({ from: [{ name: "Acme Hub" }] }).find((row) => row.label === "From").hint, "", "no hint said: none");
   // As the dialog draws it: a pill and a muted hint, among the rows that say what stays
-  const asked = ui.confirmPlan("Start Kafka", "Start", plan);
+  const asked = ui.confirmPlan("Start Kazoo", "Start", plan);
   const notes = picks.querySelectorAll(".choice-row").map((row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text), row.querySelectorAll(".muted").map(text)]);
   assert.deepEqual(notes, [["From", ["Acme Hub"], ["Version 1.4.0"]], ["Keeps", ["Redis"], []]]);
   await answer(true);
   assert.deepEqual(await asked, []);
   // With no dialog there is nothing to say first
-  assert.deepEqual(await ui.confirmPlan("Start Kafka", "Start", null), []);
+  assert.deepEqual(await ui.confirmPlan("Start Kazoo", "Start", null), []);
 });
 
 // --- The picker counts catalogs from two ---------------------------------------------------------------------------------------------------

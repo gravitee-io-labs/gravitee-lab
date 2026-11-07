@@ -115,9 +115,9 @@ test("the platform's components come first under its band, its own add-ons' unde
   const agent = { ...component("AGENT_VERSION", "Apigee X agent", ["graviteeio/agent:1"]), group: null, owner: gravitee };
   const tools = { ...component("TOOLS_VERSION", "Operator installer", ["tools:1"], { kind: "third-party" }), group: null, owner: gravitee };   // an image of another maker, run by the platform's add-on
   const jade = { ...component("JADE_VERSION", "Jade", ["jade:1"], { kind: "third-party" }), group: null, owner: other };
-  const kafka = { ...component("KAFKA_VERSION", "Kafka UI", ["kafka:1"]), group: null, owner: other };   // Gravitee's image in another maker's add-on stays with that add-on's
+  const kazoo = { ...component("KAZOO_VERSION", "Kazoo UI", ["kazoo:1"]), group: null, owner: other };   // Gravitee's image in another maker's add-on stays with that add-on's
   const hybrid = { ...component("HYBRID_VERSION", "Hybrid gateway", ["graviteeio/apim-gateway:1"]), owner: gravitee };   // an add-on's gateway: a gateway of its group
-  COMPONENTS.push(agent, tools, jade, kafka, hybrid);
+  COMPONENTS.push(agent, tools, jade, kazoo, hybrid);
   const was = store.state;
   store.state = { ...was, addons: [{ id: "federation", category: "Gravitee Platform" }, { id: "observability", category: "Observability" }] };
   imagesPage.show([]);
@@ -126,7 +126,7 @@ test("the platform's components come first under its band, its own add-ons' unde
   const lines = () => section.querySelectorAll("#images-rows tr").map((tr) => tr.getAttribute("data-component") || text(tr).trim());
   const platform = ["APIM_VERSION", "APIM_GATEWAY_VERSION", "AM_VERSION", "HYBRID_VERSION"];
   assert.deepEqual(lines(), ["Gravitee Platform", ...platform, "Add-ons", "AGENT_VERSION", "TOOLS_VERSION",
-    "Third-party", "REDIS_VERSION", "ELASTICSEARCH_VERSION", "KIOSK_VERSION", "JADE_VERSION", "KAFKA_VERSION"]);
+    "Third-party", "REDIS_VERSION", "ELASTICSEARCH_VERSION", "KIOSK_VERSION", "JADE_VERSION", "KAZOO_VERSION"]);
   // Folding the add-ons hides theirs; folding the platform hides the add-ons' band too
   section.querySelector('[data-fold="addons"]').click();
   // Folded, a band sums up what is on under it

@@ -17,7 +17,7 @@ from ..docker.test_jobs import Docker, container, progress, replay
 
 DEFINED = PROJECT["services"]
 # The services Docker checks the health of (test_jobs.Docker)
-HEALTH_CHECKED = {"mongodb", "redis", "kafka", "jade"}
+HEALTH_CHECKED = {"mongodb", "redis", "kazoo", "jade"}
 
 
 def migrate(**more):
@@ -41,21 +41,21 @@ class StackActions(Case):
 
     COMPOSE = compose.COMPOSE
     BY_NAME = [*COMPOSE, "-p", "gravitee"]
-    ON = [["platform", "platform"], ["addon", "kafka"], ["playground", "welcome"]]
-    SERVICES = ["hello-app", "kafka", "kafka-ui", "mongodb", "redis"]   # not Jade, which is off, nor the seed
+    ON = [["platform", "platform"], ["addon", "kazoo"], ["playground", "welcome"]]
+    SERVICES = ["hello-app", "kazoo", "kazoo-ui", "mongodb", "redis"]   # not Jade, which is off, nor the seed
     # What a start waits for: what `up` names of what is on; a stop, every container of what is on, the seed too
-    STARTS = awaited(DEFINED, start=["mongodb", "redis", "kafka", "kafka-ui", "hello-app"])
-    STOPS = awaited(DEFINED, stop=["mongodb", "redis", "kafka", "kafka-ui", "hello-app", "welcome-seed"])
+    STARTS = awaited(DEFINED, start=["mongodb", "redis", "kazoo", "kazoo-ui", "hello-app"])
+    STOPS = awaited(DEFINED, stop=["mongodb", "redis", "kazoo", "kazoo-ui", "hello-app", "welcome-seed"])
     # What a pull waits for: the images of what is on, but those built here
-    PULLS = awaited({}, images=["mongo:8.0.29", "redis:8.10.1-alpine", "bitnamilegacy/kafka:3.9",
-                                "provectuslabs/kafka-ui:latest"])
+    PULLS = awaited({}, images=["mongo:8.0.29", "redis:8.10.1-alpine", "acmecontainer/kazoo:3.9",
+                                "acmecontainer/kazoo-ui:latest"])
 
     def setUp(self):
-        self.state = {"playground": "welcome", "explicit": ["kafka"], "effective": ["kafka"], "locked": None}
+        self.state = {"playground": "welcome", "explicit": ["kazoo"], "effective": ["kazoo"], "locked": None}
         self.patch(stack.layers, "current", return_value=self.state)
         self.patch(stack.compose, "project_name", return_value="gravitee")
         self.patch(stack.compose, "ps", return_value={name: {"state": "running"}
-                                                      for name in ("mongodb", "redis", "kafka", "kafka-ui")})
+                                                      for name in ("mongodb", "redis", "kazoo", "kazoo-ui")})
         self.saved = self.patch(stack.projects, "saved", return_value={"hashes": {}, "images": {}})
         self.jobs = self.patch(stack, "JOBS")
         # What the playgrounds recorded in a platform is read from the files of this machine, not of the test
@@ -82,9 +82,9 @@ class StackActions(Case):
         self.assertEqual(options["waits"], [awaited(project["services"], start=["alert-engine", *self.SERVICES])])
 
     def test_what_needs_a_license_is_not_in_an_update_nor_an_apply_without_one(self):
-        stack.compose.ps.return_value = {name: {"state": "running"} for name in ("mongodb", "kafka")}
+        stack.compose.ps.return_value = {name: {"state": "running"} for name in ("mongodb", "kazoo")}
         stack.action(unlicensed(), "update")
-        self.assertEqual(self.started(self.jobs)[1][1], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka", "mongodb"])
+        self.assertEqual(self.started(self.jobs)[1][1], [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo", "mongodb"])
         # Left running by a license since removed, behind what is saved: an apply makes it again as it was
         stack.compose.ps.return_value = {"alert-engine": {"state": "running", "config_hash": "old"},
                                          "mongodb": {"state": "running"}}
@@ -105,8 +105,8 @@ class StackActions(Case):
         # built here or pulled. The playground's app does not run: it is not started
         stack.action(PROJECT, "update")
         pull = [*self.COMPOSE, "pull", "--ignore-buildable", "--ignore-pull-failures"]
-        up = [*self.COMPOSE, "up", "-d", "--no-deps", "kafka", "kafka-ui", "mongodb", "redis"]
-        runs = ["kafka", "kafka-ui", "mongodb", "redis"]
+        up = [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo", "kazoo-ui", "mongodb", "redis"]
+        runs = ["kazoo", "kazoo-ui", "mongodb", "redis"]
         self.assertEqual(self.started(self.jobs), ("Update the stack", [pull, up], {
             "key": "platform", "verb": "update", "changes": {"start": [["service", name] for name in runs]},
             "waits": [self.PULLS, awaited(DEFINED, start=runs)]}))
@@ -166,18 +166,18 @@ class StackActions(Case):
         self.assertEqual(self.started(self.jobs)[0], "Stop the stack")
 
     def cloud_core(self, needed=True, here=False):
-        """A Cloud core whose Start all starts the Hybrid gateway (a plan of its add-on, as layers.plan makes it) and Kafka's
+        """A Cloud core whose Start all starts the Hybrid gateway (a plan of its add-on, as layers.plan makes it) and Kazoo's
         UI, which does not run; Start all reads the platform again first (`live`)."""
         self.patch(stack.core, "current", return_value={"place": "my-account/dev", "chosen": True, "environment": "Development"})
         self.patch(stack.core, "name", return_value="Development (My Account)")
         gateway = {"do": "start", "kind": "addon", "id": "hybrid", "starts": [{"kind": "addon", "id": "hybrid", "name": "Hybrid"}],
                    "stops": [], "turns_off": [], "keeps": [], "restarts": [], "serves": [], "blocked": None, "itself": {"addon:hybrid"},
-                   "playground": "welcome", "explicit": ["hybrid", "kafka"], "services": {"remove": [], "start": ["hybrid"]}}
+                   "playground": "welcome", "explicit": ["hybrid", "kazoo"], "services": {"remove": [], "start": ["hybrid"]}}
         found = {"gateway": gateway, "place": {"id": "my-account/dev", "name": "Development (My Account)", "here": here},
-                 "gateway_id": "g1", "others": ["kafka-ui"], "needs_core": [], "needed": needed,
-                 "dialog": {"starts": gateway["starts"] + [{"kind": "addon", "id": "kafka", "name": "Kafka"}]}}
+                 "gateway_id": "g1", "others": ["kazoo-ui"], "needs_core": [], "needed": needed,
+                 "dialog": {"starts": gateway["starts"] + [{"kind": "addon", "id": "kazoo", "name": "Kazoo"}]}}
         self.patch(stack.layers, "changes", return_value={"start": [["addon", "hybrid"]], "stop": []})
-        self.patch(stack.layers, "waits", return_value=[awaited(DEFINED, start=["kafka"])])
+        self.patch(stack.layers, "waits", return_value=[awaited(DEFINED, start=["kazoo"])])
         return self.patch(stack.core, "plan", return_value=found)
 
     def core_job(self, fails=None):
@@ -203,13 +203,13 @@ class StackActions(Case):
         title, steps, options = self.started(self.jobs)
         self.assertEqual(title, "Start all for Development (My Account)")
         self.assertEqual(options["key"], "platform")
-        self.assertEqual(options["changes"]["start"], [["addon", "hybrid"], ["service", "kafka-ui"]])
+        self.assertEqual(options["changes"]["start"], [["addon", "hybrid"], ["service", "kazoo-ui"]])
         self.assertEqual(len(options["waits"]), 2, "one wait for each Compose command")
         job, ran = self.core_job()
-        self.assertEqual(ran, [[*self.COMPOSE, "up", "-d", "--no-deps", "hybrid"], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka-ui"]])
-        written.assert_called_once_with("welcome", ["hybrid", "kafka"], None, {}, blocked={}, since=None)   # none is blocked
+        self.assertEqual(ran, [[*self.COMPOSE, "up", "-d", "--no-deps", "hybrid"], [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo-ui"]])
+        written.assert_called_once_with("welcome", ["hybrid", "kazoo"], None, {}, blocked={}, since=None)   # none is blocked
         swap.assert_called_once_with(PROJECT, "my-account", "g1")
-        self.assertEqual(job.lines, ["Serves: Development (My Account)", "Starts: Hybrid, Kafka"])
+        self.assertEqual(job.lines, ["Serves: Development (My Account)", "Starts: Hybrid, Kazoo"])
         self.assertFalse(any(name in str(ran) for name in ("mongodb", "redis")), "no service of the core")
         invalidate.assert_called_once_with("my-account")
 
@@ -241,42 +241,42 @@ class StackActions(Case):
         self.cloud_core()
         self.patch(stack.platforms, "swap_gateway")
         self.patch(stack.places, "invalidate")
-        kafka = {**PROJECT["addons"]["kafka"], "file": "addons/kafka/compose.yml",
+        kazoo = {**PROJECT["addons"]["kazoo"], "file": "addons/kazoo/compose.yml",
                  "blocked": {"reasons": ["Mounts the Docker socket"]}}
-        project = {**PROJECT, "addons": {**PROJECT["addons"], "kafka": kafka}}
+        project = {**PROJECT, "addons": {**PROJECT["addons"], "kazoo": kazoo}}
         written = self.patch(stack.layers, "write")
         stack.action(project, "start", for_core=True, accept=[])
         self.core_job()
-        self.assertEqual(written.call_args.kwargs, {"blocked": {"addons/kafka/compose.yml": "Mounts the Docker socket"},
+        self.assertEqual(written.call_args.kwargs, {"blocked": {"addons/kazoo/compose.yml": "Mounts the Docker socket"},
                                                     "since": None})
 
     def test_a_cloud_cores_start_all_does_not_write_the_on_file_over_what_another_job_wrote_since_its_plan(self):
         self.folder(paths, compose, envfiles, files={paths.DEFAULT_FILE: json.dumps({"schema": 1, "catalogs": [{"id": "fixture"}]})})
         swap = self.patch(stack.platforms, "swap_gateway")
         self.patch(stack.places, "invalidate")
-        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kazoo/compose.yml\n")
         self.cloud_core().return_value["gateway"]["stamp"] = layers.stamp()   # the on file its plan read
         stack.action(PROJECT, "start", for_core=True, accept=[])
-        layers.write("welcome", [])   # meanwhile another tab turns Kafka off: a job with no command
+        layers.write("welcome", [])   # meanwhile another tab turns Kazoo off: a job with no command
         job, ran = self.core_job()
-        self.assertNotIn("kafka", (self.root / paths.ON_FILE).read_text(), "what the other job wrote stays")
+        self.assertNotIn("kazoo", (self.root / paths.ON_FILE).read_text(), "what the other job wrote stays")
         self.assertEqual((job.error(), ran), (layers.CHANGED, []))
         swap.assert_not_called()   # nor is the gateway's token changed
 
     def test_a_cloud_cores_start_all_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
-        # The add-on holds the token of another environment's gateway (here false); Kafka, on and running, cannot run with
+        # The add-on holds the token of another environment's gateway (here false); Kazoo, on and running, cannot run with
         # it: Start all stops it, and the removal fails, before anything changed
         self.folder(paths, compose, envfiles)
         swap = self.patch(stack.platforms, "swap_gateway")
         self.patch(stack.places, "invalidate")
-        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kafka/compose.yml\n")
+        self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kazoo/compose.yml\n")
         gateway = self.cloud_core(here=False).return_value["gateway"]
-        gateway.update(explicit=["hybrid"], stops=[{"kind": "addon", "id": "kafka", "name": "Kafka"}],
-                       services={"remove": ["kafka", "kafka-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
-        stack.action(PROJECT, "start", for_core=True, accept=["addon:kafka"])
+        gateway.update(explicit=["hybrid"], stops=[{"kind": "addon", "id": "kazoo", "name": "Kazoo"}],
+                       services={"remove": ["kazoo", "kazoo-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
+        stack.action(PROJECT, "start", for_core=True, accept=["addon:kazoo"])
         job, ran = self.core_job(fails="rm")
-        self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kafka", "kafka-ui"]))
-        self.assertIn("addons/kafka/compose.yml", (self.root / paths.ON_FILE).read_text())
+        self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kazoo", "kazoo-ui"]))
+        self.assertIn("addons/kazoo/compose.yml", (self.root / paths.ON_FILE).read_text())
         swap.assert_not_called()   # the job changed nothing: the add-on still holds the token it held
         self.assertEqual([line for line in job.lines if line.startswith("Serves:")], [], job.lines)
 
@@ -288,11 +288,11 @@ class StackActions(Case):
 
     def test_a_cloud_cores_stop_all_stops_what_runs_of_it_and_leaves_the_core(self):
         self.cloud_core()
-        self.patch(stack.core, "stopping", return_value=["kafka", "kafka-ui"])
+        self.patch(stack.core, "stopping", return_value=["kazoo", "kazoo-ui"])
         stack.action(PROJECT, "stop", for_core=True)
-        self.assertEqual(self.started(self.jobs), ("Stop all for Development (My Account)", [[*self.BY_NAME, "stop", "kafka", "kafka-ui"]],
-                                                    {"key": "platform", "verb": "stop", "changes": {"stop": [["service", "kafka"], ["service", "kafka-ui"]]},
-                                                     "waits": [awaited(DEFINED, stop=["kafka", "kafka-ui"])]}))
+        self.assertEqual(self.started(self.jobs), ("Stop all for Development (My Account)", [[*self.BY_NAME, "stop", "kazoo", "kazoo-ui"]],
+                                                    {"key": "platform", "verb": "stop", "changes": {"stop": [["service", "kazoo"], ["service", "kazoo-ui"]]},
+                                                     "waits": [awaited(DEFINED, stop=["kazoo", "kazoo-ui"])]}))
         stack.core.stopping.return_value = []
         with self.assertRaisesRegex(RuntimeError, "Nothing runs"):
             stack.action(PROJECT, "stop", for_core=True)
@@ -301,7 +301,7 @@ class StackActions(Case):
         # Its volumes gone, nothing any seed created is left: the playground is off, its next start seeds it
         written, forgotten = self.patch(stack.layers, "write"), self.patch(stack.playgrounds, "forget")
         job, _ = self.reset()
-        written.assert_called_once_with(None, ["kafka"])
+        written.assert_called_once_with(None, ["kazoo"])
         self.assertEqual([call.args for call in forgotten.call_args_list], [("welcome",), ("local/sandbox",)])
         self.assertEqual(job.lines, ["▸ Reset", "Turned off Welcome"])
         # An on file with the user's own changes is not written: what the seeds recorded is emptied all the same
@@ -319,7 +319,7 @@ class StackActions(Case):
                    " Volume gravitee_mongo-data Removed ", " Network gravitee_default Removing "]
         job, _ = self.reset(removed, fails="Error response from daemon: network has active endpoints")
         self.assertEqual((job.ok, job.error()), (False, "Error response from daemon: network has active endpoints"))
-        written.assert_called_once_with(None, ["kafka"])
+        written.assert_called_once_with(None, ["kazoo"])
         self.assertEqual(forgotten.call_count, 2)
         written.reset_mock()
         job, _ = self.reset(removed[:2], fails="Canceled")
@@ -361,16 +361,16 @@ class StackActions(Case):
         reads.assert_not_called()   # nothing recorded, no platform to name
 
     def test_restart_restarts_what_runs_as_it_is(self):
-        # Redis was stopped from the Stack, the playground's app failed, Kafka UI was never created: they stay so. Only
+        # Redis was stopped from the Stack, the playground's app failed, Kazoo UI was never created: they stay so. Only
         # what runs is restarted, and only that shows as starting and is waited for
-        stack.compose.ps.return_value = {"mongodb": {"state": "running"}, "kafka": {"state": "running"},
+        stack.compose.ps.return_value = {"mongodb": {"state": "running"}, "kazoo": {"state": "running"},
                                          "redis": {"state": "exited", "exit_code": 143},
                                          "hello-app": {"state": "exited", "exit_code": 1}}
         stack.action(PROJECT, "restart")
         self.assertEqual(self.started(self.jobs), (
-            "Restart the stack", [[*self.COMPOSE, "restart", "kafka", "mongodb"]],
-            {"key": "platform", "verb": "restart", "changes": {"start": [["service", "kafka"], ["service", "mongodb"]]},
-             "waits": [awaited(DEFINED, start=["kafka", "mongodb"])]}))
+            "Restart the stack", [[*self.COMPOSE, "restart", "kazoo", "mongodb"]],
+            {"key": "platform", "verb": "restart", "changes": {"start": [["service", "kazoo"], ["service", "mongodb"]]},
+             "waits": [awaited(DEFINED, start=["kazoo", "mongodb"])]}))
 
     def test_restart_with_own_changes_in_the_on_file_restarts_what_runs_of_what_compose_reads(self):
         # A service only the user's own files add is restarted, not waited for
@@ -401,7 +401,7 @@ class StackActions(Case):
         stack.action(PROJECT, "start")
         _, steps, options = self.started(self.jobs)
         resolved.assert_called_once_with([])
-        self.assertEqual(steps, [[*self.COMPOSE, "up", "-d", "hello-app", "kafka", "kafka-ui", "mine", "mongodb",
+        self.assertEqual(steps, [[*self.COMPOSE, "up", "-d", "hello-app", "kazoo", "kazoo-ui", "mine", "mongodb",
                                   "redis"]])
         self.assertEqual(options["waits"], [self.STARTS])
         stack.action(PROJECT, "update")
@@ -412,7 +412,7 @@ class StackActions(Case):
     def apply(self, containers, project=PROJECT, hashes=None):
         """Applies with these containers, what is saved being `hashes`: the job's steps, and its other arguments."""
         stack.compose.ps.return_value = containers
-        self.saved.return_value = {"hashes": hashes if hashes is not None else {"kafka": "saved"}, "images": {}}
+        self.saved.return_value = {"hashes": hashes if hashes is not None else {"kazoo": "saved"}, "images": {}}
         stack.action(project, "apply")
         _, steps, options = self.started(self.jobs)
         return steps, options
@@ -424,30 +424,30 @@ class StackActions(Case):
         return job.lines
 
     def test_apply_recreates_what_runs_behind_and_starts_again_what_failed(self):
-        # Databases stopped from the Stack, Kafka runs behind, Kafka UI as saved, the playground's app failed, a
+        # Databases stopped from the Stack, Kazoo runs behind, Kazoo UI as saved, the playground's app failed, a
         # migration ended: no orphan is removed, nothing else is named
         project = {**PROJECT, "services": {**DEFINED, "migrate": migrate()}}
         steps, options = self.apply({
             "mongodb": {"state": "exited", "exit_code": 143}, "redis": {"state": "running"},
-            "migrate": {"state": "exited", "exit_code": 0}, "kafka": {"state": "running", "config_hash": "old"},
-            "kafka-ui": {"state": "running", "config_hash": "ui"}, "hello-app": {"state": "exited", "exit_code": 1}},
+            "migrate": {"state": "exited", "exit_code": 0}, "kazoo": {"state": "running", "config_hash": "old"},
+            "kazoo-ui": {"state": "running", "config_hash": "ui"}, "hello-app": {"state": "exited", "exit_code": 1}},
             project)
-        self.assertEqual(steps[1], [*self.COMPOSE, "up", "-d", "--no-deps", "hello-app", "kafka"])
-        self.assertEqual(self.said(steps), ["Restarts: Kafka", "Starts: Welcome apps"])
+        self.assertEqual(steps[1], [*self.COMPOSE, "up", "-d", "--no-deps", "hello-app", "kazoo"])
+        self.assertEqual(self.said(steps), ["Restarts: Kazoo", "Starts: Welcome apps"])
         self.assertEqual(options, {"key": "platform", "verb": "apply",
-                                   "changes": {"start": [["service", "hello-app"], ["service", "kafka"]]},
-                                   "waits": [awaited(project["services"], start=["hello-app", "kafka"])]})
+                                   "changes": {"start": [["service", "hello-app"], ["service", "kazoo"]]},
+                                   "waits": [awaited(project["services"], start=["hello-app", "kazoo"])]})
 
     def test_apply_does_nothing_while_nothing_of_what_is_on_runs(self):
-        # Platform stopped, Kafka behind and running alone: it is made again, as saved
+        # Platform stopped, Kazoo behind and running alone: it is made again, as saved
         stopped = {"state": "exited", "exit_code": 143}
         steps, options = self.apply({"mongodb": stopped, "redis": stopped,
-                                     "kafka": {"state": "running", "config_hash": "old"}})
+                                     "kazoo": {"state": "running", "config_hash": "old"}})
         self.assertEqual((self.said(steps), steps[1], options["changes"]),
-                         (["Restarts: Kafka"], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka"],
-                          {"start": [["service", "kafka"]]}))
+                         (["Restarts: Kazoo"], [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo"],
+                          {"start": [["service", "kazoo"]]}))
         # Nothing of what is on runs: what was saved applies at the next start
-        steps, options = self.apply({"mongodb": stopped, "redis": stopped, "kafka": stopped})
+        steps, options = self.apply({"mongodb": stopped, "redis": stopped, "kazoo": stopped})
         self.assertEqual((self.said(steps), options["changes"], options["waits"]),
                          (["Nothing runs: applied on next start"], {"start": []}, []))
         # Nothing at all: no container, nothing is created
@@ -455,7 +455,7 @@ class StackActions(Case):
         self.assertEqual(self.said(steps), ["Nothing runs: applied on next start"])
 
     def test_apply_with_nothing_behind_says_so(self):
-        steps, options = self.apply({"mongodb": {"state": "running"}, "kafka": {"state": "running",
+        steps, options = self.apply({"mongodb": {"state": "running"}, "kazoo": {"state": "running",
                                                                               "config_hash": "saved"}})
         self.assertEqual((self.said(steps), options["waits"]), (["Nothing to apply"], []))
 
@@ -472,9 +472,9 @@ class StackActions(Case):
 
     def test_apply_names_what_runs_when_what_is_saved_is_not_known(self):
         # Compose could not say what it makes each service from: it decides what changed among what runs
-        steps, _ = self.apply({"mongodb": {"state": "running"}, "kafka": {"state": "running"},
+        steps, _ = self.apply({"mongodb": {"state": "running"}, "kazoo": {"state": "running"},
                                "redis": {"state": "exited", "exit_code": 143}}, hashes={})
-        self.assertEqual(steps[1], [*self.COMPOSE, "up", "-d", "--no-deps", "kafka", "mongodb"])
+        self.assertEqual(steps[1], [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo", "mongodb"])
 
     def test_apply_with_own_changes_in_the_on_file_names_what_compose_reads_in_it(self):
         # A service only the user's own files add is not the project's: it is not waited for
@@ -489,17 +489,17 @@ class StackActions(Case):
     def test_what_an_apply_would_recreate(self):
         # Of what is saved; with what a change not saved yet makes Compose create; with what a change may recreate
         stack.compose.ps.return_value = {"mongodb": {"state": "running"},
-                                         "kafka": {"state": "running", "config_hash": "saved"},
-                                         "kafka-ui": {"state": "running", "config_hash": "ui"}}
-        self.saved.return_value = {"hashes": {"kafka": "saved", "kafka-ui": "ui"}, "images": {}}
-        kafka = {"kind": "addon", "id": "kafka", "name": "Kafka"}
+                                         "kazoo": {"state": "running", "config_hash": "saved"},
+                                         "kazoo-ui": {"state": "running", "config_hash": "ui"}}
+        self.saved.return_value = {"hashes": {"kazoo": "saved", "kazoo-ui": "ui"}, "images": {}}
+        kazoo = {"kind": "addon", "id": "kazoo", "name": "Kazoo"}
         self.assertEqual(stack.effects(PROJECT), {"restarts": [], "starts": [], "runs": True, "exact": True})
-        self.assertEqual(stack.effects(PROJECT, {"kafka": "draft", "kafka-ui": "ui"})["restarts"], [kafka])
-        self.assertEqual(stack.effects(PROJECT, None, ["kafka-ui", "jade"])["restarts"], [kafka])
+        self.assertEqual(stack.effects(PROJECT, {"kazoo": "draft", "kazoo-ui": "ui"})["restarts"], [kazoo])
+        self.assertEqual(stack.effects(PROJECT, None, ["kazoo-ui", "jade"])["restarts"], [kazoo])
         # What is saved could not be read: every service that runs counts, and that is not exact
         self.saved.return_value = {"hashes": {}, "images": {}}
         mongodb = {"kind": "service", "id": "mongodb", "name": "mongodb"}
-        self.assertEqual(stack.effects(PROJECT), {"restarts": [mongodb, kafka], "starts": [], "runs": True,
+        self.assertEqual(stack.effects(PROJECT), {"restarts": [mongodb, kazoo], "starts": [], "runs": True,
                                                   "exact": False})
         self.jobs.start.assert_not_called()   # it only says
 
@@ -514,11 +514,11 @@ class StackActions(Case):
             "Start jade", [[*self.COMPOSE, "up", "-d", "jade"]],
             {"key": "service:jade", "verb": "start", "changes": {"start": [["service", "jade"]]},
              "waits": [{("Container", "gio-jade"): "start"}]}))
-        stack.unit_action(PROJECT, "addon", "kafka", "restart")
+        stack.unit_action(PROJECT, "addon", "kazoo", "restart")
         self.assertEqual(self.started(self.jobs), (
-            "Restart Kafka", [[*self.BY_NAME, "restart", "kafka", "kafka-ui"]],
-            {"key": "addon:kafka", "verb": "restart", "changes": {"start": [["addon", "kafka"]]},
-             "waits": [awaited(DEFINED, start=["kafka", "kafka-ui"])]}))
+            "Restart Kazoo", [[*self.BY_NAME, "restart", "kazoo", "kazoo-ui"]],
+            {"key": "addon:kazoo", "verb": "restart", "changes": {"start": [["addon", "kazoo"]]},
+             "waits": [awaited(DEFINED, start=["kazoo", "kazoo-ui"])]}))
 
     def test_a_service_s_job_is_named_as_the_state_names_it(self):
         # Its label, with what it belongs to when another service has the same: the chip, the drawer and the toast say
@@ -582,16 +582,16 @@ class StackActions(Case):
         project = {**PROJECT, "playgrounds": {"welcome": {"name": "Welcome", "services": ["hello-app",
                                                                                             "welcome-seed"],
                                                            "apps": ["hello-app"]}}}
-        stack.unit_action(project, "addon", "kafka", "start")
+        stack.unit_action(project, "addon", "kazoo", "start")
         self.assertEqual(self.started(self.jobs), (
-            "Start Kafka", [[*self.COMPOSE, "up", "-d", "kafka", "kafka-ui"]],
-            {"key": "addon:kafka", "verb": "start", "changes": {"start": [["addon", "kafka"]]},
-             "waits": [awaited(DEFINED, start=["kafka", "kafka-ui"])]}))
-        stack.unit_action(project, "addon", "kafka", "stop")
+            "Start Kazoo", [[*self.COMPOSE, "up", "-d", "kazoo", "kazoo-ui"]],
+            {"key": "addon:kazoo", "verb": "start", "changes": {"start": [["addon", "kazoo"]]},
+             "waits": [awaited(DEFINED, start=["kazoo", "kazoo-ui"])]}))
+        stack.unit_action(project, "addon", "kazoo", "stop")
         self.assertEqual(self.started(self.jobs)[1:], (
-            [[*self.BY_NAME, "stop", "kafka", "kafka-ui"]],
-            {"key": "addon:kafka", "verb": "stop", "changes": {"stop": [["addon", "kafka"]]},
-             "waits": [awaited(DEFINED, stop=["kafka", "kafka-ui"])]}))
+            [[*self.BY_NAME, "stop", "kazoo", "kazoo-ui"]],
+            {"key": "addon:kazoo", "verb": "stop", "changes": {"stop": [["addon", "kazoo"]]},
+             "waits": [awaited(DEFINED, stop=["kazoo", "kazoo-ui"])]}))
         stack.compose.ps.return_value = {"hello-app": {"state": "running"},
                                          "welcome-seed": {"state": "exited", "exit_code": 0}}
         stack.unit_action(project, "playground", "welcome", "start")
@@ -603,24 +603,24 @@ class StackActions(Case):
         self.assertEqual(self.started(self.jobs)[2]["key"], "playground:welcome")
 
     def test_a_restart_restarts_what_runs_as_it_is(self):
-        # Kafka UI and Redis were stopped from the Stack: a restart of the add-on, or of a group on the Stack, leaves
+        # Kazoo UI and Redis were stopped from the Stack: a restart of the add-on, or of a group on the Stack, leaves
         # them stopped; a stop takes every container there is
         stopped = {"state": "exited", "exit_code": 143}
-        stack.compose.ps.return_value = {"kafka": {"state": "running"}, "kafka-ui": stopped,
+        stack.compose.ps.return_value = {"kazoo": {"state": "running"}, "kazoo-ui": stopped,
                                          "mongodb": {"state": "running"}, "redis": stopped}
-        stack.unit_action(PROJECT, "addon", "kafka", "restart")
+        stack.unit_action(PROJECT, "addon", "kazoo", "restart")
         _, steps, options = self.started(self.jobs)
-        self.assertEqual((steps, options["waits"]), ([[*self.BY_NAME, "restart", "kafka"]],
-                                                     [{("Container", "gio-kafka"): "start"}]))
+        self.assertEqual((steps, options["waits"]), ([[*self.BY_NAME, "restart", "kazoo"]],
+                                                     [{("Container", "gio-kazoo"): "start"}]))
         stack.group_action(PROJECT, "databases", "restart")
         self.assertEqual(self.started(self.jobs)[1], [[*self.BY_NAME, "restart", "mongodb"]])
-        stack.unit_action(PROJECT, "addon", "kafka", "stop")
-        self.assertEqual(self.started(self.jobs)[1], [[*self.BY_NAME, "stop", "kafka", "kafka-ui"]])
+        stack.unit_action(PROJECT, "addon", "kazoo", "stop")
+        self.assertEqual(self.started(self.jobs)[1], [[*self.BY_NAME, "stop", "kazoo", "kazoo-ui"]])
         # Nothing of it runs: a restart has nothing to do
-        stack.compose.ps.return_value = {"kafka": {"state": "exited", "exit_code": 143}}
+        stack.compose.ps.return_value = {"kazoo": {"state": "exited", "exit_code": 143}}
         self.jobs.start.reset_mock()
-        with self.assertRaisesRegex(RuntimeError, "^Kafka is not running$"):
-            stack.unit_action(PROJECT, "addon", "kafka", "restart")
+        with self.assertRaisesRegex(RuntimeError, "^Kazoo is not running$"):
+            stack.unit_action(PROJECT, "addon", "kazoo", "restart")
         self.jobs.start.assert_not_called()
 
     def test_what_does_not_exist_is_refused(self):
@@ -667,30 +667,30 @@ class StackActions(Case):
         self.assertEqual(job.progress, 1)
 
     def test_a_restart_is_there_once_what_it_restarted_is_ready(self):
-        # Kafka's health check runs again after the restart: Docker shows it healthy only once it passes
-        stack.unit_action(PROJECT, "addon", "kafka", "restart")
-        lines = [" Container gio-kafka-ui Restarting ", " Container gio-kafka Restarting ",
-                 " Container gio-kafka-ui Started ", " Container gio-kafka Started "]
-        curve, job, docker = self.ran(lines, running=("kafka", "kafka-ui"))
+        # Kazoo's health check runs again after the restart: Docker shows it healthy only once it passes
+        stack.unit_action(PROJECT, "addon", "kazoo", "restart")
+        lines = [" Container gio-kazoo-ui Restarting ", " Container gio-kazoo Restarting ",
+                 " Container gio-kazoo-ui Started ", " Container gio-kazoo Started "]
+        curve, job, docker = self.ran(lines, running=("kazoo", "kazoo-ui"))
         self.assertEqual(curve, [0.1, 0.2, 0.6, 0.75])
-        docker.healthy("kafka")
+        docker.healthy("kazoo")
         docker.observe(job)
         self.assertEqual(job.progress, 1)
 
     def test_an_update_pulls_then_makes_again_what_changed(self):
         # The pull is half of the job, each image alike; then what runs: what got no new image runs on and is there
-        # at once, Kafka, which got one, is made again and is there once healthy
+        # at once, Kazoo, which got one, is made again and is there once healthy
         stack.action(PROJECT, "update")
-        images = ("mongo:8.0.29", "redis:8.10.1-alpine", "docker.io/bitnamilegacy/kafka:3.9",
-                  "provectuslabs/kafka-ui:latest")
+        images = ("mongo:8.0.29", "redis:8.10.1-alpine", "docker.io/acmecontainer/kazoo:3.9",
+                  "acmecontainer/kazoo-ui:latest")
         pulls = [f" Image {image} {status} " for status in ("Pulling", "Pulled") for image in images]
-        starts = [*(f" Container gio-{name} Running " for name in ("mongodb", "redis", "kafka-ui")),
-                  " Container gio-kafka Recreate ", " Container gio-kafka Recreated ",
-                  " Container gio-kafka Starting ", " Container gio-kafka Started "]
-        curve, job, docker = self.ran(pulls, starts, running=("mongodb", "redis", "kafka", "kafka-ui"))
+        starts = [*(f" Container gio-{name} Running " for name in ("mongodb", "redis", "kazoo-ui")),
+                  " Container gio-kazoo Recreate ", " Container gio-kazoo Recreated ",
+                  " Container gio-kazoo Starting ", " Container gio-kazoo Started "]
+        curve, job, docker = self.ran(pulls, starts, running=("mongodb", "redis", "kazoo", "kazoo-ui"))
         self.assertEqual(curve[:8], [0, 0, 0, 0, 0.125, 0.25, 0.375, 0.5])
         self.assertEqual(curve[8:], [0.625, 0.75, 0.875, 0.875, 0.9, 0.9, 0.938])
-        docker.healthy("kafka")
+        docker.healthy("kazoo")
         docker.observe(job)
         self.assertEqual((job.ok, job.progress), (True, 1))
 

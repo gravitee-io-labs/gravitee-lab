@@ -127,28 +127,28 @@ class Names(unittest.TestCase):
         message = ("The folder of {} is {}; its name says {}. Fix: rename the folder to {}. The folder is the item's id: read "
                    "Renaming an item in docs/writing-a-catalog.md first.")
         named = "x-gravitee:\n  kind: playground\n  name: {}\nservices: {{}}\n"
-        found = one(self, "ST23", "playgrounds/streams/compose.yml",
-                    message.format("Event Streams Management with Kafka", "playgrounds/streams",
-                                   "event-streams-management-with-kafka", "event-streams-management-with-kafka"),
-                    {"playgrounds/streams/compose.yml": named.format("Event Streams Management with Kafka"),
-                     "playgrounds/streams/README.md": "# S\n"})
+        found = one(self, "ST23", "playgrounds/tides/compose.yml",
+                    message.format("Tide Pool Survey with Kazoo", "playgrounds/tides",
+                                   "tide-pool-survey-with-kazoo", "tide-pool-survey-with-kazoo"),
+                    {"playgrounds/tides/compose.yml": named.format("Tide Pool Survey with Kazoo"),
+                     "playgrounds/tides/README.md": "# S\n"})
         self.assertEqual((3, "error"), (found.line, found.severity))
         one(self, "ST23", "addons/hello/compose.yml",
             message.format("Hello, World!", "addons/hello", "hello-world", "hello-world"),
             {"addons/hello/compose.yml": "x-gravitee:\n  kind: addon\n  name: \"Hello, World!\"\nservices: {}\n"})
-        quiet(self, {"playgrounds/event-streams-management-with-kafka/compose.yml": named.format("Event Streams Management with Kafka"),
-                     "playgrounds/event-streams-management-with-kafka/README.md": "# S\n"})
+        quiet(self, {"playgrounds/tide-pool-survey-with-kazoo/compose.yml": named.format("Tide Pool Survey with Kazoo"),
+                     "playgrounds/tide-pool-survey-with-kazoo/README.md": "# S\n"})
         quiet(self, {"addons/a-b-2/compose.yml": "x-gravitee:\n  name: '  A -- B__2!  '\nservices: {}\n"})
         one(self, "ST23", "addons/hello/compose.yml", message.format("Other one", "addons/hello", "other-one", "other-one"),
             {"addons/hello/compose.yml": "x-gravitee: {kind: addon, name: \"Other one\", category: Other}\nservices: {}\n"})
         quiet(self, {"addons/hello/compose.yml": "x-gravitee: {kind: addon, name: Hello, category: Other}\nservices: {}\n"})
 
     def test_st23_the_file_of_a_setup_is_its_name_and_says_so_with_its_own_words(self):
-        one(self, "ST23", "setups/kafka.yml",
-            "The file of Kafka streams is setups/kafka.yml; its name says kafka-streams. Fix: rename the file to kafka-streams.yml. "
+        one(self, "ST23", "setups/kazoo.yml",
+            "The file of Kazoo streams is setups/kazoo.yml; its name says kazoo-streams. Fix: rename the file to kazoo-streams.yml. "
             "The file is the item's id: read Renaming an item in docs/writing-a-catalog.md first.",
-            {"setups/kafka.yml": "x-gravitee:\n  kind: setup\n  name: Kafka streams\ninclude: []\n"})
-        quiet(self, {"setups/kafka-streams.yml": "x-gravitee:\n  kind: setup\n  name: Kafka streams\ninclude: []\n"})
+            {"setups/kazoo.yml": "x-gravitee:\n  kind: setup\n  name: Kazoo streams\ninclude: []\n"})
+        quiet(self, {"setups/kazoo-streams.yml": "x-gravitee:\n  kind: setup\n  name: Kazoo streams\ninclude: []\n"})
 
     def test_st23_says_nothing_of_a_name_it_cannot_read_or_that_gives_no_folder_and_leaves_a_bad_folder_name_to_st14(self):
         for name in ("${HELLO_NAME:-Hello}", "*name", "\u00e9\u00e9", "[a, b]", ""):

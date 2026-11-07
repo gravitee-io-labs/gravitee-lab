@@ -806,7 +806,7 @@ router.onLeave(() => {
 });
 
 // What the server says of a row (an item, a group, a container), in its tone, its tooltip the reason when it has one
-// ("Failed": the job's last line). One that names an item links to it ("via Kafka Desk"); one that settings answer
+// ("Failed": the job's last line). One that names an item links to it ("via Kazoo Desk"); one that settings answer
 // opens them: the license's notes are the ones with a file, they open the form that takes a new license. What runs behind
 // what is saved (`note_apply`) is the badge, its tooltip the reason.
 export function noteHtml(x) {
@@ -1171,7 +1171,7 @@ function acting(key, verbs) {
     title: running?.title || state.label };
 }
 
-// The word of the button that started a job: its title without the name of what it acts on ("Turn off Kafka" → "Turn
+// The word of the button that started a job: its title without the name of what it acts on ("Turn off Kazoo" → "Turn
 // off"), else the verb's own word
 function wordOf(key, verb, title = "") {
   const name = store.unit(key)?.name;

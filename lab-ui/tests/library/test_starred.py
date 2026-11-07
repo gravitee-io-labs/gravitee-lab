@@ -21,14 +21,14 @@ class Stars(Folder):
 
     def test_starred_and_unstarred(self):
         self.assertEqual(starred.read(), {"addon": set(), "setup": set(), "playground": set()})
-        self.assertEqual(starred.star(self.project, "addon", "kafka", True), {})
+        self.assertEqual(starred.star(self.project, "addon", "kazoo", True), {})
         starred.star(self.project, "addon", "local/whoami", True)
         starred.star(self.project, "playground", "welcome", True)
-        starred.star(self.project, "addon", "kafka", True)   # twice is once
-        self.assertEqual(self.saved(), {"addon": ["kafka", "local/whoami"], "playground": ["welcome"]})
+        starred.star(self.project, "addon", "kazoo", True)   # twice is once
+        self.assertEqual(self.saved(), {"addon": ["kazoo", "local/whoami"], "playground": ["welcome"]})
         starred.star(self.project, "playground", "welcome", False)
         starred.star(self.project, "setup", "observability", False)   # not starred: nothing changes
-        self.assertEqual(self.saved(), {"addon": ["kafka", "local/whoami"]})
+        self.assertEqual(self.saved(), {"addon": ["kazoo", "local/whoami"]})
 
     def test_the_state_says_it_of_every_item(self):
         starred.star(self.project, "setup", "observability", True)
@@ -43,7 +43,7 @@ class Stars(Folder):
         self.assertFalse((self.root / starred.FILE).exists())
 
     def test_a_file_cut_short_is_kept_aside_before_a_star_replaces_it(self):
-        cut = '{"addon": ["kafka", "local/whoami"], "playground": ["wel'
+        cut = '{"addon": ["kazoo", "local/whoami"], "playground": ["wel'
         self.write(starred.FILE, cut)
         starred.star(self.project, "playground", "welcome", True)
         self.assertEqual(self.saved(), {"playground": ["welcome"]})
@@ -51,7 +51,7 @@ class Stars(Folder):
 
     def test_a_file_that_does_not_read_stars_nothing(self):
         empty = {"addon": set(), "setup": set(), "playground": set()}
-        for text, found in (("{", empty), ("[]", empty), ('{"addon": "kafka", "setup": [1, "observability"]}',
+        for text, found in (("{", empty), ("[]", empty), ('{"addon": "kazoo", "setup": [1, "observability"]}',
                                                           {**empty, "setup": {"observability"}})):
             self.write(starred.FILE, text)
             self.assertEqual(starred.read(), found, text)
@@ -63,11 +63,11 @@ class Stars(Folder):
 
     def test_become_a_catalogs_it_keeps_its_star_under_the_new_id(self):
         starred.star(self.project, "addon", "local/whoami", True)
-        starred.star(self.project, "addon", "kafka", True)
+        starred.star(self.project, "addon", "kazoo", True)
         starred.moved("addon", "local/whoami", "@acme-hub/whoami")
-        self.assertEqual(self.saved(), {"addon": ["@acme-hub/whoami", "kafka"]})
+        self.assertEqual(self.saved(), {"addon": ["@acme-hub/whoami", "kazoo"]})
         starred.moved("addon", "local/whoami", "@acme-hub/whoami")   # again: nothing left to move
-        self.assertEqual(self.saved(), {"addon": ["@acme-hub/whoami", "kafka"]})
+        self.assertEqual(self.saved(), {"addon": ["@acme-hub/whoami", "kazoo"]})
 
     def test_where_the_new_id_is_starred_already_the_two_are_one(self):
         starred.star(self.project, "addon", "local/whoami", True)

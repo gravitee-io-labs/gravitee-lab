@@ -30,7 +30,7 @@ FORM = {"key": "HYBRID_CLOUD_TOKEN", "default": None, "required": True, "secret"
 GATEWAY = {"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN",
            "domains": ["localhost:8090", "apim-hybrid-gateway:8082"]}
 PROJECT = {"addons": {"hybrid": {"id": "hybrid", "env_file": ADDON_ENV, "settings": [FORM], "gateway": GATEWAY},
-                      "kafka": {"id": "kafka", "env_file": ".lab/catalogs/fixture/addons/kafka/.env", "settings": [], "gateway": None}},
+                      "kazoo": {"id": "kazoo", "env_file": ".lab/catalogs/fixture/addons/kazoo/.env", "settings": [], "gateway": None}},
            "playgrounds": {}, "core_variables": []}
 
 
@@ -1006,7 +1006,7 @@ class Gateways(Platforms):
         self.assertEqual((self.fake.state.gateways, envfiles.read(ADDON_ENV)), ({}, {}))
 
     def test_without_the_add_on_nothing_is_created(self):
-        for addons in ({"kafka": PROJECT["addons"]["kafka"]},
+        for addons in ({"kazoo": PROJECT["addons"]["kazoo"]},
                        {"hybrid": {**PROJECT["addons"]["hybrid"], "gateway": {**GATEWAY, "platform": "other"}}}):
             with self.subTest(addons=sorted(addons)), \
                     self.assertRaisesRegex(paths.NotFound, "^No add-on runs a gateway of Gravitee Cloud$"):
@@ -1414,7 +1414,7 @@ class Chosen(Case):
 
     def project(self, chosen, **more):
         addons = {"a-first": {"id": "a-first", "gateway": gateway()}, "hybrid": {"id": "hybrid", "gateway": gateway()},
-                  "kafka": {"id": "kafka", "gateway": None}, "other": {"id": "other", "gateway": gateway("another")}}
+                  "kazoo": {"id": "kazoo", "gateway": None}, "other": {"id": "other", "gateway": gateway("another")}}
         return {"addons": {**addons, **more.pop("addons", {})}, "platform": {"gateways": {"cloud": chosen}}, **more}
 
     def test_it_is_the_add_on_the_project_chose_not_the_first_that_says_it_runs_one(self):
@@ -1430,7 +1430,7 @@ class Chosen(Case):
         self.assertIsNone(platforms.gateway_addon({**project, "platform": {"gateways": {}}}, "cloud"))
 
     def test_a_choice_that_is_no_add_on_of_the_project_or_does_not_declare_the_kind_is_none(self):
-        for chosen in ("gone", "kafka", "other", 7, ["hybrid"], ""):
+        for chosen in ("gone", "kazoo", "other", 7, ["hybrid"], ""):
             with self.subTest(chosen=chosen):
                 self.assertIsNone(platforms.gateway_addon(self.project(chosen), "cloud"))
 

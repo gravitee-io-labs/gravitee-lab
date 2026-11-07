@@ -54,7 +54,7 @@ test("the theme button goes from the system's theme to dark, light and back, and
 
 test("the open groups of the Stack are kept as an object, and anything else kept is none", () => {
   const kept = (value) => { page.stored.expanded = value; return recallObject("expanded"); };
-  assert.deepEqual(kept('{"group:apim":true,"addon:kafka":false}'), { "group:apim": true, "addon:kafka": false });
+  assert.deepEqual(kept('{"group:apim":true,"addon:kazoo":false}'), { "group:apim": true, "addon:kazoo": false });
   for (const value of ["{not json", "", "null", "[]", '["group:apim"]', "5", "true", '"group:apim"', "{", "undefined"]) {
     assert.deepEqual(kept(value), {}, JSON.stringify(value));
   }

@@ -40,7 +40,7 @@ test("versions go newest first, a release before its pre-releases", () => {
 const ID = new RegExp(`^${ID_PATTERN}$`);
 
 test("an id is a bare one, this machine's local/<name> or another catalog's @<namespace>/<name>", () => {
-  for (const id of ["kafka", "acme-bakery", "4", "a", "x-1-y", "local/x", "local/my-demo", "@acme-hub/x", "@acme-hub/mock-bank", "@ab/x", "@a1/b2",
+  for (const id of ["kazoo", "acme-bakery", "4", "a", "x-1-y", "local/x", "local/my-demo", "@acme-hub/x", "@acme-hub/mock-bank", "@ab/x", "@a1/b2",
     `@a${"b".repeat(22)}c/x`]) {
     assert.ok(ID.test(id), id);
   }
@@ -48,9 +48,9 @@ test("an id is a bare one, this machine's local/<name> or another catalog's @<na
 
 test("what an id is not: a path out of the catalog, a namespace too short or too long, another case, a colon, a line, a second slash", () => {
   const namespace = "b".repeat(23);   // two to 24 characters is a namespace
-  for (const id of ["@acme-hub/../kafka", "@acme-hub/", "@/x", "@a/x", `@a${namespace}c/x`, "@acme-hub/x/y", "@acme_hub/x", "@ACME/x", "@acme-hub", "@",
-    "local/../kafka", "local/", "/local/x", "local//x", "Local/x", "LOCAL/x", "local/X", "local/x/y", "x/y", "../kafka", "kafka/", "kafka/..",
-    "kaf ka", "kafka:x", "local/x:y", "kafka\n", "kafka\u0000", "@acme-hub/x\n", "\nkafka", "", "kaf_ka", "kafka.", "kafka%2Fx", "kafka\\x",
+  for (const id of ["@acme-hub/../kazoo", "@acme-hub/", "@/x", "@a/x", `@a${namespace}c/x`, "@acme-hub/x/y", "@acme_hub/x", "@ACME/x", "@acme-hub", "@",
+    "local/../kazoo", "local/", "/local/x", "local//x", "Local/x", "LOCAL/x", "local/X", "local/x/y", "x/y", "../kazoo", "kazoo/", "kazoo/..",
+    "kaf ka", "kazoo:x", "local/x:y", "kazoo\n", "kazoo\u0000", "@acme-hub/x\n", "\nkazoo", "", "kaf_ka", "kazoo.", "kazoo%2Fx", "kazoo\\x",
     "@-ab/x", "@acme-/x", "@1ab/x", "local@acme-hub/x"]) {
     assert.ok(!ID.test(id), JSON.stringify(id));
   }
@@ -86,7 +86,7 @@ test("the address of a catalog is the page of the catalogs, with its namespace o
 
 test("a key is split at its first colon, so that what follows is whole", () => {
   assert.deepEqual(splitKey("playground:@acme-hub/bank"), ["playground", "@acme-hub/bank"]);
-  assert.deepEqual(splitKey("addon:kafka"), ["addon", "kafka"]);
+  assert.deepEqual(splitKey("addon:kazoo"), ["addon", "kazoo"]);
   assert.deepEqual(splitKey("addon:local/whoami"), ["addon", "local/whoami"]);
   assert.deepEqual(splitKey("catalog-op:acme-hub"), ["catalog-op", "acme-hub"]);
   assert.deepEqual(splitKey("service:a:b:c"), ["service", "a:b:c"], "the first colon alone");

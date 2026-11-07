@@ -52,7 +52,7 @@ def unit(ns, kind, name):
     return fixtures.unit_file(ns, kind, name)
 
 
-KAFKA, JADE = unit("fixture", "addon", "kafka"), unit("fixture", "addon", "jade")
+KAZOO, JADE = unit("fixture", "addon", "kazoo"), unit("fixture", "addon", "jade")
 WHOAMI, EVENTS = unit("local", "addon", "whoami"), unit("fixture", "setup", "events")
 MINE = unit("local", "setup", "mine")
 PERSONAL = "what belongs to this machine is not shared with the project"
@@ -150,14 +150,14 @@ class AgentFiles(Case):
     def test_each_agents_file_has_a_claude_file_that_only_imports_it(self):
         self.folder(check, files={
             "AGENTS.md": "", "CLAUDE.md": "@AGENTS.md\n", "lab-ui/AGENTS.md": "", "lab-ui/CLAUDE.md": "@AGENTS.md",
-            "docs/AGENTS.md": "", "docs/kafka/AGENTS.md": "", "docs/kafka/CLAUDE.md": "See AGENTS.md\n",
+            "docs/AGENTS.md": "", "docs/kazoo/AGENTS.md": "", "docs/kazoo/CLAUDE.md": "See AGENTS.md\n",
             "templates/acme/AGENTS.md": "", "templates/acme/CLAUDE.md": "@AGENTS.md\n\n",
             # Not files of the project: this machine's, the plugins, hidden folders and dependencies
             "local/mine/AGENTS.md": "", "plugins/apim/AGENTS.md": "", ".lab/AGENTS.md": "",
             "templates/acme/apps/web/node_modules/AGENTS.md": ""})
         self.assertEqual(list(check._agents()), [
             ("docs/AGENTS.md", "docs/CLAUDE.md is missing: create it with the single line @AGENTS.md"),
-            ("docs/kafka/CLAUDE.md", "it must hold only the line @AGENTS.md, so that Claude Code reads AGENTS.md")])
+            ("docs/kazoo/CLAUDE.md", "it must hold only the line @AGENTS.md, so that Claude Code reads AGENTS.md")])
 
 
 class Includes(Case):
@@ -175,7 +175,7 @@ class Includes(Case):
             return list(check._includes(kind, unit("fixture", kind, name), catalog, declared))
 
     def test_a_playground_includes_add_ons_and_setups(self):
-        self.assertEqual(self.found("playground", [KAFKA, EVENTS]), [])
+        self.assertEqual(self.found("playground", [KAZOO, EVENTS]), [])
         self.assertEqual(self.found("playground", [unit("fixture", "playground", "other")]),
                          ["includes playgrounds/other/compose.yml: only add-ons and setups can be included"])
 
@@ -187,23 +187,23 @@ class Includes(Case):
 
     def test_an_add_on_and_a_setup_include_add_ons_only(self):
         for kind in ("addon", "setup"):
-            self.assertEqual(self.found(kind, [KAFKA, EVENTS]), ["includes setups/events.yml: only add-ons can be included"])
+            self.assertEqual(self.found(kind, [KAZOO, EVENTS]), ["includes setups/events.yml: only add-ons can be included"])
 
     def test_what_is_included_is_there_and_the_line_says_where_the_unit_would_be(self):
-        with mock.patch.object(compose, "includes", return_value=[KAFKA, EVENTS, ".lab/addons/kafka/compose.yml"]):
+        with mock.patch.object(compose, "includes", return_value=[KAZOO, EVENTS, ".lab/addons/kazoo/compose.yml"]):
             self.assertEqual(list(check._includes("playground", unit("fixture", "playground", "it"), "fixture")), [
-                "includes addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
-                "../../addons/kafka/compose.yml",
+                "includes addons/kazoo/compose.yml, which does not exist: from here a unit of this catalog is "
+                "../../addons/kazoo/compose.yml",
                 "includes setups/events.yml, which does not exist: from here a unit of this catalog is ../../setups/events.yml",
-                "includes .lab/addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
-                "../../addons/kafka/compose.yml"])
+                "includes .lab/addons/kazoo/compose.yml, which does not exist: from here a unit of this catalog is "
+                "../../addons/kazoo/compose.yml"])
             self.assertEqual(list(check._includes("setup", unit("fixture", "setup", "it"), "fixture"))[0],
-                             "includes addons/kafka/compose.yml, which does not exist: from here a unit of this catalog is "
-                             "../addons/kafka/compose.yml")
+                             "includes addons/kazoo/compose.yml, which does not exist: from here a unit of this catalog is "
+                             "../addons/kazoo/compose.yml")
         # Outside a catalog (an item about to be shared) the line is the file as written, and no advice
-        with mock.patch.object(compose, "includes", return_value=[KAFKA]):
+        with mock.patch.object(compose, "includes", return_value=[KAZOO]):
             self.assertEqual(list(check._includes("setup", "setups/events.yml")),
-                             [f"includes {KAFKA}, which does not exist"])
+                             [f"includes {KAZOO}, which does not exist"])
 
     def test_what_comes_from_a_catalog_is_not_shared_into_another(self):
         other = unit("partner", "addon", "ledger")
@@ -212,27 +212,27 @@ class Includes(Case):
         self.assertEqual(self.found("setup", [other], name="two"),
                          [f"includes partner/addons/ledger/compose.yml: {said}"])
         # Declared in catalog.yml: it is theirs to include; the catalog's own is always fine
-        self.assertEqual(self.found("playground", [other, KAFKA], declared=("partner",)), [])
+        self.assertEqual(self.found("playground", [other, KAZOO], declared=("partner",)), [])
         self.assertEqual(self.found("playground", [other], declared=("stranger",)),
                          [f"includes partner/addons/ledger/compose.yml: {said}"])
 
     def test_a_unit_of_another_catalog_includes_its_own_and_the_default_catalog_only_when_it_says_so(self):
         mine = unit("acme-hub", "addon", "bank")
         self.assertEqual(self.found("playground", [mine], catalog="acme-hub"), [])
-        self.assertEqual(self.found("playground", [KAFKA], catalog="acme-hub"),
-                         ["includes fixture/addons/kafka/compose.yml: what comes from a catalog is not shared into another"])
-        self.assertEqual(self.found("playground", [KAFKA], catalog="acme-hub", declared=("fixture",)), [])
+        self.assertEqual(self.found("playground", [KAZOO], catalog="acme-hub"),
+                         ["includes fixture/addons/kazoo/compose.yml: what comes from a catalog is not shared into another"])
+        self.assertEqual(self.found("playground", [KAZOO], catalog="acme-hub", declared=("fixture",)), [])
 
 
 class Items(Machine):
     """The rules of one item that the project hands over."""
 
     def test_each_shared_service_says_what_it_is(self):
-        config = {"services": {"kafka": {"labels": {"io.gravitee.description": "A broker"}}, "kafka-ui": {"labels": {}},
-                               "kafka-client": {}}}
-        self.assertEqual(list(check._labeled(config, ["kafka", "kafka-ui", "kafka-client"])), [
-            "kafka-ui: the label io.gravitee.description is missing",
-            "kafka-client: the label io.gravitee.description is missing"])
+        config = {"services": {"kazoo": {"labels": {"io.gravitee.description": "A broker"}}, "kazoo-ui": {"labels": {}},
+                               "kazoo-client": {}}}
+        self.assertEqual(list(check._labeled(config, ["kazoo", "kazoo-ui", "kazoo-client"])), [
+            "kazoo-ui: the label io.gravitee.description is missing",
+            "kazoo-client: the label io.gravitee.description is missing"])
 
     def test_a_playground_brings_what_its_setups_bring(self):
         built = self.machine([
@@ -245,14 +245,14 @@ class Items(Machine):
         self.assertEqual(found, ["brings agent-lens and jade, which cannot run together: both take the exporter"])
 
     def test_x_gravitee_that_is_not_a_mapping_is_reported_not_raised(self):
-        built = self.machine([member("fixture", "addon", "kafka", ["kafka"])])
-        self.given["raw"][KAFKA]["x-gravitee"] = "kafka"
+        built = self.machine([member("fixture", "addon", "kazoo", ["kazoo"])])
+        self.given["raw"][KAZOO]["x-gravitee"] = "kazoo"
         built = project.build(self.given)
         self.built = built
-        self.assertEqual(self.lines("addon", "kafka"), [
+        self.assertEqual(self.lines("addon", "kazoo"), [
             "x-gravitee.kind must be addon", "x-gravitee.name is missing", "x-gravitee.description is missing",
             "x-gravitee.category is missing"])
-        self.assertIn({"file": KAFKA, "message": "x-gravitee must be a mapping", "display": "addons/kafka/compose.yml"},
+        self.assertIn({"file": KAZOO, "message": "x-gravitee must be a mapping", "display": "addons/kazoo/compose.yml"},
                       built["catalog_problems"]["fixture"])
         self.assertEqual(built["problems"], [], "a catalog's file is no problem of the banner")
 
@@ -316,20 +316,20 @@ class Items(Machine):
                                  [f"x-gravitee.duration is {written}: write it as 20 min, 1 h or 1 h 30 min"])
 
     def test_what_is_shared_has_a_readme_next_to_its_file(self):
-        self.write(".lab/catalogs/fixture/addons/kafka/README.md", "# Kafka")
+        self.write(".lab/catalogs/fixture/addons/kazoo/README.md", "# Kazoo")
         self.write(".lab/catalogs/fixture/addons/jade/compose.yml", "")
-        self.assertEqual(list(check._readme("addon", "kafka")), [])
+        self.assertEqual(list(check._readme("addon", "kazoo")), [])
         self.assertEqual(list(check._readme("addon", "jade")),
                          ["README.md is missing next to it: what it adds and how to use it"])
 
     def test_a_conflict_names_an_add_on_and_says_why(self):
-        known = ["jade", "kafka", "@acme-hub/ledger", "@acme-hub/kafka"]
+        known = ["jade", "kazoo", "@acme-hub/ledger", "@acme-hub/kazoo"]
         with mock.patch.object(paths, "ids", return_value=known):
             found = list(check._conflicts({"catalog": "fixture", "conflicts": {
-                "jade": "", "kafka": "same ports", "nothing": "why", "@acme-hub/ledger": "both bind it"}}))
+                "jade": "", "kazoo": "same ports", "nothing": "why", "@acme-hub/ledger": "both bind it"}}))
             self.assertEqual(found, ["conflicts with jade: say why", "conflicts with nothing, which is not an add-on"])
             # A bare id is the add-on of the same catalog if there is one, else the default catalog's
-            theirs = {"catalog": "acme-hub", "conflicts": {"kafka": "x", "jade": "", "ledger": "x", "nothing": "x"}}
+            theirs = {"catalog": "acme-hub", "conflicts": {"kazoo": "x", "jade": "", "ledger": "x", "nothing": "x"}}
             self.assertEqual(list(check._conflicts(theirs)), [
                 "conflicts with jade: say why", "conflicts with nothing, which is not an add-on"])
 
@@ -380,14 +380,14 @@ class Items(Machine):
         for level in ("x", 1.5, True, 0, -3, [1]):
             with self.subTest(level=level):
                 self.machine([
-                    member("fixture", "addon", "kafka", ["kafka"], says={"requires": {"lab": level}}),
-                    member("fixture", "setup", "tracing", include=[("fixture", "addon", "kafka")], says={"requires": {"lab": level}}),
+                    member("fixture", "addon", "kazoo", ["kazoo"], says={"requires": {"lab": level}}),
+                    member("fixture", "setup", "tracing", include=[("fixture", "addon", "kazoo")], says={"requires": {"lab": level}}),
                     member("fixture", "playground", "welcome", ["acme-website"], says={"requires": {"lab": level}})])
-                for kind, uid in (("addon", "kafka"), ("setup", "tracing"), ("playground", "welcome")):
+                for kind, uid in (("addon", "kazoo"), ("setup", "tracing"), ("playground", "welcome")):
                     self.assertEqual(self.lines(kind, uid).count(self.LEVEL), 1, f"{kind} {level!r}")
-        self.machine([member("fixture", "addon", "kafka", ["kafka"], says={"requires": {"lab": 1}}),
-                      member("fixture", "setup", "tracing", include=[("fixture", "addon", "kafka")], says={"requires": "no"})])
-        self.assertNotIn(self.LEVEL, self.lines("addon", "kafka"))
+        self.machine([member("fixture", "addon", "kazoo", ["kazoo"], says={"requires": {"lab": 1}}),
+                      member("fixture", "setup", "tracing", include=[("fixture", "addon", "kazoo")], says={"requires": "no"})])
+        self.assertNotIn(self.LEVEL, self.lines("addon", "kazoo"))
         self.assertNotIn(self.LEVEL, self.lines("setup", "tracing"))
 
     def test_what_a_playground_requires_is_what_its_checks_and_its_start_act_on(self):
@@ -395,7 +395,7 @@ class Items(Machine):
         requires = {"plugins": {"apim": ["gravitee-policy-x"], "apimm": ["gravitee-policy-y"]},
                     "host": [{"name": "Ollama", "check": "https://localhost:11434/api/tags"},
                              {"name": "LLM", "check": "localhost:8000"}],
-                    "addons": ["kafka"], "images": {"APIM_GATEWAY_VERSION": "4.13", "APIM_VERSIONS": "4.13"}}
+                    "addons": ["kazoo"], "images": {"APIM_GATEWAY_VERSION": "4.13", "APIM_VERSIONS": "4.13"}}
         built["products"] = {"apim": {}}
         self.assertEqual(list(check._requires(requires, built)), [
             "x-gravitee.requires: unknown addons (add-ons and setups are included)",
@@ -834,8 +834,8 @@ class Gateways(Machine):
             "core, which a deploy does not start"])
 
     def test_an_add_on_that_runs_no_gateway_is_not_asked_for_one(self):
-        built = self.build(member("fixture", "addon", "kafka", ["kafka"]))
-        self.assertEqual(list(check._gateway(built["addons"]["kafka"], built)), [])
+        built = self.build(member("fixture", "addon", "kazoo", ["kazoo"]))
+        self.assertEqual(list(check._gateway(built["addons"]["kazoo"], built)), [])
 
     def test_the_add_on_is_checked_with_the_rest(self):
         file, raw = self.hybrid()
@@ -848,15 +848,15 @@ class Listings(Case):
     """The README of each kind, when a catalog keeps one, lists every item once, in the row its x-gravitee block gives."""
 
     ROWS = {"addon": ["| [AI Agent Lens](agent-lens/) | Live diagram |", "| [Jade](jade/) | Tracing |",
-                      "| [Kafka](kafka/) | Kafka broker |"],
-            "setup": ["| [Event streams](event-streams.yml) | Kafka |"],
+                      "| [Kazoo](kazoo/) | Kazoo broker |"],
+            "setup": ["| [Event streams](event-streams.yml) | Kazoo |"],
             "playground": ["| [Welcome](welcome/) | ACME Hello | 30 min |"]}
 
     def setUp(self):
         self.units = {kind: [self.unit(kind, *spec) for spec in specs] for kind, specs in {
             "addon": [("agent-lens", "AI Agent Lens", "Live diagram"), ("jade", "Jade", "Tracing"),
-                      ("kafka", "Kafka", "Kafka broker")],
-            "setup": [("event-streams", "Event streams", "Kafka")],
+                      ("kazoo", "Kazoo", "Kazoo broker")],
+            "setup": [("event-streams", "Event streams", "Kazoo")],
             "playground": [("welcome", "Welcome", "ACME Hello", "30 min")]}.items()}
         self.folder(check, paths)
 
@@ -889,15 +889,15 @@ class Listings(Case):
 
     def test_a_row_that_differs_from_its_block_is_shown_as_it_must_read(self):
         rows = [row.replace("Tracing", "OpenTelemetry tracing") for row in self.ROWS["addon"]]
-        rows[2] = "| [Kafka](kafka/) | Kafka broker | |"
+        rows[2] = "| [Kazoo](kazoo/) | Kazoo broker | |"
         self.assertEqual(self.readme("addon", rows), [
             ("addons/README.md", "the row of Jade must read | [Jade](jade/) | Tracing |"),
-            ("addons/README.md", "the row of Kafka must read | [Kafka](kafka/) | Kafka broker |")])
+            ("addons/README.md", "the row of Kazoo must read | [Kazoo](kazoo/) | Kazoo broker |")])
 
     def test_an_item_is_listed_once(self):
         self.assertEqual(self.readme("setup", self.ROWS["setup"] * 2), [
             ("setups/README.md", "lists Event streams 2 times: keep one row, "
-                                 "| [Event streams](event-streams.yml) | Kafka |")])
+                                 "| [Event streams](event-streams.yml) | Kazoo |")])
 
     def test_a_row_of_what_does_not_exist_is_removed(self):
         rows = [*self.ROWS["playground"], "| [Gone](gone/) | Deleted | 5 min |"]

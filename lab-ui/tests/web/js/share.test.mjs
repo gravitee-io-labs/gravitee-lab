@@ -246,13 +246,13 @@ test("a destination that fails the check says what failed, and the others stay: 
 
 test("a problem that every destination finds is a notice of what to fix first, with the prompt that has an agent fix it; the dialog of destinations does not open", async () => {
   server.destinations = [PUBLIC, PRIVATE];
-  server.checks = { gravitee: CHECK({ problems: ["compose.yml holds a secret", "It includes Kafka, which is not shared"] }), "acme-hub": CHECK({ problems: ["compose.yml holds a secret"] }) };
+  server.checks = { gravitee: CHECK({ problems: ["compose.yml holds a secret", "It includes Kazoo, which is not shared"] }), "acme-hub": CHECK({ problems: ["compose.yml holds a secret"] }) };
   await opened();
   assert.equal(choice.hasAttribute("open"), false);
   const result = notice();
   assert.ok(result.hasAttribute("open"));
   assert.deepEqual(result.querySelectorAll("dt").map(text), ["Fix first", "", "Prompt"]);
-  assert.deepEqual(result.querySelectorAll("dd").slice(0, 2).map(text), ["compose.yml holds a secret", "It includes Kafka, which is not shared"], "each problem once, in the order found");
+  assert.deepEqual(result.querySelectorAll("dd").slice(0, 2).map(text), ["compose.yml holds a secret", "It includes Kazoo, which is not shared"], "each problem once, in the order found");
   assert.equal(result.querySelector("dd code").textContent, `Use the share-item skill (${SKILL}) to share the personal playground Acme Bakery.`);
   assert.deepEqual(result.querySelectorAll(".dialog-actions .btn").map(text),
     ["Copy prompt", "Open in Claude app", "Open in Claude Code", "Open in Codex", "Open in Cursor", "Close"], "the agents of the creation dialog, then Close");
@@ -263,10 +263,10 @@ test("a problem that every destination finds is a notice of what to fix first, w
 
 test("a problem that one destination finds leaves the others: that one is held with the problem as its reason", async () => {
   server.destinations = [PUBLIC, PRIVATE];
-  server.checks = { gravitee: CHECK(), "acme-hub": CHECK({ problems: ["It includes Kafka (Partner Bank), which Acme Hub does not declare."] }) };
+  server.checks = { gravitee: CHECK(), "acme-hub": CHECK({ problems: ["It includes Kazoo (Partner Bank), which Acme Hub does not declare."] }) };
   const done = opened();
   await settle();
-  assert.deepEqual(options().map(({ name, disabled, hint }) => [name, disabled, hint]), [["Gravitee public", false, "Public"], ["Acme Hub", true, "It includes Kafka (Partner Bank), which Acme Hub does not declare."]]);
+  assert.deepEqual(options().map(({ name, disabled, hint }) => [name, disabled, hint]), [["Gravitee public", false, "Public"], ["Acme Hub", true, "It includes Kazoo (Partner Bank), which Acme Hub does not declare."]]);
   await answer(false);
   await done;
 });
@@ -381,7 +381,7 @@ const where = () => inCreate('[data-choice="catalog"]');
 const kept = () => where().querySelectorAll("button").map((button) => [text(button), button.getAttribute("aria-checked")]);
 const catalogs = (...more) => [FIRST(), catalog(), ...more];
 const lab2 = (more = {}) => lab({ skills: { addon: ".agents/skills/new-addon/SKILL.md", setup: ".agents/skills/new-setup/SKILL.md", playground: ".agents/skills/new-playground/SKILL.md", share: SKILL },
-  root: "/lab", categories: ["Observability"], running: { explicit: [] }, addons: [item("addon", "kafka", "Kafka", { conflicts: {}, needs: [], members: undefined })],
+  root: "/lab", categories: ["Observability"], running: { explicit: [] }, addons: [item("addon", "kazoo", "Kazoo", { conflicts: {}, needs: [], members: undefined })],
   setups: [], playgrounds: [], catalogs: catalogs(), content: content("ready"), ...more });
 const open2 = (kind, more = {}) => {
   for (const el of create.querySelectorAll("input, textarea")) el.removeAttribute("value");   // what a person typed in the last one (the small DOM reads the attribute first)
@@ -479,7 +479,7 @@ test("the prompt for an agent says where the item goes: personal, or in the cata
 });
 
 test("an item that is not shared yet cannot be part of what goes in a catalog, and is told so", async () => {
-  const mineToo = item("setup", "local/own", "Own setup", { personal: true, members: [{ id: "kafka", name: "Kafka" }] });
+  const mineToo = item("setup", "local/own", "Own setup", { personal: true, members: [{ id: "kazoo", name: "Kazoo" }] });
   open2("playground", { setups: [mineToo], catalogs: catalogs(FOLDER()) });
   const problem = () => inCreate("#create-problem");
   inCreate('[data-pick="setup:local/own"]').checked = true;
@@ -491,10 +491,10 @@ test("an item that is not shared yet cannot be part of what goes in a catalog, a
 });
 
 test("a checklist says Personal for an item of this machine, and nothing for an item of a catalog: where it comes from is in its About", async () => {
-  open2("setup", { addons: [item("addon", "kafka", "Kafka", { conflicts: {}, needs: [] }), item("addon", "@acme-hub/mock", "Mock bank", { conflicts: {}, needs: [], origin: origin(), readonly: true }),
+  open2("setup", { addons: [item("addon", "kazoo", "Kazoo", { conflicts: {}, needs: [] }), item("addon", "@acme-hub/mock", "Mock bank", { conflicts: {}, needs: [], origin: origin(), readonly: true }),
     item("addon", "local/mine", "Mine", { conflicts: {}, needs: [], personal: true })] });
   const labels = () => create.querySelectorAll(".pick strong").map((el) => [el.firstChild.data.trim(), el.querySelectorAll(".pill").map(text)]);
-  assert.deepEqual(labels(), [["Kafka", []], ["Mock bank", []], ["Mine", ["Personal"]]]);
+  assert.deepEqual(labels(), [["Kazoo", []], ["Mock bank", []], ["Mine", ["Personal"]]]);
   create.close();
 });
 
@@ -528,7 +528,7 @@ test("the checklist follows the content of the catalogs while the dialog is open
   assert.ok(picks2.firstElementChild === first, "a refresh that says the same leaves it where it is");
   store.state = lab2({ content: content("ready") });
   store.notify();
-  assert.deepEqual(create.querySelectorAll(".pick strong").map((el) => el.firstChild.data.trim()), ["Kafka"], "the add-ons arrived");
+  assert.deepEqual(create.querySelectorAll(".pick strong").map((el) => el.firstChild.data.trim()), ["Kazoo"], "the add-ons arrived");
   create.close();
   store.notify();   // closed, it draws nothing
 });

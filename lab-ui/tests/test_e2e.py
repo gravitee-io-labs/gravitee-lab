@@ -183,7 +183,7 @@ class Versions(Case):
                     e2e.versions({"name": "Shop", "tested": [{variable: "x"}]}, 0, known)
 
     def test_a_setting_says_the_version_the_tag_the_registry_the_image_the_repository_or_the_prefix_of_an_image(self):
-        for variable in ("APIM_VERSION", "AM_REGISTRY", "KAFKA_DESK_TAG", "NODE_IMAGE", "SEEDER_REPOSITORY", "ACME_PREFIX", "A1_B2_VERSION"):
+        for variable in ("APIM_VERSION", "AM_REGISTRY", "KAZOO_DESK_TAG", "NODE_IMAGE", "SEEDER_REPOSITORY", "ACME_PREFIX", "A1_B2_VERSION"):
             with self.subTest(variable=variable):
                 self.assertEqual(e2e.versions({"name": "Shop", "tested": [{variable: "1"}]}, 0, {variable}), {variable: "1"})
                 self.assertEqual(e2e.versions({"name": "Shop", "tested": [{variable: "1"}]}, 0), {variable: "1"}, "with no list of images")
@@ -370,8 +370,8 @@ class Settling(Case):
         self.assertFalse(run.steps[-1].ok)
         self.assertEqual(run.clock(), -(-e2e.STUCK // e2e.POLL) * e2e.POLL, "once in an issue for STUCK seconds")
 
-    def test_an_app_that_restarted_while_kafka_warmed_up_and_runs_since_settles(self):
-        # No health check: it exited twice while Kafka warmed up, during the start, and has run fine since. For
+    def test_an_app_that_restarted_while_kazoo_warmed_up_and_runs_since_settles(self):
+        # No health check: it exited twice while Kazoo warmed up, during the start, and has run fine since. For
         # RESTART_WINDOW seconds after its last start the Lab UI says Keeps restarting, then Running
         done = {"key": "done", "label": "Done", "running": False}
         recent = model.service_state({"state": "running", "health": "", "restarts": 2, "status": "Up 5 seconds"}, False, False)

@@ -45,13 +45,13 @@ ADDON = {"kind": "addon", "id": "agent-lens", "name": "AI Agent Lens"}
 PROJECT = {
     "name": "Gravitee platform", "core_loaded": True, "license_services": [], "license_usable": True,
     "groups": [{"id": "databases", "name": "Databases", "services": ["mongodb", "redis"]}],
-    "addons": {"kafka": {"name": "Kafka", "services": ["kafka", "kafka-ui"]},
+    "addons": {"kazoo": {"name": "Kazoo", "services": ["kazoo", "kazoo-ui"]},
                "jade": {"name": "Jade", "services": ["jade"]},
                "tuning": {"name": "Tuning", "services": []},
                "local/whoami": {"name": "Whoami", "services": ["whoami"]}},
     "playgrounds": {"welcome": {"name": "Welcome", "apps": ["hello-app"]}, "local/sandbox": {"name": "Sandbox"}},
     "setups": {"observability": {"name": "Observability", "members": ["jade", "kiosk"]},
-               "local/my-demo": {"name": "My demo", "members": ["kafka"]}},
+               "local/my-demo": {"name": "My demo", "members": ["kazoo"]}},
     # Its container gio-<name>, its image (built here or pulled)
     "services": {name: {"role": role, "owner": {"kind": kind, "id": uid}, "container": f"gio-{name}", "image": image,
                         "built": built, "oneshot": role == "seed", "depends_on": [], "label": name,
@@ -59,8 +59,8 @@ PROJECT = {
                  for name, kind, uid, role, image, built in [
         ("mongodb", "platform", "databases", None, "mongo:8.0.29", False),
         ("redis", "platform", "databases", None, "redis:8.10.1-alpine", False),
-        ("kafka", "addon", "kafka", None, "docker.io/bitnamilegacy/kafka:3.9", False),
-        ("kafka-ui", "addon", "kafka", None, "provectuslabs/kafka-ui:latest", False),
+        ("kazoo", "addon", "kazoo", None, "docker.io/acmecontainer/kazoo:3.9", False),
+        ("kazoo-ui", "addon", "kazoo", None, "acmecontainer/kazoo-ui:latest", False),
         ("jade", "addon", "jade", None, "jadetracing/jade:2.21.0", False),
         ("hello-app", "playground", "welcome", None, "gravitee-lab/hello-app", True),
         ("welcome-seed", "playground", "welcome", "seed", "gravitee-lab/welcome-seed", True)]},
@@ -221,7 +221,7 @@ class Failures(LabUI):
     def test_a_failure_answers_by_its_kind(self):
         cases = [(error, code, str(error)) for error, code in [
             (ValueError("bad value"), 400), (paths.NotFound("No such add-on"), 404),
-            (RuntimeError("'Start Kafka' is still running"), 409), (compose.ComposeError("no such file"), 409),
+            (RuntimeError("'Start Kazoo' is still running"), 409), (compose.ComposeError("no such file"), 409),
             (URLError("unreachable"), 502), (TimeoutError("too slow"), 502),
             (ConnectionResetError("reset by the registry"), 502)]]
         # What nothing expects is headed by its type: a bare key would not say what failed
@@ -269,8 +269,8 @@ class Failures(LabUI):
         self.assertEqual((status, json.loads(body)), (200, job.summary()))
         action.assert_called_once_with(PROJECT, "start", for_core=False, accept=[])
         # The Dashboard's Start all says it is the core's, with what its dialog showed
-        self.request("POST", "/api/stack/start", {"core": True, "accept": ["addon:kafka"]})
-        self.assertEqual(action.call_args, ((PROJECT, "start"), {"for_core": True, "accept": ["addon:kafka"]}))
+        self.request("POST", "/api/stack/start", {"core": True, "accept": ["addon:kazoo"]})
+        self.assertEqual(action.call_args, ((PROJECT, "start"), {"for_core": True, "accept": ["addon:kazoo"]}))
 
 
 class Static(LabUI):
@@ -307,9 +307,9 @@ class Files(LabUI):
     def test_the_files_shown_with_one(self):
         self.patch(api.project, "load", return_value=PROJECT)
         sections = self.patch(api.files, "sections", return_value=[{"title": "Core", "on": True, "files": []}])
-        status, _, body = self.request("GET", "/api/files?path=addons%2Fkafka%2F.env")
+        status, _, body = self.request("GET", "/api/files?path=addons%2Fkazoo%2F.env")
         self.assertEqual((status, json.loads(body)), (200, {"sections": sections.return_value}))
-        sections.assert_called_once_with(PROJECT, "addons/kafka/.env")
+        sections.assert_called_once_with(PROJECT, "addons/kazoo/.env")
         sections.side_effect = ValueError("Not a file of this project")
         status, _, body = self.request("GET", "/api/files")
         self.assertEqual((status, json.loads(body)), (400, {"error": "Not a file of this project"}))
@@ -318,10 +318,10 @@ class Files(LabUI):
         self.patch(api.project, "load", return_value=PROJECT)
         saved = {"content": "services: {}\n", "version": "v2", "problems": []}
         save = self.patch(api.files, "save", return_value=saved)
-        sent = {"path": "addons/kafka/compose.yml", "content": "services: {}\n", "version": "v1"}
+        sent = {"path": "addons/kazoo/compose.yml", "content": "services: {}\n", "version": "v1"}
         status, _, body = self.request("POST", "/api/files/save", sent)
         self.assertEqual((status, json.loads(body)), (200, save.return_value))
-        save.assert_called_once_with(PROJECT, "addons/kafka/compose.yml", "services: {}\n", "v1")
+        save.assert_called_once_with(PROJECT, "addons/kazoo/compose.yml", "services: {}\n", "v1")
 
 
 class State(LabUI):
@@ -647,7 +647,7 @@ class Accepted(LabUI):
     """What the page sends back of the rows its dialog showed is a list of keys. A text would be searched by pieces of it, and a
     mapping by its keys: the gate that asks for what the page showed would take them for it, so no route takes either."""
 
-    ROUTES = [("POST", "/api/addons/kafka/start"), ("POST", "/api/setups/observability/start"),
+    ROUTES = [("POST", "/api/addons/kazoo/start"), ("POST", "/api/setups/observability/start"),
               ("POST", "/api/playgrounds/welcome/start"), ("POST", "/api/playgrounds/welcome/stop"),
               ("POST", "/api/playgrounds/welcome/reseed"), ("POST", "/api/platforms/my-account/gateways/gw-1/start"),
               ("POST", "/api/stack/start")]
@@ -660,17 +660,17 @@ class Accepted(LabUI):
         self.patch(api.model, "up", return_value="up")
         self.patch(api.model, "behind", return_value=set())
         self.patch(api.project, "saved", return_value={"hashes": {}, "images": {}})
-        self.plan = self.patch(api.layers, "plan", return_value={"blocked": None, "stops": [{"kind": "addon", "id": "kafka-desk",
-                               "name": "Kafka Desk"}], "turns_off": [], "itself": {"addon:kafka"}, "label": "Start"})
-        self.apply = self.patch(api.layers, "apply", return_value=Job("Start Kafka", []))
+        self.plan = self.patch(api.layers, "plan", return_value={"blocked": None, "stops": [{"kind": "addon", "id": "kazoo-desk",
+                               "name": "Kazoo Desk"}], "turns_off": [], "itself": {"addon:kazoo"}, "label": "Start"})
+        self.apply = self.patch(api.layers, "apply", return_value=Job("Start Kazoo", []))
         self.calls = {name: self.patch(api.playgrounds, name, autospec=True, return_value={}) for name in ("start", "stop", "reseed")}
         self.stack = self.patch(api.stack, "action", return_value={})
-        self.gateway = self.patch(api, "gateway_plan", return_value=(self.plan.return_value, {"here": True, "gateway": "kafka"}))
+        self.gateway = self.patch(api, "gateway_plan", return_value=(self.plan.return_value, {"here": True, "gateway": "kazoo"}))
 
     def test_a_text_a_mapping_or_a_list_of_anything_but_rows_is_a_bad_request_on_every_route(self):
         for method, path in self.ROUTES:
-            for sent in ("addon:kafka-desk", {"addon:kafka-desk": True}, 5, True, [5], [["addon:kafka-desk"]], [None],
-                         ["addon:kafka-desk", {"id": "x"}]):
+            for sent in ("addon:kazoo-desk", {"addon:kazoo-desk": True}, 5, True, [5], [["addon:kazoo-desk"]], [None],
+                         ["addon:kazoo-desk", {"id": "x"}]):
                 with self.subTest(path=path, sent=sent):
                     status, _, body = self.request(method, path, {"accept": sent})
                     self.assertEqual((status, json.loads(body)), (400, {"error": "What was accepted must be a list of rows"}))
@@ -685,12 +685,12 @@ class Accepted(LabUI):
                 self.assertEqual(self.stack.call_args.kwargs["accept"], [])
         self.assertEqual(self.request("POST", "/api/stack/start")[0], 200)
         self.assertEqual(self.stack.call_args.kwargs["accept"], [])
-        self.request("POST", "/api/stack/start", {"accept": ["addon:kafka-desk", "playground:welcome"]})
-        self.assertEqual(self.stack.call_args.kwargs["accept"], ["addon:kafka-desk", "playground:welcome"])
+        self.request("POST", "/api/stack/start", {"accept": ["addon:kazoo-desk", "playground:welcome"]})
+        self.assertEqual(self.stack.call_args.kwargs["accept"], ["addon:kazoo-desk", "playground:welcome"])
         # ... and the plan that stops something besides the item is still refused for what was not sent
-        status, _, body = self.request("POST", "/api/addons/kafka/start", {"accept": []})
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Would also stop Kafka Desk"}))
-        self.assertEqual(self.request("POST", "/api/addons/kafka/start", {"accept": ["addon:kafka-desk"]})[0], 200)
+        status, _, body = self.request("POST", "/api/addons/kazoo/start", {"accept": []})
+        self.assertEqual((status, json.loads(body)), (409, {"error": "Would also stop Kazoo Desk"}))
+        self.assertEqual(self.request("POST", "/api/addons/kazoo/start", {"accept": ["addon:kazoo-desk"]})[0], 200)
 
 
 class Effects(LabUI):
@@ -701,7 +701,7 @@ class Effects(LabUI):
         self.patch(api.project, "load", return_value=PROJECT)
         self.effects = self.patch(api.stack, "effects", return_value={"restarts": [], "starts": [], "runs": True,
                                                                        "exact": True})
-        self.affected = self.patch(api.files, "affected", return_value=["kafka"])
+        self.affected = self.patch(api.files, "affected", return_value=["kazoo"])
 
     def test_of_what_is_saved(self):
         status, _, body = self.request("POST", "/api/effects", {})
@@ -712,29 +712,29 @@ class Effects(LabUI):
         self.assertFalse(json.loads(self.request("POST", "/api/effects", {})[2])["exact"])
 
     def test_with_a_change_not_saved(self):
-        env = self.patch(api.files, "env_hashes", return_value=({"kafka": "h"}, True))
-        draft = self.patch(api.files, "draft_hashes", return_value=({"kafka": "h2"}, True))
+        env = self.patch(api.files, "env_hashes", return_value=({"kazoo": "h"}, True))
+        draft = self.patch(api.files, "draft_hashes", return_value=({"kazoo": "h2"}, True))
         self.request("POST", "/api/effects", {"file": ".env", "values": {"GRAVITEE_LICENSE": "x"}})
         env.assert_called_once_with(PROJECT, ".env", {"GRAVITEE_LICENSE": "x"})
-        self.effects.assert_called_with(PROJECT, {"kafka": "h"}, ())
-        self.request("POST", "/api/effects", {"path": "addons/kafka/compose.yml", "content": "services: {}"})
-        draft.assert_called_once_with(PROJECT, "addons/kafka/compose.yml", "services: {}")
-        self.effects.assert_called_with(PROJECT, {"kafka": "h2"}, ())
+        self.effects.assert_called_with(PROJECT, {"kazoo": "h"}, ())
+        self.request("POST", "/api/effects", {"path": "addons/kazoo/compose.yml", "content": "services: {}"})
+        draft.assert_called_once_with(PROJECT, "addons/kazoo/compose.yml", "services: {}")
+        self.effects.assert_called_with(PROJECT, {"kazoo": "h2"}, ())
         # What it makes Compose create cannot be known: what the file describes and runs may restart, and it says so
         draft.return_value = (None, False)
-        status, _, body = self.request("POST", "/api/effects", {"path": "addons/kafka/compose.yml", "content": "x"})
+        status, _, body = self.request("POST", "/api/effects", {"path": "addons/kazoo/compose.yml", "content": "x"})
         self.assertEqual((status, json.loads(body)["exact"]), (200, False))
-        self.affected.assert_called_with(PROJECT, "addons/kafka/compose.yml")
-        self.effects.assert_called_with(PROJECT, None, ["kafka"])
+        self.affected.assert_called_with(PROJECT, "addons/kazoo/compose.yml")
+        self.effects.assert_called_with(PROJECT, None, ["kazoo"])
         # Versions and registries of Images
-        saved = self.patch(api.images, "as_saved", return_value=(None, {"kafka.env": {"KAFKA_VERSION": "3.8"}}))
-        drafted = self.patch(api.files, "drafted", return_value=({"kafka": "h3"}, True))
-        self.patch(api.images, "changing", return_value=["kafka"])
-        self.request("POST", "/api/effects", {"images": {"KAFKA_VERSION": "3.8"}})
-        saved.assert_called_once_with(PROJECT, {"KAFKA_VERSION": "3.8"})
-        drafted.assert_called_once_with(PROJECT, None, {"kafka.env": {"KAFKA_VERSION": "3.8"}})
-        self.effects.assert_called_with(PROJECT, {"kafka": "h3"}, ())
-        self.assertEqual(self.request("POST", "/api/effects", {"images": ["KAFKA_VERSION"]})[0], 400)
+        saved = self.patch(api.images, "as_saved", return_value=(None, {"kazoo.env": {"KAZOO_VERSION": "3.8"}}))
+        drafted = self.patch(api.files, "drafted", return_value=({"kazoo": "h3"}, True))
+        self.patch(api.images, "changing", return_value=["kazoo"])
+        self.request("POST", "/api/effects", {"images": {"KAZOO_VERSION": "3.8"}})
+        saved.assert_called_once_with(PROJECT, {"KAZOO_VERSION": "3.8"})
+        drafted.assert_called_once_with(PROJECT, None, {"kazoo.env": {"KAZOO_VERSION": "3.8"}})
+        self.effects.assert_called_with(PROJECT, {"kazoo": "h3"}, ())
+        self.assertEqual(self.request("POST", "/api/effects", {"images": ["KAZOO_VERSION"]})[0], 400)
         # Only a file of the project: refused as the editor refuses it
         draft.side_effect = ValueError("Not a compose file of this project")
         self.assertEqual(self.request("POST", "/api/effects", {"path": "../x", "content": ""})[0], 400)
@@ -859,32 +859,32 @@ class Logs(Case):
                 closed.set()
                 return None
             return FakeLogs(runs.pop(0))
-        api.Follower("kafka", "gio-kafka", 300, lines, closed, spawn).run()
+        api.Follower("kazoo", "gio-kazoo", 300, lines, closed, spawn).run()
         return [lines.get() for _ in range(lines.qsize())], spawned
 
     def test_followed_again_once_it_runs_after_a_new_start(self):
         first = ["2026-10-03T12:00:00.000000001Z starting", "2026-10-03T12:00:01.000000000Z crashed"]
         again = ["2026-10-03T12:00:01.000000000Z crashed", "2026-10-03T12:00:09.000000000Z starting again",
-                 "Error response from daemon: No such container: gio-kafka"]
+                 "Error response from daemon: No such container: gio-kazoo"]
         found, spawned = self.follow([first, again], [
             (True, "2026-10-03T12:00:00.000000000Z"),        # it runs as the stream opens
             (False, "2026-10-03T12:00:00.000000000Z"),       # it stopped
             (True, "2026-10-03T12:00:08.500000000Z"),        # it runs again, a new start
             (True, "2026-10-03T12:00:08.500000000Z")])
-        self.assertEqual(found, [["kafka", "2026-10-03T12:00:00.000000001Z", "starting"],
-                                 ["kafka", "2026-10-03T12:00:01.000000000Z", "crashed"],
-                                 {"service": "kafka", "timestamp": "2026-10-03T12:00:08.500000000Z"},
-                                 ["kafka", "2026-10-03T12:00:09.000000000Z", "starting again"]])
+        self.assertEqual(found, [["kazoo", "2026-10-03T12:00:00.000000001Z", "starting"],
+                                 ["kazoo", "2026-10-03T12:00:01.000000000Z", "crashed"],
+                                 {"service": "kazoo", "timestamp": "2026-10-03T12:00:08.500000000Z"},
+                                 ["kazoo", "2026-10-03T12:00:09.000000000Z", "starting again"]])
         # The last line read is not sent twice; what Docker says itself is not a line of the container
-        self.assertEqual(spawned[:2], [["docker", "logs", "-f", "--timestamps", "--tail", "300", "gio-kafka"],
+        self.assertEqual(spawned[:2], [["docker", "logs", "-f", "--timestamps", "--tail", "300", "gio-kazoo"],
                                        ["docker", "logs", "-f", "--timestamps", "--since",
-                                        "2026-10-03T12:00:01.000000000Z", "gio-kafka"]])
+                                        "2026-10-03T12:00:01.000000000Z", "gio-kazoo"]])
 
     def test_followed_again_without_a_mark_when_it_did_not_start_again(self):
         found, spawned = self.follow([["2026-10-03T12:00:00.000000001Z a"], []], [
             (True, "2026-10-03T12:00:00.000000000Z"), (True, "2026-10-03T12:00:00.000000000Z"),
             (True, "2026-10-03T12:00:00.000000000Z")])
-        self.assertEqual((found, len(spawned)), ([["kafka", "2026-10-03T12:00:00.000000001Z", "a"]], 3))
+        self.assertEqual((found, len(spawned)), ([["kazoo", "2026-10-03T12:00:00.000000001Z", "a"]], 3))
 
     def test_a_time_as_a_log_line_writes_it(self):
         for when, stamp in (("2026-10-03T12:44:35.3299Z", "2026-10-03T12:44:35.329900000Z"),
@@ -905,7 +905,7 @@ class Logs(Case):
         self.patch(api, "send_batches", until_spawned)
 
         class Request:
-            query = {"services": "kafka"}
+            query = {"services": "kazoo"}
 
             def sse_start(self):
                 pass
@@ -915,7 +915,7 @@ class Logs(Case):
 
     def test_a_start_again_is_its_own_event_after_the_lines_before_it(self):
         sent, lines = [], queue.Queue()
-        for item in (["kafka", "t1", "a"], {"service": "kafka", "timestamp": "t2"}, ["kafka", "t3", "b"]):
+        for item in (["kazoo", "t1", "a"], {"service": "kazoo", "timestamp": "t2"}, ["kazoo", "t3", "b"]):
             lines.put(item)
 
         class Request:
@@ -925,8 +925,8 @@ class Logs(Case):
                     raise BrokenPipeError   # the page closed the stream
         with self.assertRaises(BrokenPipeError):
             api.send_batches(Request(), lines)
-        self.assertEqual(sent, [(None, [["kafka", "t1", "a"]]), ("restarted", {"service": "kafka", "timestamp": "t2"}),
-                                (None, [["kafka", "t3", "b"]])])
+        self.assertEqual(sent, [(None, [["kazoo", "t1", "a"]]), ("restarted", {"service": "kazoo", "timestamp": "t2"}),
+                                (None, [["kazoo", "t3", "b"]])])
 
 
 class Personal(LabUI):
@@ -943,10 +943,10 @@ class Personal(LabUI):
         for path, function, more, given in (
                 ("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"},
                  {"image": "traefik/whoami", "port": "8098"}),
-                ("/api/setups", "save_setup", {"addons": ["kafka"], "id": "local/mine"},
-                 {"addons": ["kafka"], "sid": "local/mine", "check_only": False}),
-                ("/api/playgrounds", "create_playground", {"setups": ["local/mine"], "addons": ["kafka"]},
-                 {"setups": ["local/mine"], "addons": ["kafka"]})):
+                ("/api/setups", "save_setup", {"addons": ["kazoo"], "id": "local/mine"},
+                 {"addons": ["kazoo"], "sid": "local/mine", "check_only": False}),
+                ("/api/playgrounds", "create_playground", {"setups": ["local/mine"], "addons": ["kazoo"]},
+                 {"setups": ["local/mine"], "addons": ["kazoo"]})):
             with self.subTest(path=path):
                 create = self.patch(api.personal, function, return_value=created)
                 status, _, body = self.request("POST", path, {**fields, **more})
@@ -957,7 +957,7 @@ class Personal(LabUI):
         self.assertEqual((status, json.loads(body)), (400, {"error": "Another playground has this name"}))
         # A setup's save asked first: what it would write again, nothing written
         save = self.patch(api.personal, "save_setup", return_value={"file": "f", "changes": ["c"]})
-        self.request("POST", "/api/setups", {**fields, "addons": ["kafka"], "id": "local/mine", "check": True})
+        self.request("POST", "/api/setups", {**fields, "addons": ["kazoo"], "id": "local/mine", "check": True})
         self.assertTrue(save.call_args.kwargs["check_only"])
 
     def test_the_create_routes_take_the_catalog_they_keep_the_item_in(self):
@@ -965,8 +965,8 @@ class Personal(LabUI):
         # writes the item there (and says `not_editable` for any other)
         fields = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
         for path, function, more in (("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"}),
-                                     ("/api/setups", "save_setup", {"addons": ["kafka"]}),
-                                     ("/api/playgrounds", "create_playground", {"setups": [], "addons": ["kafka"]})):
+                                     ("/api/setups", "save_setup", {"addons": ["kazoo"]}),
+                                     ("/api/playgrounds", "create_playground", {"setups": [], "addons": ["kazoo"]})):
             with self.subTest(path=path):
                 create = self.patch(api.personal, function, return_value={})
                 self.request("POST", path, {**fields, **more})
@@ -1047,7 +1047,7 @@ class Personal(LabUI):
         self.assertEqual(self.request("POST", "/api/playgrounds/welcome/containers/start")[0], 200)
         action.assert_called_once_with(PROJECT, "playground", "welcome", "start")
         # A setup has no container of its own; a verb other than start, stop and restart is no route
-        for path in ("/api/setups/observability/containers/start", "/api/addons/kafka/containers/rm"):
+        for path in ("/api/setups/observability/containers/start", "/api/addons/kazoo/containers/rm"):
             self.assertEqual(self.request("POST", path)[0], 404, path)
 
 
@@ -1459,8 +1459,8 @@ class GatewayRoutes(GatewayCase):
     def test_the_on_file_is_written_through_the_gate_of_a_unit_that_is_blocked_and_the_folders_of_its_binds_are_made_after(self):
         # Every other writer of the on file passes the map of the units that must not start and makes the folders a bind
         # names: the start of a gateway is one of them, its add-on may come from a catalog
-        self.project["addons"]["kafka"]["blocked"] = {"reasons": ["Publishes a port to the network"]}
-        self.project["addons"]["kafka"]["file"] = "addons/kafka/compose.yml"
+        self.project["addons"]["kazoo"]["blocked"] = {"reasons": ["Publishes a port to the network"]}
+        self.project["addons"]["kazoo"]["file"] = "addons/kazoo/compose.yml"
         calls = mock.Mock()
         calls.attach_mock(self.write, "write")
         calls.attach_mock(self.binds, "binds")
@@ -1468,7 +1468,7 @@ class GatewayRoutes(GatewayCase):
         self.run_steps()
         plan = layers.plan(self.project, self.state, self.running, "addon", "hybrid", "start", place=self.where)
         self.assertEqual(calls.mock_calls, [
-            mock.call.write(None, ["hybrid"], {}, {}, blocked={"addons/kafka/compose.yml": "Publishes a port to the network"},
+            mock.call.write(None, ["hybrid"], {}, {}, blocked={"addons/kazoo/compose.yml": "Publishes a port to the network"},
                             since=None),
             mock.call.binds(self.project, plan)], "the file first, then the folders, as a start writes them")
 
@@ -1521,9 +1521,9 @@ class GatewayRoutes(GatewayCase):
         self.swap.assert_not_called()
 
     def test_a_job_that_runs_keeps_the_gateway_from_starting_and_changes_nothing(self):
-        self.jobs.start.side_effect = RuntimeError("'Start Kafka' is still running")
+        self.jobs.start.side_effect = RuntimeError("'Start Kazoo' is still running")
         status, _, body = self.request("POST", f"{self.GATEWAY}/start", {})
-        self.assertEqual((status, json.loads(body)), (409, {"error": "'Start Kafka' is still running"}))
+        self.assertEqual((status, json.loads(body)), (409, {"error": "'Start Kazoo' is still running"}))
         self.swap.assert_not_called()   # the token is the job's to write: nothing was written
         self.write.assert_not_called()
 
@@ -1672,9 +1672,9 @@ class GatewayDeletes(GatewayCase):
 
     def test_a_job_that_runs_is_waited_for_before_anything_changes(self):
         self.on()
-        self.jobs.current = types.SimpleNamespace(title="Start Kafka", done=False)
+        self.jobs.current = types.SimpleNamespace(title="Start Kazoo", done=False)
         status, _, body = self.request("POST", f"{self.GATEWAY}/delete", {})
-        self.assertEqual((status, json.loads(body)), (409, {"error": "'Start Kafka' is still running"}))
+        self.assertEqual((status, json.loads(body)), (409, {"error": "'Start Kazoo' is still running"}))
         self.delete.assert_not_called()
 
     def test_an_on_file_with_the_users_own_changes_keeps_the_gateway_from_being_deleted(self):
@@ -1844,13 +1844,13 @@ class StartsAreVerified(GatewayCase):
 class JobRoutes(LabUI):
     def setUp(self):
         super().setUp()
-        self.job = Job("Start Kafka", [])
+        self.job = Job("Start Kazoo", [])
         jobs = Jobs()
         jobs.jobs.append(self.job)
         self.patch(api, "JOBS", jobs)
 
     def test_output_is_streamed_then_the_summary(self):
-        self.job.lines += ["$ docker compose up -d kafka", "Container gio-kafka  Started"]
+        self.job.lines += ["$ docker compose up -d kazoo", "Container gio-kazoo  Started"]
         self.job.done, self.job.ok = True, True
         status, headers, body = self.request("GET", f"/api/jobs/{self.job.id}")
         self.assertEqual((status, headers["Content-Type"]), (200, "text/event-stream"))
