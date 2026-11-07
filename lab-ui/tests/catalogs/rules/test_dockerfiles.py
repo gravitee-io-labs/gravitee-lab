@@ -2,7 +2,6 @@
 equals. The file is read as text: continued lines, here-documents, parser directives, `ONBUILD`, the `ARG` of a base
 image and the stages of the file. A line of a megabyte finishes in under 3 seconds of CPU."""
 
-import subprocess
 import unittest
 
 from lab_ui.catalogs.rules import context, dockerfiles
@@ -366,18 +365,9 @@ class Hostile(unittest.TestCase):
 class Calibration(unittest.TestCase):
     """The Dockerfiles of this checkout, the Lab's seeder: judged as a catalog's would be, they hold no error."""
 
-    def names(self):
-        try:
-            done = subprocess.run(["git", "ls-files", "-z"], cwd=support.ROOT, capture_output=True, timeout=60)
-        except (OSError, subprocess.SubprocessError):
-            done = None
-        if done is None or done.returncode != 0:
-            self.skipTest("this checkout is not a git work tree")
-        return [name for name in (each.decode() for each in done.stdout.split(b"\0") if each)
-                if name.rsplit("/", 1)[-1] == "Dockerfile" and "/tests/" not in name and not name.startswith(("lab-ui/", ".github/"))]
-
     def test_the_dockerfiles_of_the_engine_give_no_error(self):
-        names = self.names()
+        names = [name for name in support.tracked(self)
+                 if name.rsplit("/", 1)[-1] == "Dockerfile" and "/tests/" not in name and not name.startswith(("lab-ui/", ".github/"))]
         self.assertTrue(names)
         listing = support.ListTree.from_files({name: (support.ROOT / name).read_bytes() for name in names})
         out = dockerfiles.check(listing, context(listing))

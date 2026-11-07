@@ -16,7 +16,6 @@ from tests import Case
 from tests.data.standard import support
 
 
-
 def catalog(version="0.1.0", extra="") -> bytes:
     return ("# What the Lab reads\nx-gravitee-catalog:\n  schema: 1   # the format\n  id: acme-hub\n  name: \"Acme Hub\"\n"
             f"  version: {version}   # raised by make release\n  lab: 1\n{extra}\n# the end\n").encode("utf-8")

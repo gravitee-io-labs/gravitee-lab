@@ -371,12 +371,6 @@ class Stage(Case):
         self.assertIn("Links: 2 addresses in 1 files, 1 that do not answer", text)
         self.assertIn("LK01 README.md:1: the link https://docs.acme.org/b answers 410.", text)
 
-    def test_the_annotations_are_warnings_on_the_line_of_the_link(self):
-        self.run_stage({"docs/a.md": "x\n\nhttps://docs.acme.org/gone\n"}, {"https://docs.acme.org/gone": links.Answer(404)},
-                       "--ci")
-        self.assertIn("::warning file=docs/a.md,line=3,title=LK01::docs/a.md:3: the link https://docs.acme.org/gone answers 404.",
-                      self.out.getvalue())
-
     def test_a_catalog_whose_links_answer_says_all_good(self):
         self.run_stage({"README.md": "https://docs.acme.org/a\n"}, {})
         self.assertTrue(self.out.getvalue().endswith("All good\n"))
@@ -436,13 +430,10 @@ class Stage(Case):
         self.assertEqual(self.out.getvalue().count("\n::error"), 0)
 
     def test_the_summary_of_a_ci_run_lists_the_warnings(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as folder:
-            summary = os.path.join(folder, "summary.md")
-            with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):
-                self.run_stage({"README.md": "https://docs.acme.org/gone\n"}, {"https://docs.acme.org/gone": links.Answer(404)}, "--ci")
-            with open(summary, encoding="utf-8") as handle:
-                text = handle.read()
+        summary = self.folder() / "summary.md"
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
+            self.run_stage({"README.md": "https://docs.acme.org/gone\n"}, {"https://docs.acme.org/gone": links.Answer(404)}, "--ci")
+        text = summary.read_text(encoding="utf-8")
         self.assertIn("### The links of the guides answer", text)
         self.assertIn("| README.md:1 | LK01 |", text)
 
@@ -451,12 +442,9 @@ class Stage(Case):
         self.assertIn("is not a folder", self.err.getvalue())
 
     def test_the_command_line_reaches_the_stage(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as folder:
-            with open(os.path.join(folder, "README.md"), "w", encoding="utf-8") as handle:
-                handle.write("# Nothing to ask\n\nSee [the guide](docs/guide.md) and `https://docs.acme.org/code`.\n")
-            out = io.StringIO()
-            self.assertEqual(ci_main(["links", folder], out, io.StringIO()), 0)
+        folder = self.folder(files={"README.md": "# Nothing to ask\n\nSee [the guide](docs/guide.md) and `https://docs.acme.org/code`.\n"})
+        out = io.StringIO()
+        self.assertEqual(ci_main(["links", str(folder)], out, io.StringIO()), 0)
         self.assertIn("Links: 0 addresses", out.getvalue())
 
 

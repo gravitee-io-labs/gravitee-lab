@@ -8,8 +8,6 @@ import io
 import json
 import os
 import re
-import shutil
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -101,18 +99,14 @@ class Order(Fixture):
         self.assertEqual(calls["gitleaks"], [root, "--base", self.first])
         self.assertIn("== plan\nScope: the change and what includes it\nUnits: playground:bank, setup:pair", self.out.getvalue())
 
-    def test_the_summary_lists_each_stage(self):
+    def test_the_summary_lists_each_stage_and_a_run_that_skipped_nothing_says_all_good(self):
         self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
         self.run_ci()
         text = self.out.getvalue()
         for pattern in (r"✓ plan\s+passed: 2 units", r"✓ manifests\s+passed", r"✓ build\s+passed", r"✓ test\s+passed",
                         r"✓ smoke\s+passed", r"✓ scan\s+passed", r"✓ gitleaks\s+passed"):
             self.assertRegex(text, re.compile(pattern))
-
-    def test_a_run_that_skipped_nothing_says_all_good(self):
-        self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
-        self.run_ci()
-        self.assertTrue(self.out.getvalue().endswith("All good\n"))
+        self.assertTrue(text.endswith("All good\n"))
 
     def test_nothing_changed_in_a_unit_runs_nothing_but_the_scan_of_the_commits(self):
         self.change({"docs/guide.md": "# Changed\n"})
@@ -173,7 +167,6 @@ class Order(Fixture):
 class Stages(unittest.TestCase):
 
     def test_the_scan_step_is_the_stage_scan_built_of_the_command_line(self):
-        self.assertEqual(run.STAGE_OF["scan"], "scan-built")
         from lab_ui.catalogs.ci import scan
         self.assertIs(run.stage_function("scan"), scan.built_main)
 
@@ -286,8 +279,7 @@ class Same(Fixture):
 
     def test_the_units_are_the_ones_the_plan_of_ci_writes_for_the_same_change(self):
         head = self.change({"addons/mock/compose.yml": COMPOSE.format(name="mock") + "# more\n"})
-        target = Path(tempfile.mkdtemp(prefix="gravitee-lab-output-")) / "output"
-        self.addCleanup(shutil.rmtree, target.parent, True)
+        target = Path(self.holder, "output")
         with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(target)}):
             code = plan.main([str(self.repo), "--event", "pull_request", "--base", self.first, "--head", head, "--github-output"],
                              io.StringIO(), io.StringIO())

@@ -359,13 +359,10 @@ class Images(Fixture):
         self.assertNotIn("created", text)
 
     def test_the_summary_of_a_ci_run_holds_the_notes(self):
-        with tempfile.TemporaryDirectory() as folder:
-            summary = os.path.join(folder, "summary.md")
-            with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):
-                self.run_stage("v1.0.0", "--ci")
-            with open(summary, encoding="utf-8") as handle:
-                text = handle.read()
-        self.assertTrue(text.startswith("### Release notes\n\n## Acme Hub 1.0.0\n"))
+        summary = self.holder / "summary.md"
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
+            self.run_stage("v1.0.0", "--ci")
+        self.assertTrue(summary.read_text(encoding="utf-8").startswith("### Release notes\n\n## Acme Hub 1.0.0\n"))
 
     def test_the_notes_replace_a_link_at_their_name_and_do_not_follow_it(self):
         elsewhere = self.holder / "elsewhere.txt"

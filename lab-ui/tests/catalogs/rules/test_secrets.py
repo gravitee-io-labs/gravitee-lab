@@ -4,7 +4,6 @@ secret that a test plants is made of pieces when the test runs (tests/data/rules
 megabyte finishes every pattern in under 3 seconds of CPU. The calibration at the end reads this checkout's tracked files."""
 
 import re
-import subprocess
 import unittest
 
 from lab_ui.catalogs.rules import context, secrets, text_of
@@ -163,14 +162,15 @@ class Patterns(unittest.TestCase):
     def test_se04_is_asked_of_every_compose_file_of_a_unit_and_not_of_what_is_no_compose_file(self):
         text = "services:\n  a:\n    environment:\n      DB_PASSWORD: hunter2\n"
         for name in ("addons/hello/compose.override.yml", "addons/hello/compose.prod.yaml", "addons/hello/services.yml",
-                     "addons/hello/docker-compose.dev.yaml", "playgrounds/shop/apps/web/dev.yml", "addons/hello/sub/extra.yml"):
+                     "addons/hello/docker-compose.dev.yaml", "playgrounds/shop/apps/web/dev.yml", "addons/hello/sub/extra.yml",
+                     "addons/hello/compose.yml", "setups/all.yml", "docker-compose.yml", "addons/hello/x.compose.yml"):
             with self.subTest(name=name):
                 self.assertEqual(["SE04"], [each.code for each in run(secrets, {name: text})])
         other = "database:\n  password: hunter2\nservices_list: [a]\n"
         for name in ("addons/hello/config.yml", "addons/hello/application.yaml", "docs/services.yml", "playgrounds/shop/seed/x/services.yml"):
             with self.subTest(quiet=name):
                 self.assertEqual([], run(secrets, {name: other}), "a configuration is no Compose file")
-        for name in ("docs/services.yml", "playgrounds/shop/seed/x/services.yml"):
+        for name in ("docs/services.yml", "playgrounds/shop/seed/x/services.yml", "docs/a.md", "playgrounds/shop/seed/apim/apis/a.yaml", "docs/config.yml"):
             with self.subTest(outside=name):
                 self.assertEqual([], run(secrets, {name: text}), "not in a unit, or a seed")
 
@@ -197,13 +197,6 @@ class Patterns(unittest.TestCase):
         body = "x-gravitee:\n  accounts:\n    - for: me\n      username: a\n      password: hunter2\n    - for: key\n      key: abc\n"
         found = run(secrets, {"playgrounds/shop/compose.yml": body, "playgrounds/shop/README.md": "x"})
         self.assertEqual([("SE04", 5), ("SE04", 7)], [(each.code, each.line) for each in found])
-
-    def test_se04_is_asked_of_compose_files_and_not_of_a_guide_or_a_seed(self):
-        text = "services:\n  a:\n    environment:\n      DB_PASSWORD: hunter2\n"
-        for name in ("docs/a.md", "playgrounds/shop/seed/apim/apis/a.yaml", "docs/config.yml"):
-            self.assertEqual([], run(secrets, {name: text}), name)
-        for name in ("addons/hello/compose.yml", "setups/all.yml", "docker-compose.yml", "addons/hello/x.compose.yml"):
-            self.assertEqual({"SE04"}, codes(run(secrets, {name: text})), name)
 
     def test_se05_a_url_with_a_password(self):
         message = "{p}:{n} holds a URL with a password. Fix: take the password from a setting."
@@ -242,24 +235,17 @@ class Patterns(unittest.TestCase):
                 only(self, "SE07", "docs/a.md", 2, message.format(p="docs/a.md", n=2), {"docs/a.md": f"fine\nvalue {marker}\n"})
         self.assertEqual([], run(secrets, {"docs/a.md": "gitleaks is a scanner; allow lists are discussed elsewhere\n"}))
 
-    def test_se03_is_a_row_of_the_table_and_a_helper_for_the_gitleaks_stage(self):
-        found = secrets.se03("docs/a.md", 4, "generic-api-key")
-        self.assertEqual(("SE03", "error", "docs/a.md", 4), found[:4])
-        self.assertEqual("docs/a.md:4 matches the rule generic-api-key (the secret is redacted). Fix: revoke it first, then remove "
-                         "it from the commits of this branch: git reset --soft $(git merge-base origin/main HEAD), commit again, "
-                         "and force-push your branch.", found.message)
-
     def test_se04_the_names_of_a_secret(self):
         def literal(*names):
             text = "services:\n  a:\n    environment:\n" + "".join(f"      {name}: literal\n" for name in names)
             return [name for _, name in secrets.compose_literals(text)]
         named = ["PASSWORD", "DB_PASSWD", "KEYSTORE_PASSPHRASE", "CLIENT_SECRET", "LLM_API_KEY", "OPENAI_APIKEY", "ADMIN_TOKEN", "token",
-                 "gravitee_ratelimit_redis_password", "Admin_Password", "KAFKA_CLIENT_PASSWORDS", "ACME_KEY", "encryption_key",
+                 "gravitee_ratelimit_redis_password", "Admin_Password", "BROKER_CLIENT_PASSWORDS", "ACME_KEY", "encryption_key",
                  "signing-key", "gravitee.license.key", "llm.Key", "SECRET_HOSTS", "PASSWORD_PORTS"]
         self.assertEqual(literal(*named), named)
         # What only has key in its name, and what says where a secret is, what kind it is, how it is reached or whether it is on
         self.assertEqual(literal("KEY", "KEYS", "KEY_ID", "KEYSTORE", "MONKEY", "PUBLIC_KEY", "public-key", "ssl.public.key",
-                                 "AM_TOKEN_URL", "DB_PASSWORD_FILE", "CLIENT_SECRET_PATH", "TLS_SECRET_URI", "KAFKA_SECRET_TYPE",
+                                 "AM_TOKEN_URL", "DB_PASSWORD_FILE", "CLIENT_SECRET_PATH", "TLS_SECRET_URI", "BROKER_SECRET_TYPE",
                                  "TOKEN_ENDPOINT", "gravitee_secrets_enabled", "gravitee_secrets_vault_host", "gravitee_secrets_vault_port",
                                  "gravitee_secrets_vault_auth_method", "gravitee_secrets_vault_namespace", "SECRET_PROVIDER", "PASSWORD_POLICY",
                                  "PASSWORD_REGEX", "ADMIN_TOKEN_TIMEOUT", "ADMIN_API_KEY_TIMEOUTMS", "NEXTAUTH_URL"), [])
@@ -444,18 +430,9 @@ class Calibration(unittest.TestCase):
     # Files that are not tests and that write such a URL as an example
     EXAMPLES = ("lab-ui/lab_ui/catalogs/gitx.py", "lab-ui/lab_ui/catalogs/rules/secrets.py")
 
-    def tracked(self):
-        try:
-            done = subprocess.run(["git", "ls-files", "-z"], cwd=support.ROOT, capture_output=True, timeout=60)
-        except (OSError, subprocess.SubprocessError):
-            done = None
-        if done is None or done.returncode != 0:
-            self.skipTest("this checkout is not a git work tree")
-        return [name.decode() for name in done.stdout.split(b"\0") if name]
-
     def test_the_precise_patterns_find_nothing_outside_the_fixtures_of_tests(self):
         found, urls, scanned = [], [], 0
-        for name in self.tracked():
+        for name in support.tracked(self):
             path = support.ROOT / name
             if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
                 continue

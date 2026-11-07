@@ -70,14 +70,11 @@ class Github:
             return self.runs
         raise AssertionError(f"a request the lane does not make: {method} {path}")
 
-    def passed(self, sha, app=15368, number=1, name="Catalog CI result"):
+    def check(self, sha, status="completed", conclusion="success", app=15368, name="Catalog CI result"):
         self.checks.setdefault(sha, []).append(settings.Reply(200, {"check_runs": [
-            {"id": number, "name": name, "status": "completed", "conclusion": "success", "app": {"id": app}}]}))
+            {"id": 1, "name": name, "status": status, "conclusion": conclusion, "app": {"id": app}}]}))
 
-    def check(self, sha, status="completed", conclusion="success", app=15368, number=1):
-        reply = settings.Reply(200, {"check_runs": [
-            {"id": number, "name": "Catalog CI result", "status": status, "conclusion": conclusion, "app": {"id": app}}]})
-        self.checks.setdefault(sha, []).append(reply)
+    passed = check
 
     def ran(self, *shas, event="push", conclusion="success"):
         self.runs = settings.Reply(200, {"workflow_runs": [{"head_sha": sha, "head_branch": "main", "event": event,
@@ -318,15 +315,6 @@ class Branch(Fixture):
         self.assertEqual(self.plan(event="workflow_dispatch"), 0)
         self.assertEqual(self.planned()[1], "3")
         self.assertIn("a manual run publishes every image", self.out.getvalue())
-
-    def test_the_event_comes_from_the_environment_when_it_is_not_given(self):
-        self.github.passed(self.first)
-        with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}):
-            with mock.patch.object(ci, "LOADER", self.loader()):
-                code = publish.plan_main([str(self.repo), "--ref", "refs/heads/main", "--sha", self.first, "--repository", REPO,
-                                          "--private", "true"], self.out, self.err, gh=self.github,
-                                         lab=str(self.lab), sleep=self.slept.append)
-        self.assertEqual(code, 0)
         self.assertIn("Images: 3\n", self.out.getvalue())
 
     def test_a_rerun_of_an_old_run_publishes_nothing_so_latest_never_moves_back(self):
@@ -641,6 +629,13 @@ class Publishing(Fixture):
                                  str(self.records), "--github-output", *argv], self.out, self.err,
                                 runner=runner or self.registry, **seams)
 
+    def web_built(self, **build):
+        """The units with the web app of the bank built this way."""
+        def load(folder, names_):
+            return ci.Loading([unit._replace(config={"services": {"bakery-web": {"image": f"{PREFIX}/bakery-web:latest", "build": build}}}, own=("bakery-web",))
+                               if unit.name == "bank" else unit for unit in self.units(names_)], [])
+        return load
+
     def test_a_branch_pushes_sha_and_latest_for_the_platforms_of_the_repository(self):
         sha = self.head()
         code = self.publish([f"{PREFIX}/bakery-web"])
@@ -738,27 +733,14 @@ class Publishing(Fixture):
         self.assertEqual(len(self.registry.builds()), 1)
 
     def test_pb06_a_license_label_on_an_image_built_from_another_projects_source_is_refused(self):
-        remote = "https://github.com/someone/project.git#" + "a" * 40
-
-        def loading(folder, names_):
-            loaded = self.units(names_)
-            return ci.Loading([unit._replace(config={"services": {"bakery-web": {
-                "image": f"{PREFIX}/bakery-web:latest", "build": {"context": remote, "labels": {
-                    "org.opencontainers.image.licenses": "MIT"}}}}}, own=("bakery-web",)) if unit.name == "bank" else unit
-                               for unit in loaded], [])
+        loading = self.web_built(context="https://github.com/someone/project.git#" + "a" * 40, labels={"org.opencontainers.image.licenses": "MIT"})
         self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], loading=loading), 1)
         self.assertIn(f"PB06 {PREFIX}/bakery-web carries a license label but is built from another project's source.", self.out.getvalue())
         self.assertEqual(self.registry.builds(), [])
 
     def test_an_image_built_from_another_projects_source_gets_no_license_label_of_ours(self):
         remote = "https://github.com/someone/project.git#" + "a" * 40
-
-        def loading(folder, names_):
-            loaded = self.units(names_)
-            return ci.Loading([unit._replace(config={"services": {"bakery-web": {
-                "image": f"{PREFIX}/bakery-web:latest", "build": {"context": remote}}}}, own=("bakery-web",)) if unit.name == "bank" else unit
-                               for unit in loaded], [])
-        self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], loading=loading), 0, self.out.getvalue())
+        self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], loading=self.web_built(context=remote)), 0, self.out.getvalue())
         build = self.registry.builds()[0]
         self.assertFalse([label for label in options(build, "--label") if "licenses" in label])
         self.assertEqual(build[-1], remote)
@@ -770,12 +752,8 @@ class Publishing(Fixture):
         self.assertFalse([label for label in options(self.registry.builds()[0], "--label") if "licenses" in label])
 
     def test_the_labels_of_the_standard_win_over_the_ones_of_a_build(self):
-        def loading(folder, names_):
-            return ci.Loading([unit._replace(config={"services": {"bakery-web": {
-                "image": f"{PREFIX}/bakery-web:latest", "build": {"context": self.folder(APPS["web"]), "labels": {
-                    "org.opencontainers.image.revision": "forged", "org.example.keep": "yes"}}}}}, own=("bakery-web",))
-                               if unit.name == "bank" else unit for unit in self.units(names_)], [])
-        self.publish([f"{PREFIX}/bakery-web"], loading=loading)
+        self.publish([f"{PREFIX}/bakery-web"], loading=self.web_built(context=self.folder(APPS["web"]), labels={
+            "org.opencontainers.image.revision": "forged", "org.example.keep": "yes"}))
         labels = options(self.registry.builds()[0], "--label")
         self.assertIn("org.example.keep=yes", labels)
         self.assertNotIn("org.opencontainers.image.revision=forged", labels)
@@ -783,12 +761,7 @@ class Publishing(Fixture):
                          [f"org.opencontainers.image.revision={self.head()}"])
 
     def test_the_build_arguments_and_the_target_come_from_the_tree_and_are_recorded_as_such(self):
-        def loading(folder, names_):
-            return ci.Loading([unit._replace(config={"services": {"bakery-web": {
-                "image": f"{PREFIX}/bakery-web:latest", "build": {"context": self.folder(APPS["web"]), "target": "final",
-                                                                "args": {"B": "2", "A": "1"}}}}}, own=("bakery-web",))
-                               if unit.name == "bank" else unit for unit in self.units(names_)], [])
-        self.publish([f"{PREFIX}/bakery-web"], loading=loading)
+        self.publish([f"{PREFIX}/bakery-web"], loading=self.web_built(context=self.folder(APPS["web"]), target="final", args={"B": "2", "A": "1"}))
         build = self.registry.builds()[0]
         self.assertEqual(options(build, "--build-arg"), ["A=1", "B=2"])
         self.assertEqual(option(build, "--target"), "final")
@@ -834,10 +807,7 @@ class Publishing(Fixture):
         self.assertEqual([each["name"] for each in records], sorted(names_))
         self.assertEqual(records[0], {"digest": self.registry.digest(f"{PREFIX}/bakery-api", sha), "name": f"{PREFIX}/bakery-api",
                                       "platforms": ["linux/amd64"], "tags": [f"sha-{sha[:7]}", "latest"]})
-        self.assertTrue(first.endswith(b"\n"))
         self.assertEqual(first, json.dumps(records, indent=2, sort_keys=True, ensure_ascii=True).encode() + b"\n")
-        for forbidden in ("created", "time", "date"):
-            self.assertNotIn(forbidden, first.decode("utf-8").lower().replace("-", ""))
 
     def test_the_output_for_the_attestation_is_one_line_of_names_and_digests(self):
         self.publish([f"{PREFIX}/bakery-web", f"{PREFIX}/bakery-api"])

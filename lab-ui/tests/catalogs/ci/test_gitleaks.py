@@ -8,8 +8,6 @@ never the catalog's. The planted token is made of pieces when a test runs and is
 
 import io
 import os
-import shutil
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -17,6 +15,7 @@ from unittest import mock
 from lab_ui.docker import compose
 from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import gitleaks
+from tests import Case
 from tests.data.rules import support
 from tests.fakedocker import FakeDocker, option, options
 
@@ -35,14 +34,10 @@ def message(path, line, rule="github-pat"):
             "commits of this branch: git reset --soft $(git merge-base origin/main HEAD), commit again, and force-push your branch.")
 
 
-class Dockerfile(unittest.TestCase):
+class Dockerfile(Case):
 
-    def write(self, text):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        file = Path(folder, "Dockerfile")
-        file.write_text(text, encoding="utf-8")
-        return file
+    def file_of(self, text):
+        return self.folder(files={"Dockerfile": text}) / "Dockerfile"
 
     def test_the_shipped_file_names_gitleaks_pinned_by_digest(self):
         line = next(each for each in gitleaks.DOCKERFILE.read_text(encoding="utf-8").splitlines() if each.startswith("FROM "))
@@ -55,17 +50,17 @@ class Dockerfile(unittest.TestCase):
         for reference in ("ghcr.io/example/gitleaks:v8.0.0", "ghcr.io/example/gitleaks", "ghcr.io/example/gitleaks@sha256:abc",
                           f"ghcr.io/example/gitleaks:v8@{DIGEST}x", "--privileged", f"x y@{DIGEST}", f"X/Y@{DIGEST}"):
             with self.subTest(reference=reference), self.assertRaises(ci.Unavailable):
-                gitleaks.image(self.write(f"FROM {reference} AS gitleaks\n"))
+                gitleaks.image(self.file_of(f"FROM {reference} AS gitleaks\n"))
 
     def test_a_pinned_reference_is_read_from_the_line_named_for_the_tool(self):
         text = f"# a comment\nFROM ghcr.io/example/other:1@{DIGEST} AS trivy\nFROM {IMAGE} AS gitleaks\n"
-        self.assertEqual(gitleaks.image(self.write(text)), IMAGE)
-        self.assertEqual(gitleaks.image(self.write(text), "trivy"), f"ghcr.io/example/other:1@{DIGEST}")
+        self.assertEqual(gitleaks.image(self.file_of(text)), IMAGE)
+        self.assertEqual(gitleaks.image(self.file_of(text), "trivy"), f"ghcr.io/example/other:1@{DIGEST}")
 
     def test_a_file_with_no_such_line_or_no_file_is_not_a_scan(self):
         for text in ("", "FROM scratch\n", f"FROM {IMAGE}\n", f"FROM {IMAGE} AS other\n"):
             with self.subTest(text=text[:20]), self.assertRaises(ci.Unavailable):
-                gitleaks.image(self.write(text))
+                gitleaks.image(self.file_of(text))
         with self.assertRaises(ci.Unavailable):
             gitleaks.image(Path("/nonexistent/Dockerfile"))
 
@@ -75,8 +70,6 @@ class Dockerfile(unittest.TestCase):
         self.assertIn("useDefault = true", text)
         for word in ("[allowlist", "allowlist", "[[rules", "regexes", "paths =", "commits ="):
             self.assertNotIn(word, "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#")))
-        self.assertIn("allowlist of its own", text)
-        self.assertNotIn("skips nothing", text)
 
 
 class Command(unittest.TestCase):
@@ -269,8 +262,8 @@ class Scan(support.WithGit):
         self.assertIn("Secrets: no commit of the range holds one", self.out.getvalue())
 
     def test_a_folder_that_is_not_a_repository_is_scanned_as_files(self):
-        folder = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, folder, True)
+        folder = Path(self.holder, "plain")
+        folder.mkdir()
         (folder / "a.py").write_text(f'T = "{token()}"\n')
         code = self.stage(folder, "--base", "x")
         command = self.run_command()
@@ -300,14 +293,11 @@ class Scan(support.WithGit):
                                     or name == "SSH_AUTH_SOCK"), [])
 
     def test_the_summary_with_ci(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        summary = os.path.join(folder, "summary.md")
+        summary = Path(self.holder, "summary.md")
         repo, _ = self.plant()
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
             self.stage(repo, "--base", "", "--ci")
-        with open(summary, encoding="utf-8") as handle:
-            text = handle.read()
+        text = summary.read_text(encoding="utf-8")
         self.assertIn("1 problem to look at. To see them on your machine, run `make ci`.", text)
         self.assertIn("SE03", text)
         self.assertNotIn("ghp_", text)

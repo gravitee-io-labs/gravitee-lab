@@ -150,17 +150,9 @@ class Matrix(Fixture):
 
     def test_the_pull_request_is_read_where_it_was_checked_out_and_not_where_main_is(self):
         self.clone({"addons/new-one/compose.yml": "services: {}\n"})
-        asked = []
-        original = self.loader()
-
-        def load(folder, names):
-            asked.append(folder)
-            return original(folder, names)
-        with mock.patch.object(ci, "LOADER", load), mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(self.output), "GITHUB_REF": MAIN}), \
-                mock.patch.object(paths, "default_ns", return_value="acme-hub"):
-            code = e2e.plan_main([str(self.repo), "--changed", "--change", str(self.change), "--sha", self.head, "--github-output"],
-                                 self.out, self.err)
-        self.assertEqual(code, 0)
+        asked, original = [], self.loader()
+        self.loader = lambda: lambda folder, names: asked.append(folder) or original(folder, names)
+        self.assertEqual(self.plan("--changed"), 0)
         self.assertEqual(asked, [str(self.change)])
         self.assertEqual([job["item"] for job in self.jobs()], ["addon:new-one"])
 
@@ -428,23 +420,14 @@ class Inputs(Fixture):
             self.assertIn("--change and --sha go together", self.err.getvalue())
 
     def test_e2e05_a_change_to_what_runs_as_code_is_not_tried(self):
-        for path in (".github/workflows/e2e.yml", ".github/actions/lab/action.yml", ".catalog/standard.mk", "Makefile", "catalog.yml"):
+        for number, path in enumerate((".github/workflows/e2e.yml", ".github/actions/lab/action.yml", ".catalog/standard.mk", "Makefile", "catalog.yml")):
             with self.subTest(path=path):
-                self.reset()
-                self.clone({path: "# changed\n" if path != "catalog.yml" else catalog_yml(extra="  license: MIT\n")})
+                self.clone({path: "# changed\n" if path != "catalog.yml" else catalog_yml(extra="  license: MIT\n")}, name=f"change-{number}")
                 self.out = io.StringIO()
                 self.assertEqual(self.plan("--changed"), 1)
                 self.assertIn(f"E2E05 The change touches {path}, which this workflow does not try. Fix: merge it first, a maintainer "
                               "reads it as code, then try the items.", self.out.getvalue())
                 self.assertEqual(self.outputs(), {})
-
-    def reset(self):
-        import shutil
-        if getattr(self, "change", None) and self.change.exists():
-            shutil.rmtree(self.change)
-        if self.output.exists():
-            self.output.unlink()
-        self.change = None
 
     def test_e2e05_says_every_path_it_refuses_up_to_five(self):
         self.clone({f".github/workflows/w{number}.yml": "x\n" for number in range(8)})

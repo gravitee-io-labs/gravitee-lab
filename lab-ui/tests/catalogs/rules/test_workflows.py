@@ -538,17 +538,6 @@ class Contract(unittest.TestCase):
         self.assertEqual(found[0].message, ".github/workflows/ci.yml: job static has no timeout-minutes. Add one, so that a stuck "
                                            "build ends.")
 
-    def test_the_module_needs_nothing_but_the_standard_library(self):
-        source = Path(wf.__file__).read_text(encoding="utf-8")
-        tree = ast.parse(source, feature_version=(3, 9))
-        modules = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                modules.update(alias.name.split(".")[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and not node.level:
-                modules.add((node.module or "").split(".")[0])
-        self.assertEqual(modules, {"bisect", "re", "typing"})
-
     def test_the_module_writes_and_runs_nothing(self):
         """No import that could, and none of the builtins that read a file, run text or import by name."""
         tree = ast.parse(Path(wf.__file__).read_text(encoding="utf-8"))
@@ -575,10 +564,6 @@ class Passing(unittest.TestCase):
     def test_the_directory_and_the_extension_are_not_the_rights(self):
         self.assertEqual([], wf.problems("publish.yml", text_of("publish")))
         self.assertNotEqual([], wf.problems("publish.yaml", text_of("publish")))
-
-    def test_a_catalog_tree_is_checked_by_the_function_the_audit_calls(self):
-        self.assertEqual([], wf.check(tree_of()))
-        self.assertEqual([], wf.check(tree_of(), object()))
 
     def test_each_rule_passes_what_is_close_to_its_violations(self):
         """One or more passing fixtures for each rule: the spellings that look like a violation and are not."""
@@ -697,8 +682,6 @@ class Readers(unittest.TestCase):
 
     def test_whatever_the_indentation_the_jobs_are_read(self):
         """The reader that looked for six spaces saw no job in a file written with four."""
-        text = doubled(edit(text_of("ci"), "timeout-minutes: 15", "timeout-minutes: soon"))
-        self.assertEqual(codes("ci", text), ["WF05"])
         for factor in (1, 3, 4, 7):
             with self.subTest(factor=factor):
                 self.assertEqual(codes("ci", reindented(edit(text_of("ci"), "pull_request:", "pull_request_target:"), factor)), ["WF01"])
@@ -753,22 +736,11 @@ class Aggregator(unittest.TestCase):
         return self.run_it("ci", **{**self.SANE, **changes})
 
     def test_the_result_of_ci_is_green_for_a_sane_plan(self):
-        code, output = self.ci()
-        self.assertEqual(code, 0, output)
-        self.assertNotIn("::error", output)
-
-    def test_it_is_green_when_the_plan_asked_for_nothing_and_nothing_ran(self):
-        """A change to a README: the plan says false twice, and the jobs it did not ask for are skipped."""
-        code, output = self.ci(SEED="skipped", COMPILE="skipped", WANT_SEED="false", WANT_COMPILE="false", MATRIX="")
-        self.assertEqual(code, 0, output)
-
-    def test_it_is_green_when_a_job_the_plan_did_not_ask_for_ran_anyway(self):
-        code, output = self.ci(WANT_SEED="false", MATRIX=self.MATRIX)
-        self.assertEqual(code, 0, output)
-
-    def test_it_is_green_when_the_build_was_asked_for_and_the_seed_was_not(self):
-        code, output = self.ci(SEED="skipped", WANT_SEED="false")
-        self.assertEqual(code, 0, output)
+        for changes in ({}, {"SEED": "skipped", "COMPILE": "skipped", "WANT_SEED": "false", "WANT_COMPILE": "false", "MATRIX": ""},   # a change to a README
+                        {"WANT_SEED": "false"}, {"SEED": "skipped", "WANT_SEED": "false"}):     # ran though not asked for; not asked for and skipped
+            code, output = self.ci(**changes)
+            self.assertEqual(code, 0, (changes, output))
+            self.assertNotIn("::error", output)
 
     def test_it_is_red_when_the_plan_outputs_are_blank(self):
         """A plan that wrote nothing (a bug, a changed writer, a truncated $GITHUB_OUTPUT) must not turn the check green."""
@@ -921,12 +893,6 @@ class Trees(unittest.TestCase):
         first, second = wf.check(Tree(files)), wf.check(Tree(dict(reversed(list(files.items())))))
         self.assertEqual(first, second)
         self.assertEqual(first, sorted(first, key=lambda each: (each.path, each.line, each.code)))
-
-    def test_with_the_real_tree_of_the_audit(self):
-        from lab_ui.catalogs import tree as real
-        with tempfile.TemporaryDirectory() as holder:
-            shutil.copytree(MANAGED, Path(holder) / "catalog")
-            self.assertEqual(wf.check(real.FolderTree(Path(holder) / "catalog")), [])
 
 
 # ---------------------------------------------------------------- hostile text

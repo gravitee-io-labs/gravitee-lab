@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.catalogs.ci import versions
+from tests import Case
 
 SET = {"APIM_VERSION": "4.12.25", "APIM_REGISTRY": "graviteeio"}
 JOB = {"item": "playground:shop", "versions": json.dumps(SET, sort_keys=True), "name": "Shop on APIM_VERSION 4.12.25"}
@@ -25,16 +26,16 @@ BUILT = {"playgrounds": {"shop": {"name": "Shop", "catalog": "acme", "tested": [
                                   "requires": {"images": {"APIM_VERSION": "4.12"}}}}}
 
 
-class Steps(unittest.TestCase):
+class Steps(Case):
     def setUp(self):
-        self.folder = Path(tempfile.mkdtemp())
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.folder = Path(holder.name)
         self.catalog = self.folder / "catalog"
         (self.catalog / "playgrounds" / "shop").mkdir(parents=True)
         self.compose = self.catalog / "playgrounds" / "shop" / "compose.yml"
         self.compose.write_text(FILE, encoding="utf-8")
-        found = mock.patch.object(versions, "_catalog", side_effect=lambda path: (Path(path).resolve(), "acme"))
-        found.start()
-        self.addCleanup(found.stop)
+        self.patch(versions, "_catalog", side_effect=lambda path: (Path(path).resolve(), "acme"))
 
     def result(self, name, item=JOB["item"], found=SET, code=0):
         path = self.folder / name

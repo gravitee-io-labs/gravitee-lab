@@ -6,8 +6,7 @@ what each outcome becomes, never that an image passes."""
 import io
 import os
 import re
-import shutil
-import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -15,6 +14,7 @@ from unittest import mock
 from lab_ui.catalogs.ci import apptests
 from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import apps
+from tests import Case
 from tests.fakedocker import FakeDocker, option
 from tests.catalogs.ci.test_build import Disk
 
@@ -47,7 +47,7 @@ def unnamed(command):
     return command[:at] + command[at + 2:]
 
 
-class Commands(unittest.TestCase):
+class Commands(Case):
 
     def test_a_run_has_a_name_of_its_own_right_after_rm_and_nothing_else_is_added(self):
         for command, plain in ((apptests.python_command("img", None, "lab-test-0123abcd"), apptests.python_command("img")),
@@ -84,9 +84,7 @@ class Commands(unittest.TestCase):
         self.assertEqual(apptests.node_image({"NODE_IMAGE": "node:99"}), "node:99")
 
     def test_no_pin_is_a_refusal_not_a_guess(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        file = Path(folder, "Makefile")
+        file = self.folder() / "Makefile"
         with self.assertRaises(apptests.Missing):
             apptests.node_image({}, file)
         file.write_text("PYTHON ?= python3\n")
@@ -96,15 +94,10 @@ class Commands(unittest.TestCase):
         self.assertEqual(apptests.node_image({}, file), "node:1@sha256:abc")
 
 
-class Files(unittest.TestCase):
+class Files(Case):
 
     def app(self, files):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        for path, text in files.items():
-            Path(folder, path).parent.mkdir(parents=True, exist_ok=True)
-            Path(folder, path).write_text(text)
-        return folder
+        return str(self.folder(files=files))
 
     def test_the_tests_an_app_has(self):
         for files, expected in (({"Dockerfile": ""}, (False, False)), ({"tests/__init__.py": "", "tests/test_a.py": ""}, (True, False)),
@@ -170,7 +163,6 @@ class Counting(unittest.TestCase):
         self.assertTrue(apptests.ran_none("Ran 3 tests in 0.1s\n\nOK\nRan 0 tests in 0.000s\n\nNO TESTS RAN\n"))
 
     def test_the_line_of_a_megabyte_that_looks_like_the_other_cause_is_read_in_a_second(self):
-        import time
         for text in ("python " * 150000 + "can't open file", "ImportError: Start directory is not importable" * 20000,
                      "python" * 170000 + ": can't open file"):
             start = time.process_time()
@@ -178,7 +170,6 @@ class Counting(unittest.TestCase):
             self.assertLess(time.process_time() - start, 1.0)
 
     def test_a_megabyte_of_output_is_read_in_a_second(self):
-        import time
         for text in ("FAILED (" + "failures=1, " * 90000 + ")", "x" * 1_000_000, "Ran " * 250000, ("✖ a\n" * 100000)):
             start = time.process_time()
             apptests.failures(text)
@@ -187,7 +178,7 @@ class Counting(unittest.TestCase):
             self.assertLess(time.process_time() - start, 1.5)
 
 
-class Runs(unittest.TestCase):
+class Runs(Case):
     """One app, with a runner that answers from a script."""
 
     def runner(self, answers):
@@ -202,12 +193,7 @@ class Runs(unittest.TestCase):
         return run
 
     def app(self, files):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        for path, text in files.items():
-            Path(folder, path).parent.mkdir(parents=True, exist_ok=True)
-            Path(folder, path).write_text(text)
-        return folder
+        return str(self.folder(files=files))
 
     def test_python_tests_that_pass(self):
         folder = self.app({"tests/test_a.py": ""})
@@ -344,15 +330,12 @@ class Stage(Disk):
         self.assertFalse(any("hunter2" in line for line in lines[:start] + lines[end + 1:]))
 
     def test_the_summary_has_a_table_and_the_tail_of_a_failure(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        summary = os.path.join(folder, "summary.md")
+        summary = os.path.join(self.make("summary"), "summary.md")
         a, b = self.with_tests("web"), self.app(name="api")
         self.fake.when("run", "--entrypoint", "example.test/lab/bakery-web:1.0", code=1, stderr=UNITTEST_FAILED)
         with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):
             self.stage({"bakery-web": self.service(context=a), "bakery-api": self.service("bakery-api", b)}, "--ci")
-        with open(summary, encoding="utf-8") as handle:
-            text = handle.read()
+        text = Path(summary).read_text(encoding="utf-8")
         self.assertIn("### Tests of the apps", text)
         self.assertRegex(text, r"\| `web` \| playground:bank \| failed \|  \| 3 failed \| \d+ s \|")
         self.assertRegex(text, r"\| `api` \| playground:bank \|  \|  \| no tests \|  \|")
@@ -424,9 +407,7 @@ class Stage(Disk):
             unnamed(call)   # (the name is one, and the rest is the flag set)
 
     def test_lines_of_megabytes_in_a_failed_test_leave_a_summary_and_an_output_of_a_few_kilobytes(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
-        summary = os.path.join(folder, "summary.md")
+        summary = os.path.join(self.make("summary"), "summary.md")
         context = self.with_tests("web")
         self.fake.when("run", "--entrypoint", code=1, stderr=("w" * 2_000_000 + "\n") * 3 + UNITTEST_FAILED)
         with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):

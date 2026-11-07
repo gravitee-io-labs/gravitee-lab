@@ -13,7 +13,6 @@ import json
 import os
 import shutil
 import socket
-import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
@@ -287,15 +286,11 @@ class Stage(Asking):
         self.assertEqual(self.registry.asked, [])
 
     def test_the_summary_is_written_with_ci(self):
-        import tempfile
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        summary = os.path.join(folder, "summary.md")
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):
+        summary = self.folder() / "summary.md"
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
             code, _ = self.run_stage("--ci")
         self.assertEqual(code, 1)
-        with open(summary, encoding="utf-8") as handle:
-            text = handle.read()
+        text = summary.read_text(encoding="utf-8")
         self.assertIn("MF01", text)
         self.assertIn("make ci", text)
 
@@ -311,10 +306,8 @@ class Stage(Asking):
                 self.assertEqual([line for line in self.err.getvalue().splitlines() if line.startswith("::")], [])
 
     def test_a_catalog_the_lab_cannot_read_is_exit_2(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
         with mock.patch.object(ci, "LOADER", mock.Mock(side_effect=ci.Unavailable("the Lab does not have this folder"))):
-            code = manifests.main([folder, "--units", '["addon:x"]'], self.out, self.err)
+            code = manifests.main([str(self.folder()), "--units", '["addon:x"]'], self.out, self.err)
         self.assertEqual(code, 2)
         self.assertIn("catalog.py ci: the Lab does not have this folder", self.err.getvalue())
 

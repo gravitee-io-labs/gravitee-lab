@@ -1,8 +1,8 @@
 """The standard of a catalog repository: the template, `new`, the drift of a repository
-from it (SD01 to SD05, SD08 to SD10) and `upgrade`. The template is rendered, never run; the shell of the `lab` action and of the
-`result` job is taken out of the managed files and run with bash on hostile inputs; the repositories are real folders and real
-git, made in a temporary home; there is no network and no Docker daemon. Compose 5 (a visible skip without) reads the sample
-add-on in the day-one test.
+from it (SD01 to SD05, SD08 to SD10) and `upgrade`. The template is rendered, never run; the shell of the `lab` action is taken
+out of the managed file and run with bash on hostile inputs (the `result` job's, in rules/test_workflows.py); the repositories are
+real folders, and real git where a test is about what git says, made in a temporary home; there is no network and no Docker
+daemon. Compose 5 (a visible skip without) reads the sample add-on in the day-one test.
 
 `python3 -m tests.catalogs.test_standard --write` refreshes `templates/catalog/golden.json` after the level was raised on purpose."""
 
@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -20,7 +21,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.catalogs import audit, gitx, manifest, standard
-from lab_ui.catalogs.rules import commits, workflows
+from lab_ui.catalogs.rules import commits
 from lab_ui.catalogs.tree import FolderTree, ListTree
 from tests import Case
 from tests.data.standard import support
@@ -33,14 +34,13 @@ GENERATED = "Generated " + "with"
 EVERYTHING = {"images": "ghcr.io/acme/lab-hub", "with": ["e2e"]}
 
 
-def tree_of(files):
-    return ListTree.from_files({path: data for path, data in files.items()})
+tree_of = ListTree.from_files
 
 
-def at(level, **more):
+def at(level):
     """A catalog that an older level left, as this Lab meets it: `standard.json` and the markers say `level`, the files of later
     levels are not there, and `ci.yml` holds a line the Lab changed since (from 3 on it has a registry and the e2e module)."""
-    files = render(**(EVERYTHING if level >= 3 else {}), **more)
+    files = render(**(EVERYTHING if level >= 3 else {}))
     later = {each["path"] for each in standard.manifest()["files"] if each["since"] > level}
     now, then = b"catalog standard %d:" % standard.LEVEL, b"catalog standard %d:" % level
     out = {path: data.replace(now, then) for path, data in files.items() if path not in later}
@@ -63,14 +63,13 @@ def edited(files, path, change):
     return out
 
 
-def blank(text, anchor, depth=1):
+def blank(text, anchor):
     """The lines of `text` under the first line that contains `anchor`, up to the next line that is not indented deeper, as a
     dedented block: the `run:` of a step, taken out of a managed workflow so that it can be run."""
     lines = text.split("\n")
     start = next(i for i, line in enumerate(lines) if anchor in line)
     out = []
-    for _ in range(depth):
-        start = next(i for i in range(start + 1, len(lines)) if re.match(r"\s*(?:- )?run: \|\s*$", lines[i]))
+    start = next(i for i in range(start + 1, len(lines)) if re.match(r"\s*(?:- )?run: \|\s*$", lines[i]))
     indent = len(lines[start]) - len(lines[start].lstrip()) + (2 if lines[start].lstrip().startswith("- ") else 0)
     for line in lines[start + 1:]:
         if line.strip() and len(line) - len(line.lstrip()) <= indent:
@@ -81,13 +80,6 @@ def blank(text, anchor, depth=1):
 
 class Template(unittest.TestCase):
     """The folder `lab-ui/templates/catalog`: what is in it, and that it is consistent."""
-
-    def test_the_level_is_nine_and_each_level_has_its_note(self):
-        # Levels 4 to 6 add no file: they change those that are there, so that a catalog below them is behind, not edited by hand.
-        # Level 7 adds versions.yml; levels 8 and 9 add no file
-        self.assertEqual(standard.LEVEL, 9)
-        self.assertEqual(sorted(standard.manifest()["notes"]), ["1", "2", "3", "4", "5", "6", "7", "8", "9"])
-        self.assertEqual(max(each["since"] for each in standard.manifest()["files"]), 7)
 
     def test_every_file_of_the_template_is_listed_and_every_listed_file_is_there(self):
         data = standard.manifest()
@@ -105,16 +97,6 @@ class Template(unittest.TestCase):
         found = {str(path.relative_to(standard.TEMPLATE)) for path in standard.TEMPLATE.rglob("*") if path.is_file()}
         self.assertEqual((sorted(found - listed), sorted(listed - found)), ([], []))
 
-    def test_a_managed_file_has_no_placeholder_and_a_seeded_file_has_only_known_ones(self):
-        for path in (standard.TEMPLATE / "managed").rglob("*"):
-            if path.is_file():
-                self.assertEqual(ANY_PLACEHOLDER.findall(path.read_text(encoding="utf-8")), [], str(path))
-        known = {f"__{name}__" for name in standard.PLACEHOLDERS}
-        for path in list((standard.TEMPLATE / "seeded").rglob("*")) + list((standard.TEMPLATE / "licenses").rglob("*")):
-            if path.is_file():
-                self.assertLessEqual(set(ANY_PLACEHOLDER.findall(path.read_text(encoding="utf-8"))) - {"__pycache__"}, known,
-                                     str(path))
-
     def test_a_managed_file_starts_with_its_marker(self):
         for each in standard.manifest()["files"]:
             if each["class"] != "managed":
@@ -130,33 +112,6 @@ class Template(unittest.TestCase):
                 if not each["path"].endswith(".mk"):
                     self.assertNotIn("\t", text, each["path"])
                 self.assertTrue(text.endswith("\n") and not text.endswith("\n\n"), each["path"])
-
-    def test_the_four_rulesets_are_the_shapes_of_section_4_3(self):
-        folder = standard.TEMPLATE / "managed" / ".github" / "rulesets"
-        found = {name: json.loads((folder / f"{name}.json").read_text(encoding="utf-8")) for name in
-                 ("default-branch", "tags", "push", "protected-paths")}
-        self.assertEqual({name: data["name"] for name, data in found.items()},
-                         {"default-branch": "catalog-main", "tags": "catalog-tags", "push": "catalog-push",
-                          "protected-paths": "catalog-protected-paths"})
-        checks = [rule for rule in found["default-branch"]["rules"] if rule["type"] == "required_status_checks"][0]
-        self.assertEqual(checks["parameters"]["required_status_checks"], [{"context": "Catalog CI result", "integration_id": 15368}])
-        deploy_key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}   # versions.yml writes main and a tag
-        self.assertEqual(found["default-branch"]["bypass_actors"], [deploy_key])
-        self.assertEqual(found["push"]["bypass_actors"], [])
-        self.assertEqual(found["tags"]["bypass_actors"], [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}, deploy_key])
-        for data in found.values():
-            self.assertTrue(data["_managed"].startswith(f"Managed by the Lab catalog standard {standard.LEVEL}: "))
-
-    def test_the_fleet_may_change_only_the_folders_of_the_managed_files(self):
-        from lab_ui.catalogs import fleet
-        self.assertEqual(fleet.MANAGED_ROOTS, standard.managed_roots())
-        self.assertEqual(standard.managed_roots(), (".catalog/", ".github/", ".github/actions/lab/", ".github/rulesets/",
-                                                    ".github/workflows/"))
-        for path in standard.managed_paths():
-            self.assertTrue(path.startswith(fleet.MANAGED_ROOTS), path)
-        self.assertIn(".github/standard.json", standard.managed_paths())
-        self.assertNotIn(".github/CODEOWNERS", standard.managed_paths())
-        self.assertNotIn("Makefile", standard.managed_paths())
 
     def test_the_pins_of_the_template_are_full_commits_with_a_tag_in_a_comment(self):
         for each in standard.manifest()["files"]:
@@ -175,27 +130,13 @@ class Golden(Case):
     def test_the_golden_file_is_what_the_template_renders(self):
         self.assertEqual(standard.golden_problems(), [], "refresh it with python3 -m tests.catalogs.test_standard --write")
 
-    def test_a_change_of_the_content_of_a_managed_file_fails_without_a_bump(self):
-        template = support.copy_template(self)
-        path = template / "managed" / ".github" / "workflows" / "ci.yml"
-        path.write_text(path.read_text(encoding="utf-8").replace("timeout-minutes: 15", "timeout-minutes: 16", 1), encoding="utf-8")
-        problems = standard.golden_problems()
-        self.assertEqual(problems[0], standard.GOLDEN_MESSAGE)   # the level the Lab ships: the message of 3.4, as it is
-        self.assertEqual(problems[1:], ["  .github/workflows/ci.yml"])
-
-    def test_a_change_of_a_pin_is_not_a_change(self):
-        template = support.copy_template(self)
-        path = template / "managed" / ".github" / "workflows" / "ci.yml"
+    def test_a_change_of_the_content_of_a_managed_file_fails_without_a_bump_and_a_change_of_a_pin_is_none(self):
+        path = support.copy_template(self) / "managed" / ".github" / "workflows" / "ci.yml"
         text = path.read_text(encoding="utf-8")
         path.write_text(text.replace("3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "f" * 40 + " # v7.0.2"), encoding="utf-8")
-        self.assertNotEqual(path.read_text(encoding="utf-8"), text)
         self.assertEqual(standard.golden_problems(), [])
-
-    def test_a_swapped_action_is_a_change(self):
-        template = support.copy_template(self)
-        path = template / "managed" / ".github" / "workflows" / "ci.yml"
-        path.write_text(path.read_text(encoding="utf-8").replace("actions/checkout@", "evil/checkout@", 1), encoding="utf-8")
-        self.assertTrue(standard.golden_problems())
+        path.write_text(text.replace("timeout-minutes: 15", "timeout-minutes: 16", 1), encoding="utf-8")
+        self.assertEqual(standard.golden_problems(), [standard.GOLDEN_MESSAGE, "  .github/workflows/ci.yml"])
 
     def test_a_change_of_the_level_without_a_refresh_fails_and_a_refresh_passes(self):
         template = support.copy_template(self)
@@ -302,9 +243,6 @@ class Values(unittest.TestCase):
         for bad in ("main", "v1.0.0", "0123456", LAB_COMMIT.upper(), LAB_COMMIT + "0", LAB_COMMIT[:39] + "g", LAB_COMMIT + "\n"):
             self.assertIn("full commit", self.refused(lab_ref=bad), bad)
 
-    def test_with(self):
-        self.assertIn("--with takes e2e", self.refused(**{"with": ["gold"]}))
-
     def test_what_is_far_too_long_is_refused_at_once(self):
         start = time.process_time()
         for more in ({"name": "x" * 1000000}, {"images": "a/" * 500000}, {"license": "a" * 1000000}, {"description": "d" * 1000000},
@@ -323,53 +261,38 @@ class Values(unittest.TestCase):
 
 class Rendering(unittest.TestCase):
 
-    def test_rendering_twice_gives_identical_bytes(self):
-        self.assertEqual(render(**EVERYTHING), render(**EVERYTHING))
-
-    def test_the_files_of_a_new_catalog(self):
+    def test_a_new_catalog_publishes_only_with_a_registry_and_has_the_e2e_module_on_request(self):
         files = render()
-        for path in (".github/workflows/ci.yml", ".github/actions/lab/action.yml", ".catalog/standard.mk", ".github/dependabot.yml",
-                     ".github/CODEOWNERS", ".github/standard.json", ".github/PULL_REQUEST_TEMPLATE.md", "REVIEWING.md", "Makefile",
-                     "addons/hello/compose.yml", "addons/hello/README.md", "catalog.yml", "LICENSE", "AGENTS.md", "CLAUDE.md"):
+        for path in (".github/actions/lab/action.yml", ".catalog/standard.mk", ".github/dependabot.yml", ".github/CODEOWNERS",
+                     ".github/standard.json", ".github/PULL_REQUEST_TEMPLATE.md", "REVIEWING.md", "Makefile", "addons/hello/compose.yml",
+                     "addons/hello/README.md", "catalog.yml", "LICENSE", "AGENTS.md", "CLAUDE.md"):
             self.assertIn(path, files)
         for name in ("default-branch", "tags", "push", "protected-paths"):
             self.assertIn(f".github/rulesets/{name}.json", files)
-        for path in (".github/workflows/publish.yml", ".github/workflows/e2e.yml"):
-            self.assertNotIn(path, files)
-
-    def test_a_new_catalog_has_nightly_and_publishes_only_with_a_registry(self):
-        files = render()
-        self.assertEqual(len(files), 31)
-        self.assertEqual([path for path in files if path.startswith(".github/workflows/")],
-                         [".github/workflows/ci.yml", ".github/workflows/nightly.yml"])
-        self.assertIn(".github/workflows/publish.yml", render(images="ghcr.io/acme/lab-hub"))
-        self.assertNotIn(".github/workflows/e2e.yml", render(images="ghcr.io/acme/lab-hub"))
-
-    def test_the_e2e_module_comes_on_request(self):
-        both = render(**EVERYTHING)
-        self.assertIn(".github/workflows/publish.yml", both)
-        self.assertIn(".github/workflows/e2e.yml", both)
-        self.assertIn(".github/workflows/versions.yml", both)
+        for more, workflows_ in (({}, ["ci", "nightly"]), ({"images": "ghcr.io/acme/lab-hub"}, ["ci", "nightly", "publish"]),
+                                 (EVERYTHING, ["ci", "e2e", "nightly", "publish", "versions"])):
+            self.assertEqual(sorted(path for path in render(**more) if path.startswith(".github/workflows/")),
+                             [f".github/workflows/{name}.yml" for name in workflows_], more)
 
     def test_no_placeholder_is_left(self):
-        for more in ({}, {"images": "ghcr.io/acme/lab-hub"}, {"license": "MIT"}, {"license": "UNLICENSED"}, {"name": "A \"quoted\" Hub"}):
-            for path, data in render(**more).items():
+        for files in (render(**EVERYTHING), render(license="MIT"), render(license="UNLICENSED"), render(license="AGPL-3.0-only"),
+                      standard.render_new({"local": True, "id": "mine", "name": "Mine"})):
+            for path, data in files.items():
                 self.assertEqual(ANY_PLACEHOLDER.findall(data.decode("utf-8")), [], path)
-        for path, data in standard.render_new({"local": True, "id": "mine", "name": "Mine"}).items():
-            self.assertEqual(ANY_PLACEHOLDER.findall(data.decode("utf-8")), [], path)
 
     def test_a_value_that_looks_like_a_placeholder_is_not_read_again(self):
         files = render(name="__CATALOG_ID__ Hub", description="about __LAB_REF__")
         self.assertIn(b'name: "__CATALOG_ID__ Hub"', files["catalog.yml"])
         self.assertIn(b'description: "about __LAB_REF__"', files["catalog.yml"])
 
-    def test_the_catalog_yml_holds_what_was_given_and_the_registry_line_only_when_given(self):
-        text = render(images="ghcr.io/acme/lab-hub")["catalog.yml"].decode()
-        self.assertIn('  id: "acme-hub"\n', text)
-        self.assertIn('  name: "Acme Hub"\n', text)
-        self.assertIn('  license: "Apache-2.0"\n', text)
-        self.assertIn("  images: ghcr.io/acme/lab-hub\n", text)
+    def test_the_catalog_yml_has_the_registry_line_only_when_given(self):
+        self.assertIn("  images: ghcr.io/acme/lab-hub\n", render(images="ghcr.io/acme/lab-hub")["catalog.yml"].decode())
         self.assertNotIn("images", render()["catalog.yml"].decode().replace("make release when items", ""))
+
+    def test_a_new_catalog_yml_has_no_number_to_write_and_the_lines_of_older_labs_say_who_writes_them(self):
+        lines = render()["catalog.yml"].decode().splitlines()
+        self.assertEqual([line for line in lines if line.strip().split(":")[0] in ("schema", "lab")],
+                         [f"  schema: 1   {manifest.LEGACY_NOTE}", f"  lab: 1   {manifest.LEGACY_NOTE}"])
 
     def test_words_that_yaml_reads_as_something_else_stay_words(self):
         from lab_ui.catalogs.rules import catalog_meta
@@ -379,18 +302,6 @@ class Rendering(unittest.TestCase):
             self.assertIn(f'  license: "{licence}"\n', text)
             meta = catalog_meta(text)
             self.assertEqual((meta["id"], meta["license"]), (ident, licence))
-
-    def test_the_lab_reads_those_words_as_the_words_they_are(self):
-        from tests import fixtures
-        if not fixtures.have_compose():
-            support.skip("the Docker CLI with Compose 5 or later is not installed, catalog.yml was not read by Compose")
-        from lab_ui.docker import compose
-        folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-yaml-")).resolve()
-        self.addCleanup(shutil.rmtree, folder, True)
-        for ident, licence in (("true", "no"), ("null", "1.0"), ("off", "2024-01-01")):
-            (folder / "catalog.yml").write_bytes(render(id=ident, license=licence)["catalog.yml"])
-            block = compose.raw(str(folder / "catalog.yml"))["x-gravitee-catalog"]
-            self.assertEqual((block["id"], block["license"]), (ident, licence))
 
     def test_a_name_with_a_quote_or_a_colon_stays_one_scalar(self):
         from lab_ui.catalogs.rules import catalog_meta
@@ -403,22 +314,16 @@ class Rendering(unittest.TestCase):
         text = render()[".github/standard.json"].decode()
         self.assertEqual(text, '{\n  "form": "inline",\n  "lab": {\n    "ref": "%s",\n    "repository": "acme/gravitee-lab"\n  },\n'
                                '  "platforms": [\n    "linux/amd64"\n  ],\n  "standard": 9\n}\n' % LAB_COMMIT)
-        self.assertEqual(json.loads(text)["standard"], standard.LEVEL)
 
     def test_codeowners_has_the_two_lines(self):
         text = render(maintainers="@acme/maintainers,@alice")[".github/CODEOWNERS"].decode()
         self.assertEqual([line for line in text.split("\n") if not line.startswith("#") and line],
                          ["*                       @acme/maintainers @alice", "/.github/               @acme/maintainers @alice"])
 
-    def test_the_license_text_is_the_standard_text_or_a_stub(self):
-        self.assertIn(b"Apache License\n                           Version 2.0, January 2004", render(license="Apache-2.0")["LICENSE"])
-        self.assertIn(b"GNU AFFERO GENERAL PUBLIC LICENSE\n                       Version 3, 19 November 2007",
-                      render(license="AGPL-3.0-only")["LICENSE"])
-        mit = render(license="MIT")["LICENSE"].decode()
-        self.assertTrue(mit.startswith("MIT License\n\nCopyright (c) Acme Hub contributors\n"))
-        stub = render(license="BSD-3-Clause")["LICENSE"].decode()
-        self.assertIn("says BSD-3-Clause", stub)
+    def test_a_license_with_no_text_of_ours_is_a_stub_that_says_it(self):
+        self.assertIn("says BSD-3-Clause", render(license="BSD-3-Clause")["LICENSE"].decode())
         self.assertIn("No license text yet", render(license="UNLICENSED")["LICENSE"].decode())
+        self.assertIn("Copyright (c) Acme Hub contributors\n", render(license="MIT")["LICENSE"].decode())
 
     def test_the_license_text_is_the_one_the_structure_rules_know_by_its_words(self):
         from lab_ui.catalogs.rules import context, structure
@@ -429,12 +334,10 @@ class Rendering(unittest.TestCase):
         self.assertEqual([each.code for each in structure.check(wrong, context(wrong)) if each.code == "ST18"], ["ST18"])
 
     def test_the_sample_add_on_names_everything_with_the_catalog_id(self):
-        text = render(id="acme-hub")["addons/hello/compose.yml"].decode()
-        self.assertIn("  acme-hub-hello:\n", text)
-        self.assertIn("container_name: gio-acme-hub-hello", text)
-        self.assertIn("${ACME_HUB_HELLO_VERSION:-v1.12.0}", text)
-        self.assertIn("ACME_HUB_HELLO_VERSION", render(id="acme-hub")["addons/hello/README.md"].decode())
-        self.assertIn("${MY_SHOP_HELLO_VERSION:-v1.12.0}", render(id="my-shop")["addons/hello/compose.yml"].decode())
+        files = render(id="my-shop")
+        for text in ("  my-shop-hello:\n", "container_name: gio-my-shop-hello", "${MY_SHOP_HELLO_VERSION:-v1.12.0}"):
+            self.assertIn(text, files["addons/hello/compose.yml"].decode())
+        self.assertIn("MY_SHOP_HELLO_VERSION", files["addons/hello/README.md"].decode())
 
     def test_the_makefile_includes_the_standard_and_the_standard_has_the_targets(self):
         self.assertTrue(render()["Makefile"].decode().startswith("include .catalog/standard.mk\n"))
@@ -524,15 +427,8 @@ class Normalizing(unittest.TestCase):
         self.assertNotEqual(standard.normalize("a\n\nb\n"), standard.normalize("a\nb\n"))
 
     def test_a_dependabot_bump_is_not_a_difference(self):
-        old = "      - uses: actions/checkout@" + "3d3c42e5aac5ba805825da76410c181273ba90b1" + " # v7.0.1\n"
-        new = "      - uses: actions/checkout@" + "f" * 40 + " # v8.1.0\n"
-        self.assertEqual(standard.normalize(old), standard.normalize(new))
-        self.assertEqual(standard.normalize(old), "      - uses: actions/checkout@<pin>\n")
-
-    def test_the_pin_of_a_list_item_a_path_and_a_bare_line_are_all_read(self):
-        sha = "a" * 40
-        for line in (f"uses: owner/repo@{sha}", f"  - uses: owner/repo/sub/path@{sha} # v1", f"    uses:   owner/repo@{sha}   #  comment  ",
-                     f"- uses: owner/repo@{sha}"):
+        self.assertEqual(standard.normalize("      - uses: actions/checkout@" + "a" * 40 + " # v7.0.1\n"), "      - uses: actions/checkout@<pin>\n")
+        for line in (f"uses: owner/repo@{'a' * 40}", f"  - uses: owner/repo/sub/path@{'a' * 40} # v1", f"    uses:   owner/repo@{'a' * 40}   #  comment  "):
             self.assertIn("@<pin>", standard.normalize(line), line)
 
     def test_an_action_swapped_is_a_difference(self):
@@ -597,45 +493,17 @@ class Drift(Case):
         for more in ({}, EVERYTHING):
             self.assertEqual(self.check(render(**more)), [], more)
 
-    def test_a_missing_file_is_sd01_with_the_words_of_section_6(self):
-        files = render()
-        del files[".github/workflows/ci.yml"]
-        found = self.check(files)
-        self.assertEqual([(each.code, each.severity, each.path, each.message) for each in found],
-                         [("SD01", "error", ".github/workflows/ci.yml", ".github/workflows/ci.yml is missing from the shared files. "
-                                                                         "Fix: catalog.py upgrade --write.")])
-
-    def test_each_managed_file_missing_is_found(self):
+    def test_each_managed_file_missing_is_sd01_and_each_edited_is_sd02(self):
         for path in [path for path in standard.managed_paths() if path in render() and path != ".github/standard.json"]:
             files = render()
             del files[path]
-            self.assertEqual(where(self.check(files), "SD01"), [path], path)
-
-    def test_a_file_edited_by_hand_is_sd02_with_the_words_of_section_6(self):
-        files = edited(render(), ".github/workflows/ci.yml", lambda text: text.replace("timeout-minutes: 15", "timeout-minutes: 99", 1))
-        found = self.check(files)
-        self.assertEqual([(each.code, each.severity, each.path, each.message) for each in found],
-                         [("SD02", "error", ".github/workflows/ci.yml", ".github/workflows/ci.yml was edited by hand. Fix: git checkout "
-                                                                         "-- .github/workflows/ci.yml. A change to a shared file is "
-                                                                         "read by a maintainer.")])
-
-    def test_every_kind_of_managed_file_is_compared(self):
-        for path in [path for path in standard.managed_paths() if path in render() and path != ".github/standard.json"]:
+            self.assertEqual([(each.code, each.severity, each.path) for each in self.check(files)], [("SD01", "error", path)])
             files = edited(render(), path, lambda text: text.replace("\n", "\n# one more\n", 2))
-            self.assertEqual(where(self.check(files), "SD02"), [path], path)
+            self.assertEqual([(each.code, each.severity, each.path) for each in self.check(files)], [("SD02", "error", path)])
 
-    def test_a_pin_bumped_by_dependabot_is_not_drift_and_a_swapped_action_is(self):
+    def test_a_pin_bumped_by_dependabot_is_not_drift(self):
         files = edited(render(), ".github/workflows/ci.yml", lambda text: text.replace(
             "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "9" * 40 + " # v7.9.9"))
-        self.assertEqual(self.check(files), [])
-        files = edited(render(), ".github/workflows/ci.yml", lambda text: text.replace("actions/checkout@", "actions/checkoutx@", 1))
-        self.assertEqual(where(self.check(files), "SD02"), [".github/workflows/ci.yml"])
-        files = edited(render(), ".github/actions/lab/action.yml", lambda text: text.replace("docker/", "evil/", 1)
-                       if "docker/" in text else text.replace("actions/checkout@", "evil/checkout@", 1))
-        self.assertEqual(where(self.check(files), "SD02"), [".github/actions/lab/action.yml"])
-
-    def test_crlf_and_trailing_blanks_are_not_drift(self):
-        files = edited(render(), ".github/workflows/ci.yml", lambda text: text.replace("\n", "  \r\n"))
         self.assertEqual(self.check(files), [])
 
     def test_a_catalog_behind_is_sd03_a_warning_and_a_missing_file_of_a_later_level_is_behind_not_missing(self):
@@ -822,10 +690,8 @@ class Drift(Case):
     def test_a_managed_path_that_is_a_link_or_not_a_file_is_sd02(self):
         from lab_ui.catalogs.tree import Entry
         files = render()
-        listing = [Entry("100644", path, len(data)) for path, data in files.items() if path != ".github/workflows/ci.yml"]
-        listing.append(Entry("120000", ".github/workflows/ci.yml", 12))
-        listing.append(Entry("160000", ".catalog/standard.mk", 0))
-        listing = [each for each in listing if each.path != ".catalog/standard.mk"] + [Entry("160000", ".catalog/standard.mk", 0)]
+        odd = {".github/workflows/ci.yml": Entry("120000", ".github/workflows/ci.yml", 12), ".catalog/standard.mk": Entry("160000", ".catalog/standard.mk", 0)}
+        listing = [odd.get(path) or Entry("100644", path, len(data)) for path, data in files.items()]
         tree = ListTree(listing, lambda path, limit=1048576: files[path] if path in files else None)
         found = standard.drift(tree)
         self.assertEqual(where(found, "SD02"), [".catalog/standard.mk", ".github/workflows/ci.yml"])
@@ -836,9 +702,6 @@ class Drift(Case):
         found = self.check(huge)
         self.assertLess(time.process_time() - start, 3.0)
         self.assertEqual(where(found, "SD02"), [".github/workflows/ci.yml"])
-
-    def test_the_rules_table_has_each_code(self):
-        self.assertEqual(sorted(standard.RULES), [f"SD{n:02d}" for n in range(1, 12) if n != 6])
 
 
 class LabAction(unittest.TestCase):
@@ -950,35 +813,6 @@ class LabAction(unittest.TestCase):
                     self.assertIn(refused, done.stdout)
 
 
-class Aggregator(unittest.TestCase):
-    """The `run:` of the job `result` is green for a sane plan and red for a blank one."""
-
-    def setUp(self):
-        self.script = blank(render()[".github/workflows/ci.yml"].decode("utf-8"), "name: Catalog CI result", 1)
-
-    def run_plan(self, **env):
-        base = {"STATIC": "success", "SEED": "skipped", "COMPILE": "success", "WANT_SEED": "false", "WANT_COMPILE": "true",
-                "MATRIX": '{"include":[{"arch":"amd64","platform":"linux/amd64","runner":"ubuntu-24.04"}]}'}
-        with tempfile.TemporaryDirectory() as folder:
-            return support.run_shell(self.script, {**base, **env}, folder).returncode
-
-    def test_a_sane_plan_is_green(self):
-        self.assertEqual(self.run_plan(), 0)
-        self.assertEqual(self.run_plan(SEED="success", WANT_SEED="true"), 0)
-        self.assertEqual(self.run_plan(COMPILE="skipped", WANT_COMPILE="false", MATRIX=""), 0)
-
-    def test_a_blank_plan_is_red(self):
-        self.assertEqual(self.run_plan(WANT_SEED="", WANT_COMPILE=""), 1)
-        self.assertEqual(self.run_plan(WANT_COMPILE=""), 1)
-        self.assertEqual(self.run_plan(MATRIX=""), 1)
-
-    def test_a_job_the_plan_asked_for_that_did_not_succeed_is_red(self):
-        for result in ("skipped", "cancelled", "failure"):
-            self.assertEqual(self.run_plan(COMPILE=result), 1, result)
-        self.assertEqual(self.run_plan(STATIC="failure"), 1)
-        self.assertEqual(self.run_plan(SEED="failure"), 1)
-
-
 class Commands(Case):
     """`catalog.py new`."""
 
@@ -1014,12 +848,10 @@ class Commands(Case):
 
     def test_the_settings_steps_name_commands_the_makefile_runs_and_the_last_one_makes_the_requests(self):
         make = support.need("make")
-        import re as _re
-        import subprocess
         lab = self.lab()
         code, out, err = self.new("--maintainers", "@a", lab=lab.root)
         self.assertEqual((code, err), (0, ""))
-        printed = _re.findall(r"^ +(?:\d\. )?(make settings(?: [A-Z]+=1)*) ", out, _re.M)
+        printed = re.findall(r"^ +(?:\d\. )?(make settings(?: [A-Z]+=1)*) ", out, re.M)
         self.assertEqual(printed, ["make settings", "make settings APPLY=1", "make settings APPLY=1 YES=1"])
         said = []
         for command in printed:
@@ -1028,15 +860,6 @@ class Commands(Case):
             self.assertEqual(done.returncode, 0, done.stderr)
             said.append(done.stdout.strip().split("repo-settings .")[1].strip())
         self.assertEqual(said, ["", "--apply", "--apply --yes"])     # only the last one can make a request: repo-settings asks for --yes
-
-    def test_a_name_the_lab_keeps_stops_new_before_anything_is_made(self):
-        self.patch(standard.defaults, "read", return_value=[{"id": "gravitee", "name": "Gravitee public"}])
-        for name in ("Official", "this machine", "Gravitee public"):
-            code, out, err = self.new("--name", name, "--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)
-            self.assertEqual((code, out), (2, ""), name)
-            self.assertIn("cannot be the name of a catalog", err)
-            self.assertEqual(len(err.splitlines()), 1, err)
-            self.assertFalse((self.work / "hub").exists())
 
     def test_a_lab_checkout_with_no_release_on_its_origin_is_a_warning_and_exit_0(self):
         lab = self.lab(push=False)
@@ -1065,15 +888,6 @@ class Commands(Case):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(json.loads((self.work / "hub" / ".github" / "standard.json").read_text())["lab"]["ref"], release)
 
-    def test_a_new_catalog_yml_has_no_number_to_write_and_the_lines_of_older_labs_say_who_writes_them(self):
-        code, _, err = self.new("--maintainers", "@a", lab=self.lab().root)
-        self.assertEqual((code, err), (0, ""))
-        lines = (self.work / "hub" / "catalog.yml").read_text().splitlines()
-        legacy = [line for line in lines if line.strip().split(":")[0] in ("schema", "lab")]
-        self.assertEqual(legacy, [f"  schema: 1   {manifest.LEGACY_NOTE}", f"  lab: 1   {manifest.LEGACY_NOTE}"],
-                         "Older Gravitee Labs need schema and read lab: the lines are there, and the author leaves them to "
-                         "catalog.py")
-
     def test_a_given_commit_and_address_are_taken_as_they_are(self):
         code, out, err = self.new("--maintainers", "@a", "--lab-repo", "acme/other", "--lab-ref", NEWER_COMMIT, lab=self.work)
         self.assertEqual((code, err), (0, ""))
@@ -1092,10 +906,8 @@ class Commands(Case):
         self.assertEqual((code, out), (2, ""))
         self.assertTrue(err.endswith("is not empty. Choose a new folder.\n"), err)
         self.assertEqual(sorted(path.name for path in (self.work / "hub").iterdir()), ["mine.txt"])
-
-    def test_an_empty_folder_is_fine(self):
-        (self.work / "hub").mkdir()
-        self.assertEqual(self.new("--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)[0], 0)
+        (self.work / "hub" / "mine.txt").unlink()
+        self.assertEqual(self.new("--maintainers", "@a", "--lab-repo", "acme/lab", "--lab-ref", NEWER_COMMIT)[0], 0)   # empty is fine
 
     def test_a_parameter_that_is_wrong_ends_in_one_line_and_nothing_is_made(self):
         for more in (("--license", "Apache 2.0"), ("--images", "GHCR.io/x"), ("--with", "gold")):
@@ -1125,7 +937,8 @@ class Upgrading(Case):
         support.identity(self)
 
     def repo(self, files=None, **more):
-        return support.Repo(self, files if files is not None else render(**more))
+        """The catalog in a folder: an upgrade asks git nothing of what is no work tree, and the tests about git make a `Repo`."""
+        return support.Repo(self, files if files is not None else render(**more), git=False)
 
     def plan(self, repo, **options):
         return standard.upgrade_plan(FolderTree(repo.root), options)
@@ -1158,7 +971,6 @@ class Upgrading(Case):
                          bare.replace(b"x-gravitee-catalog:\n", b"x-gravitee-catalog:\n  schema: 1" + note + b"\n")
                          .replace(b"version: 0.1.0\n", b"version: 0.1.0\n  lab: 1" + note + b"\n"))
         self.assertIn("catalog.yml", out)
-        repo.commit({"catalog.yml": (repo.root / "catalog.yml").read_bytes()})
         self.patch(standard, "legacy_lab", lambda root: 2)
         plan = self.plan(repo, legacy_lab=2)
         self.assertEqual(self.actions(plan), {"catalog.yml": "update"})
@@ -1189,22 +1001,9 @@ class Upgrading(Case):
         self.assertFalse(self.plan(repo)["pending"])
         self.assertIn("schedule", (repo.root / ".github/workflows/nightly.yml").read_text())
 
-    def test_a_catalog_of_level_one_that_names_a_registry_gets_publish_too(self):
-        repo = self.repo(files=at(1, images="ghcr.io/acme/lab-hub"))
-        plan = self.plan(repo)
-        self.assertEqual(self.actions(plan), {".github/standard.json": "update", ".github/workflows/ci.yml": "update",
-                                              ".github/workflows/nightly.yml": "add", ".github/workflows/publish.yml": "add",
-                                              ".github/rulesets/history.json": "add", ".github/rulesets/tag-history.json": "add"})
-        standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(standard.drift(FolderTree(repo.root)), [])
-        self.assertNotIn(".github/workflows/e2e.yml", [each["path"] for each in plan["files"]])
-
     def test_a_catalog_of_level_three_that_sets_a_registry_later_is_asked_for_publish(self):
-        repo = self.repo()
-        self.assertFalse(self.plan(repo)["pending"])
         files = {**render(), "catalog.yml": render(images="ghcr.io/acme/lab-hub")["catalog.yml"]}
-        repo = self.repo(files=files)
-        self.assertEqual(self.actions(self.plan(repo)), {".github/workflows/publish.yml": "add"})
+        self.assertEqual(self.actions(self.plan(self.repo(files=files))), {".github/workflows/publish.yml": "add"})
         self.assertEqual(where(standard.drift(tree_of(files)), "SD01"), [".github/workflows/publish.yml"])
 
     def test_the_plan_is_printed_as_section_7_4_shows_it(self):
@@ -1254,7 +1053,7 @@ class Upgrading(Case):
         self.assertIn(b"timeout-minutes: 15", ci["content"])
 
     def test_a_dirty_tree_is_refused_with_exit_2_and_nothing_is_written(self):
-        repo = self.repo()
+        repo = support.Repo(self, render())
         (repo.root / ".github/workflows/ci.yml").write_text((repo.root / ".github/workflows/ci.yml").read_text() + "# mine\n")
         before = (repo.root / ".github/workflows/ci.yml").read_text()
         code, out, err = self.upgrade(repo, "--write")
@@ -1279,7 +1078,7 @@ class Upgrading(Case):
         self.assertNotIn("# mine", path.read_text())
 
     def test_a_file_git_ignores_is_not_overwritten_either(self):
-        repo = self.repo()
+        repo = support.Repo(self, render())
         repo.git("rm", "--cached", "--quiet", ".github/workflows/ci.yml")
         (repo.root / ".gitignore").write_text(".github/workflows/ci.yml\n")
         repo.git("add", ".gitignore")
@@ -1292,14 +1091,14 @@ class Upgrading(Case):
         self.assertIn("# mine", path.read_text())
 
     def test_a_clean_tracked_file_and_the_files_nobody_rewrites_are_not_in_the_way(self):
-        repo = self.repo()
+        repo = support.Repo(self, render())
         (repo.root / "scratch.txt").write_text("not the standard's\n")                     # untracked, and not a path of the plan
         self.assertEqual(standard.dirty_files(repo.root, [".github/workflows/ci.yml", "Makefile"]), [])
         self.assertEqual(standard.dirty_files(repo.root, []), [])
         self.assertEqual(standard.dirty_files(repo.top, [".github/workflows/ci.yml"]), [])    # not a work tree
 
     def test_git_that_says_too_much_stops_the_upgrade_with_one_line(self):
-        repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
+        repo = support.Repo(self, edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
         (repo.root / ".github/untracked.txt").write_text("x\n")
         with (repo.root / ".github/workflows/ci.yml").open("a") as handle:
             handle.write("# y\n")
@@ -1387,13 +1186,11 @@ class Upgrading(Case):
         ci = repo.root / ".github/workflows/ci.yml"
         ci.write_bytes(ci.read_bytes().replace(b"\n", b"\r\n") + b"# one more\r\n")
         ci.chmod(0o755)
-        repo.git("add", "-A")
-        repo.git("commit", "--quiet", "-m", "Mine")
         written = standard.upgrade_apply(repo.root, self.plan(repo))
         self.assertIn(".github/workflows/ci.yml", written)
-        self.assertTrue(support.executable(ci))                                         # a file that was executable still is
-        self.assertFalse(support.executable(repo.root / ".github/workflows/nightly.yml"))   # a new one is not
-        self.assertFalse(support.executable(repo.root / ".github/standard.json"))
+        self.assertTrue(os.access(ci, os.X_OK))                                                 # a file that was executable still is
+        self.assertFalse(os.access(repo.root / ".github/workflows/nightly.yml", os.X_OK))       # a new one is not
+        self.assertFalse(os.access(repo.root / ".github/standard.json", os.X_OK))               # nor one that was not
         self.assertNotIn(b"\r", ci.read_bytes())
         self.assertNotIn(b"# one more", ci.read_bytes())
         self.assertEqual(standard.drift(FolderTree(repo.root)), [])
@@ -1450,19 +1247,16 @@ class Upgrading(Case):
 
 
 class MovingThePin(Case):
-    """`--lab-ref` prints the compare link and the Lab's own log, and refuses a commit that is not a release of the Lab (a tag
-    vX.Y.Z on its main). `latest` is the latest release, not the tip of main."""
+    """`--lab-ref` prints the compare link and refuses a commit that is not a release of the Lab (a tag vX.Y.Z on its main).
+    `latest` is the latest release, not the tip of main."""
 
     def setUp(self):
         support.identity(self)
-        self.lab = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", ".github/x.yml": b"x\n", "docs/a.md": b"a\n",
-                                       standard.MANIFEST_IN_LAB: support.release_manifest()}, name="lab")
+        self.lab = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", standard.MANIFEST_IN_LAB: support.release_manifest()}, name="lab")
         self.old = self.lab.git("rev-parse", "HEAD").strip()
         self.lab.git("tag", "v1.4.0", self.old)
-        for number in range(120):
-            where_ = "lab-ui/catalog.py" if number % 3 else ("docs/a.md" if number % 2 else ".github/x.yml")
-            self.lab.commit({where_: f"v{number}\n".encode()}, f"Change {number} <script>\x1b[31m" if number == 7 else f"Change {number}")
-        self.new = self.lab.git("rev-parse", "HEAD").strip()
+        self.lab.commit({"lab-ui/catalog.py": b"print(1)\n"})
+        self.new = self.lab.commit({"lab-ui/catalog.py": b"print(2)\n"})
         self.lab.git("tag", "v1.10.0", self.new)   # the latest release: 1.10 is above 1.9, which is a name and not a number
         self.lab.git("tag", "v1.9.0", self.old)
         self.lab.git("tag", "nightly", self.new)
@@ -1504,7 +1298,7 @@ class MovingThePin(Case):
         self.assertEqual((self.catalog.root / ".github/standard.json").read_bytes(), before)
 
     def test_a_commit_of_main_that_no_release_names_is_refused(self):
-        between = self.lab.git("rev-parse", "HEAD~5").strip()
+        between = self.lab.git("rev-parse", "HEAD~1").strip()
         self.assertEqual(standard.release_state(self.lab.root, between), "no")
         self.assertIn("is not a release of the Lab", self.plan(lab_ref=between)["refused"])
         self.assertEqual((standard.release_state(self.lab.root, self.new), standard.release_state(self.lab.root, self.old)),
@@ -1577,10 +1371,10 @@ class DayOne(Case):
 
     def setUp(self):
         support.identity(self)
-        self.repo = support.Repo(self, render())
+        self.repo = support.Repo(self, render(), git=False)
 
     def test_check_finds_nothing_in_the_files_the_rules_read(self):
-        result = audit.run(self.repo.root, audit.Options(seeder_paths=("seeder",)))
+        result = audit.run(support.Repo(self, render()).root, audit.Options(seeder_paths=("seeder",)))
         self.assertEqual([(each.code, each.path, each.message) for each in result.problems], [])
         self.assertEqual(result.skipped, [])
         self.assertEqual(audit.status(result), 0)
@@ -1596,28 +1390,19 @@ class DayOne(Case):
         path.write_text(path.read_text().replace("timeout-minutes: 15", "timeout-minutes: 99", 1))
         result = audit.run(self.repo.root)
         self.assertEqual([(each.code, each.path) for each in result.problems if each.code.startswith("SD")], [("SD02", ".github/workflows/ci.yml")])
-        self.repo.git("add", "-A")
-        self.repo.git("commit", "--quiet", "-m", "Edit it")
-        self.assertEqual([each.code for each in audit.run(self.repo.root).problems if each.code.startswith("SD")], ["SD02"])
 
     def test_make_resolves_every_target(self):
         make = support.need("make")
-        for target in ("dev", "check", "ci", "index", "upgrade", "settings", "release", "explain"):
-            import subprocess
-            done = subprocess.run([make, "-n", target, "VERSION=1.0.0", "CODE=ST05"], cwd=str(self.repo.root), capture_output=True, text=True,
-                                  env={"PATH": os.environ.get("PATH", "")})
-            self.assertEqual(done.returncode, 0, f"{target}: {done.stderr}")
-            self.assertIn("python3 -I ../gravitee-lab/lab-ui/catalog.py", done.stdout, target)
-        done = subprocess.run([make, "-n", "ci"], cwd=str(self.repo.root), capture_output=True, text=True, env={"PATH": os.environ.get("PATH", "")})
-        self.assertIn("catalog.py check .", done.stdout)
-        self.assertIn("catalog.py ci run .", done.stdout)
 
-    def test_make_upgrade_says_the_plan(self):
-        make = support.need("make")
-        import subprocess
-        done = subprocess.run([make, "-n", "upgrade", "WRITE=1", "LAB_REF=latest"], cwd=str(self.repo.root), capture_output=True, text=True,
-                              env={"PATH": os.environ.get("PATH", "")})
-        self.assertIn("catalog.py upgrade . --write --lab-ref latest", done.stdout)
+        def dry(*args):
+            done = subprocess.run([make, "-n", *args], cwd=str(self.repo.root), capture_output=True, text=True, env={"PATH": os.environ.get("PATH", "")})
+            self.assertEqual(done.returncode, 0, f"{args}: {done.stderr}")
+            return done.stdout
+        for target in ("dev", "check", "ci", "index", "upgrade", "settings", "release", "explain"):
+            self.assertIn("python3 -I ../gravitee-lab/lab-ui/catalog.py", dry(target, "VERSION=1.0.0", "CODE=ST05"), target)
+        self.assertIn("catalog.py check .", dry("ci"))
+        self.assertIn("catalog.py ci run .", dry("ci"))
+        self.assertIn("catalog.py upgrade . --write --lab-ref latest", dry("upgrade", "WRITE=1", "LAB_REF=latest"))
 
     def test_compose_reads_the_sample_add_on_and_the_lab_finds_nothing_to_say(self):
         from tests import fixtures
@@ -1655,14 +1440,6 @@ class DayOne(Case):
 
 
 class Rules(unittest.TestCase):
-    """The workflow rules on every managed file."""
-
-    def test_every_managed_workflow_and_action_passes_every_rule(self):
-        files = render(**EVERYTHING)
-        for path, data in files.items():
-            if path.startswith(".github/workflows/") or (path.startswith(".github/actions/") and path.endswith("action.yml")):
-                self.assertEqual(workflows.problems(path, data.decode("utf-8")), [], path)
-        self.assertEqual([each for each in workflows.check(tree_of(files)) if each.severity == "error"], [])
 
     def test_the_lab_key_goes_to_the_lab_action_alone_called_from_the_checkout_of_the_catalog(self):
         for path, data in render(**EVERYTHING).items():

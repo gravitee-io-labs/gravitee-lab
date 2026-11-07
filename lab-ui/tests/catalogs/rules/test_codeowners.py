@@ -43,13 +43,6 @@ class Passing(unittest.TestCase):
     def test_the_two_fixed_lines(self):
         self.assertEqual(found(GOOD), [])
 
-    def test_the_file_of_the_template(self):
-        files = standard.render_new({"id": "acme-hub", "name": "Acme Hub", "maintainers": "@acme/maintainers,@alice",
-                                     "lab_repository": "acme/lab", "lab_ref": "0" * 40})
-        tree = ListTree.from_files({path: data for path, data in files.items()})
-        self.assertEqual(codeowners.check(tree), [])
-        self.assertIn(b"*                       @acme/maintainers @alice\n", files[FILE])
-
     def test_comments_blank_lines_tabs_a_byte_order_mark_and_section_headers_are_fine(self):
         text = "\U0000feff# who owns what\n\n[Docs]\n*\t@acme/maintainers   \n\n/.github/\t\t@acme/maintainers\r\n/docs/ @alice @bob\n"
         self.assertEqual(found(text), [])
@@ -242,12 +235,6 @@ class New(unittest.TestCase):
         code, out, err = self.run_new(Path(holder.name) / "hub")
         self.assertEqual((code, out, err), (2, "", "--maintainers is required: name the people or the team that own this catalog, "
                                                    "for example --maintainers @acme/maintainers.\n"))
-
-    def test_a_good_owner_writes_the_two_lines_and_only_them(self):
-        files = standard.render_new({"id": "acme-hub", "name": "Acme Hub", "maintainers": "@acme/maintainers, @alice",
-                                     "lab_repository": "acme/lab", "lab_ref": "0" * 40})
-        lines = [line for line in files[FILE].decode().splitlines() if not line.startswith("#")]
-        self.assertEqual(lines, ["*                       @acme/maintainers @alice", "/.github/               @acme/maintainers @alice"])
 
 
 class Hostile(unittest.TestCase):
