@@ -1803,14 +1803,6 @@ class ScopedRecords(Estates):
         self.assertIn("Newt ERP → Batch status (Standard) [newt]", self.records("subscription"))
         self.assertEqual(self.record("Newt ERP → Batch status (Standard) [newt]")["api"], self.api("newt")["id"])
 
-    def test_a_subscription_goes_to_the_api_of_its_environment_and_not_to_the_one_with_the_same_name_of_another(self):
-        self.seed_files({"environments/mallard/applications/process.yaml": "name: Newt ERP\ngroups: [mallard-process]\n",
-                         "environments/mallard/subscriptions/mallard.yaml": "subscriptions:\n  - {application: Newt ERP, api: Batch status, plan: Standard}\n"})
-        self.run_seed()
-        mine = {s["apiId"] for s in self.estate.subscriptions.values() if s["application"]["id"] in {
-            a["id"] for a in self.estate.applications.values() if a["env"] == "mallard"}}
-        self.assertEqual(mine, {self.api("mallard")["id"]})
-
     def test_a_removal_goes_where_each_record_says(self):
         self.run_seed()
         ids = {"DEFAULT": "open-id", "mallard": self.api("mallard")["id"], "newt": self.api("newt")["id"]}

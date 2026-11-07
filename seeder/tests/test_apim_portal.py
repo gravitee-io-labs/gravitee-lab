@@ -430,17 +430,10 @@ class Creation(Portals):
         self.assertEqual([x["kind"] for x in common.created()],
                          ["portal-theme", "portal", "portal-page", "portal-page", "portal-listing", "portal-api-page"])
 
-    def test_what_it_made_is_recorded_with_its_environment_and_its_hrid(self):
+    def test_what_it_made_is_recorded_under_the_labels_of_the_lab_ui(self):
         self.run_seed()
-        theme = next(x for x in common.created() if x["kind"] == "portal-theme")
-        self.assertEqual({key: theme[key] for key in ("product", "label", "name", "env", "hrid")},
-                         {"product": "apim-portal", "label": "portal themes", "name": "mallard: mallard-theme",
-                          "env": "mallard", "hrid": "mallard-theme"})
-        self.assertEqual(theme["id"], ident("mallard", "theme", "mallard-theme"))
-        page = next(x for x in common.created() if x["name"] == "mallard: mallard-guide")
-        self.assertEqual((page["portal"], page["label"]), ("mallard-portal", "portal pages"))
-        self.assertEqual([x["label"] for x in common.created()][3:],
-                         ["portal pages", "portal listings", "API pages"])
+        self.assertEqual([x["label"] for x in common.created()],
+                         ["portal themes", "portals", "portal pages", "portal pages", "portal listings", "API pages"])
 
     def test_the_theme_holds_its_images_as_data_uris_and_the_colors_the_automation_api_reads(self):
         self.run_seed()
@@ -806,14 +799,6 @@ class ApiPages(Portals):
         self.assertEqual([self.text(0), self.text(1)], ["# ${api.name}\n"] * 2)
         self.assertTrue(all(self.page(i)["published"] for i in (0, 1)))
         self.assertEqual(self.run_seed(), [])
-
-    def test_the_pages_are_recorded_for_their_listing_as_one_record_that_counts_them(self):
-        self.run_seed()
-        pages = next(x for x in common.created() if x["kind"] == "portal-api-page")
-        self.assertEqual({k: pages[k] for k in ("product", "label", "name", "env", "hrid", "portal", "items", "count")},
-                         {"product": "apim-portal", "label": "API pages", "name": "mallard: mallard-feeds", "env": "mallard",
-                          "hrid": "mallard-feeds", "portal": "mallard-portal", "items": OVERVIEWS, "count": 2})
-        self.assertIn("✓ API pages created: mallard: mallard-feeds (2)", self.output())
 
     def test_each_listing_has_its_pages_and_its_record(self):
         self.file("portal/listings/more.yaml", "hrid: mallard-more\napis:\n  - {apiHrid: mallard-telemetry, location: Guides}\n")

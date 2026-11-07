@@ -43,8 +43,7 @@ SETTINGS = {"APIM_MANAGEMENT_URL": "http://apim", "APIM_USERNAME": "admin", "API
             "AM_MANAGEMENT_URL": "http://am", "AM_USERNAME": "admin", "AM_PASSWORD": "adminadmin",
             "OPENFGA_API_URL": "http://openfga", "SEED_WORKERS": "1", "SEED_WAIT_GATEWAY": "0"}
 
-# The two playgrounds the engine's tests read: invented samples (a bakery and a hostel chain), so that the engine holds no
-# content of a catalog
+# The playground the engine's tests read: an invented sample (a bakery), so that the engine holds no content of a catalog
 PLAYGROUNDS = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "samples"
 
 
