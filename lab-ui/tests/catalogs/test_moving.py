@@ -87,9 +87,8 @@ class Moving(Base):
     def test_an_item_that_one_which_does_not_move_includes_cannot_move(self):
         plan = moving.plan("addon", "@sandbox/scratch")
         self.assertEqual(plan["used_by"], "Sandbox")
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("addon", "@sandbox/scratch", False)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("used", "Used by Sandbox: move that one to Personal instead."))
+        error = self.refusal(lambda: moving.move("addon", "@sandbox/scratch", False))
+        self.assertEqual((error.code, error.message), ("used", "Used by Sandbox: move that one to Personal instead."))
 
     def test_what_takes_more_of_this_machine_moves_once_allowed_and_what_is_blocked_for_more_does_not(self):
         verdicts = {"@sandbox/scratch": {"state": "blocked", "codes": ["T03"], "reasons": ["Runs with full privileges"]}}
@@ -103,10 +102,9 @@ class Moving(Base):
         self.patch(moving.project, "load", judged)
         plan = moving.plan("playground", "@sandbox/sandbox")
         self.assertEqual((plan["together"]["uses_machine"], plan["together"]["held"]), (["Scratch"], ""))
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@sandbox/sandbox", True)
-        self.assertEqual(caught.exception.code, "allow_machine")
-        self.assertEqual(caught.exception.message, "Scratch uses this machine: allow it to move it to Personal.")
+        error = self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", True))
+        self.assertEqual(error.code, "allow_machine")
+        self.assertEqual(error.message, "Scratch uses this machine: allow it to move it to Personal.")
         verdicts["@sandbox/scratch"] = {"state": "blocked", "codes": ["T20"], "reasons": ["Reads settings that are not its own"]}
         plan = moving.plan("playground", "@sandbox/sandbox")
         self.assertEqual(plan["together"]["held"], "Scratch cannot run: Reads settings that are not its own")
@@ -121,9 +119,7 @@ class Moving(Base):
         plan = moving.plan("playground", "@sandbox/sandbox")
         self.assertEqual(plan["alone"]["replaces"], ["Sandbox"])
         self.assertEqual(plan["alone"]["held"], "Sandbox in Personal is on and would be replaced. Fix: turn it off first.")
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@sandbox/sandbox", False)
-        self.assertEqual(caught.exception.code, "held")
+        self.assertEqual(self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", False)).code, "held")
         self.assertEqual(self.local("playgrounds/sandbox/compose.yml").read_text(), before, "what is on is left as it is")
 
     def failing_copy(self):
@@ -231,9 +227,8 @@ class Moving(Base):
         rename = os.rename
         self.patch(moving.os, "rename", lambda one, two: (_ for _ in ()).throw(OSError(28, "No space left on device"))
                    if str(one).endswith("new/addons/scratch") else rename(one, two))
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@sandbox/sandbox", True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("swap_failed", "Sandbox, Scratch could not be put in "
+        error = self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", True))
+        self.assertEqual((error.code, error.message), ("swap_failed", "Sandbox, Scratch could not be put in "
                          "Personal (no space left on device): Personal is as it was. Fix: see that the disk has room and that .lab "
                          "can be written, then try again."))
         self.assertEqual(self.files_of(mine), before, "the first item is back as it was")
@@ -261,9 +256,8 @@ class Moving(Base):
         project.forget()
         real = project.read_own
         self.patch(moving.project, "read_own", lambda file: (None, "shared/x.yml is not there") if "scratch" in file else real(file))
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@sandbox/sandbox", True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("placed_unread", "Scratch could not be read once in "
+        error = self.refusal(lambda: moving.move("playground", "@sandbox/sandbox", True))
+        self.assertEqual((error.code, error.message), ("placed_unread", "Scratch could not be read once in "
                          "Personal (shared/x.yml is not there), so Personal is as it was. Fix: keep it in "
                          "Imported, where the Lab says why."))
         self.assertEqual(self.files_of(mine), before)
@@ -331,9 +325,7 @@ class Moving(Base):
         self.assertFalse(self.local("playgrounds/sandbox").exists(), "nothing moved")
 
     def test_only_an_imported_item_moves(self):
-        with self.assertRaises(CatalogError) as caught:
-            moving.plan("addon", "echo")
-        self.assertEqual(caught.exception.code, "not_imported")
+        self.assertEqual(self.refusal(lambda: moving.plan("addon", "echo")).code, "not_imported")
 
 
 class Copying(Base):
@@ -416,9 +408,7 @@ class Copying(Base):
         self.assertEqual(caught.exception.code, "busy")
 
     def test_an_item_of_personal_is_not_copied_and_a_second_copy_waits(self):
-        with self.assertRaises(CatalogError) as caught:
-            moving.copy_plan("addon", "local/scratch")
-        self.assertEqual(caught.exception.code, "personal")
+        self.assertEqual(self.refusal(lambda: moving.copy_plan("addon", "local/scratch")).code, "personal")
         moving.copy("addon", "echo")
         self.assertEqual(moving.copy_plan("addon", "echo")["alone"]["held"], "Echo is in Personal already: delete or rename that one first")
 
@@ -446,15 +436,13 @@ class Unjudged(Base):
 
     def test_it_does_not_move(self):
         self.assertEqual(moving.plan("playground", "@evil/evil")["alone"]["held"], self.HELD)
-        with self.assertRaises(CatalogError) as caught:
-            moving.move("playground", "@evil/evil", False, allow=True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("held", self.HELD))
+        error = self.refusal(lambda: moving.move("playground", "@evil/evil", False, allow=True))
+        self.assertEqual((error.code, error.message), ("held", self.HELD))
 
     def test_it_is_not_copied(self):
         self.assertEqual(moving.copy_plan("playground", "@evil/evil")["alone"]["held"], self.HELD)
-        with self.assertRaises(CatalogError) as caught:
-            moving.copy("playground", "@evil/evil", allow=True)
-        self.assertEqual((caught.exception.code, caught.exception.message), ("held", self.HELD))
+        error = self.refusal(lambda: moving.copy("playground", "@evil/evil", allow=True))
+        self.assertEqual((error.code, error.message), ("held", self.HELD))
         self.assertFalse((paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "evil").exists())
 
 
