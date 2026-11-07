@@ -1,7 +1,6 @@
 """The rules the workflows keep, so that no change to one weakens them unseen: the repository is public and runs the code of pull
 requests, some of it with a license. Read as text (indentation), so that they need no YAML library. Then the shell the end-to-end
-workflows run, run for real with the inputs a hostile person would type, and the agreement of the engine's reusable workflow with
-the workflow a catalog copies to call it."""
+workflow runs, run for real with the inputs a hostile person would type."""
 
 import os
 import re
@@ -21,8 +20,7 @@ from lab_ui.catalogs.rules.workflows import GENERIC, problems  # noqa: E402
 FILES = sorted([*(ROOT / ".github" / "workflows").glob("*.yml"), *(ROOT / ".github" / "actions").glob("*/action.yml")])
 WORKFLOWS = [file for file in FILES if file.parent.name == "workflows"]
 INDENT = re.compile(r"^( *)")
-E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # the engine's own: a change of the engine tried on a catalog
-RUN = ROOT / ".github" / "workflows" / "e2e-run.yml"       # the run, which the engine and each catalog call
+E2E = ROOT / ".github" / "workflows" / "e2e.yml"           # a change of the engine tried on a catalog
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE = ROOT / ".github" / "workflows" / "release.yml"
 SHA = "0123456789abcdef0123456789abcdef01234567"
@@ -65,27 +63,9 @@ def steps(body):
     return ["      - " + part for part in parts[1:]]
 
 
-def children(text, *path):
-    """{key: its lines} of the keys that stand directly under a path of keys (`on`, `workflow_call`, `inputs`): the structure of a
-    workflow where the rules look for a name and not for a word."""
-    lines, start = text.splitlines(), 0
-    for depth, key in enumerate(path):
-        found = re.compile(rf"^ {{{2 * depth}}}{re.escape(key)}:\s*(?:#.*)?$")
-        at = next((i for i in range(start, len(lines)) if found.match(lines[i])), None)
-        if at is None:
-            raise KeyError("/".join(path))
-        start = at + 1
-    child, found, current = 2 * len(path), {}, None
-    for line in lines[start:]:
-        if line.strip() and not line.lstrip().startswith("#") and indent(line) < child:
-            break
-        match = re.match(rf"^ {{{child}}}([\w-]+):", line)
-        if match:
-            current = match.group(1)
-            found[current] = []
-        elif current is not None:
-            found[current].append(line)
-    return found
+def events(text):
+    """What starts a workflow: the keys directly under `on:`, where the rules look for a name and not for a word."""
+    return re.findall(r"(?m)^  ([\w-]+):", re.search(r"(?ms)^on:\n(.*?)^\S", text).group(1))
 
 
 def script(step):
@@ -109,16 +89,9 @@ def step_with(body, marker):
     return found[0]
 
 
-def texts():
-    """Every file the rules read, by name: the workflows and actions of the engine, and the workflow a catalog copies."""
-    found = {file.name: file.read_text(encoding="utf-8") for file in FILES}
-    return found
-
-
 class WorkflowsTest(unittest.TestCase):
     def test_there_are_workflows_to_read(self):
         self.assertIn("e2e.yml", [file.name for file in WORKFLOWS])
-        self.assertIn("e2e-run.yml", [file.name for file in WORKFLOWS])
         self.assertIn("ci.yml", [file.name for file in WORKFLOWS])
 
     def test_every_workflow_and_action_keeps_the_rules_of_any_workflow(self):
@@ -141,47 +114,54 @@ class WorkflowsTest(unittest.TestCase):
                 self.assertIn("jobs", yaml.safe_load(text))
 
 
-class RunTest(unittest.TestCase):
-    """e2e-run.yml: the end-to-end run, which the engine and each catalog call. The license is the one thing it must not leak."""
+class E2ETest(unittest.TestCase):
+    """e2e.yml: a change of the engine, tried on the catalog this engine lists first. The license is the one thing it must not leak."""
 
     def setUp(self):
-        self.text = RUN.read_text(encoding="utf-8")
+        self.text = E2E.read_text(encoding="utf-8")
         self.jobs = jobs(self.text)
 
-    def test_it_is_called_and_starts_by_none_of_the_events_of_this_repository(self):
-        self.assertEqual(sorted(children(self.text, "on")), ["workflow_call"])
+    def test_a_pull_request_the_night_and_a_maintainer_start_it_and_a_push_never_does(self):
+        self.assertEqual(sorted(events(self.text)), ["pull_request", "schedule", "workflow_dispatch"])
 
-    def test_it_has_no_concurrency_of_its_own(self):
-        # a group the same as its caller's would cancel the run that is waiting for it
-        self.assertNotIn("concurrency:", self.text)
+    def test_no_branch_of_this_repository_is_how_a_foreign_commit_gets_the_license(self):
+        # A push runs every workflow of the pushed commit with the secrets: the commit of a fork is a pull request, tried from main
+        self.assertNotIn("e2e/", self.text)
+        self.assertNotRegex(self.text, r"(?m)^\s+push:")
 
-    def test_the_jobs_are_the_plan_the_images_the_item_and_the_result(self):
-        self.assertEqual(list(self.jobs), ["plan", "manifests", "e2e", "result"])
+    def test_a_pull_request_is_data_of_the_workflow_that_is_always_mains(self):
+        script_text = script(step_with(self.jobs["prepare"], "id: prepare"))
+        self.assertIn("refs/heads/main", script_text)
+        self.assertIn("refs/pull/$PR/head", script_text)
 
     def test_the_license_is_given_to_the_one_job_that_waits_for_a_maintainer(self):
-        found = {name for name, body in self.jobs.items() if re.search(r"secrets\.(?!(?:LAB|CATALOG|NEEDS_CATALOG)_DEPLOY_KEY)", body)}
+        found = {name for name, body in self.jobs.items() if re.search(r"secrets\.(?!CATALOG_DEPLOY_KEY)", body)}
         self.assertEqual(found, {"e2e"})
         body = self.jobs["e2e"]
         self.assertIn("environment:", body)
         self.assertIn("e2e-nightly", body)
-        self.assertNotIn("environment:", self.jobs["plan"] + self.jobs["manifests"] + self.jobs["result"], "no other job holds a secret")
+        for name, other in self.jobs.items():
+            if name != "e2e":
+                self.assertNotIn("environment:", other, "no other job holds a secret")
+                self.assertNotIn("GRAVITEE_LICENSE", other)
 
-    def test_the_other_secrets_are_keys_that_only_read_and_only_a_checkout_takes(self):
+    def test_the_other_secret_is_a_key_that_only_reads_and_only_a_checkout_takes(self):
         taken = 0
         for name, body in self.jobs.items():
             for step in steps(body):
                 for line in step.splitlines():
-                    if re.search(r"secrets\.(LAB|CATALOG|NEEDS_CATALOG)_DEPLOY_KEY", line):
+                    if "secrets.CATALOG_DEPLOY_KEY" in line:
                         taken += 1
                         with self.subTest(job=name, line=line.strip()):
                             self.assertIn("actions/checkout@", step)
                             self.assertRegex(line, r"^\s+ssh-key: \$\{\{ secrets\.\w+_DEPLOY_KEY \}\}$")
-        self.assertEqual(taken, 9, "three keys in each of the three jobs that check the repositories out")
+        self.assertEqual(taken, 3, "the key in each of the three jobs that check the catalog out")
+
+    def test_the_catalog_is_given_no_allowance_to_use_this_machine(self):
+        self.assertNotIn("--allow-machine", self.text)
 
     def test_the_license_reaches_the_step_that_writes_it_and_no_other(self):
-        body = self.jobs["e2e"]
-        self.assertEqual(len([step for step in steps(body) if "secrets.GRAVITEE_LICENSE" in step]), 1)
-        self.assertEqual(len(re.findall(r"secrets\.GRAVITEE_LICENSE", body)), 1)
+        self.assertEqual(len([step for step in steps(self.jobs["e2e"]) if "secrets.GRAVITEE_LICENSE" in step]), 1)
         self.assertEqual(len(re.findall(r"secrets\.GRAVITEE_LICENSE", self.text)), 1)
 
     def test_the_license_is_written_where_the_engine_is_and_after_the_change_was_checked(self):
@@ -195,29 +175,17 @@ class RunTest(unittest.TestCase):
                             and "secrets." not in one and "Try it" not in one and "not set in this environment" not in one), names)
 
     def test_a_fork_never_runs_what_has_the_license(self):
-        body = self.jobs["e2e"]
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", body)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", self.jobs["e2e"])
 
-    def test_the_change_is_read_from_the_history_of_the_repository_it_is_in_and_nothing_else_is_fetched_whole(self):
-        """`git diff base...head` needs the history of the repository the change is in: a depth of 1 there fails every plan that
-        reads a change, and a full history of the other one costs a download for nothing."""
+    def test_the_change_is_read_from_the_history_of_the_engine_and_nothing_else_is_fetched_whole(self):
+        """`git diff base...head` needs the history of the engine: a depth of 1 there fails every plan that reads a change, and a
+        full history of the catalog costs a download for nothing."""
         checkouts = {re.search(r"(?m)^          path: (\w+)$", one).group(1): one for one in steps(self.jobs["plan"]) if "actions/checkout@" in one}
-        self.assertEqual(sorted(checkouts), ["catalog", "lab", "needs"])
-        for path, change in (("lab", "engine"), ("catalog", "catalog")):
-            with self.subTest(path=path):
-                depth = re.findall(r"(?m)^          fetch-depth: (.+?)(?:\s+#.*)?$", checkouts[path])
-                self.assertEqual(depth, ["${{ inputs.change == '%s' && '0' || '1' }}" % change])
-        self.assertNotIn("fetch-depth", checkouts["needs"])
+        self.assertEqual(sorted(checkouts), ["catalog", "lab"])
+        self.assertEqual(re.findall(r"(?m)^          fetch-depth: (.+?)(?:\s+#.*)?$", checkouts["lab"]), ["0"])
+        self.assertNotIn("fetch-depth", checkouts["catalog"])
         for name in ("manifests", "e2e", "result"):
             self.assertNotIn("fetch-depth", self.jobs[name], f"{name} reads no change")
-
-    def test_the_check_to_read_waits_for_everything_and_runs_even_when_it_failed(self):
-        body = self.jobs["result"]
-        self.assertIn("name: Result", body)
-        self.assertIn("needs: [plan, manifests, e2e]", body)
-        self.assertIn("always()", body)
-        self.assertIn("A job that had to run was skipped", body)
-        self.assertIn("The plan gave no count", body)
 
     def test_the_matrix_is_what_the_plan_made_and_the_item_is_never_in_a_script(self):
         for name in ("manifests", "e2e"):
@@ -225,143 +193,44 @@ class RunTest(unittest.TestCase):
             for number, line in run_blocks(self.jobs[name]):
                 self.assertNotIn("matrix.", line.replace("e2e_matrix.py", ""), f"{name}: a value goes through env, line {number}")
 
-    def test_the_inputs_it_reads_are_the_ones_it_declares_and_it_declares_none_it_does_not_read(self):
-        declared = set(children(self.text, "on", "workflow_call", "inputs"))
-        used = set(re.findall(r"inputs\.([\w-]+)", self.text.split("\njobs:\n", 1)[1]))
-        self.assertEqual(used, declared)
-
-    def test_the_secrets_it_reads_are_the_ones_it_declares_and_it_declares_none_it_does_not_read(self):
-        """An environment secret too: a called workflow gets one only when its caller names it, so a secret it reads and does not
-        declare is a secret no caller can pass, and it is empty in the run with no error."""
-        declared = set(children(self.text, "on", "workflow_call", "secrets"))
-        used = set(re.findall(r"secrets\.(\w+)", self.text.split("\njobs:\n", 1)[1]))
-        self.assertEqual(used, declared)
-        self.assertLessEqual({"GRAVITEE_LICENSE", "DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"}, declared)
-
-    def test_every_input_has_a_type_and_what_is_required_has_no_default(self):
-        for name, lines in children(self.text, "on", "workflow_call", "inputs").items():
-            body = "\n".join(lines)
-            with self.subTest(input=name):
-                self.assertRegex(body, r"type: (string|boolean)")
-                self.assertRegex(body, r"description: ")
-                self.assertTrue(("required: true" in body) != ("default:" in body), "required, or with a default")
-
-    def test_no_secret_is_required_and_the_license_step_says_when_it_is_missing(self):
-        # A deploy key is only for a private repository. The license is refused when empty by the step that writes it, with its name
-        # and where to look: `required: true` would only check that a caller names it, not that the environment holds it
-        self.assertIn("or the caller does not pass it by name", step_with(self.jobs["e2e"], "secrets.GRAVITEE_LICENSE"))
-        for name, lines in children(self.text, "on", "workflow_call", "secrets").items():
-            with self.subTest(secret=name):
-                self.assertIn("required: false", "\n".join(lines))
-
     def test_a_step_the_jobs_repeat_is_the_same_step_in_each_and_the_shell_tests_run_the_one_of_all(self):
         def plain(step):
             """The step without its comments, its blank lines and the depth of its history."""
             return "\n".join(line for line in step.splitlines() if line.strip() and not line.lstrip().startswith("#")
                               and "fetch-depth:" not in line)
         for marker, where in (("The change is the one that was read", ("plan", "e2e")),
-                              ("Link the catalogs into the engine", ("plan", "manifests", "e2e"))):
+                              ("Link the catalog into the engine", ("plan", "manifests", "e2e"))):
             with self.subTest(step=marker):
                 self.assertEqual(len({plain(step_with(self.jobs[name], marker)) for name in where}), 1)
         checkouts = [[one for one in steps(self.jobs[name]) if "actions/checkout@" in one] for name in ("plan", "manifests", "e2e")]
-        self.assertEqual([len(one) for one in checkouts], [3, 3, 3], "the engine, the catalog, and the one it needs")
-        for index in range(3):
+        self.assertEqual([len(one) for one in checkouts], [2, 2, 2], "the engine and the catalog")
+        for index in range(2):
             with self.subTest(checkout=index):
                 self.assertEqual(len({plain(found[index]) for found in checkouts}), 1, "each job checks the same repository out")
 
-    def test_the_license_never_reaches_a_checkout_of_a_change_or_a_script_of_another_job(self):
-        for name in ("plan", "manifests", "result"):
-            self.assertNotIn("GRAVITEE_LICENSE", self.jobs[name])
-
-
-class EngineCallerTest(unittest.TestCase):
-    """e2e.yml: a change of the engine, tried on the catalog this engine lists first."""
-
-    def setUp(self):
-        self.text = E2E.read_text(encoding="utf-8")
-        self.jobs = jobs(self.text)
-
-    def test_a_pull_request_the_night_and_a_maintainer_start_it_and_a_push_never_does(self):
-        self.assertEqual(sorted(children(self.text, "on")), ["pull_request", "schedule", "workflow_dispatch"])
-
-    def test_no_branch_of_this_repository_is_how_a_foreign_commit_gets_the_license(self):
-        # A push runs every workflow of the pushed commit with the secrets: the commit of a fork is a pull request, tried from main
-        self.assertNotIn("e2e/", self.text)
-        self.assertNotRegex(self.text, r"(?m)^\s+push:")
-
-    def test_a_pull_request_is_data_of_the_workflow_that_is_always_mains(self):
-        script_text = script(step_with(self.jobs["prepare"], "id: prepare"))
-        self.assertIn("refs/heads/main", script_text)
-        self.assertIn("refs/pull/$PR/head", script_text)
-
-    def test_it_calls_the_run_of_this_repository_and_names_the_license_in_its_call_alone(self):
-        """The license is named once in this file, as an entry of the call's `secrets:`, which no step reads: the one step that
-        writes it is the run's. No job of this file enters an environment, so none of its own steps could read it."""
-        body = self.jobs["try"]
-        self.assertIn("uses: ./.github/workflows/e2e-run.yml", body)
-        self.assertEqual(re.findall(r"(?m)^.*GRAVITEE_LICENSE.*$", self.text), ["      GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}"])
-        self.assertEqual(children(self.text, "jobs", "try", "secrets")["GRAVITEE_LICENSE"], [])
-        for name, other in self.jobs.items():
-            if name != "try":
-                self.assertNotRegex(other, r"secrets\.", f"{name} reads no secret")
-        self.assertNotIn("environment:", self.text)
-        self.assertNotIn("steps:", body, "a job that calls a workflow has none of its own")
-
-    def test_it_hands_over_by_name_the_key_that_reads_the_catalog_and_the_secrets_of_the_environment(self):
-        secrets = children(self.text, "jobs", "try", "secrets")
-        self.assertEqual(list(secrets), ["CATALOG_DEPLOY_KEY", "GRAVITEE_LICENSE", "DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"])
-        for name in secrets:
-            with self.subTest(secret=name):
-                self.assertRegex(self.text, rf"(?m)^      {name}: \$\{{\{{ secrets\.{name} \}}\}}$", "by its own name, nothing else")
-        self.assertEqual(sorted(set(re.findall(r"secrets\.(\w+)", self.text))), sorted(secrets))
-        self.assertNotRegex(self.text, r"secrets:\s*inherit", "inherit hands over every secret of the repository")
-
-    def test_it_passes_every_secret_the_run_s_environment_job_reads(self):
-        """The bug this keeps away: the run's e2e job enters the environment that holds the license, but GitHub gives a called
-        workflow an environment secret only when its caller names it, and an empty one, with no error, when it does not. Every
-        secret that job reads, except the deploy keys of repositories this one does not need, is passed here."""
-        run = jobs(RUN.read_text(encoding="utf-8"))["e2e"]
-        read = set(re.findall(r"secrets\.(\w+)", run)) - {"LAB_DEPLOY_KEY", "NEEDS_CATALOG_DEPLOY_KEY"}
-        self.assertEqual(read, {"CATALOG_DEPLOY_KEY", "GRAVITEE_LICENSE", "DOCKERHUB_USERNAME", "DOCKERHUB_TOKEN"})
-        self.assertLessEqual(read, set(children(self.text, "jobs", "try", "secrets")))
-
-    def test_it_passes_only_secrets_the_run_declares(self):
-        declared = set(children(RUN.read_text(encoding="utf-8"), "on", "workflow_call", "secrets"))
-        self.assertLessEqual(set(children(self.text, "jobs", "try", "secrets")), declared)
-
-    def test_it_gives_the_run_the_inputs_it_declares_and_all_that_it_requires(self):
-        declared = children(RUN.read_text(encoding="utf-8"), "on", "workflow_call", "inputs")
-        given = set(children(self.text, "jobs", "try", "with"))
-        self.assertLessEqual(given, set(declared))
-        required = {name for name, lines in declared.items() if "required: true" in "\n".join(lines)}
-        self.assertLessEqual(required, given)
-
-    def test_it_says_the_change_is_the_engine_s_and_only_the_night_may_write(self):
-        self.assertRegex(self.text, r"(?m)^      change: engine$")
+    def test_only_the_night_may_write(self):
         writers = [name for name, body in self.jobs.items() if re.search(r"(?m)^\s+[a-z-]+: write$", body)]
         self.assertEqual(writers, ["nightly"])
         self.assertNotRegex(self.text.split("\njobs:\n", 1)[0], r"(?m)^\s+[a-z-]+: write$")
 
     def test_an_engine_without_a_catalog_to_try_says_so_and_runs_nothing(self):
-        self.assertIn("if: needs.prepare.outputs.skip != 'true'", self.jobs["try"])
+        self.assertIn("if: needs.prepare.outputs.skip != 'true'", self.jobs["plan"])
         self.assertIn("The variable CATALOG_REPOSITORY is not set", self.text)
 
-    def test_the_check_to_require_is_a_job_of_this_file_named_as_it_always_was(self):
-        """A job that calls a workflow shows as `Run / Result`, the callee's name behind the caller's: the name that the
-        documentation, a ruleset and the audit of the settings ask for is this file's own job, which always reports."""
-        self.assertEqual(list(self.jobs), ["prepare", "try", "result", "nightly"])
+    def test_the_check_to_require_is_named_as_it_always_was_and_waits_for_everything(self):
+        """The name that the documentation, a ruleset and the audit of the settings ask for, which always reports."""
+        self.assertEqual(list(self.jobs), ["prepare", "plan", "manifests", "e2e", "result", "nightly"])
         body = self.jobs["result"]
-        self.assertEqual(re.findall(r"(?m)^    name: (.+)$", body), ["E2E result"])
         self.assertEqual(len(re.findall(r"(?m)^    name: E2E result$", self.text)), 1, "no other job of this file bears the name")
-        self.assertIn("needs: [prepare, try]", body)
-        self.assertIn("always() &&", body, "it reports when the run failed, was cancelled or was refused")
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", body, "none for a fork, as for the run")
-        self.assertIn("runs-on: ubuntu-24.04", body)
-        self.assertIn("timeout-minutes: 5", body)
+        self.assertIn("name: E2E result", body)
+        self.assertIn("needs: [prepare, plan, manifests, e2e]", body)
+        self.assertIn("always() &&", body, "it reports when a job failed, was cancelled or was refused")
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", body, "none for a fork, as for the e2e job")
         self.assertNotIn("environment:", body)
         self.assertNotIn("secrets.", body)
         self.assertEqual(sorted(re.findall(r"\$\{\{ (needs\.[\w.]+) \}\}", body)),
-                         ["needs.prepare.outputs.skip", "needs.prepare.result", "needs.try.result"])
+                         ["needs.e2e.result", "needs.manifests.result", "needs.plan.outputs.count", "needs.plan.result",
+                          "needs.prepare.outputs.skip", "needs.prepare.result"])
 
 
 # The shell of the workflows, run with the inputs a hostile person would type. GitHub runs it with `bash -e`.
@@ -398,47 +267,37 @@ class ShellTest(unittest.TestCase):
 class PrepareTest(ShellTest):
     """What an event and a maintainer's words become before anything is checked out: the first job of e2e.yml."""
 
-    SOURCES = {"engine": (E2E, "id: prepare")}
     ENV = {"EVENT": "pull_request", "REF": "refs/pull/7/merge", "HEAD": SHA, "BASE": "b" * 40, "PR": "", "SHA": "", "ITEMS": "",
-           "CATALOG_REPOSITORY": "owner/catalog", "CATALOG_REF": "c" * 40, "E2E_ENABLED": "true"}
+           "CATALOG_REPOSITORY": "owner/catalog", "CATALOG_REF": "c" * 40}
 
-    def prepare(self, source, **env):
-        path, marker = self.SOURCES[source]
-        text = path.read_text(encoding="utf-8")
-        return self.execute(script(step_with(jobs(text)["prepare"], marker)), {**self.ENV, **env})
+    def prepare(self, **env):
+        text = E2E.read_text(encoding="utf-8")
+        return self.execute(script(step_with(jobs(text)["prepare"], "id: prepare")), {**self.ENV, **env})
 
     def test_a_pull_request_of_the_engine_is_tried_where_it_changes_the_catalog_s_known_good_commit(self):
-        done = self.prepare("engine")
+        done = self.prepare()
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.outputs(), {"lab_ref": SHA, "catalog_ref": "c" * 40, "items": "changed", "base": "b" * 40, "expect_sha": "",
                                           "skip": "false"})
 
-    def test_an_engine_whose_repository_has_not_enabled_end_to_end_tries_nothing(self):
-        for enabled in ("", "false", "yes"):
-            with self.subTest(enabled=enabled):
-                done = self.prepare("engine", E2E_ENABLED=enabled)
-                self.assertEqual(done.returncode, 0, done.stderr)
-                self.assertIn("The variable E2E_ENABLED is not true", done.stdout)
-                self.assertEqual(self.outputs()["skip"], "true")
-
     def test_the_night_tries_the_canary_on_the_default_branch_of_the_catalog(self):
-        done = self.prepare("engine", EVENT="schedule", REF="refs/heads/main", BASE="")
+        done = self.prepare(EVENT="schedule", REF="refs/heads/main", BASE="")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.outputs(), {"lab_ref": SHA, "catalog_ref": "", "items": "canary", "base": "", "expect_sha": "", "skip": "false"})
 
     def test_a_maintainer_who_read_a_pull_request_tries_that_commit_from_main(self):
-        done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", PR="123", SHA="d" * 40, ITEMS="canary")
+        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", PR="123", SHA="d" * 40, ITEMS="canary")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.outputs()["lab_ref"], "refs/pull/123/head")
         self.assertEqual(self.outputs()["expect_sha"], "d" * 40)
         self.assertEqual(self.outputs()["items"], "canary")
 
     def test_a_dispatch_with_nothing_typed_tries_the_canary_of_the_commit_it_runs_on(self):
-        done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/main", BASE="")
+        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="")
         self.assertEqual((done.returncode, self.outputs()["items"], self.outputs()["lab_ref"]), (0, "canary", SHA))
 
     def test_a_pull_request_is_tried_from_main_and_from_nowhere_else(self):
-        done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/e2e/7", PR="7", SHA="d" * 40)
+        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/e2e/7", PR="7", SHA="d" * 40)
         self.assertEqual(done.returncode, 1)
         self.assertIn("E2E02", done.stdout)
         self.assertEqual(self.outputs(), {})
@@ -447,140 +306,60 @@ class PrepareTest(ShellTest):
         hostile = [{"PR": "12a", "SHA": "d" * 40}, {"PR": "12345678", "SHA": "d" * 40}, {"PR": "1; echo hacked", "SHA": "d" * 40},
                    {"PR": "7", "SHA": "short"}, {"PR": "7", "SHA": "D" * 40}, {"PR": "7", "SHA": ""}, {"PR": "7", "SHA": "d" * 41},
                    {"ITEMS": "addon:a; echo hacked >&2"}, {"ITEMS": "addon:a $(id)"}, {"ITEMS": "addon:a\n::set-output name=x::y"},
-                   {"ITEMS": "`id`"}, {"ITEMS": "x" * 501}, {"CATALOG_REF": "-x"}, {"CATALOG_REF": "a b"}, {"CATALOG_REF": "x\ny"}]
+                   {"ITEMS": "`id`"}, {"ITEMS": "x" * 501}, {"ITEMS": "a;b"}, {"ITEMS": "a|b"}, {"ITEMS": "a&b"}, {"ITEMS": "a>b"},
+                   {"CATALOG_REF": "-x"}, {"CATALOG_REF": "a b"}, {"CATALOG_REF": "x\ny"}, {"CATALOG_REF": "a;b"}, {"CATALOG_REF": "$(id)"}]
         for env in hostile:
             with self.subTest(env=env):
                 self.output.write_text("", encoding="utf-8")
-                done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", **env)
+                done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", **env)
                 self.assertEqual(done.returncode, 1, done.stdout)
                 self.assertIn("::error title=E2E04::", done.stdout)
                 self.assertNotIn("hacked", done.stderr + self.output.read_text(encoding="utf-8"))
                 self.assertEqual(self.outputs(), {}, "nothing is passed on")
 
     def test_words_that_name_items_pass_with_their_catalog_and_their_spaces(self):
-        done = self.prepare("engine", EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", ITEMS="playground:a addon:@hub/b  setup:c")
+        done = self.prepare(EVENT="workflow_dispatch", REF="refs/heads/main", BASE="", ITEMS="playground:a addon:@hub/b  setup:c")
         self.assertEqual((done.returncode, self.outputs()["items"]), (0, "playground:a addon:@hub/b  setup:c"))
 
     def test_an_engine_with_no_catalog_to_try_says_so_and_goes_on_to_nothing(self):
-        done = self.prepare("engine", CATALOG_REPOSITORY="", CATALOG_REF="")
+        done = self.prepare(CATALOG_REPOSITORY="", CATALOG_REF="")
         self.assertEqual(done.returncode, 0)
         self.assertIn("::notice title=E2E not tried::The variable CATALOG_REPOSITORY is not set", done.stdout)
         self.assertEqual(self.outputs()["skip"], "true")
 
     def test_the_outputs_are_six_lines_whatever_the_event(self):
-        self.prepare("engine")
+        self.prepare()
         self.assertEqual(len(self.output.read_text(encoding="utf-8").splitlines()), 6)
-
-
-class InputsTest(ShellTest):
-    """The first step of the run: a name that reaches a path, a ref or a word is what it says and nothing else."""
-
-    GOOD = {"LAB_REPOSITORY": "owner/lab", "LAB_REF": "a" * 40, "CATALOG_REPOSITORY": "owner/catalog", "CATALOG_REF": "refs/pull/12/head",
-            "CATALOG_ID": "hub", "CHANGE": "catalog", "ITEMS": "changed", "BASE": "origin/main", "EXPECT_SHA": "", "NEEDS_ID": "",
-            "NEEDS_REPOSITORY": "", "NEEDS_REF": ""}
-
-    def check(self, **env):
-        text = RUN.read_text(encoding="utf-8")
-        return self.execute(script(step_with(jobs(text)["plan"], "The inputs are what they say")), {**self.GOOD, **env})
-
-    def test_what_the_callers_pass_is_accepted(self):
-        for env in ({}, {"LAB_REF": "main"}, {"LAB_REF": "refs/pull/7/head", "EXPECT_SHA": "b" * 40}, {"CATALOG_REF": ""}, {"CATALOG_ID": ""},
-                    {"ITEMS": "all"}, {"ITEMS": "canary"}, {"ITEMS": ""}, {"ITEMS": "playground:@hub/bank addon:echo"}, {"BASE": ""},
-                    {"BASE": "b" * 40}, {"CHANGE": "engine"}, {"NEEDS_ID": "base", "NEEDS_REPOSITORY": "owner/base", "NEEDS_REF": "c" * 40},
-                    {"NEEDS_ID": "base", "NEEDS_REPOSITORY": "owner/base", "NEEDS_REF": ""}):
-            with self.subTest(env=env):
-                done = self.check(**env)
-                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-
-    def test_what_is_not_what_it_says_stops_the_run_and_names_the_input(self):
-        hostile = {"LAB_REPOSITORY": ["owner", "a/b/c", "o/l; id", "../x/y", "o/l\n::error::x", ""],
-                   "LAB_REF": ["", "-x", "a b", "$(id)", "x\ny", "refs/pull/x/head;", "a" * 101],
-                   "CATALOG_REPOSITORY": ["", "owner", "o/c$(id)"], "CATALOG_REF": ["-x", "a;b", "a b"],
-                   "CATALOG_ID": ["Hub", "h", "../x", "a" * 30, "hub;id"], "CHANGE": ["", "both", "engine; id"],
-                   "ITEMS": ["a;b", "$(id)", "x" * 501, "a\nb", "a|b", "a&b", "`id`", "a>b"], "BASE": ["-x", "a b", "$(id)"],
-                   "EXPECT_SHA": ["short", "G" * 40, "a" * 41], "NEEDS_ID": ["Hub"]}
-        for name, values in hostile.items():
-            for value in values:
-                with self.subTest(**{name: value[:30]}):
-                    done = self.check(**{name: value})
-                    self.assertEqual(done.returncode, 1, done.stdout)
-                    self.assertIn("::error title=E2E04::", done.stdout)
-                    self.assertTrue(done.stdout.count("\n::error") + done.stdout.startswith("::error") == 1, "one error, and ours")
-
-    def test_a_catalog_that_is_needed_is_checked_only_when_there_is_one(self):
-        done = self.check(NEEDS_REPOSITORY="not a repository", NEEDS_REF="a b")
-        self.assertEqual(done.returncode, 0, "the catalog that is needed is none: its repository is not read")
-        done = self.check(NEEDS_ID="base", NEEDS_REPOSITORY="not a repository", NEEDS_REF="")
-        self.assertEqual(done.returncode, 1)
-        self.assertIn("needs-catalog-repository", done.stdout)
 
 
 class PlanShellTest(ShellTest):
     """The step that asks for the matrix: which of its modes, and the words that follow."""
 
     def matrix(self, **env):
-        text = RUN.read_text(encoding="utf-8")
-        base = {"CATALOG_ID": "hub", "CHANGE": "catalog", "ITEMS": "changed", "BASE": ""}
+        text = E2E.read_text(encoding="utf-8")
+        base = {"ITEMS": "changed", "BASE": ""}
         done = self.execute(script(step_with(jobs(text)["plan"], "id: matrix")), {**base, **env})
         self.assertEqual(done.returncode, 0, done.stderr)
         return self.called()
 
-    def test_a_catalog_and_what_a_change_touches_in_it(self):
-        self.assertEqual(self.matrix(), ["-I", "lab/.github/scripts/e2e_matrix.py", "--catalog", "hub", "--changed", "origin/main", "HEAD",
-                                         "--in", "catalog", "--github-output"])
-        self.assertEqual(self.matrix(BASE="b" * 40, CHANGE="engine", ITEMS="")[4:9], ["--changed", "b" * 40, "HEAD", "--in", "engine"])
+    def test_what_a_change_of_the_engine_touches(self):
+        self.assertEqual(self.matrix(), ["-I", "lab/.github/scripts/e2e_matrix.py", "--changed", "origin/main", "HEAD", "--github-output"])
+        self.assertEqual(self.matrix(BASE="b" * 40)[2:5], ["--changed", "b" * 40, "HEAD"])
 
-    def test_the_default_catalog_when_none_is_named(self):
-        self.assertEqual(self.matrix(CATALOG_ID="", ITEMS="all")[2:], ["--default-catalog", "--all", "--github-output"])
-
-    def test_every_item_and_the_canary(self):
-        self.assertEqual(self.matrix(ITEMS="all")[2:], ["--catalog", "hub", "--all", "--github-output"])
-        self.assertEqual(self.matrix(ITEMS="canary")[2:], ["--catalog", "hub", "--canary", "--github-output"])
+    def test_the_canary(self):
+        self.assertEqual(self.matrix(ITEMS="canary")[2:], ["--canary", "--github-output"])
 
     def test_the_items_a_person_named_come_after_two_dashes_and_no_word_is_a_pattern_for_files(self):
         (self.folder / "a1").write_text("", encoding="utf-8")
         got = self.matrix(ITEMS="--all playground:a* addon:b  setup:@hub/c")
-        self.assertEqual(got[2:], ["--catalog", "hub", "--github-output", "--items", "--", "--all", "playground:a*", "addon:b",
-                                   "setup:@hub/c"])
+        self.assertEqual(got[2:], ["--github-output", "--items", "--", "--all", "playground:a*", "addon:b", "setup:@hub/c"])
 
 
 class StepsShellTest(ShellTest):
-    """The steps that link the catalogs, check the commit, and try the item."""
+    """The steps that check the commit, and try the item."""
 
     def step(self, job, marker):
-        return script(step_with(jobs(RUN.read_text(encoding="utf-8"))[job], marker))
-
-    def test_the_catalog_that_is_needed_is_linked_first_and_the_one_tried_after_it(self):
-        text = self.step("e2e", "Link the catalogs into the engine")
-        done = self.execute(text, {"NEEDS_ID": "base", "ALLOW_MACHINE": "false"})
-        self.assertEqual((done.returncode, self.called()), (0, ["-I", "lab/lab-ui/catalog.py", "link", "catalog"]), done.stderr)
-        log = self.folder / "calls"
-        (self.bin / "python3").write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {log}\n', encoding="utf-8")
-        done = self.execute(text, {"NEEDS_ID": "base", "ALLOW_MACHINE": "true"})
-        self.assertEqual(done.returncode, 0)
-        self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
-                         ["-I lab/lab-ui/catalog.py link needs", "-I lab/lab-ui/catalog.py link catalog --allow-machine"])
-
-    def test_a_catalog_alone_is_linked_without_the_allowance_unless_it_is_asked(self):
-        text = self.step("manifests", "Link the catalogs into the engine")
-        for allow, wanted in (("false", ["link", "catalog"]), ("", ["link", "catalog"]), ("yes", ["link", "catalog"]),
-                              ("true", ["link", "catalog", "--allow-machine"])):
-            with self.subTest(allow=allow):
-                done = self.execute(text, {"NEEDS_ID": "", "ALLOW_MACHINE": allow})
-                self.assertEqual((done.returncode, self.called()[2:]), (0, wanted), done.stderr)
-
-    def test_a_link_that_fails_ends_the_job(self):
-        done = self.execute(self.step("e2e", "Link the catalogs into the engine"), {"NEEDS_ID": "", "ALLOW_MACHINE": "false"}, stub_exit=1)
-        self.assertEqual(done.returncode, 1)
-
-    def test_the_item_has_to_be_in_the_catalog_before_a_not_tried_can_pass(self):
-        text = self.step("e2e", "The item is there")
-        done = self.execute(text, {"CATALOG_ID": "hub", "ITEM": "playground:@hub/bank"})
-        self.assertEqual((done.returncode, self.called()[2:]), (0, ["--catalog", "hub", "--items", "--", "playground:@hub/bank"]), done.stderr)
-        done = self.execute(text, {"CATALOG_ID": "", "ITEM": "addon:x"})
-        self.assertEqual(self.called()[2:], ["--default-catalog", "--items", "--", "addon:x"])
-        done = self.execute(text, {"CATALOG_ID": "hub", "ITEM": "addon:x"}, stub_exit=1)
-        self.assertEqual(done.returncode, 1, "an item that is not there is a failure, not a warning")
+        return script(step_with(jobs(E2E.read_text(encoding="utf-8"))[job], marker))
 
     def test_not_tried_is_a_warning_and_a_failure_is_one(self):
         text = self.step("e2e", "Try it")
@@ -599,15 +378,12 @@ class StepsShellTest(ShellTest):
         text = self.step("plan", "The change is the one that was read")
         git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]
         env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
-        for name in ("lab", "catalog"):
-            subprocess.run([*git, "init", "-q", name], cwd=self.folder, check=True, env=env)
-            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", name], cwd=self.folder / name, check=True, env=env)
-        head = {name: subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.folder / name, capture_output=True, text=True, env=env).stdout.strip()
-                for name in ("lab", "catalog")}
-        for change, sha, wanted in (("catalog", head["catalog"], 0), ("engine", head["lab"], 0), ("catalog", head["lab"], 1),
-                                    ("engine", "f" * 40, 1)):
-            with self.subTest(change=change, sha=sha[:7]):
-                done = self.execute(text, {"CHANGE": change, "EXPECT_SHA": sha})
+        subprocess.run([*git, "init", "-q", "lab"], cwd=self.folder, check=True, env=env)
+        subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "lab"], cwd=self.folder / "lab", check=True, env=env)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.folder / "lab", capture_output=True, text=True, env=env).stdout.strip()
+        for sha, wanted in ((head, 0), ("f" * 40, 1)):
+            with self.subTest(sha=sha[:7]):
+                done = self.execute(text, {"EXPECT_SHA": sha})
                 self.assertEqual(done.returncode, wanted, done.stdout + done.stderr)
                 if wanted:
                     self.assertIn("::error title=E2E03::The change is", done.stdout)
@@ -629,38 +405,27 @@ class StepsShellTest(ShellTest):
 
     def test_the_result_passes_when_nothing_had_to_run_and_fails_when_a_job_that_had_to_run_did_not(self):
         text = self.step("result", "needs.plan.result")
-        env = {"PLAN": "success", "MANIFESTS": "success", "E2E": "success", "COUNT": "2"}
+        env = {"PREPARE": "success", "SKIP": "false", "PLAN": "success", "MANIFESTS": "success", "E2E": "success", "COUNT": "2"}
+        none = {"PLAN": "skipped", "MANIFESTS": "skipped", "E2E": "skipped", "COUNT": ""}
         for change, wanted in (({}, 0), ({"COUNT": "0", "MANIFESTS": "skipped", "E2E": "skipped"}, 0),
                                ({"COUNT": "2", "E2E": "skipped"}, 1), ({"E2E": "failure"}, 1), ({"MANIFESTS": "cancelled"}, 1),
-                               ({"PLAN": "failure", "COUNT": "0"}, 1), ({"COUNT": ""}, 1), ({"COUNT": "x"}, 1), ({"COUNT": "0", "E2E": "failure"}, 1)):
+                               ({"PLAN": "failure", "COUNT": "0"}, 1), ({"COUNT": ""}, 1), ({"COUNT": "x"}, 1), ({"COUNT": "0", "E2E": "failure"}, 1),
+                               ({"SKIP": "true", **none}, 0), ({**none}, 1), ({"SKIP": "", **none}, 1),
+                               ({"PREPARE": "failure", "SKIP": "", **none}, 1), ({"PREPARE": "cancelled", "SKIP": ""}, 1),
+                               ({"PREPARE": "failure", "SKIP": "true", **none}, 1), ({"PREPARE": "skipped"}, 1)):
             with self.subTest(change=change):
-                self.assertEqual(self.execute(text, {**env, **change}).returncode, wanted)
-
-
-class EngineResultTest(ShellTest):
-    """The step of the engine's own `E2E result`: what it makes of the inputs and of the run."""
-
-    def setUp(self):
-        super().setUp()
-        self.text = script(step_with(jobs(E2E.read_text(encoding="utf-8"))["result"], "needs.prepare.result"))
-
-    def test_it_passes_for_a_run_that_ended_well_and_for_an_engine_with_no_catalog_to_try_and_fails_for_all_else(self):
-        env = {"PREPARE": "success", "SKIP": "false", "TRY": "success"}
-        for change, wanted in (({}, 0), ({"SKIP": "true", "TRY": "skipped"}, 0), ({"TRY": "failure"}, 1), ({"TRY": "cancelled"}, 1),
-                               ({"TRY": "skipped"}, 1), ({"TRY": ""}, 1), ({"SKIP": "", "TRY": "skipped"}, 1),
-                               ({"PREPARE": "failure", "SKIP": "", "TRY": "skipped"}, 1), ({"PREPARE": "cancelled", "SKIP": ""}, 1),
-                               ({"PREPARE": "failure", "SKIP": "true", "TRY": "skipped"}, 1), ({"PREPARE": "skipped"}, 1)):
-            with self.subTest(change=change):
-                done = self.execute(self.text, {**env, **change})
+                done = self.execute(text, {**env, **change})
                 self.assertEqual(done.returncode, wanted, done.stdout + done.stderr)
 
-    def test_it_says_why_it_failed_and_that_nothing_was_tried(self):
-        done = self.execute(self.text, {"PREPARE": "success", "SKIP": "false", "TRY": "failure"})
-        self.assertIn("::error::The run ended failure", done.stdout)
-        done = self.execute(self.text, {"PREPARE": "failure", "SKIP": "", "TRY": "skipped"})
-        self.assertIn("::error::The inputs were refused", done.stdout)
-        done = self.execute(self.text, {"PREPARE": "success", "SKIP": "true", "TRY": "skipped"})
-        self.assertIn("::notice::There is no catalog to try, so nothing was tried", done.stdout)
+    def test_the_result_says_why_it_failed_and_that_nothing_was_tried(self):
+        text = self.step("result", "needs.plan.result")
+        none = {"PLAN": "skipped", "MANIFESTS": "skipped", "E2E": "skipped", "COUNT": ""}
+        for env, said in (({"PREPARE": "success", "SKIP": "false", "PLAN": "success", "MANIFESTS": "success", "E2E": "failure", "COUNT": "1"},
+                           "::error::A job ended failure"),
+                          ({"PREPARE": "failure", "SKIP": "", **none}, "::error::The inputs were refused"),
+                          ({"PREPARE": "success", "SKIP": "true", **none}, "::notice::There is no catalog to try, so nothing was tried")):
+            with self.subTest(said=said):
+                self.assertIn(said, self.execute(text, env).stdout)
 
 
 class NamesTest(unittest.TestCase):
@@ -720,6 +485,27 @@ class CiResultTest(ShellTest):
                 self.assertEqual(self.execute(text, {"RESULTS": results}).returncode, wanted)
 
 
+class LabImagesTest(ShellTest):
+    """lab-images.yml: the seeder's image, under the name units find it by."""
+
+    def test_the_seeder_is_built_for_both_platforms_with_its_tags_and_labels(self):
+        text = (ROOT / ".github" / "workflows" / "lab-images.yml").read_text(encoding="utf-8")
+        stub = self.bin / "docker"
+        stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$STUB_LOG"\n', encoding="utf-8")
+        stub.chmod(0o755)
+        done = self.execute(script(step_with(jobs(text)["images"], "buildx build")),
+                            {"GITHUB_REPOSITORY": "Owner/Lab", "GITHUB_SHA": "0123456789", "GITHUB_SERVER_URL": "https://git.example"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.called(), ["buildx", "build", "--platform", "linux/amd64,linux/arm64", "--push",
+                                         "-t", "ghcr.io/owner/lab/seeder:latest", "-t", "ghcr.io/owner/lab/seeder:sha-0123456",
+                                         "--label", "org.opencontainers.image.licenses=AGPL-3.0-only",
+                                         "--label", "org.opencontainers.image.source=https://git.example/Owner/Lab", "seeder"])
+
+    def test_it_is_the_name_the_core_gives(self):
+        core = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertRegex(core, r"(?m)^  seeder:\n    image: ghcr\.io/[^/\s]+/[^/\s]+/seeder\s")
+
+
 class ReleaseNotesTest(unittest.TestCase):
     """.github/release.yml: the changelog GitHub writes for a release, one section for each label. "For catalogs" is the compatibility
     matrix of the Lab: what a catalog may use from that version on."""
@@ -755,7 +541,7 @@ class ReleaseTest(unittest.TestCase):
         self.body = self.jobs["release"]
 
     def test_a_push_to_main_starts_it_and_nothing_else(self):
-        self.assertEqual(list(children(self.text, "on")), ["push"])
+        self.assertEqual(events(self.text), ["push"])
         self.assertIn("    branches: [main]", self.text)
         self.assertIn("cancel-in-progress: false", self.text, "a release that is running is never canceled")
 
@@ -858,13 +644,8 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(script(found[1]), "echo one\n\necho two\n")
         self.assertEqual(step_with(body, "name: x"), found[1])
 
-    def test_the_keys_under_a_path(self):
-        text = "on:\n  workflow_call:\n    inputs:\n      a:\n        type: string\n      b-c:\n        required: true\n    secrets:\n      T:\n        x: y\njobs:\n  j:\n"
-        self.assertEqual(list(children(text, "on", "workflow_call", "inputs")), ["a", "b-c"])
-        self.assertEqual(children(text, "on", "workflow_call", "secrets"), {"T": ["        x: y"]})
-        self.assertEqual(list(children(text, "on")), ["workflow_call"])
-        with self.assertRaises(KeyError):
-            children(text, "on", "push")
+    def test_the_events_of_a_workflow(self):
+        self.assertEqual(events("on:\n  push:\n    branches: [main]\n  workflow-x:\n\njobs:\n  j:\n"), ["push", "workflow-x"])
 
 
 class ComposeTest(unittest.TestCase):

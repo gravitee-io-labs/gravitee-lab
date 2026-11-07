@@ -21,8 +21,6 @@ catalog from the template and keep it in step with the Lab's standard. `python3 
     suggest ADDRESS --name NAME [--description TEXT] [--allow-machine]   one entry of the suggestions file
     reset [--empty]                   start over: the next start is a first run, or has no catalog at all
     index [PATH or ID] [--out FILE]   the generated catalog.json, of a folder as it is or of an added catalog
-    images ID [--dry-run]             build the images a catalog builds
-    matrix ID --changed BASE HEAD     the end-to-end matrix of a change
 
 The five commands marked with a module are run by it: everything after their name is handed over as it is. Of those,
 `new`, `upgrade` and `release` answer `--help` here (HELP): their modules have none, and `repo-settings` and `ci` have their own.
@@ -39,7 +37,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -66,7 +63,7 @@ FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is
 # Why, when the download needs Docker that does not answer: the Makefile's words, since nothing runs to download later
-NO_DOCKER = ("Docker is not ready. Start it, or install it with Compose 5.0 or later (see Prerequisites in README.md), then "
+NO_DOCKER = ("Docker is not ready. Start it, or install it with Compose 5.0 or later (see Prerequisites in docs/installation.md), then "
              "start the Lab again.")
 # The phases of a download (firstrun.PHASES) as the terminal says them; one that is not here is not said
 PHASE_WORDS = {"probe": "Checking the address", "fetch": "Downloading the files", "stage": "Installing"}
@@ -990,81 +987,6 @@ def index(args):
     return 0
 
 
-@contextlib.contextmanager
-def _process_environment(new):
-    """The environment of this process is `new` for the length of the block, and what it was after. For a script of the engine that
-    starts Compose with the environment it finds (.github/scripts/lab_images.py) while it reads the files of a catalog."""
-    before = dict(os.environ)
-    os.environ.clear()
-    os.environ.update(new)
-    try:
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(before)
-
-
-def _lab_images():
-    """The engine's builder of images (.github/scripts/lab_images.py), whose label and tag logic a catalog's builder shares."""
-    script = Path(paths.ROOT) / ".github" / "scripts" / "lab_images.py"
-    if not script.is_file():
-        raise Usage("this engine has no .github/scripts/lab_images.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("lab_images", script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def images(args):
-    """The images the units of a catalog build, with the engine's label and tag logic and the prefix of the catalog's
-    `images`: printed with --dry-run, built and pushed otherwise. The seeder is the engine's, and is not built here. A build runs
-    in the build environment (compose.build_environment): the person's own HOME and DOCKER_CONFIG, for their credentials, and
-    nothing else of the shell."""
-    _compose()
-    try:
-        check.available(args.id)
-    except check.Unavailable as error:
-        raise Usage(str(error)) from None
-    with check.scrubbed():
-        meta = manifest.read_catalog(f"{paths.CATALOGS_DIR}/{args.id}/{manifest.FILE}")
-    if meta.get("images") and not os.environ.get("REGISTRY"):
-        os.environ["REGISTRY"] = meta["images"]
-    builder = _lab_images()
-    folder = Path(paths.ROOT) / paths.CATALOGS_DIR / args.id
-    found = {}
-    with _process_environment(compose.scrubbed_environment()):   # the engine's script starts Compose with the environment it has
-        for item in builder.items([folder / "addons", folder / "playgrounds"]):
-            found.update(builder.builds(item))
-    seeder = Path(builder.SEEDER).resolve()
-    found = {name: build for name, build in found.items() if Path(build["context"]).resolve() != seeder}
-    registry_name, commit, source = builder.settings(args.dry_run)
-    for name, build in sorted(found.items()):
-        say(f"== {registry_name}/{name}")
-        command = builder.command(registry_name, name, build, commit, source)
-        if args.dry_run:
-            say(" ".join(command))
-            continue
-        try:
-            subprocess.run(command, check=True, env=compose.build_environment())
-        except subprocess.CalledProcessError as error:
-            complain(f"{registry_name}/{name}: the build failed (exit {error.returncode})")
-            return 1
-    return 0
-
-
-def matrix(args):
-    """The end-to-end matrix of the items a change touches (lab_ui.e2e.plan), as JSON on standard output."""
-    from .. import e2e   # only this command needs it
-    _compose()
-    try:
-        found = e2e.plan(args.id, project.load(), changed=tuple(args.changed))
-    except e2e.PlanError as error:
-        raise Usage(str(error)) from None
-    say(json.dumps(found, indent=2))
-    return 0
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # explain, and the commands that the modules of the standard run: new, upgrade, release, repo-settings, ci
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1192,12 +1114,6 @@ def parser():
     sub = one("index", index, "the generated catalog.json, of a folder (default: this one) or of an added catalog")
     sub.add_argument("target", nargs="?", metavar="PATH_or_ID", help="a folder, or an added catalog (default: this folder; the id of a catalog wins over a folder of the same name, write ./ID)")
     sub.add_argument("--out", metavar="FILE", help="write it to this file and not to standard output")
-    sub = one("images", images, "build the images a catalog builds")
-    sub.add_argument("id")
-    sub.add_argument("--dry-run", action="store_true")
-    sub = one("matrix", matrix, "the end-to-end matrix of a change")
-    sub.add_argument("id")
-    sub.add_argument("--changed", nargs=2, metavar=("BASE", "HEAD"), required=True)
     sub = formatted(one("explain", explain_command, "the long form of a rule code"))
     sub.add_argument("code", metavar="CODE")
     for name, text in (("new", "a catalog from the template of the standard (catalog.py new DIR --id ID --name NAME --maintainers @A)"),

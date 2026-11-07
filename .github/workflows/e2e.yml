@@ -1,7 +1,7 @@
 # End to end for a change of the engine: the catalog this engine lists first (CATALOG_REPOSITORY) is started on a machine with no lab, on the
-# engine as the change leaves it, and its canary has to work (the items its catalog.yml names). The engine holds no item, so a change that
-# touches nothing every item shares (documentation, the page) runs nothing. The run itself is e2e-run.yml, which each catalog calls for
-# its own changes; docs/maintaining.md says how to set both up.
+# engine as the change leaves it, and its canary has to work (the items its catalog.yml names), on each set of versions each says it was tested
+# with (`x-gravitee.tested`), as `make e2e` does. The engine holds no item, so a change that touches nothing every item shares (documentation,
+# the page) runs nothing. docs/maintaining.md says how to set it up.
 #
 # What runs when, and why:
 #   pull_request  a branch of this repository starts the jobs by itself, and the e2e job waits for a maintainer to approve the environment
@@ -12,8 +12,14 @@
 #                 would run every workflow in it with the secrets, and is not how a change is tried
 #   schedule      the canary every night, on the main branches of the engine and of the catalog. The environment `e2e-nightly` holds the
 #                 license and no reviewer, and is for main only
-# The check to require is `E2E result`, the job `result` of this file. The call to e2e-run.yml shows as `Run / ...`, its own result
-# as `Run / Result`, a name nothing requires.
+#
+# What runs where, and why:
+#   plan       reads the change and makes the matrix: an item and a set of versions each
+#   manifests  every image of the item exists in its registry, with no secret: it runs for any pull request, a fork's too
+#   e2e        starts the item with the CI license. It runs the code of the change with a secret, so it never runs for a fork's pull request
+#   result     `E2E result`, the check to require: it fails when anything ended wrong, and waits for e2e
+# The license reaches one step of one job. The deploy key that reads a private catalog (read-only, deleted when it becomes public) reaches only
+# the checkout that needs it.
 name: E2E
 
 on:
@@ -65,7 +71,6 @@ jobs:
           ITEMS: ${{ inputs.items }}
           CATALOG_REPOSITORY: ${{ vars.CATALOG_REPOSITORY }}
           CATALOG_REF: ${{ vars.CATALOG_REF }}
-          E2E_ENABLED: ${{ vars.E2E_ENABLED }}
         run: |
           fail() { echo "::error title=$1::$2"; exit 1; }
           [[ $PR =~ ^([0-9]{1,7})?$ ]] || fail E2E04 "pr is the number of a pull request. Fix: write digits only."
@@ -84,10 +89,7 @@ jobs:
           words='^[A-Za-z0-9:@/._ -]+$'
           [[ ${#items} -le 500 && $items =~ $words ]] || fail E2E04 "items are canary, or items written kind:id and separated by spaces."
           [[ $CATALOG_REF =~ ^[A-Za-z0-9_.][A-Za-z0-9._/-]{0,99}$ || -z $CATALOG_REF ]] || fail E2E04 "CATALOG_REF is a commit or a branch."
-          if [ "$E2E_ENABLED" != true ]; then
-            echo "::notice title=E2E not tried::The variable E2E_ENABLED is not true: end to end starts containers with the license, which only the environment e2e holds: see docs/maintaining.md"
-            skip=true
-          elif [ -z "$CATALOG_REPOSITORY" ]; then
+          if [ -z "$CATALOG_REPOSITORY" ]; then
             echo "::notice title=E2E not tried::The variable CATALOG_REPOSITORY is not set, so there is no catalog to try this engine on: see docs/maintaining.md"
             skip=true
           fi
@@ -100,59 +102,208 @@ jobs:
             echo "skip=$skip"
           } >> "$GITHUB_OUTPUT"
 
-  try:
-    name: Run
+  # The jobs of the matrix: an item and a set of versions each
+  plan:
+    name: Plan
     needs: prepare
     if: needs.prepare.outputs.skip != 'true'
-    uses: ./.github/workflows/e2e-run.yml
-    with:
-      lab-repository: ${{ github.repository }}
-      lab-ref: ${{ needs.prepare.outputs.lab_ref }}
-      catalog-repository: ${{ vars.CATALOG_REPOSITORY }}
-      catalog-ref: ${{ needs.prepare.outputs.catalog_ref }}
-      change: engine
-      items: ${{ needs.prepare.outputs.items }}
-      base: ${{ needs.prepare.outputs.base }}
-      expect-sha: ${{ needs.prepare.outputs.expect_sha }}
-    # By name, never inherit: the run is given what it declares and nothing else. The license and the Docker Hub pair are secrets of the
-    # environments e2e and e2e-nightly, which only the run's e2e job enters: GitHub hands a called workflow an environment secret only
-    # when its caller names it, and an empty one, with no error, when it does not
-    secrets:
-      CATALOG_DEPLOY_KEY: ${{ secrets.CATALOG_DEPLOY_KEY }}
-      GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+    steps:
+      - name: Check out the engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.lab_ref }}
+          path: lab
+          fetch-depth: 0   # a change of the engine is read from the history
+          persist-credentials: false
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.CATALOG_REPOSITORY }}
+          ref: ${{ needs.prepare.outputs.catalog_ref }}
+          ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
+          path: catalog
+          persist-credentials: false
+      # The head can differ from what a maintainer read: the change has to be that commit
+      - name: The change is the one that was read
+        if: ${{ needs.prepare.outputs.expect_sha != '' }}
+        env:
+          EXPECT_SHA: ${{ needs.prepare.outputs.expect_sha }}
+        run: |
+          head=$(git -C lab rev-parse HEAD)
+          [ "$head" = "$EXPECT_SHA" ] || { echo "::error title=E2E03::The change is ${head:0:7}, not the commit you read (${EXPECT_SHA:0:7}). Fix: read the new commits, then run again with the new one."; exit 1; }
+      - name: Install Compose
+        uses: ./lab/.github/actions/compose
+      - name: Link the catalog into the engine
+        run: python3 -I lab/lab-ui/catalog.py link catalog
+      - name: Plan the jobs
+        id: matrix
+        env:
+          ITEMS: ${{ needs.prepare.outputs.items }}
+          BASE: ${{ needs.prepare.outputs.base }}
+        run: |
+          set -f   # what is typed is split into words below, and no word is a pattern for files
+          case "$ITEMS" in
+            canary) python3 -I lab/.github/scripts/e2e_matrix.py --canary --github-output ;;
+            changed) python3 -I lab/.github/scripts/e2e_matrix.py --changed "${BASE:-origin/main}" HEAD --github-output ;;
+            # Words after --, never an option and never a command: the script checks that each one names an item
+            *) python3 -I lab/.github/scripts/e2e_matrix.py --github-output --items -- $ITEMS ;;
+          esac
 
-  # The check to read, under the name it has always had. A job that calls a workflow is shown as `Run / Result`, so this one is
-  # the engine's own: it passes when the run did, and when there was no catalog to try. A fork's pull request has none, as the run has
-  # none: its change is tried by a dispatch
+  # Every image exists: no secret but the key that reads, so it is for any pull request
+  manifests:
+    needs: [prepare, plan]
+    if: needs.plan.outputs.count != '0'
+    name: Images of ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Check out the engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.lab_ref }}
+          path: lab
+          persist-credentials: false
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.CATALOG_REPOSITORY }}
+          ref: ${{ needs.prepare.outputs.catalog_ref }}
+          ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
+          path: catalog
+          persist-credentials: false
+      - name: Install Compose
+        uses: ./lab/.github/actions/compose
+      - name: Link the catalog into the engine
+        run: python3 -I lab/lab-ui/catalog.py link catalog
+      - name: Every image exists
+        env:
+          ITEM: ${{ matrix.item }}
+          TESTED: ${{ matrix.tested }}
+        run: python3 -I lab/.github/scripts/image_manifests.py "$ITEM" $TESTED
+
+  # The item starts and works: it runs with the license, so it is for the repository's own branches and the maintainer who approves
+  e2e:
+    needs: [prepare, plan]
+    if: >-
+      needs.plan.outputs.count != '0' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: ${{ github.event_name == 'schedule' && 'e2e-nightly' || 'e2e' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Check out the engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.lab_ref }}
+          path: lab
+          persist-credentials: false
+      - name: Check out the catalog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.CATALOG_REPOSITORY }}
+          ref: ${{ needs.prepare.outputs.catalog_ref }}
+          ssh-key: ${{ secrets.CATALOG_DEPLOY_KEY }}
+          path: catalog
+          persist-credentials: false
+      # The head can move between the plan and this job: the commit that was read is checked again, before the license is given
+      - name: The change is the one that was read
+        if: ${{ needs.prepare.outputs.expect_sha != '' }}
+        env:
+          EXPECT_SHA: ${{ needs.prepare.outputs.expect_sha }}
+        run: |
+          head=$(git -C lab rev-parse HEAD)
+          [ "$head" = "$EXPECT_SHA" ] || { echo "::error title=E2E03::The change is ${head:0:7}, not the commit you read (${EXPECT_SHA:0:7}). Fix: read the new commits, then run again with the new one."; exit 1; }
+      - name: Install Compose
+        uses: ./lab/.github/actions/compose
+      # The images of the platform and a database take the room a runner has: what it comes with and the lab does not use goes
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          df -h /
+      # Docker Hub counts what an address pulls, and a runner shares its address: a read-only token of an account, when the environment
+      # has one, gives this job its own allowance
+      - name: Sign in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          [ -z "$DOCKERHUB_TOKEN" ] || printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Make the lab's files and give it the license
+        working-directory: lab
+        env:
+          GRAVITEE_LICENSE: ${{ secrets.GRAVITEE_LICENSE }}
+        run: |
+          [ -n "$GRAVITEE_LICENSE" ] || { echo "::error::The secret GRAVITEE_LICENSE is not set in this environment: see docs/maintaining.md"; exit 1; }
+          make init
+          printf '\nGRAVITEE_LICENSE=%s\n' "$GRAVITEE_LICENSE" >> .env
+      - name: Link the catalog into the engine
+        run: python3 -I lab/lab-ui/catalog.py link catalog
+      # Not `make e2e`: make answers 2 for any recipe that fails, and 2 here is "not tried" (a setting only a person can give), which is a
+      # warning, where 1 is a failure
+      - name: Try it
+        working-directory: lab
+        env:
+          ITEM: ${{ matrix.item }}
+          TESTED: ${{ matrix.tested }}
+        run: |
+          set +e
+          python3 -I lab-ui/server.py --e2e "$ITEM" ${TESTED:+--tested "$TESTED"}
+          code=$?
+          [ "$code" -eq 2 ] && exit 0
+          exit "$code"
+
+  # The check to read. It passes when every job ended well and when there was no catalog to try. A fork's pull request has none, as it has
+  # no e2e job: its change is tried by a dispatch
   result:
     name: E2E result
-    needs: [prepare, try]
+    needs: [prepare, plan, manifests, e2e]
     if: >-
       always() &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: The run ended well
+      - name: Every job ended well
         env:
           PREPARE: ${{ needs.prepare.result }}
           SKIP: ${{ needs.prepare.outputs.skip }}
-          TRY: ${{ needs.try.result }}
+          PLAN: ${{ needs.plan.result }}
+          MANIFESTS: ${{ needs.manifests.result }}
+          E2E: ${{ needs.e2e.result }}
+          COUNT: ${{ needs.plan.outputs.count }}
         run: |
-          echo "inputs: $PREPARE, run: $TRY"
+          echo "inputs: $PREPARE, plan: $PLAN, images: $MANIFESTS, e2e: $E2E, jobs: $COUNT"
           [ "$PREPARE" = success ] || { echo "::error::The inputs were refused"; exit 1; }
           [ "$SKIP" != true ] || { echo "::notice::There is no catalog to try, so nothing was tried"; exit 0; }
-          [ "$TRY" = success ] || { echo "::error::The run ended $TRY"; exit 1; }
+          [ "$PLAN" = success ] || { echo "::error::The plan did not end well"; exit 1; }
+          [[ $COUNT =~ ^[0-9]+$ ]] || { echo "::error::The plan gave no count"; exit 1; }
+          # Nothing to try (documentation, say) skips both: that is a pass. Skipped with something to try is not.
+          for result in "$MANIFESTS" "$E2E"; do
+            case "$result" in
+              success) ;;
+              skipped) [ "$COUNT" = 0 ] || { echo "::error::A job that had to run was skipped"; exit 1; } ;;
+              *) echo "::error::A job ended $result"; exit 1 ;;
+            esac
+          done
 
   # A night that fails opens an issue, or adds to the one that is open
   nightly:
     name: Report the failed night
-    needs: [prepare, try]
-    if: >-
-      always() && github.event_name == 'schedule' &&
-      (needs.prepare.result == 'failure' || needs.try.result == 'failure' || needs.try.result == 'cancelled')
+    needs: result
+    if: always() && github.event_name == 'schedule' && needs.result.result == 'failure'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

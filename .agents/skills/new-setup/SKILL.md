@@ -22,20 +22,12 @@ A setup is a compose file that includes add-ons, and nothing else: they start an
      turns on, such as "Kafka with Gravitee's Kafka Desk and the Kafka gateway".
    - **Where it is kept**: Personal, on this machine only, or a catalog that is a folder of the person's (a folder
      catalog: the Lab UI's New catalog, or the `new-catalog` skill). Personal unless the person names a catalog.
-3. Write it where it belongs. A personal item and a catalog item sit at the same depth, so the same paths work in both:
+3. Write it where it belongs:
 
    | Kept | File |
    |---|---|
    | Personal | `.lab/catalogs/local/setups/<id>.yml` |
    | In a folder catalog | `<the folder of the catalog>/setups/<id>.yml` |
-
-   | It includes | Written as |
-   |---|---|
-   | An add-on of the same catalog | `../addons/kafka/compose.yml` |
-   | An add-on of the default catalog, from any other place | `../../<default catalog id>/addons/kafka/compose.yml` |
-
-   An item of a catalog includes the add-ons of its own catalog and of the catalogs it declares in `requires.catalogs`
-   of its `catalog.yml`, never one of this machine. A personal item includes what it wants.
 4. Check it. For an item of a folder catalog, run `python3 -I lab-ui/catalog.py check <catalog id>` from the project's
    folder and fix what it says until it prints "All good". A personal item is read by Compose when the Lab UI shows
    it: the page says why one does not load.

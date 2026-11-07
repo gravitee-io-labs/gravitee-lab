@@ -128,10 +128,9 @@ def skill(name, description="Creates an add-on", head=None):
         + "\n1. Read addons/AGENTS.md\n"
 
 
-def stub(name, description="Creates an add-on", body=None):
+def stub(name, description="Creates an add-on"):
     """The stub of a skill: the same frontmatter, then what sends Claude Code to it."""
-    body = body if body is not None else f"Read `.agents/skills/{name}/SKILL.md` and follow it."
-    return f"---\nname: {name}\ndescription: {description}\n---\n\n{body}\n"
+    return f"---\nname: {name}\ndescription: {description}\n---\n\nRead `.agents/skills/{name}/SKILL.md` and follow it.\n"
 
 
 def skill_file(name):
@@ -156,31 +155,12 @@ class Skills(Case):
             stub_file("share-item"): stub("share-item", "Shares a personal item. Use it to move one.")}), [])
         self.assertEqual(self.problems({}), [])
 
-    def test_each_skill_has_its_stub_with_the_same_name_and_description(self):
+    def test_each_skill_has_its_stub(self):
         self.assertEqual(self.problems({
             skill_file("new-addon"): skill("new-addon"), stub_file("new-addon"): stub("new-addon"),
-            skill_file("new-setup"): skill("new-setup"),
-            stub_file("new-setup"): "Read `.agents/skills/new-setup/SKILL.md` and follow it.\n",
-            skill_file("share-item"): skill("share-item"),
-            skill_file("new-playground"): skill("new-playground"),
-            stub_file("new-playground"): stub("new-playground", "Makes an add-on")}), [
-            (skill_file("new-playground"), f"{stub_file('new-playground')} must have the same name and description"),
-            (skill_file("new-setup"), f"{stub_file('new-setup')} must have the same name and description"),
+            skill_file("share-item"): skill("share-item")}), [
             (skill_file("share-item"),
              f"{stub_file('share-item')} is missing: the stub that sends Claude Code to this skill")])
-
-    def test_a_stub_says_only_to_read_its_skill(self):
-        for body in ("Read the skill and follow it.", "Read `.agents/skills/new-addon/SKILL.md` and follow it.\nMore."):
-            with self.subTest(body=body):
-                self.assertEqual(self.problems({skill_file("new-addon"): skill("new-addon"),
-                                                stub_file("new-addon"): stub("new-addon", body=body)}), [
-                    (stub_file("new-addon"),
-                     "after its frontmatter, write only: Read `.agents/skills/new-addon/SKILL.md` and follow it.")])
-
-    def test_a_stub_needs_its_skill(self):
-        self.assertEqual(self.problems({stub_file("other"): stub("other")}), [
-            (stub_file("other"),
-             "sends Claude Code to .agents/skills/other/SKILL.md, which does not exist: remove it")])
 
     def test_a_skill_says_its_folder_and_what_it_does(self):
         for text, message in (
@@ -209,20 +189,6 @@ class AgentFiles(Case):
         self.assertEqual(list(check._agents()), [
             ("docs/AGENTS.md", "docs/CLAUDE.md is missing: create it with the single line @AGENTS.md"),
             ("docs/kafka/CLAUDE.md", "it must hold only the line @AGENTS.md, so that Claude Code reads AGENTS.md")])
-
-    def test_gemini_cli_reads_agents_md(self):
-        good = '{"context": {"fileName": ["AGENTS.md"]}, "ui": {"theme": "dark"}}'
-        for text, message in (
-                (None, 'is missing: create it with {"context": {"fileName": ["AGENTS.md"]}}'),
-                ("{", "is not valid JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
-                ('{"context": {"fileName": ["AGENTS.md", "GEMINI.md"]}}',
-                 'context.fileName must be ["AGENTS.md"], so that Gemini CLI reads AGENTS.md'),
-                ('{"context": {}}', 'context.fileName must be ["AGENTS.md"], so that Gemini CLI reads AGENTS.md'),
-                ("[]", 'context.fileName must be ["AGENTS.md"], so that Gemini CLI reads AGENTS.md'),
-                (good, None)):
-            with self.subTest(text=text):
-                self.folder(check, files={".gemini/settings.json": text} if text else {})
-                self.assertEqual(list(check._gemini()), [(".gemini/settings.json", message)] if message else [])
 
 
 class Includes(Case):
@@ -1233,7 +1199,6 @@ class Sharing(Machine):
 
     def setUp(self):
         super().setUp()
-        self.write(".gemini/settings.json", '{"context": {"fileName": ["AGENTS.md"]}}')
 
     def whoami(self, **more):
         """A machine with an add-on of this machine: the machine and the add-on's file."""
@@ -2005,7 +1970,6 @@ class Engine(Case):
         self.folder(check, paths, project, compose, envfiles)
         fixtures.core(self)
         fixtures.default(self, "fixture")
-        self.write(".gemini/settings.json", '{"context": {"fileName": ["AGENTS.md"]}}')
         self.patch(license, "status_of", lambda variable: None)
         project.forget()
 
@@ -2043,14 +2007,11 @@ class Engine(Case):
                                                "only image a seed service may have\n\n1 problem\n"))
 
     def test_the_wiring_of_the_agents_is_checked_with_the_core(self):
-        (self.root / ".gemini/settings.json").unlink()
         self.write("AGENTS.md", "")
         project.forget()
         self.assertEqual(self.run_check(), (1, "✓ docker-compose.yml\n"
-                                               "✗ .gemini/settings.json\n"
-                                               "    is missing: create it with {\"context\": {\"fileName\": [\"AGENTS.md\"]}}\n"
                                                "✗ AGENTS.md\n"
-                                               "    CLAUDE.md is missing: create it with the single line @AGENTS.md\n\n2 problems\n"))
+                                               "    CLAUDE.md is missing: create it with the single line @AGENTS.md\n\n1 problem\n"))
 
     def test_the_checkout_itself_prints_all_good(self):
         done = subprocess.run([sys.executable, str(REPO / "lab-ui" / "server.py"), "--check"], cwd=REPO, capture_output=True,

@@ -29,19 +29,12 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
      lesson at a time".
    - **Where it is kept**: Personal, on this machine only, or a catalog that is a folder of the person's (a folder
      catalog: the Lab UI's New catalog, or the `new-catalog` skill). Personal unless the person names a catalog.
-3. Write its folder where it belongs. A personal item and a catalog item sit at the same depth, so the same paths work in
-   both:
+3. Write its folder where it belongs:
 
-   | | Personal | In a folder catalog |
-   |---|---|---|
-   | Folder | `.lab/catalogs/local/playgrounds/<id>/` | `<the folder of the catalog>/playgrounds/<id>/` |
-   | It includes an add-on of the same catalog as | `../../addons/kafka/compose.yml` | `../../addons/kafka/compose.yml` |
-   | It includes a setup of the same catalog as | `../../setups/event-streams.yml` | `../../setups/event-streams.yml` |
-   | It includes an add-on of the default catalog, from any other place, as | `../../../<default catalog id>/addons/kafka/compose.yml` | `../../../<default catalog id>/addons/kafka/compose.yml` |
-   | Its seed builds | `../../../../../seeder` | `../../../../../seeder` |
-
-   An item of a catalog includes the add-ons and setups of its own catalog and of the catalogs it declares in
-   `requires.catalogs` of its `catalog.yml`, never one of this machine. A personal item includes what it wants.
+   | Kept | Folder |
+   |---|---|
+   | Personal | `.lab/catalogs/local/playgrounds/<id>/` |
+   | In a folder catalog | `<the folder of the catalog>/playgrounds/<id>/` |
 
    - `compose.yml`: the metadata, what it includes, its apps and its seed. `services: {}` when it has none.
    - Its secrets: every password, secret, token and key is a setting, never a literal, the `password` and `key` of

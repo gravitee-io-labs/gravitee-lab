@@ -886,7 +886,7 @@ class Damaged(Tool):
         wanted = ("catalog.py: partner is damaged: repair it from the menu of its row in the Lab UI, or remove it and add it "
                   "again\n")
         for argv in (("check", PARTNER), ("check", PARTNER, "--format", "json"), ("check", PARTNER, "--format", "github"),
-                     ("index", PARTNER), ("images", PARTNER, "--dry-run")):
+                     ("index", PARTNER)):
             with self.subTest(argv=argv):
                 self.assertEqual(self.run_tool(*argv), (2, "", wanted))
 
@@ -1470,7 +1470,7 @@ class NeedsCompose(Tool):
         for answer in ((127, "", "docker: not found"), (0, "2.40.0\n", ""), (1, "", "no such command"), (0, "", "")):
             with self.subTest(answer=answer), mock.patch.object(compose, "run", return_value=answer), \
                     mock.patch.object(compose, "plugin", return_value="/x/docker-compose"):
-                for argv in (("link", str(folder)), ("index", PARTNER), ("images", PARTNER)):
+                for argv in (("link", str(folder)), ("index", PARTNER)):
                     self.assertEqual(self.run_tool(*argv), (2, "", self.WANTED), argv)
         with mock.patch.object(compose, "plugin", return_value=None):
             self.assertEqual(self.run_tool("link", str(folder)), (2, "", self.WANTED), "no plugin of Docker to run")
@@ -1534,109 +1534,14 @@ class Spelling(Tool):
 
 
 class Other(Tool):
-    """images, matrix and the way the tool is run."""
-
-    @COMPOSE
-    def test_the_end_to_end_matrix_of_a_catalog_that_is_not_there_is_a_usage_error(self):
-        code, out, err = self.run_tool("matrix", "hub", "--changed", "main", "HEAD")
-        self.assertEqual((code, out), (2, ""))
-        self.assertIn("neither installed nor linked", err)
-
-    @COMPOSE
-    def test_the_end_to_end_matrix_is_the_plan_of_the_package_as_json(self):
-        from lab_ui import e2e
-        asked = []
-        self.patch(e2e, "plan", lambda ns, built, **how: asked.append((ns, how)) or {"matrix": {"include": []}, "count": 0})
-        self.assertEqual(self.run_tool("matrix", "hub", "--changed", "main", "HEAD"),
-                         (0, json.dumps({"matrix": {"include": []}, "count": 0}, indent=2) + "\n", ""))
-        self.assertEqual(asked, [("hub", {"changed": ("main", "HEAD")})])
-
-        def refused(ns, built, **how):
-            raise e2e.PlanError("nothing to try")
-        self.patch(e2e, "plan", refused)
-        self.assertEqual(self.run_tool("matrix", "hub", "--changed", "main", "HEAD"), (2, "", "catalog.py: nothing to try\n"))
-
-    def test_the_images_a_catalog_builds_are_printed_with_a_dry_run_and_the_seeder_is_the_engines(self):
-        fixtures.install(self, PARTNER)
-        builder = module(items=lambda roots: [Path("a")], builds=lambda item: {
-            "web": {"context": "/p/web"}, "seeder": {"context": str(self.root / "seeder")}},
-            SEEDER=self.root / "seeder", settings=lambda dry: (os.environ["REGISTRY"], "local", None),
-            command=lambda registry_name, name, build, commit, source: ["docker", "buildx", f"{registry_name}/{name}"])
-        meta = {"images": "ghcr.io/o/hub"}
-        with mock.patch.object(catalog, "_lab_images", return_value=builder), \
-                mock.patch.object(catalog, "_compose"), mock.patch.object(manifest, "read_catalog", return_value=meta), \
-                mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("REGISTRY", None)
-            code, out, err = self.run_tool("images", PARTNER, "--dry-run")
-        self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines(), ["== ghcr.io/o/hub/web", "docker buildx ghcr.io/o/hub/web"])
-
-    def test_a_build_that_fails_is_a_line_and_exit_1_not_a_traceback(self):
-        fixtures.install(self, PARTNER)
-        builder = module(items=lambda roots: [Path("a")], builds=lambda item: {"web": {"context": "/p/web"}, "api": {"context": "/p/api"}},
-                         SEEDER=self.root / "seeder", settings=lambda dry: ("ghcr.io/o/hub", "local", None),
-                         command=lambda registry_name, name, build, commit, source: [
-                             sys.executable, "-c", f"raise SystemExit({3 if name == 'api' else 0})"])
-        with mock.patch.object(catalog, "_lab_images", return_value=builder), mock.patch.object(catalog, "_compose"), \
-                mock.patch.object(manifest, "read_catalog", return_value={}):
-            code, out, err = self.run_tool("images", PARTNER)
-        self.assertEqual((code, out.splitlines(), err), (1, ["== ghcr.io/o/hub/api"], "ghcr.io/o/hub/api: the build failed (exit 3)\n"))
-
-    def test_a_build_runs_in_the_build_environment_the_persons_home_and_nothing_of_the_runner(self):
-        fixtures.install(self, PARTNER)
-        probe = ("import os, sys; sys.exit(0 if os.environ.get('HOME') == sys.argv[1] and 'ACTIONS_RUNTIME_TOKEN' not in os.environ "
-                 "and 'GITHUB_TOKEN' not in os.environ and 'SSH_AUTH_SOCK' not in os.environ else 7)")
-        builder = module(items=lambda roots: [Path("a")], builds=lambda item: {"web": {"context": "/p/web"}},
-                         SEEDER=self.root / "seeder", settings=lambda dry: ("ghcr.io/o/hub", "local", None),
-                         command=lambda registry_name, name, build, commit, source: [sys.executable, "-c", probe, os.environ["HOME"]])
-        shell = {"ACTIONS_RUNTIME_TOKEN": "t", "GITHUB_TOKEN": "g", "SSH_AUTH_SOCK": "/agent"}
-        with mock.patch.object(catalog, "_lab_images", return_value=builder), mock.patch.object(catalog, "_compose"), \
-                mock.patch.object(manifest, "read_catalog", return_value={}), mock.patch.dict(os.environ, shell):
-            self.assertEqual(self.run_tool("images", PARTNER), (0, "== ghcr.io/o/hub/web\n", ""))
-
-    def test_the_files_of_a_catalog_are_read_in_the_scrubbed_environment_and_the_process_has_its_own_again_after(self):
-        fixtures.install(self, PARTNER)
-        seen = {}
-
-        def items(roots):
-            seen["items"] = dict(os.environ)
-            return [Path("a")]
-
-        def builds(item):
-            seen["builds"] = dict(os.environ)
-            return {"web": {"context": "/p/web"}}
-
-        def read_catalog(file, *more, **how):
-            seen["catalog.yml"] = compose.environment()   # what Compose is given while the file is read
-            return {}
-        builder = module(items=items, builds=builds, SEEDER=self.root / "seeder", settings=lambda dry: ("ghcr.io/o/hub", "local", None),
-                         command=lambda registry_name, name, build, commit, source: ["echo", name])
-        shell = {"MYSECRET_X": "s3cret", "ACTIONS_RUNTIME_TOKEN": "t", "GITHUB_TOKEN": "g", "SSH_AUTH_SOCK": "/agent"}
-        with mock.patch.object(catalog, "_lab_images", return_value=builder), mock.patch.object(catalog, "_compose"), \
-                mock.patch.object(manifest, "read_catalog", read_catalog), mock.patch.dict(os.environ, shell):
-            before = dict(os.environ)
-            self.assertEqual(self.run_tool("images", PARTNER, "--dry-run"), (0, "== ghcr.io/o/hub/web\necho web\n", ""))
-            self.assertEqual(dict(os.environ), before, "and the process has the environment it had")
-        self.assertEqual(sorted(seen), ["builds", "catalog.yml", "items"])
-        for where, environ in seen.items():
-            with self.subTest(where=where):
-                self.assertTrue(environ)
-                self.assertEqual({name for name in environ if name in shell}, set(), "nothing of the runner's shell")
-
-    def test_a_process_environment_is_put_back_even_when_what_ran_in_the_other_failed(self):
-        with mock.patch.dict(os.environ, {"KEEP": "1"}):
-            before = dict(os.environ)
-            with self.assertRaises(RuntimeError), catalog._process_environment({"ONLY": "this"}):
-                self.assertEqual(dict(os.environ), {"ONLY": "this"})
-                raise RuntimeError("boom")
-            self.assertEqual(dict(os.environ), before)
+    """The way the tool is run."""
 
     def test_the_tool_runs_as_a_script_with_the_isolated_mode_and_says_its_commands(self):
         done = subprocess.run([sys.executable, "-I", str(REPO / "lab-ui" / "catalog.py"), "--help"], capture_output=True,
                               text=True, timeout=60, stdin=subprocess.DEVNULL)
         self.assertEqual(done.returncode, 0, done.stderr)
         for command in ("link", "unlink", "add", "provision", "list", "update", "undo", "remove", "suggest", "reset", "check",
-                        "index", "images", "matrix", "new"):
+                        "index", "new"):
             self.assertIn(command, done.stdout)
 
     def test_what_the_machine_refuses_is_a_line_and_exit_2_not_a_traceback(self):
@@ -1656,7 +1561,7 @@ class Other(Tool):
         self.assertNotIn("\x1b", err)
 
     def test_a_usage_error_is_exit_2(self):
-        for argv in ((), ("nothing",), ("link",), ("check", "x", "--format", "xml"), ("suggest", "a/b"), ("matrix", "x")):
+        for argv in ((), ("nothing",), ("link",), ("check", "x", "--format", "xml"), ("suggest", "a/b")):
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(catalog.main(list(argv)), 2)
         with contextlib.redirect_stdout(io.StringIO()):

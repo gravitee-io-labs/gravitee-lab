@@ -63,7 +63,7 @@ POLICY = "; ".join([
 # It shows the consoles of a playground in frames and holds the keys to the lab (Stop, Reset, Delete): no page frames it. Every
 # answer says so; an HTML one, which a browser runs as a page, says the whole policy
 UNFRAMED = {"Content-Security-Policy": "frame-ancestors 'none'", "X-Frame-Options": "DENY"}
-README = "(see Prerequisites in README.md)"
+README = "(see Prerequisites in docs/installation.md)"
 MAX_BODY = 1 << 20   # the largest thing the page sends is the text of a compose file
 # ... but for an imported playground, which the page sends as base64: the largest archive an import reads, and a third more
 LARGE_BODIES = {"/api/catalogs/import": (exports.MAX_ARCHIVE * 4) // 3 + 1024}

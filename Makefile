@@ -35,7 +35,7 @@ help:   # what `make` alone prints
 			printf "  %s%-10s%s %s\n", cyan, name, off, text}' $(makefile)
 
 # What the targets need, checked first so that a missing tool is one line and not a stack trace
-readme := (see Prerequisites in README.md)
+readme := (see Prerequisites in docs/installation.md)
 
 docker-cli:
 	@command -v docker >/dev/null 2>&1 || { \
@@ -81,9 +81,6 @@ all: docker-up init ## Create and start the core and what is on
 # there as uid 1001 (.work). Nothing is made for an add-on: what one needs, it makes itself when it starts.
 init: openssl-ok $(on) ## Create what a fresh clone lacks: .env, demo certificates, plugin folders, .lab/on.yml (ui and all run it)
 	@[ -f .env ] || { cp .env.example .env && chmod 600 .env && echo "Created .env from .env.example"; }
-	@grep -q '^COMPOSE_FILE=' .env || printf '\n%s\nCOMPOSE_FILE=%s\n' \
-		'# The files Compose reads: the core, and what is on. Keep it: without it, docker compose runs the core alone' \
-		"$$COMPOSE_FILE" >> .env
 	@[ -f certs/mtls/server.p12 ] || sh certs/mtls/generate.sh
 	@mkdir -p -m 777 plugins/apim plugins/am
 

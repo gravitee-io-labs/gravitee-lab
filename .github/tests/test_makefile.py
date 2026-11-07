@@ -103,7 +103,7 @@ class MakefileTest(unittest.TestCase):
     def clone(self):
         """What `make init` reads in a fresh clone: the template of .env, the demo certificates (already made), a
         python and an openssl that are fakes."""
-        (self.folder / ".env.example").write_text("GRAVITEE_LICENSE=\n")
+        shutil.copy(ROOT / ".env.example", self.folder)
         (self.folder / "certs" / "mtls").mkdir(parents=True)
         (self.folder / "certs" / "mtls" / "server.p12").write_text("")
         self.program("python3", "#!/bin/sh\nexit 0\n")
@@ -124,9 +124,6 @@ class MakefileTest(unittest.TestCase):
         code, out = self.make("-n", "update")
         self.assertEqual(0, code, out)
         self.assertLess(out.index("git pull --ff-only"), out.index("catalogs"))
-
-    def test_reset_empties_the_records_of_the_playgrounds_of_every_catalog(self):
-        self.assertIn(".lab/catalogs/*/playgrounds/*/.state/created.json", (self.folder / "Makefile").read_text())
 
     def test_down_removes_the_containers_with_their_anonymous_volumes_as_remove_containers_does(self):
         # The page's Remove containers runs `rm --stop --force -v` then `down` (stack.py): a `down` alone leaves the

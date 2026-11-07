@@ -2,9 +2,8 @@
 is published.
 
 The engine profile (`problems`, `run`) is `make check`: the core file (images, restart policies, labels, comments, literal
-secrets, loopback ports, the seeder key), the skills and their stubs, the `CLAUDE.md` next to each `AGENTS.md`, Gemini's
-settings. It loops over no unit: what an installed catalog holds is that catalog's to check, and with none installed it
-prints All good. An item of this machine about to be shared (`sharing`) is the one exception, checked as what it will be.
+secrets, loopback ports, the seeder key), the skills and their stubs, the `CLAUDE.md` next to each `AGENTS.md`. It loops over
+no unit: what an installed catalog holds is that catalog's to check, and with none installed it prints All good. An item of this machine about to be shared (`sharing`) is the one exception, checked as what it will be.
 
 The catalog profile (`catalog_problems`, `catalog_files`) is the second half of `catalog.py check`, after the rules of
 `catalogs.audit` (structure, secrets, commits, workflows, Dockerfiles, guides, images): the per-item rules for each unit of
@@ -59,11 +58,9 @@ GONE = understood.GONE
 REQUIRES = {"plugins", "license", "host", "images", "lab"}
 LOOPBACK = "127.0.0.1"   # the only address a shared file publishes a port on
 STUB_FILE = ".claude/skills/{}/SKILL.md"    # where Claude Code looks for a skill
-STUB_BODY = "Read `{}` and follow it."   # all a stub says: the skill is written once
-FRONTMATTER = re.compile(r"\A\s*---\n(.*?)\n---[ \t]*(?:\n|\Z)(.*)\Z", re.S)   # a skill file: its header, then its text
+FRONTMATTER = re.compile(r"\A\s*---\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)   # the header of a skill file
 AGENTS, CLAUDE = "AGENTS.md", "CLAUDE.md"   # what an agent reads, and the file that sends Claude Code to it
 NOT_SCANNED = {"local", "plugins", "node_modules", "venv", "__pycache__"}   # folders without files of the project
-GEMINI_FILE = ".gemini/settings.json"   # where Gemini CLI is told to read AGENTS.md
 # The listing of each kind (its README table, in the folder of the kind at the root of a catalog) and the row it holds
 # for an item, written from the item's x-gravitee block. A catalog that keeps no table has no finding
 LISTINGS = {"addon": ("addons/README.md", "| [{name}]({id}/) | {description} |"),
@@ -894,12 +891,11 @@ def _misnamed(folder):
 
 
 def _skill(file):
-    """What a skill file says of itself: ({name, description} of its frontmatter, the text after it); (None, its
-    text) without a frontmatter. A value that goes on over several lines is read as one."""
-    text = file.read_text(encoding="utf-8").replace("\r\n", "\n")
-    found = FRONTMATTER.match(text)
+    """What a skill file says of itself: {name, description} of its frontmatter, None without one. A value that goes on over
+    several lines is read as one."""
+    found = FRONTMATTER.match(file.read_text(encoding="utf-8").replace("\r\n", "\n"))
     if not found:
-        return None, text
+        return None
     fields, key = {}, None
     for line in found.group(1).split("\n"):
         start = re.match(r"([A-Za-z][\w-]*):\s*(.*)$", line)
@@ -909,18 +905,16 @@ def _skill(file):
         elif key and line.strip():
             fields[key] += " " + line.strip()
     fields = {key: re.sub(r"^[>|][+-]?\s*", "", value).strip().strip("\"'") for key, value in fields.items()}
-    return {key: " ".join(fields.get(key, "").split()) for key in ("name", "description")}, found.group(2)
+    return {key: " ".join(fields.get(key, "").split()) for key in ("name", "description")}
 
 
 def _skills():
     """A skill is written once, in .agents/skills/<name>/, where most AI agents look for it, under the name of its
-    folder. Claude Code looks elsewhere: a stub there, with the same name and description, sends it to the skill."""
-    names = []
+    folder. Claude Code looks elsewhere: a stub there sends it to the skill."""
     for skill in sorted(ROOT.glob(paths.SKILL_FILE.format("*"))):
         name = skill.parent.name
-        names.append(name)
         path, stub = skill.relative_to(ROOT).as_posix(), STUB_FILE.format(name)
-        fields, _ = _skill(skill)
+        fields = _skill(skill)
         if fields is None:
             yield path, f"begin it with a frontmatter between two --- lines, with name: {name} and a description"
         elif fields["name"] != name:
@@ -929,16 +923,6 @@ def _skills():
             yield path, "description is missing: say what the skill does and when to use it"
         if not (ROOT / stub).is_file():
             yield path, f"{stub} is missing: the stub that sends Claude Code to this skill"
-            continue
-        said, body = _skill(ROOT / stub)
-        if fields is not None and said != fields:
-            yield path, f"{stub} must have the same name and description"
-        if body.strip() != STUB_BODY.format(path):
-            yield stub, f"after its frontmatter, write only: {STUB_BODY.format(path)}"
-    for stub in sorted(ROOT.glob(STUB_FILE.format("*"))):
-        if stub.parent.name not in names:
-            skill = paths.SKILL_FILE.format(stub.parent.name)
-            yield stub.relative_to(ROOT).as_posix(), f"sends Claude Code to {skill}, which does not exist: remove it"
 
 
 def _agent_files():
@@ -958,23 +942,6 @@ def _agents():
             yield agents.relative_to(ROOT).as_posix(), f"{path} is missing: create it with the single line @{AGENTS}"
         elif claude.read_text(encoding="utf-8").strip() != f"@{AGENTS}":
             yield path, f"it must hold only the line @{AGENTS}, so that Claude Code reads {AGENTS}"
-
-
-def _gemini():
-    """Gemini CLI reads GEMINI.md unless it is told to read AGENTS.md."""
-    expected = {"context": {"fileName": [AGENTS]}}
-    file = ROOT / GEMINI_FILE
-    if not file.is_file():
-        yield GEMINI_FILE, f"is missing: create it with {json.dumps(expected)}"
-        return
-    try:
-        settings = json.loads(file.read_text(encoding="utf-8"))
-    except ValueError as error:
-        yield GEMINI_FILE, f"is not valid JSON: {error}"
-        return
-    names = (settings.get("context") or {}).get("fileName") if isinstance(settings, dict) else None
-    if names != [AGENTS]:
-        yield GEMINI_FILE, f"context.fileName must be {json.dumps([AGENTS])}, so that Gemini CLI reads {AGENTS}"
 
 
 def _contract_keys(core):
@@ -1926,7 +1893,7 @@ def problems(sharing=None):
             if kind == "playground":
                 found += [(sharing, message) for message in _alone(project["playgrounds"][uid])]
             extra = list(_ports(project, raw, sharing))
-    return [*_noticed(project, raw, found, {CORE_FILE, sharing}), *found, *extra, *_skills(), *_agents(), *_gemini()]
+    return [*_noticed(project, raw, found, {CORE_FILE, sharing}), *found, *extra, *_skills(), *_agents()]
 
 
 # ---------------------------------------------------------------------------------------------------------------------

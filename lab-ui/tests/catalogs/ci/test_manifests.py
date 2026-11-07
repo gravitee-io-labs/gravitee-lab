@@ -91,8 +91,9 @@ class Asking(Case):
 
     def setUp(self):
         self.script = manifests.script()
-        self.script.RESOLVE = lambda name, port, type=None: PUBLIC if name != "registry.internal.test" else \
-            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.1.2.3", port))]
+        private = {"registry.internal.test": "10.1.2.3", "10.0.0.5": "10.0.0.5", "127.0.0.1": "127.0.0.1"}   # a resolver answers an address with itself
+        self.script.RESOLVE = lambda name, port, type=None: PUBLIC if name not in private else \
+            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (private[name], port))]
         self.registry = Registry()
 
     def ask(self):

@@ -20,8 +20,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The seeder's dependencies need Python 3.10 or later; its image runs 3.15
   lint:
-    name: Lint
+    name: Lint and seeder tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -40,10 +41,14 @@ jobs:
       # The runner image has ShellCheck
       - name: Check install.sh and bin/gravitee-lab
         run: shellcheck -s sh install.sh bin/gravitee-lab
+      # Straight to the seeder's tests: make test runs the Lab UI's first, which its own job already runs, and stops at
+      # the first failure
+      - name: Run the seeder's tests
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python -m unittest discover -s seeder/tests -t seeder
 
   # Every add-on, setup and playground, then the project as a whole, with the Compose release the lab pins and with the newest one,
-  # which is what a Linux user gets from Docker's repository. Then the builds of the lab-images workflow, printed and not run: every
-  # image still resolves from the Compose files
+  # which is what a Linux user gets from Docker's repository
   compose:
     name: Compose files
     runs-on: ubuntu-24.04
@@ -57,10 +62,6 @@ jobs:
         uses: ./.github/actions/compose
       - name: Check with the Compose the lab pins
         run: make check
-      - name: Print the image builds
-        run: python3 .github/scripts/lab_images.py --dry-run
-        env:
-          REGISTRY: ghcr.io/${{ github.repository }}
       - name: Install the newest Compose
         uses: ./.github/actions/compose
         with:
@@ -68,8 +69,7 @@ jobs:
       - name: Check with the newest Compose
         run: make check
 
-  # The Makefile's messages and helpers, install.sh and gravitee-lab, the images script, the workflows and the conventions of the
-  # Compose files
+  # The Makefile's messages and helpers, install.sh and gravitee-lab, the workflows and the conventions of the Compose files
   repository:
     name: Repository tests
     runs-on: ubuntu-24.04
@@ -81,27 +81,6 @@ jobs:
           persist-credentials: false
       - name: Run the tests
         run: python3 -m unittest discover -s .github/tests -t .github/tests
-
-  # The seeder's dependencies need Python 3.10 or later; its image runs 3.15
-  seeder:
-    name: Seeder tests
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.15"
-      - name: Install the dependencies
-        run: make setup
-      # Straight to the seeder's tests: make test runs the Lab UI's first, which its own job already runs, and stops at
-      # the first failure
-      - name: Run the tests
-        run: .venv/bin/python -m unittest discover -s seeder/tests -t seeder
 
   # The whole suite of the Lab UI, on the newest Python, with the JavaScript that Node tests. It renders many files with Compose, so it
   # is split in four parts that take about as long (lab-ui/tests/durations.json)
@@ -162,7 +141,7 @@ jobs:
   # The one check a ruleset asks for, with E2E result: every job above ended in success
   result:
     name: CI result
-    needs: [lint, compose, repository, seeder, lab-ui, lab-ui-oldest]
+    needs: [lint, compose, repository, lab-ui, lab-ui-oldest]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -2041,7 +2041,7 @@ class CommandLine(LabUI):
     def test_compose_version(self):
         # The words of the Makefile's, so that `make ui` and `python3 lab-ui/server.py` say the same
         run = self.patch(api.compose, "run")
-        old = "Docker Compose 5.0 or later is needed, found: {} (see Prerequisites in README.md)"
+        old = "Docker Compose 5.0 or later is needed, found: {} (see Prerequisites in docs/installation.md)"
         for answer, expected in [((0, "2.40.3\n", ""), old.format("2.40.3")),
                                  ((0, "v4.9.1\n", ""), old.format("4.9.1")),
                                  ((0, "dev\n", ""), old.format("dev")),
@@ -2050,7 +2050,7 @@ class CommandLine(LabUI):
                                  ((1, "", "docker: 'compose' is not a docker command"), old.format("none")),
                                  ((127, "", "docker: not found"),
                                   "docker not found: install Docker with Compose 5.0 or later "
-                                  "(see Prerequisites in README.md)")]:
+                                  "(see Prerequisites in docs/installation.md)")]:
             run.return_value = answer
             api.compose.CACHE.drop("docker:")   # each is another machine
             self.assertEqual(api.requirement(), expected)

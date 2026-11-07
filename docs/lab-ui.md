@@ -691,8 +691,8 @@ connected, none of what follows is drawn and the page is as it always was.
 
 ## The on file
 
-`.lab/on.yml` lists what is on. Compose reads it with `docker-compose.yml` through `COMPOSE_FILE` in `.env`, which
-`make init` adds, and `make init` creates the file. The Lab UI writes it. By hand:
+`.lab/on.yml` lists what is on. Compose reads it with `docker-compose.yml` through `COMPOSE_FILE` in `.env`, and
+`make init` creates both files. The Lab UI writes it. By hand:
 
 ```yaml
 include:
