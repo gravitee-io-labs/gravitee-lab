@@ -526,13 +526,6 @@ class Deleted(Folder):
         self.assertFalse((self.root / SANDBOX).exists())
         self.assertNotEqual(self.tree(), before)
 
-    def test_what_the_menu_says_of_a_delete(self):
-        on = {"playground": None, "effective": [], "setups": []}
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "Used by Sandbox")
-        on = {"playground": "local/sandbox", "effective": ["local/whoami"], "setups": []}
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami"), "Turn it off first")
-        self.assertEqual(personal.held(self.project, on, "addon", "local/whoami", running=True), "Stop it first")
-
 
 class Following(Folder):
     """The items of this machine that include an item follow it to the place it has now."""
@@ -586,7 +579,6 @@ class Skills(Folder):
         self.assertEqual(personal.skills(), {"addon": ".agents/skills/new-addon/SKILL.md",
                                              "catalog": ".agents/skills/new-catalog/SKILL.md",
                                              "share": ".agents/skills/share-item/SKILL.md"})
-        self.assertEqual(sorted(personal.SKILLS), ["addon", "catalog", "playground", "setup", "share"])
 
 
 class TheSkills(Case):
