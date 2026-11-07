@@ -3,7 +3,7 @@
 The seeder is the engine every playground's seed runs. Through the products' management APIs it creates the playground's
 data in Gravitee (OpenFGA stores, an Access Management domain, APIs, applications and subscriptions, Gamma objects) and
 records what it created so that it can delete exactly that. Read the [root guide](../AGENTS.md) first. How a playground
-runs it and which folder each module reads: [README.md](README.md). The seed files and the settings:
+runs it: [README.md](README.md). The seed files and the settings:
 [the seed](../docs/playgrounds.md#the-seed).
 
 ## Module contract
@@ -57,7 +57,7 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
   folder of `seed/environments/` in name order. Every environment is read and looked up before the first change, and the
   wait for the gateway comes once, at the end, over the APIs of every environment.
 - **The engine provides `ENV_ID` and `ENV_NAME`** while it renders the files of an environment (`PROVIDED` in `common.py`):
-  a seed file may use them with no setting, and `make test` does not call them unset. A page's own `${...}` is written
+  a seed file may use them with no setting, and `seedlint` does not call them unset. A page's own `${...}` is written
   `$${...}`.
 - **The users hook** (`users` in `apim.py`) looks a user up and registers it when the platform can: a user that exists is
   adopted, never recorded, never changed. A memory user has no row before its first sign-in, so its group gets it
@@ -72,23 +72,10 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
   applications of one name, a key or a token that YAML reads as a number or a boolean, a listing that names an API or a
   location its folder lacks, a second portal, an AsyncAPI document that no listed API owns or that the viewer cannot read, an asset
   that is missing or too large. A group member that `users.yaml` lacks is not refused here (the platform may know the user, and
-  `enroll` looks it up): `make test` checks it.
-- **Portals** (`apim_portal.py`) follow `apim.py` and read `portal/` of `seed/apim/` and of each environment. The theme,
-  portal, pages and links go through the Automation API, which keeps each by hrid; a listing goes through the Console's
-  navigation items. The module's docstring says why, and what the platform does with each.
-- **The Overview page of each listed API** is asked of the platform (`_default-pages`), published, and written from
-  `portal/api-overview.md` when the folder has it. An API with a file in `portal/api-docs/` (`<feed>.yaml`, the end of its
-  crossId `<environment id>-<feed>`) gets an AsyncAPI page after it, made, written, then published. The platform checks no
-  AsyncAPI text and the portal's viewer shows an error in its place, so `apim_portal.py` reads the document first
-  (`ASYNCAPI_VERSIONS`, an `info` with a title and a version, `channels`) and refuses a file that names no listed API.
-- **The pages of the API itself** are what the page an API card opens reads (`/catalog/api/<id>`), and are made through
-  `.../apis/{apiId}/pages`: a Markdown homepage from `portal/api-details.md` (the platform fills its template with the name,
-  version and description only and refuses the components of Gravitee Markdown) and an AsyncAPI page from the document. They are
-  found by type and name, never taken when the seed did not make them, recorded as soon as they exist, and deleted when their
-  file goes. A `PUT` of such a page resets its order and its homepage, so the seed sends both.
-- **The listing is recorded first, then its pages** as one `portal-api-page` record that counts them (`items`: the pages of the
-  menu, `legacy`: those of the APIs, `{api, page}` each). A removal needs no call for the pages of the menu, because the API
-  items of the listing go with their children, and deletes the pages of the APIs by id, which the platform would delete with the API.
+  `enroll` looks it up): `seedlint` checks it.
+- **Portals** (`apim_portal.py`) follow `apim.py` and read `portal/` of `seed/apim/` and of each environment. The module's docstring
+  says what goes through which API and why, and [what the platform does](../docs/playgrounds.md#environments-and-developer-portals)
+  is in the playground reference.
 - **A removal skips an environment that is gone** (`apim.py` and `apim_portal.py` both ask once, and the platform answers 400 to
   every route of one it lacks), with one line for each record.
 
@@ -108,7 +95,8 @@ one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environ
 
 Every address, credential and id comes from the environment (`setting()` in `common.py`), and seed files hold `${VAR}` for
 what depends on the target (`render()`). No module and no seed file names a container or writes an address: the
-playground's seed service sets the variables. `make test` fails on a literal address and on a variable no seed service sets.
+playground's seed service sets the variables. `seedlint`, which the `seed` job of a catalog's CI runs, fails on a literal address
+and on a variable no seed service sets.
 
 ## Behavior to keep
 
