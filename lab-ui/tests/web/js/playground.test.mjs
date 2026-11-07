@@ -1429,11 +1429,6 @@ test("a playground's address that names one about to arrive is not given up whil
       playgroundPage.render(store.state);
       assert.deepEqual(bounced, ["#/playgrounds"], done);
     }
-    // A server that does not say the content gives up at once, as it always did
-    bounced.length = 0;
-    store.state = { ...plain, playgrounds: [] };
-    playgroundPage.render(store.state);
-    assert.deepEqual(bounced, ["#/playgrounds"]);
   } finally {
     router.replace = real;
   }

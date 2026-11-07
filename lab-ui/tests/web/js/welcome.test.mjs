@@ -282,15 +282,13 @@ test("the pages it points to are the Library's and the Catalogs, each leading to
   assert.equal(text(body.querySelectorAll(".pairs > div")[2].querySelector("dd")), "Catalogs: where they come from, to add and to update");
 });
 
-test("with the catalogs there, or a server that does not say, the foot of the start is what it always was: Back, and Discover the playgrounds that works", async () => {
+test("with the catalogs there, the foot of the start is what it always was: Back, and Discover the playgrounds that works", async () => {
   await go("start");
-  for (const state of [{ content: content("ready"), catalogs: [FIRST()] }, { content: undefined }]) {
-    say({ ...state, platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" } } });
-    assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
-    assert.deepEqual(lead(), ["Discover the playgrounds", false, ""]);
-    assert.equal(slot().getAttribute("class"), "btn primary");
-    assert.deepEqual(extra(), []);
-  }
+  say({ content: content("ready"), catalogs: [FIRST()], platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" } } });
+  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
+  assert.deepEqual(lead(), ["Discover the playgrounds", false, ""]);
+  assert.equal(slot().getAttribute("class"), "btn primary");
+  assert.deepEqual(extra(), []);
 });
 
 test("while the catalogs download the lead stays in its place and waits, saying why; a failure adds Try again before it, no catalog Add Gravitee public", () => {

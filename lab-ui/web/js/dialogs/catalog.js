@@ -801,15 +801,12 @@ document.addEventListener("click", (e) => {
 
 // --- Remove, Allow ------------------------------------------------------------------------------------------------------------
 
-// What a removal leaves in Gravitee, as lines like "3 APIs", "1 API", "2 applications": a list of {count, what}, of words, or an object of counts
-// by word. The server says the kind in the plural; one of it is said in the singular, and "API" is the acronym it is.
+// What a removal leaves in Gravitee, as lines like "3 APIs", "1 API", "2 applications", from the counts by word the server gives. It says the
+// kind in the plural; one of it is said in the singular, and "API" is the acronym it is.
 const counted = (n, what) => {
-  const kind = String(what);
-  if (/^apis?$/i.test(kind)) return `${n} ${n === 1 ? "API" : "APIs"}`;
-  return `${n} ${n === 1 ? kind.replace(/ies$/, "y").replace(/s$/, "") : kind}`;
+  if (/^apis?$/i.test(what)) return `${n} ${n === 1 ? "API" : "APIs"}`;
+  return `${n} ${n === 1 ? what.replace(/ies$/, "y").replace(/s$/, "") : what}`;
 };
-const stayed = (stays) => (Array.isArray(stays) ? stays.map((s) => (typeof s === "string" ? s : counted(s.count, s.what)))
-  : Object.entries(stays || {}).map(([what, n]) => counted(n, what)));
 
 export async function openRemove(row) {
   const at = `catalog-op:${row.id}`;
@@ -831,7 +828,7 @@ export async function openRemove(row) {
   const steps = [
     { label: "Removes", items: [plan.folder ? "The link to this folder" : plural(plan.items ?? 0, "item", "items")], hint: plan.folder ? "Your files stay" : "", tone: "danger" },
     { label: "Breaks", items: (plan.breaks || []).map((b) => b.name), hint: `Needs ${row.name}`, note: true },
-    { label: "Stays in Gravitee", items: stayed(plan.stays), note: true },
+    { label: "Stays in Gravitee", items: Object.entries(plan.stays || {}).map(([what, n]) => counted(n, what)), note: true },
   ];
   // A folder catalog has no settings of its own to keep: only the link goes
   const options = plan.folder ? [{ label: "Remove", value: { keep: true } }] : [

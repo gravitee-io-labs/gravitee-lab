@@ -1781,17 +1781,12 @@ test("Remove says what goes, what it breaks and what stays in Gravitee, and offe
   assert.deepEqual(toasts(), ["Removed"]);
 });
 
-test("what stays in Gravitee is counted in the singular for one, and API is the acronym it is, whichever shape the server counts in", async () => {
+test("what stays in Gravitee is counted in the singular for one, and API is the acronym it is", async () => {
   show([GIT("uptodate", { id: hub() })]);
   server.answers[at("/delete")] = REMOVAL({ breaks: [], stays: { apis: 1, applications: 1, policies: 1, plans: 2 } });
   choose("Acme Hub", "Remove");
   await settle();
   assert.deepEqual(effects().notes, [["Stays in Gravitee", ["1 API", "1 application", "1 policy", "2 plans"], ""]]);
-  await answer(false);
-  server.answers[at("/delete")] = REMOVAL({ breaks: [], stays: [{ count: 3, what: "apis" }, { count: 1, what: "keys" }, "2 plans"] });
-  choose("Acme Hub", "Remove");
-  await settle();
-  assert.deepEqual(effects().notes, [["Stays in Gravitee", ["3 APIs", "1 key", "2 plans"], ""]]);
   await answer(false);
 });
 

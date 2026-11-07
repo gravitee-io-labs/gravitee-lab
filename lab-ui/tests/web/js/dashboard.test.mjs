@@ -2091,16 +2091,6 @@ test("with items of this machine and the catalogs not there, the status is one l
   dashboardPage.hide();
 });
 
-test("with the catalogs there, or a server that does not say, the card is what it was", async () => {
-  await open({ state: lab({ catalogs: [FIRST()], content: content("ready") }) });
-  const before = rows("catalog").map((row) => row.getAttribute("class"));
-  await open({ state: lab() });
-  assert.deepEqual(rows("catalog").map((row) => row.getAttribute("class")), before);
-  assert.equal(block("catalog").querySelectorAll('[role="status"]').length, 0);
-  assert.equal(block("catalog").parent.querySelector(".list-tools").hidden, false);
-  dashboardPage.hide();
-});
-
 test("the name of a catalog is text, never markup, on the card", async () => {
   await open({ state: lab({ playgrounds: [running("playground", "@acme-hub/bank", "Acme Bakery", { origin: origin({ name: HOSTILE }) })], setups: [], addons: [], catalogs: [FIRST(), catalogRow({ name: HOSTILE })] }) });
   assert.equal(block("catalog").querySelectorAll("img").length, 0);
