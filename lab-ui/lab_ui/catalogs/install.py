@@ -856,7 +856,7 @@ def _config_with(entry):
 
 
 def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], audience: str, roots: list,
-               meta: Optional[dict] = None, host: bool = False) -> dict:
+               meta: Optional[dict] = None) -> dict:
     """The install of a catalog, with the first download of a listed catalog (whose entry exists already) as the same
     pipeline. Under the locks: the namespace is still free and the stage is what was judged (every file has the id and
     the mode git gave it, no other file is there); the manifest is written into the stage; the store is renamed to
@@ -884,7 +884,7 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
             meta = manifest.read_catalog(os.path.relpath(Path(staged.path) / manifest.FILE, paths.ROOT), address)
         _check_meta(ns, meta, _address_name(address))
         if staged.kind == "folder":
-            return _commit_folder(staged, address, entry, audience, meta, host)
+            return _commit_folder(staged, address, entry, audience, meta)
         tip = bare.resolve(staged.store, "refs/lab/tip")
         if tip is None:
             raise bare.MissingObject("refs/lab/tip")
@@ -915,8 +915,6 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
             asked = gitx.asked_branch(branch, address)
             if asked:
                 row["branch"] = asked
-            if host:
-                row["host"] = True
             _config_with(row)
         _step("add:done")
         return {"entry": row, "lock": registry.lock_of(ns)}
@@ -939,7 +937,7 @@ def _place(ns, staged):
     _restore(ns, root)   # a folder the sweeper renamed, beside the one a Remove left
 
 
-def _commit_folder(staged, address, entry, audience, meta, host):
+def _commit_folder(staged, address, entry, audience, meta):
     """The Add of a folder catalog: the stage is a link, renamed to `.lab/catalogs/<ns>`, then the lock and the entry.
     """
     ns = staged.ns
@@ -962,8 +960,6 @@ def _commit_folder(staged, address, entry, audience, meta, host):
     if entry is None:
         _step("add:config")
         row = {"id": ns, "kind": "folder", "path": address.path, "added": _utc()}
-        if host:
-            row["host"] = True
         _config_with(row)
     _step("add:done")
     return {"entry": row, "lock": registry.lock_of(ns)}
