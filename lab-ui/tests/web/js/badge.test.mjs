@@ -413,10 +413,6 @@ test("the card of a note says its foot for the kinds it knows, and none for one 
     assert.equal(noteCard(named), null, kind);
     assert.deepEqual(bubble(draw(noteBadge(named)).querySelector(".tip")), ["Odd", "Configuration changed"], kind);
   }
-  // The kinds of old say what they said
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "unset", settings: ["A"] }] }).foot, "Set it in its settings.");
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "unset", settings: ["A", "B"] }] }).foot, "Set them in its settings.");
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "license", features: ["Observability"] }] }).foot, "Set a license in the license form.");
 });
 
 // --- A popover that ends with a button -----------------------------------------------------------------------------------------

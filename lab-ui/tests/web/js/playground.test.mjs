@@ -634,7 +634,7 @@ test("a Deploy at work says so on its button, with the verb of its job", async (
 const LINES = [{ name: "My Account", state: "ok", detail: "Connected", target: { kind: "platform", id: "my-account" } },
   { name: "Hybrid gateway", state: "warn", detail: "None in Development", fix: "gateway" },
   { name: "Cloud Token", state: "warn", detail: "Not set", fix: "token" },
-  { name: "Malt server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "smtp" }, file: "addons/smtp/.env" }];
+  { name: "Malt server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "malt" }, file: "addons/malt/.env" }];
 const lines = () => section.querySelectorAll(".pg-prep-item").map((li) => [text(li.querySelector(".pg-prep-name")),
   li.classList.contains("warn") ? "needs you" : li.classList.contains("auto") ? "start" : "in place", li.querySelectorAll(".pg-prep-action .icon-btn").map((b) => b.getAttribute("data-tip"))]);
 
