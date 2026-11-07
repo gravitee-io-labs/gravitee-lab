@@ -700,14 +700,16 @@ class Walking(Base):
                 install.walk(str(folder))
         self.assertEqual(raised.exception.code, "too_large")
 
-    def test_a_tree_deeper_than_a_catalog_goes_is_counted_and_not_kept(self):
+    def test_a_tree_deeper_than_a_catalog_goes_is_counted_not_followed(self):
         folder = self.folder_catalog("partner")
         deep = folder / "addons" / "ledger"
         for _ in range(12):
             deep = deep / "d"
         deep.mkdir(parents=True)
         (deep / "f.txt").write_text("x", encoding="utf-8")
-        kept, ignored = bare.selected(install.walk(str(folder)))
+        found = install.walk(str(folder))
+        self.assertFalse([entry.path for entry in found if entry.path.endswith("f.txt")], "past what a path can say it would fail")
+        kept, ignored = bare.selected(found)
         self.assertGreaterEqual(ignored, 1)
         self.assertFalse(any("/d/d/d/d/d/d/d/d/d/d/d" in entry.path for entry in kept))
 

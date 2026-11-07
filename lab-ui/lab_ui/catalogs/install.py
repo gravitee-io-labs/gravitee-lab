@@ -535,7 +535,7 @@ def walk(folder: str) -> list:
         count += 1
         if count > WALK_LIMIT:
             raise gitx.fail("too_large")
-        if stat.S_ISDIR(info.st_mode):
+        if stat.S_ISDIR(info.st_mode) and rel.count("/") < 10:   # deeper than a catalog goes, and than a path can say, it is one entry
             try:
                 todo[0:0] = sorted(f"{rel}/{name}" for name in os.listdir(os.path.join(folder, rel)))
             except OSError:
