@@ -2,7 +2,6 @@
 that follow an item, folders merged. Nothing here runs Docker, git or the network: a crash is injected with `moves.STEP`, and
 a run that stopped is repeated until it converges."""
 
-
 import errno
 import hashlib
 import json
@@ -548,6 +547,7 @@ class Copied(Elsewhere):
         original = digest(self.root / "playgrounds/shop/.state")
         self.assertEqual(moves.relocate("playgrounds/shop/.state", "new/.state"), "copied")
         self.assertEqual(digest(self.root / "new/.state"), original)   # modes and links as they were
+        self.assertEqual(self.mode("new/.state"), self.mode("playgrounds/shop/.state"))   # of the folder itself too
         self.assertEqual(digest(self.root / "playgrounds/shop/.state"), original)
         self.assertEqual(os.readlink(self.root / "new/.state/outside"), "/etc/hosts")   # a link stays a link
         self.assertFalse(self.exists("new/.state.partial"))
@@ -612,6 +612,13 @@ class Devices(Elsewhere):
         self.failing("old/.env", OSError(errno.EXDEV, "Invalid cross-device link"))
         self.assertEqual(moves.relocate("old/.env", "new/.env"), "conflict")
         self.assertEqual((self.text("old/.env"), self.text("new/.env")), ("OLD=1\n", "NEW=1\n"))
+
+    def test_a_partial_copy_of_an_earlier_crash_is_replaced(self):
+        self.put("old/.env", "TOKEN=1\n")
+        self.put("new/.env.partial", "half\n")
+        self.failing("old/.env", OSError(errno.EXDEV, "Invalid cross-device link"))
+        self.assertEqual(moves.relocate("old/.env", "new/.env"), "moved")
+        self.assertEqual((self.text("new/.env"), self.exists("new/.env.partial")), ("TOKEN=1\n", False))
 
     def test_a_copy_that_differs_is_an_error_and_leaves_the_original(self):
         self.put("old/.env", "TOKEN=1\n")
@@ -896,6 +903,15 @@ class Rekey(Moves):
         self.assertEqual((self.read(".lab/starred.json")["addon"], list(self.read(".lab/tested.json"))),
                          (["local/echo"], ["local/mine"]))
         self.assertEqual((self.mode(".lab/starred.json"), self.mode(".lab/tested.json")), (0o600, 0o640))
+
+
+class PersonalFiles(Moves):
+
+    def test_they_are_those_of_this_machine_and_never_those_of_a_catalog(self):
+        for ns in ("local", "partner"):
+            self.put(f".lab/catalogs/{ns}/addons/echo/compose.yml", "services: {}\n")
+        self.assertEqual(moves._personal_files(), [".lab/catalogs/local/addons/echo/compose.yml"])
+
 
 class Merge(Moves):
     """`moves.merge`: what is in one folder goes into another that exists, and nothing is put over what is there."""
