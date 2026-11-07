@@ -321,6 +321,13 @@ class Reading(unittest.TestCase):
         self.assertEqual([("DF21", "apps/a/Dockerfile"), ("DF23", "apps/a/Dockerfile"), ("DF21", "apps/d/Dockerfile"),
                           ("DF23", "apps/d/Dockerfile")], [(each.code, each.path) for each in out], "a NUL byte hides nothing")
 
+    def test_the_fixture_with_every_rule_in_it(self):
+        out = found((DATA / "bad.Dockerfile").read_text())
+        counts = {}
+        for each in out:
+            counts[each.code] = counts.get(each.code, 0) + 1
+        self.assertEqual({"DF01": 1, "DF02": 2, "DF03": 3, "DF04": 4, "DF05": 2, "DF21": 2, "DF22": 1, "DF23": 1, "DF24": 1}, counts)
+
 
 class Hostile(unittest.TestCase):
 
