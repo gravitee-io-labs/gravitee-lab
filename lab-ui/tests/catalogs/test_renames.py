@@ -5,6 +5,7 @@ an item on, stars it, sets its settings, and updates to releases that rename it.
 
 import json
 import os
+import shutil
 import unittest
 from unittest import mock
 
@@ -391,6 +392,7 @@ class EndToEnd(Case):
         fixtures.need_compose()
         self.start(mock.patch.dict(os.environ, {"DOCKER_CONFIG": os.path.join(os.path.expanduser("~"), ".docker")}))
         fixtures.project(self, paths, project, compose, envfiles, ns="fixture")
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")   # as every Lab has it: it says the level this Lab reads
         self.patch(paths, "_default", (None, None))
         self.home = gitfixture.isolate(self)
         self.patch(gitx, "_ending", False)
@@ -499,6 +501,7 @@ class EndToEnd(Case):
     def setUp_again(self):
         """Another Lab, in another folder, that has 1.0.0 of the same repository."""
         fixtures.project(self, paths, project, compose, envfiles, ns="fixture")
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")
         project.forget()
 
     def add_at(self, version):
