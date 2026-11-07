@@ -6,9 +6,7 @@ How the Lab UI looks and behaves, and why. [AGENTS.md](AGENTS.md) has the rules 
 ## The design system
 
 Every page is built from the tokens and components below, and from nothing else. A page builder reads this part first; the
-parts after it say how each page uses them. The [gallery](tests/web/gallery/README.md) draws every component in every tone and
-state, light and dark side by side, from the page's own code: look at it at 2x zoom after any change to `web/css` or to a
-component of `ui.js`.
+parts after it say how each page uses them.
 
 ### Principles
 
@@ -36,9 +34,9 @@ stylesheet is a token; a literal is a fault, but for a one-off geometry (a chart
 | Mono | `--mono` | Versions, tags, settings' names, identifiers, ports: in a `.chip` inside a popover |
 | Surfaces | `--bg`, `--surface`, `--surface-2`, `--surface-3`, `--border`, `--border-strong`, `--field-line` | The page, a card, two quiet fills, two hairlines, the edge of a field (its only boundary: 3.3:1 on `--surface`, 3:1 on `--bg`, 3.4:1 dark) |
 | Text | `--text`, `--text-2`, `--muted`, `--accent-ink` | Primary, secondary, muted (4.7:1 on `--surface-3` light, 4.9:1 dark), the accent as text (a link hovered, a choice: 5.4:1 light, 5.0:1 dark) |
-| Accent | `--accent`, `--accent-2`, `--accent-soft`, `--accent-fill`, `--accent-fill-2` | The brand, for icons and soft fills; the two ends of the primary button's gradient, on which white is 5.5:1 and 4.5:1 |
+| Accent | `--accent`, `--accent-soft`, `--accent-fill`, `--accent-fill-2` | The brand, for icons and soft fills; the two ends of the primary button's gradient, on which white is 5.5:1 and 4.5:1 |
 | Highlight | `--hl`, `--hl-text` | What a search found in a log line |
-| Status | `--ok`, `--warn`, `--err`, `--info`, each with `-soft` and `-line` | Foreground, background, line. Neutral is `--text-2` on `--surface-2` with `--border-strong` |
+| Status | `--ok`, `--warn`, `--err`, each with `-soft` and `-line`; `--info` with `-soft` | Foreground, background, line. Neutral is `--text-2` on `--surface-2` with `--border-strong` |
 | Radii | `--radius` 14, `--r-pop` 10, `--r-control` 8, `--r-inner` 6, `--r-pill` 999 | A card; a popover, a menu, a notice; a control; a choice inside a control, a tooltip; a pill |
 | Elevation | `--shadow-sm`, `--shadow`, `--shadow-md`, `--shadow-lg` | A control, a card, a popover or a menu, a dialog |
 | Heights | `--h-control` 32, `--h-inner` 26, `--h-pill` 24, `--h-option` 36, `--h-head` 32, `--h-row` 56, `--h-row-2` 48, `--h-row-3` 40 | A control; a choice in one, a row's icon; a pill; an option of a list that opens (a picker's option, a menu's entry); a table's head; its rows by kind |
@@ -54,7 +52,7 @@ Contrast of text, measured: `--ok` on `--ok-soft` 4.6:1 light, 8.2:1 dark; `--wa
 Each has one class and, when it is markup, one function of `web/js/components/ui.js`. Use it as it is; when a page needs more, extend the
 component here, never with a variant of its own.
 
-**Pill** (`.pill`, its tones `.ok .warn .err .info`, none for neutral). A status or a label: *Running*, *Personal*,
+**Pill** (`.pill`, its tones `.ok .warn .err`, none for neutral). A status or a label: *Running*, *Personal*,
 *Connected* (an account, in the head of its card), *Apply needed*, the license in words (*Community Edition*, *Enterprise Edition* and
 its tier, *License not saved*; never an acronym). 24 px high, 10 px at its sides, 6 px between its parts, 12 px
 medium, a 1 px line of its tone. A trailing information mark when it opens an explanation (then the pill is the button: a hover a
@@ -101,7 +99,7 @@ is about takes a line of its own. Taller than the window allows, its body scroll
 placing, hover bridge and Escape as the tooltip; a tap toggles it, a tap elsewhere, a scroll of the page, a resize or leaving the
 page closes it.
 
-**Apply needed** (`applyBadge(reason, cls, causes)`, `behindWhy(platform)`). An amber pill with an information mark; its
+**Apply needed** (`applyBadge(reason, causes)`, `behindWhy(platform)`). An amber pill with an information mark; its
 name for a screen reader is the server's sentence (`note_title`, `reason`), its popover is drawn from the server's causes
 (`note_causes`, `platform.behind[].causes`): *Differs from what is saved*, a line for each cause (the versions under *Running* and
 *Saved*), *Apply restarts it with what is saved.* (*them* when the causes are about several services; *, older versions included*
@@ -112,7 +110,7 @@ word (a product's Status, whose newer version it would hide) says that word as a
 and the version), and to a screen reader.
 
 **Notice** (`noticeHtml({tone, title, text, action})`, `.notice`). A fact about the lab as a whole, above the page (the banner):
-its icon in its tone (`warn`, `err`, `info`, `calm` for a fact that is no problem), its headline in strong `--text`, a short
+its icon in its tone (`warn`, `err`, `calm` for a fact that is no problem), its headline in strong `--text`, a short
 summary in `--text-2` that may open a popover (its mark follows its last word, wherever the words wrap; the summary is the start of
 its name for a screen reader, so that a voice that says it finds it), its action at the right: the platform's Start and Apply are the
 primary, as they are in the heads that have them. 44 px with its 32 px button, 14 px at its left, a 10 px radius, the soft fill and
@@ -154,7 +152,7 @@ that scale beside it (`.dash-axis`: the top, written as it changes, and 0, in 12
 Cells of a chart are 330 px at least so that a line has room to be read. Narrower than 1260 px of page: the two charts share a line, as wide as
 it lets them, with Storage and Docker under; under 640 px a cell over the other. A browser keeps the choice (`dash-resources`); folded, the strip draws no chart.
 
-**List row and note badges** (`list.js`, `noteBadge(x, fix)`, `itemState(x)`, `itemButton(x)`). A catalog row: its toggle (the
+**List row and note badges** (`list.js`, `noteBadge(x)`, `itemState(x)`, `itemButton(x)`). A catalog row: its toggle (the
 chevron, a button named for the item, which the keyboard reaches and which says whether the detail is open; the row itself is no
 button, so that its controls are controls of their own, and a click anywhere on it but its controls opens it too), its name
 (13.5 strong), its star right after it (a hollow one shows under the pointer, in its place: nothing moves), then what it is
@@ -274,7 +272,7 @@ Don't: a dropdown with a fixed height, one of its own placement, a native `selec
 **Generic words.** A page of the Lab UI is a hub: it never names an item of the catalog (a playground, a setup, an add-on) in its
 own words, nor states a version or what a platform runs or lacks as a sentence. What it says of an item comes from the item (its
 name, its file, its requirements); what it says of a platform comes from data (the state, a live read and what the gateways of an
-environment say they run, the reasons `project.judge` gives a playground). An example names paths with `<id>`. `test_static.py` refuses a name of its deny list and a
+environment say they run, the reasons `project.judge` gives a playground). An example names paths with `<id>`. `test_static.py` refuses a
 version said in words ("API Management 4.12") in the strings of a module.
 
 ### Measuring
@@ -282,8 +280,8 @@ version said in words ("API Management 4.12") in the strings of a module.
 Every change is measured in the DOM before it is judged by eye: `getBoundingClientRect` for heights and the left edges of first
 columns, computed styles for sizes, weights and colors, the middle of every cell against the middle of its row, `scrollWidth`
 against the window for a sideways scroll, and the contrast of each text against its background. At 1966, 1440, 900 and 375 px,
-light and dark. Then the screenshots at full size and at 2x for the details. The figures this system promises, as measured in
-the gallery and on the pages: a pill 24 px with 10 px sides; the Apply badge 120 by 24; a tooltip 28 px high, one line, 6 by 10,
+light and dark. Then the screenshots at full size and at 2x for the details. The figures this system promises, as measured
+on the pages: a pill 24 px with 10 px sides; the Apply badge 120 by 24; a tooltip 28 px high, one line, 6 by 10,
 12 px; a popover 260 to 460 px, as wide as its content, 12 by 16, 13 px, rows 8 px apart; a notice 44 px; a button, a search, a toggle chip and a
 segmented control 32 px, a segment 26; a menu's entry and a picker's option 36, a dropdown longer than its room
 ending 16 px from the window's edge (on the pages at 1440 by 900, 1440 by 600 and 375 by 700; `place` in `tests/web/js/popup.test.mjs`); a card's head 56, a table's head 32 (`.table
@@ -333,7 +331,7 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
   tint for the open row. A click anywhere on the row but its controls opens it too. The row itself is no button: its
   controls (its name's link, its badges, its buttons) are reached apart. A row that cannot be closed has no toggle. The
   lists, the groups of Containers and the lines of a detail that open work so; a pack of the license is a row that opens
-  with nothing inside it (`onRowKey`). An address opens one (`#/addons/<id>`, `#/setups/<id>`), in view, its toggle focused.
+  with nothing inside it. An address opens one (`#/addons/<id>`, `#/setups/<id>`), in view, its toggle focused.
   Back returns to the list as it was, with its filters and its page, unless they were changed by hand meanwhile.
 - **Row icons**: fixed slots in a fixed order (open, file, settings, logs, restart, stop or start, more). A missing
   one keeps its place (`GAP`). A file and its settings open from their icons (`fileButtons`), never from a menu.
@@ -384,8 +382,7 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
     of a dialog is the label that was clicked, without a question mark; its button is the verb.
 - **An explanation** is a tooltip (one line) or a popover (several lines, or a card of causes), one implementation in `ui.js`
   ([Tooltip, Popover](#components)): `tipHtml` makes its button, which keeps the look of what it sits in and carries the whole
-  explanation as its name for a screen reader; `data-tip` explains a control that acts on a click. A bubble for the pointer
-  alone (`tab: false`) is on a button that is no stop of the keyboard: the part of a bar, whose key says the same.
+  explanation as its name for a screen reader; `data-tip` explains a control that acts on a click.
 - **What cannot be used says why**, on hover, on keyboard focus and on a tap: the control is `aria-disabled` with its reason as
   its tooltip ("<name> is not running"; `setOff`), so that the keyboard reaches it and a screen reader hears why. What
   waits for Docker, for the running job or for the Lab UI is marked `data-busy`: `paintBusy` makes it wait with the
@@ -519,7 +516,7 @@ What the person sees is in [docs/lab-ui.md](../docs/lab-ui.md#the-guide-and-the-
   on screen: the one read last, which comes up when it names none, is written into it.
 - **An action in a guide** (the syntax and the contract are in
   [docs/playgrounds.md](../docs/playgrounds.md#actions-in-a-guide)).
-  - `markdown.js` draws the link. The sanitizer keeps no other `action:` and no `data-action` or form of a guide's own.
+  - `markdown.js` draws the link. The sanitizer keeps no other `action:` and no `data-*` attribute or form of a guide's own.
     `make check` says an id that is none before it is shared.
   - A click is `Workspace.send`: it shows the first console and posts the action at that UI's own origin, never `*`,
     at once when the app has said that it listens, else queued, in order, once each.
@@ -844,11 +841,10 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
       account that cannot be read says its state as the Gravitee Cloud page does (`accountState`: Account Token refused in red,
       Unreachable in amber), the server's reason in its popover (with the account's name when there are several; never a sentence beside
       it), and what can change it: a refused token is replaced (*Replace Account Token*, the Gravitee Cloud page's form), an account that
-      does not answer is asked again (*Check again*, which says "Checking" while it asks). An account not read yet: *Loading*. Accounts
-      that cannot be listed: "Accounts cannot be read" in red, the reason in its popover, and *Check again*, once however many times it is
-      pressed. The row is one line in every state, so nothing under it moves when the Cloud answers.
-    - **Only the routes of the Gravitee Cloud page are used**: `GET /api/platforms`, then `POST /api/platforms/<id>/check` of each
-      platform at once whose last answer is more than 30 seconds old (`FRESH`), when the page is shown and when the tab is seen
+      does not answer is asked again (*Check again*, which says "Checking" while it asks). An account not read yet: *Loading*.
+      The row is one line in every state, so nothing under it moves when the Cloud answers.
+    - **The accounts are the state's** (`state.platforms`), and the one route of the Gravitee Cloud page used is
+      `POST /api/platforms/<id>/check`, of each platform at once whose last answer is more than 30 seconds old (`FRESH`), when the page is shown and when the tab is seen
       again: a trip through the menu costs Gravitee Cloud nothing; Refresh of the Gravitee Cloud page asks again whatever its age. They never hold up the rest of the page. A check that fails is *Unreachable*. The
       answers and their time are one record for this page and the Gravitee Cloud page (`store.cloud`), so that what one read, and what
       an action on the other changed, is what both say. A gateway that runs here and has not connected yet is read again after 5
@@ -985,7 +981,6 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
   them ask.
 - Each block is written again only when its own text changed (`setHTML`), a row of a card on its own (`keyed`), and a cell of
   Resources is a block of its own: the chart's figure and path are written apart, so a sample never draws a cell.
-- `#/stack` still works and leads to Containers.
 
 ### Containers
 
@@ -1167,7 +1162,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   check runs, rows of bars stand where the table will be. `#/cloud/<id>` brings a card into view, focused. The page before any card
   is the one empty block of every page (`.empty`): *No account connected* and its action, *Connect account*, a plain button (the
   primary of a page is the banner's Start or Apply). The page's
-  address is `#/cloud`; `#/platforms` and `#/platforms/<id>` lead to it (`MOVED` in `js/core.js`).
+  address is `#/cloud`.
 - **The table** is one grid for its heads and every row (`.plat-grid`), four tracks: the environment (up to 260 px), the gateway, the
   deploys and the actions (248 px, the same in every row), so that states line up from one row to the next. It is the table of
   the Dashboard's Gravitee Cloud cards, drawn by the same cells (`gatewayCell`, `deployCell`): the heads *Environment*, *Gateway* and *Deploys* are drawn as the products' (12 px medium,
@@ -1606,7 +1601,7 @@ The server orders what the page lists: add-ons, setups and playgrounds by name (
 Tests do not see the page. After a change, with the platform running, click through the lines that cover it, in light and
 dark, at 1440 and 900 px wide.
 
-1. **Dashboard.** The Lab UI opens on it with no hash, `#/stack` leads to Containers and an address that is no page leads
+1. **Dashboard.** The Lab UI opens on it with no hash and an address that is no page leads
    here. The menu has it first, alone above Catalog, collapsed too. At 1440 px the platform's card (its products, the Cloud's row under
    them) and the catalog's card are side by side,
    about three to two, on the same top line, each ending where its content does with nothing blank under it; at 1100 and 900 px they are one

@@ -218,8 +218,8 @@ class Rows(Seam):
                          [("fixture", "folder"), ("local", "machine"), ("partner", "git"), ("lab-new", "git")])
         self.assertEqual(rows[1]["name"], "Personal")
 
-    def test_personal_has_no_row_until_it_holds_something(self):
-        self.assertNotIn("local", [row["id"] for row in service.describe(*project.loaded())])
+    def test_personal_is_a_row_even_empty_since_kept_settings_are_listed_on_it(self):
+        self.assertIn("local", [row["id"] for row in service.describe(*project.loaded())])
         fixtures.local(self, "scratch")
         row = next(row for row in service.describe(*project.loaded()) if row["id"] == "local")
         self.assertEqual((row["kind"], row["name"], row["counts"], row["state"]["key"]),
@@ -234,8 +234,7 @@ class Rows(Seam):
             {"name": "Example internal", "description": "Demos kept private", "url": "https://git.example.invalid/team/hub.git",
              "branch": "main", "host_access": True}]}), encoding="utf-8")
         self.environ(LAB_CATALOGS_FILE=str(suggestions))
-        rows = service.describe(*project.loaded())
-        listed, suggested = rows
+        listed, suggested = [row for row in service.describe(*project.loaded()) if row["kind"] == "suggested"]
         self.assertEqual((listed["id"], listed["kind"], listed["listed"], listed["name"]),
                          ("fixture", "suggested", True, "Fixture catalog"))
         self.assertEqual(listed["state"], {"key": "suggested", "label": "Not added", "tone": "muted",
@@ -271,12 +270,12 @@ class Rows(Seam):
                 mock.patch.object(compose, "run", side_effect=AssertionError("Compose was run")), \
                 mock.patch("subprocess.Popen", side_effect=AssertionError("a process was started")):
             rows = service.describe(*project.loaded())
-        self.assertEqual([row["id"] for row in rows if row.get("id")], ["fixture", "partner", "lab-new"])
+        self.assertEqual([row["id"] for row in rows if row.get("id")], ["fixture", "local", "partner", "lab-new"])
 
     def test_describe_takes_what_it_is_given_and_never_raises_for_a_project_that_cannot_be_read(self):
         self.installed("partner")
         rows = service.describe({}, {})
-        self.assertEqual([row["id"] for row in rows if row.get("id")], ["fixture", "partner"])
+        self.assertEqual([row["id"] for row in rows if row.get("id")], ["fixture", "local", "partner"])
         self.assertEqual(service.describe(None, None), rows)
 
     def test_the_summary_of_the_project_gives_the_blocked_items_what_uses_the_machine_the_needs_and_the_problems(self):

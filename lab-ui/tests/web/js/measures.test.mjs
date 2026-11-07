@@ -2,14 +2,11 @@
 // body keeps its tag while a pull brings bytes, and the page draws only the bars and the buttons at work as the measures move.
 // A measure that comes or goes draws every page, as a state does.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { flush, installDom } from "./dom-stub.mjs";
 
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids });
+const page = installDom();
 const JOB = { id: "j1", for: "addon:kafka", verb: "start", title: "Start Kafka", done: false, ok: null, phases: [{ name: "Pull", started: 0 }], started: 0 };
 const KAFKA = { kind: "addon", id: "kafka", name: "Kafka", state: { key: "starting", label: "Starting" }, progress: "job" };
 const STATE = { job: JOB, addons: [KAFKA], setups: [], playgrounds: [], platform: null, services: {} };

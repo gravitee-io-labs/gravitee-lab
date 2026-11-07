@@ -7,7 +7,7 @@
 // the same plan and confirmation as a Start.
 
 import { $, esc, icon, setHTML, loading, api, store, router, copyButton } from "../core.js";
-import { toast, effectsDialog, paintActions, paintBusy, actionButton, openMenu, tipHtml, keyed, noticeHtml, statusHtml } from "../components/ui.js";
+import { toast, effectsDialog, paintActions, paintBusy, actionButton, openMenu, tipHtml, keyed, noticeHtml, statusHtml, copyAddress, reveal } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
 import { seeded } from "./playground.js";
@@ -25,7 +25,6 @@ let section;
 let platforms = null;       // the platforms registered, null until they are read
 let failed = "";            // why they could not be read
 const { checks } = store.cloud;   // platform id -> what its last check answered: the Dashboard's too
-const reading = new Map();  // platform id -> its check on its way
 const asked = new Set();    // the ids whose check a person asked for: the card says it is checking
 const wide = new Set();     // the ids of the cards that list every environment not set up
 const waits = new Map();    // platform id -> how many looks its gateway that runs here has waited to connect
@@ -181,7 +180,7 @@ function gatewayMenu(p, g) {
   if (g.here && addon && hasLogs(addon.gateway.service)) {
     items.push({ label: "Show logs", onSelect: () => { selectLogs([addon.gateway.service]); router.go("#/logs"); } });
   }
-  if (g.address) items.push({ label: "Copy address", hint: g.address, onSelect: () => copy(g.address) });
+  if (g.address) items.push({ label: "Copy address", hint: g.address, onSelect: () => copyAddress(g.address) });
   const removal = g.orphan ? [] : [{ label: "Remove gateway", danger: true, hint: "Deleted in Gravitee Cloud", onSelect: () => removeGateway(p, g.id) }];
   return removal.length && items.length ? [...items, { separator: true }, ...removal] : [...items, ...removal];
 }
@@ -283,50 +282,24 @@ function draw() {
   paintActions(section);
   if (key && !at.isConnected) $(key, section)?.focus({ preventScroll: true });
   if (target && platforms?.some((p) => p.id === target)) {
-    reveal(target);
+    reveal(`.plat-card[data-key="${CSS.escape(target)}"]`, section);
     target = null;
   }
 }
 
-// The card an address opened, in view and focused, once it is drawn
-function reveal(id) {
-  requestAnimationFrame(() => {
-    const card = $(`.plat-card[data-key="${CSS.escape(id)}"]`, section);
-    card?.scrollIntoView({ block: "nearest" });
-    card?.focus({ preventScroll: true });
-  });
-}
-
 // --- Reading --------------------------------------------------------------------------
 
-// What an answer changes in what the page knows. An account that does not answer keeps what it said before, with its new state: a
-// moment of trouble does not empty its card.
-function keep(id, answer) {
-  const before = checks.get(id);
-  if (answer.state === "unreachable" && before?.environments?.length) checks.set(id, { ...before, state: answer.state, message: answer.message, stale: true });
-  else checks.set(id, answer);
-}
-
-// Asks the platform, through the server, what it holds for the account. One read at a time for a platform: whoever asks
-// meanwhile gets the one on its way. A read that fails is said as the state of the platform. `loud`: a person asked, so the card says
-// it is checking; the reads the page makes by itself change nothing until they find something.
+// Asks the platform what it holds for the account. `loud`: a person asked, so the card says it is checking; the reads the page makes by
+// itself change nothing until they find something.
 function check(id, loud = false) {
   if (loud) {
     asked.add(id);
     draw();
   }
-  if (!reading.has(id)) {
-    reading.set(id, api(`/api/platforms/${id}/check`, {}).then(
-      (answer) => keep(id, answer),
-      (err) => keep(id, { state: "unreachable", message: err.message, environments: [], gateways: [] }),
-    ).finally(() => {
-      store.cloud.at.set(id, Date.now());
-      reading.delete(id);
-      asked.delete(id);
-      draw();
-    }));
-  }
-  return reading.get(id);
+  return store.cloud.read(id).finally(() => {
+    asked.delete(id);
+    draw();
+  });
 }
 
 async function load() {
@@ -400,8 +373,6 @@ async function removePlatform(p) {
   store.refresh();
 }
 
-const environmentName = (p, id) => byId(checks.get(p.id)?.environments || [], id)?.name || "";
-
 // What says that a gateway is no one's but the Lab's to remove: another machine runs it
 const elsewhere = (g) => !g.here && !g.kept && g.connection === "CONNECTED";
 
@@ -411,7 +382,7 @@ async function removeGateway(p, id) {
   if (!gateway) return;
   const rows = [{ label: "Removes", hint: elsewhere(gateway) ? "In Gravitee Cloud, connected from another machine" : "In Gravitee Cloud", items: [gateway.name], tone: "danger" },
     { label: "Turns off", items: gateway.here ? turnsOff(addonOf(p)) : [] }];
-  if (!(await confirmRemove(`Remove gateway of ${environmentName(p, gateway.environmentId) || gateway.name}`, rows))) return;
+  if (!(await confirmRemove(`Remove gateway of ${byId(checks.get(p.id)?.environments || [], gateway.environmentId)?.name || gateway.name}`, rows))) return;
   try {
     await busy(`remote:${p.id}:${id}`, "delete", api(`/api/platforms/${p.id}/gateways/${id}/delete`, {}));
     toast("Removed");
@@ -462,17 +433,15 @@ async function stopUsing(p, env) {
   store.refresh();
 }
 
-// The forms and jobs of an environment's action (environment-actions.js), and the Start of a gateway of the list, which swaps the one that
-// runs here
+// The forms and jobs of an environment's action (environment-actions.js)
 const perform = (p, env, what) => act(p, () => checks.get(p.id), env, what, () => check(p.id));
-const startOther = (p, id) => startGateway(p, byId(gatewaysOf(p.id), id), () => check(p.id));
 
-// What a gateway of the list does: the add-on's Start or Stop (perform's own, on the environment of the gateway), or the gateway that
-// replaces one Cloud deleted
+// What a gateway of the list does: its Start, which swaps the one that runs here, the add-on's Stop (perform's own, on the environment of
+// the gateway), or the gateway that replaces one Cloud deleted
 function gatewayDo(p, id, what) {
   const g = byId(gatewayList(p, checks.get(p.id)), id);
   if (!g) return;
-  if (what === "start") startOther(p, id);
+  if (what === "start") startGateway(p, byId(gatewaysOf(p.id), id), () => check(p.id));
   else if (what === "stop" && g.env) perform(p, g.env, "stop-gateway");
   else if (what === "replace" && g.env) perform(p, g.env, "create-gateway");
 }
@@ -482,20 +451,6 @@ function showGateways(id) {
   const band = $(`.plat-card[data-key="${CSS.escape(id)}"] [data-gateways-of]`, section);
   band?.scrollIntoView({ block: "start", behavior: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   band?.focus({ preventScroll: true });
-}
-
-// A platform just connected shows its environments
-function added() {
-  load();
-}
-
-async function copy(value) {
-  try {
-    await navigator.clipboard.writeText(value);
-    toast("Copied");
-  } catch {
-    toast("Could not copy", true);
-  }
 }
 
 // --- Menus ----------------------------------------------------------------------------
@@ -555,14 +510,14 @@ function accountMenu(p) {
 
 // What an environment offers besides its one action, in groups: its gateway, its Cloud Token, then what removes. The console is the
 // account's: Gravitee Cloud has no address for an environment that the Lab knows.
-function menuOf(p, env, st) {
+function menuOf(p, env, st = environmentStatus(p, checks.get(p.id), env)) {
   const g = st.gateway, addon = addonOf(p), now = st.action?.do, stop = stopOf(addon);
   const here = g.here && addon, items = [], add = (item) => items.push(item);
   if (here && runs(addon) && stop && now !== "stop-gateway") add({ label: "Stop gateway", disabled: !stop.enabled, reason: stop.reason, onSelect: () => perform(p, env, "stop-gateway") });
   if (here && hasLogs(addon.gateway.service)) {
     add({ label: "Show logs", onSelect: () => { selectLogs([addon.gateway.service]); router.go("#/logs"); } });
   }
-  if (g.address) add({ label: "Copy address", hint: g.address, onSelect: () => copy(g.address) });
+  if (g.address) add({ label: "Copy address", hint: g.address, onSelect: () => copyAddress(g.address) });
   if (now === "add-license" && addon && g.id) add({ label: "Start gateway", disabled: true, reason: "Needs a license" });
   // A Cloud Token that expired or is refused is the row's action: what the gateway needs comes here meanwhile. These entries exist only with
   // the add-on that runs the gateway (`addon`), which is what the server names only when one can: no hold for want of one is possible here (the
@@ -582,8 +537,6 @@ function menuOf(p, env, st) {
   return removals.length && items.length ? [...items, { separator: true }, ...removals] : [...items, ...removals];
 }
 
-const environmentMenu = (p, env) => menuOf(p, env, environmentStatus(p, checks.get(p.id), env));
-
 // --- The page's own events -----------------------------------------------------------
 
 function init(el) {
@@ -598,11 +551,11 @@ function init(el) {
   el.addEventListener("click", (e) => {
     const button = e.target.closest("button, a"), data = button?.dataset;
     if (!button || button.disabled || button.ariaDisabled === "true" || button.tagName === "A") return;
-    if ("core" in data) return chooseCore(data.core, { anchor: button, connected: added });
+    if ("core" in data) return chooseCore(data.core, { anchor: button, connected: load });
     if ("coreEnv" in data) return pickEnvironment(button);
     const p = platforms?.find((x) => x.id === (data.p || data.accountMore || data.connection || data.recheck || data.account || data.show
       || e.target.closest(".plat-card")?.dataset.key));
-    if ("new" in data) connectAccount(added);
+    if ("new" in data) connectAccount(load);
     else if ("reload" in data) load();
     else if (!p) return;
     else if ("accountMore" in data) openMenu(button, accountMenu(p));
@@ -612,7 +565,7 @@ function init(el) {
     else if ("show" in data) {
       if (!wide.delete(p.id)) wide.add(p.id);
       draw();
-    } else if ("envMore" in data) openMenu(button, environmentMenu(p, byId(checks.get(p.id).environments, data.envMore)));
+    } else if ("envMore" in data) openMenu(button, menuOf(p, byId(checks.get(p.id).environments, data.envMore)));
     else if ("gateways" in data) showGateways(p.id);
     else if ("gwDo" in data) gatewayDo(p, data.gw, data.gwDo);
     else if ("gwMore" in data) {

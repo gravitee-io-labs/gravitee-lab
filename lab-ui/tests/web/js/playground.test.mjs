@@ -7,25 +7,20 @@
 // lacks of the catalogs and of this Lab before it can start; one of this machine has a More with its Share and its Delete; the address of one
 // that is about to arrive while the catalogs download is not given up.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { HOSTILE, catalog as catalogRow, content, FIRST, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 // A timer set with no delay (the menu's, in ui.js) is NaN for the mock, which then loses the timers that follow it
 const setTimer = globalThis.setTimeout;
 globalThis.setTimeout = (fn, ms, ...rest) => setTimer(fn, ms ?? 0, ...rest);
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 const found = { answers: true, frameable: true, reason: "" };
 const JOB = { id: "ab12cd34", for: "playground:hotels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // What the server answers beyond a guide: the places, the checks (for the place asked) and their dialog, and every call the page made
 const server = { places: [], down: false, checks: () => [], dialog: () => null, calls: [] };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const [route, query = ""] = path.split("?");
     const call = { method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined };
@@ -43,7 +38,6 @@ const page = installDom({
   },
 });
 globalThis.EventSource = class { close() {} addEventListener() {} };   // a job's output, which the drawer follows
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });   // a button gives its face back at once
 // The two libraries a guide is rendered with are loaded from a CDN by the page: stand-ins here, and a script loads at once
 globalThis.marked = { parse: (markdown) => `<p>${markdown.replace(/\n+/g, " ")}</p>` };
 globalThis.DOMPurify = { addHook() {}, sanitize: (html) => html };
@@ -172,7 +166,6 @@ test("the details list the consoles of the playground and of the platform alike,
 
 // --- Deploy to: where a playground that declares it deploys -----------------------------------------------------------------------------
 
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 const { serviceCells, paintBusy } = await import("../../../web/js/components/ui.js");
 Combo.init();
@@ -715,7 +708,7 @@ test("the plus opens Create hybrid gateway in the environment of the place, and 
 
 test("for a remote place the notes of the core's start are not drawn", async () => {
   await visit({ ...off, created: [], first_start: "5 min", note: "Apply needed", note_tone: "warn" });
-  assert.equal(section.querySelectorAll(".pg-start-note").length, 2, "This machine: the first start and the note");
+  assert.deepEqual(section.querySelectorAll(".pg-start-note").map(text), ["First start: about 5 min", "Apply needed"], "This machine: the first start and the note");
   await pick("Development (My Account)");
   assert.equal(section.querySelectorAll(".pg-start-note").length, 0);
   await leave();
@@ -984,9 +977,6 @@ test("the store keeps the platforms the state lists and the places the server an
   assert.equal(heard, 1);
   await store.refreshPlaces();
   assert.equal(heard, 1, "a list that did not change redraws nothing");
-  server.places = { places: [DEV, TEST] };
-  await store.refreshPlaces();
-  assert.deepEqual(store.places, [DEV, TEST], "a list in an object is read as well");
   store.state = plain;
   await store.refreshPlaces();
   assert.deepEqual(store.places, [], "the platforms are gone, so are their places");

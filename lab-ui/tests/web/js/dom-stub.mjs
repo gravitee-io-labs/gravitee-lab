@@ -4,7 +4,12 @@
    matchMedia, ResizeObserver, location and history with entries of their own). It is not a browser: layout, scrolling and styles are not here (a test gives an element its width). What a test
    asks of the page is read from the tree it builds (text, attributes) and from what the frames were sent. */
 
+import { readFileSync } from 'node:fs';
+
 const VOID_FOCUSABLE = new Set(['a', 'button', 'input', 'textarea', 'select', 'summary']);
+// The elements of the page's markup that the modules look up by id, those of the combo's popup being made inside it
+const PAGE_IDS = [...readFileSync(new URL('../../../web/index.html', import.meta.url), 'utf8').matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1])
+  .filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 class Text {
   constructor(text) { this.data = String(text); this.parent = null; }
@@ -17,10 +22,10 @@ class Text {
 const camel = (name) => name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 const dashed = (name) => name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
-/* ---- selectors: tag#id.class[attr][attr=value][attr^=value]:not(...):first-child:last-child:disabled:hover:focus-within:focus-visible, with " " and ">" ------------------- */
+/* ---- selectors: tag#id.class[attr][attr=value][attr^=value]:not(...):first-child:last-child:disabled:checked:hover:focus-within:focus-visible, with " " and ">" ------------------- */
 function compound(source) {
   const parts = [];
-  const pattern = /(\*|[a-zA-Z][\w-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:([\^$*]?=)(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]|:not\(([^)]*)\)|:(first-child|last-child|disabled|hover|focus-within|focus-visible)/y;
+  const pattern = /(\*|[a-zA-Z][\w-]*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:([\^$*]?=)(?:"([^"]*)"|'([^']*)'|([^\]]*)))?\]|:not\(([^)]*)\)|:(first-child|last-child|disabled|checked|hover|focus-within|focus-visible)/y;
   pattern.lastIndex = 0;
   while (pattern.lastIndex < source.length) {
     const found = pattern.exec(source);
@@ -41,6 +46,7 @@ function compound(source) {
     else if (pseudo === 'first-child') parts.push((el) => el.parent && el.parent.children.find((c) => c instanceof El) === el);
     else if (pseudo === 'last-child') parts.push((el) => el.parent && [...el.parent.children].reverse().find((c) => c instanceof El) === el);
     else if (pseudo === 'disabled') parts.push((el) => el.disabled);
+    else if (pseudo === 'checked') parts.push((el) => el.checked);
     // What only a pointer or the keyboard knows: false, unless a test says it of an element (`el.states = new Set(["hover"])`)
     else if (pseudo) parts.push((el) => !!el.states?.has(pseudo));
   }
@@ -97,7 +103,7 @@ export class El extends Target {
     this.scrolled = [];
     this.focused = 0;
     this.styleValues = {};
-    this.style = { setProperty: (k, v) => { this.styleValues[k] = v; }, removeProperty: (k) => { delete this.styleValues[k]; } };
+    this.style = { setProperty: (k, v) => { this.styleValues[k] = v; } };
     this.classList = {
       add: (...names) => this._classes(new Set([...this._classes(), ...names])),
       remove: (...names) => this._classes(new Set([...this._classes()].filter((c) => !names.includes(c)))),
@@ -144,6 +150,8 @@ export class El extends Target {
   set hidden(value) { if (value) this.attrs.set('hidden', ''); else this.attrs.delete('hidden'); }
   get disabled() { return this.attrs.has('disabled'); }
   set disabled(value) { if (value) this.attrs.set('disabled', ''); else this.attrs.delete('disabled'); }
+  get checked() { return this._checked ?? this.attrs.has('checked'); }             // as its markup says, until a test chooses another
+  set checked(value) { this._checked = !!value; }
   get tabIndex() { return this.attrs.has('tabindex') ? Number(this.attrs.get('tabindex')) : VOID_FOCUSABLE.has(this.tag) ? 0 : -1; }
   set tabIndex(value) { this.attrs.set('tabindex', String(value)); }
   get value() { return this.attrs.get('value') ?? this._value ?? ''; }
@@ -152,10 +160,8 @@ export class El extends Target {
   set open(value) { if (value) this.attrs.set('open', ''); else this.attrs.delete('open'); }
 
   get parentElement() { return this.parent instanceof El ? this.parent : null; }
-  get parentNode() { return this.parent; }
   get childNodes() { return this.children; }
   get firstChild() { return this.children[0] || null; }
-  get lastChild() { return this.children[this.children.length - 1] || null; }
   get firstElementChild() { return this.children.find((c) => c instanceof El) || null; }
   get lastElementChild() { return [...this.children].reverse().find((c) => c instanceof El) || null; }
   get isConnected() { return this === this.doc.documentElement || Boolean(this.parent && this.parent.isConnected); }
@@ -181,14 +187,12 @@ export class El extends Target {
 
   get textContent() { return this.children.map((c) => c.textContent).join(''); }
   set textContent(value) { this.replaceChildren(value === '' ? [] : String(value)); }
-  get innerText() { return this.textContent; }
 
   _adopt(nodes) {
     const out = [];
     for (const node of nodes.flat(Infinity)) {
       if (node === null || node === undefined || node === false) continue;
-      const item = node instanceof El || node instanceof Text || node instanceof Fragment ? node : new Text(node);
-      if (item instanceof Fragment) { out.push(...item.children.splice(0)); continue; }
+      const item = node instanceof El || node instanceof Text ? node : new Text(node);
       if (item.parent) item.remove();
       out.push(item);
     }
@@ -301,12 +305,11 @@ function parse(html, doc) {
   return top;
 }
 
-class Fragment { constructor() { this.children = []; } append(...nodes) { for (const node of nodes.flat(Infinity)) if (node !== null && node !== undefined && node !== false) { const item = node instanceof El || node instanceof Text ? node : new Text(node); item.parent = null; this.children.push(item); } } }
-
 export class Ev {
   constructor(type, extra = {}) { this.type = type; this.defaultPrevented = false; Object.assign(this, extra); }
   preventDefault() { this.defaultPrevented = true; }
   stopPropagation() { this.cancelBubble = true; }
+  stopImmediatePropagation() { this.cancelBubble = true; }
 }
 
 /* The window of a frame: what the page posts to it is kept, and so are the addresses it is sent to (`assigned`: a new entry of its history, `replaced`: in place of the page it holds). */
@@ -318,9 +321,9 @@ function frameWindow() {
   return frame;
 }
 
-export function installDom({ ids = [], media = {}, stored = {}, fetch = async () => { throw new Error('no fetch'); }, visible = true } = {}) {
+export function installDom({ stored = {}, fetch = async () => { throw new Error('no fetch'); } } = {}) {
   const define = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
-  const doc = Object.assign(new Target(), { activeElement: null, visibilityState: visible ? 'visible' : 'hidden', title: 'Acme Bakery' });
+  const doc = Object.assign(new Target(), { activeElement: null, visibilityState: 'visible', title: 'Acme Bakery' });
   Object.defineProperty(doc, 'hidden', { get: () => doc.visibilityState === 'hidden' });
   doc.createElement = (tag) => {
     const el = new El(tag, doc);
@@ -328,9 +331,6 @@ export function installDom({ ids = [], media = {}, stored = {}, fetch = async ()
     if (el.tag === 'template') el.content = el;      // its content is its own tree here
     return el;
   };
-  doc.createElementNS = (_ns, tag) => new El(tag, doc);
-  doc.createTextNode = (text) => new Text(text);
-  doc.createDocumentFragment = () => new Fragment();
   const root = new El('html', doc);
   const head = new El('head', doc);
   const body = new El('body', doc);
@@ -343,12 +343,13 @@ export function installDom({ ids = [], media = {}, stored = {}, fetch = async ()
   doc.getElementById = (id) => root.querySelector(`#${id}`);
   /* The elements the modules look up by id exist from the start (the page's markup is not parsed here): a test fills them. */
   const made = {};
-  for (const id of ids) { const el = doc.createElement('div'); el.id = id; body.append(el); made[id] = el; }
+  for (const id of PAGE_IDS) { const el = doc.createElement('div'); el.id = id; body.append(el); made[id] = el; }
+  made['combo-pop'].innerHTML ='<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 
   const queries = new Map();
   const matchMedia = (query) => {
     if (!queries.has(query)) {
-      const state = { matches: Boolean(media[query]), listeners: [] };
+      const state = { matches: false, listeners: [] };
       const list = new Target();
       Object.defineProperty(list, 'matches', { get: () => state.matches });          // a getter: setMedia changes it for everything that holds the list
       Object.assign(list, { media: query, addEventListener: (type, fn) => state.listeners.push(fn), removeEventListener() {} });
@@ -433,6 +434,8 @@ export function installDom({ ids = [], media = {}, stored = {}, fetch = async ()
 }
 
 export const text = (node) => node.textContent.replace(/\s+/g, ' ').trim();
+// What a fetch answers
+export const reply = (body, status = 200) => ({ ok: status < 400, status, statusText: '', headers: { get: () => '' }, json: async () => body });
 export const flush = () => new Promise((resolve) => setImmediate(resolve));
 // What the bubble of a tooltip or a popover says, a line each: a tooltip's line; a popover's title, its sentence, then each line of
 // its rows (a row's subject is a line of its own), then its foot

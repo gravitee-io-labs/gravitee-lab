@@ -17,7 +17,6 @@
   --text-2: #4d3b3a;
   --muted: #73625e;         /* 4.7:1 on --surface-3, the darkest fill it sits on */
   --accent: #ea3527;
-  --accent-2: #ff8b00;      /* in both themes */
   --accent-soft: #fdeae6;
   --accent-text: #ffffff;   /* in both themes */
   --accent-ink: #c2281c;    /* the accent as text: 5.4:1 on --surface, 4.9:1 on --bg */
@@ -32,7 +31,6 @@
   --ok-line: color-mix(in srgb, var(--ok) 18%, var(--ok-soft));
   --warn-line: color-mix(in srgb, var(--warn) 18%, var(--warn-soft));
   --err-line: color-mix(in srgb, var(--err) 18%, var(--err-soft));
-  --info-line: color-mix(in srgb, var(--info) 18%, var(--info-soft));
   --run: #1a8796;
   --off: #9a8d89;           /* a dot of what is off: 3.2:1 on --surface, a mark that says a state alone (a product's) */
   --hl: #ffe066; --hl-text: #16181d;   /* what a search found in a text, in both themes */
@@ -246,7 +244,6 @@ body.nav-collapsed .brand-dot:not([hidden]) {
 .activity-icon { width: 8px; height: 8px; border-radius: 50%; background: var(--off); flex: none; }
 .activity.running { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-line); }
 .activity.running .activity-icon { width: 12px; height: 12px; margin-inline: -2px; background: none; }   /* the spinner, on the dot's axis */
-.activity.ok .activity-icon { background: var(--ok); }
 .activity.failed { background: var(--err-soft); color: var(--err); border-color: var(--err-line); }
 .activity.failed .activity-icon { background: var(--err); }
 

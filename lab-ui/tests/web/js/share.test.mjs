@@ -6,33 +6,28 @@
 // the item says why. What a catalog that is a repository gets is a branch (with a pull request to open when its host has one), a folder gets
 // a copy. A problem that every destination finds is a notice of what to fix first, with the prompt that has an agent fix it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
-import { FIRST, FOLDER, HOSTILE, NOT_ADDED, PERSONAL, catalog, content, item, lab, origin } from "./fixtures.mjs";
+import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { FIRST, FOLDER, HOSTILE, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // What the server answers: the destinations, and what sharing to each would do or did; every call is kept
 const server = { calls: [], destinations: [], checks: {}, done: {}, refuse: "", rejects: {} };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   const body = options.body ? JSON.parse(options.body) : undefined;
   if (path === "/api/state") return reply(store.state);
   server.calls.push({ path, body });
   if (/^\/api\/(addons|setups|playgrounds)$/.test(path)) return server.refuse ? reply({ error: server.refuse }, 400) : reply({ file: `${path.slice(5, -1)}s/${body.name}/compose.yml`, id: body.name });
   if (!path.endsWith("/share")) return reply({});
-  // The first check, with no `to`: the destinations; an answer that has none is today's {file, problems, changes}
-  if (body.check && !body.to) return reply(server.destinations ? { destinations: server.destinations } : { file: "playgrounds/local/bank/compose.yml", problems: [], changes: [] });
+  // The first check, with no `to`: the destinations
+  if (body.check && !body.to) return reply({ destinations: server.destinations });
   if (body.check && server.rejects[body.to]) return reply({ error: server.rejects[body.to] }, 400);
   if (body.check) return typeof server.checks[body.to] === "function" ? reply(server.checks[body.to]()) : reply(server.checks[body.to] || { problems: [], changes: [], identity: null });
   if (server.refuse) return reply({ error: server.refuse }, 400);
   return reply(server.done[body.to]);
 } });
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 const { store } = await import("../../../web/js/core.js");
 const { share, openCreate } = await import("../../../web/js/dialogs/create.js");
 for (const form of page.doc.querySelectorAll("dialog form")) form.checkValidity = () => true;   // a browser tells whether the required fields are filled
@@ -52,7 +47,6 @@ const DONE = { branch: "lab/bank-20261016", commit: "9f1c2ab", repository: "acme
 const choice = page.ids.choice, picks = page.ids["choice-list"], ok = page.ids["choice-ok"];
 const radios = () => picks.querySelectorAll("input");
 const on = (radio) => (radio.checked === undefined ? radio.hasAttribute("checked") : radio.checked);
-picks.querySelector = (selector) => (selector === "input:checked" ? radios().find(on) : El.prototype.querySelector.call(picks, selector));
 const rowOf = (row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text), row.querySelectorAll(".muted").map(text)];
 const options = () => picks.querySelectorAll(".choice").map((label) => ({ name: text(label.querySelector("strong")), hint: label.querySelector(".sub") ? text(label.querySelector(".sub")) : "",
   disabled: label.classList.contains("disabled"), rows: label.querySelectorAll(".choice-row").map(rowOf) }));
@@ -168,34 +162,6 @@ test("a single destination that everyone can read says so in its rows, not in a 
   await answer(false);
   await held;
   assert.deepEqual(shares(), []);
-});
-
-test("an answer to the first check that lists no destination does not hide Share: the catalogs added are asked in turn, and each says if it cannot take the item", async () => {
-  server.checks = { gravitee: CHECK({ identity: "you@corp.com", audience: "public" }), "my-catalog": CHECK({ audience: "private" }) };
-  server.rejects = { "acme-hub": "Acme Hub does not take contributions from the Lab." };
-  // (the fetch of an Add that is on its way is carried among the catalogs, and is none of them)
-  store.state = state({ catalogs: [FIRST({ address: "github.com/example/demos" }), PERSONAL(), NOT_ADDED({ id: "listed" }), { id: "check", kind: "progress", progress: 0.4 },
-    catalog({ address: "github.com/acme/lab-hub" }), FOLDER()] });
-  for (const answered of [undefined, "boom", { gravitee: 1 }]) {
-    server.destinations = answered;
-    const done = opened();
-    await settle();
-    assert.deepEqual(options().map(({ name, hint, disabled }) => [name, hint, disabled]),
-      [["Gravitee public", "Public", false], ["Acme Hub", "Acme Hub does not take contributions from the Lab.", true], ["My catalog", "Private", false]],
-      "a repository or a folder, never this machine's row nor one that is not added; the first catalog first");
-    assert.deepEqual(server.calls.filter((call) => call.body?.check).map((call) => call.body.to ?? null), [null, "gravitee", "acme-hub", "my-catalog"]);
-    await answer(false);
-    await done;
-  }
-  // With no catalog added there is nothing to share to: the two ways to one
-  store.state = state({ catalogs: [PERSONAL(), NOT_ADDED()] });
-  server.destinations = undefined;
-  await opened();
-  assert.equal(choice.hasAttribute("open"), false);
-  assert.deepEqual(notice().querySelectorAll(".dialog-actions .btn").map(text), ["New catalog", "Add catalog", "Close"]);
-  notice().close();
-  server.rejects = {};
-  store.state = state();
 });
 
 test("the branch is the result: its name, to copy, and the pull request to open when the host gives one; the item stays where it was", async () => {
@@ -545,11 +511,6 @@ test("with no add-on at all the checklist says why, in the words of the lists, a
   nothing("none");
   assert.deepEqual(status()[0].querySelectorAll("[data-content-act]").map((b) => [b.dataset.contentAct, text(b)]), [["add", "Add Gravitee public"]]);
   assert.equal(status()[0].querySelector("[data-content-act]").getAttribute("type"), "button", "a button of the form that does not send it");
-  // A server that does not say: nothing exists, as it always was said
-  store.state = lab2({ addons: [], content: undefined });
-  openCreate({ kind: "setup", mode: "new" });
-  assert.equal(text(status()[0]), "No add-on yet");
-  create.close();
   // An add-on there, and a search that finds none: it is the filter that finds nothing
   open2("setup");
   inCreate("#create-search").setAttribute("value", "zzz");

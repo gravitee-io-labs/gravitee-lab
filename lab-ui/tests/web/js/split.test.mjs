@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { actionMessage, actionOf, actionReason, bytesOf, chooseTab, commandOf, edge, fits, frameName, windowName, guideWidth, isLook, isReady, limits, linkTarget, located, looksAt,
-  newPage, nudge, opening, originOf, plainClick, termEdge, termHeight, termLimits, termNudge, terminalReason } from "../../../web/js/workspace/split.js";
+  newPage, nudge, opening, originOf, plainClick, termHeight, termLimits, termNudge, terminalReason } from "../../../web/js/workspace/split.js";
 
 const BANK = { id: "bakery-web", label: "Acme Bakery", url: "http://localhost:8110" };
 const GAMMA = { id: "gamma-ui", label: "Gamma Console", url: "http://localhost:8086" };
@@ -62,10 +62,10 @@ test("Home and End take the divider to its limits; any other key is not its own"
 });
 
 test("the divider knows which end of its travel it is at", () => {
-  assert.equal(edge(600, 1388), "min");
-  assert.equal(edge(900, 1388), "max");
-  assert.equal(edge(750, 1388), "");
-  assert.equal(edge(600, 1000), "min");   // no room to move: the minimum is also the maximum, and the minimum says so
+  assert.equal(edge(600, limits(1388)), "min");
+  assert.equal(edge(900, limits(1388)), "max");
+  assert.equal(edge(750, limits(1388)), "");
+  assert.equal(edge(600, limits(1000)), "min");   // no room to move: the minimum is also the maximum, and the minimum says so
 });
 
 const tab = (id) => ({ id });
@@ -269,10 +269,10 @@ test("its height is the one asked for, or kept, within the limits, and 240 px wi
 });
 
 test("its divider's cursor shows the end of its travel it is at", () => {
-  assert.equal(termEdge(120, 600), "min");
-  assert.equal(termEdge(440, 600), "max");
-  assert.equal(termEdge(300, 600), "");
-  assert.equal(termEdge(120, 250), "min", "no travel at all: the minimum wins");
+  assert.equal(edge(120, termLimits(600)), "min");
+  assert.equal(edge(440, termLimits(600)), "max");
+  assert.equal(edge(300, termLimits(600)), "");
+  assert.equal(edge(120, termLimits(250)), "min", "no travel at all: the minimum wins");
 });
 
 test("Up makes the terminal taller and Down shorter, by a step or with Shift by a bigger one, and Home and End go to its limits", () => {

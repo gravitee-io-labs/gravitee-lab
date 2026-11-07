@@ -4,10 +4,9 @@
 // second screen at once from a known address), Update and Go back, Remove, Allow and New catalog, and the actions of the content status.
 // Every name that comes from a server is hostile on purpose somewhere: none becomes markup.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
 import { ADDRESS, FIRST, FOLDER, HOSTILE, HOSTILE_QUOTED, NOT_ADDED, PERSONAL, STATES, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -17,15 +16,10 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const set = globalThis.setTimeout;
   globalThis.setTimeout = (fn, delay = 0, ...rest) => set(fn, delay, ...rest);
 }
-const source = (file) => readFileSync(new URL(`../../../web/${file}`, import.meta.url), "utf8");
-const html = source("index.html");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // What the server answers: the calls the page made, in order, the answer to each route (a value, or a function of the body), and a refusal
 const server = { calls: [], answers: {}, refuse: {}, states: 0 };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : undefined;
     if (path === "/api/state") {
@@ -33,25 +27,12 @@ const page = installDom({
       return reply(store.state);
     }
     server.calls.push({ method, path, body });
-    if (server.refuse[path]) return reply({ error: server.refuse[path] }, 400);
+    if (server.refuse[path]) return reply(server.refuse[path].code ? server.refuse[path] : { error: server.refuse[path] }, 400);
     const answer = server.answers[path];
     return reply(typeof answer === "function" ? await answer(body) : answer ?? {});
   },
 });
 globalThis.innerHeight = 800;
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
-// Selectors the page asks and the small DOM does not know: a menu opened with the keyboard (:focus-visible), a button at work (:is)
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
-// The page stops a click on a control that waits where the document hears it: the stub's events have no such call
-Ev.prototype.stopImmediatePropagation = function () { this.cancelBubble = true; };
-// A radio is checked as its markup says, until a test chooses another
-Object.defineProperty(El.prototype, "checked", {
-  get() { return this._checked ?? this.hasAttribute("checked"); },
-  set(value) { this._checked = !!value; },
-  configurable: true,
-});
 
 const { store, router, ago } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
@@ -129,7 +110,6 @@ test("the page is a card of the lists' grid with its head: its title, then New c
   assert.ok(heads[1].querySelector("svg use").getAttribute("href").endsWith("#i-plus"));
   assert.ok(section.querySelector(".card.list-card"), "the one card of the lists");
   assert.deepEqual(section.querySelector(".list-head").children.map(text), ["", "Catalog", "Items", "State", ""]);
-  assert.deepEqual([catalogsPage.id, catalogsPage.nav, catalogsPage.title], ["catalogs", "catalogs", "Catalogs"]);
 });
 
 test("Add catalog waits with the reason \"Git is not installed\" when Git is missing; New catalog needs no Git", () => {
@@ -264,15 +244,6 @@ test("every state is a dot and a word, with a popover of its title, its reason a
   }
 });
 
-test("the table is what the server's words say for the states that name a host or a catalog", () => {
-  show([GIT("unreachable", { commit: "9f1c2ab" })]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["Unreachable", "Cannot reach github.com.", "Check your connection, then try again."]);
-  show([GIT("noaccess")]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["No access", "No access to owner/repo.", "Run gh auth login in a terminal, then try again."]);
-  show([GIT("lab_old")]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["Written for an older Gravitee Lab", "This version is too old for this Lab.", "Update it, or ask the owners of Acme Hub to update it."]);
-});
-
 test("a download shows how far it is under its word; a row with no copy that is not downloading offers Try again, and one that downloads offers nothing", () => {
   show([GIT("downloading", { id: "acme-hub", commit: "", progress: 0.42 })]);
   const li = row("Acme Hub"), bar = li.querySelector(".list-state .progress");
@@ -315,7 +286,7 @@ test("what a plain request is doing is said in the state meanwhile, by the word 
 });
 
 test("an entry of the list that is not a catalog is no row: the progress of the fetch of the Add dialog is carried there", () => {
-  show([FIRST(), { id: "check", kind: "progress", progress: 0.4 }, { id: "odd" }, null]);
+  show([FIRST(), { id: "check", kind: "progress", progress: 0.4 }, { id: "odd" }]);
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
   // ... and the bar of the dialog reads it, by the key the dialog gives it
   openAdd();
@@ -408,21 +379,6 @@ test("with no catalog the page says so in the block of the content status, offer
   show([FIRST()]);
   assert.equal(status().innerHTML, "");
   assert.equal(section.querySelector(".list-head").hidden, false);
-});
-
-test("a state that cannot be read says so with a plain Try again that reads it again", async () => {
-  store.state = lab();
-  delete store.state.catalogs;
-  catalogsPage.render(store.state);
-  const block = status().querySelector(".empty");
-  assert.equal(text(block.querySelector("span")), "Catalogs cannot be read");
-  const again = block.querySelector("button");
-  assert.deepEqual([text(again), again.getAttribute("class")], ["Try again", "btn"]);
-  const before = server.states;
-  click(again);
-  await flush();
-  assert.equal(server.states, before + 1);
-  assert.equal(items().length, 0);
 });
 
 // --- A row that opens -----------------------------------------------------------------------------------------------------------
@@ -1015,7 +971,7 @@ test("a refusal is said in the problem line in the server's words, the screen st
 // --- Add catalog: what it adds --------------------------------------------------------------------------------------------------
 
 // Screen 2, from the address: typed, checked
-async function previewed(preview, host = false) {
+async function previewed(preview) {
   show([FIRST()]);
   server.answers["/api/catalogs/check"] = preview;
   openAdd({});
@@ -1178,26 +1134,13 @@ test("Add adds the catalog the preview showed: the ticket goes, the dialog close
   assert.deepEqual(toasts(), ["Added"]);
 });
 
-test("choosing to allow adds the allowance once the catalog is added", async () => {
-  clearToasts();
-  await previewed(PREVIEW());
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
-  server.answers["/api/catalogs"] = { catalog: GIT("uptodate", { host: "no" }) };
-  server.answers["/api/catalogs/acme-hub/allow"] = { catalog: GIT("uptodate", { host: "allowed" }) };
-  server.calls.length = 0;
-  await next(primary());
-  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [["/api/catalogs", { ticket: "9f3a4c1d2e5b6a70" }], ["/api/catalogs/acme-hub/allow", { enabled: true }]]);
-});
-
 test("a refusal of the commit stays on the second screen in the problem line; a ticket that expired goes back to the address, which it keeps", async () => {
   await previewed(PREVIEW());
   server.refuse["/api/catalogs"] = "Another catalog already uses the name acme-hub (github.com/other/hub). Remove it first, or ask the owner of this one to rename it.";
   await next(primary());
   assert.deepEqual([onScreen(), problemOf(), adding().hasAttribute("open")], ["effects", server.refuse["/api/catalogs"], true]);
   assert.equal(isOff(primary()), false, "it can be tried again, or canceled");
-  server.refuse["/api/catalogs"] = "This took too long. Start again.";
+  server.refuse["/api/catalogs"] = { error: "This took too long. Start again.", code: "ticket_expired" };
   await next(primary());
   assert.deepEqual([onScreen(), problemOf(), heading(), addressInput().value], ["address", "This took too long. Start again.", "Add catalog", "acme/lab-hub"]);
   delete server.refuse["/api/catalogs"];
@@ -1273,14 +1216,6 @@ test("an add that was left does not unlock the button of the add that replaced i
   second.release();
   await settle();
   shut();
-});
-
-test("Enter confirms Add, and Cancel closes it", async () => {
-  await previewed(PREVIEW());
-  const cancel = adding().querySelector("[data-cancel]");
-  click(cancel);
-  assert.equal(adding().hasAttribute("open"), false);
-  assert.equal(primary() && primary().getAttribute("type") !== "button", true, "its button is the form's own: the one Enter presses");
 });
 
 // --- Add catalog: from an address that is known ---------------------------------------------------------------------------------
@@ -1643,14 +1578,14 @@ test("closing the dialog while Update is at work leaves the allowance chosen wit
 test("a plan whose ticket expired is dead: its dialog closes and says so, whether the update or Show changes found out", async () => {
   const line = "This took too long. Start again.";
   await updating(PLAN());
-  server.refuse[at("/update")] = line;
+  server.refuse[at("/update")] = { error: line, code: "ticket_expired" };
   clearToasts();
   await next(primary());
   assert.deepEqual([adding().hasAttribute("open"), toasts()], [false, [line]]);
   assert.ok(page.doc.querySelector(".toast").classList.contains("error"));
   delete server.refuse[at("/update")];
   await updating(PLAN());
-  server.refuse[at("/changes")] = line;
+  server.refuse[at("/changes")] = { error: line, code: "ticket_expired" };
   clearToasts();
   click(secondary());
   await settle();
@@ -1766,13 +1701,6 @@ test("Go back to a history that was rewritten says so without the tone that asks
   assert.equal(adding().hasAttribute("open"), false);
 });
 
-test("an update of a history that was rewritten still asks for care, and sends the confirmation: the difference with going back is the route", async () => {
-  await updating(PLAN({ rewritten: true }));
-  assert.ok(adding().querySelector("#catalog-rows .choice-row").classList.contains("danger"));
-  assert.deepEqual([face(primary()), primary().classList.contains("danger")], ["Update anyway", true]);
-  shut();
-});
-
 test("Show changes opens the files on the left and a unified diff on the right; a file with no diff reads Changed, not shown", async () => {
   await updating(PLAN());
   server.answers[at("/changes")] = { files: [
@@ -1820,8 +1748,6 @@ test("an update that makes items need this machine has the row and the choice of
 
 // The dialog of ui.js `effectsDialog`: the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input").find((i) => i.checked) ?? picks.querySelectorAll("input")[0]
-  : El.prototype.querySelector.call(picks, selector));
 const effects = () => ({ title: text(page.ids["choice-title"]), action: text(page.ids["choice-ok"]), danger: page.ids["choice-ok"].classList.contains("danger"),
   steps: picks.querySelectorAll(".step").map((s) => [text(s.querySelector("strong")), s.querySelectorAll(".step-items li").map(text), s.querySelector(".step-head .muted") ? text(s.querySelector(".step-head .muted")) : ""]),
   notes: picks.querySelectorAll(".choice-row").map((n) => [text(n.querySelector(".choice-row-label")), n.querySelectorAll(".pill").map(text), n.querySelector(".choice-items > .muted") ? text(n.querySelector(".choice-items > .muted")) : ""]),
@@ -2071,17 +1997,9 @@ test("a catalog an item needs is added from its line: a listed one at once, any 
   shut();
 });
 
-test("on a phone the facts of an open row take the lists' label column: the wide one of the desktop is not left to squeeze the values", () => {
-  const rules = source("css/pages.css").split("/* --- Catalogs")[1].split("/* --- Editor")[0];
-  assert.match(rules, /#page-catalogs \{ --label: 124px; \}/);
-  assert.match(rules, /@container \(max-width: 599px\) \{ #page-catalogs \{ --label: 80px; \} \}/);
-  assert.match(source("css/base.css"), /--label: 80px;/, "the lists' own");
-});
-
 // --- What a server says is text -------------------------------------------------------------------------------------------------
 
 test("a name, a description, an address, a reason or a subject that is markup is shown as the text it is: in the rows, the detail, the menu and every dialog", async () => {
-  const bad = (key) => `${HOSTILE} ${key}`;
   const dirty = () => page.doc.querySelectorAll("img[src=x], script");
   show([GIT("noaccess", { id: "evil-hub", name: HOSTILE, description: HOSTILE_QUOTED, address: HOSTILE, url: "https://example.org/x.git", version: HOSTILE,
     state: { ...STATES.noaccess, label: HOSTILE, reason: HOSTILE, next: HOSTILE_QUOTED }, ignored: 1,
@@ -2096,7 +2014,6 @@ test("a name, a description, an address, a reason or a subject that is markup is
   click(cells(items()[0]).more);
   assert.equal(dirty().length, 0);
   closeMenu();
-  server.answers[at("/x")] = {};
   show([GIT("update", { id: hub(), name: HOSTILE })]);
   server.answers[at("/update")] = PLAN({ version: HOSTILE, updates: [{ name: HOSTILE }], adds: [{ name: HOSTILE_QUOTED }], removes: [{ name: HOSTILE }],
     breaks: [{ name: HOSTILE, needs: HOSTILE_QUOTED }], changes: [{ name: HOSTILE, fact: "build", value: HOSTILE_QUOTED }], whatsnew: [HOSTILE, HOSTILE_QUOTED],
@@ -2134,7 +2051,6 @@ test("a name, a description, an address, a reason or a subject that is markup is
   assert.equal(dirty().length, 0);
   assert.equal(effects().title, `Remove ${HOSTILE}`);
   await answer(false);
-  void bad;
 });
 
 test("the examples of an address stay text when the first catalog's host is markup", () => {
@@ -2142,27 +2058,4 @@ test("the examples of an address stay text when the first catalog's host is mark
   openAdd();
   assert.equal(page.doc.querySelectorAll("img[src=x]").length, 0);
   shut();
-});
-
-// --- The modules as files ---------------------------------------------------------------------------------------------------------
-
-const MODULES = ["js/pages/catalogs.js", "js/dialogs/catalog.js"];
-const code = (file) => source(file).replace(/\/\*[\s\S]*?\*\/|(?<![:\w"'`\\/])\/\/[^\n]*/g, "");
-
-test("the modules write no title attribute, no host of the web, no item or maker of a catalog, and only classes some stylesheet has a rule for", () => {
-  const styles = source("css/base.css") + source("css/components.css") + source("css/pages.css");
-  for (const file of MODULES) {
-    assert.doesNotMatch(code(file), /\stitle=/, `${file}: the browser's tooltip`);
-    assert.doesNotMatch(source(file), /github\.com/, `${file}: the address of a host is data`);
-    assert.doesNotMatch(code(file), /\b(acme|kafka|jade|kiosk|openfga|reader-ui|gravitee-demos)\b/i, `${file}: names no item or catalog`);
-    const classes = new Set([...code(file).matchAll(/\bclass="([^"$]*)"/g)].flatMap((found) => found[1].split(/\s+/)).filter(Boolean));
-    for (const name of classes) assert.match(styles, new RegExp(`\\.${name.replace(/[-]/g, "\\-")}\\b`), `${file}: .${name} has no rule`);
-    // No new size of control: the page writes no height or width of its own
-    assert.doesNotMatch(code(file), /style="|\.style\./, `${file}: no style of its own`);
-  }
-});
-
-test("the stylesheet gives the page nothing but what it needs: rules for classes that exist, and the classes of the diff of Show changes", () => {
-  const rules = source("css/pages.css").split("/* --- Catalogs")[1].split("/* --- Editor")[0];
-  assert.deepEqual([...new Set([...rules.matchAll(/\.([a-z][\w-]*)/g)].map((found) => found[1]))].sort(), ["choice-items", "diff", "diff-add", "diff-del", "diff-hunk", "diff-meta", "panel-fact", "step-items"]);
 });

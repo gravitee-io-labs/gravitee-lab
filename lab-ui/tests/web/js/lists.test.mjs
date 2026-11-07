@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { BLOCKED, FIRST, HOSTILE, NEEDS, PERSONAL, catalog, content, gains, origin } from "./fixtures.mjs";
 
 // The clock is the mock's too: what a button says of how its action went lasts a time that only the ticks of the tests make pass, never the
@@ -23,18 +23,15 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: Date.now(
 // A timer set with no delay (the menu's, in ui.js) is NaN for the mock, which then loses the timers that follow it
 const setTimer = globalThis.setTimeout;
 globalThis.setTimeout = (fn, ms, ...rest) => setTimer(fn, ms ?? 0, ...rest);
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 const MAIN = new URL("./lists.main.txt", import.meta.url), EMPTY = new URL("./lists.empty.txt", import.meta.url), CATALOGS = new URL("./lists.catalogs.txt", import.meta.url);
 const ENVIRONMENTS = [{ id: "development", name: "Development" }, { id: "test", name: "Test" }];
 const CANNOT = { "acme-bakery": "Needs Access Management" };   // what a place says Acme Bakery cannot go there for
 // What the server answers, and every call the page made
 const server = { calls: [], dialog: null };
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
 const JOB = { id: "ab12cd34", for: "playground:acme-hostels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // The groups of the Stack the page remembers open, and the place that was last chosen to deploy to (the default of every playground)
 const stored = { expanded: JSON.stringify({ "group:api-management": true, "addon:kafka": true }), deploy: "acme/development" };
-const page = installDom({ ids, stored, fetch: async (path, options = {}) => {
+const page = installDom({ stored, fetch: async (path, options = {}) => {
   const call = { method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined };
   if (path !== "/api/state") server.calls.push(call);
   if (path === "/api/state") return reply(store.state);
@@ -44,8 +41,6 @@ const page = installDom({ ids, stored, fetch: async (path, options = {}) => {
 } });
 globalThis.EventSource = class { close() {} addEventListener() {} };   // the output of a job, which the drawer follows
 page.ids.health.append(page.doc.createElement("span"));   // the spinner that the status dot replaces
-// A button that fades back to its face reads how long it takes from the stylesheet: no fade here
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 
 // What the registered platforms and the places of the cache say, which a test sets
 const registry = { platforms: [], places: [] };
@@ -58,7 +53,6 @@ store.refreshPlaces = () => { reads += 1; };
 const { renderShell } = await import("../../../web/js/components/sidebar.js");
 const { playgroundsPage, setupsPage, addonsPage, selectCatalog } = await import("../../../web/js/pages/list.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 Combo.init();
 await import("../../../web/js/dialogs/catalog.js");   // answers the buttons of the content, which the lists draw (Try again, Add the listed catalog)
@@ -95,7 +89,7 @@ function lab({ away = false, core = "stopped", hotels = {}, ...more } = {}) {
     version: "1", registry: null, registry_label: null, product: null, file: "docker-compose.yml", env_file: ".env", settings: [], brings: [], recreates: [], ...NONE };
   return {
     blind: false, wait: "", docker: { error: null, warning: null }, license: null, products: [], categories: [], job: null, problems: [],
-    links: [], services: { gateway, kafka },
+    links: [], services: { gateway, kafka }, content: content("ready"),
     platform: { name: "Gravitee platform", state: group.state, progress: null, groups: [group], file: "docker-compose.yml", env_file: ".env", settings: [],
       start: { needed: true, starts: [], restarts: [], enabled: true, reason: null, dialog: null }, apply: { needed: false }, behind: [],
       restart: { needed: core === "running", enabled: true, reason: null }, update: { needed: core === "running", enabled: true, reason: null, dialog: null },
@@ -305,13 +299,15 @@ test("a Start that switches the versions keeps its warning beside it, never in t
   assert.equal(noted(), null, "nothing in the State");
   assert.equal(blockedBy(), "Needs newer versions", "the warning beside the Start");
   assert.ok(!isOff(startOf()), "and the Start starts");
-  const card = () => text(blockerOf().parentElement.querySelector(".tip-card"));
+  const tip = () => blockerOf().parentElement.querySelector(".tip-card"), card = () => text(tip());
+  const captions = () => ["pop-run", "pop-saved"].map((cell) => tip().querySelector(`.${cell}`).getAttribute("data-cap"));
   // Each image as it is and as it was tested, in the same columns whether the Start goes there or only offers to
-  assert.match(card(), /Current.*Tested.*API Management.*4\.12\.20.*4\.13\.0-alpha\.3/);
+  assert.deepEqual(captions(), ["Current", "Tested"]);
+  assert.match(card(), /API Management.*4\.12\.20.*4\.13\.0-alpha\.3/);
   assert.match(card(), /Start goes to the versions it was tested with/);
   draw(lab({ hotels: { ...switching, note: "Not tested with these versions", action: { ...ACTION("start"), warns: true, offer: { versions: [] } } } }));
   assert.equal(blockedBy(), "Not tested with these versions");
-  assert.match(card(), /Current.*Tested.*API Management/);
+  assert.deepEqual(captions(), ["Current", "Tested"]);
   assert.match(card(), /Start offers the versions it was tested with/);
   // Without a version to go to it cannot start: the same warning, and the Images page is the way
   const needs = { ...switching, note_causes: [{ kind: "needs", name: "API Management", version: "4.13.0-alpha.3" }] };
@@ -955,9 +951,6 @@ test("once the catalogs are there and hold none of its kind, each list says so i
   assert.deepEqual(all.map((name) => line(status(name)[0])), ["No playground yet", "No setup yet", "No add-on yet"]);
   assert.deepEqual(all.map(tools), [true, true, true]);
   assert.deepEqual(all.map((name) => line(sections[name].querySelector("[data-new]"))), ["New playground", "New setup", "New add-on"]);
-  // A server that does not say the content: the lists say what they say when it is all there
-  draw(lab({ playgrounds: [], setups: [], addons: [] }));
-  assert.deepEqual(all.map((name) => line(status(name)[0])), ["No playground yet", "No setup yet", "No add-on yet"]);
   alone();
   assert.deepEqual(all.map((name) => [status(name).length, tools(name)]), [[0, false], [0, false], [0, false]], "gone once there are items");
 });
@@ -1093,14 +1086,6 @@ function withCatalogs() {
   alone();
   return dom;
 }
-
-test("the clock of the page is the mock's: real time that passes, as it does on a loaded machine, changes nothing of what a button says of its action", () => {
-  const at = Date.now();
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
-  assert.equal(Date.now(), at, "only the ticks of the tests make time pass");
-  mock.timers.tick(1600);
-  assert.equal(Date.now(), at + 1600);
-});
 
 const snapshot = (name, file, variable, dom) => test(`${name}: what the lists draw is written in ${file.pathname.split("/").pop()}, and a deliberate change is written again with ${variable}=1`, () => {
   mock.timers.tick(10000);   // the lists at rest: no button still says how its action went, which the tests above leave in flight

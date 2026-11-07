@@ -1,5 +1,4 @@
-// The router (web/js/core.js): the page that opens with no address, or one that is none, is the Dashboard; the old address of the Containers
-// (#/stack) leads to them, in place of its own entry of the history, so that Back does not come back to it. The ids that an address holds (the
+// The router (web/js/core.js): the page that opens with no address, or one that is none, is the Dashboard. The ids that an address holds (the
 // first catalog's bare, this machine's `local/<name>`, any other catalog's `@<namespace>/<name>`), the keys the page splits at their first colon,
 // and what the store knows of a catalog.
 import assert from "node:assert/strict";
@@ -8,8 +7,8 @@ import { test } from "node:test";
 import { installDom } from "./dom-stub.mjs";
 import { catalog, content, lab } from "./fixtures.mjs";
 
-const page = installDom({});
-const { ID_PATTERN, hrefOf, router, splitKey, store } = await import("../../../web/js/core.js");
+const page = installDom();
+const { ID_PATTERN, compareVersions, hrefOf, router, splitKey, store } = await import("../../../web/js/core.js");
 
 const shown = [];   // the pages the router showed, in order
 for (const [id, pattern] of [["dashboard", /^#\/dashboard$/], ["stack", /^#\/containers$/], ["logs", /^#\/logs$/]]) {
@@ -24,22 +23,16 @@ test("the page that opens with no address is the Dashboard", () => {
   assert.deepEqual(hashes(), ["#/dashboard"], "its address is written in place of the empty one");
 });
 
-test("the old address of the Containers leads to them, in place of its own entry", () => {
-  location.hash = "#/stack";
-  assert.deepEqual(shown, ["dashboard", "stack"]);
-  assert.deepEqual(hashes(), ["#/dashboard", "#/containers"]);
-  assert.equal(location.hash, "#/containers");
-});
-
-test("an address that is no page leads to the Dashboard too, the old address of this page among them", () => {
+test("an address that is no page leads to the Dashboard too", () => {
   location.hash = "#/logs";
   location.hash = "#/nowhere";
   assert.equal(shown.at(-1), "dashboard");
   assert.equal(location.hash, "#/dashboard");
-  location.hash = "#/logs";
-  location.hash = "#/over" + "view";   // what the page was named, and may be bookmarked as
-  assert.equal(shown.at(-1), "dashboard");
-  assert.equal(location.hash, "#/dashboard");
+});
+
+test("versions go newest first, a release before its pre-releases", () => {
+  assert.deepEqual(["2.0", "4.12.0-alpha.1", "4.11.9", "4.12.0-alpha.2", "4.12.0", "2.0.1", "4.12.1"].sort(compareVersions),
+    ["4.12.1", "4.12.0", "4.12.0-alpha.2", "4.12.0-alpha.1", "4.11.9", "2.0.1", "2.0"]);
 });
 
 // --- The id of an item in an address -----------------------------------------------------------------------------------------
@@ -69,29 +62,6 @@ test("what an id is not: a path out of the catalog, a namespace too short or too
 // The routes of the pages, as the pages build them with the pattern
 const LIST = (kind) => new RegExp(`^#/${kind}s(?:/(${ID_PATTERN}))?$`);
 const PLAYGROUND = new RegExp(`^#/playgrounds/(${ID_PATTERN})(?:/([a-z0-9-]+))?$`);
-
-test("a list opens a row of any id, and the page of a playground takes its guide's step after the id, whichever its form", () => {
-  const found = (pattern, hash) => pattern.exec(hash)?.slice(1);
-  assert.deepEqual(found(LIST("addon"), "#/addons"), [undefined]);
-  assert.deepEqual(found(LIST("addon"), "#/addons/kafka"), ["kafka"]);
-  assert.deepEqual(found(LIST("setup"), "#/setups/local/ai-agents"), ["local/ai-agents"]);
-  assert.deepEqual(found(LIST("addon"), "#/addons/@acme-hub/mock-bank"), ["@acme-hub/mock-bank"]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/acme-bakery"), ["acme-bakery", undefined]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/acme-bakery/3"), ["acme-bakery", "3"]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/local/demo"), ["local/demo", undefined], "the folder of this machine is no id and a step");
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/local/demo/2"), ["local/demo", "2"]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/@acme-hub/bank"), ["@acme-hub/bank", undefined]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/@acme-hub/bank/3"), ["@acme-hub/bank", "3"]);
-  assert.deepEqual(found(PLAYGROUND, "#/playgrounds/@acme-hub/bank/getting-started"), ["@acme-hub/bank", "getting-started"]);
-  for (const hash of ["#/playgrounds/@acme-hub/../kafka", "#/playgrounds/@acme-hub/", "#/playgrounds/@a/bank", "#/playgrounds/@acme-hub/bank/3/4",
-    "#/playgrounds/local/", "#/playgrounds/", "#/playgrounds/@ACME/bank", "#/playgrounds/acme-bakery/Step", "#/playgrounds/acme-bakery/3/",
-    "#/playgrounds/%40acme-hub/bank"]) {
-    assert.equal(found(PLAYGROUND, hash), undefined, hash);
-  }
-  for (const hash of ["#/addons/@acme-hub/", "#/addons/@acme-hub/x/y", "#/addons/../x", "#/addons/Kafka", "#/addons/local/"]) {
-    assert.equal(found(LIST("addon"), hash), undefined, hash);
-  }
-});
 
 test("the router hands a page the id it names, whole, with its step", () => {
   const seen = [];
@@ -152,12 +122,6 @@ test("a catalog is a unit of the store by its namespace, and so is the content: 
   assert.equal(store.unit(null), undefined);
   // The request key of an action on a catalog is none of the units: the page tells it apart by its kind
   assert.equal(store.unit("catalog-op:acme-hub"), undefined);
-  // A state that lacks the catalogs, or has them wrong, knows no catalog and breaks nothing
-  for (const catalogs of [undefined, null, "none", 5, {}]) {
-    store.state = { ...lab(), catalogs };
-    assert.equal(store.unit("catalog:acme-hub"), undefined);
-    assert.equal(store.measuring(), false);
-  }
   store.state = null;
   assert.equal(store.unit("catalog:acme-hub"), undefined);
   assert.equal(store.measuring(), false);

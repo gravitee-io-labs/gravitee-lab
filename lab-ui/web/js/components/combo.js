@@ -320,7 +320,7 @@ export function CategoryFilter(button, list, onChange, name = (category) => cate
   let chosen = [];
   // The button says the choice, from the start: a list may take a while to load
   const paint = () => setHTML($(".value", button), esc(!chosen.length ? label.none
-    : chosen.length <= (label.few ?? 2) ? chosen.map(name).join(", ") : label.many(chosen.length)));
+    : chosen.length <= label.few ? chosen.map(name).join(", ") : label.many(chosen.length)));
   paint();
   const counted = () => {
     const counts = new Map();

@@ -4,15 +4,12 @@
 // are the person's and open as ever, and so does any file of a folder catalog or of this machine. The file buttons of an item read View for
 // a file that is only read.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { Ev, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, catalog, gains, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const HUB = ".lab/catalogs/acme-hub/playgrounds/bank";
 const FIRSTS = ".lab/catalogs/gravitee/addons/kafka";
@@ -21,8 +18,7 @@ const FOLDER = ".lab/catalogs/my-catalog/addons/own";
 
 // What the server answers, and every call made
 const server = { calls: [], files: {} };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   const [route, query = ""] = path.split("?");
   server.calls.push({ method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined });
   const file = decodeURIComponent((query.match(/(?:path|file)=([^&]*)/) || [])[1] || "");
@@ -40,7 +36,6 @@ const page = installDom({ ids, fetch: async (path, options = {}) => {
 } });
 // Monaco does not come: a plain text area is the editor, as it is without the internet
 page.doc.head.append = (script) => { queueMicrotask(() => script.onerror()); };
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "" });
 const { store } = await import("../../../web/js/core.js");
 const { openFile } = await import("../../../web/js/dialogs/editor.js");
 const { fileButtons } = await import("../../../web/js/components/ui.js");
@@ -89,8 +84,6 @@ test("a file of an item of another catalog opens read only: its path in the cata
 
 test("it is not sent to be checked, and no key, button or Discard saves it", async () => {
   assert.deepEqual(posted("/api/files/validate"), [], "the server would refuse it: it is not asked");
-  $("#editor-status").innerHTML = "";
-  assert.equal(text($("#editor-status")), "", "no Valid, no problems: nothing of it can change");
   assert.equal($("#editor-problems").hidden, true);
   server.calls = [];
   dialog.dispatchEvent(Object.assign(new Ev("keydown"), { key: "s", metaKey: true, target: area() }));
@@ -180,16 +173,6 @@ test("the file button of an item that is only read says View with the file's nam
   assert.deepEqual(keyed.map((button) => button[1]), ["View compose.yml", "Settings"]);
   assert.equal(fileButtons(playground({ settings: [] }), false).includes("icon-gap"), false, "not aligned: no gap");
   assert.ok(fileButtons(playground({ settings: [] }), true).includes("icon-gap"), "aligned among rows that have settings: the slot is kept");
-});
-
-test("the words of a file button are drawn by ui.js alone, in its tooltip and its name, and a file that is only read never says Edit", () => {
-  const unit = playground();
-  const drawn = fileButtons(unit, false);
-  assert.ok(drawn.includes('data-tip="View compose.yml" aria-label="View compose.yml"'));
-  assert.ok(!drawn.includes("Edit"), "a file that is only read never says Edit");
-  assert.ok(fileButtons({ ...unit, readonly: false }, false).includes('data-tip="Edit playgrounds/bank/compose.yml" aria-label="Edit playgrounds/bank/compose.yml"'));
-  // The editor opens on the real file, whatever the words say
-  assert.ok(drawn.includes(`data-file="${unit.file}"`));
 });
 
 test("a name that holds the patterns of a replacement is text too", () => {

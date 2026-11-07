@@ -15,9 +15,7 @@ export function initSidebar() {
   // goes on to the next one, back to the system's after light: what follows the system again is no theme kept.
   const THEMES = { system: ["auto", "System theme", "dark"], dark: ["moon", "Dark theme", "light"],
     light: ["sun", "Light theme", "system"] };
-  // Light or dark when one is chosen; any other value is no theme, the system's applies
-  const chosen = () => (root.dataset.theme === "light" || root.dataset.theme === "dark" ? root.dataset.theme : "system");
-  if (chosen() === "system") delete root.dataset.theme;
+  const chosen = () => root.dataset.theme || "system";
   const paintTheme = () => {
     const [glyph, label] = THEMES[chosen()];
     button.innerHTML = icon(glyph);
@@ -98,17 +96,8 @@ function ownStart() {
   return PLATFORM_HEAD.includes(id) || id === "playground" || (id === "logs" && offersStart());
 }
 
-// The card of the notice's popover has no title: the summary beside it says it
-const untitled = (card) => card && { ...card, title: "" };
-
-// How many containers differ from what is saved, the summary of the Apply notice; its popover says which and why
 // What the notices about Docker offer: the machine's checks, each with its fix
 const MACHINE = '<button class="btn" data-machine>Check your machine</button>';
-
-const behindSaid = (behind) => {
-  const n = behind.reduce((sum, row) => sum + (row.count || 1), 0);
-  return `${n} ${n === 1 ? "container differs" : "containers differ"} from what is saved`;
-};
 
 // What the banner says of the lab once Docker answers and the core loads, a notice for each fact that applies: the platform
 // stopped, with its Start, but where a page has its own, and when a remote platform is registered and something else
@@ -124,7 +113,7 @@ function lab({ docker, platform, license, addons, playgrounds }) {
     || (store.state.core?.place || "machine") !== "machine");
   if (((stopped && !apart) || showing("platform", "start")) && !ownStart()) {
     // Stopped is where the lab begins, not a problem: said calmly
-    notices.push({ tone: "calm", icon: "info", title: `${esc(platform.name)}${stopped ? " is stopped" : ""}`, action: START });
+    notices.push({ tone: "calm", title: `${esc(platform.name)}${stopped ? " is stopped" : ""}`, action: START });
   }
   if (license?.problem) {
     notices.push({ tone: "warn", title: esc(license.problem), action: `<button class="btn" ${licenseForm()}>Set license</button>` });
@@ -132,9 +121,10 @@ function lab({ docker, platform, license, addons, playgrounds }) {
   if (late) applying = platform.behind;
   else if (!showing("platform", "apply")) applying = [];
   if (applying.length && router.current?.page.id !== "stack") {
-    // One summary, its popover a row for each product, add-on or playground with why; once applied, the names alone
-    const summary = behindSaid(applying);
-    const text = late ? tipHtml(`<span>${esc(summary)}</span>${icon("info")}`, untitled(behindWhy(platform)) || platform.behind.map((row) => row.reason), "", summary,
+    // How many containers differ, its popover a row for each product, add-on or playground with why (the summary beside it is the card's
+    // title); once applied, the names alone
+    const card = late && behindWhy(platform);
+    const text = late ? tipHtml(`<span>${esc(card.title)}</span>${icon("info")}`, { ...card, title: "" }, "", card.title,
       { said: platform.behind.map((row) => row.reason).join(" ") })
       : esc(applying.map((row) => row.name).join(", "));
     notices.push({ tone: "warn", title: "Apply needed", text, action: APPLY });
@@ -151,11 +141,9 @@ function banner(state) {
   if (!state) return { html: "", calm: true };
   const notices = store.error ? [{ tone: "err", title: esc(store.error) }]
     : store.offline ? [{ tone: "err", title: "Lab UI offline", text: "What the page shows is what it last heard" }] : [];
-  if (state) {
-    if (state.docker.error) notices.push({ tone: "err", title: esc(state.docker.title || "Docker is not reachable"), text: esc(state.docker.error), action: MACHINE });
-    else if (!state.blind) notices.push(...lab(state));
-    notices.push(...state.problems.map(problem));
-  }
+  if (state.docker.error) notices.push({ tone: "err", title: esc(state.docker.title || "Docker is not reachable"), text: esc(state.docker.error), action: MACHINE });
+  else if (!state.blind) notices.push(...lab(state));
+  notices.push(...state.problems.map(problem));
   // Calm when it only says the platform is stopped
   return { html: notices.map(noticeHtml).join(""), calm: notices.every((one) => one.tone === "calm") };
 }
@@ -176,7 +164,7 @@ export function renderShell() {
   const job = store.offline ? null : state.job, busy = !!job && !job.done, canceled = job?.error === "Canceled";
   const activity = $("#activity");
   activity.hidden = !job || (job.done && job.ok);
-  activity.className = "activity meter" + (!job ? "" : busy ? " running" : job.ok ? " ok" : canceled ? "" : " failed");
+  activity.className = "activity meter" + (!job ? "" : busy ? " running" : job.ok || canceled ? "" : " failed");
   $("#activity-text").textContent = activity.hidden ? "" : jobTitle(job);
   if (activity.hidden) {
     delete activity.dataset.tip;

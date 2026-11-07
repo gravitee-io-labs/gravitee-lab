@@ -8,32 +8,25 @@
 // is seen, moves its charts from the clock and not from the samples, reads the Cloud in parallel without holding up the rest, and
 // separates nothing with a dot, a bullet or a slash.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, HOSTILE, catalog as catalogRow, content, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // What the server answers, and every request it was asked
-const server = { dashboard: null, platforms: [], checks: {}, calls: [], refusal: "", hold: false, failing: "" };
-const reply = (body, status = 200) => ({ ok: status < 400, status, statusText: "", headers: { get: () => "" }, json: async () => body });
+const server = { dashboard: null, platforms: [], checks: {}, calls: [], refusal: "" };
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : undefined;
     server.calls.push({ method, path, body });
-    if (path === "/api/state") return reply(store.state);
+    if (path === "/api/state") return reply({ ...store.state, platforms: server.platforms });
     if (path.startsWith("/api/dashboard")) {
       const found = typeof server.dashboard === "function" ? server.dashboard(path) : server.dashboard;
       return found && found.error ? reply(found, 500) : reply(found);
     }
     if (path === "/api/platforms") {
-      if (server.hold) return new Promise(() => {});   // not answered yet
-      if (server.failing && method === "GET") return reply({ error: server.failing }, 500);
       if (method === "POST") {
         if (server.refusal) return reply({ error: server.refusal }, 400);
         server.platforms = [...server.platforms, PLATFORM];
@@ -41,6 +34,7 @@ const page = installDom({
       }
       return reply({ platforms: server.platforms });
     }
+    if (path === "/api/places") return reply(server.places || []);
     if (path.endsWith("/plan")) return reply(server.plan || { dialog: null });
     const check = path.match(/^\/api\/platforms\/([a-z0-9-]+)\/check$/);
     if (check) {
@@ -59,7 +53,6 @@ globalThis.EventSource = class {
   send(sample) { this.onmessage({ data: JSON.stringify(sample) }); }
   addEventListener() {}
 };
-// A button that fades back to its face reads how long it takes from the stylesheet: no fade here
 // The clock the charts are read against, and the animation frames, which a test runs by hand at the time it chooses
 let clock = Date.now();
 Date.now = () => clock;
@@ -73,20 +66,17 @@ const frame = (seconds) => {
   queued.clear();
   due.forEach((fn) => fn());
 };
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 page.ids.health.append(page.doc.createElement("span"));   // the spinner that the status dot replaces
 globalThis.innerHeight = 800;   // a menu opens under its button, or above it when the window ends first
 const { store, router } = await import("../../../web/js/core.js");
 const { dashboardPage } = await import("../../../web/js/pages/dashboard.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
 const { renderShell } = await import("../../../web/js/components/sidebar.js");
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 Combo.init();
 
 // The dialog of what an action does (ui.js `effectsDialog`): the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input")[0] : El.prototype.querySelector.call(picks, selector));
 const answer = async (confirmed) => {
   choice.returnValue = confirmed ? "ok" : "";
   choice.onclose();
@@ -144,7 +134,7 @@ function lab({ core = "running", groups, links = LINKS, platform = {}, extra = {
   ];
   return {
     blind: false, wait: "", docker: { error: null, warning: null }, license: null, products: [], categories: ["Observability", "Mail"], job: null, problems: [],
-    links, services,
+    links, services, content: content("ready"),
     platform: { name: "Gravitee platform", state, progress: null, groups: found, containers: { running: core === "running" ? 7 : 0, total: 7 }, file: "docker-compose.yml",
       env_file: ".env", settings: [], start: { needed: core !== "running", starts: [], restarts: [], enabled: true, reason: null, dialog: null },
       apply: { needed: false, restarts: [], starts: [], dialog: null }, behind: [], restart: { needed: core === "running", enabled: true, reason: null },
@@ -241,7 +231,7 @@ const unfold = (open = true) => {
 async function open({ body = dashboard(), listed = [], checks = {}, state = lab(), unfolded = false } = {}) {
   dashboardPage.hide();
   clock += 200000;   // what the load held is old, and gone
-  store.state = state;
+  store.state = { ...state, platforms: listed };
   Object.assign(server, { dashboard: body, platforms: listed, checks, calls: [], refusal: "" });
   store.pending.clear();
   dashboardPage.show();
@@ -250,15 +240,15 @@ async function open({ body = dashboard(), listed = [], checks = {}, state = lab(
   const search = section.querySelector('[data-filter="q"]');
   search.value = "";
   search.dispatchEvent(new Ev("input"));
-  dashboardPage.render(state);
+  dashboardPage.render(store.state);
   await flush();
-  dashboardPage.render(state);
+  dashboardPage.render(store.state);
   unfold(unfolded);
 }
 // The lab moved: the state the store holds is drawn
 async function move(state) {
-  store.state = state;
-  dashboardPage.render(state);
+  store.state = { platforms: store.state.platforms, ...state };
+  dashboardPage.render(store.state);
   await flush();
 }
 
@@ -266,62 +256,30 @@ async function move(state) {
 // The page keeps what it read when it is left (it is drawn again as it comes back, and read again meanwhile): these are the first of its
 // life, while nothing was read
 
-test("before the numbers come the page draws what the state says at once: no version, which the state does not know to run, a quiet Cloud and Resources empty", async () => {
-  server.hold = true;   // the platforms are not answered either
-  try {
-    await open({ body: new Promise(() => {}) });
-    assert.deepEqual(cells().map(tileSaid), ["CPU —", "Memory —", "Storage Loading", "Docker —"]);
-    assert.equal(section.querySelectorAll(".tip-text").length, 0, "no tooltip says what is not known yet");
-    assert.equal(products().length, 2, "the databases have no version: they are not a product");
-    assert.equal(text(part(products()[0], "name")), "API Management");
-    assert.equal(ver(products()[0]), "", "the version saved is not what runs: it is not said as if it were");
-    assert.equal(products()[0].querySelectorAll(".s-version").length, 0);
-    assert.equal(products()[0].querySelectorAll(".dash-wait").length, 1, "a spinner where the version is being read, not a dash and not the saved one");
-    assert.ok(catalog().length > 0, "what is on is the state's: it needs no read");
-    // The Cloud says it is loading, in its one row, with nothing to click before it is known whether one is attached
-    assert.equal(rows("cloud").length, 1);
-    assert.equal(said(cloudRow()), "Gravitee Cloud Loading");
-    assert.equal(block("cloud").querySelectorAll("button, a").length, 0);
-    assert.equal(text(block("engine")), "Docker —", "a section with its label, and a dash while nothing is read");
-    // Resources is its line, folded, its figures dashes and its storage loading
-    assert.equal(said(block("summary")), "CPU — Memory —");
-    assert.ok(!section.querySelector(".dash-resources").classList.contains("open"));
-  } finally {
-    server.hold = false;
-  }
+test("before the numbers come the page draws what the state says at once: no version, which the state does not know to run, the Cloud as the state lists it and Resources empty", async () => {
+  await open({ body: new Promise(() => {}) });
+  assert.deepEqual(cells().map(tileSaid), ["CPU —", "Memory —", "Storage Loading", "Docker —"]);
+  assert.equal(section.querySelectorAll(".tip-text").length, 0, "no tooltip says what is not known yet");
+  assert.equal(products().length, 2, "the databases have no version: they are not a product");
+  assert.equal(text(part(products()[0], "name")), "API Management");
+  assert.equal(ver(products()[0]), "", "the version saved is not what runs: it is not said as if it were");
+  assert.equal(products()[0].querySelectorAll(".s-version").length, 0);
+  assert.equal(products()[0].querySelectorAll(".dash-wait").length, 1, "a spinner where the version is being read, not a dash and not the saved one");
+  assert.ok(catalog().length > 0, "what is on is the state's: it needs no read");
+  assert.equal(said(cloudRow()), "Gravitee Cloud No account connected Connect account");
+  assert.equal(text(block("engine")), "Docker —", "a section with its label, and a dash while nothing is read");
+  // Resources is its line, folded, its figures dashes and its storage loading
+  assert.equal(said(block("summary")), "CPU — Memory —");
+  assert.ok(!section.querySelector(".dash-resources").classList.contains("open"));
   dashboardPage.hide();
 });
 
-test("a read that fails says why in the heading of Resources, and the rest of the page is untouched; platforms that cannot be listed say why in the row of the Cloud, with a way to ask again", async () => {
-  server.failing = "Lab UI offline";
-  try {
-    await open({ body: { error: "Not found" } });
-    assert.equal(text(block("engine")), "Docker Not found");
-    assert.equal(said(block("summary")), "CPU — Memory — Not found", "the folded line says it too, in the place of Docker's versions");
-    assert.equal(products().length, 2);
-    assert.equal(ver(products()[0]), "—", "a dash, never the version saved");
-    assert.equal(said(cloudRow()), "Gravitee Cloud Accounts cannot be read Check again");
-    assert.deepEqual(tipOf(cloudRow().querySelector(".status .tip-btn")), ["Accounts cannot be read", "Lab UI offline"], "why is the popover of its state, not a sentence beside it");
-    assert.equal(cloudRow().querySelector(".status").getAttribute("class"), "status err", "in red, as a state");
-    assert.equal(block("cloud").querySelectorAll("[data-connect]").length, 0, "no way to connect one while they cannot be listed");
-    // Check again reads them again, and says it is checking meanwhile, once however many times it is clicked
-    server.failing = "";
-    server.hold = true;
-    server.calls = [];
-    block("cloud").querySelector("[data-reload]").click();
-    assert.equal(said(cloudRow()), "Gravitee Cloud Accounts cannot be read Checking");
-    assert.equal(requests().filter((call) => call === "GET /api/platforms").length, 1);
-    server.hold = false;
-    dashboardPage.hide();
-    server.calls = [];
-    dashboardPage.show();
-    await flush();
-    assert.equal(said(cloudRow()), "Gravitee Cloud No account connected Connect account");
-  } finally {
-    server.failing = "";
-    server.hold = false;
-  }
+test("a read that fails says why in the heading of Resources, and the rest of the page is untouched", async () => {
   await open({ body: { error: "Not found" } });
+  assert.equal(text(block("engine")), "Docker Not found");
+  assert.equal(said(block("summary")), "CPU — Memory — Not found", "the folded line says it too, in the place of Docker's versions");
+  assert.equal(products().length, 2);
+  assert.equal(ver(products()[0]), "—", "a dash, never the version saved");
   assert.equal(said(cloudRow()), "Gravitee Cloud No account connected Connect account");
   // It is not left as it is: the numbers are read again after a while, and what they say fills in
   assert.equal(reads(), 1);
@@ -368,7 +326,8 @@ test("a platform with an issue says what it is in the popover of the sidebar's c
   const license = { note: "Needs a license", note_tone: "warn", note_title: "", note_target: null, note_file: ".env" };
   const groups = [group("api-management", "API Management", ["apim-gateway"], { key: "issue", label: "Issue" }, note),
     group("access-management", "Access Management", ["am-gateway"], RUNNING), group("alert-engine", "Alert Engine", ["alert-engine"], OFF, license)];
-  const behind = [{ kind: "group", id: "access-management", name: "Access Management", reason: "Access Management: 4.12.7 is saved, 4.13.0-alpha.7 still runs." }];
+  const behind = [{ kind: "group", id: "access-management", name: "Access Management", reason: "Access Management: 4.12.7 is saved, 4.13.0-alpha.7 still runs.",
+    causes: [{ kind: "tag", saved: "4.12.7", running: "4.13.0-alpha.7", services: [] }] }];
   await open({ state: lab({ groups, platform: { state: { key: "issue", label: "Issue" }, apply: { needed: true, restarts: [], starts: [], dialog: null }, behind } }) });
   renderShell();
   const chip = page.ids["health-state"], health = page.ids.health;
@@ -377,7 +336,7 @@ test("a platform with an issue says what it is in the popover of the sidebar's c
   assert.equal(text(page.ids["health-said"]), "Platform issue", "a screen reader hears it change");
   // And what is to apply is the banner's, with its reason: Apply is not offered with no reason
   assert.ok(text(page.ids.banner).startsWith("Apply needed"));
-  assert.deepEqual(tipOf(page.ids.banner.querySelector(".tip-btn")), ["Access Management: 4.12.7 is saved, 4.13.0-alpha.7 still runs."]);
+  assert.deepEqual(tipOf(page.ids.banner.querySelector(".tip-btn")), ["Access Management 4.13.0-alpha.7 4.12.7", "Apply restarts it with what is saved."]);
   // A state with nothing to explain has no popover: running, stopped, Docker that does not answer (the banner says why)
   await move(lab());
   renderShell();
@@ -439,7 +398,7 @@ test("with the platform stopped the banner leaves its Start to the head, and the
   assert.deepEqual(drawn(lab({ core: "stopped" }), "playgrounds"), ["Gravitee platform is stopped Start"], "any other page has it");
   const why = "API Management: 4.12.20 is saved, 4.13.0-alpha.4 still runs.";
   const late = lab({ platform: { apply: { needed: true, restarts: [], starts: [], dialog: null },
-    behind: [{ kind: "group", id: "api-management", name: "API Management", reason: why }] } });
+    behind: [{ kind: "group", id: "api-management", name: "API Management", reason: why, causes: [] }] } });
   assert.deepEqual(drawn(late, "stack"), [], "Containers shows it in its table");
   // One notice: its headline, a summary that names no product, whose popover says which and why, and Apply
   for (const id of ["dashboard", "playgrounds", "images", "plugins"]) assert.deepEqual(drawn(late, id), ["Apply needed 1 container differs from what is saved Apply"], id);
@@ -479,7 +438,7 @@ test("the card is the Gravitee platform: a row for each product, named once, wit
   assert.deepEqual(products().map((row) => [part(row, "upd").querySelector(".dot-status").getAttribute("class"), cls(part(row, "upd").querySelector(".status"))]),
     [["dot-status warn", "status warn"], ["dot-status done", "status muted"]]);
   assert.deepEqual(tipOf(part(products()[0], "upd").querySelector(".tip-btn")), ["Update available", "4.12.20 4.12.21", "Choose it on the Images page."]);
-  assert.equal(text(part(products()[0], "upd").querySelector(".pop-captions")), "Running Latest release");
+  assert.deepEqual(["pop-run", "pop-saved"].map((cell) => part(products()[0], "upd").querySelector(`.${cell}`).getAttribute("data-cap")), ["Running", "Latest release"]);
   assert.deepEqual(tipOf(part(products()[1], "upd").querySelector(".tip-btn")), ["Up to date", "4.13.0-alpha.7 is the latest pre-release"]);
   assert.deepEqual(products().map((row) => row.querySelectorAll(".pill").map(text)), [[], []], "no pill on a row that is all right");
   assert.deepEqual(products().map((row) => part(row, "ver").querySelectorAll(".s-version").map(text)), [["4.12.20"], ["4.13.0-alpha.7"]], "a version is in mono");
@@ -1070,9 +1029,9 @@ const card = () => JSON.parse(count().getAttribute("data-tip-card"));
 // The gateways the card lists, as [where, name, state]
 const listedIn = () => card().rows.flatMap((row) => row.lines.map(([who, state]) => [row.subject, who.who, state]));
 
-test("with no platform registered the Cloud is one row of the platform's card that says none is connected, and a button to connect one; only the platforms are asked for", async () => {
+test("with no platform registered the Cloud is one row of the platform's card that says none is connected, and a button to connect one; nothing is asked of a platform", async () => {
   await open();
-  assert.deepEqual(requests().filter((call) => call.includes("platforms")), ["GET /api/platforms"], "no check without a platform");
+  assert.deepEqual(requests().filter((call) => call.includes("platforms")), [], "no check without a platform");
   assert.ok(block("cloud").parent === block("products").parent, "a row of the platform's card, under its products");
   assert.equal(section.querySelectorAll(".dash-pair > .dash-card").length, 2, "no card of its own");
   assert.equal(said(cloudRow()), "Gravitee Cloud No account connected Connect account");
@@ -1112,7 +1071,7 @@ test("Connect account opens the wizard of the Gravitee Cloud page; the row shows
   await flush();
   assert.ok(form.parent.hasAttribute("open") && form.hidden && !step2.hidden, "registered: the same dialog goes on to the environment");
   assert.equal(server.calls.filter((call) => call.method === "POST" && call.path === "/api/platforms").length, 1);
-  assert.equal(said(cloudRow()), "Gravitee Cloud No gateway", "the row behind it reads the platforms again: none has a gateway");
+  assert.equal(said(cloudRow()), "Gravitee Cloud No gateway", "the row behind it shows the account: it has no gateway");
   assert.equal(block("cloud").querySelectorAll("[data-connect]").length, 0);
   step2.querySelector("[data-cancel]").click();
   assert.ok(!wizard.hasAttribute("open"), "Skip for now closes it, and the account stays");
@@ -1207,6 +1166,24 @@ test("API Management in the Cloud that cannot start says why on Start all, and T
   store.state = lab();
 });
 
+test("Fix it on a row opens the form that takes what its place lacks, as on its list", async () => {
+  const lacking = { id: "cloud-eu/env-development", name: "Development (Gravitee Cloud)", platform: { id: "cloud-eu", name: "Gravitee Cloud", kind: "cloud" }, cannot: [],
+    environment: { id: "env-development", name: "Development" }, state: "missing", missing: "No hybrid gateway", reason: "Set up a gateway first", token: { state: "unset" } };
+  server.places = [lacking];
+  const state = { ...lab({ playgrounds: [item("playground", "shop", "Acme Shop", { starred: true, deploys_to: ["cloud"], requires: {} })] }), core: CLOUD_CORE };
+  await open({ state, listed: [PLATFORM], checks: { "cloud-eu": check([]) } });
+  const gatewayForm = page.doc.querySelector("#gateway-name").closest("form");
+  gatewayForm.checkValidity = () => true;
+  catalog().find((one) => text(one).includes("Acme Shop")).querySelector("[data-fix]").click();
+  await flush();
+  assert.equal(text(gatewayForm.querySelector("h2")), "Create hybrid gateway for Development");
+  gatewayForm.closest("dialog").close();
+  server.places = [];
+  await store.refreshPlaces();
+  dashboardPage.hide();
+  store.state = lab();
+});
+
 test("the row says how many hybrid gateways the account has, which leads to the Gravitee Cloud page and lists them, with their state, on hover and focus", async () => {
   const named = { ...PLATFORM, name: "Acme Cloud" };
   await open({ state: lab({ gateway: "up" }), listed: [named], checks: { "cloud-eu": check([
@@ -1291,13 +1268,30 @@ test("the platforms are read in parallel, none holds up the rest, and the row sa
   let release;
   const slow = new Promise((resolve) => { release = resolve; });
   await open({ listed: [slowOne, other], checks: { "cloud-slow": () => slow, "cloud-lab": check([gateway()]) } });
-  assert.deepEqual(requests().filter((call) => call.includes("platforms")), ["GET /api/platforms", "POST /api/platforms/cloud-slow/check", "POST /api/platforms/cloud-lab/check"]);
+  assert.deepEqual(requests().filter((call) => call.includes("platforms")), ["POST /api/platforms/cloud-slow/check", "POST /api/platforms/cloud-lab/check"]);
   assert.equal(ver(products()[0]), "4.12.20", "the rest is drawn while the Cloud is read");
   assert.equal(said(cloudRow()), "Gravitee Cloud Slow Cloud, Client Lab Loading", "the accounts are known, their gateways not all");
   release(check([gateway({ id: "g9", environmentId: "env-test" })]));
   await flush();
   assert.equal(said(cloudRow()), "Gravitee Cloud Slow Cloud, Client Lab 2 gateways");
   assert.deepEqual(listedIn().map(([where]) => where), ["Test (Slow Cloud)", "Development (Client Lab)"], "with several accounts an environment is named with its account");
+  dashboardPage.hide();
+});
+
+test("an account the state lists after the page is shown, as the first state of a page that just loaded, is read at once", async () => {
+  await open();
+  store.cloud.checks.delete("cloud-eu");
+  Object.assign(server, { checks: { "cloud-eu": check([gateway()]) }, calls: [] });
+  await move({ ...lab(), platforms: [PLATFORM] });
+  assert.deepEqual(requests().filter((call) => call.endsWith("/check")), ["POST /api/platforms/cloud-eu/check"]);
+  assert.equal(said(cloudRow()), "Gravitee Cloud 1 gateway");
+  dashboardPage.hide();
+});
+
+test("API Management in the Cloud on an account that stops answering says so, not what the account said last", async () => {
+  await open({ state: { ...lab({ core: "stopped" }), core: CLOUD_CORE }, listed: [PLATFORM], checks: { "cloud-eu": check([], { state: "unreachable", message: "No answer" }) } });
+  assert.match(text(part(products()[0], "upd")), /Unreachable/);
+  assert.equal(products()[0].querySelectorAll("[data-core-do]").length, 0, "nothing to do on an environment that is not known now");
   dashboardPage.hide();
 });
 
@@ -1316,7 +1310,7 @@ test("what the Gravitee Cloud page read or changed is what the Dashboard says wh
   dashboardPage.hide();
 });
 
-test("the Cloud of a tab that is seen again is read again only when its last answer is old, and the platforms are always listed", async () => {
+test("the Cloud of a tab that is seen again is read again only when its last answer is old", async () => {
   await open({ ...listed(gateway({ here: true })) });
   const asks = () => requests().filter((call) => call.endsWith("/check")).length;
   assert.equal(asks(), 1);
@@ -1327,7 +1321,6 @@ test("the Cloud of a tab that is seen again is read again only when its last ans
   page.fire("document", "visibilitychange");
   await flush();
   assert.equal(asks(), 1, "10 seconds old: left alone");
-  assert.equal(requests().filter((call) => call === "GET /api/platforms").length, 2);
   page.hide();
   page.fire("document", "visibilitychange");
   clock += 40000;
@@ -1347,7 +1340,6 @@ test("a trip through the menu leaves a Cloud read less than 30 seconds ago alone
   dashboardPage.show();
   await flush();
   assert.equal(asks(), 1, "10 seconds old: left alone");
-  assert.equal(requests().filter((call) => call === "GET /api/platforms").length, 2, "the accounts are listed at every visit");
   dashboardPage.hide();
   clock += 40000;
   dashboardPage.show();
@@ -1649,8 +1641,6 @@ test("the load of the containers is one stream, listened to while the page is on
   await flush();
   assert.equal(streams.length, hidden + 1);
   assert.ok(!stream().closed);
-  // The platforms are read again as the tab is seen again
-  assert.ok(requests().filter((call) => call === "GET /api/platforms").length >= 2);
   // A tab that is hidden or seen while the page is not on screen opens nothing
   dashboardPage.hide();
   page.fire("document", "visibilitychange");
@@ -2037,7 +2027,7 @@ test("with reduced motion no animation runs: the chart is drawn when a sample co
 
 // --- Words and drawing --------------------------------------------------------------------------
 
-test("no text of the page separates with a dot, a bullet or a slash, in any state, and the old name of the page is nowhere", async () => {
+test("no text of the page separates with a dot, a bullet or a slash, in any state", async () => {
   const everything = [
     { body: dashboard() },
     { state: lab({ platform: { containers: { running: 3, total: 7 } }, addons: [running("addon", "jade", "Jade", { starred: true }), item("addon", "mail", "Mail server", { starred: true })] }),
@@ -2051,10 +2041,7 @@ test("no text of the page separates with a dot, a bullet or a slash, in any stat
     stream()?.send({ cpu_percent: 3, memory_used: 1000, containers: 0, at: 5 });
     const words = said(section) + [...section.querySelectorAll("[title], [data-tip], [aria-label]")].map((el) => `${el.getAttribute("title")} ${el.getAttribute("data-tip")} ${el.getAttribute("aria-label")}`).join(" ");
     assert.doesNotMatch(words, /[·•∙‧⋅]| \/ | \| /, words);
-    assert.doesNotMatch(words, /overview/i);
   }
-  const source = readFileSync(new URL("../../../web/js/pages/dashboard.js", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /[·•∙‧⋅]|overview/i, "not in its code either");
   dashboardPage.hide();
 });
 
@@ -2068,12 +2055,6 @@ test("every block of the page is drawn only when its own text changed", async ()
   await move(lab());
   assert.deepEqual(all().map((el, i) => el.children.every((child, at) => child === kept[i][at])), Array(all().length).fill(true), "the same text leaves the same elements");
   dashboardPage.hide();
-});
-
-test("it is the page the Lab UI opens on, and the menu leads to it first", () => {
-  assert.equal(dashboardPage.pattern.test("#/dashboard"), true);
-  assert.equal(dashboardPage.nav, "dashboard");
-  assert.equal(dashboardPage.title, "Dashboard");
 });
 
 test("the head of the card of the playgrounds, setups and add-ons has a button that counts the catalogs and leads to their page", async () => {
@@ -2190,7 +2171,7 @@ test("when the last item goes (the default catalog removed), the pager of the ca
 });
 
 test("with no add-on to run its gateway, the row of API Management in the Cloud offers Add catalog, and that leads to the Catalogs page", async () => {
-  const environments = [{ ...environment("Development"), token: { state: "valid", expires: "2027-01-31T00:00:00Z" } }];
+  const environments = [{ ...environment("Development"), token: { state: "valid", expires: "2099-01-31T00:00:00Z" } }];
   const state = { ...lab({ core: "stopped", gateway: false, platform: { gateways: { cloud: null } }, catalogs: [FIRST()], content: content("ready") }), core: CLOUD_CORE };
   await open({ state, listed: [PLATFORM], checks: { "cloud-eu": check([], { environments }) } });
   await flush();

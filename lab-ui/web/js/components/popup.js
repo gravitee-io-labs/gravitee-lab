@@ -69,7 +69,7 @@ function clipped(pop) {
    runs when the control is no longer in the window (drawn again, or scrolled out of it). `scroller` is what scrolls in it when it
    is cut (the picker's list; the menu itself): its natural height is read from it, so that a placing never moves what was
    scrolled to. Answers {update(), stop()}. */
-function attach(pop, trigger, { align = "start", minWidth = 0, scroller = pop, away = () => {} } = {}) {
+function attach(pop, trigger, { align = "start", minWidth = 0, scroller = pop, away }) {
   const host = trigger.closest("dialog[open]") || document.body;
   if (pop.parentElement !== host) host.append(pop);
   let side = null, queued = false, open = true;

@@ -10,9 +10,8 @@ export const ADDRESS = "github.com/example/catalog";
 export const HOSTILE = '<img src=x onerror="boom()">';
 export const HOSTILE_QUOTED = `"><script>boom()</script>'`;
 
-// A state key: the server writes its word, tone, reason and next step. `STATE` is exported for the tests
-// of the pages that draw a state, so that none writes its own shape of one.
-export const STATE = (key, label, tone = "muted", reason = "", next = "") => ({ key, label, tone, reason, next, whatsnew: [] });
+// A state key: the server writes its word, tone, reason and next step
+const STATE = (key, label, tone = "muted", reason = "", next = "") => ({ key, label, tone, reason, next, whatsnew: [] });
 
 // Every key of the catalogs' states, the "machine" one apart (the row of Personal has it: PERSONAL), in the order of the table of 1.3
 export const STATES = {
@@ -60,8 +59,8 @@ export const FOLDER = (more = {}) => catalog({ id: "my-catalog", kind: "folder",
 // The field `content`: key `ready` when any catalog has a pin or any folder catalog is there, `downloading` while a git entry has an attempt
 // running, `failed` when one has a last error (`line`, its `code` and the `address` it was asked), else `none`, with `offer`, the first listed
 // catalog that is not added
-export const OFFER = { id: "gravitee", name: "Gravitee public" };
-export const CONTENT = {
+const OFFER = { id: "gravitee", name: "Gravitee public" };
+const CONTENT = {
   ready: { key: "ready", line: "", code: null, progress: null, address: ADDRESS, offer: null },
   downloading: { key: "downloading", line: "", code: null, progress: 0.42, address: ADDRESS, offer: null },
   failed: { key: "failed", line: "Cannot reach github.com. Check your connection, then try again.", code: "unreachable", progress: null, address: ADDRESS, offer: null },

@@ -3,13 +3,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { readFileSync } from "node:fs";
-
 import { installDom } from "./dom-stub.mjs";
 
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-installDom({ ids });
+installDom();
 const { store } = await import("../../../web/js/core.js");
 const places = await import("../../../web/js/platform/places.js");
 

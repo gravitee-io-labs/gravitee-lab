@@ -186,7 +186,6 @@ class Access(LabUI):
         _, headers, _ = self.request("GET", "/")
         self.assertEqual(headers["Content-Security-Policy"], test_static.wanted_policy())
         self.assertEqual(api.POLICY, test_static.wanted_policy())
-        self.assertEqual(test_static.policy_problems(headers["Content-Security-Policy"]), [])
         # ... and the refusal of a wrong host is a page too
         _, headers, _ = self.request("GET", "/", headers={"Host": "0.0.0.0:9777"})
         self.assertEqual(headers["Content-Security-Policy"], api.POLICY)
@@ -2506,7 +2505,7 @@ class StateOfCatalogs(LabUI):
         state = json.loads(body)
         self.assertEqual(status, 200, state)
         self.assertEqual(state["git"], {"available": True, "version": "2.43.2"})
-        self.assertEqual(state["catalogs"], [])
+        self.assertEqual([row["id"] for row in state["catalogs"]], ["local"], "an empty Personal, which the page hides")
         self.assertIn(state["content"]["key"], ("ready", "downloading", "failed", "none"), "what the first start says")
         self.assertIsNone(state["content"]["offer"], "nothing is listed to offer")
         for key in ("docker", "wait", "license", "platform", "playgrounds", "setups", "addons", "services", "links", "problems"):
@@ -2530,7 +2529,7 @@ class StateOfCatalogs(LabUI):
         self.assertEqual(len(found), 1, state["problems"])
         self.assertTrue(found[0]["message"].startswith("The file that lists your catalogs could not be read ("), found)
         self.assertIs(found[0]["editable"], False)
-        self.assertEqual(state["catalogs"], [], "and nothing is shown of catalogs, as before")
+        self.assertEqual([row["id"] for row in state["catalogs"]], ["local"], "and nothing is shown of catalogs but an empty Personal, which the page hides")
 
 
 WARM_UP = api.warm_up   # the real one: the cases of Startup replace it

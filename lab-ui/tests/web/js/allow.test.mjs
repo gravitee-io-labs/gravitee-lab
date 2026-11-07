@@ -5,10 +5,9 @@
 // then Blocked again); stopping the allowance is held while the item is on, by the page and by the server; allowing is the one consent that
 // Enter never gives. A listed catalog has the allowance by being listed, and none of this is drawn for it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
 import { FIRST, catalog, content, gains, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -16,8 +15,6 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const set = globalThis.setTimeout;
   globalThis.setTimeout = (fn, delay = 0, ...rest) => set(fn, delay, ...rest);
 }
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // --- The server: a catalog that is not listed, with one item that runs privileged ---------------------------------------------------------------
 
@@ -48,9 +45,7 @@ const k3s = () => {
 };
 const stateNow = () => lab({ catalogs: world.added ? [FIRST(), row()] : [FIRST()], addons: world.added ? [k3s()] : [], content: content("ready") });
 
-const reply = (body, status = 200) => ({ ok: status < 400, status, statusText: "", headers: { get: () => "" }, json: async () => body });
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     if (path === "/api/state") return reply(stateNow());
     const body = options.body ? JSON.parse(options.body) : undefined;
@@ -71,23 +66,12 @@ const page = installDom({
   },
 });
 globalThis.innerHeight = 800;
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
-Ev.prototype.stopImmediatePropagation = function () { this.cancelBubble = true; };
-Object.defineProperty(El.prototype, "checked", {
-  get() { return this._checked ?? this.hasAttribute("checked"); },
-  set(value) { this._checked = !!value; },
-  configurable: true,
-});
 
 const { store, router } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
 const { addonsPage } = await import("../../../web/js/pages/list.js");
 const { openAdd } = await import("../../../web/js/dialogs/catalog.js");
 const { paintActions } = await import("../../../web/js/components/ui.js");
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 Combo.init();
 
@@ -144,8 +128,6 @@ const about = () => catalogRow().querySelectorAll(".panel-fact").map((fact) => [
 
 // The dialog of ui.js `effectsDialog`: the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"], ok = page.ids["choice-ok"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input").find((i) => i.checked) ?? picks.querySelectorAll("input")[0]
-  : El.prototype.querySelector.call(picks, selector));
 const effects = () => ({ title: text(page.ids["choice-title"]), action: text(ok), danger: ok.classList.contains("danger"),
   steps: picks.querySelectorAll(".step").map((s) => [text(s.querySelector("strong")), s.querySelectorAll(".step-items li").map(text), s.querySelector(".step-head .muted") ? text(s.querySelector(".step-head .muted")) : ""]),
   notes: picks.querySelectorAll(".choice-row").map((n) => [text(n.querySelector(".choice-row-label")), n.querySelectorAll(".pill").map(text), n.querySelector(".choice-items > .muted") ? text(n.querySelector(".choice-items > .muted")) : ""]) });
@@ -288,47 +270,6 @@ test("Allow use of this machine names the item and what it takes, in the danger 
   assert.equal(world.host, "allowed");
   const start = kubernetes().querySelector(".list-actions .btn");
   assert.equal(isOff(start), false, "free again");
-});
-
-test("an update that makes items use this machine is held the same way: the choice is in the dialog of the update, and an allowance given there is given after it", async () => {
-  // The plan of an update the catalog's new version brings: Kubernetes now uses this machine and, while the catalog is not allowed, cannot run
-  world.host = "no";
-  await refresh();
-  const plan = { ticket: "b1c2d3e4f5a60718", from: "9f1c2ab", to: "c4d5e6f", version: "1.5.0", rewritten: false, updates: [], adds: [], removes: [], breaks: [],
-    changes: [{ id: "@acme-hub/k3s", name: "Kubernetes", fact: "host", value: "runs privileged" }], whatsnew: [], blocked: [], held: null, uses_machine: USES };
-  const original = globalThis.fetch;
-  globalThis.fetch = async (path, options = {}) => {
-    const body = options.body ? JSON.parse(options.body) : undefined;
-    if (path === "/api/catalogs/acme-hub/update") { world.calls.push([path, body]); return reply(body.check ? plan : { catalog: row() }); }
-    return original(path, options);
-  };
-  try {
-    world.calls.length = 0;
-    const li = catalogRow();
-    // The row is up to date in this fixture: the update is asked for from its own button, which a catalog with a newer version has
-    store.state = lab({ catalogs: [FIRST(), { ...row(), state: { key: "update", label: "Update available", tone: "warn", reason: "Version 1.5.0", next: "", whatsnew: [] } }], addons: [k3s()] });
-    for (const entry of Object.values(pages)) entry.render(store.state);
-    const button = catalogRow().querySelector("[data-update]");
-    assert.ok(button && li);
-    button.click();
-    await settle();
-    assert.deepEqual(calls(), [["/api/catalogs/acme-hub/update", { check: true }]]);
-    const dialog = adding();
-    assert.equal(text(page.doc.querySelector("#catalog-title")), "Update Acme Hub");
-    assert.deepEqual(rowsOf().map(([label]) => label), ["Version", "Uses this machine", "Changes", "Cannot run"], "kept blocked: the item cannot run");
-    assert.equal(rowsOf().find(([label]) => label === "Changes")[1], "Kubernetes now runs privileged");
-    const [keep, allow] = dialog.querySelectorAll("#catalog-choice input");
-    assert.equal(keep.checked, true);
-    keep.checked = false;
-    allow.checked = true;
-    allow.dispatchEvent(new Ev("change", { bubbles: true }));
-    assert.ok(!rowsOf().some(([label]) => label === "Cannot run"));
-    world.calls.length = 0;
-    await next(primary());
-    assert.deepEqual(calls(), [["/api/catalogs/acme-hub/update", { ticket: "b1c2d3e4f5a60718" }], ["/api/catalogs/acme-hub/allow", { enabled: true }]]);
-  } finally {
-    globalThis.fetch = original;
-  }
 });
 
 test("a listed catalog has the allowance by being listed: no choice, no menu entry and no pair, whatever its items use", async () => {

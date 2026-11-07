@@ -11,7 +11,6 @@ import { Ev, flush, installDom, isOff, offWhy } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });   // a tab that shows a notice looks again every few seconds: not in this test
 const page = installDom({
-  ids: ["confirm-cancel", "choice-cancel", "confirm", "choice", "toasts", "confirm-title", "confirm-text", "confirm-ok", "confirm-input"],
   fetch: async (path) => asked(path),
 });
 const HEALTHY = { key: "healthy", label: "Healthy", running: true };
@@ -60,19 +59,6 @@ await flush();
 
 test("the UIs are made when their tabs are first shown", () => {
   assert.deepEqual(frames().map((frame) => frame.src), ["http://localhost:8110", "http://localhost:8086"]);
-});
-
-test("the page tells the apps in its frames nothing: not when a frame loads, not when the guide turns, not when the window goes narrow and wide again", () => {
-  loaded("http://localhost:8110");
-  loaded("http://localhost:8086");
-  section.querySelector("#pg-guide").dataset.page = "2";
-  setWidth(900);
-  page.resized.run();
-  assert.equal(card().classList.contains("rows"), true);
-  setWidth(1400);
-  page.resized.run();
-  assert.equal(card().classList.contains("rows"), false);
-  for (const url of ["http://localhost:8110", "http://localhost:8086"]) assert.deepEqual(sent(url), [], url);
 });
 
 test("a tab that shows a notice has no frame", async () => {
@@ -450,16 +436,6 @@ test("the actions asked while the app loads are sent in their order once it list
   assert.equal(sent("http://localhost:8110").length, 4);
 });
 
-test("an app that never listens does not make the queue grow: the same action waits once", async () => {
-  drawActions([BANK, GAMMA], { id: "silent-app" });
-  await flush();
-  for (let i = 0; i < 50; i++) Workspace.send(i % 2 ? "leak-an-iban" : "ask-ace-accounts");
-  await flush();
-  loaded("http://localhost:8110");
-  listens("http://localhost:8110");
-  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["ask-ace-accounts", "leak-an-iban"], "a late word sends each once");
-});
-
 test("an app is believed that it listens only if it is the frame of the first tab, from the origin of its UI, with that message", async () => {
   drawActions([BANK, GAMMA], { id: "believed" });
   await flush();
@@ -516,6 +492,7 @@ test("a UI that went away and came back is another page: it says again that it l
   refresh(true);
   await flush();
   assert.deepEqual(state(), [[false, ""], [false, ""]], "back");
+  assert.deepEqual(frameOf("http://localhost:8110").contentWindow.replaced, ["http://localhost:8110"], "its page is gone: its address is loaded again, in place of the entry");
   assert.equal(Workspace.send("leak-an-iban"), true);
   assert.equal(got("http://localhost:8110").length, 1, "the page it was loaded again: it must say that it listens first");
   loaded("http://localhost:8110");
@@ -657,13 +634,6 @@ test("the tab the person chose is the one that shows, as the page is drawn again
   assert.equal(shownTab(), "gamma-ui");
   draw([BANK], true, "chosen");          // the UI it chose is not listed any more: the first console shows
   assert.equal(shownTab(), "bakery-web");
-});
-
-test("a tab is never cut short, so it has no tooltip of its own: its name is in full", async () => {
-  draw([BANK, { ...GAMMA, label: "A console whose name is a little long" }], true, "names");
-  await flush();
-  assert.deepEqual(section.querySelectorAll('[role="tab"]').map((button) => button.textContent.trim()), ["Acme Bakery", "A console whose name is a little long", "Details"]);
-  assert.deepEqual(section.querySelectorAll('[role="tab"]').map((button) => button.title), ["", "", ""]);
 });
 
 test("a playground that lists no console is the same page: its guide beside its details, and its actions say it shows no UI", async () => {

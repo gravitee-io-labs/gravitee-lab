@@ -3,22 +3,14 @@
 // note, and offers it no Start, on its row or on its group's. And what its Reset says before it runs: what it turns off, and what stays
 // in a platform that playgrounds deployed to.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 const OPEN = JSON.stringify({ "group:alert-engine": true, "group:api-management": true });   // the groups the page remembers open
-const page = installDom({ ids, stored: { expanded: OPEN }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ stored: { expanded: OPEN }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;   // the menu opens under its button, or above it when the window ends first
-// Two selectors that the page asks and the small DOM does not know: a menu opened with the keyboard focuses its first entry
-// (:focus-visible, which a click never has), and a button at work takes no click (:is)
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
 const { store } = await import("../../../web/js/core.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
 const { paintBusy } = await import("../../../web/js/components/ui.js");

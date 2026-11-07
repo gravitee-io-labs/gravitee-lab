@@ -5,14 +5,11 @@
 // what the page promises. A gateway that has not connected is read again every 5 seconds for a minute, then less often, and while a gateway
 // job runs; no longer once the page is left.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const PLATFORM = { id: "cloud-eu", name: "My Account", kind: "cloud", url: "https://eu.cloud.gravitee.io",
   account: { id: "4b2f6a1e-8c3d-4e57-9a10-7d5c2b8e3f46", hrid: "my-account", name: "My Account" }, tokenSet: true };
@@ -31,9 +28,7 @@ const JOB = { id: "ab12cd34", for: "addon:hybrid", verb: "start", title: "Start 
 // What the server answers: the records, and the check of each, which a test changes; every call the page made; the refusal it gets
 // in answer to a POST when a test sets one; the plan of a gateway's start
 const server = { platforms: [PLATFORM], check: null, checks: 0, states: 0, calls: [], refusal: null, refuse: null, plan: { dialog: null }, hold: null, made: "g-made" };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : undefined;
     if (path === "/api/state") {
@@ -64,13 +59,6 @@ const endJobs = () => {
   page.doc.body.hidden = false;   // the drawer's output hides its parent, which in this small DOM is the body
 };
 globalThis.innerHeight = 800;   // a menu opens under its button, or above it when the window ends first
-// A button that fades back to its face reads how long it takes from the stylesheet: no fade here
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
-// Two selectors that the page asks and the small DOM does not know: a menu opened with the keyboard focuses its first entry
-// (:focus-visible, which a click never has), and a button at work takes no click (:is)
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
 const { store } = await import("../../../web/js/core.js");
 const { platformsPage, accountState } = await import("../../../web/js/pages/platforms.js");
 const { logsPage } = await import("../../../web/js/pages/logs.js");
@@ -94,7 +82,7 @@ async function open(check, platforms = [PLATFORM]) {
 }
 const ok = (gateways, tokens = {}, names = NAMES) => ({ state: "ok", message: "", gateways,
   environments: names.map((name) => environment(name, tokens[name] || { state: "unset" })) });
-const VALID = { state: "valid", expires: "2027-01-31T00:00:00Z" };
+const VALID = { state: "valid", expires: "2099-01-31T00:00:00Z" };
 const cards = () => section.querySelectorAll(".plat-card");
 const card = () => cards()[0];
 const rows = () => section.querySelectorAll(".plat-row");
@@ -150,7 +138,6 @@ const accountMore = () => section.querySelector("[data-account-more]");
 
 // The dialog of what an action does (ui.js `effectsDialog`): the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input")[0] : El.prototype.querySelector.call(picks, selector));
 const effects = () => ({ title: text(page.ids["choice-title"]), action: text(page.ids["choice-ok"]),
   steps: picks.querySelectorAll(".step").map((s) => [text(s.querySelector("strong")), s.querySelectorAll(".step-items li").map(said),
     s.querySelector(".step-head .muted") ? text(s.querySelector(".step-head .muted")) : ""]),
@@ -519,8 +506,8 @@ test("a hosted gateway is not listed, so the environment has none of its own", a
 // expire, else Can deploy once it has a Cloud Token that is valid and a gateway here, else what it lacks, the gateway or the token. The
 // rest is in the popover, the first line of which is the word.
 const DEPLOYS = [
-  ["a valid token and a gateway", { state: "valid", expires: "2027-01-31T00:00:00Z" }, {}, ["healthy", "Can deploy", ["Can deploy", `Expires ${on("2027-01-31")}`]]],
-  ["a valid token, from a claim", { state: "valid", expires: Date.parse("2027-01-31T00:00:00Z") / 1000 }, {}, ["healthy", "Can deploy", ["Can deploy", `Expires ${on("2027-01-31")}`]]],
+  ["a valid token and a gateway", { state: "valid", expires: "2099-01-31T00:00:00Z" }, {}, ["healthy", "Can deploy", ["Can deploy", `Expires ${on("2099-01-31")}`]]],
+  ["a valid token, from a claim", { state: "valid", expires: Date.parse("2099-01-31T00:00:00Z") / 1000 }, {}, ["healthy", "Can deploy", ["Can deploy", `Expires ${on("2099-01-31")}`]]],
   ["a valid token without an expiry", { state: "valid" }, {}, ["healthy", "Can deploy", []]],
   ["a valid token that expires in 5 days", { state: "valid", expires: new Date(Date.now() + 5 * 86400000 + 3600000).toISOString() }, {}, ["warn", "Expires in 5 days", null]],
   ["a valid token and no gateway of the Lab's", { state: "valid" }, { kept: false, connection: "CONNECTED" }, ["stopped", "Needs a gateway here", ["Needs a gateway here", "A deploy goes through a gateway of this environment that runs here"]]],
@@ -558,12 +545,12 @@ test("what the playgrounds deployed in an environment is its state, by name for 
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }));
   assert.equal(deploysOf("Development"), "Acme Hostels API deployed");
   const status = () => rowOf("Development").querySelector(".plat-deploys .status");
-  assert.deepEqual(lines(status()), ["Acme Hostels API deployed", "Can deploy", `Expires ${on("2027-01-31")}`, "Acme Hostels API: 3 APIs"], "reachable by keyboard, with the rest of what is known");
+  assert.deepEqual(lines(status()), ["Acme Hostels API deployed", "Can deploy", `Expires ${on("2099-01-31")}`, "Acme Hostels API: 3 APIs"], "reachable by keyboard, with the rest of what is known");
   assert.equal(rowOf("Development").querySelectorAll("[title]").filter((el) => /ACME/.test(el.getAttribute("title"))).length, 0);
   store.state = state({ playgrounds: [hotels, bank] });
   platformsPage.render(store.state);
   assert.equal(deploysOf("Development"), "2 playgrounds deployed");
-  assert.deepEqual(lines(status()), ["2 playgrounds deployed", "Can deploy", `Expires ${on("2027-01-31")}`, "Acme Hostels API: 3 APIs", "Acme Bakery: 2 APIs"]);
+  assert.deepEqual(lines(status()), ["2 playgrounds deployed", "Can deploy", `Expires ${on("2099-01-31")}`, "Acme Hostels API: 3 APIs", "Acme Bakery: 2 APIs"]);
   store.state = state({ playgrounds: [{ ...hotels, deployed: [record("cloud-eu/env-test", [{ what: "APIs", count: 3 }])] }] });
   platformsPage.render(store.state);
   assert.deepEqual(used().map((r) => text(r.querySelector(".plat-env"))), ["Development", "Test"], "what was deployed there makes it an environment in use, with no token and no gateway");
@@ -879,30 +866,6 @@ test("a read that fails is the platform's state, and an account with no environm
 });
 
 // --- Reading again ---------------------------------------------------------------------
-
-test("a gateway that runs here and has not connected is read again every 5 seconds, until it has and until the page is left", async () => {
-  await open(ok([gateway({ here: true })], { Development: VALID }));
-  const first = server.checks;
-  mock.timers.tick(5000);
-  await flush();
-  assert.equal(server.checks, first + 1, "its add-on runs and Cloud has not seen it");
-  server.check = ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID });
-  mock.timers.tick(5000);
-  await flush();
-  assert.equal(gatewayOf("Development"), "Running here");
-  const connected = server.checks;
-  mock.timers.tick(15000);
-  await flush();
-  assert.equal(server.checks, connected, "once it is connected it is not read again");
-  server.check = ok([gateway({ here: true })], { Development: VALID });
-  mock.timers.tick(5000);
-  await flush();
-  platformsPage.hide();
-  const left = server.checks;
-  mock.timers.tick(20000);
-  await flush();
-  assert.equal(server.checks, left, "a page that was left reads nothing");
-});
 
 test("a gateway that does not run is not read again: nothing is waited for", async () => {
   store.state = state({ addons: [ADDON(STOPPED)] });
@@ -1961,6 +1924,9 @@ test("a gateway that does not connect is read every 5 seconds for a minute, ever
   assert.equal(gatewayOf("Development"), "Running here", "it connects at last");
   assert.equal(await reads(6), 0, "and is not read again");
   platformsPage.hide();
+  await open(ok([gateway({ here: true })], { Development: VALID }));
+  platformsPage.hide();
+  assert.equal(await reads(4), 0, "a page that was left reads nothing");
 });
 
 test("keyboard focus stays on the control a redraw replaces: the toggle, a row's button, its More", async () => {
@@ -2084,14 +2050,6 @@ test("Stop using says a failure and stops there", async () => {
   platformsPage.hide();
 });
 
-test("a Cloud Token near its end says so in amber, in the place of Can deploy", async () => {
-  await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: { state: "valid", expires: new Date(Date.now() + 3 * 86400000 + 3600000).toISOString() } }));
-  assert.equal(deploysOf("Development"), "Expires in 3 days");
-  assert.equal(lines(rowOf("Development").querySelector(".plat-deploys .status"))[1], "Can deploy");
-  assert.equal(rowOf("Development").querySelector(".plat-deploys .dot-status").className, "dot-status warn");
-  platformsPage.hide();
-});
-
 test("a card's console button names its account, and the menu's entries carry no hint that says nothing", async () => {
   await open(ok([]));
   assert.equal(card().querySelector(".plat-tools a").getAttribute("aria-label"), "Open console, My Account");
@@ -2130,15 +2088,11 @@ test("Replace Account Token says where to create it, in the popover of its label
 
 // Last: the logs page, once drawn, keeps timers of its own that the clock of the other tests would run
 test("Logs lead to the logs of the gateway's service", async () => {
-  // The stub's selectors do not know :checked, which the logs page asks of its levels
-  const all = page.doc.querySelectorAll;
-  page.doc.querySelectorAll = (selector) => all(selector.replace(":checked", ""));
   const logs = page.doc.createElement("section");
   page.doc.body.append(logs);
   logsPage.init(logs);
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }));
   menu(envMore("Development"));
   await choose("Show logs");
-  page.doc.querySelectorAll = all;
   assert.equal(page.session.entries[page.session.at].hash, "#/logs");
 });

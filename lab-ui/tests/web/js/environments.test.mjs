@@ -4,15 +4,12 @@
 // add-on that runs a gateway is chosen by the server (`state.platform.gateways`); with none, the cell says that there is no add-on (the Cloud
 // controls with it), or, while the catalogs are not there, why, in the words of the lists.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { bubble, installDom, text } from "./dom-stub.mjs";
 import { FIRST, catalog, content } from "./fixtures.mjs";
 
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const dom = installDom({ ids });
+const dom = installDom();
 const { store } = await import("../../../web/js/core.js");
 const { environmentStatus, splitEnvironments, gatewayList, gatewayCount, addonOf, gatewayGap, gatewayCell, hybrid, runs, stopOf, TERMS } = await import("../../../web/js/platform/environments.js");
 const { gatewayWhy, runsControl, chooseCore } = await import("../../../web/js/platform/core-choice.js");
@@ -27,7 +24,7 @@ const STOPPED = { state: { key: "stopped" }, action: { do: "start", enabled: tru
 const dayFrom = (days) => new Date(Date.now() + days * 86400000 + 3600000).toISOString();   // and an hour, which the test takes to run
 const lab = (state = {}) => { store.state = { blind: false, addons: [ADDON()], playgrounds: [], ...state }; };
 const status = (gateways = [], token, more = {}, check = {}) => environmentStatus(PLATFORM, { gateways, ...check }, { ...ENV, token: token || ENV.token, ...more });
-const VALID = { state: "valid", expires: "2027-01-31T00:00:00Z" };
+const VALID = { state: "valid", expires: "2099-01-31T00:00:00Z" };
 const brief = (found) => [found.gateway.key, found.gateway.word, found.deploy.key, found.deploy.word, found.action?.do ?? null];
 
 test("an environment the Lab does nothing with is not in use, and is offered to set up", () => {
@@ -53,7 +50,7 @@ test("a gateway that runs here, connected, with a valid token, is running and ca
   assert.equal(found.gateway.id, "g1");
   assert.deepEqual(found.gateway.tip, ["lab"], "its name: where it answers is said under the state");
   assert.equal(found.deploy.dot, "healthy");
-  assert.equal(found.deploy.expires, "2027-01-31T00:00:00Z");
+  assert.equal(found.deploy.expires, "2099-01-31T00:00:00Z");
   assert.deepEqual(found.action, { do: "stop-gateway", label: "Stop gateway", disabled: false, reason: "" });
 });
 
@@ -461,7 +458,7 @@ test("wherever an add-on is named for a platform, nothing holds its gateway for 
 
 test("a key that reaches the Cloud choice while nothing can run its gateway asks for nothing; with an add-on the same key goes on", async () => {
   const original = globalThis.fetch, sent = [];
-  globalThis.fetch = async (path) => { sent.push(path); return { ok: true, status: 200, headers: { get: () => "" }, json: async () => ({}) }; };
+  globalThis.fetch = async (path) => { sent.push(path); return { ok: true, status: 200, headers: { get: () => "" }, json: async () => (path === "/api/places" ? [] : {}) }; };
   try {
     for (const [cloud, content_] of [[null, content("ready")], [null, content("downloading")], [null, content("failed")], [null, content("none")]]) {
       served({ cloud }, { platforms: [PLATFORM], content: content_ });

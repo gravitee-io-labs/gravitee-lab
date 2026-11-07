@@ -421,7 +421,7 @@ comment that describes it in the compose file, and *Required* when it has no def
 
 ## Gravitee Cloud
 
-The Gravitee Cloud page (`#/cloud`; the old `#/platforms` leads there), under **Configure**, shows the Gravitee Cloud accounts connected to this lab. The lab's own
+The Gravitee Cloud page (`#/cloud`), under **Configure**, shows the Gravitee Cloud accounts connected to this lab. The lab's own
 platform is the one the pages call *This machine* wherever you choose a place. Connecting an
 account adds places to deploy to, and only what this page and [Deploy to](#deploy-to) list: with none connected, the lab is
 as it always was. The whole path, from the Account Token to a call, is in [Use Gravitee Cloud with the Lab](cloud.md).

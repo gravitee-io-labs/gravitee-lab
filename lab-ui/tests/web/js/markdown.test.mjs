@@ -106,11 +106,12 @@ test("a link that is none, or has nothing to click, stays a text: never a button
   assert.equal(out.textContent, "a not b  c   d");
 });
 
-test("the sanitizer is told what a guide cannot carry: a form, a style, and a data-action of its own, which only the buttons made after it have", async () => {
+test("the sanitizer is told what a guide cannot carry: a form, a style, and a data-* of its own, which only the buttons made after it have", async () => {
   configs = [];
   await render("<p>x</p>");
   assert.deepEqual(configs.at(-1).FORBID_TAGS, ["form"]);
-  for (const attr of ["data-action", "style", "formaction"]) assert.ok(configs.at(-1).FORBID_ATTR.includes(attr), attr);
+  for (const attr of ["style", "formaction"]) assert.ok(configs.at(-1).FORBID_ATTR.includes(attr), attr);
+  assert.equal(configs.at(-1).ALLOW_DATA_ATTR, false);
   const out = await render('<p><a href="action:leak-an-iban">x</a></p>');
   assert.equal(out.querySelector("button").dataset.action, "leak-an-iban", "the button is given its data-action after the sanitizer");
 });

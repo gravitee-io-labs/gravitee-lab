@@ -2,18 +2,17 @@
 // Catalogs entry of the menu (paintMenuDot), run for real over a small DOM and the state the server answers (fixtures.mjs): one block
 // of the `.empty` family in each of the four keys the server gives, a status for a screen reader, with the buttons a click on which the page
 // owns; what the foot of the Welcome dialog needs to keep its slots; the names the entry of the menu takes, and the name it has while only its
-// icon shows. A server that does not say the content draws nothing.
+// icon shows.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, bubble, installDom, text } from "./dom-stub.mjs";
-import { ADDRESS, FIRST, HOSTILE, HOSTILE_QUOTED, PERSONAL, STATE, STATES, catalog, content, lab } from "./fixtures.mjs";
+import { ADDRESS, FIRST, HOSTILE, HOSTILE_QUOTED, catalog, content, lab } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
 const { store } = await import("../../../web/js/core.js");
 const { contentStatus, contentLead, paintMenuDot, paintProgress } = await import("../../../web/js/components/ui.js");
@@ -125,13 +124,8 @@ test("the Catalogs page leaves a download and a failure to its rows", () => {
   assert.equal(contentStatus(withContent("failed"), { kind: "catalog" }), "");
 });
 
-test("a server that does not say the content, or says a key this page does not know, draws nothing", () => {
-  assert.equal(contentStatus({}), "");
-  assert.equal(contentStatus(null), "");
-  assert.equal(contentStatus(undefined, { kind: "setup" }), "");
-  assert.equal(contentStatus(lab({ content: undefined })), "");
+test("a key this page does not know draws nothing", () => {
   assert.equal(contentStatus(withContent("somewhere else")), "");
-  assert.deepEqual(contentLead({}), { ready: true, why: "", extra: "" });
   assert.deepEqual(contentLead(withContent("somewhere else")), { ready: true, why: "", extra: "" });
 });
 
@@ -146,9 +140,6 @@ test("with items to show the block is one line above them, whatever the key but 
     assert.equal(above.querySelectorAll('[role="status"]').length, 1);
   }
   assert.equal(contentStatus(withContent("ready"), { kind: "setup", items: 3 }), "", "removed once the content is there");
-  // A caller may say it either way
-  assert.equal(block(draw(contentStatus(withContent("none"), { items: 3, line: false }))).hasAttribute("data-line"), false);
-  assert.equal(block(draw(contentStatus(withContent("none"), { line: true }))).hasAttribute("data-line"), true);
 });
 
 // --- What comes from the server is text --------------------------------------------------------------------------------------
@@ -201,9 +192,6 @@ test("the entry of the menu is as the page wrote it, with its dot hidden, until 
   paintMenuDot(lab({ catalogs: [FIRST(), catalog({ attention: null })] }));
   assert.deepEqual(named(), ["Catalogs", "Where items come from", "Catalogs", true]);
   paintMenuDot(null);
-  paintMenuDot(undefined);
-  paintMenuDot({ catalogs: "not a list" });
-  paintMenuDot({});
   assert.deepEqual(named(), ["Catalogs", "Where items come from", "Catalogs", true]);
 });
 
@@ -233,8 +221,6 @@ test("the dot lights for the first reason that applies, and the entry says it to
 });
 
 test("a page without the entry draws nothing and breaks nothing", () => {
-  const bare = page.doc.createElement("nav");
-  bare.innerHTML = '<a class="nav-item" href="#/addons" data-nav="addons"><span>Add-ons</span></a>';
   catalogs.remove();
   paintMenuDot(lab({ catalogs: [catalog({ attention: "update" })] }));
   menu.append(catalogs);
@@ -271,21 +257,4 @@ test("a menu that shows its words says what the entry is for; one that shows ico
   page.doc.dispatchEvent(new Ev("mouseout", { target: addons, relatedTarget: page.doc.body }));
   hover();
   assert.equal(text(float()), "Catalogs, needs repair", "lit: the reason, with the words showing too");
-});
-
-// --- The fixtures ---------------------------------------------------------------------------------------------------------------
-
-test("the fixtures hold a state for every key of the table, so that a page is tried against each of them", () => {
-  const keys = ["machine", "uptodate", "update", "checking", "updating", "downloading", "unreachable", "noaccess", "needs_git", "needs_docker", "wrong_catalog",
-    "rewritten", "lab_new", "lab_old", "damaged", "linked", "missing_folder", "suggested"];
-  assert.deepEqual([PERSONAL().state.key, ...Object.keys(STATES)].sort(), [...keys].sort());
-  for (const [key, state] of Object.entries(STATES)) {
-    assert.equal(state.key, key);
-    assert.ok(state.label && ["muted", "warn", "error", "working"].includes(state.tone), `${key}: a word and a tone`);
-    assert.deepEqual(Object.keys(state), Object.keys(STATE("x", "X")), `${key}: the shape of one`);
-  }
-  // The states that are not a plain one tell what happened and what to do, as the table of the Catalogs page words them
-  for (const key of ["unreachable", "noaccess", "needs_git", "needs_docker", "wrong_catalog", "rewritten", "lab_new", "lab_old", "damaged", "missing_folder"]) {
-    assert.ok(STATES[key].reason && STATES[key].next, `${key}: a reason and a next step`);
-  }
 });

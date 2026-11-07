@@ -6,7 +6,7 @@ import { test } from "node:test";
 
 import { El, installDom } from "./dom-stub.mjs";
 
-const page = installDom({ ids: ["confirm-cancel", "choice-cancel", "confirm", "choice", "toasts", "confirm-title", "confirm-text", "confirm-ok", "confirm-input"] });
+const page = installDom();
 const { store } = await import("../../../web/js/core.js");
 const { paintLinks } = await import("../../../web/js/components/ui.js");
 

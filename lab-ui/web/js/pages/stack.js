@@ -3,7 +3,7 @@
 import { $, $$, esc, icon, setHTML, loading, api, store, router, recallObject, remember, bareTag, ofPlatform } from "../core.js";
 import { confirmDialog, confirmPlan, openMenu, paintLinks, progressBar, GAP, fileButtons,
   keyed, dockerDown, onKnown, serviceVersion, serviceCells, serviceOpen, actionButton,
-  paintActions, showing, noteBadge, itemLink, applyBadge, behindTip, behindWhy, statusHtml, holdOff } from "../components/ui.js";
+  paintActions, showing, noteBadge, itemLink, statusHtml, holdOff } from "../components/ui.js";
 import { runJob, runPlatform, showOutput } from "../activity/jobs.js";
 import { recordName } from "../platform/places.js";
 import { onCloud, coreOf, runCore, gatewayWhy } from "../platform/core-choice.js";
@@ -278,7 +278,7 @@ const leadOf = (platform) => (platform.state.key === "stopped" && platform.start
 // the one that leads, else Stop while something runs, else Start, and nothing beside a button that is still at work. With API
 // Management in the Cloud, the lean head's Start all and Stop all follow it (state.core): its gateway here, the rest of the platform and
 // what is on, without the local API Management; Start all leads while none of that runs, and says why it cannot start when it cannot.
-function renderActions(root, platform) {
+export function paintHead(root, { platform }) {
   const lean = !!$("[data-lean]", root), cloud = lean && onCloud(), core = coreOf();
   const runs = cloud ? core.stop.needed : platform.restart.needed, starts = cloud ? core.start.needed : platform.start.needed;
   const lead = cloud ? (!runs && starts ? "start" : platform.apply.needed ? "apply" : "") : leadOf(platform);
@@ -297,13 +297,6 @@ function renderActions(root, platform) {
         cloud ? `Starts the hybrid gateway of ${core.name} and the rest of the platform, not the local ${core.group?.name || ""}` : "");
     }
   }
-}
-
-// The head as the state says it: the actions that fit, and while something runs behind what is saved the badge "Apply needed"
-// beside the title, its popover a row for each product that does, in whatever state the platform is: the Apply button is never
-// there with no explanation.
-export function paintHead(root, state) {
-  renderActions(root, state.platform);
 }
 
 function render(state) {
@@ -362,12 +355,6 @@ const groupOf = (el) => groups.find((g) => g.key === el.closest(".group")?.datas
 const confirmStart = (name, { brings = [], recreates = [] }) => confirmPlan(`Start ${name}`, "Start",
   brings.length || recreates.length ? { starts: brings, restarts: recreates } : null);
 
-// The Start or Stop of a platform group, from its row
-async function actOnGroup(unit, action) {
-  if (action === "start" && !(await confirmStart(unit.name, unit))) return;
-  runJob(() => api(`/api/groups/${unit.id}/${action}`, {}), { key: `group:${unit.id}`, verb: action });
-}
-
 // A button acts on the container of its row, else on its group: a platform group, or the containers of an add-on or
 // a playground
 async function act(button) {
@@ -382,9 +369,9 @@ async function act(button) {
     return runJob(() => api(`/api/services/${service}/${action}`, {}), { key: `service:${service}`, verb: action });
   }
   const { unit } = g;
-  if (g.kind === "group") return actOnGroup(unit, action);
   if (action === "start" && !(await confirmStart(unit.name, unit))) return;
-  runJob(() => api(`/api/${g.kind}s/${unit.id}/containers/${action}`, {}), { key: g.key, verb: action });
+  const path = g.kind === "group" ? `/api/groups/${unit.id}/${action}` : `/api/${g.kind}s/${unit.id}/containers/${action}`;
+  runJob(() => api(path, {}), { key: g.key, verb: action });
 }
 
 // A file button opens what its add-on or playground has, the one of the core's line what the core has

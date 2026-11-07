@@ -584,6 +584,7 @@
 .diagram [class~="cluster-label"] :is(text, span, p) { fill: var(--accent) !important; color: var(--accent) !important; }
 .diagram path[class~="flowchart-link"] { stroke: var(--muted) !important; }
 .diagram marker path { fill: var(--muted) !important; stroke: var(--muted) !important; }
+/* The paragraph too: Mermaid gives it a background of its own, which hides the label's text in the dark theme */
 .diagram :is([class~="edgeLabel"], [class~="labelBkg"], [class~="edgeLabel"] p) { background: var(--surface) !important; }
 
 @container (max-width: 1000px) {
@@ -914,7 +915,7 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
   width: min(1600px, calc(100vw - 48px)); height: calc(100dvh - 48px); max-width: none; max-height: none; padding: 0; overflow: hidden;
 }
 /* The license is a column of facts and a list of packs, as long as the window is high and wide enough for 1360 px */
-.license-dialog { width: min(1360px, calc(100vw - 48px)); height: calc(100dvh - 48px); }
+.license-dialog { width: min(1360px, calc(100vw - 48px)); }
 /* A large dialog is a column: its head, then what fills it */
 :is(.editor-dialog, .license-dialog, .welcome-dialog)[open] { display: flex; flex-direction: column; }
 .compose { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
@@ -1111,12 +1112,11 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .welcome-panel > .welcome-lead { margin: 0 0 var(--sp-5); max-width: 640px; text-wrap: balance; }
 .welcome-panel .machine-summary { margin-bottom: var(--sp-3); }
 .welcome-actions .grow { flex: 1; }
-/* The start: the platform, a playground, a console, numbered; what is done says it */
+/* The start: the platform, a playground, a console, numbered */
 .start-list { list-style: none; margin: var(--sp-5) 0 0; padding: 0; display: grid; gap: var(--sp-2); }
 .start-item { display: flex; align-items: center; gap: 14px; padding: 14px var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-pop); background: var(--surface); }
 .start-num { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: var(--fw-3); font-size: var(--fs-2); background: var(--accent-soft); color: var(--accent-ink); }
 .start-num > svg { width: 14px; height: 14px; }
-.start-item[data-state="done"] .start-num { background: var(--ok); color: #fff; }
 .start-text { display: grid; gap: 2px; min-width: 0; }
 .start-text strong { color: var(--text); font-size: var(--fs-3); }
 .start-text span { color: var(--muted); font-size: var(--fs-2); }

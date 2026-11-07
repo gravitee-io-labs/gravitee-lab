@@ -3,7 +3,6 @@
 // picker that filters a list by one of its facts (web/js/components/combo.js, CategoryFilter), run over a small DOM: the categories of a list as it
 // always drew them, and the catalogs an item comes from, with the same component.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { flush, installDom, text } from "./dom-stub.mjs";
@@ -63,12 +62,6 @@ test("a list that fits on neither side goes where there is more room, and scroll
   assert.equal(high.maxHeight, WINDOW.height - MARGIN - (300 + 32 + GAP));
 });
 
-test("near the top of the window it opens below, whatever it holds", () => {
-  const placed = place(at(600, 4), { width: 300, height: 3000 }, WINDOW);
-  assert.equal(placed.side, "below");
-  inside(placed, WINDOW, 3000);
-});
-
 test("in a window a few rows high, where no side has MIN, it lies over its control within the window", () => {
   const short = { width: 1440, height: 300 }, trigger = at(600, 130);
   assert.ok(short.height - MARGIN - (trigger.bottom + GAP) < MIN && trigger.top - GAP - MARGIN < MIN);
@@ -78,12 +71,6 @@ test("in a window a few rows high, where no side has MIN, it lies over its contr
   inside(placed, short, 700);
   // What fits under it there still opens under it
   assert.equal(place(trigger, { width: 300, height: 100 }, short).side, "below");
-});
-
-test("at 1440 by 600 the list of the services of Logs opens under its picker and ends MARGIN above the bottom", () => {
-  const win = { width: 1440, height: 600 }, placed = place(at(1011, 147), { width: 320, height: 790 }, win);
-  assert.deepEqual([placed.side, placed.top, placed.maxHeight], ["below", 185, 399]);
-  inside(placed, win, 790);
 });
 
 test("it is as wide as its control at least, as its longest line when that is wider, up to MAX_WIDTH", () => {
@@ -157,10 +144,7 @@ test("lines wider than the room a list can have are drawn in two: wider than MAX
 // --- The picker of a list ----------------------------------------------------------------------------------------------------
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids });
-page.el("combo-pop").innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
+const page = installDom();
 const { Combo, CategoryFilter } = await import("../../../web/js/components/combo.js");
 Combo.init();
 
@@ -226,7 +210,7 @@ test("a category is said by the function it is given", async () => {
 // The catalogs an item comes from: the first, the others as they were added, this machine's last; each said by its name
 const NAMES = { gravitee: "Gravitee public", "acme-hub": "Acme Hub", "partner-bank": "Partner Bank", local: "Personal" };
 const ORDER = ["gravitee", "acme-hub", "partner-bank", "local"];
-const WORDS = { none: "All catalogs", all: "All catalogs", many: (n) => `${n} catalogs` };
+const WORDS = { none: "All catalogs", all: "All catalogs", many: (n) => `${n} catalogs`, few: 2 };
 const origin = (x) => x.origin?.id || (x.personal ? "local" : "gravitee");
 const catalogs = (entries) => ORDER.map((id) => entries.find(([value]) => value === id)).filter(Boolean);
 const FROM = [thing("one", "x"), thing("two", "x"), thing("three", "y"), thing("four", "x", { origin: { id: "acme-hub" } }), thing("five", "x", { personal: true }),

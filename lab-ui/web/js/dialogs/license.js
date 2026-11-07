@@ -3,7 +3,7 @@
 // is the server's (`note`).
 
 import { $, $$, esc, icon, setHTML, loading, api, store, copyButton } from "../core.js";
-import { toast, emptyHtml, onRowKey, actionButton, paintActions, paintBusy, dockerDown, applyBadge } from "../components/ui.js";
+import { toast, emptyHtml, actionButton, paintActions, paintBusy, dockerDown, applyBadge } from "../components/ui.js";
 import { runJob, busy } from "../activity/jobs.js";
 import { openFile } from "./editor.js";
 
@@ -151,7 +151,6 @@ function modelWhy() {
 // Where a license, or no need of one, comes from: the Gravitee Cloud, which runs API Management for the person (an account of their own
 // or a trial of 14 days), or a self-hosted license for what runs on this machine (Gamma, Acme Bakery: Gravitee Cloud does not run them)
 const SELF_HOSTED_URL = "https://www.gravitee.io/self-hosted-trial";
-const link = (href, label, cls = "btn") => `<a class="${cls}" href="${href}" target="_blank" rel="noopener">${icon("external")}${label}</a>`;
 // The Cloud has no link of its own here: its button opens the form that connects an account, which asks whether there is one already and
 // offers the trial of 14 days if there is not
 const GET_ONE = `<p class="license-intro">Community edition: Enterprise features are off</p>
@@ -166,7 +165,7 @@ const GET_ONE = `<p class="license-intro">Community edition: Enterprise features
       <span class="cta-icon">${icon("key")}</span>
       <h3>Run it on this machine</h3>
       <p>A self-hosted license unlocks the Enterprise features of the platform on this machine</p>
-      <div class="cta-actions">${link(SELF_HOSTED_URL, "Request a license")}</div>
+      <div class="cta-actions"><a class="btn" href="${SELF_HOSTED_URL}" target="_blank" rel="noopener">${icon("external")}Request a license</a></div>
     </section>
   </div>`;
 
@@ -181,8 +180,7 @@ function renderFacts() {
     return;
   }
   if (info.error || !info.readable) {
-    const why = info.error ? `<span class="err-text">${esc(info.error)}</span>`
-      : esc(info.present ? "The license cannot be read" : "Community edition: Enterprise features are off");
+    const why = info.error ? `<span class="err-text">${esc(info.error)}</span>` : "The license cannot be read";
     setHTML($("#license-facts"), `<div class="empty">${why}</div>`);
     return;
   }
@@ -272,7 +270,8 @@ function render() {
 // What the variable holds is the license in base64. A file is the license itself, or already its base64 (a key
 // kept as text): either way the variable gets base64. Pasted text is taken as base64 when it is, else encoded.
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-const base64 = (bytes) => {
+// In pieces, which a long argument list would not take whole
+export const base64 = (bytes) => {
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(binary);
@@ -390,17 +389,11 @@ dialog.innerHTML = `
 document.body.append(dialog);
 
 $("#license-close").addEventListener("click", () => dialog.close());
-// A way out of the dialog to a page of the Lab UI
+// A way out of the dialog: the form that connects an account opens, wherever the Lab UI is
 dialog.addEventListener("click", (e) => {
-  if (e.target.closest?.("[data-connect-cloud]")) {
-    dialog.close();
-    document.dispatchEvent(new CustomEvent("lab:connect-cloud"));   // the form that connects an account opens, wherever the Lab UI is
-    return;
-  }
-  const go = e.target.closest?.("[data-go]");
-  if (!go) return;
+  if (!e.target.closest?.("[data-connect-cloud]")) return;
   dialog.close();
-  location.hash = go.dataset.go;
+  document.dispatchEvent(new CustomEvent("lab:connect-cloud"));
 });
 $("#license-settings").addEventListener("click", () => openForm(true));
 $("#license-cancel").addEventListener("click", () => openForm(false));
@@ -458,9 +451,12 @@ $("#license-packs").addEventListener("click", (e) => {
   const row = e.target.closest("[data-pack]");
   if (row) toggle(row);
 });
-onRowKey($("#license-packs"), "[data-pack]", (row) => {
-  toggle(row);
-  return `[data-pack="${CSS.escape(row.dataset.pack)}"]`;
+// Enter and Space open or close a pack, as a click does. It is drawn again: the focus goes back to it.
+$("#license-packs").addEventListener("keydown", (e) => {
+  if (!e.target.matches("[data-pack]") || (e.key !== "Enter" && e.key !== " ")) return;
+  e.preventDefault();
+  toggle(e.target);
+  $(`#license-packs [data-pack="${CSS.escape(e.target.dataset.pack)}"]`)?.focus();
 });
 
 // Read again once another license is saved (here or in .env itself), and after a job, when it was not read or its
