@@ -199,6 +199,17 @@ class Seam(Base):
         jobs.JOBS.current = job
         return job
 
+
+class Partner(Seam):
+    """The partner catalog is installed."""
+
+    def setUp(self):
+        super().setUp()
+        self.done = self.installed("partner")
+        self.remote = self.remotes["partner"]
+        self.first = self.done.commit
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # describe: the rows of the state
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1495,13 +1506,8 @@ NEWER = {"addons/ledger/compose.yml": "x-gravitee: {kind: addon, name: Ledger, c
                                       " of a partner}\nservices:\n  partner-ledger:\n    image: busybox:1.36\n    networks: [internal]\n"}
 
 
-class Checking(Seam):
+class Checking(Partner):
     """Check again, in a request: what the lock learns, and the states a refusal makes."""
-
-    def setUp(self):
-        super().setUp()
-        self.done = self.installed("partner")
-        self.remote = self.remotes["partner"]
 
     def test_with_no_news_the_catalog_is_up_to_date_and_the_lock_says_when_it_was_looked_at(self):
         registry.set_lock("partner", checked="2026-01-01T00:00:00Z", tip="b" * 40)
@@ -1762,14 +1768,8 @@ GAINS = {"addons/ledger/compose.yml": "x-gravitee: {kind: addon, name: Ledger, c
                                      "  partner-audit:\n    image: busybox:1.36\n    networks: [internal]\n"}
 
 
-class Updating(Seam):
+class Updating(Partner):
     """The plan, its ticket, and the apply; Go back is the same with the previous version."""
-
-    def setUp(self):
-        super().setUp()
-        self.done = self.installed("partner")
-        self.remote = self.remotes["partner"]
-        self.first = self.done.commit
 
     def news(self, **how):
         """The repository gets a version that adds an add-on, and changes the ledger; Check again learns of it."""
@@ -2031,14 +2031,8 @@ class Updating(Seam):
         self.assertEqual(str(raised.exception), "lab-new has nothing installed yet")
 
 
-class Releasing(Seam):
+class Releasing(Partner):
     """A catalog that makes releases is offered its releases: the commits merged since the last one wait for the next."""
-
-    def setUp(self):
-        super().setUp()
-        self.done = self.installed("partner")
-        self.remote = self.remotes["partner"]
-        self.first = self.done.commit
 
     def tag(self, version, commit=None):
         self.remote.git("tag", "-f", f"v{version}", commit or self.remote.head())
@@ -2125,14 +2119,11 @@ class AddingARelease(Seam):
         self.assertEqual((held["pin"], held["release"], held["version"]), (released, "2.0.0", "2.0.0"))
 
 
-class GoingBack(Seam):
+class GoingBack(Partner):
     """The same plan and apply with the previous version, and the action toggles."""
 
     def setUp(self):
         super().setUp()
-        self.done = self.installed("partner")
-        self.remote = self.remotes["partner"]
-        self.first = self.done.commit
         self.remote.commit({"catalog.yml": meta_text(version="2.1.0"), **GAINS}, "Add the audit trail")
         self.second = self.remote.head()
         service.check_now("partner")
@@ -2182,13 +2173,8 @@ class GoingBack(Seam):
                          ("held", 409, "Turn off Audit first."))
 
 
-class ShowingChanges(Seam):
+class ShowingChanges(Partner):
     """"Show changes": the files of a plan with a unified diff of each."""
-
-    def setUp(self):
-        super().setUp()
-        self.done = self.installed("partner")
-        self.remote = self.remotes["partner"]
 
     def plan(self, files, message="Change the ledger", remove=()):
         self.remote.commit(files, message, remove=remove)

@@ -42,6 +42,12 @@ def shown(plan):
     return [f"{one['key']}|{uid}" for one in plan["private"] for uid in one["item_ids"]]
 
 
+def member(made, name):
+    """A file of the archive of an export, as text."""
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
+        return archive.read(name).decode()
+
+
 def root(ns):
     """The origin id of the private catalog of Git `ns`: the first commit of its history."""
     return contribute._history(ns)
@@ -231,8 +237,7 @@ class RoundTrip(Case):
         project.forget()
         made = exports.archive("local/sandbox")
         self.assertEqual(made["blocked"], [])
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            self.assertEqual(registry.scan(archive.read("sandbox/catalog.yml"))["description"], said)
+        self.assertEqual(registry.scan(member(made, "sandbox/catalog.yml").encode())["description"], said)
 
     def test_a_name_the_template_of_a_catalog_refuses_is_said_in_one_line(self):
         file = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds/sandbox/compose.yml"
@@ -346,15 +351,13 @@ class RoundTrip(Case):
                                      "file. Fix: write its x-gravitee as one block of plain key: value lines, in a file of one YAML "
                                      "document (in a catalog, ask its author to), then try again."))
                     continue
-                with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-                    said = compose.x_gravitee(archive.read("sandbox/addons/scratch/compose.yml").decode(), scratch.parent)
+                said = compose.x_gravitee(member(made, "sandbox/addons/scratch/compose.yml"), scratch.parent)
                 self.assertNotIn("copy_of", said)
                 self.assertEqual(said["name"], "Scratch")
 
     def test_a_file_without_a_private_label_keeps_the_level_of_the_template(self):
         made = exports.archive("local/sandbox")
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            self.assertRegex(archive.read("sandbox/catalog.yml").decode(), r"(?m)^  lab: 1\b", "older Labs read it")
+        self.assertRegex(member(made, "sandbox/catalog.yml"), r"(?m)^  lab: 1\b", "older Labs read it")
 
     def test_an_item_of_the_default_catalog_has_nothing_to_export(self):
         error = self.refusal(lambda: exports.plan("shop"))
@@ -484,8 +487,7 @@ class FromCatalogs(Case):
         plan = exports.plan("local/sandbox")
         self.assertIn("local/ledger", [one["id"] for one in plan["carries"]])
         self.assertEqual(plan["private"], [{"key": root("partner"), "name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}])
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))["data"]))) as archive:
-            text = archive.read("sandbox/addons/ledger/compose.yml").decode()
+        text = member(exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox"))), "sandbox/addons/ledger/compose.yml")
         self.assertIn('private_from: ["Partner fixture"]', text, "the label goes with the content: the Lab that imports it keeps it")
         self.assertNotIn("copy_of", text, "whose copy it is says nothing on another Lab")
 
@@ -598,16 +600,13 @@ class FromCatalogs(Case):
                                      "whose copy it is in this file. Fix: write its x-gravitee as one block of plain key: value lines, "
                                      "in a file of one YAML document (in a catalog, ask its author to), then try again."))
                     continue
-                with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-                    text = archive.read("sandbox/addons/ledger/compose.yml").decode()
-                said = compose.x_gravitee(text, self.root)
+                said = compose.x_gravitee(member(made, "sandbox/addons/ledger/compose.yml"), self.root)
                 self.assertEqual(said["private_from"], ["Partner fixture"])
 
     def test_an_apostrophe_in_a_flow_block_is_no_quote_and_the_label_is_written(self):
         self.ledger("x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps a partner's entries}\n")
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
+        said = compose.x_gravitee(member(made, "sandbox/addons/ledger/compose.yml"), self.root)
         self.assertEqual((said["private_from"], said["description"]), (["Partner fixture"], "Keeps a partner's entries"))
 
     def test_a_file_with_a_private_label_says_to_older_labs_the_level_the_label_appeared_at(self):
@@ -615,9 +614,7 @@ class FromCatalogs(Case):
         Labs ignore, so they are told to refuse the file; an archive without one stays one they read."""
         level = understood.lock().rows[("unit.key", "x-gravitee.private_from")]
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            text = archive.read("sandbox/catalog.yml").decode()
-        self.assertIn(f"  lab: {level}", text)
+        self.assertIn(f"  lab: {level}", member(made, "sandbox/catalog.yml"))
 
     def test_an_export_of_a_label_by_a_lab_that_cannot_read_its_contract_lock_is_refused(self):
         """Without its contract.lock the Lab does not know the level of the label: it says so rather than a lower one."""
@@ -666,8 +663,7 @@ class FromCatalogs(Case):
         said = compose.x_gravitee(copied.read_text(), copied.parent)
         self.assertEqual((said["private_from"], said["private_id"], said["copy_of"]), (["Partner fixture"], [root("partner")], "@partner/ledger"))
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            shipped = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
+        shipped = compose.x_gravitee(member(made, "sandbox/addons/ledger/compose.yml"), self.root)
         self.assertEqual((shipped["private_from"], shipped["private_id"]), (["Partner fixture"], [root("partner")]), "an export says it too")
 
     def test_a_label_says_any_name_of_a_catalog_as_it_is(self):
@@ -676,8 +672,7 @@ class FromCatalogs(Case):
             with self.subTest(name=name):
                 self.patch(contribute, "_catalog_name", lambda ns, name=name: name)
                 made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
-                with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-                    said = compose.x_gravitee(archive.read("sandbox/addons/ledger/compose.yml").decode(), self.root)
+                said = compose.x_gravitee(member(made, "sandbox/addons/ledger/compose.yml"), self.root)
                 self.assertEqual(said["private_from"], [name])
 
     def test_a_copy_whose_block_the_lab_cannot_write_is_refused_naming_the_item(self):
@@ -701,9 +696,8 @@ class FromCatalogs(Case):
 
     def test_the_archive_says_where_each_item_of_a_catalog_comes_from(self):
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
-        with zipfile.ZipFile(io.BytesIO(base64.b64decode(made["data"]))) as archive:
-            said = json.loads(archive.read("sandbox/export.json"))
-            scratch = archive.read("sandbox/addons/scratch/compose.yml").decode()
+        said = json.loads(member(made, "sandbox/export.json"))
+        scratch = member(made, "sandbox/addons/scratch/compose.yml")
         self.assertEqual([(one["kind"], one["item"], one["catalog"]) for one in said["items"]], [("addon", "ledger", "partner")])
         self.assertIn("  - ../ledger/compose.yml\n", scratch, "the copy is what Scratch includes in the file")
 
