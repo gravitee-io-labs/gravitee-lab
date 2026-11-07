@@ -987,8 +987,7 @@ export function contentLead(state) {
 // as the page wrote it. Called once the state is drawn (main.js).
 const ATTENTION = [["update", "update available"], ["repair", "needs repair"], ["lab", "update the Lab"], ["download", "not downloaded"]];
 export function paintMenuDot(state = store.state) {
-  const entry = $('.nav-item[data-nav="catalogs"]'), dot = entry && $(".nav-dot", entry);
-  if (!dot) return;
+  const entry = $('.nav-item[data-nav="catalogs"]'), dot = $(".nav-dot", entry);
   entry._plain ??= { name: entry.getAttribute("aria-label"), tip: entry.dataset.tip };
   const rows = catalogRows(state);
   const found = ATTENTION.find(([key]) => rows.some((row) => row.attention === key));

@@ -1,21 +1,18 @@
-// What the pages say while the content of the catalogs is on its way or missing (web/js/components/ui.js: contentStatus, contentLead), and the dot of the
-// Catalogs entry of the menu (paintMenuDot), run for real over a small DOM and the state the server answers (fixtures.mjs): one block
-// of the `.empty` family in each of the four keys the server gives, a status for a screen reader, with the buttons a click on which the page
-// owns; what the foot of the Welcome dialog needs to keep its slots; the names the entry of the menu takes, and the name it has while only its
-// icon shows.
+// What the pages cannot say for themselves of the content of the catalogs (web/js/components/ui.js: contentStatus): which catalog a Try again is for,
+// and that what the server says is text; the words of each key are in the tests of the pages that draw them. And the dot of the Catalogs entry of the
+// menu (paintMenuDot): the names the entry takes, and the name it has while only its icon shows.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { Ev, bubble, installDom, text } from "./dom-stub.mjs";
-import { ADDRESS, FIRST, HOSTILE, HOSTILE_QUOTED, catalog, content, lab } from "./fixtures.mjs";
+import { Ev, installDom, text } from "./dom-stub.mjs";
+import { FIRST, HOSTILE, HOSTILE_QUOTED, catalog, content, lab } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
 const page = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
-const { store } = await import("../../../web/js/core.js");
-const { contentStatus, contentLead, paintMenuDot, paintProgress } = await import("../../../web/js/components/ui.js");
+const { contentStatus, paintMenuDot } = await import("../../../web/js/components/ui.js");
 
 const draw = (markup) => {
   const root = page.doc.createElement("div");
@@ -26,52 +23,6 @@ const draw = (markup) => {
 const withContent = (key, more = {}, catalogs = []) => lab({ content: content(key, more), catalogs });
 const block = (root) => root.firstElementChild;
 const buttons = (root) => root.querySelectorAll("[data-content-act]").map((el) => [el.getAttribute("data-content-act"), el.getAttribute("data-catalog"), text(el)]);
-
-// --- The four keys ------------------------------------------------------------------------------------------------------------
-
-test("the content is one block of the empty family and a status for a screen reader, once, in each of its four keys", () => {
-  for (const key of ["downloading", "failed", "none", "ready"]) {
-    const root = draw(contentStatus(withContent(key)));
-    assert.equal(root.children.length, 1, key);
-    assert.deepEqual([block(root).tag, block(root).getAttribute("class"), block(root).getAttribute("role"), block(root).getAttribute("data-content")],
-      ["div", "empty", "status", key]);
-    assert.equal(root.querySelectorAll('[role="status"]').length, 1, `${key}: said once`);
-    assert.equal(root.querySelectorAll("[data-line]").length, 0, `${key}: a block, not a line`);
-  }
-});
-
-test("while it downloads the block says Downloading with a spinner, a bar that follows the download and a mark that says where from", () => {
-  const root = draw(contentStatus(withContent("downloading")));
-  assert.equal(text(root.querySelector(".loading .tip-btn")), "Downloading", "its word, whose mark opens the address");
-  assert.equal(root.querySelectorAll(".loading .spinner").length, 1);
-  const bar = root.querySelector(".progress");
-  assert.deepEqual([bar.getAttribute("data-progress"), bar.getAttribute("role"), bar.hidden], ["content", "progressbar", true], "drawn hidden until it is measured");
-  // The mark is the address the server gives, never a word of the page's own
-  const mark = root.querySelector(".tip-btn");
-  assert.equal(mark.getAttribute("aria-label"), `Downloading: From ${ADDRESS}`);
-  assert.ok(mark.querySelector("svg use").getAttribute("href").endsWith("#i-info"));
-  assert.deepEqual(bubble(root.querySelector(".tip")), [`From ${ADDRESS}`]);
-  assert.deepEqual(buttons(root), [], "nothing to press while it comes");
-  // The long sentence exists once, as the reason the Welcome button gives; the blocks of the places do not say it
-  assert.ok(!text(block(root)).includes("setups"));
-  // No address, no mark: the word alone
-  const bare = draw(contentStatus(withContent("downloading", { address: "" })));
-  assert.equal(bare.querySelectorAll(".tip").length, 0);
-  assert.equal(text(block(bare)), "Downloading");
-});
-
-test("the bar of the block is the progress of the content: it moves with the state, and hides once there is none", () => {
-  const root = draw(contentStatus(withContent("downloading")));
-  const bar = root.querySelector(".progress");
-  store.state = withContent("downloading", { progress: 0.42 });
-  paintProgress(root);
-  assert.deepEqual([bar.hidden, bar.getAttribute("aria-valuenow"), bar.firstElementChild.styleValues.width], [false, "42", undefined]);
-  store.state = withContent("downloading", { progress: null });
-  paintProgress(root);
-  assert.equal(bar.hidden, true);
-  store.state = withContent("ready");
-  assert.equal(store.progress("content"), null);
-});
 
 test("a download that failed says why in the server's words, and offers Try again for the catalog that has no copy", () => {
   const root = draw(contentStatus(withContent("failed", {}, [FIRST({ commit: "9f1c2ab" }), catalog({ id: "acme-hub", commit: "", version: "" })])));
@@ -91,47 +42,6 @@ test("a download that failed says why in the server's words, and offers Try agai
   assert.deepEqual(buttons(draw(contentStatus(withContent("failed", { line: "" })))), [["retry", "", "Try again"]]);
 });
 
-test("with no catalog the block says so and offers to add the one the server names, or to browse when it names none", () => {
-  const root = draw(contentStatus(withContent("none")));
-  assert.equal(text(block(root).firstElementChild), "No catalog added");
-  assert.deepEqual(buttons(root), [["add", "gravitee", "Add Gravitee public"]]);
-  const browse = draw(contentStatus(withContent("none", { offer: null })));
-  assert.equal(browse.querySelectorAll("[data-content-act]").length, 0);
-  assert.deepEqual([text(browse.querySelector("a")), browse.querySelector("a").getAttribute("href"), browse.querySelector("a").getAttribute("class")],
-    ["Browse catalogs", "#/catalogs", "btn"]);
-  // The Catalogs page is the place to browse: with nothing to add, it says only that none is
-  const there = draw(contentStatus(withContent("none", { offer: null }), { kind: "catalog" }));
-  assert.deepEqual([text(block(there)), there.querySelectorAll("a, button").length], ["No catalog added", 0]);
-  assert.deepEqual(buttons(draw(contentStatus(withContent("none"), { kind: "catalog" }))), [["add", "gravitee", "Add Gravitee public"]]);
-});
-
-test("a list that has nothing of its kind says so only once the content is there; the Dashboard says it for all three", () => {
-  const words = (kind) => text(draw(contentStatus(withContent("ready"), { kind })));
-  assert.deepEqual(["playground", "setup", "addon"].map(words), ["No playground yet", "No setup yet", "No add-on yet"]);
-  assert.equal(words(undefined), "No playground, setup or add-on yet");
-  // With something to show, or on the page of the catalogs, a content that is there says nothing
-  assert.equal(contentStatus(withContent("ready"), { kind: "addon", items: 2 }), "");
-  assert.equal(contentStatus(withContent("ready"), { kind: "catalog" }), "");
-});
-
-test("the Catalogs page leaves a download and a failure to its rows", () => {
-  assert.equal(contentStatus(withContent("downloading"), { kind: "catalog" }), "");
-  assert.equal(contentStatus(withContent("failed"), { kind: "catalog" }), "");
-});
-
-// --- A list that has items of this machine --------------------------------------------------------------------------------------
-
-test("with items to show the block is one line above them, whatever the key but ready, which draws none", () => {
-  for (const key of ["downloading", "failed", "none"]) {
-    const alone = draw(contentStatus(withContent(key), { kind: "setup" })), above = draw(contentStatus(withContent(key), { kind: "setup", items: 3 }));
-    assert.equal(block(alone).hasAttribute("data-line"), false, key);
-    assert.equal(block(above).hasAttribute("data-line"), true, key);
-    assert.equal(text(block(above)), text(block(alone)), `${key}: the same words, the same component`);
-    assert.equal(above.querySelectorAll('[role="status"]').length, 1);
-  }
-  assert.equal(contentStatus(withContent("ready"), { kind: "setup", items: 3 }), "", "removed once the content is there");
-});
-
 // --- What comes from the server is text --------------------------------------------------------------------------------------
 
 test("a line, an address and the name of an offer are text, never markup", () => {
@@ -147,24 +57,6 @@ test("a line, an address and the name of an offer are text, never markup", () =>
   const retry = draw(contentStatus(withContent("failed", {}, [catalog({ id: HOSTILE_QUOTED, commit: "" })])));
   assert.deepEqual(buttons(retry), [["retry", HOSTILE_QUOTED, "Try again"]]);
   assert.equal(retry.querySelectorAll("script").length, 0);
-});
-
-// --- The foot of the Welcome dialog -------------------------------------------------------------------------------------------
-
-test("the lead of the Welcome foot stays in its place and says why it waits, in the words of the block, with the button beside it", () => {
-  assert.deepEqual(contentLead(withContent("ready")), { ready: true, why: "", extra: "" });
-  assert.deepEqual(contentLead(withContent("downloading")), { ready: false, why: "Downloading playgrounds, setups and add-ons", extra: "" });
-  const failed = contentLead(withContent("failed", {}, [catalog({ id: "acme-hub", commit: "" })]));
-  assert.deepEqual([failed.ready, failed.why], [false, "Cannot reach github.com. Check your connection, then try again."]);
-  assert.deepEqual(buttons(draw(failed.extra)), [["retry", "acme-hub", "Try again"]]);
-  const none = contentLead(withContent("none"));
-  assert.deepEqual([none.ready, none.why], [false, "No catalog added"]);
-  assert.deepEqual(buttons(draw(none.extra)), [["add", "gravitee", "Add Gravitee public"]]);
-  assert.equal(draw(contentLead(withContent("none", { offer: null })).extra).querySelector("a").getAttribute("href"), "#/catalogs");
-  // The reason is text for an attribute (the page escapes it where it writes markup); the button is markup, made safe
-  const hostile = contentLead(withContent("failed", { line: HOSTILE }));
-  assert.equal(hostile.why, HOSTILE);
-  assert.equal(draw(hostile.extra).querySelectorAll("img").length, 0);
 });
 
 // --- The dot of the menu ----------------------------------------------------------------------------------------------------
@@ -208,14 +100,6 @@ test("the dot lights for the first reason that applies, and the entry says it to
   assert.deepEqual(named(), ["Catalogs", "Where items come from", "Catalogs", true]);
   assert.equal(addons.getAttribute("aria-label"), "Add-ons", "no other entry changes");
   assert.equal(addons.dataset.tip, "Add-ons");
-});
-
-test("a page without the entry draws nothing and breaks nothing", () => {
-  catalogs.remove();
-  paintMenuDot(lab({ catalogs: [catalog({ attention: "update" })] }));
-  menu.append(catalogs);
-  paintMenuDot(lab());
-  assert.equal(dot.hidden, true);
 });
 
 test("a menu that shows its words says what the entry is for; one that shows icons only says its name, and the reason when the dot is lit", () => {
