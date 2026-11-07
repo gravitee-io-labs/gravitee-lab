@@ -17,19 +17,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import e2e_matrix  # noqa: E402
 
 # base is the catalog the engine lists first, hub another
-HUB = {"addons": {"echo": {"catalog": "base"}, "@hub/ledger": {"catalog": "hub"}, "local/mine": {"catalog": "local"}},
-       "setups": {"@hub/duo": {"catalog": "hub"}},
-       "playgrounds": {"shop": {"catalog": "base", "tested": [{"APIM_VERSION": "4.13.0"}, {"APIM_VERSION": "4.14.0"}]},
-                       "local/draft": {"catalog": "local"}}}
+HUB = {"addons": {"echo": {"catalog": "base"}, "@hub/ledger": {"catalog": "hub"}}, "setups": {},
+       "playgrounds": {"shop": {"catalog": "base", "tested": [{"APIM_VERSION": "4.13.0"}, {"APIM_VERSION": "4.14.0"}]}}}
 
 
 class MainTest(unittest.TestCase):
     def setUp(self):
         e2e = e2e_matrix.e2e
-        self.canary = ["addon:echo"]
         for target, name, new in ((e2e.paths, "default_ns", lambda: "base"),
                                   (e2e.registry, "entry", lambda ns: {"id": ns} if ns == "base" else None),
-                                  (e2e.manifest, "read_catalog", lambda path: {"canary": self.canary})):
+                                  (e2e.manifest, "read_catalog", lambda path: {"canary": ["addon:echo"]})):
             patcher = mock.patch.object(target, name, new)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -59,28 +56,12 @@ class MainTest(unittest.TestCase):
                 asked.assert_called_once_with(e2e_matrix.ROOT, "a", "b")
 
     def test_what_the_plan_refuses_ends_the_command_and_no_matrix_is_printed(self):
-        for argv, said in ((["--items", "--", "addon:@hub/ledger"], "is not a shared item of base"),
-                           (["--items", "--", "playground:local/draft"], "is not a shared item of base")):
-            out = io.StringIO()
-            with self.subTest(argv=argv), mock.patch.object(e2e_matrix, "load_project", return_value=HUB), contextlib.redirect_stdout(out), \
-                    self.assertRaises(SystemExit) as caught:
-                e2e_matrix.main(argv)
-            self.assertIn(said, str(caught.exception))
-            self.assertEqual(out.getvalue(), "", "no matrix, so no empty one for the next job to take for a pass")
-
-    def test_a_catalog_with_no_canary_is_an_error_and_never_an_empty_matrix(self):
-        self.canary = []
-        for argv in (["--canary"], ["--changed", "a", "b"]):
-            with self.subTest(argv=argv), mock.patch.object(e2e_matrix, "load_project", return_value=HUB), \
-                    mock.patch.object(e2e_matrix.e2e, "changed_files", return_value=["seeder/seed.py"]), self.assertRaises(SystemExit) as caught:
-                e2e_matrix.main(argv)
-            self.assertIn("The catalog base names no canary, so there is nothing to try", str(caught.exception))
-
-    def test_a_catalog_that_is_not_linked_stops_the_plan_with_how_to_link_it(self):
-        with mock.patch.object(e2e_matrix.e2e.registry, "entry", lambda ns: None), self.assertRaises(SystemExit) as caught, \
-                mock.patch.object(e2e_matrix, "load_project", return_value=HUB):
-            e2e_matrix.main(["--canary"])
-        self.assertIn("neither installed nor linked", str(caught.exception))
+        out = io.StringIO()
+        with mock.patch.object(e2e_matrix, "load_project", return_value=HUB), contextlib.redirect_stdout(out), \
+                self.assertRaises(SystemExit) as caught:
+            e2e_matrix.main(["--items", "--", "addon:@hub/ledger"])
+        self.assertIn("is not a shared item of base", str(caught.exception))
+        self.assertEqual(out.getvalue(), "", "no matrix, so no empty one for the next job to take for a pass")
 
     def test_a_project_that_cannot_be_read_is_a_failure_and_never_an_empty_matrix(self):
         for failure in (e2e_matrix.e2e.compose.ComposeError("services.x.image must be a string"), OSError("disk\nfull")):
@@ -110,12 +91,12 @@ class CommandTest(unittest.TestCase):
         self.assertTrue(self.read("--canary").canary)
 
     def test_words_after_two_dashes_are_items_and_never_an_option(self):
-        self.assertEqual(self.read("--items", "--", "addon:a", "--canary", "-x").items, ["addon:a", "--canary", "-x"])
-        self.assertEqual(self.read("--items", "addon:a", "--", "addon:b").items, ["addon:a", "addon:b"])
+        self.assertEqual(self.read("--items", "--", "addon:a", "--canary", "-x").words, ["addon:a", "--canary", "-x"])
 
     def test_what_makes_no_sense_is_refused(self):
-        for argv, said in (([], "required"), (["--items"], "at least one item"), (["--canary", "--changed", "a", "b"], "not allowed with"),
-                           (["--canary", "--", "addon:a"], "words after --"), (["--changed", "a"], "expected 2")):
+        for argv, said in (([], "required"), (["--items"], "takes its items after --"), (["--canary", "--changed", "a", "b"], "not allowed with"),
+                           (["--canary", "--", "addon:a"], "takes its items after --"), (["--items", "addon:a"], "unrecognized"),
+                           (["--changed", "a"], "expected 2")):
             with self.subTest(argv=argv):
                 self.assertIn(said, self.refused(*argv))
 

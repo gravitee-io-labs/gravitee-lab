@@ -36,7 +36,7 @@ The `AGENTS.md` files are written for AI agents, but they are the reference for 
 ## Set up your machine
 
 1. Install the [Prerequisites](docs/installation.md#prerequisites).
-2. Run `make setup`. It makes `.venv` with the seeder's requirements (`requests`, `pyyaml`, `redis`) and `ruff`, and needs Python 3.10 or later. If your `python3` is older, name a newer one: `PYTHON3=python3.12 make setup`. A `.venv` that `make setup` made with a Python that is too old is removed again; one that existed before is left for you to remove.
+2. Run `make setup`. It makes `.venv` with the seeder's requirements (`requests`, `pyyaml`, `redis`) and `ruff`, and needs Python 3.10 or later. If your `python3` is older, name a newer one: `PYTHON3=python3.12 make setup`.
 3. Node 22.7 or later (20.19 or later in the 20 line) is optional: it runs the Lab UI page tests. Docker is needed by `make e2e`.
 
 A test whose dependency is missing prints a skip line, such as "Seeder tests skipped". A skipped test did not pass: read the output.

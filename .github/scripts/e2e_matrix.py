@@ -6,9 +6,9 @@ The engine holds no item: the items are the default catalog's, linked into the e
 
     python3 -I .github/scripts/e2e_matrix.py --changed BASE HEAD      # its canary, when a change of the engine touches what every item shares
     python3 -I .github/scripts/e2e_matrix.py --canary                 # the items its catalog.yml names
-    python3 -I .github/scripts/e2e_matrix.py --items [KIND:ID ...] [-- KIND:ID ...]   # these items
+    python3 -I .github/scripts/e2e_matrix.py --items -- KIND:ID ...   # these items
 
-An item is `kind:id` with the id of the Lab. Words after `--` are items too, and never an option.
+An item is `kind:id` with the id of the Lab. What comes after `--` is never an option.
 
 Prints the matrix as JSON, {"matrix": {"include": [...]}, "count": n}. With --github-output it is also appended to the file
 GITHUB_OUTPUT names, for a later job to read. An item that does not load, and a catalog that names no canary when one is needed,
@@ -37,33 +37,27 @@ def parser():
     what = top.add_mutually_exclusive_group(required=True)
     what.add_argument("--changed", nargs=2, metavar=("BASE", "HEAD"), help="the canary, when a change of the engine touches what every item shares")
     what.add_argument("--canary", action="store_true", help="the items catalog.yml names as its canary")
-    what.add_argument("--items", nargs="*", metavar="KIND:ID", help="these items")
+    what.add_argument("--items", action="store_true", help="the items after --")
     top.add_argument("--github-output", action="store_true", help="also append the result to the file GITHUB_OUTPUT names")
     return top
 
 
 def read(argv):
-    """The arguments of a command line. Words after `--` are items: they come after it so that none can be taken for an option."""
+    """The arguments of a command line. The words after `--` are the items: after it, none can be taken for an option."""
     argv = list(sys.argv[1:] if argv is None else argv)
-    after = []
-    if "--" in argv:
-        at = argv.index("--")
-        argv, after = argv[:at], argv[at + 1:]
+    at = argv.index("--") if "--" in argv else len(argv)
     top = parser()
-    args = top.parse_args(argv)
-    if after:
-        if args.items is None:
-            top.error("words after -- are the items of --items")
-        args.items += after
-    if args.items is not None and not args.items:
-        top.error("--items needs at least one item")
+    args = top.parse_args(argv[:at])
+    args.words = argv[at + 1:]
+    if args.items != bool(args.words):
+        top.error("--items takes its items after --, and nothing else takes words")
     return args
 
 
 def main(argv=None):
     args = read(argv)
     try:
-        found = e2e.plan(load_project(), changed=tuple(args.changed) if args.changed else None, words=args.items)
+        found = e2e.plan(load_project(), changed=tuple(args.changed) if args.changed else None, words=args.words or None)
     except e2e.PlanError as error:
         sys.exit(str(error))
     except (e2e.compose.ComposeError, OSError) as error:   # the project could not be read: no matrix is a failure, not an empty one

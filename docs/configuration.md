@@ -33,9 +33,7 @@ Run `make help` to list them. A target that needs a tool the machine lacks stops
 
 Notes:
 
-- `make ui` and `make all` run `make init` first. It checks the tools, then creates what a fresh clone lacks: `.env`
-  from `.env.example`, the demo certificates (`certs/mtls`), the plugin folders and
-  `.lab/on.yml`. Run it again whenever you like: it creates only what is missing.
+- `make ui` and `make all` run `make init` first. Run it again whenever you like: it creates only what is missing.
 - `make stop` and `make down` go by the project name, so they also reach the containers of add-ons you turned off that
   still run. What `make stop` stops stays stopped when Docker restarts.
 - `make reset` also deletes the data of add-ons that are off. The Containers page's *Reset* does the same, and also
@@ -44,8 +42,7 @@ Notes:
   and the seeder's tests only when `requests`, `pyyaml` and `redis` import, which `make setup` installs.
 - When `.venv` exists, `make` uses its Python. Otherwise it uses the program `PYTHON3` names, or the first of `python3` and
   `python3.14` down to `python3.9` that is 3.9 or later.
-- `make setup` stops when its Python is older than 3.10. It removes the `.venv` it made and says to run it again with a
-  newer `python3`. A `.venv` that was there before is left alone: remove it yourself.
+- `make setup` stops when its Python, the one of a `.venv` that is there, is older than 3.10, and makes nothing.
 
 ## License
 

@@ -80,17 +80,14 @@ GB, more when macOS has an update waiting) or Apple's servers did not answer: fr
 - `Python 3.9 or later is needed, found: Python 3.8.10 (see Prerequisites in docs/installation.md)`
 - `openssl not found: install it (see Prerequisites in docs/installation.md)`
 
-`make setup` has two more. `The seeder needs Python 3.10 or later, found: Python 3.9.6` is followed by `Run make setup
-again with a newer python3 (for example PYTHON3=python3.12 make setup)`. And `Cannot make .venv: install Python 3.10 or
-later with venv (Debian, Ubuntu: apt install python3-venv)`.
+`make setup` has two more: `The seeder needs Python 3.10 or later, python3 is: Python 3.9.6`, and `Cannot make .venv:
+install Python 3.10 or later with venv (Debian, Ubuntu: apt install python3-venv)`.
 
 **Cause:** the Lab UI runs on Python 3.9 or later. The seeder's tests and `make lint` need Python 3.10 or later, in a
 `.venv` that `make setup` makes. `make init` and `make certs` need `openssl`.
 
 **Fix:** install the missing tool, then run the target again. To pick the Python for `.venv`, name it:
-`PYTHON3=python3.12 make setup`. `make setup` removes the `.venv` it made when that Python is too old. When a `.venv`
-was there before, the message says `.venv has Python 3.9.6` and starts with `Remove .venv`: remove it yourself, then run
-`make setup` again.
+`PYTHON3=python3.12 make setup`. When the message names `.venv/bin/python`, remove `.venv` first.
 
 ### Permission denied on /var/run/docker.sock
 
@@ -446,18 +443,3 @@ Without internet, once the images are pulled and the apps are built, the platfor
 - a new image build cannot download its packages.
 
 [What needs the internet](configuration.md#what-needs-the-internet) lists every case.
-
-## Report a bug
-
-Check this page first, then open an issue at https://github.com/gravitee-io-labs/gravitee-lab/issues. The bug form asks for:
-
-- what you did, what you expected, and what happened;
-- your operating system: macOS, Linux or Windows (WSL 2);
-- the output of `docker --version` and `docker compose version`;
-- the lab revision, from `git rev-parse --short HEAD`;
-- the output of `make ps`;
-- the lines that matter from `make logs SVC=<service>`, or from the Logs page.
-
-Remove secrets before you paste anything: your license, tokens and passwords. For a security problem, follow
-[SECURITY.md](../SECURITY.md) instead of opening an issue. Questions about Gravitee products belong at
-https://documentation.gravitee.io and https://community.gravitee.io.

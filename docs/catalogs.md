@@ -4,17 +4,6 @@ The Lab runs the Gravitee platform and nothing else. Everything you can turn on 
 playgrounds, comes from **catalogs**: Git repositories that follow one structure. The Lab is set up with one catalog,
 Gravitee public, and you can add others.
 
-1. [What a catalog is](#what-a-catalog-is)
-2. [The first start](#the-first-start)
-3. [Add, update, go back, remove](#add-update-go-back-remove)
-4. [Versions](#versions)
-5. [What blocked means](#what-blocked-means)
-6. [Items that use your machine](#items-that-use-your-machine)
-7. [Private catalogs](#private-catalogs)
-8. [Your own items](#your-own-items)
-9. [Offline, privacy and starting over](#offline-privacy-and-starting-over)
-10. [Errors and what to do](#errors-and-what-to-do)
-
 ## What a catalog is
 
 A catalog is a Git repository with a `catalog.yml` and three folders: `addons/`, `setups/` and `playgrounds/`. The Lab

@@ -289,15 +289,6 @@ ask() {
     printf '  %s%s%s %s %s(Y/n)%s %s' "$cyan" "$ask_mark" "$off" "$1" "$dim" "$off" "$show"
     read -r answer < /dev/tty || answer=n
     asking=false
-    # A terminal whose erase key is not the one of the tty (the classic Windows console sends ^H) leaves it in the answer
-    answer=$(printf '%s\n' "$answer" | awk '{
-        for (i = 1; i <= length($0); i++) {
-            c = substr($0, i, 1)
-            if (c == "\b" || c == "\177") kept = substr(kept, 1, length(kept) - 1)
-            else if (c !~ /[[:cntrl:]]/) kept = kept c
-        }
-        print kept
-    }')
     printf '%s' "$hide"
     case $answer in
         '' | [yY]*) resume ;;

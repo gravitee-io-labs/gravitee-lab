@@ -5,17 +5,6 @@ to start, what the Lab reads, how to check it before anyone installs it, and wha
 of the items is in [the format of add-ons, setups and playgrounds](units.md) and what the Lab promises them in
 [the contract](contract.md). For the person who uses catalogs, see [Catalogs](catalogs.md).
 
-1. [Start](#start)
-2. [The structure](#the-structure)
-3. [catalog.yml](#catalogyml)
-4. [Renaming an item](#renaming-an-item)
-5. [Check it before you publish](#check-it-before-you-publish)
-6. [Try it in the Lab](#try-it-in-the-lab)
-7. [The CI of a catalog](#the-ci-of-a-catalog)
-8. [Securing the repository](#securing-the-repository)
-9. [Releases](#releases)
-10. [Keeping in step](#keeping-in-step)
-
 ## Start
 
 ```bash

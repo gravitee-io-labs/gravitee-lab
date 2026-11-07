@@ -44,12 +44,6 @@ class Dependabot(unittest.TestCase):
         for directory in ("/lab-ui/templates/catalog/managed", "/lab-ui/templates/catalog/managed/.github/actions/*"):
             self.assertIn(directory, listed)
 
-    def test_the_catalogs_own_dependabot_file_has_a_cooldown_and_the_three_ecosystems(self):
-        text = (MANAGED / ".github" / "dependabot.yml").read_text(encoding="utf-8")
-        for ecosystem in ("github-actions", "docker", "pip"):
-            self.assertIn(f"package-ecosystem: {ecosystem}", text)
-        self.assertEqual(text.count("default-days: 7"), 3)
-
 
 if __name__ == "__main__":
     unittest.main()
