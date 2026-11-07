@@ -21,7 +21,7 @@ from unittest import mock
 from lab_ui import paths
 from lab_ui.catalogs import gitx, registry, resolve
 
-from .. import Case, fixtures
+from .. import Case, fixtures, gitfixture
 
 A, B, C = "a" * 40, "b" * 40, "c" * 40
 LAB_UI = Path(__file__).resolve().parents[2]
@@ -1890,7 +1890,7 @@ class Fixtures(Case):
     """The registry on the fixture catalogs of tests.catalogs, installed the way the Lab leaves them."""
 
     def test_a_default_catalog_and_its_neighbours(self):
-        fixtures.need_git()
+        gitfixture.require()
         fixtures.project(self, paths, ns="fixture", kind="git")
         fixtures.install(self, "partner", kind="git")
         fixtures.install(self, "lab-new", kind="folder")

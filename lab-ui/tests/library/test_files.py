@@ -19,7 +19,7 @@ from lab_ui.library import files, layers
 from lab_ui import paths
 from lab_ui.catalogs import registry
 
-from .. import Case, fixtures
+from .. import Case, fixtures, gitfixture
 from ..library.test_layers import lab, on, own
 
 KAZOO, FEDERATION = ".lab/catalogs/local/addons/kazoo/compose.yml", ".lab/catalogs/local/addons/federation/compose.yml"
@@ -705,7 +705,7 @@ class Installed(Git, Case):
     """The install a real clone makes: a bare repository, the manifest, read-only files."""
 
     def install(self):
-        fixtures.need_git()
+        gitfixture.require()
         fixtures.project(self, paths, compose, envfiles, files, kind="git")
 
     def test_the_files_of_the_install_are_read_only_on_disk_too(self):

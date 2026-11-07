@@ -27,7 +27,7 @@ from lab_ui.gravitee import license, platforms
 from lab_ui import paths
 from lab_ui.catalogs import manifest, registry
 
-from .. import Case, fixtures
+from .. import Case, fixtures, gitfixture
 from ..catalogs.test_cli import snapshot
 from .test_project import catalog_inputs, member, port, service, variable
 
@@ -1575,7 +1575,7 @@ class Linking(Case):
             self.assertEqual(registry.inputs()["partner"]["state"], "linked")
 
     def test_a_catalog_of_the_same_id_is_replaced_inside_by_the_folder(self):
-        fixtures.install(self, "partner", kind="git") if fixtures.have_git() else fixtures.install(self, "partner")
+        fixtures.install(self, "partner", kind="git") if gitfixture.available() else fixtures.install(self, "partner")
         project.forget()
         before = self.taken()
         with check.temporary_link(self.folder_of, "partner") as linked:

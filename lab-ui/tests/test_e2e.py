@@ -886,7 +886,7 @@ class Repositories(Case):
     """changed_files(): what git says a change touches, in a repository of the case."""
 
     def setUp(self):
-        fixtures.need_git()
+        gitfixture.require()
         holder = tempfile.TemporaryDirectory()
         self.addCleanup(holder.cleanup)
         self.repo = gitfixture.make_repo(Path(holder.name) / "catalog.git", {"addons/echo/compose.yml": "a\n", "README.md": "r\n",

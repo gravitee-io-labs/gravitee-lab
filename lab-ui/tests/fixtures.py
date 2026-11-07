@@ -22,8 +22,6 @@ A key a helper does not take is a ValueError: written nowhere, it would leave a 
 import contextlib
 import hashlib
 import json
-import os
-import platform
 import re
 import shutil
 import subprocess
@@ -169,29 +167,6 @@ def _requires(ns):
     return sorted(found)
 
 
-def _skip(reason):
-    """A skip that shows: a line on standard error, whether or not the run is verbose, then the skip itself."""
-    print(f"SKIP {reason}", file=sys.stderr, flush=True)
-    raise unittest.SkipTest(reason)
-
-
-def have_git():
-    """Whether git runs. On macOS /usr/bin/git is a shim that opens an installer when the Command Line Tools are
-    missing: it is run only after `xcode-select -p` says they are there."""
-    git = shutil.which("git")
-    if not git:
-        return False
-    try:
-        if platform.system() == "Darwin" and os.path.realpath(git) == "/usr/bin/git":
-            tools = subprocess.run(["xcode-select", "-p"], capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
-            if tools.returncode:
-                return False
-        done = subprocess.run([git, "--version"], capture_output=True, stdin=subprocess.DEVNULL, timeout=10)
-        return done.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-
-
 _compose = []   # the answer of have_compose(), once
 
 
@@ -233,14 +208,12 @@ def oldest_compose(case):
     case.patch(compose, "run", run)
 
 
-def need_git():
-    if not have_git():
-        _skip("git is not installed, or is the macOS shim without the Command Line Tools")
-
-
 def need_compose():
+    """A skip that shows: a line on standard error, whether or not the run is verbose, then the skip itself."""
     if not have_compose():
-        _skip("the Docker CLI with Compose 5 or later is not installed")
+        reason = "the Docker CLI with Compose 5 or later is not installed"
+        print(f"SKIP {reason}", file=sys.stderr, flush=True)
+        raise unittest.SkipTest(reason)
 
 
 @contextlib.contextmanager
@@ -425,7 +398,7 @@ def remote(case, ns, **patch):
     written: what the Add of a catalog and the first download start from. `patch`: name, version, lab, `drop` and `files`,
     as install() takes them. Answers a Remote."""
     _check_patch(patch, CATALOG_KEYS | CONTENT_KEYS)
-    need_git()
+    gitfixture.require()
     return _remote(case, ns, _patched(_tree(case, ns), patch))
 
 
@@ -465,7 +438,7 @@ def install(case, ns, kind="folder", **patch):
     held = {**_blank_lock(ns), "name": meta.get("name"), "version": meta.get("version"), "lab": meta.get("lab")}
     shadow = kind == "folder" and bool(patch.get("store"))
     if kind == "git" or shadow:
-        need_git()
+        gitfixture.require()
         remote_ = _remote(case, ns, tree)   # before anything is replaced: a failure here leaves the folder as it was
         commit = remote_.head()
         held.update({"pin": commit, "tip": commit, "installed": "2026-10-16T09:00:30Z", "checked": "2026-10-16T09:01:00Z",
