@@ -2,7 +2,7 @@
 catalog, check it, index it, add and update catalogs without a page, start over, write the file an employee needs, make a
 catalog from the template and keep it in step with the Lab's standard. `python3 -I lab-ui/catalog.py <command>`.
 
-    check [PATH or ID] [--ci] [--base COMMIT] [--pr NUMBER] [--online] [--history] [--strict] [--soft] [--error CODE]
+    check [PATH or ID] [--ci] [--base COMMIT] [--pr NUMBER] [--online] [--history] [--error CODE]
                                       every rule that needs no Docker and no network; a folder is read where it is
     explain CODE                      the long form of a rule code
     new DIR --id ID --name NAME --maintainers @A[,@B]   a catalog from the template          (standard.main_new)
@@ -848,8 +848,8 @@ def run_check(args):
     """`audit.run` (the families SD, ST, SE, CR, WF, DF, GD, CO and IM over the files and the commits since origin/main), then the
     items (`catalog_problems`, the trust policy, naming, ports, `lab`) when Compose 5 can read them. A folder is read where it is:
     nothing is linked into the Lab and nothing is written. The report is text (what `make check` prints), `github` annotations or a
-    JSON list of {code, severity, path, line, message}. Exit 1 when it found an error (a warning too with --strict) or skipped
-    something, 0 with --soft, 2 under --ci when it could not read what a check needs, and for a catalog that is not here."""
+    JSON list of {code, severity, path, line, message}. Exit 1 when it found an error or skipped something, 2 under --ci when it
+    could not read what a check needs, and for a catalog that is not here."""
     if args.pr is not None and args.base is not None:
         raise Usage("--base cannot be combined with --pr: the base of a pull request is main")
     fmt = args.format or ("github" if args.ci else "text")
@@ -870,8 +870,7 @@ def run_check(args):
             items = _items(target, folder, check.folder_summary(folder), args, notes)
         has_seeder = pulled.has_seeder if pulled else os.path.lexists(Path(target.path) / "seeder")
         base, history = _base_asked(args)
-        how = dict(base=base, soft=args.soft, error=error, strict=args.strict, online=args.online, history=history,
-                   ci=args.ci, units=items.units,
+        how = dict(base=base, error=error, online=args.online, history=history, ci=args.ci, units=items.units,
                    seeder_paths=("../../../seeder",) if has_seeder else ("../../../seeder", "seeder"))
         how.update(pulled.options if pulled else {})
         options = audit.Options(**how)
@@ -882,8 +881,6 @@ def run_check(args):
     kept = [one for one in result.problems if not (installed and (one.code == "ST17" or install.machine_name(one.path)))]
     problems = [*kept, *items.problems, *pins]
     skipped = [*result.skipped, *notes, *items.skipped, *([why] if why else [])]
-    if args.soft:
-        problems = [one._replace(severity=report.WARNING) if one.severity == report.ERROR else one for one in problems]
     skipped = list(dict.fromkeys(skipped))
     result = result._replace(problems=problems, skipped=skipped)
     out, err = _render(problems, items.files, skipped, fmt, args.verbose, result.header, args.ci)
@@ -1039,8 +1036,6 @@ def parser():
     sub.add_argument("--pr", metavar="NUMBER", help="read a pull request of the origin, from git objects, without running any of it")
     sub.add_argument("--online", action="store_true", help="also the checks that need GitHub")
     sub.add_argument("--history", action="store_true", help="the secrets and commits of every commit of the history")
-    sub.add_argument("--strict", action="store_true", help="a warning is a failure")
-    sub.add_argument("--soft", action="store_true", help="every error is a warning, and the exit code is 0")
     sub.add_argument("--error", action="append", metavar="CODE[,CODE]", help="make these rules errors for this run")
     sub.add_argument("--verbose", action="store_true", help="the information too")
     sub = one("index", index, "the generated catalog.json, of a folder (default: this one) or of an added catalog")

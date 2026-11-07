@@ -1,7 +1,7 @@
 """`catalog.py check` as a command (7.3 of the catalog repository standard): a folder is read where it is, so nothing is linked into
 the Lab and nothing is written; without `--base` the commits since `origin/main` are read and the output says so; a run that could
 not read the units says `Not checked: Docker Compose 5 not found`, ends `1 check skipped`, and is never fine; `--pr` reads a pull
-request from git objects and runs nothing of it. The options (`--format`, `--ci`, `--soft`, `--strict`, `--error`, `--online`,
+request from git objects and runs nothing of it. The options (`--format`, `--ci`, `--error`, `--online`,
 `--history`), the code of each finding and the unit rules of the images are here too.
 
 Everything is on disk in a temporary project folder; git (a visible skip without) for the commits and the pull requests, Compose 5
@@ -82,7 +82,7 @@ class Reading(Folder):
         listed = (self.root / ".lab/catalogs.json").read_bytes()
         with mock.patch.object(tempfile, "tempdir", str(holder)), mock.patch.dict(os.environ):
             os.environ.pop("GITHUB_STEP_SUMMARY", None)
-            for argv in ((folder,), (folder, "--format", "json"), (folder, "--format", "github"), (folder, "--ci"), (folder, "--soft")):
+            for argv in ((folder,), (folder, "--format", "json"), (folder, "--format", "github"), (folder, "--ci")):
                 self.check(*argv)
             self.assertEqual([one for one in os.listdir(holder) if one.startswith("gravitee-lab-check-")], [],
                              "the temporary project of a check is gone")
@@ -449,12 +449,8 @@ class NoCompose(Folder):
         self.assertTrue(lines(out)[-1].startswith("1 problem, 1 check skipped. Run make explain CODE=ST05 for more."), out)
         self.assertNotIn("All good", out)
 
-    def test_soft_exits_0_and_ci_exits_2_and_neither_says_all_good(self):
+    def test_ci_exits_2_and_does_not_say_all_good(self):
         folder = self.catalog()
-        code, out, err = self.run_without(folder, "--soft")
-        self.assertEqual((code, err), (0, ""))
-        self.assertIn(NOT_CHECKED, out)
-        self.assertEqual(lines(out)[-1], "1 check skipped")
         code, out, err = self.run_without(folder, "--ci")
         self.assertEqual((code, err), (2, ""))
         self.assertEqual(out, "::error title=check::Not checked: Docker Compose 5 not found\n")
@@ -553,28 +549,6 @@ class Options(Folder):
     def test_ci_with_an_explicit_format_keeps_it(self):
         folder = self.catalog()
         self.assertEqual(self.check(folder, "--ci", "--format", "json")[1], "[]\n")
-
-    def test_soft_makes_every_error_a_warning_and_exits_0(self):
-        folder = self.catalog(files={".env": "A=1\n"})
-        code, out, err = self.check(folder, "--soft")
-        self.assertEqual((code, err), (0, ""))
-        self.assertIn("! .env", out)
-        self.assertIn("1 warning", out)
-        found = json.loads(self.check(folder, "--soft", "--format", "json")[1])
-        self.assertEqual([one["severity"] for one in found], ["warning"])
-
-    def test_soft_also_softens_what_the_items_found(self):
-        fixtures.install(self, PARTNER)
-        folder = self.catalog("fixture")
-        code, out, err = self.check(folder, "--soft", "--format", "json")
-        self.assertEqual(code, 0)
-        self.assertEqual({one["severity"] for one in json.loads(out)}, {"warning"})
-
-    def test_strict_makes_a_warning_fail_the_run(self):
-        folder = self.catalog(files={"docs/win.txt": b"a\r\nb\r\n".decode()})
-        (folder / "docs/win.txt").write_bytes(b"a\r\nb\r\n")
-        self.assertEqual(self.check(folder)[0], 0)
-        self.assertEqual(self.check(folder, "--strict")[0], 1)
 
     def test_error_makes_the_rules_named_errors_for_this_run(self):
         folder = self.catalog(files={"docs/win.txt": ""})

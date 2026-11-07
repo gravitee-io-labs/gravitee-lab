@@ -381,23 +381,14 @@ class Audit(WithGit):
         repo = self.work("strict", marked)
         self.assertEqual(["error"], [each.severity for each in self.run_in(repo).problems if each.code == "DF22"])
 
-    def test_soft_prints_every_error_as_a_warning_and_exits_zero(self):
-        repo = self.work("soft", support.files({"docs/k.pem": "x\n"}))
-        options = audit.Options(soft=True, seeder_images=())
-        result = audit.run(repo, options)
-        self.assertEqual({"warning"}, {each.severity for each in result.problems if each.code == "ST06"})
-        self.assertEqual(0, audit.status(result, options))
-
     def test_the_exit_code(self):
         clean, bad = audit.Result([], []), audit.Result([ERROR], [])
         warn, skipped = audit.Result([WARNING], []), audit.Result([], ["Docker Compose 5 not found"])
         plain = audit.Options()
         self.assertEqual([0, 1, 0, 1], [audit.status(clean, plain), audit.status(bad, plain), audit.status(warn, plain),
                                          audit.status(skipped, plain)])
-        self.assertEqual(1, audit.status(warn, audit.Options(strict=True)))
         self.assertEqual(2, audit.status(skipped, audit.Options(ci=True)))
         self.assertEqual(1, audit.status(bad, audit.Options(ci=True)))
-        self.assertEqual([0, 0], [audit.status(skipped, audit.Options(soft=True)), audit.status(bad, audit.Options(soft=True))])
 
     def test_a_folder_catalog_is_judged_on_the_families_that_need_no_github(self):
         repo = self.work("folder", support.FOLDER)
