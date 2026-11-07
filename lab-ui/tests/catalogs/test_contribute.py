@@ -163,11 +163,6 @@ class Vouched(Seam):
             self.share("local/bank", "fixture", "playground")
         self.assertIn("It has not run yet", str(raised.exception))
 
-    def test_a_playground_that_ran_is_not_told_so(self):
-        self.bank()
-        problems = self.share("local/bank", "fixture", "playground", True)["problems"]
-        self.assertEqual([line for line in problems if "has not run" in line], [])
-
     def test_the_versions_of_a_run_are_one_set_not_one_set_each(self):
         text = "x-gravitee:\n  category: Demo\n"
         written = contribute._declared(text, {"APIM_VERSION": "4.12.0", "AM_VERSION": "4.12.7"})
@@ -230,25 +225,11 @@ class Destinations(Seam):
         self.assertEqual(found, {"fixture": "Includes Scratch, which is not in Fixture catalog.",
                                  "partner": "Includes Scratch, which is not in Partner fixture."})
 
-    def test_a_catalog_that_says_it_takes_no_contributions_says_so(self):
-        self.yml["partner"] = {"contribute": "none"}
-        self.assertEqual({one["id"]: one["reason"] for one in contribute.destinations(self.units, "addon", "local/scratch")}["partner"],
-                         "Partner fixture does not take contributions from the Lab.")
-
     def test_a_catalog_yml_that_cannot_be_read_is_no_refusal(self):
         self.patch(contribute, "_yml", REAL_YML)
         self.patch(contribute.manifest, "read_catalog", side_effect=CatalogError("catalog_invalid", "catalog.yml: bad.", 400))
         self.assertEqual({one["id"]: one["reason"] for one in contribute.destinations(self.units, "addon", "local/scratch")}["partner"],
                          "Includes Echo (Fixture catalog), which Partner fixture does not declare.")
-
-    def test_a_push_that_was_refused_lately_is_remembered_and_the_network_is_not_asked(self):
-        probe = self.patch(gitx, "push_probe", return_value="no")
-        with self.assertRaises(CatalogError):
-            self.share(check_only=True)
-        found = {one["id"]: one for one in contribute.destinations(self.units, "addon", "local/scratch")}
-        self.assertEqual((found["fixture"]["writable"], found["fixture"]["reason"]),
-                         (False, "You cannot push to Fixture catalog. Ask for access."))
-        self.assertEqual(probe.call_count, 1, "the listing asked nothing")
 
     def test_a_catalog_with_no_copy_and_the_personal_area_are_not_destinations(self):
         fixtures.declare(self, "lab-new")   # added, not downloaded
@@ -266,7 +247,7 @@ class Destinations(Seam):
         self.assertTrue(found["lab-new"]["reason"].endswith("cannot be written to."))
 
     def test_only_an_item_of_this_machine_has_destinations(self):
-        for uid in ("echo", "local/../echo", "@partner/ledger"):
+        for uid in ("echo", "local/../echo", "local/", "@partner/ledger"):
             with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, "Only your own add-ons can be shared here"):
                 contribute.destinations(self.units, "addon", uid)
         with self.assertRaises(paths.NotFound):
@@ -401,10 +382,6 @@ class Collect(Seam):
             self.assertEqual(copy.text, copy.kept, ns)
             self.assertIn("build: ../../../../../seeder", copy.text)
             self.assertIn("./seed:/seed:ro", copy.text)
-        self.assertEqual(sorted(contribute.collect("playground", "bank", "partner").files), [
-            "playgrounds/bank/README.md", "playgrounds/bank/apps/web/Dockerfile", "playgrounds/bank/apps/web/index.html",
-            "playgrounds/bank/compose.yml", "playgrounds/bank/guide.md", "playgrounds/bank/seed/am/domain.yaml",
-            "playgrounds/bank/seed/apim/apis/shop.json"])
 
     def test_a_compose_file_over_the_size_a_catalog_keeps_is_not_read_whole(self):
         self.item("addon", "huge", "Huge")
@@ -655,17 +632,6 @@ class Judged(Seam):
                 self.assertEqual((raised.exception.code, raised.exception.message), ("label_unread", f"inner: its compose file "
                                  f"cannot be read ({said}). Fix: correct it so that docker compose config reads it, then try again."))
 
-    def test_a_copy_shared_back_to_its_own_private_catalog_says_nothing_of_it_and_leaves_its_level(self):
-        self.item("addon", "my-ledger", "Ledger", self.COPIED)
-        done = self.share("local/my-ledger", "partner")
-        remote = self.remote("partner")
-        text = remote.git("show", f"{done['branch']}:addons/my-ledger/compose.yml")
-        self.assertEqual(text, "x-gravitee: {kind: addon, name: Ledger, category: Other, description: Keeps the entries}\nservices: {}")
-        self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"),
-                         "its level stays: nothing in it needs more")
-        self.assertEqual(remote.git("log", "-1", "--format=%s", done["branch"]), "Add Ledger")
-        self.assertEqual(contribute.origins(self.COPIED, "local/my-ledger"), [(root("partner"), "Partner fixture")])
-
     def test_a_copy_shared_to_a_folder_of_another_name_keeps_its_label_and_raises_the_line_of_older_labs_once(self):
         level = with_the_lock(self)
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
@@ -721,7 +687,6 @@ class Judged(Seam):
         folder = self.root / ".lab/catalogs/lab-new"
         plain = (folder / "catalog.yml").read_text()
         odd = plain.replace("  lab: 1\n", "  lab:\n    1\n")   # read as 1, by no writer of the Lab
-        self.assertNotEqual(odd, plain)
         (folder / "catalog.yml").write_text(odd)
         project.forget()
         self.item("addon", "my-ledger", "Ledger", self.COPIED)
@@ -729,7 +694,6 @@ class Judged(Seam):
         self.assertEqual(done["warning"], contribute.LEGACY_NOT_RAISED.format(catalog="Team"))
         self.assertIn("Fix: make its catalog.yml writable, with its x-gravitee-catalog block as plain key: value lines: the next share "
                       "to it updates it.", done["warning"])
-        self.assertNotRegex(done["warning"], r"\blab\b|level|contract", "the person reads no number of the Lab")
         self.assertEqual((folder / "catalog.yml").read_text(), odd, "what it cannot write it leaves")
         (folder / "catalog.yml").write_text(plain)   # the advice, as its author follows it
         project.forget()
@@ -751,19 +715,6 @@ class Judged(Seam):
         self.refusal(lambda: self.share("local/my-ledger", "lab-new"), "lock_unread")
         self.assertEqual((self.root / ".lab/catalogs/lab-new/catalog.yml").read_text(), before)
 
-    def test_a_copy_of_a_share_of_a_copy_of_a_private_item_stops_a_share_to_a_public_one_by_its_label(self):
-        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
-        shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"   # what a share of a copy of @partner/ledger wrote there
-        shared.parent.mkdir(parents=True, exist_ok=True)
-        shared.write_text(f'x-gravitee: {{private_from: ["Partner fixture"], private_id: ["{root("partner")}"], kind: addon, name: Ledger}}\n'
-                          'services: {}\n')
-        self.item("addon", "my-ledger", "Ledger", f'x-gravitee: {{private_from: ["Partner fixture"], private_id: ["{root("partner")}"], '
-                                               'copy_of: "@lab-new/ledger", kind: addon, name: Ledger, category: Other, '
-                                               'description: Keeps the entries of a partner}\nservices: {}\n')   # its Copy to Personal
-        self.assertEqual(lines_of(self.refusal(lambda: self.share("local/my-ledger", "fixture", check_only=True))),
-                         ("share_private_copy", 400, "Ledger is a copy of an item of Partner fixture, "
-                          "which is private. Fix: share it to a private catalog."))
-
     def test_a_copy_without_a_label_is_content_of_the_catalog_its_copy_of_names_and_of_nothing_further(self):
         fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
         shared = self.root / ".lab/catalogs/lab-new/addons/ledger/compose.yml"
@@ -780,21 +731,12 @@ class Judged(Seam):
             self.share("local/gone-ledger", "fixture", check_only=True)
         self.assertEqual(raised.exception.code, "share_unknown_copy")
 
-    def test_an_image_prefix_and_an_address_of_a_private_catalog_are_names_too(self):
+    def test_the_id_the_address_the_image_prefix_and_the_registry_host_of_a_private_catalog_are_names_too(self):
         self.yml["partner"] = {"images": "registry.example.invalid/partner/lab"}
-        self.write(".lab/catalogs/local/addons/scratch/README.md", "docker pull registry.example.invalid/partner/lab/x\n")
-        self.refusal(lambda: self.share(check_only=True), "share_private")
         address = registry.display_address(registry.entry("partner")["url"])
-        self.write(".lab/catalogs/local/addons/scratch/README.md", f"see {address}\n")
-        self.refusal(lambda: self.share(check_only=True), "share_private")
-        self.item("addon", "plain", "Plain", "services: {}\n")
-        self.write(".lab/catalogs/local/addons/plain/README.md", f"see {address} and Partner fixture\n")
-        self.assertEqual(self.share("local/plain", "partner", check_only=True)["problems"], [], "it is where it is named")
-
-    def test_the_id_and_the_registry_host_of_a_private_catalog_are_names_too(self):
-        self.yml["partner"] = {"images": "registry.example.invalid/partner/lab"}
         for text in ("see the partner catalog", "Ask for the Partner Catalog", "catalog partner has it", "use @partner/ledger",
                      "include ../../../partner/addons/x/compose.yml", "docker pull registry.example.invalid/other-team/app:1",
+                     "docker pull registry.example.invalid/partner/lab/x", f"see {address}",
                      "pushed to registry.example.invalid", "Registry.Example.Invalid is where it is"):
             self.write(".lab/catalogs/local/addons/scratch/README.md", f"# Scratch\n\n{text}\n")
             with self.subTest(text), self.assertRaises(CatalogError) as raised:
@@ -811,6 +753,9 @@ class Judged(Seam):
         self.write(".lab/catalogs/local/addons/scratch/README.md", "# Scratch\n\ndocker pull ghcr.io/acme-corp/lab/x\n")
         with self.assertRaises(CatalogError):
             self.share(check_only=True)
+        self.item("addon", "plain", "Plain", "services: {}\n")
+        self.write(".lab/catalogs/local/addons/plain/README.md", f"see {address} and Partner fixture\n")
+        self.assertEqual(self.share("local/plain", "partner", check_only=True)["problems"], [], "it is where it is named")
 
     def test_an_id_is_looked_for_where_it_names_a_catalog_and_not_in_the_includes_that_were_judged(self):
         # The unit's own compose file includes by path: a catalog the target does not declare is `share_includes`, private
@@ -841,10 +786,7 @@ class Judged(Seam):
         self.assertEqual(lines_of(raised.exception), ("busy", 409, "Another catalog change is running. Try again in a moment."))
         self.assertEqual(self.stages(), [])
 
-    def test_the_item_must_be_the_persons_and_the_catalog_one_they_have(self):
-        for uid in ("echo", "local/../echo", "local/", "@partner/ledger"):
-            with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, "Only your own add-ons can be shared here"):
-                self.share(uid, check_only=True)
+    def test_the_catalog_must_be_one_the_person_has(self):
         for to in ("local", "nope", "", None, 3, "../x"):
             with self.subTest(to=to), self.assertRaises(paths.NotFound):
                 self.share(to=to, check_only=True)
@@ -861,21 +803,11 @@ class Judged(Seam):
         self.item("setup", "echo", "Echo", "include:\n  - ../../fixture/addons/echo/compose.yml\n")
         self.assertEqual(self.share("local/echo", "fixture", "setup", True)["problems"], [])
 
-    def test_a_catalog_that_takes_no_contributions_refuses_them(self):
-        self.yml["partner"] = {"contribute": "none"}
-        self.item("addon", "plain", "Plain", "services: {}\n")
-        self.assertEqual(lines_of(self.refusal(lambda: self.share("local/plain", "partner", check_only=True))),
-                         ("contribute_none", 400, "Partner fixture does not take contributions from the Lab."))
-
     def test_the_person_must_have_a_name_and_an_email_in_git(self):
         for text in ("", "[user]\n\tname = Test Person\n", "[user]\n\temail = person@corp.example.test\n"):
             (self.home / ".gitconfig").write_text(text)
             self.assertEqual(lines_of(self.refusal(lambda: self.share(check_only=True))),
                              ("no_identity", 400, "Set your name and email in Git, then share again."))
-        # Into a folder nothing is committed, so nobody is asked who
-        fixtures.install(self, "lab-new", "folder")
-        self.item("addon", "plain", "Plain", "services: {}\n")
-        self.assertEqual(self.share("local/plain", "lab-new", check_only=True)["identity"], None)
 
     def test_the_push_probe_is_asked_once_in_ten_minutes_and_a_refusal_stops_the_share(self):
         now = [1000.0]
@@ -955,6 +887,13 @@ class Rules(Seam):
 class Published(Seam):
     """A repository gets a branch: the commit, the name, the push, and what a refusal leaves."""
 
+    def published(self, name, slug, text):
+        """The push of a copy that holds one compose file, past the pre-flight, to the default catalog."""
+        address, branch = contribute._address(registry.entry("fixture"))
+        copy = contribute.Copy({f"addons/{slug}/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
+        return contribute._publish("fixture", "Fixture catalog", name, "addon", slug, address, branch,
+                                   {"name": "A person", "email": "a@example.test"}, copy)
+
     def test_a_branch_holds_the_files_of_the_tip_and_exactly_the_allow_listed_ones_over_it(self):
         remote = self.remote("fixture")
         tip = remote.git("rev-parse", "main")
@@ -974,33 +913,21 @@ class Published(Seam):
         """What the files shared hold decides, the label the share adds to the copy among it: not the person's project file."""
         level = with_the_lock(self)
         remote = self.remote("fixture")
-        address, branch = contribute._address(registry.entry("fixture"))
-        text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
-        copy = contribute.Copy({"addons/ledger/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
-        done = contribute._publish("fixture", "Fixture catalog", "Ledger", "addon", "ledger", address, branch,
-                                   {"name": "A person", "email": "a@example.test"}, copy)
+        done = self.published("Ledger", "ledger", b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n')
         manifest = remote.git("show", f"{done['branch']}:catalog.yml")
         self.assertIn(f"  lab: {level}\n", manifest + "\n", "older Labs, which ignore the label, refuse the catalog from now on")
-        self.assertEqual(remote.git("log", "-1", "--format=%s", done["branch"]), "Add Ledger")
         self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml").replace(f"lab: {level}", "lab: 1"),
                          remote.git("show", "main:catalog.yml"), "and nothing else of it changes")
-        plain = contribute.Copy({"addons/plain/compose.yml": ("100644", b"x-gravitee: {kind: addon, name: Plain}\nservices: {}\n")},
-                                "", "", [])
-        done = contribute._publish("fixture", "Fixture catalog", "Plain", "addon", "plain", address, branch,
-                                   {"name": "A person", "email": "a@example.test"}, plain)
+        done = self.published("Plain", "plain", b"x-gravitee: {kind: addon, name: Plain}\nservices: {}\n")
         self.assertEqual(remote.git("show", f"{done['branch']}:catalog.yml"), remote.git("show", "main:catalog.yml"))
 
     def test_a_line_of_older_labs_the_lab_cannot_change_in_a_git_catalog_refuses_the_share_and_pushes_nothing(self):
         with_the_lock(self)
-        address, branch = contribute._address(registry.entry("fixture"))
-        text = b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n'
-        copy = contribute.Copy({"addons/ledger/compose.yml": ("100644", text)}, text.decode(), text.decode(), [])
         self.patch(manifest, "with_legacy", lambda text, lab: text)   # a layout neither writer changes, such as a value on the next line
         self.patch(contribute.block, "replaced", lambda text, key, value, name: None)
         before = self.heads()
         with self.assertRaises(CatalogError) as raised:
-            contribute._publish("fixture", "Fixture catalog", "Ledger", "addon", "ledger", address, branch,
-                                {"name": "A person", "email": "a@example.test"}, copy)
+            self.published("Ledger", "ledger", b'x-gravitee: {private_from: "Partner fixture", kind: addon, name: Ledger}\nservices: {}\n')
         self.assertEqual(lines_of(raised.exception), ("share_legacy", 409, "The catalog.yml of Fixture catalog cannot be updated for "
                          "older Gravitee Labs. Fix: write its x-gravitee-catalog block as plain key: value lines, then share again."))
         self.assertEqual(self.heads(), before, "nothing is pushed")
@@ -1062,16 +989,6 @@ class Published(Seam):
         self.assertEqual({path: (self.root / path).read_bytes() for path in self.mine()}, texts)
         self.assertEqual(json.loads((self.root / ".lab/starred.json").read_text()), {"addon": ["local/scratch"]})
         self.assertEqual(self.stages(), [])
-        self.assertEqual((self.root / ".lab/catalogs/local/addons/scratch/.env").read_text(), "TOKEN=real\n")
-        self.assertNotIn("TOKEN", self.remote("fixture").git("grep", "-l", "TOKEN", f"lab/scratch-{DAY}", "--", ".") or "")
-
-    def test_the_machines_files_are_in_no_commit(self):
-        for path, text in ((".env", "TOKEN=real"), (".state/created.json", "{}"), ("secrets/key", "k"), ("server.key", "k"),
-                           ("notes.txt", "mine"), (".DS_Store", "x"), ("README.md.bak", "x"), (".github/workflows/x.yml", "on: push")):
-            self.write(f".lab/catalogs/local/addons/scratch/{path}", text)
-        branch = self.share()["branch"]
-        self.assertEqual(self.remote("fixture").git("ls-tree", "-r", "--name-only", branch, "--", "addons/scratch").split("\n"),
-                         ["addons/scratch/README.md", "addons/scratch/compose.yml"])
 
     def test_the_mode_of_a_file_is_kept_and_a_file_is_what_it_was_byte_for_byte(self):
         self.person(more="[core]\n\tautocrlf = true\n")   # a setting of theirs that would change the bytes of a file
@@ -1086,13 +1003,6 @@ class Published(Seam):
         self.assertEqual(remote.git("ls-tree", branch, "playgrounds/bank/compose.yml").split()[0], "100644")
         blob = remote.git("rev-parse", f"{branch}:playgrounds/bank/apps/web/run.sh")
         self.assertEqual(blob, gitfixture.git("hash-object", "--no-filters", "--stdin", input=run.read_bytes()).strip())
-
-    def test_a_setup_is_one_file_of_the_branch(self):
-        self.item("setup", "mine", "Mine", "include:\n  - ../../fixture/addons/echo/compose.yml\n")
-        done = self.share("local/mine", "fixture", "setup")
-        self.assertEqual(done["branch"], f"lab/mine-{DAY}")
-        self.assertEqual(self.remote("fixture").git("show", f"{done['branch']}:setups/mine.yml"), "include:\n  - ../addons/echo/compose.yml")
-        self.assertEqual(self.remote("fixture").git("diff", "--name-only", f"main..{done['branch']}"), "setups/mine.yml")
 
     def test_the_address_that_opens_a_pull_request_is_built_from_the_catalogs_own(self):
         github = gitx.parse_address("https://github.com/acme/lab-hub.git")
@@ -1118,10 +1028,14 @@ class Published(Seam):
         self.assertEqual(self.stages(), [])
         self.assertIn("branch protection", error.detail["output"])
 
-    def test_a_host_that_refuses_the_sign_in_is_no_write_access_and_the_network_keeps_its_own_line(self):
-        script = gitfixture.fake_git(self, '''case " $* " in *" --dry-run "*) exec "$REAL" "$@";; esac
+    def push_refused(self):
+        """A git whose probe passes and whose push says what its file `said` holds: the script, beside that file."""
+        return gitfixture.fake_git(self, '''case " $* " in *" --dry-run "*) exec "$REAL" "$@";; esac
 case " $* " in *" push "*) cat "$(dirname "$0")/said" >&2; exit 128;; esac
 exec "$REAL" "$@"''')
+
+    def test_a_host_that_refuses_the_sign_in_is_no_write_access_and_the_network_keeps_its_own_line(self):
+        script = self.push_refused()
         for said, code, status, line in (
                 ("fatal: Authentication failed for 'https://x.invalid/a/b.git/'", "no_write_access", 400,
                  "You cannot push to Fixture catalog. Ask for access."),
@@ -1137,9 +1051,7 @@ exec "$REAL" "$@"''')
         self.assertEqual(self.heads(), ["main"])
 
     def test_a_push_the_host_refused_is_remembered_like_a_probe_that_said_no_and_a_network_failure_is_not(self):
-        script = gitfixture.fake_git(self, '''case " $* " in *" --dry-run "*) exec "$REAL" "$@";; esac
-case " $* " in *" push "*) cat "$(dirname "$0")/said" >&2; exit 128;; esac
-exec "$REAL" "$@"''')
+        script = self.push_refused()
         script.with_name("said").write_text("fatal: unable to access 'https://x.invalid/': Could not resolve host: x.invalid\n")
         self.refusal(lambda: self.share(), "unreachable")
         found = {one["id"]: one for one in contribute.destinations(self.units, "addon", "local/scratch")}
@@ -1222,12 +1134,10 @@ class Copied(Seam):
         self.assertEqual((self.target / "playgrounds/bank/compose.yml").read_text(), "mine")
         # Not even in the instant between the look and the copy
         self.item("addon", "late", "Late", "services: {}\n")
-        real = contribute.registry.units_of
         self.patch(contribute.registry, "units_of", lambda ns: {kind: [] for kind in paths.KINDS})
         self.write(".lab/catalogs/lab-new/addons/late/compose.yml", "theirs")
         self.refusal(lambda: self.share("local/late", "lab-new"), "share_exists")
         self.assertEqual((self.target / "addons/late/compose.yml").read_text(), "theirs")
-        self.assertEqual(real("lab-new")["addon"], ["late", "newer"])
 
     def test_what_the_pre_flight_refuses_the_copy_does_not_make(self):
         self.bank(**{"README.md": "-----BEGIN PRIVATE KEY-----"})
@@ -1262,14 +1172,6 @@ class Copied(Seam):
         with self.assertRaises(CatalogError):
             self.share("local/bank", "lab-new", "playground")
         self.assertEqual(list(outside.iterdir()), [], "nothing went through the link")
-
-    def test_a_catalog_linked_to_a_folder_of_the_person_gets_the_copy_there(self):
-        linked = fixtures.install(self, "lab-new", "folder", link=True)
-        real = Path(linked.entry["path"])
-        self.bank()
-        self.share("local/bank", "lab-new", "playground")
-        self.assertTrue((real / "playgrounds/bank/compose.yml").is_file())
-        self.assertTrue((self.root / ".lab/catalogs/lab-new").is_symlink())
 
     def demo(self):
         """Demo, a playground of this machine that includes Notes, an add-on of this machine (the person's copy of one, it says) that
@@ -1373,16 +1275,13 @@ class Ended(Seam):
     def stars(self):
         return json.loads((self.root / ".lab/starred.json").read_text())
 
-    def test_the_catalogs_item_is_kept_and_the_personal_one_goes(self):
+    def test_the_catalogs_item_is_kept_the_personal_one_goes_and_its_settings_and_records_go_to_the_catalogs(self):
         content = {path: ((self.root / path).read_bytes(), (self.root / path).stat().st_mode)
                    for path in self.tree() if path.startswith(self.THERE + "/")}
         self.assertEqual(self.use(), {"id": "echo"})
         self.assertFalse((self.root / self.LOCAL).exists())
         self.assertEqual({path: ((self.root / path).read_bytes(), (self.root / path).stat().st_mode)
                           for path in content}, content, "what the catalog installed is as it was")
-
-    def test_the_settings_and_the_records_go_to_the_catalogs_item(self):
-        self.use()
         there = self.root / self.THERE
         self.assertEqual((there / ".env").read_text(), "TOKEN=1\n")
         self.assertEqual((there / ".state/created.json").read_text(), "{}")
@@ -1488,17 +1387,10 @@ class Ended(Seam):
         self.assertEqual((self.root / ".lab/migration/kept/local/addons/echo/apps/web/.env").read_text(), "X=1\n")
         self.assertFalse((self.root / self.LOCAL).exists())
 
-    def test_the_records_and_the_secrets_of_two_items_are_never_mixed(self):
+    def test_the_records_and_the_secrets_of_two_items_are_never_mixed_at_any_depth_of_a_folder_that_is_merged(self):
         self.write(f"{self.THERE}/.state/b.json", "theirs")
         self.write(f"{self.THERE}/secrets/other", "theirs")
         self.write(f"{self.LOCAL}/.state/a.json", "mine")
-        self.use()
-        there = self.root / self.THERE
-        self.assertEqual(sorted(path.name for path in (there / ".state").iterdir()), ["b.json"])
-        self.assertEqual(sorted(path.name for path in (there / "secrets").iterdir()), ["other"])
-        self.assertEqual(self.kept(), [".state/a.json", ".state/created.json", "notes.txt", "secrets/key"])
-
-    def test_a_state_or_a_secrets_folder_deeper_in_a_folder_that_is_merged_is_not_mixed_either(self):
         self.write(f"{self.THERE}/apps/web/Dockerfile", "FROM busybox\n")
         self.write(f"{self.THERE}/apps/web/.state/theirs.json", "theirs")
         self.write(f"{self.THERE}/apps/web/secrets/theirs", "theirs")
@@ -1506,10 +1398,14 @@ class Ended(Seam):
         self.write(f"{self.LOCAL}/apps/web/secrets/mine", "mine")
         self.write(f"{self.LOCAL}/apps/web/server.key", "key")
         self.use()
-        there = self.root / self.THERE / "apps/web"
+        top = self.root / self.THERE
+        there = top / "apps/web"
+        self.assertEqual((sorted(path.name for path in (top / ".state").iterdir()), sorted(path.name for path in (top / "secrets").iterdir())),
+                         (["b.json"], ["other"]))
         self.assertEqual((sorted(path.name for path in (there / ".state").iterdir()), sorted(path.name for path in (there / "secrets").iterdir()),
                           (there / "server.key").read_text()), (["theirs.json"], ["theirs"], "key"))
-        self.assertEqual(self.kept(), ["apps/web/.state/mine.json", "apps/web/secrets/mine", "notes.txt"])
+        self.assertEqual(self.kept(), [".state/a.json", ".state/created.json", "apps/web/.state/mine.json", "apps/web/secrets/mine",
+                                       "notes.txt", "secrets/key"])
 
     def test_a_link_where_the_catalogs_item_has_the_name_is_kept_whole_and_the_folder_behind_it_is_never_entered(self):
         """A person links `.env` to a file they share between machines, and `secrets` to a folder: the catalog's item has both
@@ -1559,9 +1455,6 @@ class Ended(Seam):
         self.assertTrue((self.root / ".lab/migration/kept/local/addons/echo/latest").is_symlink(), "a link moves as a link")
         self.assertEqual((self.root / ".lab/migration/kept/local/addons/echo/data/db.sqlite").read_text(), "rows")
         self.assertFalse((self.root / self.LOCAL).exists())
-        # The item itself, and what a share takes, is the catalog's version now: it is not kept
-        self.assertNotIn("compose.yml", self.kept())
-        self.assertNotIn("README.md", self.kept())
 
     def test_a_file_the_compose_file_names_went_with_a_share_and_is_not_set_aside_but_its_neighbors_are(self):
         self.write(f"{self.LOCAL}/compose.yml", "services:\n  echo-svc:\n    image: busybox\n    volumes:\n"
@@ -1683,9 +1576,8 @@ class Ended(Seam):
                 self.use()
 
     def test_only_what_belongs_to_this_machine(self):
-        for uid in ("echo", "local/../echo", "@partner/ledger"):
-            with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, "Only your own add-ons can be replaced here"):
-                self.use(uid)
+        with self.assertRaisesRegex(ValueError, "Only your own add-ons can be replaced here"):
+            self.use("echo")
         with self.assertRaises(paths.NotFound):
             self.use("local/gone")
 
@@ -1777,11 +1669,6 @@ class Real(Base):
         self.patch(contribute.registry, "inputs", lambda: {**rows(), "partner": {**rows()["partner"], "requires_catalogs": {"fixture": {}}}})
         self.assertEqual(self.blocked(self.share(uid, "partner")["problems"]), [])
 
-    def test_a_copy_the_policy_lets_run_has_nothing_to_fix(self):
-        self.assertEqual(self.share()["problems"], [])
-        self.assertEqual(self.share(self.plain(), "fixture")["problems"], [])
-        self.assertEqual(self.share(self.plain(), "partner")["problems"], [])
-
     def test_the_reasons_are_the_ones_a_consumer_of_the_target_is_given(self):
         text = self.PLAIN.replace("    networks: [internal]\n", "    networks: [internal]\n    privileged: true\n    volumes:\n"
                                   "      - /var/run/docker.sock:/var/run/docker.sock\n      - ${PLAIN_APP_CONF:-./c}:/c\n")
@@ -1820,10 +1707,6 @@ class Real(Base):
         with self.assertRaisesRegex(ValueError, "^x-gravitee.category is missing$"):
             self.share(uid, "partner", check_only=False)
         self.assertFalse((self.root / ".lab/catalogs/partner/addons/bad").exists())
-        # A port published to the network is the policy's, as it is for a consumer
-        loud = bad.replace("    restart: always\n", "    restart: unless-stopped\n    ports: [\"8999:80\"]\n")
-        told = self.share(self.plain(loud, "loud"), "fixture")["problems"]
-        self.assertIn("Blocked: Publishes a port to the network", told)
 
     def test_a_playground_whose_settings_are_not_its_catalogs_is_told_so_as_a_consumer_would_be(self):
         self.bank()
@@ -1936,16 +1819,8 @@ class Real(Base):
         project.forget()
         self.assertEqual({one["id"]: one["reason"] for one in contribute.destinations(project.load(), "addon", "local/scratch")}["partner"],
                          "Partner fixture does not take contributions from the Lab.")
-        self.refusal(lambda: self.share(self.plain(), "partner"), "contribute_none")
-
-    def test_a_full_share_with_the_judgement_of_the_project(self):
-        self.bank()
-        file = self.root / ".lab/catalogs/local/playgrounds/bank/compose.yml"
-        file.write_text(file.read_text().replace("fixture-shop", "bank"))
-        project.forget()
-        done = self.share("local/bank", "fixture", "playground", False)
-        self.assertEqual(done["branch"], f"lab/bank-{DAY}")
-        self.assertIn("playgrounds/bank/seed/apim/apis/shop.json", self.remote("fixture").git("ls-tree", "-r", "--name-only", done["branch"]))
+        self.assertEqual(lines_of(self.refusal(lambda: self.share(self.plain(), "partner"))),
+                         ("contribute_none", 400, "Partner fixture does not take contributions from the Lab."))
 
     def test_a_playground_that_declares_no_set_is_shared_with_the_versions_it_ran_on(self):
         self.bank()

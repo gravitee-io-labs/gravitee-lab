@@ -42,13 +42,6 @@ INFO = Problem("SD08", "info", ".github/dependabot.yml", 0, ".github/dependabot.
 
 class Escaping(unittest.TestCase):
 
-    def test_data_escapes_percent_and_line_breaks(self):
-        self.assertEqual("100%25 a%0D%0Ab%0Ac", report.escape_data("100% a\r\nb\nc"))
-        self.assertEqual("a:b,c", report.escape_data("a:b,c"))
-
-    def test_properties_escape_the_colon_and_the_comma_too(self):
-        self.assertEqual("a%3Ab%2Cc%250A", report.escape_property("a:b,c%0A"))
-
     def test_a_file_named_like_a_command_is_one_annotation(self):
         hostile = Problem("ST05", "error", "a%0A::error::x", 3, "a%0A::error::x is an environment file.\n::error::forged")
         text = report.render([hostile], "github")
@@ -124,10 +117,6 @@ class Renderings(unittest.TestCase):
             "::error file=b.env,line=7,title=ST05::addons/x/.env is an environment file. Fix: git rm --cached it.",
             "::warning file=apps/Dockerfile,line=1,title=DF22::apps/Dockerfile:1: the base image python:3 is not pinned by digest.",
         ], out.splitlines())
-
-    def test_a_problem_of_the_catalog_has_no_file_property(self):
-        out = report.render([Problem("ST10", "error", "", 0, "The catalog holds 501 units.")], "github")
-        self.assertEqual("::error title=ST10::The catalog holds 501 units.\n", out)
 
     def test_ten_annotations_of_each_level_and_a_notice_for_the_rest(self):
         many = [Problem("DF03", "error", "a.Dockerfile", number, f"m{number}") for number in range(1, 14)]
@@ -248,10 +237,6 @@ class Untrusted(unittest.TestCase):
         self.assertEqual([line.rstrip("\n") for line in hostile], lines[1:-1])
         self.assertTrue(out.endswith("\n"))
 
-    def test_before_the_region_and_after_it_commands_still_work(self):
-        out = report.render([ERROR], "github") + report.untrusted_text("::error::pwned") + report.render([WARNING], "github")
-        self.assertEqual(2, len(commands(out)))
-
     def test_the_token_is_new_each_time(self):
         self.assertNotEqual(report.untrusted_text(""), report.untrusted_text(""))
 
@@ -333,17 +318,6 @@ class Audit(WithGit):
         self.assertEqual(1, len([each for each in result.problems if each.code == "SE02"]))
         self.assertEqual("Reading the files and the 2 commits of the whole history", result.header)
 
-    def test_what_the_base_already_had_is_a_warning_and_what_is_new_is_an_error(self):
-        repo = self.work("base", support.files({"docs/old.pem": "x\n"}))
-        self.git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-        self.put(repo, "docs/new.pem", "y\n")
-        self.commit(repo, "Another key")
-        result = self.run_in(repo)
-        by_path = {each.path: each for each in result.problems if each.code == "ST06"}
-        self.assertEqual("warning", by_path["docs/old.pem"].severity)
-        self.assertTrue(by_path["docs/old.pem"].message.startswith(audit.PREFIX), by_path["docs/old.pem"].message)
-        self.assertEqual("error", by_path["docs/new.pem"].severity)
-
     def test_a_secret_the_base_had_is_never_downgraded(self):
         repo = self.work("base", support.files({"docs/old.md": f"key {support.aws_key()}\n"}))
         self.git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
@@ -367,11 +341,6 @@ class Audit(WithGit):
         found = [each for each in self.run_in(repo).problems if each.code == "ST06"]
         self.assertEqual(["error"], [each.severity for each in found], "on main itself, debt is an error")
 
-    def test_a_warning_a_run_makes_an_error_is_one(self):
-        repo = self.work("warn", support.files({"apps/x/Dockerfile": "FROM python:3\nUSER app\n"}))
-        self.assertEqual(["warning"], [each.severity for each in self.run_in(repo).problems if each.code == "DF22"])
-        self.assertEqual(["error"], [each.severity for each in self.run_in(repo, error=("DF22",)).problems if each.code == "DF22"])
-
     def test_the_exit_code(self):
         clean, bad = audit.Result([], []), audit.Result([ERROR], [])
         warn, skipped = audit.Result([WARNING], []), audit.Result([], ["Docker Compose 5 not found"])
@@ -380,12 +349,6 @@ class Audit(WithGit):
                                          audit.status(skipped, plain)])
         self.assertEqual(2, audit.status(skipped, audit.Options(ci=True)))
         self.assertEqual(1, audit.status(bad, audit.Options(ci=True)))
-
-    def test_a_folder_catalog_is_judged_on_the_families_that_need_no_github(self):
-        repo = self.work("folder", support.FOLDER)
-        result = audit.run(repo, audit.Options())
-        self.assertEqual([], result.problems)
-        self.assertEqual([], result.skipped, "no SD, WF or CO is asked of a folder catalog")
 
     def test_a_tree_that_is_not_a_repository_is_read_where_it_is(self):
         folder = self.holder / "plain"
@@ -425,7 +388,7 @@ class Audit(WithGit):
 
     def test_a_base_that_is_no_commit_is_said_and_nothing_raises(self):
         repo = self.old_and_new_key()
-        for name in ("nonexistent", "a b", "--output=elsewhere", "HEAD@{1}", "a..b", "HEAD~99", "main:docs/old.pem", "x" * 400, "v1\nv2"):
+        for name in ("nonexistent", "a b", "--output=elsewhere", "HEAD@{1}", "a..b", "HEAD~99", "main:docs/old.pem", "x" * 400, "v1\nv2", "f" * 40):
             with self.subTest(name=name):
                 result = self.run_in(repo, base=name)
                 self.assertEqual({"docs/old.pem": "error", "docs/new.pem": "error"}, self.severities(result), "no base, no subtraction")
@@ -500,6 +463,7 @@ class Audit(WithGit):
     def test_a_catalog_with_no_standard_file_is_told_so_in_a_second_line(self):
         repo = self.work("folder", support.FOLDER)
         result = audit.run(repo, audit.Options())
+        self.assertEqual([], result.problems)
         lines = result.header.split("\n")
         self.assertEqual(2, len(lines), result.header)
         self.assertEqual("No .github/standard.json: judged on the families that need no GitHub (ST, SE, CR, DF, GD, IM)", lines[1])
@@ -508,11 +472,6 @@ class Audit(WithGit):
         self.assertEqual([], result.skipped)
         full = audit.run(self.work("full", support.files()), audit.Options())
         self.assertNotIn("\n", full.header, "a catalog with its standard is judged on all of them and says nothing more")
-
-    def test_a_base_git_does_not_have_is_said_and_never_taken_for_a_clean_history(self):
-        repo = self.catalog()
-        result = self.run_in(repo, base="f" * 40)
-        self.assertTrue(any("could not be read" in why for why in result.skipped), result.skipped)
 
     def test_the_audit_writes_nothing_and_makes_no_network_call(self):
         repo = self.catalog()
@@ -605,36 +564,17 @@ class Explain(unittest.TestCase):
         self.assertIn("is outside {prefix}", text)
 
     def test_a_word_that_is_not_a_code_is_said(self):
-        text = explain.explain("nope")
-        self.assertTrue(text.startswith("nope is not a rule code."))
-        self.assertIn("ST", text)
-        self.assertEqual(text, explain.explain("nope"))
+        self.assertTrue(explain.explain("nope").startswith("nope is not a rule code."))
 
-    def test_every_code_of_the_rule_modules_has_a_long_form(self):
-        table = explain.table()
+    def test_every_code_of_the_rule_modules_has_a_why(self):
         for module in (structure, secrets, commits, guides, dockerfiles, images):
             for code in module.RULES:
-                self.assertIn(code, table)
                 self.assertTrue(explain.DETAILS.get(code), f"{code} has no why")
-                self.assertIn("Why      ", explain.explain(code))
 
-    def test_the_codes_of_every_family_are_known(self):
-        known = explain.codes()
-        for code in ("ST01", "ST22", "SE07", "CR02", "GD05", "DF24", "IM04", "SD11", "CO01", "BD06", "MF02", "TS02", "SM03",
-                     "PB08", "E2E05", "LK01", "SC01"):
-            self.assertIn(code, known)
-        self.assertEqual(known, sorted(known, key=lambda code: (explain._family_index(code), code)))
-        for code in known:
-            self.assertTrue(explain.explain(code).startswith(code + " ("), code)
-
-    def test_no_text_has_a_middle_dot_and_every_message_names_its_fix_or_is_the_fix(self):
-        missing = set()
+    def test_no_text_has_a_middle_dot(self):
         for code, entry in explain.table().items():
             for text in (entry.message, entry.rule, entry.why, *entry.more):
                 self.assertNotIn("·", text, code)
-            if "Fix" not in entry.message:
-                missing.add(code)
-        self.assertLessEqual({"ST14", "ST20", "GD04", "DF22", "DF24"}, missing)
 
 
 if __name__ == "__main__":

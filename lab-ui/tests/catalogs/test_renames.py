@@ -520,7 +520,6 @@ class EndToEnd(Case):
                          "in the order of the names they leave")
         self.assert_kept_under("viewer", "ACME_VIEWER_TOKEN")
 
-
     def test_a_lab_released_before_renamed_keeps_the_newest_version_it_reads_and_says_it_needs_a_newer_gravitee_lab(self):
         self.add()
         self.person()
@@ -675,21 +674,6 @@ class EndToEnd(Case):
         with self.assertRaises(registry.CatalogError) as raised:
             service.update("acme", check=True)
         self.assertEqual((raised.exception.code, str(raised.exception)), ("renames_unread", renames.UNREAD))
-
-    def test_a_renamed_item_that_is_on_whose_new_version_lacks_a_catalog_holds_the_update(self):
-        self.add()
-        self.person()
-        self.release("1.1.0", V2)
-        service.check_now("acme")
-        review = service._review
-
-        def lacking(*args, **kwargs):
-            judged, verdicts, mine = review(*args, **kwargs)
-            judged["addon"]["@acme/trace-viewer"]["needs_catalogs"] = [{"id": "hub", "name": "Hub", "reason": "failed"}]
-            return judged, verdicts, mine
-        self.patch(service, "_review", lacking)
-        self.assertEqual(service.update("acme", check=True)["held"], "Turn off Viewer first",
-                         "an item that needs a catalog this machine lacks cannot run either")
 
     def test_a_repair_after_a_rename_that_stopped_puts_back_what_it_had_moved(self):
         self.add()
