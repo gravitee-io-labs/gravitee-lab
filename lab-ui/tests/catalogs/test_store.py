@@ -23,6 +23,7 @@ from lab_ui.catalogs import gitx, store
 from lab_ui.catalogs.store import Entry
 
 from .. import Case, gitfixture
+from .test_gitx import gone
 
 # The rules of the catalog standard that `rejections` answers
 CODES = ("ST01", "ST02", "ST03", "ST04", "ST05", "ST06", "ST07", "ST09", "ST10", "ST13", "ST14", "ST15")
@@ -785,26 +786,16 @@ class Fetching(Remote):
                                   "exec \"$REAL\" \"$@\"")
         self.refusal(lambda: store.fetch(self.address, "main", self.store, stall=30, cap=60), "too_large")
         self.assertFalse(self.store.exists())
-        end = time.monotonic() + 5
-        pid = int(pids.read_text())
-        while time.monotonic() < end:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.05)
-        else:
-            self.fail("the download was left running")
+        self.assertTrue(gone(int(pids.read_text())), "the download was left running")
 
     def test_a_fetch_that_stalls_fails_with_a_timeout_and_leaves_nothing(self):
         gitfixture.fake_git(self, "for a in \"$@\"; do if [ \"$a\" = fetch ]; then echo 'From x' >&2; sleep 60; fi; done\n"
                                   "exec \"$REAL\" \"$@\"")
         address = gitx.parse_address("https://git.example.test/team/hub.git")
-        started = time.monotonic()
         error = self.refusal(lambda: store.fetch(address, "main", self.store, stall=0.4, cap=60))
-        self.assertLess(time.monotonic() - started, 30)   # the fake git sleeps 60: a stall that is ignored still fails
         self.assertEqual((error.code, error.status, error.message),
                          ("timeout", 502, "git.example.test did not answer in time. Try again."))
+        self.assertIn("no byte for", error.detail["output"])
         self.assertFalse(self.store.exists())
 
     def test_a_fetch_that_never_ends_is_cut_at_the_cap_though_it_sends(self):
