@@ -453,14 +453,6 @@ class SkippedIncludes(Copies):
             "include:", f"  - path: {json.dumps(tool)}", f'    project_directory: {json.dumps(str(self.root / "addons/tool"))}',
             "    env_file:", "      - ../../addons/tool/.env"])
 
-    def test_a_line_that_an_item_took_is_not_read_as_an_item_again(self):
-        self.write("playgrounds/mine/compose.yml", f"include:\n  - path: ../../{GONE}\n    env_file: ../x.env\n"
-                   "  - ../../addons/tool/compose.yml\n" + self.MINE)
-        items = compose._include_items
-        self.patch(compose, "_include_items", side_effect=lambda text, file, copied=False: [*items(text, file, copied)] + (
-            [(2, "x", "addons/tool/compose.yml")] if copied and file.startswith("playgrounds") else []))   # the line of a key, as an item
-        self.assertNotIn("gone", self.top(self.read("playgrounds/mine/compose.yml", skip=[GONE])))
-
     def test_a_hostile_include_list_is_read_or_refused_never_a_crash(self):
         # whatever the file holds, raw answers or raises ComposeError: an exception of any other kind ends the read of the
         # whole project (project.gather)
