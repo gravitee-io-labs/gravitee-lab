@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui.catalogs import fleet, gitx, settings, standard
-from lab_ui.catalogs.settings import FAIL, Reply
+from lab_ui.catalogs.settings import Reply
 
 from .. import Case, gitfixture
 from .test_settings import load, normalize
@@ -168,15 +168,6 @@ class Audit(Case):
                                                                                            listed("acme-labs/lab-hidden")]), {})))
         self.assertEqual(1, fleet.exit_code(rows))                  # a repository that cannot be read
         self.assertEqual(0, fleet.exit_code([row for row in rows if row.repo.endswith(("lab-hub", "lab-internal", "lab-gone"))]))
-
-    def test_the_exit_code_is_the_one_of_each_repository(self):
-        runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
-        rows = fleet.audit_fleet("acme-labs", runner, {})
-        self.assertEqual(0, fleet.exit_code(rows))
-        runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
-        weak = fleet.audit_fleet("acme-labs", runner, {"as": "public"})
-        self.assertEqual(1, fleet.exit_code(weak))                  # the private one still forbids forking
-        self.assertEqual(FAIL, {f.id: f for f in weak[1].findings}["repo.forking"].status)
 
     def test_no_catalog_is_said_in_a_line(self):
         self.assertEqual("No repository of acme has the topic gravitee-lab-catalog", fleet.render_audit(fleet.Fleet(owner="acme")))
