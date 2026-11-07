@@ -1450,19 +1450,16 @@ class Upgrading(Case):
 
 
 class MovingThePin(Case):
-    """`--lab-ref` prints the compare link and the Lab's own log, and refuses a commit that is not a release of the Lab (a tag
-    vX.Y.Z on its main). `latest` is the latest release, not the tip of main."""
+    """`--lab-ref` prints the compare link and refuses a commit that is not a release of the Lab (a tag vX.Y.Z on its main).
+    `latest` is the latest release, not the tip of main."""
 
     def setUp(self):
         support.identity(self)
-        self.lab = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", ".github/x.yml": b"x\n", "docs/a.md": b"a\n",
-                                       standard.MANIFEST_IN_LAB: support.release_manifest()}, name="lab")
+        self.lab = support.Repo(self, {"lab-ui/catalog.py": b"print(0)\n", standard.MANIFEST_IN_LAB: support.release_manifest()}, name="lab")
         self.old = self.lab.git("rev-parse", "HEAD").strip()
         self.lab.git("tag", "v1.4.0", self.old)
-        for number in range(120):
-            where_ = "lab-ui/catalog.py" if number % 3 else ("docs/a.md" if number % 2 else ".github/x.yml")
-            self.lab.commit({where_: f"v{number}\n".encode()}, f"Change {number} <script>\x1b[31m" if number == 7 else f"Change {number}")
-        self.new = self.lab.git("rev-parse", "HEAD").strip()
+        self.lab.commit({"lab-ui/catalog.py": b"print(1)\n"})
+        self.new = self.lab.commit({"lab-ui/catalog.py": b"print(2)\n"})
         self.lab.git("tag", "v1.10.0", self.new)   # the latest release: 1.10 is above 1.9, which is a name and not a number
         self.lab.git("tag", "v1.9.0", self.old)
         self.lab.git("tag", "nightly", self.new)
@@ -1504,7 +1501,7 @@ class MovingThePin(Case):
         self.assertEqual((self.catalog.root / ".github/standard.json").read_bytes(), before)
 
     def test_a_commit_of_main_that_no_release_names_is_refused(self):
-        between = self.lab.git("rev-parse", "HEAD~5").strip()
+        between = self.lab.git("rev-parse", "HEAD~1").strip()
         self.assertEqual(standard.release_state(self.lab.root, between), "no")
         self.assertIn("is not a release of the Lab", self.plan(lab_ref=between)["refused"])
         self.assertEqual((standard.release_state(self.lab.root, self.new), standard.release_state(self.lab.root, self.old)),
