@@ -150,8 +150,8 @@ def begin():
 
 
 def finish():
-    """Ends a seed that changed nothing it should not have: every control found its target. Then waits until the
-    gateway has taken what the controls deployed."""
+    """Ends a seed that changed nothing it should not have: every control found its target. With SEED_WAIT_GATEWAY=1, it then
+    waits until the gateway has taken what the controls deployed."""
     left = [control for control in declared() if control.id not in _matched]
     if left:
         raise SeedError("; ".join(f"{FILE}: {control.id} names {control.kind} '{control.target}', which no seed file has"

@@ -46,10 +46,10 @@ row by adding the user to a group from the search of the identity provider, whic
 environment name `${ENV_ID}` and `${ENV_NAME}`, which the engine gives them.
 
 With GATEWAY_INTERNAL_URL set, a replaced API waits until the gateway has dropped the old one before it is imported
-again, and the seed ends once the gateway serves every API, within GATEWAY_READY_TIMEOUT seconds in all: the AI models of
-an LLM proxy are downloaded at its first deployment. With LLM_PROBE_KEY too, an API key of the plan of the LLM proxies
-that has their semantic cache, it chats through every LLM proxy of the seed with that key, then asks the same generic
-question again: the proxy must answer it from its cache (the id of its answer says so). Set it only for a playground
+again. With SEED_WAIT_GATEWAY=1 too, the seed ends once the gateway serves every API, within GATEWAY_READY_TIMEOUT seconds in
+all: the AI models of an LLM proxy are downloaded at its first deployment. With LLM_PROBE_KEY as well, an API key of the plan
+of the LLM proxies that has their semantic cache, it chats through every LLM proxy of the seed with that key, then asks the
+same generic question again: the proxy must answer it from its cache (the id of its answer says so). Set it only for a playground
 whose LLM proxies all cache that plan's questions: the seed fails on one that does not.
 """
 
