@@ -27,7 +27,6 @@ AUTO = "/automation/organizations/DEFAULT/environments"
 V2 = "/management/v2/organizations/DEFAULT/environments"
 MALLARD = "environments/mallard"
 DOCS = f"{AUTO}/mallard/portals/mallard-portal/documentations"
-LINKS = f"{AUTO}/mallard/portals/mallard-portal/links"
 ITEMS = f"{V2}/mallard/portal-navigation-items"
 LOGO = "<svg xmlns='http://www.w3.org/2000/svg'/>"
 
@@ -51,7 +50,6 @@ structure:
 """
 HOME = "hrid: mallard-home\nname: Home\ntype: GRAVITEE_MARKDOWN\narea: HOMEPAGE\nfile: ../content/home.md\nvisibility: PUBLIC\n"
 GUIDE = "hrid: mallard-guide\nname: Getting started\ntype: GRAVITEE_MARKDOWN\nlocation: Guides\norder: 0\nfile: ../content/guide.md\n"
-LINK = "hrid: mallard-broker\nname: Broker manager\nhref: ${MANAGER_URL}\nlocation: Guides\norder: 1\n"
 LISTING = """hrid: mallard-feeds
 apis:
   - {apiHrid: mallard-batch-status, location: Event feeds/Process development, order: 0, visibility: PRIVATE}
@@ -69,14 +67,13 @@ FILES = {
     f"{MALLARD}/portal/pages/guide.yaml": GUIDE,
     f"{MALLARD}/portal/content/home.md": "# ${ENV_NAME} (${ENV_ID})\n\nGateway ${GATEWAY}. Expression: $${api.name} and $${NAME}.\n",
     f"{MALLARD}/portal/content/guide.md": "# Getting started\n",
-    f"{MALLARD}/portal/links/broker.yaml": LINK,
     f"{MALLARD}/portal/listings/feeds.yaml": LISTING,
 }
 DEFAULT_OVERVIEW = "# ${api.name}\n\nDiscover ${api.name}.\n"   # the template the platform gives an API item's default page
 SAMPLE_ASYNCAPI = "asyncapi: 3.0.0\ninfo:\n  title: Default AsyncAPI Page\n  version: 1.0.0\nchannels: {}\n"   # what the platform gives a new AsyncAPI page
 APIS = [{"id": "api-1", "name": "Batch status", "crossId": "mallard-batch-status"},
         {"id": "api-2", "name": "Telemetry", "crossId": "mallard-telemetry"}]
-SETTINGS = {"MANAGER_URL": "http://localhost:8095", "GATEWAY": "http://localhost:8082", "NAME": "kept"}
+SETTINGS = {"GATEWAY": "http://localhost:8082", "NAME": "kept"}
 
 
 def ident(*parts):
@@ -153,7 +150,7 @@ class World:
         env, *rest = call.path[len(AUTO) + 1:].split("/")
         kind, portal = {"portal-themes": "theme", "portals": "portal"}[rest[0]], None
         if kind == "portal" and len(rest) > 2:
-            kind, portal, rest = {"documentations": "page", "links": "link"}[rest[2]], rest[1], rest[2:]
+            kind, portal, rest = "page", rest[1], rest[2:]
         if call.method == "PUT":
             return self.put(env, kind, portal, call.json)
         key = (env, kind, portal, rest[1])
@@ -178,7 +175,7 @@ class World:
         if kind == "portal":
             self.active[env] = body.get("activeThemeHrid")
             self.shape(env, body["structure"]["topNavbar"])
-        elif kind in ("page", "link"):
+        elif kind == "page":
             self.place(env, state, kind)
         return 200, state
 
@@ -211,7 +208,7 @@ class World:
     def drop(self, key):
         env, kind, portal, hrid = key
         del self.store[key]
-        if kind in ("page", "link"):
+        if kind == "page":
             self.items[env].pop(ident(env, kind, hrid), None)
         elif kind == "portal":
             for other in [k for k in self.store if k[0] == env and k[2] == hrid]:
@@ -425,14 +422,13 @@ class Portals(Seed):
 
 class Creation(Portals):
 
-    def test_a_first_run_makes_the_theme_then_the_portal_the_pages_the_link_and_the_listing(self):
+    def test_a_first_run_makes_the_theme_then_the_portal_the_pages_and_the_listing(self):
         self.assertEqual(self.run_seed(), [
             ("PUT", f"{AUTO}/mallard/portal-themes"), ("PUT", f"{AUTO}/mallard/portals"), ("PUT", DOCS), ("PUT", DOCS),
-            ("PUT", LINKS),
             ("POST", ITEMS), ("PUT", f"{ITEMS}/{FEEDS[0]}"), ("POST", ITEMS), ("PUT", f"{ITEMS}/{FEEDS[1]}"),
             ("POST", f"{ITEMS}/_default-pages"), ("PUT", f"{ITEMS}/{OVERVIEWS[0]}"), ("PUT", f"{ITEMS}/{OVERVIEWS[1]}")])
         self.assertEqual([x["kind"] for x in common.created()],
-                         ["portal-theme", "portal", "portal-page", "portal-page", "portal-link", "portal-listing", "portal-api-page"])
+                         ["portal-theme", "portal", "portal-page", "portal-page", "portal-listing", "portal-api-page"])
 
     def test_what_it_made_is_recorded_with_its_environment_and_its_hrid(self):
         self.run_seed()
@@ -444,7 +440,7 @@ class Creation(Portals):
         page = next(x for x in common.created() if x["name"] == "mallard: mallard-guide")
         self.assertEqual((page["portal"], page["label"]), ("mallard-portal", "portal pages"))
         self.assertEqual([x["label"] for x in common.created()][3:],
-                         ["portal pages", "portal links", "portal listings", "API pages"])
+                         ["portal pages", "portal listings", "API pages"])
 
     def test_the_theme_holds_its_images_as_data_uris_and_the_colors_the_automation_api_reads(self):
         self.run_seed()
@@ -513,18 +509,10 @@ class Creation(Portals):
         self.assertNotIn("ENV_ID", os.environ)
         self.assertNotIn("ENV_NAME", os.environ)
 
-    def test_a_page_goes_to_a_path_of_the_portal_and_a_link_too(self):
+    def test_a_page_goes_to_a_path_of_the_portal(self):
         self.run_seed()
         guide = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "mallard-guide")
         self.assertEqual((guide["location"], guide["order"], guide["area"]), ("/guides", 0, "TOP_NAVBAR"))
-        self.assertEqual(self.sent("PUT", "/links"), [{"hrid": "mallard-broker", "name": "Broker manager",
-                                                       "href": "http://localhost:8095", "location": "/guides", "order": 1}])
-
-    def test_a_page_may_hold_its_text_itself(self):
-        self.file("portal/pages/guide.yaml", "hrid: mallard-guide\nname: Guide\ntype: ASYNCAPI\ncontent: 'asyncapi: 3.0.0'\n")
-        self.run_seed()
-        guide = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "mallard-guide")
-        self.assertEqual((guide["type"], guide["content"]), ("ASYNCAPI", "asyncapi: 3.0.0"))
 
     def test_the_log_names_what_it_did_and_nothing_secret(self):
         self.env(APIM_PASSWORD="s3cret-pass")
@@ -559,17 +547,8 @@ class SecondRun(Portals):
 
     def test_an_object_that_is_gone_is_made_again(self):
         self.seeded()
-        del self.world.store[("mallard", "link", "mallard-portal", "mallard-broker")]
-        self.assertEqual(self.run_seed(), [("PUT", LINKS)])
-
-    def test_what_a_removed_file_made_is_deleted_and_forgotten(self):
-        self.seeded()
-        (common.SEED_DIR / MALLARD / "portal/links/broker.yaml").unlink()
-        self.assertEqual(self.run_seed(), [("DELETE", f"{LINKS}/mallard-broker")])
-        self.assertIn("✓ Deleted portal-link 'mallard: mallard-broker': its file is gone", self.output())
-        self.assertEqual([x for x in common.created() if x["kind"] == "portal-link"], [])
-        self.assertNotIn(("mallard", "link", "mallard-portal", "mallard-broker"), self.world.store)
-        self.assertEqual(self.run_seed(), [])
+        del self.world.store[("mallard", "page", "mallard-portal", "mallard-guide")]
+        self.assertEqual(self.run_seed(), [("PUT", DOCS)])
 
     def test_a_page_whose_file_is_gone_is_deleted_and_the_others_are_kept(self):
         self.seeded()
@@ -723,7 +702,6 @@ class Listings(Portals):
                   .replace("{path: Event feeds, visibility: PUBLIC}", "{path: Event feeds, displayName: Streams, visibility: PUBLIC}")
                   .replace("location: Guides", "location: Docs/Guides"))
         self.file("portal/pages/guide.yaml", GUIDE.replace("location: Guides", "location: Docs/Guides"))
-        self.file("portal/links/broker.yaml", LINK.replace("Guides", "Docs/Guides"))
         self.file("portal/listings/feeds.yaml", LISTING.replace("Event feeds/Process development", "Docs/Guides"))
         self.run_seed()
         guides = next(i for i in self.items("FOLDER") if i["title"] == "Developer guides")
@@ -1427,7 +1405,7 @@ class Taken(Portals):
 
     def test_each_kind_of_object_stops_the_seed_when_the_seed_did_not_make_it(self):
         cases = {"portal-theme": ("mallard-theme", "Portal theme"), "portal": ("mallard-portal", "Portal"),
-                 "portal-page": ("mallard-guide", "Portal page"), "portal-link": ("mallard-broker", "Portal link")}
+                 "portal-page": ("mallard-guide", "Portal page")}
         for kind, (hrid, what) in cases.items():
             with self.subTest(kind=kind):
                 self.seeded()
@@ -1468,33 +1446,31 @@ class Refused(Portals):
                 (r"portal\.yaml: activeThemeHrid other-theme is no theme of this folder", {"portal/portal.yaml": PORTAL.replace("mallard-theme", "other-theme")}),
                 (r"portal/portal-2\.yaml: a second portal: there is one portal for an environment", {"portal/portal-2.yaml": PORTAL.replace("mallard-portal", "second-portal")}),
                 (r"portal/notes\.yaml: a portal folder has theme\.yaml", {"portal/notes.yaml": "a: 1\n"}),
-                (r"portal/notes\.md: a portal folder has theme\.yaml, portal\.yaml, api-overview\.md, api-details\.md, pages/, content/, links/, listings/ and api-docs/", {"portal/notes.md": "x"}),
+                (r"portal/notes\.md: a portal folder has theme\.yaml, portal\.yaml, api-overview\.md, api-details\.md, pages/, content/, listings/ and api-docs/", {"portal/notes.md": "x"}),
                 (r"portal/api-overviews\.md: a portal folder has", {"portal/api-overviews.md": "# $${api.name}\n"}),
                 (r"portal/api-overview\.md: it is empty", {"portal/api-overview.md": "  \n\n"}),
                 (r"portal/api-overview\.md: UNSET_URL not set", {"portal/api-overview.md": "# $${api.name}\n${UNSET_URL}\n"}),
                 (r"pages/guide\.yaml: location 'Support' is no path of portal\.yaml", {"portal/pages/guide.yaml": GUIDE.replace("location: Guides", "location: Support")}),
-                (r"links/broker\.yaml: location 'Nowhere' is no path of portal\.yaml", {"portal/links/broker.yaml": LINK.replace("Guides", "Nowhere")}),
                 (r"listings/feeds\.yaml: location 'Event feeds/Other' is no path of portal\.yaml", {"portal/listings/feeds.yaml": LISTING.replace("Process development", "Other")}),
                 (r"listings/feeds\.yaml: mallard-ghost is the crossId of no API in the apis/ of this environment", {"portal/listings/feeds.yaml": LISTING.replace("mallard-telemetry", "mallard-ghost")}),
                 (r"listings/feeds\.yaml: apis is missing or empty", {"portal/listings/feeds.yaml": "hrid: mallard-feeds\napis: []\n"}),
                 (r"pages: a portal has one homepage", {"portal/pages/second.yaml": HOME.replace("mallard-home", "mallard-home-2")}),
                 (r"pages/guide\.yaml: hrid 'a' is missing or has a character the platform refuses", {"portal/pages/guide.yaml": GUIDE.replace("mallard-guide", "a")}),
                 (r"pages/home\.yaml: the hrid mallard-home is also environments/mallard/portal/pages/guide\.yaml's", {"portal/pages/guide.yaml": GUIDE.replace("mallard-guide", "mallard-home")}),
-                (r"it has file or content, one of the two", {"portal/pages/guide.yaml": GUIDE + "content: x\n"}),
-                (r"it has file or content, one of the two", {"portal/pages/guide.yaml": GUIDE.replace("file: ../content/guide.md\n", "")}),
+                (r"pages/guide\.yaml: file is missing", {"portal/pages/guide.yaml": GUIDE.replace("file: ../content/guide.md\n", "")}),
                 (r"guide\.yaml: \.\./content/none\.md is not a file", {"portal/pages/guide.yaml": GUIDE.replace("guide.md", "none.md")}),
                 (r"portal/theme\.yaml: favicons is not a key of this file", {"portal/theme.yaml": THEME + "favicons: x\n"}),
                 (r"pages/guide\.yaml: loaction is not a key of this file", {"portal/pages/guide.yaml": GUIDE + "loaction: Guides\n"}),
                 (r"a path of structure\.topNavbar has path, displayName and visibility", {"portal/portal.yaml": PORTAL + "    - {path: Support, order: 3}\n"}),
                 (r"type is GRAVITEE_MARKDOWN, OPENAPI, ASYNCAPI", {"portal/pages/guide.yaml": GUIDE.replace("GRAVITEE_MARKDOWN", "WIKI")}),
                 (r"type is GRAVITEE_MARKDOWN, OPENAPI, ASYNCAPI and area TOP_NAVBAR or HOMEPAGE", {"portal/pages/guide.yaml": GUIDE + "area: SIDEBAR\n"}),
-                (r"visibility is SECRET, PUBLIC or PRIVATE", {"portal/links/broker.yaml": LINK + "visibility: SECRET\n"}),
-                (r"links/broker\.yaml: UNSET_URL not set", {"portal/links/broker.yaml": LINK.replace("MANAGER_URL", "UNSET_URL")}),
+                (r"visibility is SECRET, PUBLIC or PRIVATE", {"portal/pages/guide.yaml": GUIDE + "visibility: SECRET\n"}),
+                (r"pages/guide\.yaml: UNSET_URL not set", {"portal/pages/guide.yaml": GUIDE + "order: ${UNSET_URL}\n"}),
                 (r"content/guide\.md: api not set", {"portal/content/guide.md": "Name: ${api}\n"}),   # an expression that is not escaped
                 (r"the path Event Feeds is there twice", {"portal/portal.yaml": PORTAL + "    - {path: Event Feeds}\n"}),
                 (r"a path of structure\.topNavbar is missing or has a segment with no letter or digit", {"portal/portal.yaml": PORTAL + "    - {path: Event feeds/--}\n"}),
-                (r"^environments/mallard/portal/links/broker\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$", {"portal/links/broker.yaml": "name: [unclosed\nhref: {\n"}),
-                (r"links/broker\.yaml: it is not a mapping", {"portal/links/broker.yaml": "- a\n- b\n"}),
+                (r"^environments/mallard/portal/pages/guide\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$", {"portal/pages/guide.yaml": "name: [unclosed\nhref: {\n"}),
+                (r"pages/guide\.yaml: it is not a mapping", {"portal/pages/guide.yaml": "- a\n- b\n"}),
                 (r"apis/batch-status\.json: it is not an API export", {"apis/batch-status.json": "[1]"})):
             with self.subTest(message=message):
                 self.refused(message, files)
@@ -1524,7 +1500,7 @@ class Refused(Portals):
 
     def test_a_portal_folder_with_no_portal(self):
         os.remove(common.SEED_DIR / MALLARD / "portal" / "portal.yaml")
-        with self.assertRaisesRegex(SeedError, r"portal\.yaml is missing: a theme, a page, a link and a listing belong to a portal"):
+        with self.assertRaisesRegex(SeedError, r"portal\.yaml is missing: a theme, a page and a listing belong to a portal"):
             self.run_seed()
         self.assertEqual(self.platform.changes(), [])
         for name, text in (("api-overview.md", "# $${api.name}\n"), ("api-docs/batch-status.yaml", DOC)):
@@ -1641,7 +1617,7 @@ class Environments(Portals):
         self.assertEqual({x["env"] for x in common.created()}, {"fern", "mallard"})
         fern = [c.json for c in self.platform.calls if c.method == "PUT" and c.path == f"{AUTO}/fern/portals"]
         self.assertEqual(fern[0]["name"], "Fern Therapeutics Developer Portal")
-        self.assertEqual((len(self.world.items["fern"]), len(self.world.items["mallard"])), (10, 10))
+        self.assertEqual((len(self.world.items["fern"]), len(self.world.items["mallard"])), (9, 9))
 
     def test_two_environments_are_seeded_by_a_second_run_with_no_change(self):
         self.two()
@@ -1714,8 +1690,8 @@ class Trouble(Portals):
         self.assertIn("! Portal theme mallard-theme in mallard: HTTP 503, trying again", self.output())
 
     def test_a_platform_that_says_what_it_could_not_put_in_a_200_stops_the_seed(self):
-        self.platform.add({("PUT", LINKS): (200, {"id": "l1", "errors": {"severe": ["location: no such path"]}})})
-        with self.assertRaisesRegex(SeedError, "^Portal link mallard-broker in mallard: location: no such path$"):
+        self.platform.add({("PUT", DOCS): (200, {"id": "p1", "errors": {"severe": ["location: no such path"]}})})
+        with self.assertRaisesRegex(SeedError, "^Portal page mallard-guide in mallard: location: no such path$"):
             self.run_seed()
 
     def test_a_token_is_used_in_place_of_the_login(self):
@@ -1752,7 +1728,6 @@ class Removal(Portals):
         apim_portal.remove(common.created())
         self.assertEqual(self.platform.changes(), [
             ("DELETE", f"{ITEMS}/{FEEDS[0]}"), ("DELETE", f"{ITEMS}/{FEEDS[1]}"),
-            ("DELETE", f"{LINKS}/mallard-broker"),
             ("DELETE", f"{DOCS}/mallard-guide"), ("DELETE", f"{DOCS}/mallard-home"),
             ("DELETE", f"{AUTO}/mallard/portals/mallard-portal"), ("DELETE", f"{AUTO}/mallard/portal-themes/mallard-theme")])
         self.assertEqual([k for k in self.world.store if k[1] in ("theme", "portal")], [])
@@ -1776,7 +1751,7 @@ class Removal(Portals):
         self.world.environments.pop("mallard")   # the platform answers 400 to every route of an environment it does not have
         apim_portal.remove(records)
         self.assertEqual([(c.method, c.path) for c in self.platform.calls if "/environments/mallard" in c.path], [("GET", f"{ENVS}/mallard")])
-        for kind in ("portal-api-page", "portal-listing", "portal-link", "portal-page", "portal", "portal-theme"):
+        for kind in ("portal-api-page", "portal-listing", "portal-page", "portal", "portal-theme"):
             self.assertIn(f"✓ Deleted {kind} 'mallard: ", self.output().split(f"Deleted {kind} 'mallard: ")[0] + f"Deleted {kind} 'mallard: ")
         self.assertIn("✓ Deleted portal 'mallard: mallard-portal': its environment is gone", self.output())
         self.assertNotIn("Deleted portal 'fern: fern-portal': its environment is gone", self.output())
