@@ -915,8 +915,7 @@ make ci
 ```
 
 `make check` (or `python3 lab-ui/catalog.py check <catalog id or folder>` from the Lab) covers the metadata, includes, conflicts,
-image defaults, restart policies, descriptions, ports, what a playground requires, and the API definitions its seed imports. It
-also checks that the catalog row of the playground reads as its metadata says, and prints the row it expects. `make ci` also
+image defaults, restart policies, descriptions, ports and what a playground requires. `make ci` also
 builds the apps and runs their tests in their images, and the *Seed files* job of its CI reads the seed files of the playgrounds
 (`python seeder/seedlint.py <folder>/playgrounds`, with the seeder's requirements). Then start the playground from
 its page and go through its guide. Share runs the same rules on the copy before anything leaves your machine.

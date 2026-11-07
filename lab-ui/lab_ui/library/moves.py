@@ -60,7 +60,7 @@ def _abs(path):
 
 
 def _rel(path):
-    """How the journal names a path: relative to the project and POSIX when it is inside it, else absolute."""
+    """How a refusal names a path: relative to the project and POSIX when it is inside it, else absolute."""
     absolute, root = os.path.normpath(_abs(path)), os.path.normpath(str(paths.ROOT))
     if absolute == root:
         return "."
