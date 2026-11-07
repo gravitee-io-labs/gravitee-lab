@@ -1350,55 +1350,14 @@ class Upgrading(Case):
         self.assertEqual(standard.dirty_files(repo.root, []), [])
         self.assertEqual(standard.dirty_files(repo.top, [".github/workflows/ci.yml"]), [])    # not a work tree
 
-    def test_nothing_is_written_into_another_repository(self):
-        repo = self.repo()
-        repo.git("rm", "-r", "--quiet", ".github/rulesets")
-        repo.git("commit", "--quiet", "-m", "Drop the rulesets")
-        inner = repo.root / ".github/rulesets"
-        inner.mkdir()
-        support.Repo.git_in(inner, "init", "--quiet")                                    # a nested repository
-        plan = self.plan(repo)
-        self.assertEqual(sorted(path for path, action in self.actions(plan).items() if action == "add"),
-                         [".github/rulesets/default-branch.json", ".github/rulesets/history.json", ".github/rulesets/protected-paths.json",
-                          ".github/rulesets/push.json", ".github/rulesets/tag-history.json", ".github/rulesets/tags.json"])
-        with self.assertRaisesRegex(standard.UpgradeError, r"^\.github/rulesets is the work tree of another repository"):
-            standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(os.listdir(inner), [".git"])
-        code, out, err = self.upgrade(repo, "--write")
-        self.assertEqual(code, 2)
-        self.assertIn("is the work tree of another repository (a nested repository or a submodule): the upgrade does not write into it.", err)
-        self.assertEqual(os.listdir(inner), [".git"])
-        # a submodule that was initialised has a `.git` file instead of a folder
-        shutil.rmtree(inner / ".git")
-        (inner / ".git").write_text("gitdir: ../../.git/modules/rulesets\n")
-        with self.assertRaisesRegex(standard.UpgradeError, "another repository"):
-            standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(os.listdir(inner), [".git"])
-
-    def test_nothing_is_written_into_a_submodule_that_was_not_initialised(self):
-        repo = self.repo()
-        repo.git("rm", "-r", "--quiet", ".github/rulesets")
-        repo.git("update-index", "--add", "--cacheinfo", "160000," + repo.git("rev-parse", "HEAD").strip() + ",.github/rulesets")
-        repo.git("commit", "--quiet", "-m", "A submodule where the rulesets were")
-        (repo.root / ".github/rulesets").mkdir(exist_ok=True)                           # what a clone without --recurse-submodules has
-        self.assertEqual(standard.gitlinks(repo.root, [".github/rulesets/push.json", ".github/workflows/ci.yml", "Makefile"]),
-                         [".github/rulesets"])
-        self.assertEqual(standard.gitlinks(repo.root, ["Makefile", ".github/workflows/ci.yml"]), [])
-        self.assertEqual(standard.gitlinks(repo.top, [".github/rulesets/push.json"]), [])                # not a work tree
-        code, out, err = self.upgrade(repo, "--write")
-        self.assertEqual((code, out.count("Wrote")), (2, 0))
-        self.assertEqual(err, "The upgrade does not write into a submodule: .github/rulesets. Fix: make it a folder of this repository, or "
-                              "take it out of the standard's paths.\n")
-        self.assertEqual(os.listdir(repo.root / ".github/rulesets"), [])
-
     def test_git_that_says_too_much_stops_the_upgrade_with_one_line(self):
         repo = self.repo(files=edited(render(), ".github/workflows/ci.yml", lambda text: text + "# x\n"))
         (repo.root / ".github/untracked.txt").write_text("x\n")
+        with (repo.root / ".github/workflows/ci.yml").open("a") as handle:
+            handle.write("# y\n")
         self.patch(standard, "GIT_LIMIT", 10)
         with self.assertRaisesRegex(standard.UpgradeError, "far more than the few files"):
             standard.dirty_files(repo.root, [".github"])
-        with self.assertRaisesRegex(standard.UpgradeError, "far more than the few files"):
-            standard.gitlinks(repo.root, [".github/workflows/ci.yml"])
         code, out, err = self.upgrade(repo, "--write")
         self.assertEqual((code, len(err.splitlines())), (2, 1))
         self.assertIn("far more than the few files of the standard can account for", err)
@@ -1436,29 +1395,6 @@ class Upgrading(Case):
         self.assertTrue(out.endswith(f"Nothing was written. To apply: make upgrade WRITE=1 LAB_REF={tip}\n"), out)
         code, out, err = self.upgrade_here(repo, "--maintainers", "@a")
         self.assertTrue(out.endswith("Nothing was written. To apply: catalog.py upgrade --maintainers @a --write\n"), out)
-
-    def test_a_failure_after_the_third_write_leaves_the_files_as_they_were(self):
-        repo = self.repo(files=at(1))
-        plan = self.plan(repo)
-        extra = {"path": ".github/zz.txt", "action": "add", "class": "managed", "why": "", "content": b"x\n"}
-        plan = {**plan, "files": plan["files"] + [extra, {**extra, "path": ".github/zy.txt"}]}
-        before = {path: (repo.root / path).read_bytes() for path in render() if (repo.root / path).is_file()}
-        real = standard.paths.write_atomic
-        calls = []
-
-        def fail_after_three(target, text, mode):
-            calls.append(target)
-            if len(calls) == 4:
-                raise OSError(5, "Input/output error")
-            return real(target, text, mode)
-        self.patch(standard.paths, "write_atomic", fail_after_three)
-        with self.assertRaises(OSError):
-            standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(len(calls), 4)
-        self.assertEqual(repo.git("status", "--porcelain").strip(), "")
-        self.assertEqual({path: (repo.root / path).read_bytes() for path in before}, before)
-        self.assertFalse((repo.root / ".github/workflows/nightly.yml").exists())
-        self.assertFalse((repo.root / ".github/zz.txt").exists())
 
     def test_adopt_adds_what_is_missing_keeps_what_is_there_and_lists_what_the_catalog_owns(self):
         files = {"catalog.yml": render()["catalog.yml"], "README.md": b"# mine\n", ".github/workflows/ci.yml": b"name: mine\n", "addons/x/compose.yml":
@@ -1560,28 +1496,6 @@ class Upgrading(Case):
         standard.upgrade_apply(repo.root, plan)
         self.assertFalse(target.is_symlink())
         self.assertEqual(standard.drift(FolderTree(repo.root)), [])
-
-    def test_a_link_that_was_replaced_is_put_back_when_a_later_write_fails(self):
-        repo = self.repo()
-        target = repo.root / ".github/dependabot.yml"
-        target.unlink()
-        os.symlink("/etc/hostname", target)
-        plan = self.plan(repo)
-        plan["files"] = plan["files"] + [{"path": ".github/zz.yml", "action": "add", "class": "managed", "why": "", "content": b"x\n"}]
-        real = standard.paths.write_atomic
-        calls = []
-
-        def fail_on_the_second(path, text, mode):
-            calls.append(path)
-            if len(calls) == 2:
-                raise OSError(5, "Input/output error")
-            return real(path, text, mode)
-        self.patch(standard.paths, "write_atomic", fail_on_the_second)
-        with self.assertRaises(OSError):
-            standard.upgrade_apply(repo.root, plan)
-        self.assertTrue(target.is_symlink())
-        self.assertEqual(os.readlink(target), "/etc/hostname")
-        self.assertFalse((repo.root / ".github/zz.yml").exists())
 
     def test_the_e2e_module_is_added_on_request(self):
         repo = self.repo(images="ghcr.io/acme/lab-hub")

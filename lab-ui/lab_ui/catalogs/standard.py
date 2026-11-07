@@ -23,8 +23,7 @@ puts its number in the marker of the files it renders, but the number is not com
 at every level, and `upgrade` rewrites only the files whose content changed.
 
 Nothing here runs what it reads. A repository is read through a `Tree`, never opened by a path of its own; it is written by
-`upgrade_apply` only, through a temporary file and `os.replace`, never through a link, and a failed run puts back what it
-wrote. Standard library only."""
+`upgrade_apply` only, through a temporary file and `os.replace`, never through a link. Standard library only."""
 
 import copy
 import hashlib
@@ -32,9 +31,7 @@ import json
 import os
 import re
 import shlex
-import stat
 import sys
-import tempfile
 import unicodedata
 from pathlib import Path
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
@@ -954,13 +951,9 @@ class UpgradeError(Exception):
     """An upgrade that cannot be done or could not be finished: one line for the person."""
 
 
-MAX_REWRITE = 8 * 1024 * 1024   # a managed file larger than this is not read back to be put back; it is not a managed file
-
-
 def _inside(root: str, relative: str) -> str:
-    """The path of `relative` below `root`, after checking that no folder on the way is a link, a file or the work tree of another
-    repository (a write through a link would leave the repository, and one into a nested repository or a submodule would put the
-    standard's files in that one). Folders that are missing are made. The last name may be a link: it is replaced."""
+    """The path of `relative` below `root`, after checking that no folder on the way is a link or a file (a write through a link
+    would leave the repository). Folders that are missing are made. The last name may be a link: it is replaced."""
     if not _clean(relative):
         raise UpgradeError(f"{printable(relative)[:SHOWN]} is not a path inside the repository.")
     here = root
@@ -975,85 +968,24 @@ def _inside(root: str, relative: str) -> str:
         if os.path.islink(here) or not os.path.isdir(here):
             raise UpgradeError(f"{printable(here[len(root) + 1:])[:SHOWN]} is a link or a file, not a folder: the upgrade does not "
                                "write through it.")
-        if os.path.lexists(os.path.join(here, ".git")):
-            raise UpgradeError(f"{printable(here[len(root) + 1:])[:SHOWN]} is the work tree of another repository (a nested "
-                               "repository or a submodule): the upgrade does not write into it.")
     return os.path.join(here, parts[-1])
 
 
-def _snapshot(target: str) -> tuple:
-    """What is at a path now, so that it can be put back: ('none',), ('link', where it leads) or ('file', bytes, mode)."""
-    try:
-        info = os.lstat(target)
-    except FileNotFoundError:
-        return ("none", target)
-    if stat.S_ISLNK(info.st_mode):
-        return ("link", target, os.readlink(target))
-    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_REWRITE:
-        raise UpgradeError(f"{printable(os.path.basename(target))[:SHOWN]} is not a file the upgrade can rewrite.")
-    return ("file", target, Path(target).read_bytes(), info.st_mode & 0o777)
-
-
-def _put_back(record: tuple) -> None:
-    kind, target = record[0], record[1]
-    if kind == "none":
-        if os.path.lexists(target):
-            os.unlink(target)
-        return
-    if kind == "link":
-        if os.path.lexists(target):
-            os.unlink(target)
-        os.symlink(record[2], target)
-        return
-    handle, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".restore.")
-    try:
-        with os.fdopen(handle, "wb") as out:
-            out.write(record[2])
-        os.chmod(tmp, record[3])
-        os.replace(tmp, target)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-
 def upgrade_apply(root, plan: dict) -> List[str]:
-    """Writes a plan in `root` and answers the paths it wrote, sorted. Only the plan's own paths are touched, none
-    through a link; each file is written through a temporary file and `os.replace`, keeps its execute bit, and is LF. When a
-    write fails, what was written is put back and the error goes on. It refuses a folder that is a submodule or holds a
-    repository of its own: the standard's files do not go into another repository."""
+    """Writes a plan in `root` and answers the paths it wrote, sorted. Only the plan's own paths are touched, none through a link;
+    each file is written through a temporary file and `os.replace`, keeps its execute bit, and is LF."""
     if plan.get("refused"):
         raise UpgradeError(plan["refused"])
     base = os.path.realpath(str(root))
-    modules = gitlinks(base, [each["path"] for each in plan["files"] if each["action"] in (ADD, UPDATE)])
-    if modules:
-        raise UpgradeError("The upgrade does not write into a submodule: " + ", ".join(modules) + ". Fix: make it a folder of this "
-                           "repository, or take it out of the standard's paths.")
-    done: List[tuple] = []
     out: List[str] = []
-    try:
-        for each in plan["files"]:
-            if each["action"] not in (ADD, UPDATE):
-                continue
-            target = _inside(base, each["path"])
-            before = _snapshot(target)
-            mode = 0o755 if before[0] == "file" and before[3] & 0o111 else 0o644
-            done.append(before)
-            paths.write_atomic(Path(target), each["content"].decode("utf-8"), mode)
-            out.append(each["path"])
-    except BaseException:
-        rollback(done)
-        raise
+    for each in plan["files"]:
+        if each["action"] not in (ADD, UPDATE):
+            continue
+        target = _inside(base, each["path"])
+        executable = os.path.isfile(target) and not os.path.islink(target) and os.access(target, os.X_OK)
+        paths.write_atomic(Path(target), each["content"].decode("utf-8"), 0o755 if executable else 0o644)
+        out.append(each["path"])
     return sorted(out)
-
-
-def rollback(done: list) -> None:
-    """Puts back every file `upgrade_apply` wrote, last first."""
-    for record in reversed(done):
-        try:
-            _put_back(record)
-        except OSError:
-            pass
 
 
 # ---- git around an upgrade
@@ -1088,25 +1020,6 @@ def dirty_files(root, relative: Iterable[str]) -> List[str]:
     for record in result.out.split(b"\0"):
         if len(record) > 3:
             found.append(os.fsdecode(record[3:]))
-    return sorted(found)
-
-
-def gitlinks(root, relative: Iterable[str]) -> List[str]:
-    """Which folders on the way to these paths are submodules (an entry of mode 160000 in the index, there is no repository in
-    it when it was not initialised): the upgrade does not write into another repository. Empty for a folder that is not a work
-    tree."""
-    folders = sorted({"/".join(parts[:cut]) for parts in (path.split("/") for path in set(relative)) for cut in range(1, len(parts))})
-    if not folders or not _is_work_tree(root):
-        return []
-    result = _asked(root, "ls-files", "--stage", "-z", "--", *(":(literal)" + folder for folder in folders))
-    if result.code != 0:
-        raise UpgradeError("git could not say which folders are submodules: " + printable(result.err)[:200])
-    found = []
-    for record in result.out.split(b"\0"):
-        mode, _, rest = record.partition(b" ")
-        name = os.fsdecode(rest.partition(b"\t")[2])
-        if mode == b"160000" and name in folders:
-            found.append(name)
     return sorted(found)
 
 
