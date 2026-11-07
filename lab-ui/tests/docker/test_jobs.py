@@ -357,12 +357,12 @@ class Cut(Case):
 
         def step(job):
             try:
-                job.exec(["sh", "-c", 'echo " Container gio-hybrid Waiting "; exec sleep 600'])
+                job.exec(["sh", "-c", 'echo " Container gio-hyssop Waiting "; exec sleep 600'])
             except JobFailed as failed:
                 caught.append(str(failed))
             job.exec(["sh", "-c", 'echo " Container gio-api Waiting "; exec sleep 600'])
         job, thread = self.run_job(step)
-        for name in ("gio-hybrid", "gio-api"):
+        for name in ("gio-hyssop", "gio-api"):
             if not waited(lambda: job.detail() == f"Container {name} Waiting"):
                 self.fail(f"{name} is not waited for: {self.said(job)}")
             began = time.monotonic()
@@ -371,7 +371,7 @@ class Cut(Case):
         thread.join(ENDED)
         if thread.is_alive():
             self.fail(f"the second command still waits for gio-api: {self.said(job)}")
-        self.assertEqual((caught, job.ok, job.error()), (["gio-hybrid keeps restarting"], False, "gio-api keeps restarting"))
+        self.assertEqual((caught, job.ok, job.error()), (["gio-hyssop keeps restarting"], False, "gio-api keeps restarting"))
 
     def test_plugins_up_is_not_left_to_wait_for_ever_once_its_first_wait_was_ended(self):
         # The real step: one of the two is made, then waited for alone, a wait that says nothing; the other starts after
@@ -385,13 +385,13 @@ class Cut(Case):
             return {"container": container, "image": f"graviteeio/{container}:4", "label": container, "oneshot": False,
                     "depends_on": [], "owner": {"kind": "platform", "id": "api-management", "name": "API"}}
         product = {"name": "API Management", "folder": "plugins/apim", "lib": {},
-                   "services": {"api": "/opt/api/plugins", "hybrid": "/opt/h/plugins"}}
-        project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hybrid": service("gio-hybrid")}}
-        job, thread = self.run_job(lambda job: plugins.up(job, project, ["hybrid", "api"]))
+                   "services": {"api": "/opt/api/plugins", "hyssop": "/opt/h/plugins"}}
+        project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hyssop": service("gio-hyssop")}}
+        job, thread = self.run_job(lambda job: plugins.up(job, project, ["hyssop", "api"]))
         thread.join(ENDED)
         self.assertFalse(thread.is_alive(), "plugins.up still waits on the `up` of the rest")
         self.assertEqual([line.split(" compose ")[-1] for line in job.lines if line.startswith("$")],
-                         ["up -d --no-deps api", "up -d --no-deps hybrid"])   # the wait in between is quiet, and was ended
+                         ["up -d --no-deps api", "up -d --no-deps hyssop"])   # the wait in between is quiet, and was ended
         self.assertIs(job.ok, False)
         self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
 

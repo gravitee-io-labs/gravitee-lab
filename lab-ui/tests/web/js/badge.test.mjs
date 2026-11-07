@@ -276,11 +276,11 @@ test("a note that says what an item needs is a card of its causes: the versions 
   assert.equal(newerCard.foot, "Choose them on the Images page.");
   assert.deepEqual(newerCard.rows[0].lines, [[{ who: "Access Management" }, { code: "4.13" }, "or later"], [{ who: "API Management" }, { code: "4.13.0-alpha.3" }, "or later"]]);
   assert.equal(link.getAttribute("data-tip"), "Needs 4.13", "what a screen reader hears of it is the server's sentence");
-  const unset = draw(noteBadge({ kind: "addon", id: "hybrid", note: "Needs settings", note_tone: "warn", note_title: "", note_causes: [{ kind: "unset", settings: ["HYBRID_CLOUD_TOKEN"] }] }));
+  const unset = draw(noteBadge({ kind: "addon", id: "hyssop", note: "Needs settings", note_tone: "warn", note_title: "", note_causes: [{ kind: "unset", settings: ["HYSSOP_CLOUD_TOKEN"] }] }));
   const button = unset.querySelector("button");
-  assert.equal(button.getAttribute("data-settings"), "addon:hybrid", "it opens its own settings");
-  assert.deepEqual(JSON.parse(button.getAttribute("data-tip-card")).rows[0].lines, [[{ code: "HYBRID_CLOUD_TOKEN" }]]);
-  assert.equal(button.getAttribute("data-tip"), "Needs settings. HYBRID_CLOUD_TOKEN. Set it in its settings");
+  assert.equal(button.getAttribute("data-settings"), "addon:hyssop", "it opens its own settings");
+  assert.deepEqual(JSON.parse(button.getAttribute("data-tip-card")).rows[0].lines, [[{ code: "HYSSOP_CLOUD_TOKEN" }]]);
+  assert.equal(button.getAttribute("data-tip"), "Needs settings. HYSSOP_CLOUD_TOKEN. Set it in its settings");
   // The foot agrees with what it is about: one setting is "it", several "them"; one version "it", several "them"
   const two = draw(noteBadge({ kind: "addon", id: "aws", note: "Needs settings", note_tone: "warn", note_causes: [{ kind: "unset", settings: ["A", "B"] }] }));
   assert.equal(JSON.parse(two.querySelector("button").getAttribute("data-tip-card")).foot, "Set them in its settings.");

@@ -26,7 +26,7 @@ JADE, ORCHARD = ".lab/catalogs/fixture/addons/jade/compose.yml", ".lab/catalogs/
 INSPECTOR = ".lab/catalogs/fixture/addons/agent-lens/compose.yml"
 EVENTS, MINE, WELCOME = ".lab/catalogs/fixture/setups/event-streams.yml", ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/fixture/playgrounds/welcome/compose.yml"
 WHOAMI, SANDBOX = ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/playgrounds/sandbox/compose.yml"
-HYBRID, CLOUD = ".lab/catalogs/fixture/addons/hybrid/compose.yml", ".lab/catalogs/fixture/playgrounds/cloud/compose.yml"
+HYSSOP, CLOUD = ".lab/catalogs/fixture/addons/hyssop/compose.yml", ".lab/catalogs/fixture/playgrounds/cloud/compose.yml"
 
 
 HOST_SHAPE = "a list of checks, each with a name and a check URL, its expect and help in text"
@@ -238,16 +238,16 @@ def inputs():
 
 # The add-on that runs the gateway of a platform, with its own Redis, and a playground that can be deployed to that
 # platform. They are not in RAW: the tests of the other modules count its add-ons and playgrounds.
-HYBRID_RAW = {
+HYSSOP_RAW = {
     "x-gravitee": {"kind": "addon", "name": "Hybrid gateway", "category": "Gravitee Platform",
                    "description": "Gateway managed by a platform",
-                   "gateway": {"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN"}},
+                   "gateway": {"platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN"}},
     "services": {
-        "apim-hybrid-gateway": service(
-            "${HYBRID_GATEWAY_REGISTRY:-graviteeio}/apim-gateway:${HYBRID_GATEWAY_VERSION:-4.12.21-debian}",
-            "Hybrid gateway", ports=[port(8090, 8082)], environment={"gravitee_cloud_token": "${HYBRID_CLOUD_TOKEN}"},
-            depends_on={"hybrid-redis": {"condition": "service_healthy", "required": True}}),
-        "hybrid-redis": service("redis:${HYBRID_REDIS_VERSION:-${REDIS_VERSION:-8.10.1-alpine}}",
+        "apim-hyssop-gateway": service(
+            "${HYSSOP_GATEWAY_REGISTRY:-graviteeio}/apim-gateway:${HYSSOP_GATEWAY_VERSION:-4.12.21-debian}",
+            "Hybrid gateway", ports=[port(8090, 8082)], environment={"gravitee_cloud_token": "${HYSSOP_CLOUD_TOKEN}"},
+            depends_on={"hyssop-redis": {"condition": "service_healthy", "required": True}}),
+        "hyssop-redis": service("redis:${HYSSOP_REDIS_VERSION:-${REDIS_VERSION:-8.10.1-alpine}}",
                                 "Hybrid gateway Redis"),
     },
 }
@@ -269,15 +269,15 @@ def with_cloud():
     """inputs() with the hybrid gateway add-on and the playground that can be deployed to a platform: an API seed, apps
     that stand alone."""
     given = inputs()
-    given["raw"].update({HYBRID: copy.deepcopy(HYBRID_RAW), CLOUD: copy.deepcopy(CLOUD_RAW)})
-    given["includes"].update({HYBRID: [], CLOUD: []})
+    given["raw"].update({HYSSOP: copy.deepcopy(HYSSOP_RAW), CLOUD: copy.deepcopy(CLOUD_RAW)})
+    given["includes"].update({HYSSOP: [], CLOUD: []})
     given["variables"].update({
-        HYBRID: [variable("HYBRID_GATEWAY_REGISTRY", "graviteeio"),
-                 variable("HYBRID_GATEWAY_VERSION", "4.12.21-debian"),
-                 variable("HYBRID_REDIS_VERSION", "${REDIS_VERSION:-8.10.1-alpine}"),
+        HYSSOP: [variable("HYSSOP_GATEWAY_REGISTRY", "graviteeio"),
+                 variable("HYSSOP_GATEWAY_VERSION", "4.12.21-debian"),
+                 variable("HYSSOP_REDIS_VERSION", "${REDIS_VERSION:-8.10.1-alpine}"),
                  variable("REDIS_VERSION", "8.10.1-alpine"),
-                 variable("HYBRID_CLOUD_TOKEN", None, "Token of the hybrid gateway"),
-                 variable("HYBRID_LICENSE", "", "License key")], CLOUD: []})
+                 variable("HYSSOP_CLOUD_TOKEN", None, "Token of the hybrid gateway"),
+                 variable("HYSSOP_LICENSE", "", "License key")], CLOUD: []})
     given["guides"]["cloud"] = "# Cloud\n\n## 1. First\n"
     given["seeds"]["cloud"] = ["apim"]
     return given
@@ -728,10 +728,10 @@ class Platforms(AsOwn):
     """What an add-on says of the gateway it runs."""
 
     def built(self, change=None):
-        """The project of with_cloud() once `change(raw of the hybrid add-on, raw of the playground)` is made."""
+        """The project of with_cloud() once `change(raw of the hyssop add-on, raw of the playground)` is made."""
         given = with_cloud()
         if change:
-            change(given["raw"][HYBRID], given["raw"][CLOUD])
+            change(given["raw"][HYSSOP], given["raw"][CLOUD])
         return project.build(given)
 
     def problems(self, built, path):
@@ -739,17 +739,17 @@ class Platforms(AsOwn):
 
     def test_the_gateway_an_add_on_runs(self):
         built = self.built()
-        self.assertEqual(built["addons"]["hybrid"]["gateway"], {
-            "platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN",
-            "domains": ["localhost:8090", "apim-hybrid-gateway:8082"], "group": "api-management"})
-        self.assertEqual(self.problems(built, HYBRID), [])
-        self.assertEqual(built["addons"]["hybrid"]["services"], ["apim-hybrid-gateway", "hybrid-redis"])
-        self.assertEqual(built["addons"]["hybrid"]["restarts"], [])   # its own Redis: it changes nothing of the core
+        self.assertEqual(built["addons"]["hyssop"]["gateway"], {
+            "platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN",
+            "domains": ["localhost:8090", "apim-hyssop-gateway:8082"], "group": "api-management"})
+        self.assertEqual(self.problems(built, HYSSOP), [])
+        self.assertEqual(built["addons"]["hyssop"]["services"], ["apim-hyssop-gateway", "hyssop-redis"])
+        self.assertEqual(built["addons"]["hyssop"]["restarts"], [])   # its own Redis: it changes nothing of the core
 
     def test_a_gateway_whose_image_no_group_runs_belongs_to_none(self):
-        def other(hybrid, cloud):
-            hybrid["services"]["apim-hybrid-gateway"]["image"] = "${HYBRID_REGISTRY:-graviteeio}/am-gateway:4.12.7"
-        self.assertIsNone(self.built(other)["addons"]["hybrid"]["gateway"]["group"])
+        def other(hyssop, cloud):
+            hyssop["services"]["apim-hyssop-gateway"]["image"] = "${HYSSOP_REGISTRY:-graviteeio}/am-gateway:4.12.7"
+        self.assertIsNone(self.built(other)["addons"]["hyssop"]["gateway"]["group"])
 
     def test_the_image_of_a_service_whatever_its_registry_tag_or_digest(self):
         for service, image in (
@@ -765,45 +765,45 @@ class Platforms(AsOwn):
 
     def test_the_domains_come_from_the_first_published_port_and_are_listed_nowhere(self):
         def ports(*found):
-            return lambda hybrid, cloud: hybrid["services"]["apim-hybrid-gateway"].__setitem__("ports", list(found))
+            return lambda hyssop, cloud: hyssop["services"]["apim-hyssop-gateway"].__setitem__("ports", list(found))
         for found, domains in (
-                ([port(8090, 8082), port(8443, 8443)], ["localhost:8090", "apim-hybrid-gateway:8082"]),
-                ([{"target": 9000}, port(8095, 8080)], ["localhost:8095", "apim-hybrid-gateway:8080"]),
-                ([{"target": 9000}, port("${HYBRID_PORT:-8090}", 8082)], []),   # no number to publish on
+                ([port(8090, 8082), port(8443, 8443)], ["localhost:8090", "apim-hyssop-gateway:8082"]),
+                ([{"target": 9000}, port(8095, 8080)], ["localhost:8095", "apim-hyssop-gateway:8080"]),
+                ([{"target": 9000}, port("${HYSSOP_PORT:-8090}", 8082)], []),   # no number to publish on
                 ([{"target": 9000}], []), ([], [])):
             with self.subTest(ports=found):
                 built = self.built(ports(*found))
-                self.assertEqual(built["addons"]["hybrid"]["gateway"]["domains"], domains)
+                self.assertEqual(built["addons"]["hyssop"]["gateway"]["domains"], domains)
         # A service that does not exist publishes none: `make check` says so
-        self.assertEqual(self.built(lambda hybrid, cloud: hybrid["x-gravitee"]["gateway"].update(service="nothing"))
-                         ["addons"]["hybrid"]["gateway"]["domains"], [])
+        self.assertEqual(self.built(lambda hyssop, cloud: hyssop["x-gravitee"]["gateway"].update(service="nothing"))
+                         ["addons"]["hyssop"]["gateway"]["domains"], [])
 
     def test_an_add_on_that_says_none_runs_none(self):
         built = self.built()
-        self.assertEqual([uid for uid, addon in built["addons"].items() if addon["gateway"]], ["hybrid"])
-        self.assertIsNone(self.built(lambda hybrid, cloud: hybrid["x-gravitee"].update(gateway=None))
-                          ["addons"]["hybrid"]["gateway"])
+        self.assertEqual([uid for uid, addon in built["addons"].items() if addon["gateway"]], ["hyssop"])
+        self.assertIsNone(self.built(lambda hyssop, cloud: hyssop["x-gravitee"].update(gateway=None))
+                          ["addons"]["hyssop"]["gateway"])
 
     def test_a_gateway_written_otherwise_is_reported_and_left_out(self):
         message = "x-gravitee.gateway must be a mapping of platform, service and token, each a text"
-        complete = {"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN"}
+        complete = {"platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN"}
         for written in ("cloud", ["cloud"], {}, {**complete, "token": ""}, {**complete, "service": 8082},
                         {key: value for key, value in complete.items() if key != "platform"}):
             with self.subTest(written=written):
-                built = self.built(lambda hybrid, cloud: hybrid["x-gravitee"].update(gateway=written))
-                self.assertIsNone(built["addons"]["hybrid"]["gateway"])
-                self.assertEqual(self.problems(built, HYBRID), [message])
+                built = self.built(lambda hyssop, cloud: hyssop["x-gravitee"].update(gateway=written))
+                self.assertIsNone(built["addons"]["hyssop"]["gateway"])
+                self.assertEqual(self.problems(built, HYSSOP), [message])
 
     def test_without_the_key_the_project_is_what_it_was(self):
         # The key changes its own entry of the project and nothing else; the entry is empty without it
-        with_key, without = self.built(), self.built(lambda hybrid, cloud: hybrid["x-gravitee"].pop("gateway"))
-        self.assertIsNone(without["addons"]["hybrid"]["gateway"])
-        with_key["addons"]["hybrid"]["gateway"] = None
+        with_key, without = self.built(), self.built(lambda hyssop, cloud: hyssop["x-gravitee"].pop("gateway"))
+        self.assertIsNone(without["addons"]["hyssop"]["gateway"])
+        with_key["addons"]["hyssop"]["gateway"] = None
         # Where it can go is its own too: the add-on that runs a gateway is where it runs
         for part in ("deploys_to", "cannot"):
-            with_key["addons"]["hybrid"][part] = without["addons"]["hybrid"][part]
+            with_key["addons"]["hyssop"][part] = without["addons"]["hyssop"][part]
         # And the project says which add-on runs the gateway of a platform, for the pages to read instead of looking
-        self.assertEqual(with_key["platform"], {"gateways": {"cloud": "hybrid"}})
+        self.assertEqual(with_key["platform"], {"gateways": {"cloud": "hyssop"}})
         with_key["platform"] = without["platform"]
         self.assertEqual(without["platform"], {"gateways": {"cloud": None}})
         self.assertEqual(with_key, without)
@@ -1130,7 +1130,7 @@ class Deployable(AsOwn):
         for environment, command in (
                 ({"LLM_URL": "http://apim-gateway:8082/acme/llm"}, ""),
                 ({"MCP_URL": "${MCP_URL:-http://apim-gateway:8082/mcp}"}, ""),
-                ({"GATEWAY_URL": "http://apim-hybrid-gateway:8082"}, ""),
+                ({"GATEWAY_URL": "http://apim-hyssop-gateway:8082"}, ""),
                 ({}, ["serve", "--llm=http://apim-gateway:8082/llm"])):
             with self.subTest(environment=environment, command=command):
                 self.app(environment=environment, command=command)
@@ -1248,7 +1248,7 @@ class Deployable(AsOwn):
     def test_a_plugin_needs_a_gateway_that_mounts_a_plugins_folder(self):
         # The hybrid gateway mounts what its add-on's file mounts: here the plugins of API Management
         self.meta(requires={"plugins": {"apim": ["gravitee-policy-x"]}})
-        self.given["raw"][HYBRID]["services"]["apim-hybrid-gateway"]["volumes"] = [
+        self.given["raw"][HYSSOP]["services"]["apim-hyssop-gateway"]["volumes"] = [
             bind("plugins/apim", "/opt/graviteeio-gateway/plugins-ext")]
         built = self.built()
         self.assertTrue(platforms.plugins(built, "cloud"))

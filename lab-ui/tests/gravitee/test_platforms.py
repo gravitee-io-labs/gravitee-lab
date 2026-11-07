@@ -20,16 +20,16 @@ from .. import Case, fixtures, fake_cloud
 from .test_cloud import Scripted, serving
 from ..library.test_project import read
 
-ADDON_ENV = ".lab/catalogs/fixture/addons/hybrid/.env"
+ADDON_ENV = ".lab/catalogs/fixture/addons/hyssop/.env"
 ACCOUNT = fake_cloud.ACCOUNT["id"]   # the Account ID a person copies from Cloud
 SECOND = fake_cloud.SECOND_ACCOUNT["id"]
 KEY = "PLATFORM_GRAVITEE_CLOUD_TOKEN"
 DEV, TEST = "fake-env-dev", "fake-env-test"
 DEV_KEY = "PLATFORM_GRAVITEE_CLOUD_ENV_FAKE_ENV_DEV_TOKEN"
-FORM = {"key": "HYBRID_CLOUD_TOKEN", "default": None, "required": True, "secret": True, "comment": "the token"}
-GATEWAY = {"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN",
-           "domains": ["localhost:8090", "apim-hybrid-gateway:8082"]}
-PROJECT = {"addons": {"hybrid": {"id": "hybrid", "env_file": ADDON_ENV, "settings": [FORM], "gateway": GATEWAY},
+FORM = {"key": "HYSSOP_CLOUD_TOKEN", "default": None, "required": True, "secret": True, "comment": "the token"}
+GATEWAY = {"platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN",
+           "domains": ["localhost:8090", "apim-hyssop-gateway:8082"]}
+PROJECT = {"addons": {"hyssop": {"id": "hyssop", "env_file": ADDON_ENV, "settings": [FORM], "gateway": GATEWAY},
                       "kazoo": {"id": "kazoo", "env_file": ".lab/catalogs/fixture/addons/kazoo/.env", "settings": [], "gateway": None}},
            "playgrounds": {}, "core_variables": []}
 
@@ -44,7 +44,7 @@ class Platforms(Case):
 
     def setUp(self):
         self.folder(paths, envfiles, files, files={".env": "GRAVITEE_LICENSE=keep-me\n",
-                                                   ".lab/catalogs/fixture/addons/hybrid/compose.yml": ""})
+                                                   ".lab/catalogs/fixture/addons/hyssop/compose.yml": ""})
         self.patch(platforms, "_refused", set())
         self.patch(platforms, "_kept", {})
         self.fake = fake_cloud.serve(connect_after=0)
@@ -86,7 +86,7 @@ class Platforms(Case):
 
     def held(self):
         """The token the add-on holds."""
-        return envfiles.read(ADDON_ENV).get("HYBRID_CLOUD_TOKEN")
+        return envfiles.read(ADDON_ENV).get("HYSSOP_CLOUD_TOKEN")
 
 
 class Register(Platforms):
@@ -498,7 +498,7 @@ class Check(Platforms):
         self.fake.state.gateways[made["id"]]["created"] -= 7200   # created long ago: it connected
         slow = self.create(DEV, "slow")["gateway"]
         found = {g["name"]: g for g in platforms.check("gravitee-cloud", PROJECT)["gateways"]}
-        both = ["localhost:8090", "apim-hybrid-gateway:8082"]
+        both = ["localhost:8090", "apim-hyssop-gateway:8082"]
         self.assertEqual(found["lab"], {"id": made["id"], "name": "lab", "environmentId": "fake-env-test",
                                         "type": "HYBRID", "scope": "APIM", "status": "DEPLOYED",
                                         "connection": "CONNECTED",
@@ -690,7 +690,7 @@ class Capabilities(Platforms):
     def test_plugins_are_what_the_gateway_of_the_add_on_mounts(self):
         self.create()
         mounted = {**self.NAMED, "products": {"apim": {"name": "API Management", "folder": "plugins/apim",
-                                                       "services": {"apim-hybrid-gateway": "/opt/plugins"}}}}
+                                                       "services": {"apim-hyssop-gateway": "/opt/plugins"}}}}
         self.assertTrue(self.runs(project=mounted)["plugins"])
         self.assertFalse(platforms.plugins({**mounted, "addons": {}}, "cloud"), "no add-on runs a gateway here")
 
@@ -932,7 +932,7 @@ class Gateways(Platforms):
     def test_a_hybrid_gateway_is_created_with_the_domains_of_the_add_on_and_its_token_kept(self):
         answer = self.create()
         self.assertEqual(set(answer), {"gateway"})
-        both = ["localhost:8090", "apim-hybrid-gateway:8082"]
+        both = ["localhost:8090", "apim-hyssop-gateway:8082"]
         self.assertEqual(answer["gateway"], {"id": answer["gateway"]["id"], "name": "lab", "type": "HYBRID",
                                              "scope": "APIM", "environmentId": "fake-env-dev", "status": "DEPLOYED",
                                              "connection": "UNKNOWN_HYBRID", "version": "4.12.20", "domains": both,
@@ -941,10 +941,10 @@ class Gateways(Platforms):
         self.assertEqual([item["domain"] for item in made["domains"]], both, "the Cloud keeps both")
         (issued,) = self.fake.state.tokens.values()
         # In the .env of the add-on, which its form shows as the value of the setting
-        self.assertEqual(envfiles.read(ADDON_ENV), {"HYBRID_CLOUD_TOKEN": issued})
+        self.assertEqual(envfiles.read(ADDON_ENV), {"HYSSOP_CLOUD_TOKEN": issued})
         shown = {v["key"]: v["value"] for s in files.settings(PROJECT, ADDON_ENV)["sections"]
                  for g in s["groups"] for v in g["vars"]}
-        self.assertEqual(shown, {"HYBRID_CLOUD_TOKEN": issued})
+        self.assertEqual(shown, {"HYSSOP_CLOUD_TOKEN": issued})
         self.assertEqual(stat.S_IMODE((self.root / ADDON_ENV).stat().st_mode), 0o600)
         self.assertHidden(answer)
 
@@ -957,10 +957,10 @@ class Gateways(Platforms):
         self.assertEqual(cloud.claims(issued)["gateway"], gateway["id"])
 
     def test_the_other_settings_of_the_add_on_stay(self):
-        self.write(ADDON_ENV, "# why\nHYBRID_GATEWAY_VERSION=4.12.1\n")
+        self.write(ADDON_ENV, "# why\nHYSSOP_GATEWAY_VERSION=4.12.1\n")
         self.create()
         (issued,) = self.fake.state.tokens.values()
-        self.assertEqual(self.text(ADDON_ENV), f"# why\nHYBRID_GATEWAY_VERSION=4.12.1\nHYBRID_CLOUD_TOKEN={issued}\n")
+        self.assertEqual(self.text(ADDON_ENV), f"# why\nHYSSOP_GATEWAY_VERSION=4.12.1\nHYSSOP_CLOUD_TOKEN={issued}\n")
 
     def test_the_other_settings_of_the_core_stay(self):
         self.write(".env", "# a note\nGRAVITEE_LICENSE=keep-me\nPLATFORM_GRAVITEE_CLOUD_TOKEN=fake-account-token\n")
@@ -981,7 +981,7 @@ class Gateways(Platforms):
         self.assertEqual(cloud.claims(held)["gateway"], first["id"])
 
     def test_a_token_the_add_on_holds_already_is_not_replaced_whatever_it_is(self):
-        self.write(ADDON_ENV, "HYBRID_CLOUD_TOKEN=old\n")
+        self.write(ADDON_ENV, "HYSSOP_CLOUD_TOKEN=old\n")
         gateway = self.create()["gateway"]
         self.assertEqual((self.held(), gateway["here"], gateway["kept"]), ("old", False, True))
 
@@ -1007,16 +1007,16 @@ class Gateways(Platforms):
 
     def test_without_the_add_on_nothing_is_created(self):
         for addons in ({"kazoo": PROJECT["addons"]["kazoo"]},
-                       {"hybrid": {**PROJECT["addons"]["hybrid"], "gateway": {**GATEWAY, "platform": "other"}}}):
+                       {"hyssop": {**PROJECT["addons"]["hyssop"], "gateway": {**GATEWAY, "platform": "other"}}}):
             with self.subTest(addons=sorted(addons)), \
                     self.assertRaisesRegex(paths.NotFound, "^No add-on runs a gateway of Gravitee Cloud$"):
                 self.create(project={**PROJECT, "addons": addons})
         self.assertEqual(self.fake.state.gateways, {})
 
     def test_the_add_on_is_found_by_the_platform_it_says_and_not_by_its_name(self):
-        project = {**PROJECT, "addons": {"zz-other": {**PROJECT["addons"]["hybrid"], "env_file": ".lab/catalogs/fixture/addons/zz/.env",
+        project = {**PROJECT, "addons": {"zz-other": {**PROJECT["addons"]["hyssop"], "env_file": ".lab/catalogs/fixture/addons/zz/.env",
                                                       "gateway": {**GATEWAY, "token": "ZZ_TOKEN"}},
-                                         "hybrid": {"env_file": ADDON_ENV, "settings": [], "gateway": None}}}
+                                         "hyssop": {"env_file": ADDON_ENV, "settings": [], "gateway": None}}}
         self.write(".lab/catalogs/fixture/addons/zz/compose.yml")
         self.create(project=project)
         (issued,) = self.fake.state.tokens.values()
@@ -1113,7 +1113,7 @@ class Swap(Platforms):
         self.assertEqual(platforms.swap_gateway(PROJECT, "gravitee-cloud", self.second["id"]), {})
         self.assertEqual(cloud.claims(self.held())["gateway"], self.second["id"])
         self.assertEqual(self.here(), {"first": False, "second": True})
-        self.assertEqual(envfiles.read(ADDON_ENV).keys(), {"HYBRID_CLOUD_TOKEN"})
+        self.assertEqual(envfiles.read(ADDON_ENV).keys(), {"HYSSOP_CLOUD_TOKEN"})
 
     def test_the_gateway_that_was_here_stays_kept_and_can_come_back(self):
         platforms.swap_gateway(PROJECT, "gravitee-cloud", self.second["id"])
@@ -1179,7 +1179,7 @@ class Orphan(Platforms):
     def test_nothing_is_said_without_the_project_or_a_token_held(self):
         self.deleted()
         self.assertIsNone(platforms.check("gravitee-cloud")["orphan"])
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         self.assertIsNone(platforms.check("gravitee-cloud", PROJECT)["orphan"])
 
     def test_a_gateway_of_an_environment_the_platform_does_not_list_is_none_of_its_own(self):
@@ -1200,7 +1200,7 @@ class Cascades(Platforms):
 
     def test_a_gateway_goes_from_the_platform_first_and_then_its_token(self):
         gateway = self.create()["gateway"]
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": "elsewhere"})   # the add-on holds another
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": "elsewhere"})   # the add-on holds another
         self.assertEqual(platforms.delete_gateway(PROJECT, "gravitee-cloud", gateway["id"]), {})
         self.assertEqual(self.fake.state.gateways, {})
         self.assertEqual(envfiles.read(".env"), {"GRAVITEE_LICENSE": "keep-me", KEY: fake_cloud.TOKEN})
@@ -1208,9 +1208,9 @@ class Cascades(Platforms):
 
     def test_the_gateway_that_runs_here_leaves_the_add_on_without_a_token(self):
         gateway = self.create()["gateway"]
-        self.write(ADDON_ENV, f"HYBRID_GATEWAY_VERSION=4.12.1\nHYBRID_CLOUD_TOKEN={self.held()}\n")
+        self.write(ADDON_ENV, f"HYSSOP_GATEWAY_VERSION=4.12.1\nHYSSOP_CLOUD_TOKEN={self.held()}\n")
         platforms.delete_gateway(PROJECT, "gravitee-cloud", gateway["id"])
-        self.assertEqual(self.text(ADDON_ENV), "HYBRID_GATEWAY_VERSION=4.12.1\n")
+        self.assertEqual(self.text(ADDON_ENV), "HYSSOP_GATEWAY_VERSION=4.12.1\n")
 
     def test_the_setting_is_emptied_by_the_claims_of_the_token_even_when_the_lab_did_not_keep_it(self):
         gateway = self.create()["gateway"]
@@ -1276,9 +1276,9 @@ class RunsHere(Platforms):
                          [False, True])
 
     def test_a_token_pasted_by_hand_is_not_a_gateway_of_the_platform(self):
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": fake_cloud.GATEWAY_TOKEN})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": fake_cloud.GATEWAY_TOKEN})
         self.assertFalse(platforms.runs_here(PROJECT, "gravitee-cloud"))
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": "not-a-token"})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": "not-a-token"})
         self.assertFalse(platforms.runs_here(PROJECT, "gravitee-cloud"))
 
     def test_forgetting_the_platform_empties_the_add_on_only_when_its_gateway_ran_here(self):
@@ -1295,9 +1295,9 @@ class RunsHere(Platforms):
 
     def test_forgetting_it_with_the_gateway_here_empties_the_add_on_and_every_key(self):
         gateway = self.create()["gateway"]
-        self.write(ADDON_ENV, f"HYBRID_GATEWAY_VERSION=4.12.1\nHYBRID_CLOUD_TOKEN={self.held()}\n")
+        self.write(ADDON_ENV, f"HYSSOP_GATEWAY_VERSION=4.12.1\nHYSSOP_CLOUD_TOKEN={self.held()}\n")
         platforms.remove("gravitee-cloud", PROJECT)
-        self.assertEqual(self.text(ADDON_ENV), "HYBRID_GATEWAY_VERSION=4.12.1\n")
+        self.assertEqual(self.text(ADDON_ENV), "HYSSOP_GATEWAY_VERSION=4.12.1\n")
         self.assertEqual(envfiles.read(".env"), {"GRAVITEE_LICENSE": "keep-me"})
         self.assertEqual(platforms.read(), [])
         self.assertEqual(len(self.fake.state.gateways), 1, f"{gateway['id']} stays in the platform that holds it")
@@ -1310,7 +1310,7 @@ class RunsHere(Platforms):
         self.assertEqual(envfiles.read(".env"), {"GRAVITEE_LICENSE": "keep-me"})
 
     def test_the_token_of_a_gateway_pasted_by_hand_is_not_touched(self):
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": fake_cloud.GATEWAY_TOKEN})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": fake_cloud.GATEWAY_TOKEN})
         platforms.remove("gravitee-cloud", PROJECT)
         self.assertEqual(self.held(), fake_cloud.GATEWAY_TOKEN)
 
@@ -1413,50 +1413,50 @@ class Chosen(Case):
     """The add-on that runs the gateway of a kind of platform here is the one the project chose, nothing scanned."""
 
     def project(self, chosen, **more):
-        addons = {"a-first": {"id": "a-first", "gateway": gateway()}, "hybrid": {"id": "hybrid", "gateway": gateway()},
+        addons = {"a-first": {"id": "a-first", "gateway": gateway()}, "hyssop": {"id": "hyssop", "gateway": gateway()},
                   "kazoo": {"id": "kazoo", "gateway": None}, "other": {"id": "other", "gateway": gateway("another")}}
         return {"addons": {**addons, **more.pop("addons", {})}, "platform": {"gateways": {"cloud": chosen}}, **more}
 
     def test_it_is_the_add_on_the_project_chose_not_the_first_that_says_it_runs_one(self):
-        project = self.project("hybrid")
-        self.assertIs(platforms.gateway_addon(project, "cloud"), project["addons"]["hybrid"])
+        project = self.project("hyssop")
+        self.assertIs(platforms.gateway_addon(project, "cloud"), project["addons"]["hyssop"])
 
     def test_with_none_chosen_there_is_none(self):
-        self.assertIsNone(platforms.gateway_addon(self.project(None), "cloud"), "a-first and hybrid declare one: not usable")
+        self.assertIsNone(platforms.gateway_addon(self.project(None), "cloud"), "a-first and hyssop declare one: not usable")
 
     def test_a_kind_the_project_has_no_choice_for_has_none(self):
-        project = self.project("hybrid")
+        project = self.project("hyssop")
         self.assertIsNone(platforms.gateway_addon(project, "another"))
         self.assertIsNone(platforms.gateway_addon({**project, "platform": {"gateways": {}}}, "cloud"))
 
     def test_a_choice_that_is_no_add_on_of_the_project_or_does_not_declare_the_kind_is_none(self):
-        for chosen in ("gone", "kazoo", "other", 7, ["hybrid"], ""):
+        for chosen in ("gone", "kazoo", "other", 7, ["hyssop"], ""):
             with self.subTest(chosen=chosen):
                 self.assertIsNone(platforms.gateway_addon(self.project(chosen), "cloud"))
 
     def test_a_project_that_does_not_say_is_asked_the_same_way_over_its_add_ons_by_id(self):
-        project = self.project("hybrid")
+        project = self.project("hyssop")
         del project["platform"]
         self.assertIs(platforms.gateway_addon(project, "cloud"), project["addons"]["a-first"])
         project["addons"]["a-first"]["blocked"] = {"reasons": ["Runs with full privileges"]}
-        self.assertIs(platforms.gateway_addon(project, "cloud"), project["addons"]["hybrid"])
-        project["addons"]["hybrid"]["needs_catalogs"] = [{"reason": "missing"}]
+        self.assertIs(platforms.gateway_addon(project, "cloud"), project["addons"]["hyssop"])
+        project["addons"]["hyssop"]["needs_catalogs"] = [{"reason": "missing"}]
         self.assertIsNone(platforms.gateway_addon(project, "cloud"))
         self.assertIsNone(platforms.gateway_addon({"addons": {}}, "cloud"))
         self.assertIs(platforms.gateway_addon({**project, "platform": {"gateways": None}}, "another"), project["addons"]["other"])
 
     def test_the_token_goes_to_the_add_on_that_was_chosen_and_to_no_other(self):
-        project = self.project("hybrid")
+        project = self.project("hyssop")
         self.folder(paths, envfiles)
         self.write(".env", "")
         record = {"id": "cloud", "name": "Cloud", "kind": "cloud", "url": "http://127.0.0.1:1", "account": {"id": "x"}}
         self.write(platforms.FILE, json.dumps([record]))
         envfiles.write(".env", {platforms._key("cloud", "GATEWAY", "gw-1"): "token-of-gw-1"})
-        platforms.swap_gateway({**project, "addons": {**project["addons"], "hybrid": {**project["addons"]["hybrid"],
-                                                                                    "env_file": "hybrid.env"},
+        platforms.swap_gateway({**project, "addons": {**project["addons"], "hyssop": {**project["addons"]["hyssop"],
+                                                                                    "env_file": "hyssop.env"},
                                                       "a-first": {**project["addons"]["a-first"], "env_file": "first.env"}}},
                                "cloud", "gw-1")
-        self.assertEqual(envfiles.read("hybrid.env"), {"GW_TOKEN": "token-of-gw-1"})
+        self.assertEqual(envfiles.read("hyssop.env"), {"GW_TOKEN": "token-of-gw-1"})
         self.assertFalse((self.root / "first.env").exists())
 
 

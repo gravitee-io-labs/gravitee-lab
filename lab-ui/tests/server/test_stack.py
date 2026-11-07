@@ -170,13 +170,13 @@ class StackActions(Case):
         UI, which does not run; Start all reads the platform again first (`live`)."""
         self.patch(stack.core, "current", return_value={"place": "my-account/dev", "chosen": True, "environment": "Development"})
         self.patch(stack.core, "name", return_value="Development (My Account)")
-        gateway = {"do": "start", "kind": "addon", "id": "hybrid", "starts": [{"kind": "addon", "id": "hybrid", "name": "Hybrid"}],
-                   "stops": [], "turns_off": [], "keeps": [], "restarts": [], "serves": [], "blocked": None, "itself": {"addon:hybrid"},
-                   "playground": "welcome", "explicit": ["hybrid", "kazoo"], "services": {"remove": [], "start": ["hybrid"]}}
+        gateway = {"do": "start", "kind": "addon", "id": "hyssop", "starts": [{"kind": "addon", "id": "hyssop", "name": "Hyssop"}],
+                   "stops": [], "turns_off": [], "keeps": [], "restarts": [], "serves": [], "blocked": None, "itself": {"addon:hyssop"},
+                   "playground": "welcome", "explicit": ["hyssop", "kazoo"], "services": {"remove": [], "start": ["hyssop"]}}
         found = {"gateway": gateway, "place": {"id": "my-account/dev", "name": "Development (My Account)", "here": here},
                  "gateway_id": "g1", "others": ["kazoo-ui"], "needs_core": [], "needed": needed,
                  "dialog": {"starts": gateway["starts"] + [{"kind": "addon", "id": "kazoo", "name": "Kazoo"}]}}
-        self.patch(stack.layers, "changes", return_value={"start": [["addon", "hybrid"]], "stop": []})
+        self.patch(stack.layers, "changes", return_value={"start": [["addon", "hyssop"]], "stop": []})
         self.patch(stack.layers, "waits", return_value=[awaited(DEFINED, start=["kazoo"])])
         return self.patch(stack.core, "plan", return_value=found)
 
@@ -203,13 +203,13 @@ class StackActions(Case):
         title, steps, options = self.started(self.jobs)
         self.assertEqual(title, "Start all for Development (My Account)")
         self.assertEqual(options["key"], "platform")
-        self.assertEqual(options["changes"]["start"], [["addon", "hybrid"], ["service", "kazoo-ui"]])
+        self.assertEqual(options["changes"]["start"], [["addon", "hyssop"], ["service", "kazoo-ui"]])
         self.assertEqual(len(options["waits"]), 2, "one wait for each Compose command")
         job, ran = self.core_job()
-        self.assertEqual(ran, [[*self.COMPOSE, "up", "-d", "--no-deps", "hybrid"], [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo-ui"]])
-        written.assert_called_once_with("welcome", ["hybrid", "kazoo"], None, {}, blocked={}, since=None)   # none is blocked
+        self.assertEqual(ran, [[*self.COMPOSE, "up", "-d", "--no-deps", "hyssop"], [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo-ui"]])
+        written.assert_called_once_with("welcome", ["hyssop", "kazoo"], None, {}, blocked={}, since=None)   # none is blocked
         swap.assert_called_once_with(PROJECT, "my-account", "g1")
-        self.assertEqual(job.lines, ["Serves: Development (My Account)", "Starts: Hybrid, Kazoo"])
+        self.assertEqual(job.lines, ["Serves: Development (My Account)", "Starts: Hyssop, Kazoo"])
         self.assertFalse(any(name in str(ran) for name in ("mongodb", "redis")), "no service of the core")
         invalidate.assert_called_once_with("my-account")
 
@@ -271,8 +271,8 @@ class StackActions(Case):
         self.patch(stack.places, "invalidate")
         self.write(paths.ON_FILE, "include:\n  - playgrounds/welcome/compose.yml\n  - addons/kazoo/compose.yml\n")
         gateway = self.cloud_core(here=False).return_value["gateway"]
-        gateway.update(explicit=["hybrid"], stops=[{"kind": "addon", "id": "kazoo", "name": "Kazoo"}],
-                       services={"remove": ["kazoo", "kazoo-ui"], "start": ["hybrid"]}, stamp=layers.stamp())
+        gateway.update(explicit=["hyssop"], stops=[{"kind": "addon", "id": "kazoo", "name": "Kazoo"}],
+                       services={"remove": ["kazoo", "kazoo-ui"], "start": ["hyssop"]}, stamp=layers.stamp())
         stack.action(PROJECT, "start", for_core=True, accept=["addon:kazoo"])
         job, ran = self.core_job(fails="rm")
         self.assertEqual((job.ok, ran[0][-6:]), (False, ["rm", "--stop", "--force", "-v", "kazoo", "kazoo-ui"]))

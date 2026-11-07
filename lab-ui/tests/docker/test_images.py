@@ -121,30 +121,30 @@ class Images(Case):
     def test_the_gateway_of_an_add_on_follows_the_group_that_runs_its_image(self):
         # The hybrid gateway runs API Management's gateway image (project._gateway_groups): its component comes after
         # the group's own, says the group under its name, and stays the add-on's (its owner, its .env, its state)
-        hybrid = {"kind": "addon", "id": "hybrid", "name": "Hybrid gateway"}
-        self.project["services"]["apim-hybrid-gateway"] = {
-            "label": "Hybrid gateway", "owner": hybrid, "image": "graviteeio/apim-gateway:4.12.21-debian",
-            "raw_image": "${HYBRID_REGISTRY:-graviteeio}/apim-gateway:${HYBRID_GATEWAY_VERSION:-4.12.21-debian}",
+        hyssop = {"kind": "addon", "id": "hyssop", "name": "Hybrid gateway"}
+        self.project["services"]["apim-hyssop-gateway"] = {
+            "label": "Hybrid gateway", "owner": hyssop, "image": "graviteeio/apim-gateway:4.12.21-debian",
+            "raw_image": "${HYSSOP_REGISTRY:-graviteeio}/apim-gateway:${HYSSOP_GATEWAY_VERSION:-4.12.21-debian}",
             "tag": "4.12.21-debian", "registry": "graviteeio", "image_tags": None}
-        self.project["addons"]["hybrid"] = {"gateway": {"service": "apim-hybrid-gateway", "group": "api-management"}}
+        self.project["addons"]["hyssop"] = {"gateway": {"service": "apim-hyssop-gateway", "group": "api-management"}}
         self.project["groups"] = [{"id": "databases", "name": "Databases"},
                                   {"id": "api-management", "name": "API Management"}]
         found = images.components(self.project)
         self.assertEqual([c["id"] for c in found],
                          ["ELASTICSEARCH_VERSION", "MONGODB_VERSION", "APIM_VERSION", "APIM_GATEWAY_VERSION",
-                          "HYBRID_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION",
+                          "HYSSOP_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION",
                           "MIRROR_VERSION"])
-        gateway = self.component("HYBRID_GATEWAY_VERSION")
+        gateway = self.component("HYSSOP_GATEWAY_VERSION")
         self.assertEqual((gateway["label"], gateway["detail"], gateway["owner"], gateway["group"]),
-                         ("Hybrid gateway", "API Management", hybrid, "api-management"))
+                         ("Hybrid gateway", "API Management", hyssop, "api-management"))
         self.assertEqual([c["group"] for c in found if c["owner"]["kind"] == "addon"],
                          ["api-management", None, None, None, None])
         # A gateway whose image no group runs stays with the add-ons, by name
-        self.project["addons"]["hybrid"]["gateway"]["group"] = None
+        self.project["addons"]["hyssop"]["gateway"]["group"] = None
         self.assertEqual([c["id"] for c in images.components(self.project)][4:],
-                         ["HYBRID_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION",
+                         ["HYSSOP_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION",
                           "MIRROR_VERSION"])
-        self.assertEqual(self.component("HYBRID_GATEWAY_VERSION")["detail"], "Hybrid gateway")
+        self.assertEqual(self.component("HYSSOP_GATEWAY_VERSION")["detail"], "Hybrid gateway")
 
     def test_groups_in_declared_order_and_add_ons_by_name(self):
         self.project["groups"].reverse()

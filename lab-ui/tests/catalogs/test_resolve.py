@@ -315,9 +315,9 @@ class Gateway(Case):
         return dict({"gateway": {"platform": platform, "service": "gw", "token": "T"}}, **more)
 
     def test_the_first_in_the_precedence_that_can_run_wins(self):
-        units = {"alpha": self.addon(), "hybrid": self.addon(), "zeta": self.addon()}
+        units = {"alpha": self.addon(), "hyssop": self.addon(), "zeta": self.addon()}
         self.assertEqual(resolve.gateway_addon(units, "cloud", list(units)), "alpha")
-        self.assertEqual(resolve.gateway_addon(units, "cloud", order=["zeta", "alpha", "hybrid"]), "zeta")
+        self.assertEqual(resolve.gateway_addon(units, "cloud", order=["zeta", "alpha", "hyssop"]), "zeta")
 
     def test_a_unit_that_cannot_run_is_not_a_candidate(self):
         for more in ({"blocked": {"reasons": ["x"]}}, {"verdict": {"state": "blocked"}}, {"compat": "new"}, {"compat": "old"},

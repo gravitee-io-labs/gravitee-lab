@@ -766,7 +766,7 @@ class Gateways(Machine):
         super().setUp()
         self.patch(platforms, "KINDS", self.KINDS)
 
-    def hybrid(self, ns="fixture", name="hybrid", kind="cloud", token="HYBRID_CLOUD_TOKEN", service_name=None, waits=()):
+    def hyssop(self, ns="fixture", name="hyssop", kind="cloud", token="HYSSOP_CLOUD_TOKEN", service_name=None, waits=()):
         """An add-on that runs the gateway of a kind: the unit as the project reads it."""
         file, raw = member(ns, "addon", name, [f"apim-{name}-gateway", f"{name}-redis"])
         names = list(raw["services"])
@@ -777,12 +777,12 @@ class Gateways(Machine):
         return file, raw
 
     def build(self, *units, settings=True, **more):
-        variables = {file: [variable("HYBRID_CLOUD_TOKEN", None if settings else "demo", "Token of the gateway")]
+        variables = {file: [variable("HYSSOP_CLOUD_TOKEN", None if settings else "demo", "Token of the gateway")]
                      for file, _ in units}
         return self.machine(list(units), variables=variables, **more)
 
-    def gateway(self, uid="hybrid", **said):
-        file, raw = self.hybrid()
+    def gateway(self, uid="hyssop", **said):
+        file, raw = self.hyssop()
         raw["x-gravitee"]["gateway"].update(said)
         built = self.build((file, raw))
         return list(check._gateway(built["addons"][uid], built))
@@ -799,38 +799,38 @@ class Gateways(Machine):
         for name in ("nothing", "apim-gateway"):   # not there, the core's
             with self.subTest(service=name):
                 self.assertEqual(self.gateway(service=name), [f"x-gravitee.gateway.service: {name} is not a service of this add-on"])
-        self.assertEqual(self.gateway(service="hybrid-redis"), ["x-gravitee.gateway.service: hybrid-redis publishes no port"])
+        self.assertEqual(self.gateway(service="hyssop-redis"), ["x-gravitee.gateway.service: hyssop-redis publishes no port"])
 
     def test_the_token_of_a_gateway_is_a_setting_the_add_on_requires(self):
         wanted = "x-gravitee.gateway.token: {0} must be a setting of this add-on without a default: ${{{0}}}"
-        self.assertEqual(self.gateway(token="HYBRID_OTHER"), [wanted.format("HYBRID_OTHER")])
-        built = self.build(self.hybrid(), settings=False)   # the setting has a default
-        self.assertEqual(list(check._gateway(built["addons"]["hybrid"], built)), [wanted.format("HYBRID_CLOUD_TOKEN")])
+        self.assertEqual(self.gateway(token="HYSSOP_OTHER"), [wanted.format("HYSSOP_OTHER")])
+        built = self.build(self.hyssop(), settings=False)   # the setting has a default
+        self.assertEqual(list(check._gateway(built["addons"]["hyssop"], built)), [wanted.format("HYSSOP_CLOUD_TOKEN")])
 
     def test_one_add_on_of_a_catalog_runs_the_gateway_of_a_kind_of_platform(self):
-        again = "x-gravitee.gateway: hybrid runs the gateway of cloud already: one add-on does"
-        built = self.build(self.hybrid(), self.hybrid(name="other", kind="apim"))   # another kind: both can
-        self.assertEqual([list(check._gateway(built["addons"][uid], built)) for uid in ("hybrid", "other")], [[], []])
-        built = self.build(self.hybrid(), self.hybrid(name="other", kind="cloud"))   # the same kind: the later one is the problem
-        self.assertEqual([list(check._gateway(built["addons"][uid], built)) for uid in ("hybrid", "other")], [[], [again]])
+        again = "x-gravitee.gateway: hyssop runs the gateway of cloud already: one add-on does"
+        built = self.build(self.hyssop(), self.hyssop(name="other", kind="apim"))   # another kind: both can
+        self.assertEqual([list(check._gateway(built["addons"][uid], built)) for uid in ("hyssop", "other")], [[], []])
+        built = self.build(self.hyssop(), self.hyssop(name="other", kind="cloud"))   # the same kind: the later one is the problem
+        self.assertEqual([list(check._gateway(built["addons"][uid], built)) for uid in ("hyssop", "other")], [[], [again]])
 
     def test_a_second_provider_in_another_catalog_is_told_which_one_is_used(self):
         # Only a catalog the engine lists (or this machine) may declare a gateway: the key is cleared for any other (N04)
-        built = self.build(self.hybrid(), self.hybrid(ns="partner", name="theirs"),
+        built = self.build(self.hyssop(), self.hyssop(ns="partner", name="theirs"),
                            catalogs={"partner": {"name": "Partner Bank", "listed": True}})
-        self.assertEqual(built["platform"]["gateways"]["cloud"], "hybrid")
-        self.assertEqual(list(check._gateway(built["addons"]["hybrid"], built)), [])
+        self.assertEqual(built["platform"]["gateways"]["cloud"], "hyssop")
+        self.assertEqual(list(check._gateway(built["addons"]["hyssop"], built)), [])
         self.assertEqual(list(check._gateway(built["addons"]["@partner/theirs"], built)),
                          ["x-gravitee.gateway: also provided by Fixture, which is used"])
         # The one that is used says nothing of the other, and a catalog that may not declare one has none to say
-        built = self.build(self.hybrid(), self.hybrid(ns="partner", name="theirs"))
+        built = self.build(self.hyssop(), self.hyssop(ns="partner", name="theirs"))
         self.assertIsNone(built["addons"]["@partner/theirs"]["gateway"])
         self.assertEqual(list(check._gateway(built["addons"]["@partner/theirs"], built)), [])
 
     def test_a_deploy_brings_the_gateway_alone_so_it_leaves_the_core_as_it_is(self):
-        built = self.build(self.hybrid(waits=("hybrid-redis", "apim-gateway")))   # its own Redis is fine, the core's is not
-        self.assertEqual(list(check._gateway(built["addons"]["hybrid"], built)), [
-            "x-gravitee.gateway: a deploy brings hybrid, whose apim-hybrid-gateway depends_on apim-gateway, a service of the "
+        built = self.build(self.hyssop(waits=("hyssop-redis", "apim-gateway")))   # its own Redis is fine, the core's is not
+        self.assertEqual(list(check._gateway(built["addons"]["hyssop"], built)), [
+            "x-gravitee.gateway: a deploy brings hyssop, whose apim-hyssop-gateway depends_on apim-gateway, a service of the "
             "core, which a deploy does not start"])
 
     def test_an_add_on_that_runs_no_gateway_is_not_asked_for_one(self):
@@ -838,10 +838,10 @@ class Gateways(Machine):
         self.assertEqual(list(check._gateway(built["addons"]["kazoo"], built)), [])
 
     def test_the_add_on_is_checked_with_the_rest(self):
-        file, raw = self.hybrid()
+        file, raw = self.hyssop()
         raw["x-gravitee"]["gateway"]["service"] = "nothing"
         self.build((file, raw))
-        self.assertEqual(self.lines("addon", "hybrid"), ["x-gravitee.gateway.service: nothing is not a service of this add-on"])
+        self.assertEqual(self.lines("addon", "hyssop"), ["x-gravitee.gateway.service: nothing is not a service of this add-on"])
 
 
 class Listings(Case):
@@ -2124,14 +2124,14 @@ class FreshClone(Shared):
     contract names the anchors all the same, so that a unit that binds one where it is meant to be is not told where it is."""
 
     CATALOGS = {"partner": {"files": {
-        "addons/hybrid/compose.yml": addon("hybrid", """services:
-  hybrid-gateway:
+        "addons/hyssop/compose.yml": addon("hyssop", """services:
+  hyssop-gateway:
     image: busybox
     labels: {io.gravitee.description: Gateway}
     volumes:
       - ../../../../../plugins/apim:/opt/plugins:ro
 """),
-        "addons/hybrid/README.md": "# Hybrid\n"}}}
+        "addons/hyssop/README.md": "# Hyssop\n"}}}
 
     @classmethod
     def prepare(cls, case):
@@ -2139,17 +2139,17 @@ class FreshClone(Shared):
 
     def test_a_plugin_folder_that_is_not_made_yet_is_still_the_anchor_the_contract_names(self):
         self.assertFalse((self.root / "plugins").exists())
-        said = self.said("partner", "addons/hybrid/compose.yml")
+        said = self.said("partner", "addons/hyssop/compose.yml")
         self.assertEqual([line for line in said if "outside the folder" in line or "host_access" in line], [])
 
     def test_the_right_depth_is_still_told_for_a_folder_that_is_not_an_anchor(self):
-        unit, folder = {"services": ["hybrid-gateway"]}, self.root / ".lab/catalogs/partner/addons/hybrid"
-        config = {"services": {"hybrid-gateway": {"volumes": [{"type": "bind", "source": str(self.root / "plugins/other")}]}}}
+        unit, folder = {"services": ["hyssop-gateway"]}, self.root / ".lab/catalogs/partner/addons/hyssop"
+        config = {"services": {"hyssop-gateway": {"volumes": [{"type": "bind", "source": str(self.root / "plugins/other")}]}}}
         anchors = {**check._anchors(check._anchored([])), "closure": []}
         [said] = check._geometry(unit, config, folder, {}, anchors)
         self.assertIn("is outside the folder of this unit", said)
         self.assertEqual(list(check._geometry(
-            unit, {"services": {"hybrid-gateway": {"volumes": [{"type": "bind", "source": str(self.root / "plugins/apim")}]}}},
+            unit, {"services": {"hyssop-gateway": {"volumes": [{"type": "bind", "source": str(self.root / "plugins/apim")}]}}},
             folder, {}, anchors)), [])
 
 

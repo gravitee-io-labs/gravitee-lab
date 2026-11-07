@@ -608,15 +608,15 @@ class State(Built):
             ("running without being on", "addon", "kiosk", {"containers": {**CORE, **healthy("kiosk")}},
              "start", "Turn on", True, None, None),
             # Without its settings it cannot be turned on: its Start waits for them, its note opens them
-            ("lacks settings", "addon", "hybrid", {"missing": ["hybrid"]}, "start", "Start", False, "Needs settings", None),
-            ("lacks settings, whatever else waits", "addon", "hybrid",
-             {"missing": ["hybrid"], "job": kazoo, "docker_error": "down", "locked": layers.LOCKED},
+            ("lacks settings", "addon", "hyssop", {"missing": ["hyssop"]}, "start", "Start", False, "Needs settings", None),
+            ("lacks settings, whatever else waits", "addon", "hyssop",
+             {"missing": ["hyssop"], "job": kazoo, "docker_error": "down", "locked": layers.LOCKED},
              "start", "Start", False, "Needs settings", None),
             # ... and while it runs all the same (started outside the Lab UI), it is stopped from its row
-            ("lacks settings and runs", "addon", "hybrid",
-             {"missing": ["hybrid"], "containers": {**CORE, **healthy("hybrid-gateway")}},
+            ("lacks settings and runs", "addon", "hyssop",
+             {"missing": ["hyssop"], "containers": {**CORE, **healthy("hyssop-gateway")}},
              "stop", "Stop", True, None, None),
-            ("on with missing settings", "addon", "hybrid", {"explicit": ["hybrid"], "missing": ["hybrid"]},
+            ("on with missing settings", "addon", "hyssop", {"explicit": ["hyssop"], "missing": ["hyssop"]},
              "start", "Start", False, "Hybrid gateway needs settings", None),
             ("needs one with missing settings", "addon", "kazoo-desk", {"missing": ["kazoo"]},
              "start", "Start", False, "Kazoo needs settings", ([], both)),
@@ -697,7 +697,7 @@ class State(Built):
         self.project["core_loaded"] = False
         action = self.item("addon", "kazoo")["action"]
         self.assertEqual((action["enabled"], action["reason"]), (False, "docker-compose.yml does not load"))
-        self.assertEqual(self.item("addon", "hybrid", missing=["hybrid"])["action"]["reason"], "Needs settings")
+        self.assertEqual(self.item("addon", "hyssop", missing=["hyssop"])["action"]["reason"], "Needs settings")
         start = self.build()["platform"]["start"]
         self.assertEqual((start["enabled"], start["reason"]), (False, "docker-compose.yml does not load"))
 
@@ -1079,8 +1079,8 @@ class State(Built):
         self.assertEqual(addons["kazoo"]["links"], [
             {"label": "Kazoo", "url": "http://localhost/kazoo", "port": None, "up": True, "service": "kazoo"},
             {"label": "Kazoo", "url": "http://localhost/kazoo-ui", "port": None, "up": True, "service": "kazoo-ui"}])
-        self.assertEqual((addons["hybrid"]["env_file"], addons["hybrid"]["settings"]),
-                         (".lab/catalogs/fixture/addons/hybrid/.env", ["HYBRID_CLOUD_TOKEN"]))
+        self.assertEqual((addons["hyssop"]["env_file"], addons["hyssop"]["settings"]),
+                         (".lab/catalogs/fixture/addons/hyssop/.env", ["HYSSOP_CLOUD_TOKEN"]))
         setup = next(item for item in body["setups"] if item["id"] == "observability")
         # A setup with one add-on turned on is partly on: off, it says which
         self.assertEqual((setup["on"], setup["up"], setup["state"]["key"], setup["note"], setup["note_title"]),
@@ -1102,8 +1102,8 @@ class State(Built):
 
     def test_a_service_named_like_another_says_what_it_belongs_to(self):
         # Two gateways: in what an action restarts, each with its group
-        self.project["services"]["hybrid-gateway"]["label"] = "Gateway"
-        self.project["services"]["hybrid-gateway"]["owner"]["name"] = "Hybrid gateway"
+        self.project["services"]["hyssop-gateway"]["label"] = "Gateway"
+        self.project["services"]["hyssop-gateway"]["owner"]["name"] = "Hybrid gateway"
         kazoo = self.item("addon", "kazoo")
         self.assertEqual((kazoo["restarts"], kazoo["action"]["dialog"]["restarts"]),
                          (["Gateway (API Management)"], [row("service", "apim-gateway", "Gateway (API Management)")]))
@@ -1617,13 +1617,13 @@ class Catalogs(Built):
     def test_what_the_catalogs_say_comes_after_a_failure_and_an_issue_and_before_the_rest(self):
         blocked = {"reasons": [STOP]}
         need = [{"id": "partner", "name": "Partner Bank", "min": None, "reason": "missing"}]
-        self.mark("hybrid", blocked=blocked, needs_catalogs=need)
+        self.mark("hyssop", blocked=blocked, needs_catalogs=need)
         # Settings it lacks, which come after
-        self.assertEqual(self.note("addon", "hybrid", missing=["hybrid"]), ("Blocked", "err"))
-        self.mark("hybrid", blocked=None)
-        self.assertEqual(self.note("addon", "hybrid", missing=["hybrid"]), ("Needs a catalog", "warn"))
-        self.mark("hybrid", needs_catalogs=[])
-        self.assertEqual(self.note("addon", "hybrid", missing=["hybrid"]), ("Needs settings", "warn"))
+        self.assertEqual(self.note("addon", "hyssop", missing=["hyssop"]), ("Blocked", "err"))
+        self.mark("hyssop", blocked=None)
+        self.assertEqual(self.note("addon", "hyssop", missing=["hyssop"]), ("Needs a catalog", "warn"))
+        self.mark("hyssop", needs_catalogs=[])
+        self.assertEqual(self.note("addon", "hyssop", missing=["hyssop"]), ("Needs settings", "warn"))
         # A failure and an issue come first
         self.mark("kazoo", blocked=blocked, needs_catalogs=need)
         failure = {("addon", "kazoo"): failed(error="boom")}
@@ -1635,10 +1635,10 @@ class Catalogs(Built):
                          ("", ""))
 
     def test_what_blocks_an_item_waits_for_the_settings_in_the_reason_of_its_start(self):
-        self.mark("hybrid", needs_catalogs=[{"id": "partner", "name": "Partner Bank", "min": None, "reason": "missing"}])
-        self.assertEqual(self.item("addon", "hybrid", missing=["hybrid"])["action"]["reason"], "Needs the catalog Partner Bank")
-        self.mark("hybrid", needs_catalogs=[], blocked={"reasons": [STOP]})
-        self.assertEqual(self.item("addon", "hybrid", missing=["hybrid"])["action"]["reason"], STOP)
+        self.mark("hyssop", needs_catalogs=[{"id": "partner", "name": "Partner Bank", "min": None, "reason": "missing"}])
+        self.assertEqual(self.item("addon", "hyssop", missing=["hyssop"])["action"]["reason"], "Needs the catalog Partner Bank")
+        self.mark("hyssop", needs_catalogs=[], blocked={"reasons": [STOP]})
+        self.assertEqual(self.item("addon", "hyssop", missing=["hyssop"])["action"]["reason"], STOP)
 
     def test_a_personal_item_that_a_catalog_holds_too_says_so(self):
         own(self.project)
@@ -1660,8 +1660,8 @@ class Catalogs(Built):
 
     def test_the_gateway_of_each_kind_of_platform_is_in_the_platform_when_the_project_chose_one(self):
         self.assertIsNone(self.build()["platform"]["gateways"], "a project that did not choose says nothing")
-        self.project["platform"] = {"gateways": {"cloud": "hybrid"}}
-        self.assertEqual(self.build()["platform"]["gateways"], {"cloud": "hybrid"})
+        self.project["platform"] = {"gateways": {"cloud": "hyssop"}}
+        self.assertEqual(self.build()["platform"]["gateways"], {"cloud": "hyssop"})
 
     def test_what_the_catalogs_and_the_first_start_say_is_in_the_body_as_it_is_given(self):
         body = self.build()
@@ -1918,28 +1918,28 @@ class Platforms(Built):
     # --- The hybrid gateway add-on ------------------------------------------------------------------------------------
 
     def test_the_add_on_that_runs_the_gateway_says_so(self):
-        hybrid = self.item("addon", "hybrid")
-        self.assertEqual(hybrid["gateway"], {"platform": "cloud", "service": "apim-hybrid-gateway",
-                                             "token": "HYBRID_CLOUD_TOKEN",
-                                             "domains": ["localhost:8090", "apim-hybrid-gateway:8082"]})
+        hyssop = self.item("addon", "hyssop")
+        self.assertEqual(hyssop["gateway"], {"platform": "cloud", "service": "apim-hyssop-gateway",
+                                             "token": "HYSSOP_CLOUD_TOKEN",
+                                             "domains": ["localhost:8090", "apim-hyssop-gateway:8082"]})
 
     def test_it_needs_a_hybrid_gateway_once_a_platform_is_registered_and_its_token_is_the_setting_it_lacks(self):
-        token = {"hybrid": ["HYBRID_CLOUD_TOKEN"]}
-        lacking = self.item("addon", "hybrid", missing=token, platforms=[self.RECORD])
+        token = {"hyssop": ["HYSSOP_CLOUD_TOKEN"]}
+        lacking = self.item("addon", "hyssop", missing=token, platforms=[self.RECORD])
         self.assertEqual((lacking["note"], lacking["note_tone"], lacking["note_target"], lacking["action"]["do"]),
                          ("Needs a hybrid gateway", "", {"kind": "platform", "id": None}, "start"))
         self.assertEqual((lacking["action"]["enabled"], lacking["action"]["reason"]), (False, "Needs a hybrid gateway"))
         # Without a platform it needs settings, as any add-on does
-        plain = self.item("addon", "hybrid", missing=token)
+        plain = self.item("addon", "hyssop", missing=token)
         self.assertEqual((plain["note"], plain["note_target"]), ("Needs settings", None))
         # A platform of another kind runs no gateway here
-        other = self.item("addon", "hybrid", missing=token, platforms=[{**self.RECORD, "kind": "apim"}])
+        other = self.item("addon", "hyssop", missing=token, platforms=[{**self.RECORD, "kind": "apim"}])
         self.assertEqual(other["note"], "Needs settings")
         # Another required setting that is saved changes nothing, one that is not keeps the note it had
-        self.project["addons"]["hybrid"]["settings"].append(
+        self.project["addons"]["hyssop"]["settings"].append(
             {"key": "OTHER", "default": None, "required": True, "comment": "", "secret": False})
-        self.assertEqual(self.note("addon", "hybrid", missing=token, platforms=[self.RECORD])[0], "Needs a hybrid gateway")
-        self.assertEqual(self.note("addon", "hybrid", missing={"hybrid": ["HYBRID_CLOUD_TOKEN", "OTHER"]}, platforms=[self.RECORD]),
+        self.assertEqual(self.note("addon", "hyssop", missing=token, platforms=[self.RECORD])[0], "Needs a hybrid gateway")
+        self.assertEqual(self.note("addon", "hyssop", missing={"hyssop": ["HYSSOP_CLOUD_TOKEN", "OTHER"]}, platforms=[self.RECORD]),
                          ("Needs settings", "warn"))
 
     def test_an_add_on_that_runs_no_gateway_needs_settings_whatever_is_registered(self):
@@ -1950,17 +1950,17 @@ class Platforms(Built):
 
     def test_a_token_that_is_set_is_no_lack(self):
         # It is not in what the on file lacks: its own note and its own Start
-        item = self.item("addon", "hybrid", platforms=[self.RECORD])
+        item = self.item("addon", "hyssop", platforms=[self.RECORD])
         self.assertEqual((item["note"], item["action"]["do"]), ("", "start"))
 
     # --- What an action says first --------------------------------------------------------------------------------------
 
     def test_the_dialog_of_a_start_in_a_place_says_the_place_too(self):
         # The gateway made again for another place: what it restarts, serves and stops serving, said first
-        where = {"id": "my-account/development", "name": "Development (My Account)", "gateway": "hybrid", "here": False,
+        where = {"id": "my-account/development", "name": "Development (My Account)", "gateway": "hyssop", "here": False,
                  "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
-        running = up("hybrid", playgrounds=["hotels"], project=self.project)
-        plan = layers.plan(self.project, on(self.project, ["hybrid"], "hotels"), running, "addon", "hybrid", "start",
+        running = up("hyssop", playgrounds=["hotels"], project=self.project)
+        plan = layers.plan(self.project, on(self.project, ["hyssop"], "hotels"), running, "addon", "hyssop", "start",
                            place=where)
         action = model._action({"project": self.project, "wait": None, "unread": None}, plan)
         self.assertEqual(action["dialog"], layers.dialog(plan))

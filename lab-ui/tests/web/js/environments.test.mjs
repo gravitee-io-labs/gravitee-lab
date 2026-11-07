@@ -17,9 +17,9 @@ const { gatewayWhy, runsControl, chooseCore } = await import("../../../web/js/pl
 const PLATFORM = { id: "cloud-eu", name: "My Account", kind: "cloud" };
 const ENV = { id: "env-dev", name: "Development", token: { state: "unset" } };
 const gateway = (more) => ({ id: "g1", name: "lab", environmentId: "env-dev", type: "HYBRID", status: "DEPLOYED", connection: "CONNECTED",
-  version: "4.12.20", domains: ["localhost:8090", "apim-hybrid-gateway:8082"], here: false, kept: true, ...more });
-const ADDON = (more) => ({ id: "hybrid", name: "Hybrid gateway", state: { key: "running" }, note: "", note_tone: "", note_title: "",
-  action: { do: "stop", enabled: true, reason: null }, gateway: { platform: "cloud", service: "apim-hybrid-gateway" }, ...more });
+  version: "4.12.20", domains: ["localhost:8090", "apim-hyssop-gateway:8082"], here: false, kept: true, ...more });
+const ADDON = (more) => ({ id: "hyssop", name: "Hybrid gateway", state: { key: "running" }, note: "", note_tone: "", note_title: "",
+  action: { do: "stop", enabled: true, reason: null }, gateway: { platform: "cloud", service: "apim-hyssop-gateway" }, ...more });
 const STOPPED = { state: { key: "stopped" }, action: { do: "start", enabled: true, reason: null } };
 const dayFrom = (days) => new Date(Date.now() + days * 86400000 + 3600000).toISOString();   // and an hour, which the test takes to run
 const lab = (state = {}) => { store.state = { blind: false, addons: [ADDON()], playgrounds: [], ...state }; };
@@ -57,7 +57,7 @@ test("a gateway that runs here, connected, with a valid token, is running and ca
 test("under the state: the version and, while it runs here, the address a person calls, never the name of a container", () => {
   lab();
   const running = status([gateway({ here: true })], VALID).gateway;
-  assert.equal(running.address, "localhost:8090", "apim-hybrid-gateway is the name of the container: only the other containers know it");
+  assert.equal(running.address, "localhost:8090", "apim-hyssop-gateway is the name of the container: only the other containers know it");
   assert.deepEqual(running.details, ["4.12.20", "localhost:8090"]);
   const connecting = status([gateway({ here: true, connection: "NOT_CONNECTED" })], VALID).gateway;
   assert.deepEqual([connecting.key, connecting.details], ["connecting", ["4.12.20", "localhost:8090"]]);
@@ -116,11 +116,11 @@ test("a missing license is its own state, in amber, that the action adds: Add li
 
 test("a gateway whose add-on lacks settings says so in amber, never with the green of what runs, and its action opens those settings", () => {
   // The server says what it lacks as causes (its note's), and keeps its Stop: the state is the note's, its popover the card of its own badge
-  lab({ addons: [ADDON({ note: "Needs settings", note_tone: "warn", note_title: "Not set: HYBRID_CLOUD_TOKEN", note_causes: [{ kind: "unset", settings: ["HYBRID_CLOUD_TOKEN"] }],
+  lab({ addons: [ADDON({ note: "Needs settings", note_tone: "warn", note_title: "Not set: HYSSOP_CLOUD_TOKEN", note_causes: [{ kind: "unset", settings: ["HYSSOP_CLOUD_TOKEN"] }],
     action: { do: "stop", label: "Stop", enabled: true }, secondary: null })] });
   const found = status([gateway({ here: true })], VALID);
   assert.deepEqual([found.gateway.key, found.gateway.dot, found.gateway.word], ["settings", "warn", "Needs settings"]);
-  assert.deepEqual(found.gateway.tip, { title: "Needs settings", rows: [{ lines: [[{ code: "HYBRID_CLOUD_TOKEN" }]] }], foot: "Set it in its settings." },
+  assert.deepEqual(found.gateway.tip, { title: "Needs settings", rows: [{ lines: [[{ code: "HYSSOP_CLOUD_TOKEN" }]] }], foot: "Set it in its settings." },
     "the card the add-on's own badge opens: the settings as chips, where they are set");
   assert.deepEqual(found.action, { do: "settings", label: "Settings", disabled: false, reason: "" });
   lab({ addons: [ADDON({ note: "Hybrid gateway exited (1)", note_tone: "err" })] });
@@ -357,9 +357,9 @@ test("the add-on that runs the gateways of a platform is the one the server name
   served({});
   assert.equal(addonOf(PLATFORM), undefined, "a kind the server does not list has none");
   lab();
-  assert.equal(addonOf(PLATFORM).id, "hybrid", "a state that does not say, as before the catalogs: the add-on that declares one");
+  assert.equal(addonOf(PLATFORM).id, "hyssop", "a state that does not say, as before the catalogs: the add-on that declares one");
   store.state = { ...store.state, platform: { gateways: "somewhere" } };
-  assert.equal(addonOf(PLATFORM).id, "hybrid", "a field that is no list of kinds says nothing");
+  assert.equal(addonOf(PLATFORM).id, "hyssop", "a field that is no list of kinds says nothing");
   store.state = null;
   assert.equal(addonOf(PLATFORM), undefined);
 });
@@ -422,7 +422,7 @@ test("while the catalogs download, fail or are missing, the cell says why in the
 test("the Cloud controls say why they cannot be used: no gateway add-on, then the words of the lists while the catalogs are not there", () => {
   const cloud = () => { const holder = dom.doc.createElement("div"); holder.innerHTML = runsControl(); return holder.querySelector('[data-core="cloud"]'); };
   const machine = () => { const holder = dom.doc.createElement("div"); holder.innerHTML = runsControl(); return holder.querySelector('[data-core="machine"]'); };
-  served({ cloud: "hybrid" });
+  served({ cloud: "hyssop" });
   assert.equal(gatewayWhy(), "");
   assert.deepEqual([cloud().hasAttribute("aria-disabled"), cloud().hasAttribute("data-tip-card")], [false, true], "with an add-on it is the segment it was");
   served({ cloud: null });
@@ -435,7 +435,7 @@ test("the Cloud controls say why they cannot be used: no gateway add-on, then th
   assert.equal(gatewayWhy(), "Cannot reach github.com. Check your connection, then try again.");
   served({ cloud: null }, { content: content("none") });
   assert.equal(gatewayWhy(), "No catalog added");
-  served({ cloud: "hybrid" }, { content: content("downloading") });
+  served({ cloud: "hyssop" }, { content: content("downloading") });
   assert.equal(gatewayWhy(), "", "an add-on that is there runs a gateway, whatever the catalogs are doing");
   served(undefined);
   assert.equal(gatewayWhy(), "", "a state that does not say holds nothing");
@@ -445,7 +445,7 @@ test("the Cloud controls say why they cannot be used: no gateway add-on, then th
 test("wherever an add-on is named for a platform, nothing holds its gateway for want of one: the entries of the environment's menu that create a gateway have no hold to make", () => {
   // The menu of an environment (pages/platforms.js) offers Create gateway and Replace gateway only with the add-on found by addonOf, and
   // asks nothing of gatewayWhy: this is what lets it not. No state of the contract has an add-on named and the hold of a missing one.
-  const states = [undefined, null, {}, { cloud: null }, { cloud: "hybrid" }, { cloud: "other" }, { cloud: "gone" }, { cloud: "" }, { cloud: 0 }, { cloud: "hybrid", other: "other" }];
+  const states = [undefined, null, {}, { cloud: null }, { cloud: "hyssop" }, { cloud: "other" }, { cloud: "gone" }, { cloud: "" }, { cloud: 0 }, { cloud: "hyssop", other: "other" }];
   for (const content_ of ["ready", "downloading", "failed", "none"]) {
     for (const gateways of states) {
       served(gateways, { content: content(content_) });
@@ -465,7 +465,7 @@ test("a key that reaches the Cloud choice while nothing can run its gateway asks
       await chooseCore("cloud");
       assert.deepEqual(sent, [], `${content_.key}: it is refused where the control is, and here too`);
     }
-    served({ cloud: "hybrid" }, { platforms: [PLATFORM] });
+    served({ cloud: "hyssop" }, { platforms: [PLATFORM] });
     await chooseCore("cloud");
     assert.ok(sent.length > 0, "with an add-on it is chosen: the places are read, and the account after them");
   } finally {

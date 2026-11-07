@@ -124,7 +124,7 @@ APIM = {"kind": "platform", "id": "api-management", "name": "API Management"}
 AM = {"kind": "platform", "id": "access-management", "name": "Access Management"}
 AE = {"kind": "platform", "id": "alert-engine", "name": "Alert Engine"}
 DATABASES = {"kind": "platform", "id": "databases", "name": "Databases"}
-HYBRID = {"kind": "addon", "id": "hybrid", "name": "Hybrid gateway"}
+HYSSOP = {"kind": "addon", "id": "hyssop", "name": "Hybrid gateway"}
 # name: (owner, image as written, its tag, the registry a variable chose)
 SERVICES = {
     "mongodb": (DATABASES, "mongo:${MONGODB_VERSION:-8.0.29}", "8.0.29", None),
@@ -137,7 +137,7 @@ SERVICES = {
     "am-management-api": (AM, "${AM_REGISTRY:-graviteeio}/am-management-api:${AM_VERSION:-4.12.7}", "4.12.7",
                           "graviteeio"),
     "alert-engine": (AE, "${AE_REGISTRY:-graviteeio}/ae-engine:${AE_VERSION:-3.0.2}", "3.0.2", "graviteeio"),
-    "apim-hybrid-gateway": (HYBRID, "${APIM_REGISTRY:-graviteeio}/apim-gateway:${HYBRID_GATEWAY_VERSION:-4.12.20}",
+    "apim-hyssop-gateway": (HYSSOP, "${APIM_REGISTRY:-graviteeio}/apim-gateway:${HYSSOP_GATEWAY_VERSION:-4.12.20}",
                             "4.12.20", "graviteeio"),
 }
 
@@ -168,7 +168,7 @@ class Products(Case):
         self.hub = {"APIM_VERSION": ["4.13.0-alpha.4", "latest", "4.12.21-debian", "4.12.21", "4.12.20"],
                     "AM_VERSION": ["4.12.8", "4.12.7", "4.13.0-alpha.7-debian"],
                     "AE_VERSION": ["latest", "3.0.2", "3.0.1", "nightly"],
-                    "HYBRID_GATEWAY_VERSION": ["4.13.0-alpha.1-debian", "4.12.21-debian", "4.12.20-debian"]}
+                    "HYSSOP_GATEWAY_VERSION": ["4.13.0-alpha.1-debian", "4.12.21-debian", "4.12.20-debian"]}
         self.listing = lambda p, component, registry=None: [{"name": name, "updated": None}
                                                             for name in self.hub[component]]
         self.tags = self.patch(dashboard.images, "tags", side_effect=self.listing)

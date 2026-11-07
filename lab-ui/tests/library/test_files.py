@@ -73,10 +73,10 @@ class Sections(Case):
         for path in ("docker-compose.yml", ".env"):
             self.assertEqual(self.sections(path), [])
             # The playground, then the add-ons in effect by name; a .env only for settings of its own
-            self.assertEqual(self.sections(path, ["kazoo-desk", "hybrid"], "welcome"), [
+            self.assertEqual(self.sections(path, ["kazoo-desk", "hyssop"], "welcome"), [
                 ("Welcome", True, [".lab/catalogs/fixture/playgrounds/welcome/compose.yml"]),
                 ("AI Agent Lens", True, [".lab/catalogs/fixture/addons/agent-lens/compose.yml"]),
-                ("Hybrid gateway", True, [".lab/catalogs/fixture/addons/hybrid/compose.yml", ".lab/catalogs/fixture/addons/hybrid/.env"]),
+                ("Hybrid gateway", True, [".lab/catalogs/fixture/addons/hyssop/compose.yml", ".lab/catalogs/fixture/addons/hyssop/.env"]),
                 ("Kazoo", True, [".lab/catalogs/fixture/addons/kazoo/compose.yml"]),
                 ("Kazoo Desk", True, [".lab/catalogs/fixture/addons/kazoo-desk/compose.yml"])])
 
@@ -143,22 +143,22 @@ class Sections(Case):
                          "include:\n  - .lab/catalogs/fixture/addons/kazoo/compose.yml\n")
 
     def test_a_env_file_shows_what_its_add_on_shows(self):
-        hybrid = [("Hybrid gateway", False, [".lab/catalogs/fixture/addons/hybrid/compose.yml", ".lab/catalogs/fixture/addons/hybrid/.env"])]
-        self.assertEqual(self.sections(".lab/catalogs/fixture/addons/hybrid/.env"), hybrid)
-        self.assertEqual(self.sections(".lab/catalogs/fixture/addons/hybrid/compose.yml"), hybrid)
-        self.assertEqual(files.sections(self.project, ".lab/catalogs/fixture/addons/hybrid/.env")[1]["files"][1],
-                         {"path": ".lab/catalogs/fixture/addons/hybrid/.env", "name": ".env", "kind": "env"})
+        hyssop = [("Hybrid gateway", False, [".lab/catalogs/fixture/addons/hyssop/compose.yml", ".lab/catalogs/fixture/addons/hyssop/.env"])]
+        self.assertEqual(self.sections(".lab/catalogs/fixture/addons/hyssop/.env"), hyssop)
+        self.assertEqual(self.sections(".lab/catalogs/fixture/addons/hyssop/compose.yml"), hyssop)
+        self.assertEqual(files.sections(self.project, ".lab/catalogs/fixture/addons/hyssop/.env")[1]["files"][1],
+                         {"path": ".lab/catalogs/fixture/addons/hyssop/.env", "name": ".env", "kind": "env"})
 
     def test_what_belongs_to_this_machine_shows_like_the_rest(self):
         own(self.project)
         self.found("addon", "local/whoami")
         self.found("playground", "local/sandbox")
-        self.project["addons"]["local/whoami"]["settings"] = self.project["addons"]["hybrid"]["settings"]
+        self.project["addons"]["local/whoami"]["settings"] = self.project["addons"]["hyssop"]["settings"]
         whoami = ("Whoami", True, [".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/addons/whoami/.env"])
         self.assertEqual(self.sections(".lab/catalogs/local/playgrounds/sandbox/compose.yml", playground="local/sandbox"),
                          [("Sandbox", True, [".lab/catalogs/local/playgrounds/sandbox/compose.yml"]), whoami])
         self.assertEqual(self.sections(".lab/catalogs/local/addons/whoami/.env", ["local/whoami"]), [whoami])
-        self.assertEqual(files._variables(self.project, ".lab/catalogs/local/addons/whoami/.env")[0]["key"], "HYBRID_CLOUD_TOKEN")
+        self.assertEqual(files._variables(self.project, ".lab/catalogs/local/addons/whoami/.env")[0]["key"], "HYSSOP_CLOUD_TOKEN")
 
     def test_a_playground_shows_its_guide_next_to_its_compose_file(self):
         guide = self.root / self.write(".lab/catalogs/fixture/playgrounds/welcome/guide.md", "# Welcome\n")
@@ -360,7 +360,7 @@ class Checked(Case):
         self.assertEqual(before, files._version(".env"))
         envfiles.write(".env", {"APIM_VERSION": "4.13.0"})
         self.assertNotEqual(before, files._version(".env"))
-        self.assertEqual(files._version(".lab/catalogs/local/addons/hybrid/.env"), files._version(".lab/catalogs/local/addons/none/.env"))
+        self.assertEqual(files._version(".lab/catalogs/local/addons/hyssop/.env"), files._version(".lab/catalogs/local/addons/none/.env"))
 
     def test_the_on_file_is_checked_as_compose_reads_it(self):
         # On the core, as the second file: it may hold more than an include list
@@ -406,7 +406,7 @@ class Drafts(Case):
         self.patch(layers, "current", lambda project: self.state or on(project))
         for path, text in (("docker-compose.yml", "services: {}\n"), (".lab/catalogs/local/addons/kazoo/compose.yml", "services: {}\n"),
                            (".lab/catalogs/local/addons/kazoo-desk/compose.yml", "include:\n  - ../kazoo/compose.yml\n"),
-                           (".lab/catalogs/local/addons/jade/compose.yml", "services: {}\n"), (".lab/catalogs/local/addons/hybrid/compose.yml", ""),
+                           (".lab/catalogs/local/addons/jade/compose.yml", "services: {}\n"), (".lab/catalogs/local/addons/hyssop/compose.yml", ""),
                            (".lab/catalogs/local/playgrounds/welcome/compose.yml",
                             "include:\n  - ../../addons/kazoo-desk/compose.yml\n")):
             self.write(path, text)
@@ -492,36 +492,36 @@ class Drafts(Case):
         # An add-on's: its values given to Compose, which reads them before its .env; as they are
         given = []
         self.patch(compose, "config_hashes", lambda files_=(), env=None, dotenv=None: given.append(env) or {"x": "y"})
-        hybrid = self.project["addons"]["hybrid"]["env_file"]
-        self.assertEqual(files.env_hashes(self.project, hybrid, {"HYBRID_CLOUD_TOKEN": "t"}), ({"x": "y"}, True))
-        self.assertEqual(given, [{"HYBRID_CLOUD_TOKEN": "t"}])
-        self.assertEqual(files.env_hashes(self.project, hybrid, {"HYBRID_CLOUD_TOKEN": "${OTHER}"}), (None, False))
+        hyssop = self.project["addons"]["hyssop"]["env_file"]
+        self.assertEqual(files.env_hashes(self.project, hyssop, {"HYSSOP_CLOUD_TOKEN": "t"}), ({"x": "y"}, True))
+        self.assertEqual(given, [{"HYSSOP_CLOUD_TOKEN": "t"}])
+        self.assertEqual(files.env_hashes(self.project, hyssop, {"HYSSOP_CLOUD_TOKEN": "${OTHER}"}), (None, False))
         with self.assertRaisesRegex(ValueError, "Only secrets and settings"):
-            files.env_hashes(self.project, hybrid, {"OTHER": "x"})
+            files.env_hashes(self.project, hyssop, {"OTHER": "x"})
 
     def test_an_add_on_s_values_that_would_reach_another_file(self):
         # Compose reads the values it is given for every file: one that another file refers to, or that the core's
         # .env sets, would change more than the add-on, which saving its .env does not
         given = []
         self.patch(compose, "config_hashes", lambda files_=(), env=None, dotenv=None: given.append(env) or {"x": "y"})
-        hybrid = self.project["addons"]["hybrid"]["env_file"]
-        self.write(".lab/catalogs/fixture/addons/hybrid/compose.yml", "services:\n  hybrid-gateway:\n    environment:\n"
-                                                "      TOKEN: ${HYBRID_CLOUD_TOKEN}\n")
-        self.assertEqual(files.env_hashes(self.project, hybrid, {"HYBRID_CLOUD_TOKEN": "t"}), ({"x": "y"}, True))
-        self.write(".lab/catalogs/fixture/addons/jade/compose.yml", "services:\n  jade:\n    environment:\n      T: ${HYBRID_CLOUD_TOKEN:-}\n")
-        self.assertEqual(files.env_hashes(self.project, hybrid, {"HYBRID_CLOUD_TOKEN": "t"}), (None, False))
+        hyssop = self.project["addons"]["hyssop"]["env_file"]
+        self.write(".lab/catalogs/fixture/addons/hyssop/compose.yml", "services:\n  hyssop-gateway:\n    environment:\n"
+                                                "      TOKEN: ${HYSSOP_CLOUD_TOKEN}\n")
+        self.assertEqual(files.env_hashes(self.project, hyssop, {"HYSSOP_CLOUD_TOKEN": "t"}), ({"x": "y"}, True))
+        self.write(".lab/catalogs/fixture/addons/jade/compose.yml", "services:\n  jade:\n    environment:\n      T: ${HYSSOP_CLOUD_TOKEN:-}\n")
+        self.assertEqual(files.env_hashes(self.project, hyssop, {"HYSSOP_CLOUD_TOKEN": "t"}), (None, False))
         self.write(".lab/catalogs/fixture/addons/jade/compose.yml", "services: {}\n")
-        self.write(".env", "HYBRID_CLOUD_TOKEN=core\n")
-        self.assertEqual(files.env_hashes(self.project, hybrid, {"HYBRID_CLOUD_TOKEN": "t"}), (None, False))
-        self.assertEqual(given, [{"HYBRID_CLOUD_TOKEN": "t"}])
+        self.write(".env", "HYSSOP_CLOUD_TOKEN=core\n")
+        self.assertEqual(files.env_hashes(self.project, hyssop, {"HYSSOP_CLOUD_TOKEN": "t"}), (None, False))
+        self.assertEqual(given, [{"HYSSOP_CLOUD_TOKEN": "t"}])
 
     def test_what_a_change_may_recreate_when_it_cannot_be_known(self):
         self.write(self.project["addons"]["kazoo"]["file"])
-        self.write(self.project["addons"]["hybrid"]["file"])
+        self.write(self.project["addons"]["hyssop"]["file"])
         self.state = on(self.project, ["kazoo"])
         self.assertEqual(files.affected(self.project, ".lab/catalogs/fixture/addons/kazoo/compose.yml"),
                          ["kazoo", "kazoo-ui", "apim-gateway"])
-        self.assertEqual(files.affected(self.project, ".lab/catalogs/fixture/addons/hybrid/.env"), ["hybrid-gateway"])
+        self.assertEqual(files.affected(self.project, ".lab/catalogs/fixture/addons/hyssop/.env"), ["hyssop-gateway"])
         self.assertEqual(sorted(files.affected(self.project, ".env")),
                          ["apim-gateway", "apim-management-api", "kazoo", "kazoo-ui", "mongodb"])
 
@@ -1043,8 +1043,8 @@ class Rendered(Case):
         self.assertEqual(self.snapshot(), before)
 
     def overlays(self, *names):
-        """Add-ons of the fixture catalog that each add a port, a volume and a variable to the core's gateway, as kazoo
-        and hybrid do of the real Lab, in the on file in this order. Answers their files."""
+        """Add-ons of the fixture catalog that each add a port, a volume and a variable to the core's gateway,
+        in the on file in this order. Answers their files."""
         found = []
         for number, name in enumerate(names):
             found.append(self.write(

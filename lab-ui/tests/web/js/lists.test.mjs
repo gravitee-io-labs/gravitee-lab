@@ -407,7 +407,7 @@ async function start(id, state, places) {
 }
 
 test("the Start of a row deploys to the place chosen on any page: it asks first, naming the place, and sends it back", async () => {
-  server.dialog = { starts: [{ kind: "addon", id: "hybrid", name: "Hybrid gateway" }], stops: [], turns_off: [], keeps: [], restarts: [] };
+  server.dialog = { starts: [{ kind: "addon", id: "hyssop", name: "Hybrid gateway" }], stops: [], turns_off: [], keeps: [], restarts: [] };
   await start("acme-hostels", S1.calm, [place()]);
   assert.deepEqual(server.calls.map((call) => call.path), ["/api/playgrounds/acme-hostels/check?place=acme%2Fdevelopment"], "its checks are read for the place, now");
   assert.deepEqual(effects(), { title: "Start Acme Hostels", action: "Start",

@@ -271,7 +271,7 @@ class Starting(Case):
         self.assertEqual(lab.calls[1][2], {"accept": ["playground:other", "addon:mailer"]})
 
     def test_a_start_the_lab_ui_refuses_for_want_of_a_license_or_a_setting_cannot_be_tried_here(self):
-        for reason in ("Needs a license", "Not in the license", "License expired", "Needs settings: HYBRID_CLOUD_TOKEN",
+        for reason in ("Needs a license", "Not in the license", "License expired", "Needs settings: HYSSOP_CLOUD_TOKEN",
                        "The license is not signed by GraviteeSource", "Would also change API Management 4.12.25 → 4.13.1",
                        "Not logged in to Azure"):
             with self.subTest(reason=reason), self.assertRaises(e2e.Unable) as caught:

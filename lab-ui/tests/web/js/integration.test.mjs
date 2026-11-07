@@ -498,7 +498,7 @@ test("#/catalogs and #/catalogs/<ns> are the Catalogs page of the router, which 
 const CLOUD = { place: "cloud-eu/env-development", chosen: true, name: "Development (Gravitee Cloud)", group: { id: "api-management", name: "API Management" },
   start: { needed: true, enabled: true, reason: null }, stop: { needed: false, enabled: true, reason: null } };
 const idle = { needed: false, enabled: true, reason: null };
-const cloud = (more = {}, gateways = { cloud: "hybrid" }, core = CLOUD) => {
+const cloud = (more = {}, gateways = { cloud: "hyssop" }, core = CLOUD) => {
   const state = lab({ ...more });
   return { ...state, core, platform: { ...state.platform, state: { key: "stopped", label: "Stopped" }, gateways, start: { ...idle, needed: true }, apply: idle, restart: idle, update: idle } };
 };
@@ -526,7 +526,7 @@ test("with API Management in the Cloud, Start all waits while no add-on can run 
   assert.deepEqual(head(cloud({ content: content("downloading") })), { shown: true, off: false, why: "" });
   // The reason of the core is still said when an add-on can run it
   const stuck = { ...CLOUD, start: { needed: true, enabled: false, reason: "Set up a gateway in Development first" } };
-  assert.deepEqual(head(cloud({}, { cloud: "hybrid" }, stuck)), { shown: true, off: true, why: "Set up a gateway in Development first" });
+  assert.deepEqual(head(cloud({}, { cloud: "hyssop" }, stuck)), { shown: true, off: true, why: "Set up a gateway in Development first" });
   // ... and the catalogs' reason comes first, since it is the cause
   assert.equal(head(cloud({}, none, stuck)).why, "Needs a gateway add-on");
   // This machine's Start all is never held by it, and a state that does not say what runs a gateway holds nothing

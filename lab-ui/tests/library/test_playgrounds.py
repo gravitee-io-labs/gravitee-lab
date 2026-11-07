@@ -27,7 +27,7 @@ from ..gravitee import test_places
 
 from ..gravitee import test_platforms
 from ..docker.test_jobs import Docker, container, progress, replay
-from .test_layers import (API, APPS, GATEWAY, HOTELS, HYBRID, cloud as with_cloud, lab, licensed, on,
+from .test_layers import (API, APPS, GATEWAY, HOTELS, HYSSOP, cloud as with_cloud, lab, licensed, on,
                           own, row, second)
 from ..gravitee.test_places import DEV_KEY, KEY
 from ..gravitee.test_platforms import ADDON_ENV, DEV, TEST
@@ -36,7 +36,7 @@ COMPOSE = compose.COMPOSE
 CORE = ("apim-gateway", "apim-management-api", "mongodb")
 # The services Docker checks the health of (test_jobs.Docker): ready once healthy, the others once they run
 HEALTH_CHECKED = {"apim-gateway", "apim-management-api", "mongodb", "kazoo", "jade", "redpanda", "orchard",
-                  "hybrid-gateway"}
+                  "hyssop-gateway"}
 STARTED = "2026-10-03T12:00:00.000000000Z"   # when the seed's container last started, as Docker says it
 SEED_LOGS = ["docker", "logs", "-f", "--since", STARTED, "lab-seed"]   # its output since then, followed
 
@@ -495,19 +495,19 @@ class Playgrounds(Case):
     def test_an_add_on_without_its_settings_needs_you(self):
         # It keeps the start from running, whether it is on or not; its line opens its settings
         welcome = self.project["playgrounds"]["welcome"]
-        welcome["addons"] = ["agent-lens", "hybrid"]
-        self.state = on(self.project, ["hybrid"], missing=["hybrid"])
-        hybrid = {"kind": "addon", "id": "hybrid"}
+        welcome["addons"] = ["agent-lens", "hyssop"]
+        self.state = on(self.project, ["hyssop"], missing=["hyssop"])
+        hyssop = {"kind": "addon", "id": "hyssop"}
         self.assertEqual(playgrounds._addon_checks(self.project, welcome)[1:3], [
-            {"name": "Hybrid gateway", "state": "warn", "detail": "Needs settings", "target": hybrid,
-             "file": ".lab/catalogs/fixture/addons/hybrid/.env"},
+            {"name": "Hybrid gateway", "state": "warn", "detail": "Needs settings", "target": hyssop,
+             "file": ".lab/catalogs/fixture/addons/hyssop/.env"},
             {"name": "AI Agent Lens", "state": "auto", "detail": "Turned on at start",
              "target": {"kind": "addon", "id": "agent-lens"}}])
-        self.state = on(self.project, ["hybrid"])
+        self.state = on(self.project, ["hyssop"])
         self.assertEqual(playgrounds._addon_checks(self.project, welcome)[1:3], [
             {"name": "AI Agent Lens", "state": "auto", "detail": "Turned on at start",
              "target": {"kind": "addon", "id": "agent-lens"}},
-            {"name": "Hybrid gateway", "state": "auto", "detail": "Started at start", "target": hybrid}])
+            {"name": "Hybrid gateway", "state": "auto", "detail": "Started at start", "target": hyssop}])
 
     # --- Start -------------------------------------------------------------------------------------------------------
 
@@ -1408,7 +1408,7 @@ DEVELOPMENT, TEST_ENVIRONMENT = "Development (My Account)", "Test (My Account)"
 VARIABLES = ["AIM_AUTOMATION_URL", "AIM_GAMMA_URL", "APIM_ENV", "APIM_GATEWAY_URL", "APIM_MANAGEMENT_PATH",
              "APIM_MANAGEMENT_URL", "APIM_ORG", "APIM_PORTAL_PATH", "APIM_TOKEN", "GATEWAY_INTERNAL_URL",
              "STATE_DIR"]   # what places.seed_env gives a seed, by name
-UP = [*COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway", "hotels-api", "hybrid-redis"]
+UP = [*COMPOSE, "up", "-d", "--no-deps", "apim-hyssop-gateway", "hotels-api", "hyssop-redis"]
 ENVIRONMENT = row("environment", PLACE, DEVELOPMENT)
 STATE_FOLDER = ".lab/catalogs/fixture/playgrounds/hotels/.state"
 
@@ -1547,8 +1547,8 @@ class PlaceChecks(Deploys):
             {"name": NAME, "state": "ok", "detail": "Connected", "target": {"kind": "platform", "id": "my-account"}},
             {"name": "Cloud Token", "state": "ok", "detail": "Valid"},
             {"name": "Hybrid gateway", "state": "auto", "detail": "Turned on at start",
-             "target": {"kind": "addon", "id": "hybrid"}}])
-        self.assertEqual(found["dialog"], {"starts": [HOTELS, HYBRID], "stops": [], "turns_off": [], "keeps": [],
+             "target": {"kind": "addon", "id": "hyssop"}}])
+        self.assertEqual(found["dialog"], {"starts": [HOTELS, HYSSOP], "stops": [], "turns_off": [], "keeps": [],
                                            "restarts": [], "deploys_to": [ENVIRONMENT], "serves": [],
                                            "stops_serving": []})
         self.assertNoSecret(found)
@@ -1586,14 +1586,14 @@ class PlaceChecks(Deploys):
 
     def test_a_gateway_that_runs_says_whether_the_platform_hears_it(self):
         self.ready()
-        self.state, self.containers = on(self.project, ["hybrid"]), running("apim-hybrid-gateway", "hybrid-redis")
-        hybrid = {"kind": "addon", "id": "hybrid"}
+        self.state, self.containers = on(self.project, ["hyssop"]), running("apim-hyssop-gateway", "hyssop-redis")
+        hyssop = {"kind": "addon", "id": "hyssop"}
         self.assertEqual(self.checks()["checks"][2],
-                         {"name": "Hybrid gateway", "state": "ok", "detail": "Running", "target": hybrid})
+                         {"name": "Hybrid gateway", "state": "ok", "detail": "Running", "target": hyssop})
         self.fake.state.connect_after = 3600
         places.invalidate("my-account")
         self.assertEqual(self.checks()["checks"][2],
-                         {"name": "Hybrid gateway", "state": "warn", "detail": "Not connected", "target": hybrid})
+                         {"name": "Hybrid gateway", "state": "warn", "detail": "Not connected", "target": hyssop})
         # On and stopped: started with the playground
         self.containers = {}
         self.assertEqual(self.checks()["checks"][2]["detail"], "Started at start")
@@ -1606,7 +1606,7 @@ class PlaceChecks(Deploys):
         self.patch(places, "place", return_value=found)
         self.assertEqual(self.checks()["checks"][2], {
             "name": "Hybrid gateway", "state": "warn", "detail": "Its token is not kept here",
-            "target": {"kind": "addon", "id": "hybrid"}, "file": ADDON_ENV})
+            "target": {"kind": "addon", "id": "hyssop"}, "file": ADDON_ENV})
 
     def place_of(self, place=PLACE):
         return json.loads(json.dumps(places.place(self.project, place)))
@@ -1614,13 +1614,13 @@ class PlaceChecks(Deploys):
     def test_a_gateway_set_to_serve_another_environment_is_switched(self):
         self.ready()
         self.ready(TEST, "other")
-        self.state, self.containers = on(self.project, ["hybrid"]), running("apim-hybrid-gateway", "hybrid-redis")
+        self.state, self.containers = on(self.project, ["hyssop"]), running("apim-hyssop-gateway", "hyssop-redis")
         found = self.checks(TESTING)
         self.assertEqual(found["checks"][2], {"name": "Hybrid gateway", "state": "auto", "detail": "Switches to Test",
-                                              "target": {"kind": "addon", "id": "hybrid"}})
+                                              "target": {"kind": "addon", "id": "hyssop"}})
         dialog = found["dialog"]
         self.assertEqual((dialog["restarts"], dialog["serves"], dialog["stops_serving"]), (
-            [HYBRID], [row("environment", TESTING, TEST_ENVIRONMENT)], [ENVIRONMENT]))
+            [HYSSOP], [row("environment", TESTING, TEST_ENVIRONMENT)], [ENVIRONMENT]))
 
     def test_the_add_ons_it_brings_and_the_host_it_needs_are_in_the_checks(self):
         self.ready()
@@ -1679,14 +1679,14 @@ class Deploying(Deploys):
         title, steps, more = self.started(self.jobs)
         self.assertEqual((title, more["key"], more["verb"], more["phases"]), (
             f"Start Hotels in {DEVELOPMENT}", "playground:hotels", "start", ["Apps and services", "Gateway", "Seed"]))
-        self.assertEqual(more["changes"], {"start": [["playground", "hotels"], ["addon", "hybrid"]], "stop": []})
+        self.assertEqual(more["changes"], {"start": [["playground", "hotels"], ["addon", "hyssop"]], "stop": []})
         self.assertEqual(more["waits"], [awaited(self.project["services"], start=[
-            "apim-hybrid-gateway", "hotels-api", "hybrid-redis"])])
+            "apim-hyssop-gateway", "hotels-api", "hyssop-redis"])])
         job, calls = self.execute()
         self.assertTrue(job.ok, job.lines)
         self.assertEqual([phase["name"] for phase in job.phases], ["Add-ons", "Apps and services", "Gateway", "Seed"])
         self.assertEqual([command for command, _ in calls], [UP, seed()])
-        self.assertEqual(self.written, [("hotels", ["hybrid"])])
+        self.assertEqual(self.written, [("hotels", ["hyssop"])])
         self.assertEqual([line for line in job.lines if not line.startswith(("▸", "$"))],
                          ["Starts: Hotels apps, Hybrid gateway", f"Deploys to: {DEVELOPMENT}"])
 
@@ -1702,8 +1702,8 @@ class Deploying(Deploys):
         self.assertEqual([phase["name"] for phase in job.phases], ["Add-ons", "Apps and services", "Gateway"])
         # No seed: the gateway of the platform, and what the add-on has
         self.assertEqual([command for command, _ in calls],
-                         [[*COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway", "hybrid-redis", "kiosk"]])
-        self.assertEqual(self.written[-1][1], ["hybrid", "kiosk"])
+                         [[*COMPOSE, "up", "-d", "--no-deps", "apim-hyssop-gateway", "hyssop-redis", "kiosk"]])
+        self.assertEqual(self.written[-1][1], ["hyssop", "kiosk"])
         self.assertIn(f"Runs on: {DEVELOPMENT}", job.lines)
         # What cannot go says why
         self.project["addons"]["kiosk"]["cannot"] = {"cloud": "Changes this machine's Management API"}
@@ -1720,7 +1720,7 @@ class Deploying(Deploys):
         job, calls = self.execute()
         self.assertTrue(job.ok, job.lines)
         commands = [command for command, _ in calls]
-        self.assertEqual(commands, [[*COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway", "hotels-api", "hybrid-redis",
+        self.assertEqual(commands, [[*COMPOSE, "up", "-d", "--no-deps", "apim-hyssop-gateway", "hotels-api", "hyssop-redis",
                                      "mongodb"], seed()])
         # Nothing it does not need: not the gateway of this machine, which the platform replaces
         self.assertNotIn("apim-gateway", commands[0])
@@ -1735,7 +1735,7 @@ class Deploying(Deploys):
         self.assertEqual((values["APIM_MANAGEMENT_PATH"], values["APIM_ENV"], values["APIM_ORG"]),
                          ("/apim/rest", DEV, "fake-organization"))
         self.assertEqual((values["APIM_GATEWAY_URL"], values["GATEWAY_INTERNAL_URL"], values["APIM_MANAGEMENT_URL"]),
-                         ("http://localhost:8090", "http://apim-hybrid-gateway:8082", self.url))
+                         ("http://localhost:8090", "http://apim-hyssop-gateway:8082", self.url))
         self.assertEqual(values["APIM_TOKEN"], envfiles.read(".env")[DEV_KEY], "the Cloud Token, from the environment")
         # Each by name, none by value: the values are not in the command, nor in the line that shows it
         self.assertEqual(command, seed())
@@ -1926,7 +1926,7 @@ class Deploying(Deploys):
     def test_no_command_of_a_deploy_names_a_service_of_the_core(self):
         self.ready()
         states = [(on(self.project), {}), (on(self.project), running(*self.core)),
-                  (on(self.project, ["hybrid"], "hotels"), running(*self.core, "hotels-api")),
+                  (on(self.project, ["hyssop"], "hotels"), running(*self.core, "hotels-api")),
                   (on(self.project, ["kiosk"], "demo"), running(*self.core, "demo-app", "kiosk"))]
         for state, containers in states:
             self.state, self.containers = state, containers
@@ -1943,27 +1943,27 @@ class Deploying(Deploys):
     def test_a_gateway_that_serves_this_place_is_not_swapped(self):
         self.ready()
         swap = self.patch(platforms, "swap_gateway", wraps=platforms.swap_gateway)
-        self.state, self.containers = on(self.project, ["hybrid"]), running("apim-hybrid-gateway", "hybrid-redis")
-        held = envfiles.read(ADDON_ENV)["HYBRID_CLOUD_TOKEN"]
+        self.state, self.containers = on(self.project, ["hyssop"]), running("apim-hyssop-gateway", "hyssop-redis")
+        held = envfiles.read(ADDON_ENV)["HYSSOP_CLOUD_TOKEN"]
         self.deploy()
         job, calls = self.execute()
         self.assertTrue(job.ok, job.lines)
         swap.assert_not_called()
-        self.assertEqual(envfiles.read(ADDON_ENV)["HYBRID_CLOUD_TOKEN"], held)
+        self.assertEqual(envfiles.read(ADDON_ENV)["HYSSOP_CLOUD_TOKEN"], held)
         self.assertEqual([command for command, _ in calls], [[*COMPOSE, "up", "-d", "--no-deps", "hotels-api"],
                                                              seed()])
 
     def test_a_gateway_that_serves_another_place_takes_this_one_s_token_before_it_is_made_again(self):
         first = self.ready()
         other = self.ready(TEST, "other")
-        self.state, self.containers = on(self.project, ["hybrid"]), running("apim-hybrid-gateway", "hybrid-redis")
-        self.assertEqual(envfiles.read(ADDON_ENV)["HYBRID_CLOUD_TOKEN"],
+        self.state, self.containers = on(self.project, ["hyssop"]), running("apim-hyssop-gateway", "hyssop-redis")
+        self.assertEqual(envfiles.read(ADDON_ENV)["HYSSOP_CLOUD_TOKEN"],
                          envfiles.read(".env")[test_platforms.gateway_key(first["id"], "MY_ACCOUNT")])
         self.deploy(TESTING)
         held = []
 
         def seen(command, options):
-            held.append((command[len(COMPOSE):len(COMPOSE) + 1], envfiles.read(ADDON_ENV)["HYBRID_CLOUD_TOKEN"]))
+            held.append((command[len(COMPOSE):len(COMPOSE) + 1], envfiles.read(ADDON_ENV)["HYSSOP_CLOUD_TOKEN"]))
         job, calls = self.execute(seen=seen)
         self.assertTrue(job.ok, job.lines)
         # The add-on holds this place's gateway's token when Compose makes it again, and the seed gets the Test token
@@ -1979,16 +1979,16 @@ class Deploying(Deploys):
         key = test_platforms.gateway_key(gateway["id"], "MY_ACCOUNT")
         for held in (fake_cloud.gateway_token("ghost", DEV), None):
             with self.subTest(held=bool(held)):
-                envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": held})
+                envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": held})
                 self.deploy()
                 job, calls = self.execute()
                 self.assertTrue(job.ok, job.lines)
-                self.assertEqual(envfiles.read(ADDON_ENV)["HYBRID_CLOUD_TOKEN"], envfiles.read(".env")[key])
+                self.assertEqual(envfiles.read(ADDON_ENV)["HYSSOP_CLOUD_TOKEN"], envfiles.read(".env")[key])
 
     def test_a_swap_that_fails_fails_the_job_before_anything_starts(self):
         self.ready()
         self.patch(platforms, "swap_gateway", side_effect=ValueError("Its token is not kept here"))
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         self.deploy()
         job, calls = self.execute()
         self.assertEqual((job.ok, job.error(), calls, self.written), (False, "Its token is not kept here", [], []))
@@ -2000,7 +2000,7 @@ class Deploying(Deploys):
         self.ready()
         order = []
         self.patch(platforms, "swap_gateway", lambda *args: order.append("swap"))
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         self.state, self.containers = on(self.project, ["kazoo"]), running("kazoo", "kazoo-ui")
         playgrounds.deploy_unit(self.project, "addon", "redpanda", ["addon:kazoo"], PLACE)
         job, calls = self.execute(seen=lambda command, options: order.append("rm" if "rm" in command else "up"))
@@ -2011,7 +2011,7 @@ class Deploying(Deploys):
         # nothing
         self.ready()
         swap = self.patch(platforms, "swap_gateway")
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         self.state, self.containers = on(self.project, playground="demo"), running("demo-app", "kiosk")
         self.deploy(accept=["playground:demo", "addon:kiosk"])
         job, calls = self.execute({"rm": (["Error response from daemon: cannot stop container"], 1)})
@@ -2023,7 +2023,7 @@ class Deploying(Deploys):
         # Another tab turned something on meanwhile: the job ends before anything changes, the token included
         self.ready()
         swap = self.patch(platforms, "swap_gateway")
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         self.state = {**self.state, "stamp": "read by the plan"}   # the on file is not that any more
         self.deploy()
         job, calls = self.execute()
@@ -2153,8 +2153,8 @@ class Deploying(Deploys):
 
     def test_the_reseed_route_is_a_deploy_where_nothing_is_recorded_and_a_reseed_where_something_is(self):
         self.ready()
-        self.state, self.containers = on(self.project, ["hybrid"], "hotels"), running(
-            "apim-hybrid-gateway", "hybrid-redis", "hotels-api")
+        self.state, self.containers = on(self.project, ["hyssop"], "hotels"), running(
+            "apim-hyssop-gateway", "hyssop-redis", "hotels-api")
         playgrounds.reseed(self.project, "hotels", PLACE)
         title, steps, more = self.started(self.jobs)
         self.assertEqual((title, more["key"], more["verb"], more["phases"], more["changes"]), (
@@ -2173,8 +2173,8 @@ class Deploying(Deploys):
         title, steps, more = self.started(self.jobs)
         self.assertEqual(more["phases"], ["Apps and services", "Gateway", "Seed"])
         job, calls = self.execute()
-        self.assertEqual([command for command, _ in calls], [[*COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway",
-                                                              "hybrid-redis"], seed()])
+        self.assertEqual([command for command, _ in calls], [[*COMPOSE, "up", "-d", "--no-deps", "apim-hyssop-gateway",
+                                                              "hyssop-redis"], seed()])
 
     def test_a_reseed_of_a_playground_that_is_off_is_refused_as_this_machine_s_is(self):
         self.ready()
@@ -2187,7 +2187,7 @@ class Deleting(Deploys):
     """What the seed created in a place: with Stop, and alone."""
 
     def on(self, *core):
-        self.state, self.containers = on(self.project, ["hybrid"], "hotels"), running(*core, "hotels-api")
+        self.state, self.containers = on(self.project, ["hyssop"], "hotels"), running(*core, "hotels-api")
 
     def test_a_stop_that_keeps_what_it_created_asks_no_place(self):
         self.ready()

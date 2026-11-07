@@ -119,13 +119,13 @@ const LINKS = [
 
 // The platform running with its three groups, a playground off and three add-ons, one of them on and running
 // The add-on that runs a hybrid gateway for Gravitee Cloud here: its service runs the image of API Management's gateway
-const hybrid = (up = false) => (up ? running : item)("addon", "hybrid", "Hybrid gateway", { services: ["apim-hybrid-gateway"],
-  gateway: { platform: "cloud", service: "apim-hybrid-gateway", token: "HYBRID_CLOUD_TOKEN", domains: ["localhost:8090"] } });
+const hyssop = (up = false) => (up ? running : item)("addon", "hyssop", "Hybrid gateway", { services: ["apim-hyssop-gateway"],
+  gateway: { platform: "cloud", service: "apim-hyssop-gateway", token: "HYSSOP_CLOUD_TOKEN", domains: ["localhost:8090"] } });
 function lab({ core = "running", groups, links = LINKS, platform = {}, extra = {}, gateway: runs = true, addons, ...more } = {}) {
   const on = core === "running" ? HEALTHY : core === "absent" ? ABSENT : STOPPED;
   const services = { "apim-gateway": service("apim-gateway", on), "apim-management-api": service("apim-management-api", on), "apim-ui": service("apim-ui", on),
     "apim-portal": service("apim-portal", on), "am-gateway": service("am-gateway", on), "am-ui": service("am-ui", on), mongodb: service("mongodb", on),
-    jade: service("jade", HEALTHY), "apim-hybrid-gateway": service("apim-hybrid-gateway", STOPPED, { image: "graviteeio/apim-gateway:4.12.21" }), ...extra };
+    jade: service("jade", HEALTHY), "apim-hyssop-gateway": service("apim-hyssop-gateway", STOPPED, { image: "graviteeio/apim-gateway:4.12.21" }), ...extra };
   const state = core === "running" ? RUNNING : STOPPED;
   const found = groups || [
     group("api-management", "API Management", ["apim-gateway", "apim-management-api", "apim-ui", "apim-portal"], state, { version: "4.12.20" }),
@@ -142,7 +142,7 @@ function lab({ core = "running", groups, links = LINKS, platform = {}, extra = {
     playgrounds: [item("playground", "acme-bakery", "Acme Bakery")],
     setups: [item("setup", "events", "Event Streams", { members: [] }), item("setup", "tracing", "Tracing", { members: [] })],
     addons: [...(addons || [running("addon", "jade", "Jade", { services: ["jade"], links: [LINKS[3]] }), item("addon", "kazoo", "Kazoo"), item("addon", "mail", "Mail server")]),
-      ...(runs ? [hybrid(runs === "up")] : [])],
+      ...(runs ? [hyssop(runs === "up")] : [])],
     ...more,
   };
 }
@@ -710,7 +710,7 @@ test("under its name an item says what its list says of it: why it cannot start,
     playgrounds: [item("playground", "bank", "Acme Bakery", { starred: true, ...note(why), action: ACTION("start", { enabled: false, reason: why }) }),
       running("playground", "api", "Acme Hostels API", note("Started by hand"))],
     setups: [],
-    addons: [running("addon", "hybrid", "Hybrid gateway", note("Needs settings", { note_target: { kind: "addon", id: "hybrid" } }), { action: ACTION("stop") }),
+    addons: [running("addon", "hyssop", "Hybrid gateway", note("Needs settings", { note_target: { kind: "addon", id: "hyssop" } }), { action: ACTION("stop") }),
       running("addon", "kazoo", "Kazoo", note("Apply needed", { note_tone: "warn", note_title: "Kazoo broker: its configuration changed since it started.", note_apply: true })),
       running("addon", "jade", "Jade")],
   }) });
@@ -1134,7 +1134,7 @@ test("with API Management in the Cloud, its row is its environment and its gatew
   assert.deepEqual(shown(), ["start"], "nothing of what it starts runs: Start all");
   const start = section.querySelector('[data-lean] [data-stack="start"]');
   assert.ok(start.classList.contains("primary"));
-  server.plan = { needed: true, dialog: { starts: [{ kind: "addon", id: "hybrid", name: "Hybrid gateway" }, { kind: "group", id: "access-management", name: "Access Management" }],
+  server.plan = { needed: true, dialog: { starts: [{ kind: "addon", id: "hyssop", name: "Hybrid gateway" }, { kind: "group", id: "access-management", name: "Access Management" }],
     serves: [{ kind: "environment", id: CLOUD_CORE.place, name: CLOUD_CORE.name }], not_started: [{ kind: "group", id: "api-management", name: "API Management" }],
     hints: { not_started: "API Management runs in Gravitee Cloud" } } };
   start.click();

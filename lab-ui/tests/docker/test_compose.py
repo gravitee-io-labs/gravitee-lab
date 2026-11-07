@@ -922,12 +922,12 @@ class Retargeted(ProjectFolder):
                 "    command: [\"TCP-LISTEN:9092\", \"TCP:apim-gateway:9092\"]\n"
                 "    environment:\n      GATEWAY_URL: http://apim-gateway:8082/mcp\n      AUTH_URL: http://me@apim-gateway/x\n"
                 "  seed:\n    depends_on:\n      apim-gateway:\n        condition: service_healthy\n")
-        found = compose.retarget(text, {"apim-gateway": "apim-hybrid-gateway"}).split("\n")
-        self.assertEqual([line.strip() for line in found if "hybrid" in line],
-                         ["apim-hybrid-gateway:", "depends_on: [apim-hybrid-gateway, mongodb]",
-                          'command: ["TCP-LISTEN:9092", "TCP:apim-hybrid-gateway:9092"]',
-                          "GATEWAY_URL: http://apim-hybrid-gateway:8082/mcp", "AUTH_URL: http://me@apim-hybrid-gateway/x",
-                          "apim-hybrid-gateway:"])
+        found = compose.retarget(text, {"apim-gateway": "apim-hyssop-gateway"}).split("\n")
+        self.assertEqual([line.strip() for line in found if "hyssop" in line],
+                         ["apim-hyssop-gateway:", "depends_on: [apim-hyssop-gateway, mongodb]",
+                          'command: ["TCP-LISTEN:9092", "TCP:apim-hyssop-gateway:9092"]',
+                          "GATEWAY_URL: http://apim-hyssop-gateway:8082/mcp", "AUTH_URL: http://me@apim-hyssop-gateway/x",
+                          "apim-hyssop-gateway:"])
         # The image and the binds are what the files say: a Cloud deploy changes the service, not what it runs or mounts
         for kept in ("image: graviteeio/apim-gateway:4.13.1", "container_name: gio-apim-gateway",
                      "- ./apim-gateway/gravitee.yml:/opt/gravitee.yml", "- apim-gateway/x.yml:/x", "- ./config/apim-gateway.yml:/y",

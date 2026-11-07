@@ -17,13 +17,13 @@ const PLATFORM = { id: "cloud-eu", name: "My Account", kind: "cloud", url: "http
 const NAMES = ["Development", "Test", "Production"];
 const environment = (name, token) => ({ id: `env-${name.toLowerCase()}`, name, organizationId: "o1", token });
 const gateway = (more) => ({ id: "g1", name: "lab", environmentId: "env-development", type: "HYBRID", status: "DEPLOYED",
-  connection: "UNKNOWN_HYBRID", version: "4.12.20", domains: ["localhost:8090", "apim-hybrid-gateway:8082"], here: false, kept: true, ...more });
+  connection: "UNKNOWN_HYBRID", version: "4.12.20", domains: ["localhost:8090", "apim-hyssop-gateway:8082"], here: false, kept: true, ...more });
 // The add-on that runs the gateways of a Cloud here, as the state says it
-const ADDON = (more) => ({ kind: "addon", id: "hybrid", name: "Hybrid gateway", state: { key: "running", label: "Running" }, note: "", note_tone: "",
+const ADDON = (more) => ({ kind: "addon", id: "hyssop", name: "Hybrid gateway", state: { key: "running", label: "Running" }, note: "", note_tone: "",
   note_title: "", action: { do: "stop", label: "Stop", enabled: true, reason: null, dialog: null },
-  gateway: { platform: "cloud", service: "apim-hybrid-gateway", token: "HYBRID_CLOUD_TOKEN", domains: ["localhost:8090", "apim-hybrid-gateway:8082"] }, ...more });
+  gateway: { platform: "cloud", service: "apim-hyssop-gateway", token: "HYSSOP_CLOUD_TOKEN", domains: ["localhost:8090", "apim-hyssop-gateway:8082"] }, ...more });
 const STOPPED = { state: { key: "stopped", label: "Stopped" }, action: { do: "start", label: "Start", enabled: true, reason: null, dialog: null } };
-const JOB = { id: "ab12cd34", for: "addon:hybrid", verb: "start", title: "Start Hybrid gateway", done: false, ok: null, progress: null, phases: [], started: 0 };
+const JOB = { id: "ab12cd34", for: "addon:hyssop", verb: "start", title: "Start Hybrid gateway", done: false, ok: null, progress: null, phases: [], started: 0 };
 
 // What the server answers: the records, and the check of each, which a test changes; every call the page made; the refusal it gets
 // in answer to a POST when a test sets one; the plan of a gateway's start
@@ -65,7 +65,7 @@ const { logsPage } = await import("../../../web/js/pages/logs.js");
 const { License } = await import("../../../web/js/dialogs/license.js");
 const { openCreateGateway, openCloudToken } = await import("../../../web/js/dialogs/platform.js");
 const RUNNING = { key: "running", label: "Running", running: true };
-const state = (more = {}) => ({ blind: false, wait: "", docker: { error: null }, services: { "apim-hybrid-gateway": { state: RUNNING } }, playgrounds: [],
+const state = (more = {}) => ({ blind: false, wait: "", docker: { error: null }, services: { "apim-hyssop-gateway": { state: RUNNING } }, playgrounds: [],
   addons: [ADDON()], setups: [], job: null, links: [], categories: [], platform: { groups: [] }, ...more });
 store.state = state();
 
@@ -606,12 +606,12 @@ test("every environment in use has its action and a labeled More, and the action
 test("Start and Stop are the add-on's own action: they carry its key and show it at work, and wait for Docker", async () => {
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }));
   const stop = primary("Development");
-  assert.equal(stop.getAttribute("data-act-for"), "addon:hybrid");
+  assert.equal(stop.getAttribute("data-act-for"), "addon:hyssop");
   assert.equal(stop.getAttribute("data-act-verb"), "stop start");
   assert.ok(stop.hasAttribute("data-busy"), "it waits for the running job");
   store.state = state({ addons: [ADDON(STOPPED)] });
   await open(ok([gateway({ here: true })], { Development: VALID }));
-  assert.equal(primary("Development").getAttribute("data-act-for"), "addon:hybrid");
+  assert.equal(primary("Development").getAttribute("data-act-for"), "addon:hyssop");
   store.state = state();
   platformsPage.hide();
 });
@@ -659,7 +659,7 @@ const MORE = [
 
 test("More offers the rest of what can be done in an environment, in groups, what removes last", async () => {
   for (const [why, addon, gateways, token, offered] of MORE) {
-    store.state = state({ addons: addon ? [addon] : [], services: { "apim-hybrid-gateway": { state: RUNNING } } });
+    store.state = state({ addons: addon ? [addon] : [], services: { "apim-hyssop-gateway": { state: RUNNING } } });
     await open(ok(gateways, { Development: token }));
     assert.deepEqual(menu(envMore("Development")), offered, why);
     assert.deepEqual(entries().filter((entry) => entry.disabled || entry.getAttribute("aria-disabled") === "true").map(label), [], `${why}: nothing waits`);
@@ -724,9 +724,9 @@ test("every hybrid gateway of the account is a row of its list under the environ
   assert.deepEqual(table.querySelectorAll(".plat-heads > span").map(said), ["Gateway", "Environment", "State", "Version", "Domains", ""]);
   assert.deepEqual(table.querySelectorAll(".plat-heads > span").map((el) => el.getAttribute("role")), Array(6).fill("columnheader"));
   assert.deepEqual(gwRows().map(gwSaid), [
-    ["dev", "Development", "Running here", "4.12.20", "localhost:8090, apim-hybrid-gateway:8082"],
-    ["elsewhere", "Test", "Connected elsewhere", "4.12.21", "localhost:8090, apim-hybrid-gateway:8082"],
-    ["kept", "Development", "Stopped here", "4.12.20", "localhost:8090, apim-hybrid-gateway:8082"],
+    ["dev", "Development", "Running here", "4.12.20", "localhost:8090, apim-hyssop-gateway:8082"],
+    ["elsewhere", "Test", "Connected elsewhere", "4.12.21", "localhost:8090, apim-hyssop-gateway:8082"],
+    ["kept", "Development", "Stopped here", "4.12.20", "localhost:8090, apim-hyssop-gateway:8082"],
     ["old", "Production", "Not connected", "4.12.20", "—"],
   ], "a hosted gateway is none of the Lab's; one that runs nowhere is Not connected, gray");
   assert.deepEqual(gwRows().map((r) => r.getAttribute("role")), ["row", "row", "row", "row"]);
@@ -737,7 +737,7 @@ test("every hybrid gateway of the account is a row of its list under the environ
   // What to do: Stop for the one that runs here, Start for the one the Lab keeps, nothing but More for the others; each named for its gateway
   const actions = (r) => [r.querySelector("[data-gw-do]")?.getAttribute("aria-label") ?? "", r.querySelectorAll("[data-gw-more]").length];
   assert.deepEqual(gwRows().map(actions), [["Stop gateway, dev", 1], ["", 1], ["Start gateway, kept", 1], ["", 1]]);
-  assert.deepEqual(gwRows().map((r) => r.querySelector("[data-gw-do]")?.dataset.actFor ?? ""), ["addon:hybrid", "", "addon:hybrid", ""], "the add-on's own job, wherever it was started");
+  assert.deepEqual(gwRows().map((r) => r.querySelector("[data-gw-do]")?.dataset.actFor ?? ""), ["addon:hyssop", "", "addon:hyssop", ""], "the add-on's own job, wherever it was started");
   assert.deepEqual(gwRows().map((r) => r.querySelectorAll(".plat-actions > *").length), [2, 1, 2, 1], "the slot of the action is kept on a row that has none");
   assert.deepEqual(menu(gwRow("dev").querySelector("[data-gw-more]")), ["Show logs", "Copy address", "Remove gateway"]);
   close();
@@ -757,7 +757,7 @@ test("a gateway of the list is stopped, started and removed with the environment
   // Stop is the add-on's
   gwRow("lab").querySelector('[data-gw-do="stop"]').click();
   await settle();
-  assert.deepEqual(posted("/stop").map((c) => c.path), ["/api/addons/hybrid/stop"]);
+  assert.deepEqual(posted("/stop").map((c) => c.path), ["/api/addons/hyssop/stop"]);
   // Copy address
   const copied = [];
   Object.defineProperty(globalThis.navigator ??= {}, "clipboard", { value: { writeText: async (value) => { copied.push(value); } }, configurable: true });
@@ -935,7 +935,7 @@ test("Create gateway opens the form of the environment, titled as the button, an
 
 test("Start asks the server what it does and says it first: Restarts, Serves, Stops serving; Start runs the job", async () => {
   await open(ok([gateway({ id: "g2", name: "second", environmentId: "env-test" })], { Test: VALID }));
-  server.plan = { dialog: { starts: [], stops: [], turns_off: [], keeps: [], restarts: [{ name: "Hybrid gateway", kind: "addon", id: "hybrid" }],
+  server.plan = { dialog: { starts: [], stops: [], turns_off: [], keeps: [], restarts: [{ name: "Hybrid gateway", kind: "addon", id: "hyssop" }],
     serves: [{ kind: "environment", id: "cloud-eu/env-test", name: "Test (Client lab)" }],
     stops_serving: [{ kind: "environment", id: "cloud-eu/env-development", name: "Development (My Account)" }] } };
   await click('[data-do="start-gateway"]');
@@ -953,7 +953,7 @@ test("a Start that is canceled does nothing", async () => {
   await open(ok([gateway({ here: true })], { Development: VALID }));
   store.state = state({ addons: [ADDON(STOPPED)] });
   platformsPage.render(store.state);
-  server.plan = { dialog: { restarts: [{ name: "Hybrid gateway", kind: "addon", id: "hybrid" }],
+  server.plan = { dialog: { restarts: [{ name: "Hybrid gateway", kind: "addon", id: "hyssop" }],
     serves: [{ kind: "environment", id: "a/b", name: "x" }], stops_serving: [{ kind: "environment", id: "c/d", name: "y" }] } };
   await click('[data-do="start-gateway"]');
   await answer(false);
@@ -1002,7 +1002,7 @@ test("a refused plan is said in a toast", async () => {
 test("Stop is the add-on's own, with its own dialog", async () => {
   await open(ok([gateway({ here: true, connection: "CONNECTED" })], { Development: VALID }));
   await click('[data-do="stop-gateway"]');
-  assert.deepEqual(posted("/stop").map((c) => [c.path, c.body]), [["/api/addons/hybrid/stop", { accept: [] }]]);
+  assert.deepEqual(posted("/stop").map((c) => [c.path, c.body]), [["/api/addons/hyssop/stop", { accept: [] }]]);
   store.state = state({ addons: [ADDON({ action: { do: "stop", label: "Stop", enabled: true, reason: null,
     dialog: { stops: [{ name: "Acme Hostels", kind: "playground", id: "acme-hostels" }], turns_off: [], starts: [], restarts: [], keeps: [] } } })] });
   platformsPage.render(store.state);
@@ -1020,7 +1020,7 @@ test("Stop from More, when the token is the action, is the same Stop", async () 
   server.calls = [];
   menu(envMore("Development"));
   await choose("Stop gateway");
-  assert.deepEqual(posted("/stop").map((c) => c.path), ["/api/addons/hybrid/stop"]);
+  assert.deepEqual(posted("/stop").map((c) => c.path), ["/api/addons/hyssop/stop"]);
 });
 
 test("another gateway of an environment is started and removed from its row of the list, not from the environment's More", async () => {
@@ -1432,7 +1432,7 @@ test("a gateway made from the page is started at once, through the plan and the 
   // Cloud lists it once it is made; the add-on does not run it yet
   server.check = ok([gateway({ id: "g-made", name: "Gravitee Lab - Test", environmentId: "env-test", kept: true })], { Test: VALID });
   store.state = state({ addons: [ADDON(STOPPED)] });
-  server.plan = { dialog: { restarts: [{ name: "Hybrid gateway", kind: "addon", id: "hybrid" }] } };
+  server.plan = { dialog: { restarts: [{ name: "Hybrid gateway", kind: "addon", id: "hyssop" }] } };
   server.calls = [];
   await submit(create);
   assert.deepEqual(server.calls.filter((c) => c.method === "POST" && !c.path.endsWith("/check")).map((c) => c.path), ["/api/platforms/cloud-eu/gateways"], "nothing runs before the plan is shown");

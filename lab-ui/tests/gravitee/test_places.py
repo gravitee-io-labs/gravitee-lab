@@ -25,7 +25,7 @@ NAME = "My Account"
 KEY = "PLATFORM_MY_ACCOUNT_TOKEN"
 DEV_KEY = "PLATFORM_MY_ACCOUNT_ENV_FAKE_ENV_DEV_TOKEN"
 DEVELOPMENT = f"Development ({NAME})"
-BOTH = ["localhost:8090", "apim-hybrid-gateway:8082"]
+BOTH = ["localhost:8090", "apim-hyssop-gateway:8082"]
 PLAYGROUND = {"id": "hotels", "name": "Hotels"}   # the playground a seed belongs to: the policy found nothing against its seed
 REPOSITORY = Path(__file__).resolve().parents[3]
 # The address of the platform's gateway, which the seeder looks at with the API key of an API of the environment (its own
@@ -116,7 +116,7 @@ class Reading(Places):
 
     def test_a_token_in_the_add_on_is_no_place_without_a_platform(self):
         platforms.remove("my-account")
-        self.write(ADDON_ENV, "HYBRID_CLOUD_TOKEN=" + fake_cloud.GATEWAY_TOKEN + "\n")
+        self.write(ADDON_ENV, "HYSSOP_CLOUD_TOKEN=" + fake_cloud.GATEWAY_TOKEN + "\n")
         asked = len(self.fake.state.asked)
         self.assertEqual((places.places(PROJECT), places.serving(PROJECT)), ([], None))
         self.assertEqual((len(self.fake.state.asked), places._reading), (asked, {}))
@@ -233,7 +233,7 @@ class States(Places):
     def test_one_that_has_only_gateways_the_lab_cannot_run_lacks_one_of_its_own(self):
         made = self.create(DEV, "lab", platform="my-account")["gateway"]
         envfiles.write(".env", {test_platforms.gateway_key(made["id"], "MY_ACCOUNT"): None})   # as if made in the console
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         found = self.place()
         self.assertEqual((found["missing"], found["reason"]), ("No hybrid gateway", f"Create a hybrid gateway for {DEVELOPMENT}"))
 
@@ -445,7 +445,7 @@ class Serving(Places):
         self.read()
         self.assertIsNone(places.serving(PROJECT))
         self.create(DEV, "lab", platform="my-account")
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         self.assertIsNone(places.serving(PROJECT))
         self.assertFalse((self.root / ADDON_ENV).exists())
 
@@ -477,7 +477,7 @@ class Serving(Places):
         self.fake.state.gateways.pop(gateway["id"])
         places.invalidate("my-account")
         self.assertIsNone(places.serving(PROJECT))
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": "not-a-token"})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": "not-a-token"})
         self.assertIsNone(places.serving(PROJECT))
 
     def test_it_is_none_after_the_gateway_is_deleted(self):
@@ -500,7 +500,7 @@ class SeedEnv(Places):
             "APIM_MANAGEMENT_URL": self.url, "AIM_AUTOMATION_URL": self.url, "AIM_GAMMA_URL": self.url,
             "APIM_MANAGEMENT_PATH": "/apim/rest", "APIM_PORTAL_PATH": "/portal", "APIM_TOKEN": fake_cloud.CLOUD_TOKEN,
             "APIM_ORG": "fake-organization", "APIM_ENV": DEV, "APIM_GATEWAY_URL": "http://localhost:8090",
-            "GATEWAY_INTERNAL_URL": "http://apim-hybrid-gateway:8082", "STATE_DIR": f"/state/my-account/{DEV}"})
+            "GATEWAY_INTERNAL_URL": "http://apim-hyssop-gateway:8082", "STATE_DIR": f"/state/my-account/{DEV}"})
         self.assertEqual(len(self.fake.state.asked), asked, "a seed's settings are made of what is kept")
 
     def test_the_only_secret_is_the_cloud_token_and_it_is_only_there(self):
@@ -568,7 +568,7 @@ class SeedEnv(Places):
         for domains, expected in [(BOTH[:1], {"APIM_GATEWAY_URL": "http://localhost:8090"}), ([], {}),
                                   (["localhost:8091", "gw:80", "more:1"], {"APIM_GATEWAY_URL": "http://localhost:8091",
                                                                           "GATEWAY_INTERNAL_URL": "http://gw:80"})]:
-            project = {**PROJECT, "addons": {"hybrid": {**PROJECT["addons"]["hybrid"],
+            project = {**PROJECT, "addons": {"hyssop": {**PROJECT["addons"]["hyssop"],
                                                         "gateway": {**GATEWAY, "domains": domains}}}}
             with self.subTest(domains=domains):
                 env = places.seed_env(project, f"my-account/{DEV}", PLAYGROUND)
@@ -691,7 +691,7 @@ class Gateways(Places):
     def test_the_gateway_that_runs_here(self):
         gateway = self.create(DEV, "lab", platform="my-account")["gateway"]
         found = places.gateway(PROJECT, "my-account", gateway["id"])
-        self.assertEqual(found, {"id": f"my-account/{DEV}", "name": DEVELOPMENT, "gateway": "hybrid", "here": True,
+        self.assertEqual(found, {"id": f"my-account/{DEV}", "name": DEVELOPMENT, "gateway": "hyssop", "here": True,
                                  "serving": {"id": f"my-account/{DEV}", "name": DEVELOPMENT}})
         self.assertHidden(found)
 
@@ -700,7 +700,7 @@ class Gateways(Places):
         second = self.create(TEST, "second", platform="my-account")["gateway"]
         found = places.gateway(PROJECT, "my-account", second["id"])
         self.assertEqual((found["id"], found["name"], found["gateway"], found["here"]),
-                         (f"my-account/{TEST}", f"Test ({NAME})", "hybrid", False))
+                         (f"my-account/{TEST}", f"Test ({NAME})", "hyssop", False))
         self.assertEqual(found["serving"], {"id": f"my-account/{DEV}", "name": DEVELOPMENT})
 
     def test_what_it_serves_is_the_name_of_a_place_of_another_platform_too(self):
@@ -730,13 +730,13 @@ class Gateways(Places):
         # Kept, none runs here: a token of this one only. None is not "nothing is served" for the plan: it just has no
         # place to say it stops serving
         gateway = self.create(DEV, "lab", platform="my-account")["gateway"]
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         found = places.gateway(PROJECT, "my-account", gateway["id"])
         self.assertEqual((found["here"], found["serving"]), (False, None))
 
     def test_a_token_that_no_gateway_matches_is_no_gateway_that_runs_here(self):
         gateway = self.create(DEV, "lab", platform="my-account")["gateway"]
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": "not-a-token"})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": "not-a-token"})
         found = places.gateway(PROJECT, "my-account", gateway["id"])
         self.assertEqual((found["here"], found["serving"]), (False, None))
 
@@ -752,7 +752,7 @@ class Gateways(Places):
         # The Lab created it and has no token for it: it was made in the console
         kept = platforms._key("my-account", "GATEWAY", gateway["id"])
         envfiles.write(paths.ENV_FILE, {kept: None})
-        envfiles.write(ADDON_ENV, {"HYBRID_CLOUD_TOKEN": None})
+        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         with self.assertRaisesRegex(ValueError, "^Its token is not kept here$"):
             places.gateway(PROJECT, "my-account", gateway["id"])
         with self.assertRaises(paths.NotFound):

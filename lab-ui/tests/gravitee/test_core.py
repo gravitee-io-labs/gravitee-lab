@@ -151,7 +151,7 @@ class StartAll(Core):
         made = self.gateway()
         found, plan = self.planned()
         where = plan.call_args.kwargs["place"]
-        self.assertEqual((plan.call_args.args[4:6], where["id"], where["gateway"]), (("hybrid", "start"), PLACE, "hybrid"))
+        self.assertEqual((plan.call_args.args[4:6], where["id"], where["gateway"]), (("hyssop", "start"), PLACE, "hyssop"))
         self.assertEqual(found["gateway_id"], made["id"])
         self.assertEqual(found["others"], ["alert-engine", "am-gateway", "hotels-api", "kazoo", "kiosk", "mongodb"],
                          "the products that stay, MongoDB that one of them and Kiosk use, the playground's app and what is on;"
@@ -172,7 +172,7 @@ class StartAll(Core):
         # hints of this dialog (why API Management does not start) must not take the place of
         self.gateway()
         found = copy.deepcopy(PROJECT)
-        found["addons"]["hybrid"]["origin"] = {"id": "acme-hub", "name": "Acme Hub", "version": "1.4.0"}
+        found["addons"]["hyssop"]["origin"] = {"id": "acme-hub", "name": "Acme Hub", "version": "1.4.0"}
         dialog = core.plan(found, STATE, {}, None)["dialog"]
         self.assertEqual(dialog["from"], [{"kind": "catalog", "id": "acme-hub", "name": "Acme Hub"}])
         self.assertEqual(dialog["hints"], {"from": "Version 1.4.0", "not_started": "API Management runs in Gravitee Cloud"},
@@ -181,7 +181,7 @@ class StartAll(Core):
     def test_the_hints_are_what_the_gateways_plan_carries_and_the_dialog_adds_to_them_never_the_other_way(self):
         self.gateway()
         found = copy.deepcopy(PROJECT)
-        found["addons"]["hybrid"]["origin"] = {"id": "acme-hub", "name": "Acme Hub", "version": "1.4.0"}
+        found["addons"]["hyssop"]["origin"] = {"id": "acme-hub", "name": "Acme Hub", "version": "1.4.0"}
         # A hint of the gateway's plan that this dialog also says is the dialog's; the others are the plan's
         said = layers.dialog
         with mock.patch.object(layers, "dialog", side_effect=lambda plan: {
@@ -208,15 +208,15 @@ class StartAll(Core):
 
     def test_what_runs_is_not_started_again(self):
         self.gateway()
-        running = ("apim-hybrid-gateway", "hybrid-redis", "hotels-api", "kazoo", "kiosk", "mongodb", "am-gateway", "alert-engine")
+        running = ("apim-hyssop-gateway", "hyssop-redis", "hotels-api", "kazoo", "kiosk", "mongodb", "am-gateway", "alert-engine")
         found, _ = self.planned({name: RUNNING for name in running})
         self.assertEqual((found["others"], found["needed"]), ([], False))
 
     def test_stop_all_stops_what_start_all_starts_and_leaves_api_management(self):
-        running = {name: RUNNING for name in ("apim-gateway", "elasticsearch", "mongodb", "am-gateway", "apim-hybrid-gateway",
+        running = {name: RUNNING for name in ("apim-gateway", "elasticsearch", "mongodb", "am-gateway", "apim-hyssop-gateway",
                                               "kazoo", "kazoo-ui")}
         self.assertEqual(core.stopping(PROJECT, STATE, running),
-                         ["am-gateway", "apim-hybrid-gateway", "kazoo", "kazoo-ui", "mongodb"])
+                         ["am-gateway", "apim-hyssop-gateway", "kazoo", "kazoo-ui", "mongodb"])
         self.assertTrue(core.describe(PROJECT, STATE, running, None, None)["stop"]["needed"])
         self.assertEqual(core.stopping(PROJECT, STATE, {"apim-gateway": RUNNING, "elasticsearch": RUNNING}), [])
 

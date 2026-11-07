@@ -154,9 +154,9 @@ class Installed(Case):
 
     def test_by_default_what_an_add_on_that_is_off_brings_is_not_read(self):
         # The checks of a playground ask without saying which services count: those Compose reads now
-        project = {**PROJECT, "services": {**PROJECT["services"], "hybrid": {
-            **PROJECT["services"]["gateway"], "container": "gio-hybrid", "image": "graviteeio/apim-gateway:4.12.21"}},
-            "products": {"apim": {**APIM, "services": {"gateway": "/opt/gateway/plugins", "hybrid": "/opt/hybrid/plugins"}}}}
+        project = {**PROJECT, "services": {**PROJECT["services"], "hyssop": {
+            **PROJECT["services"]["gateway"], "container": "gio-hyssop", "image": "graviteeio/apim-gateway:4.12.21"}},
+            "products": {"apim": {**APIM, "services": {"gateway": "/opt/gateway/plugins", "hyssop": "/opt/hyssop/plugins"}}}}
         read = []
         self.patch(compose, "shell", lambda service, args, timeout=120: (read.append(service["container"]), (0, "", ""))[1])
         self.patch(compose, "loaded", return_value={"gateway", "mongodb"})
@@ -202,13 +202,13 @@ class Installed(Case):
     def test_a_service_of_an_addon_that_is_off_is_neither_read_nor_pulled(self):
         # The hybrid gateway has no container, its image is not here, and Compose does not read its file: asking Docker
         # for its plugins fails, and `pull` of its service says "no such service". Nothing starts it, so it does not count
-        project = {**PROJECT, "services": {**PROJECT["services"], "hybrid": {
-            **PROJECT["services"]["gateway"], "container": "gio-hybrid", "image": "graviteeio/apim-gateway:4.12.21"}},
-            "products": {"apim": {**APIM, "services": {"gateway": "/opt/gateway/plugins", "hybrid": "/opt/hybrid/plugins"}}}}
+        project = {**PROJECT, "services": {**PROJECT["services"], "hyssop": {
+            **PROJECT["services"]["gateway"], "container": "gio-hyssop", "image": "graviteeio/apim-gateway:4.12.21"}},
+            "products": {"apim": {**APIM, "services": {"gateway": "/opt/gateway/plugins", "hyssop": "/opt/hyssop/plugins"}}}}
         missing = "docker: Error response from daemon: No such image: graviteeio/apim-gateway:4.12.21\n"
 
         def shell(service, args, timeout=120):
-            if service["container"] == "gio-hybrid":
+            if service["container"] == "gio-hyssop":
                 return 125, "", missing
             return 0, "1700 gravitee-policy-x-2.1.0.zip\n", ""
         self.patch(compose, "shell", shell)
@@ -692,10 +692,10 @@ class Installed(Case):
             return {"container": container, "image": f"graviteeio/{container}:4", "label": container, "oneshot": False,
                     "depends_on": list(depends), "owner": {"kind": "platform", "id": "api-management", "name": "API"}}
         services = {"api": service("gio-api", ["mongodb"]), "gateway": service("gio-gateway", ["api", "mongodb"]),
-                    "hybrid": service("gio-hybrid", ["hybrid-redis"]), "hybrid-redis": service("gio-hybrid-redis"),
+                    "hyssop": service("gio-hyssop", ["hyssop-redis"]), "hyssop-redis": service("gio-hyssop-redis"),
                     "mongodb": service("gio-mongodb"), "web": service("gio-web", ["gateway"])}
         product = {"name": "API Management", "folder": "plugins/apim", "lib": {},
-                   "services": {"api": "/opt/api/plugins", "gateway": "/opt/gateway/plugins", "hybrid": "/opt/h/plugins"}}
+                   "services": {"api": "/opt/api/plugins", "gateway": "/opt/gateway/plugins", "hyssop": "/opt/h/plugins"}}
         return {"products": {"apim": product}, "services": services}
 
     def test_services_that_share_a_plugin_folder_start_one_at_a_time(self):
@@ -705,10 +705,10 @@ class Installed(Case):
         project, commands = self.project_sharing_a_folder(), []
         job = Job("Start", [])
         job.exec = lambda command, quiet=False: commands.append(command)
-        plugins.up(job, project, ["web", "gateway", "hybrid", "hybrid-redis", "api", "mongodb"])
+        plugins.up(job, project, ["web", "gateway", "hyssop", "hyssop-redis", "api", "mongodb"])
         start = [*compose.COMPOSE, "up", "-d", "--no-deps"]
-        self.assertEqual(commands, [[*start, "hybrid", "hybrid-redis"],
-                                    [*start, "--wait", f"--wait-timeout={plugins.WAIT}", "hybrid", "hybrid-redis"],
+        self.assertEqual(commands, [[*start, "hyssop", "hyssop-redis"],
+                                    [*start, "--wait", f"--wait-timeout={plugins.WAIT}", "hyssop", "hyssop-redis"],
                                     [*start, "web", "gateway", "api", "mongodb"]])
         # Without the add-on's, nothing changes: one `up`, as Compose orders it
         commands.clear()
@@ -722,19 +722,19 @@ class Installed(Case):
         def run(command, quiet=False):
             commands.append(command)
             if "--wait" in command:
-                raise JobFailed("container gio-hybrid is unhealthy")
+                raise JobFailed("container gio-hyssop is unhealthy")
         job.exec = run
-        plugins.up(job, project, ["hybrid", "api"])
-        self.assertEqual([command[-1] for command in commands], ["api", "api", "hybrid"])   # neither depends on the other
+        plugins.up(job, project, ["hyssop", "api"])
+        self.assertEqual([command[-1] for command in commands], ["api", "api", "hyssop"])   # neither depends on the other
         commands.clear()
         job.cancel()
         with self.assertRaisesRegex(JobFailed, "unhealthy"):
-            plugins.up(job, project, ["hybrid", "api"])
+            plugins.up(job, project, ["hyssop", "api"])
         self.assertEqual(len(commands), 2)
 
     def test_apply_starts_again_one_at_a_time_what_shares_the_folder(self):
         project = self.project_sharing_a_folder()
-        self.patch(compose, "containers", lambda: ({name: {"state": "running"} for name in ("api", "gateway", "hybrid")},
+        self.patch(compose, "containers", lambda: ({name: {"state": "running"} for name in ("api", "gateway", "hyssop")},
                                                    None))
         added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
         added.parent.mkdir(parents=True)
@@ -746,8 +746,8 @@ class Installed(Case):
         job.exec = lambda command, quiet=False: commands.append(command)
         job.run()
         start = [*compose.COMPOSE, "up", "-d", "--no-deps"]
-        self.assertEqual(commands, [[*compose.COMPOSE, "stop", "api", "gateway", "hybrid"], [*start, "hybrid"],
-                                    [*start, "--wait", f"--wait-timeout={plugins.WAIT}", "hybrid"],
+        self.assertEqual(commands, [[*compose.COMPOSE, "stop", "api", "gateway", "hyssop"], [*start, "hyssop"],
+                                    [*start, "--wait", f"--wait-timeout={plugins.WAIT}", "hyssop"],
                                     [*start, "api", "gateway"]])
 
     def test_a_service_started_alone_that_could_not_be_pulled_fails_the_job(self):
@@ -756,7 +756,7 @@ class Installed(Case):
         import json
         from lab_ui.docker import jobs
         project = self.project_sharing_a_folder()
-        self.patch(compose, "containers", lambda: ({name: {"state": "running"} for name in ("api", "gateway", "hybrid")},
+        self.patch(compose, "containers", lambda: ({name: {"state": "running"} for name in ("api", "gateway", "hyssop")},
                                                    None))
         added = self.root / "plugins/apim/gravitee-policy-old-1.0.0.zip"
         added.parent.mkdir(parents=True)
@@ -765,21 +765,21 @@ class Installed(Case):
         plugins.apply(project, "apim", [], [added.name])
         title, steps, more = self.started(jobs_)
         job, started = Job(title, steps, phases=more["phases"], waits=more["waits"]), []
-        refused = {"id": "Image graviteeio/gio-hybrid:5", "status": "Error", "text": "Error",
+        refused = {"id": "Image graviteeio/gio-hyssop:5", "status": "Error", "text": "Error",
                    "details": "manifest unknown"}
 
         def command(cmd, **options):
             started.append(cmd)
             pull = "pull" in cmd and "--policy" in cmd
-            lines = [json.dumps(refused)] if pull and cmd[-1] == "hybrid" else [] if pull else \
+            lines = [json.dumps(refused)] if pull and cmd[-1] == "hyssop" else [] if pull else \
                 ["Container gio-x Started"]
             return mock.Mock(stdout=iter(line + "\n" for line in lines), wait=lambda: 0, returncode=0)
         with mock.patch.object(jobs.subprocess, "Popen", command), mock.patch.object(compose, "image_ids", return_value={}):
             job.run()
         # The hybrid gateway ran before the apply and stopped for it: its own `up` never ran
-        self.assertNotIn(["up", "-d", "--no-deps", "--wait", f"--wait-timeout={plugins.WAIT}", "hybrid"],
+        self.assertNotIn(["up", "-d", "--no-deps", "--wait", f"--wait-timeout={plugins.WAIT}", "hyssop"],
                          [cmd[cmd.index("up"):] for cmd in started if "up" in cmd])
-        self.assertEqual((job.ok, job.error()), (False, "Could not pull graviteeio/gio-hybrid:5: manifest unknown"))
+        self.assertEqual((job.ok, job.error()), (False, "Could not pull graviteeio/gio-hyssop:5: manifest unknown"))
 
 
 if __name__ == "__main__":

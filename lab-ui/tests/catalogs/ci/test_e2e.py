@@ -32,7 +32,7 @@ def catalog_yml(ns="acme-hub", extra=""):
 
 UNITS = {"playgrounds/bank/compose.yml": "services: {}\n", "playgrounds/bank/README.md": "# Bank\n",
          "playgrounds/bank/apps/web/app.py": "print(1)\n", "addons/mock/compose.yml": "services: {}\n",
-         "addons/hybrid/compose.yml": "services: {}\n", "setups/pair.yml": "include: []\n"}
+         "addons/hyssop/compose.yml": "services: {}\n", "setups/pair.yml": "include: []\n"}
 BASE = {"catalog.yml": catalog_yml(), "README.md": "# Hub\n", "Makefile": "include .catalog/standard.mk\n",
         ".catalog/standard.mk": "# Managed\n", ".github/workflows/ci.yml": "name: CI\n", **UNITS}
 
@@ -123,7 +123,7 @@ class Matrix(Fixture):
                       "addon:mock": self.loaded("addon:mock")}
         self.assertEqual(self.plan("--all", change=False), 0, self.err.getvalue() + self.out.getvalue())
         self.assertEqual(self.jobs(), [
-            {"item": "addon:hybrid", "name": "addon:hybrid (core defaults)", "tested": ""},
+            {"item": "addon:hyssop", "name": "addon:hyssop (core defaults)", "tested": ""},
             {"item": "addon:mock", "name": "addon:mock (core defaults)", "tested": ""},
             {"item": "playground:bank", "name": "playground:bank (versions 0)", "tested": "0"},
             {"item": "playground:bank", "name": "playground:bank (versions 1)", "tested": "1"},
@@ -139,7 +139,7 @@ class Matrix(Fixture):
 
     def test_an_item_of_a_catalog_that_is_not_the_first_is_named_with_the_catalog(self):
         self.assertEqual(self.plan("--all", change=False, default_ns="gravitee"), 0)
-        self.assertEqual([job["item"] for job in self.jobs()], ["addon:@acme-hub/hybrid", "addon:@acme-hub/mock",
+        self.assertEqual([job["item"] for job in self.jobs()], ["addon:@acme-hub/hyssop", "addon:@acme-hub/mock",
                                                                   "playground:@acme-hub/bank", "setup:@acme-hub/pair"])
         self.assertEqual(self.jobs()[2]["name"], "playground:@acme-hub/bank (core defaults)")
 
@@ -213,9 +213,9 @@ class License(Fixture):
         self.assertEqual(self.outputs(), {})
 
     def test_an_overlay_on_a_core_service_may_read_it(self):
-        self.table = {"addon:hybrid": self.loaded("addon:hybrid", own=("hybrid-agent",), leaks=("apim-gateway",))}
+        self.table = {"addon:hyssop": self.loaded("addon:hyssop", own=("hyssop-agent",), leaks=("apim-gateway",))}
         self.assertEqual(self.plan("--all", change=False), 0, self.out.getvalue())
-        self.assertIn("addon:hybrid (core defaults)", [job["name"] for job in self.jobs()])
+        self.assertIn("addon:hyssop (core defaults)", [job["name"] for job in self.jobs()])
 
     def test_the_item_is_named_the_way_the_lab_names_it(self):
         self.table = {"addon:mock": self.loaded("addon:mock", own=("a",), leaks=("a",))}
@@ -264,13 +264,13 @@ class License(Fixture):
         self.assertEqual(self.outputs(), {})
 
     def test_the_summary_says_which_units_reference_the_license_at_all(self):
-        self.put(self.repo, "addons/hybrid/compose.yml", "services:\n  apim-gateway:\n    environment:\n      K: ${GRAVITEE_LICENSE:-}\n")
+        self.put(self.repo, "addons/hyssop/compose.yml", "services:\n  apim-gateway:\n    environment:\n      K: ${GRAVITEE_LICENSE:-}\n")
         self.put(self.repo, "addons/mock/compose.yml", "services:\n  mock:\n    environment:\n      K: $${GRAVITEE_LICENSE}\n")
         self.put(self.repo, "playgrounds/bank/seed/note.txt", "uses $GRAVITEE_LICENSE_FILE and ${GRAVITEE_LICENSE_X}\n")
         self.put(self.repo, "setups/pair.yml", "include: []\n")
-        self.table = {"addon:hybrid": self.loaded("addon:hybrid", folder=str(self.repo / "addons/hybrid"))}
+        self.table = {"addon:hyssop": self.loaded("addon:hyssop", folder=str(self.repo / "addons/hyssop"))}
         self.assertEqual(self.plan("--all", change=False), 0, self.out.getvalue())
-        self.assertIn("Surface reads: license (addon:hybrid)", self.out.getvalue())
+        self.assertIn("Surface reads: license (addon:hyssop)", self.out.getvalue())
         self.assertNotIn("Surface reads: license (addon:mock)", self.out.getvalue())
         self.assertNotIn("Surface reads: license (playground:bank)", self.out.getvalue())
 

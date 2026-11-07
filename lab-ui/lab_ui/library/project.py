@@ -972,7 +972,7 @@ def _meta(config, path, problems):
 
 def _domains(config, service):
     """How the gateway of an add-on is reached, from its first published port, so that no address is written twice:
-    from this machine (localhost:8090) and from a container of the lab (apim-hybrid-gateway:8082). Empty when it
+    from this machine (localhost:8090) and from a container of the lab (apim-hyssop-gateway:8082). Empty when it
     publishes none."""
     for port in _services_of(config).get(service, {}).get("ports") or []:
         published = str(port.get("published") or "")

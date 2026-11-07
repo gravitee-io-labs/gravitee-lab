@@ -22,7 +22,7 @@ class EnvFiles(Case):
 
     def setUp(self):
         self.folder(envfiles, files={".env": CORE})
-        (self.root / "addons" / "hybrid").mkdir(parents=True)
+        (self.root / "addons" / "hyssop").mkdir(parents=True)
 
     def text(self, path=".env"):
         return (self.root / path).read_text(encoding="utf-8")
@@ -33,7 +33,7 @@ class EnvFiles(Case):
                                                  "REDIS_PASSWORD": "two words"})
 
     def test_read_a_missing_file(self):
-        self.assertEqual(envfiles.read("addons/hybrid/.env"), {})
+        self.assertEqual(envfiles.read("addons/hyssop/.env"), {})
 
     def test_read_drops_a_trailing_comment(self):
         (self.root / ".env").write_text("A=value # why\nB=with#hash\nC=\"quoted # kept\" # dropped\n", encoding="utf-8")
@@ -64,22 +64,22 @@ class EnvFiles(Case):
         values = ["plain", "two words", "hash # inside", "it's", 'say "hi"', "dollar $HOME ${X}", "back\\slash",
                   "trailing\\", "all ' \" $ \\ # of them", "a=b", "", "'quoted'"]
         changes = {f"V{i}": envfiles.quote(value) for i, value in enumerate(values)}
-        envfiles.write("addons/hybrid/.env", changes)
-        self.assertEqual(envfiles.read("addons/hybrid/.env"), {f"V{i}": value for i, value in enumerate(values)})
+        envfiles.write("addons/hyssop/.env", changes)
+        self.assertEqual(envfiles.read("addons/hyssop/.env"), {f"V{i}": value for i, value in enumerate(values)})
 
     def test_written_for_the_owner_only(self):
-        envfiles.write("addons/hybrid/.env", {"HYBRID_CLOUD_TOKEN": "t"})
-        mode = stat.S_IMODE((self.root / "addons/hybrid/.env").stat().st_mode)
+        envfiles.write("addons/hyssop/.env", {"HYSSOP_CLOUD_TOKEN": "t"})
+        mode = stat.S_IMODE((self.root / "addons/hyssop/.env").stat().st_mode)
         self.assertEqual(mode, 0o600)
-        self.assertEqual([f.name for f in (self.root / "addons/hybrid").iterdir()], [".env"])
+        self.assertEqual([f.name for f in (self.root / "addons/hyssop").iterdir()], [".env"])
 
     def test_an_addon_file_left_empty_is_deleted(self):
-        envfiles.write("addons/hybrid/.env", {"HYBRID_CLOUD_TOKEN": "t"})
-        self.assertEqual(self.text("addons/hybrid/.env"), "HYBRID_CLOUD_TOKEN=t\n")
-        envfiles.write("addons/hybrid/.env", {"HYBRID_CLOUD_TOKEN": None})
-        self.assertFalse((self.root / "addons/hybrid/.env").exists())
-        envfiles.write("addons/hybrid/.env", {"HYBRID_CLOUD_TOKEN": None})   # nothing to delete: no error, no file
-        self.assertFalse((self.root / "addons/hybrid/.env").exists())
+        envfiles.write("addons/hyssop/.env", {"HYSSOP_CLOUD_TOKEN": "t"})
+        self.assertEqual(self.text("addons/hyssop/.env"), "HYSSOP_CLOUD_TOKEN=t\n")
+        envfiles.write("addons/hyssop/.env", {"HYSSOP_CLOUD_TOKEN": None})
+        self.assertFalse((self.root / "addons/hyssop/.env").exists())
+        envfiles.write("addons/hyssop/.env", {"HYSSOP_CLOUD_TOKEN": None})   # nothing to delete: no error, no file
+        self.assertFalse((self.root / "addons/hyssop/.env").exists())
 
     def test_the_core_file_stays_when_empty(self):
         (self.root / ".env").write_text("ONLY=1\n", encoding="utf-8")

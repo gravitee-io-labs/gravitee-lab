@@ -1146,12 +1146,12 @@ class PlatformFlow(LabUI):
 
     def setUp(self):
         super().setUp()
-        self.folder(paths, envfiles, files, files={".env": "", "addons/hybrid/compose.yml": ""})
-        setting = {"key": "HYBRID_CLOUD_TOKEN", "default": None, "required": True, "secret": True, "comment": ""}
-        gateway = {"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN",
-                   "domains": ["localhost:8090", "apim-hybrid-gateway:8082"]}
-        self.patch(api.project, "load", return_value={"addons": {"hybrid": {
-            "id": "hybrid", "name": "Hybrid gateway", "env_file": "addons/hybrid/.env", "settings": [setting],
+        self.folder(paths, envfiles, files, files={".env": "", "addons/hyssop/compose.yml": ""})
+        setting = {"key": "HYSSOP_CLOUD_TOKEN", "default": None, "required": True, "secret": True, "comment": ""}
+        gateway = {"platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN",
+                   "domains": ["localhost:8090", "apim-hyssop-gateway:8082"]}
+        self.patch(api.project, "load", return_value={"addons": {"hyssop": {
+            "id": "hyssop", "name": "Hybrid gateway", "env_file": "addons/hyssop/.env", "settings": [setting],
             "gateway": gateway, "services": []}}, "playgrounds": {}, "groups": [], "services": {}})
         # Docker is not asked about a gateway that is neither on nor running
         self.patch(api.compose, "ps", return_value={})
@@ -1191,9 +1191,9 @@ class PlatformFlow(LabUI):
                          ("ok", ["Development", "Test", "Production"], []))
         made = self.ask("POST", "/api/platforms/my-account/gateways",
                         {"environmentId": "fake-env-dev", "name": "lab"})
-        self.assertEqual(made["gateway"]["domains"], ["localhost:8090", "apim-hybrid-gateway:8082"])
+        self.assertEqual(made["gateway"]["domains"], ["localhost:8090", "apim-hyssop-gateway:8082"])
         (issued,) = self.fake.state.tokens.values()
-        self.assertEqual(envfiles.read("addons/hybrid/.env"), {"HYBRID_CLOUD_TOKEN": issued})
+        self.assertEqual(envfiles.read("addons/hyssop/.env"), {"HYSSOP_CLOUD_TOKEN": issued})
         found = self.ask("POST", "/api/platforms/my-account/check", {})
         self.assertEqual([(g["name"], g["connection"]) for g in found["gateways"]], [("lab", "CONNECTED")])
         self.ask("POST", f"/api/platforms/my-account/gateways/{made['gateway']['id']}/delete", {})
@@ -1307,8 +1307,8 @@ class PlaceRoutes(LabUI):
     def test_a_place_goes_to_what_deploys_there_with_what_its_dialog_showed(self):
         self.request("GET", f"/api/playgrounds/welcome/check?place={self.PLACE}")
         self.calls["check"].assert_called_once_with(PROJECT, "welcome", place=self.PLACE)
-        self.request("POST", "/api/playgrounds/welcome/start", {"place": self.PLACE, "accept": ["addon:hybrid"]})
-        self.calls["start"].assert_called_once_with(PROJECT, "welcome", ["addon:hybrid"], place=self.PLACE)
+        self.request("POST", "/api/playgrounds/welcome/start", {"place": self.PLACE, "accept": ["addon:hyssop"]})
+        self.calls["start"].assert_called_once_with(PROJECT, "welcome", ["addon:hyssop"], place=self.PLACE)
         # Re-seed and Deploy are one route: the place and its dialog, which Deploy may have started the gateway by
         self.request("POST", "/api/playgrounds/welcome/reseed", {"place": self.PLACE, "accept": ["playground:x"]})
         self.calls["reseed"].assert_called_once_with(PROJECT, "welcome", place=self.PLACE, accept=["playground:x"])
@@ -1367,7 +1367,7 @@ class GatewayCase(LabUI):
         test_layers.cloud(self.project)
         self.state = test_layers.on(self.project)
         self.running = test_layers.up(project=self.project)
-        self.where = {"id": "my-account/fake-env-dev", "name": "Development (My Account)", "gateway": "hybrid",
+        self.where = {"id": "my-account/fake-env-dev", "name": "Development (My Account)", "gateway": "hyssop",
                       "here": True, "serving": None}
         self.patch(api.project, "load", return_value=self.project)
         self.patch(api.project, "saved", return_value={"hashes": {}, "images": {}})
@@ -1387,8 +1387,8 @@ class GatewayCase(LabUI):
 
     def elsewhere(self):
         """The gateway runs, for another place, and so do the apps: the one it serves is Test."""
-        self.state = test_layers.on(self.project, ["hybrid"], "hotels")
-        self.running = test_layers.up("hybrid", playgrounds=["hotels"], project=self.project)
+        self.state = test_layers.on(self.project, ["hyssop"], "hotels")
+        self.running = test_layers.up("hyssop", playgrounds=["hotels"], project=self.project)
         self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
 
 
@@ -1405,7 +1405,7 @@ class GatewayRoutes(GatewayCase):
     def test_a_gateway_that_serves_another_place_says_what_changes(self):
         self.elsewhere()
         status, _, body = self.request("GET", f"{self.GATEWAY}/plan")
-        plan = layers.plan(self.project, self.state, self.running, "addon", "hybrid", "start", place=self.where)
+        plan = layers.plan(self.project, self.state, self.running, "addon", "hyssop", "start", place=self.where)
         self.assertEqual((status, json.loads(body)), (200, layers.dialog(plan)))
         found = json.loads(body)
         self.assertEqual([row["name"] for row in found["restarts"]], ["Hybrid gateway"])
@@ -1414,8 +1414,8 @@ class GatewayRoutes(GatewayCase):
         self.assertEqual(found["deploys_to"], [], "a gateway is not a playground: it deploys nowhere")
 
     def test_a_gateway_that_is_served_already_has_nothing_to_say(self):
-        self.state = test_layers.on(self.project, ["hybrid"])
-        self.running = test_layers.up("hybrid", project=self.project)
+        self.state = test_layers.on(self.project, ["hyssop"])
+        self.running = test_layers.up("hyssop", project=self.project)
         self.assertEqual(json.loads(self.request("GET", f"{self.GATEWAY}/plan")[2]), None)
 
     def test_what_a_platform_says_of_a_gateway_that_cannot_start_is_the_answer(self):
@@ -1443,14 +1443,14 @@ class GatewayRoutes(GatewayCase):
     def test_the_gateway_that_runs_here_starts_as_the_add_on_does_with_nothing_swapped(self):
         self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {})[0], 200)
         title, steps, more, job = self.run_steps()
-        plan = layers.plan(self.project, self.state, self.running, "addon", "hybrid", "start", place=self.where)
-        self.assertEqual((title, more["key"], more["verb"]), ("Start Hybrid gateway", "addon:hybrid", "start"))
+        plan = layers.plan(self.project, self.state, self.running, "addon", "hyssop", "start", place=self.where)
+        self.assertEqual((title, more["key"], more["verb"]), ("Start Hybrid gateway", "addon:hyssop", "start"))
         self.assertEqual(more["changes"], layers.changes(self.project, plan))
         self.assertEqual(more["waits"], layers.waits(self.project, plan))
         self.assertEqual([step for step in steps if isinstance(step, list)],
                          [step for step in layers.steps(self.project, plan) if isinstance(step, list)],
                          "the commands of the plan, by name, without the core")
-        self.write.assert_called_once_with(None, ["hybrid"], {}, {}, blocked={}, since=None)   # the gateway is turned on
+        self.write.assert_called_once_with(None, ["hyssop"], {}, {}, blocked={}, since=None)   # the gateway is turned on
         self.binds.assert_called_once_with(self.project, self.binds.call_args.args[1])
         self.assertEqual(job.lines, ["Starts: Hybrid gateway"])
         self.swap.assert_not_called()
@@ -1466,14 +1466,14 @@ class GatewayRoutes(GatewayCase):
         calls.attach_mock(self.binds, "binds")
         self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {})[0], 200)
         self.run_steps()
-        plan = layers.plan(self.project, self.state, self.running, "addon", "hybrid", "start", place=self.where)
+        plan = layers.plan(self.project, self.state, self.running, "addon", "hyssop", "start", place=self.where)
         self.assertEqual(calls.mock_calls, [
-            mock.call.write(None, ["hybrid"], {}, {}, blocked={"addons/kazoo/compose.yml": "Publishes a port to the network"},
+            mock.call.write(None, ["hyssop"], {}, {}, blocked={"addons/kazoo/compose.yml": "Publishes a port to the network"},
                             since=None),
             mock.call.binds(self.project, plan)], "the file first, then the folders, as a start writes them")
 
     def test_a_gateway_whose_add_on_a_catalog_blocks_does_not_start_and_changes_nothing(self):
-        self.project["addons"]["hybrid"]["blocked"] = {"reasons": ["Mounts the Docker socket"]}
+        self.project["addons"]["hyssop"]["blocked"] = {"reasons": ["Mounts the Docker socket"]}
         status, _, body = self.request("POST", f"{self.GATEWAY}/start", {})
         self.assertEqual((status, json.loads(body)), (409, {"error": "Mounts the Docker socket"}))
         self.jobs.start.assert_not_called()
@@ -1485,10 +1485,10 @@ class GatewayRoutes(GatewayCase):
         calls = mock.Mock()
         calls.attach_mock(self.swap, "swap")
         calls.attach_mock(self.write, "write")
-        accepted = [layers.key("addon", "hybrid")]
+        accepted = [layers.key("addon", "hyssop")]
         self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {"accept": accepted})[0], 200)
         title, steps, more, job = self.run_steps()
-        self.assertEqual(more["key"], "addon:hybrid")
+        self.assertEqual(more["key"], "addon:hyssop")
         self.swap.assert_called_once_with(self.project, "my-account", "gw-1")
         self.assertEqual([call[0] for call in calls.mock_calls], ["swap", "write"], "the token, then the on file")
         self.assertEqual(job.lines, ["Restarts: Hybrid gateway"])
@@ -1496,7 +1496,7 @@ class GatewayRoutes(GatewayCase):
     def test_a_gateway_whose_token_is_gone_by_the_job_fails_in_the_words_of_the_refusal(self):
         self.elsewhere()
         self.swap.side_effect = paths.NotFound("No add-on runs a gateway of My Account")
-        accepted = [layers.key("addon", "hybrid")]
+        accepted = [layers.key("addon", "hyssop")]
         self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {"accept": accepted})[0], 200)
         title, steps, more = self.started(self.jobs)
         job, ran = Job(title, steps), []
@@ -1570,7 +1570,7 @@ class GatewayOnFile(GatewayCase):
     def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
         # The add-on holds the token of the gateway of Test (here false) and is off; Redpanda, on and running, cannot run
         # with it: the start stops it, and the removal fails, before anything changed
-        self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
+        self.project["addons"]["redpanda"]["conflicts"]["hyssop"] = "same ports"
         self.on_file("include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
         self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
         self.running = test_layers.up("redpanda", project=self.project)
@@ -1584,7 +1584,7 @@ class GatewayOnFile(GatewayCase):
         self.swap.assert_not_called()   # the job changed nothing: the add-on still holds the token of Test
 
     def test_a_gateway_s_job_swaps_the_token_once_what_goes_is_removed_and_before_the_on_file_is_written(self):
-        self.project["addons"]["redpanda"]["conflicts"]["hybrid"] = "same ports"
+        self.project["addons"]["redpanda"]["conflicts"]["hyssop"] = "same ports"
         self.on_file("include:\n  - .lab/catalogs/fixture/addons/redpanda/compose.yml\n")
         self.state = {**test_layers.on(self.project, ["redpanda"]), "stamp": layers.stamp()}
         self.running = test_layers.up("redpanda", project=self.project)
@@ -1622,8 +1622,8 @@ class GatewayDeletes(GatewayCase):
 
     def on(self, runs=True, brought=False):
         """The add-on is on and runs, or it is on only (a stop that failed), or it runs without being on."""
-        self.state = test_layers.on(self.project, ["hybrid"] if not brought else [], "welcome" if brought else None)
-        self.running = test_layers.up("hybrid", project=self.project) if runs else test_layers.up(project=self.project)
+        self.state = test_layers.on(self.project, ["hyssop"] if not brought else [], "welcome" if brought else None)
+        self.running = test_layers.up("hyssop", project=self.project) if runs else test_layers.up(project=self.project)
 
     def test_the_gateway_that_ran_here_is_deleted_and_its_add_on_turned_off_by_a_job(self):
         self.on()
@@ -1633,12 +1633,12 @@ class GatewayDeletes(GatewayCase):
         self.delete.assert_called_once_with(self.project, "my-account", "gw-1")
         plan = self.apply.call_args.args[1]
         self.assertEqual((plan["do"], plan["kind"], plan["id"], self.apply.call_args.args[2]),
-                         ("stop", "addon", "hybrid", "Stop Hybrid gateway"))
+                         ("stop", "addon", "hyssop", "Stop Hybrid gateway"))
         self.assertEqual([call[0] for call in self.calls.mock_calls], ["delete", "apply"], "the platform, then the job")
         self.invalidate.assert_called_once_with("my-account")
 
     def test_an_add_on_that_is_on_and_does_not_run_is_turned_off_too(self):
-        self.state = test_layers.on(self.project, ["hybrid"])
+        self.state = test_layers.on(self.project, ["hyssop"])
         self.running = test_layers.up(project=self.project)
         self.request("POST", f"{self.GATEWAY}/delete", {})
         self.assertEqual(self.apply.call_args.args[2], "Turn off Hybrid gateway")
@@ -1661,7 +1661,7 @@ class GatewayDeletes(GatewayCase):
 
     def test_a_turn_off_that_would_stop_more_is_refused_before_anything_changes(self):
         # A playground brings it: turning it off turns the playground off too, which nobody agreed to
-        self.project["playgrounds"]["welcome"]["addons"].append("hybrid")
+        self.project["playgrounds"]["welcome"]["addons"].append("hyssop")
         self.on(brought=True)
         status, _, body = self.request("POST", f"{self.GATEWAY}/delete", {})
         self.assertEqual(status, 409)
@@ -1745,7 +1745,7 @@ class StartsAreVerified(GatewayCase):
         for kind in ("addons", "setups", "playgrounds"):
             for unit in self.project[kind].values():
                 unit["catalog"] = "fixture"
-        for kind, uid in (("addons", "kiosk"), ("addons", "hybrid"), ("setups", "observability")):
+        for kind, uid in (("addons", "kiosk"), ("addons", "hyssop"), ("setups", "observability")):
             self.project[kind][uid]["deploys_to"] = ["cloud"]
         self.verify = self.patch(api.service, "preflight")
         # What would run: one job queue for every module that starts a job
@@ -1764,28 +1764,28 @@ class StartsAreVerified(GatewayCase):
 
     def cloud_plan(self, project, state, containers, saved=None, live=False):
         """What core.plan answers for Start all with API Management in the Cloud: the plan of the gateway's add-on for that place."""
-        gateway = layers.plan(project, state, self.running, "addon", "hybrid", "start", place=self.where)
+        gateway = layers.plan(project, state, self.running, "addon", "hyssop", "start", place=self.where)
         return {"gateway": gateway, "place": self.where, "gateway_id": "gw-1", "others": [], "not_started": [],
                 "dialog": layers.dialog(gateway), "blocked": gateway["blocked"], "needed": True}
 
     def routes(self):
         """(what it is, the path, the body, what the preflight must be handed of it, what is on and runs when it asks as
         (add-ons, playground)): every route that starts something through a plan. The units are the item's and what it brings."""
-        place, nothing, seeded = {"place": self.PLACE}, ([], None), (["hybrid"], "hotels")
+        place, nothing, seeded = {"place": self.PLACE}, ([], None), (["hyssop"], "hotels")
         return [
             ("an add-on", "/api/addons/kiosk/start", {}, [("addon", "kiosk")], nothing),
             ("a setup", "/api/setups/observability/start", {}, [("setup", "observability"), ("addon", "jade"), ("addon", "kiosk")],
              nothing),
             ("a playground", "/api/playgrounds/welcome/start", {}, [("playground", "welcome"), ("addon", "agent-lens")], nothing),
-            ("an add-on in a place", "/api/addons/kiosk/start", place, [("addon", "kiosk"), ("addon", "hybrid")], nothing),
+            ("an add-on in a place", "/api/addons/kiosk/start", place, [("addon", "kiosk"), ("addon", "hyssop")], nothing),
             ("a setup in a place", "/api/setups/observability/start", place,
-             [("addon", "jade"), ("addon", "kiosk"), ("addon", "hybrid")], nothing),
-            ("a playground in a place", "/api/playgrounds/hotels/start", place, [("playground", "hotels"), ("addon", "hybrid")],
+             [("addon", "jade"), ("addon", "kiosk"), ("addon", "hyssop")], nothing),
+            ("a playground in a place", "/api/playgrounds/hotels/start", place, [("playground", "hotels"), ("addon", "hyssop")],
              nothing),
             ("a playground that is on, seeded in a place", "/api/playgrounds/hotels/reseed", place,
-             [("playground", "hotels"), ("addon", "hybrid")], seeded),
-            ("the gateway of a platform", f"{self.GATEWAY}/start", {}, [("addon", "hybrid")], nothing),
-            ("Start all with API Management in the Cloud", "/api/stack/start", {"core": True}, [("addon", "hybrid")], nothing),
+             [("playground", "hotels"), ("addon", "hyssop")], seeded),
+            ("the gateway of a platform", f"{self.GATEWAY}/start", {}, [("addon", "hyssop")], nothing),
+            ("Start all with API Management in the Cloud", "/api/stack/start", {"core": True}, [("addon", "hyssop")], nothing),
         ]
 
     def being(self, explicit, playground):

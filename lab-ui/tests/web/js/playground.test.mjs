@@ -273,7 +273,7 @@ const answer = async (confirmed) => {   // "alt": the second button
 };
 const WHERE = [{ kind: "environment", id: DEV.id, name: DEV.name }];
 const dialogOf = (more) => ({ starts: [], stops: [], turns_off: [], keeps: [], restarts: [], deploys_to: WHERE, serves: [], stops_serving: [], ...more });
-const HYBRID = { kind: "addon", id: "hybrid", name: "Hybrid gateway" };
+const HYSSOP = { kind: "addon", id: "hyssop", name: "Hybrid gateway" };
 // The forms the Before you start lines open: a browser tells their button whether the required fields are filled, which the stub does not
 const field = (id) => page.doc.querySelector(`#${id}`);
 const form = (id) => {
@@ -540,7 +540,7 @@ test("a place that lacks something is chosen all the same, and its Start, Deploy
 // --- Start, Deploy and Re-seed -----------------------------------------------------------------------------------------------------
 
 test("Start on a remote place always asks first: what it starts, then where it deploys, the place named; it sends the place back", async () => {
-  await visit({ ...off }, { kept: DEV.id, dialog: () => dialogOf({ starts: [HYBRID] }) });
+  await visit({ ...off }, { kept: DEV.id, dialog: () => dialogOf({ starts: [HYSSOP] }) });
   section.querySelector(".pg-start-btn").click();
   await flush();
   assert.deepEqual(effects(), { title: "Start Acme Hostels", action: "Start",
@@ -562,7 +562,7 @@ test("a remote Start that starts nothing still opens the dialog, with the place 
 });
 
 test("a remote Start that swaps the gateway says what it serves and stops serving, after the steps", async () => {
-  const swap = dialogOf({ restarts: [HYBRID], serves: WHERE, stops_serving: [{ kind: "environment", id: TEST.id, name: TEST.name }] });
+  const swap = dialogOf({ restarts: [HYSSOP], serves: WHERE, stops_serving: [{ kind: "environment", id: TEST.id, name: TEST.name }] });
   await visit({ ...off }, { kept: DEV.id, dialog: () => swap });
   section.querySelector(".pg-start-btn").click();
   await flush();

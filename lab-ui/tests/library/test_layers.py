@@ -55,7 +55,7 @@ def lab():
                      restarts=["apim-gateway"]),
               _addon("redpanda", "Redpanda", ["redpanda"], conflicts={"kazoo": "same ports"}),
               _addon("orchard", "Orchard", ["orchard", "orchard-migrate"]),
-              _addon("hybrid", "Hybrid gateway", ["hybrid-gateway"], required=["HYBRID_CLOUD_TOKEN"])]
+              _addon("hyssop", "Hybrid gateway", ["hyssop-gateway"], required=["HYSSOP_CLOUD_TOKEN"])]
     welcome = {"id": "welcome", "kind": "playground", "name": "Welcome", "personal": False, "category": "AI",
                 "description": "", "tags": [], "source": None, "duration": None, "first_start": None,
                 "requires": {"license": ["feature-1"]}, "accounts": [], "setups": [],
@@ -136,14 +136,14 @@ def cloud(project):
     """The Hybrid gateway as a platform of Cloud runs it, with a Redis of its own, and Hotels, a playground that
     deploys to it: an app, and a seed that depends on the core as a seed does for This machine. The plan of a place
     is given the id of the gateway's add-on, and does not read its `gateway` key."""
-    hybrid = project["addons"]["hybrid"]
-    hybrid.update(services=["hybrid-redis", "apim-hybrid-gateway"],
-                  gateway={"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN",
-                           "domains": ["localhost:8090", "apim-hybrid-gateway:8082"]})
-    owner = {"kind": "addon", "id": "hybrid", "name": "Hybrid gateway"}
-    del project["services"]["hybrid-gateway"]
-    project["services"].update({name: _service(name, owner) for name in hybrid["services"]})
-    project["services"]["apim-hybrid-gateway"]["depends_on"] = ["hybrid-redis"]
+    hyssop = project["addons"]["hyssop"]
+    hyssop.update(services=["hyssop-redis", "apim-hyssop-gateway"],
+                  gateway={"platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN",
+                           "domains": ["localhost:8090", "apim-hyssop-gateway:8082"]})
+    owner = {"kind": "addon", "id": "hyssop", "name": "Hybrid gateway"}
+    del project["services"]["hyssop-gateway"]
+    project["services"].update({name: _service(name, owner) for name in hyssop["services"]})
+    project["services"]["apim-hyssop-gateway"]["depends_on"] = ["hyssop-redis"]
     project["playgrounds"]["hotels"] = {**project["playgrounds"]["welcome"], "id": "hotels", "name": "Hotels",
                                         "deploys_to": ["cloud"], "requires": {}, "includes": [], "addons": [],
                                         "restarts": [], "services": ["hotels-api", "hotels-seed"],
@@ -665,11 +665,11 @@ class Plans(Case):
                                                              "or later: choose them on the Images page")
 
     def test_start_with_missing_settings_is_blocked(self):
-        plan = self.plan(on(self.project, missing=["hybrid"]), up(), "addon", "hybrid", "start")
+        plan = self.plan(on(self.project, missing=["hyssop"]), up(), "addon", "hyssop", "start")
         self.assertEqual(plan["blocked"], "Hybrid gateway needs settings")
         plan = self.plan(on(self.project, missing=["kazoo"]), up(), "setup", "events", "start")
         self.assertEqual(plan["blocked"], "Kazoo needs settings")
-        plan = self.plan(on(self.project, missing=["hybrid"]), up(), "addon", "kazoo", "start")
+        plan = self.plan(on(self.project, missing=["hyssop"]), up(), "addon", "kazoo", "start")
         self.assertIsNone(plan["blocked"])
 
     def test_retry_leaves_the_on_file(self):
@@ -997,9 +997,9 @@ class Plans(Case):
         with self.assertRaisesRegex(RuntimeError, "Would also turn off Kazoo Desk"):
             layers.check(self.project, plan, [])
         layers.check(self.project, plan, ["addon:kazoo-desk"])
-        blocked = self.plan(on(self.project, missing=["hybrid"]), up(), "addon", "hybrid", "start")
+        blocked = self.plan(on(self.project, missing=["hyssop"]), up(), "addon", "hyssop", "start")
         with self.assertRaisesRegex(RuntimeError, "Hybrid gateway needs settings"):
-            layers.check(self.project, blocked, ["addon:hybrid"])
+            layers.check(self.project, blocked, ["addon:hyssop"])
 
     def test_check_takes_a_setups_members_as_the_setup_itself(self):
         state = on(self.project, ["kazoo-desk"], "welcome")
@@ -1096,14 +1096,14 @@ class ThisMachine(Case):
 
 DEVELOPMENT = {"id": "my-account/development", "name": "Development (My Account)"}
 TEST = {"id": "client-lab/test", "name": "Test (Client lab)"}
-HYBRID, HOTELS = row("addon", "hybrid", "Hybrid gateway"), row("playground", "hotels", "Hotels apps")
+HYSSOP, HOTELS = row("addon", "hyssop", "Hybrid gateway"), row("playground", "hotels", "Hotels apps")
 ENVIRONMENT = row("environment", DEVELOPMENT["id"], DEVELOPMENT["name"])
 
 
 def place(environment=DEVELOPMENT, here=True, serving=None):
     """A remote place as the caller gives it: the add-on of the gateway of that kind, whether the gateway set to run
     here is this place's, and the place it serves otherwise."""
-    return {**environment, "gateway": "hybrid", "here": here, "serving": serving}
+    return {**environment, "gateway": "hyssop", "here": here, "serving": serving}
 
 
 class Places(Case):
@@ -1169,9 +1169,9 @@ class Places(Case):
         # The gateway's add-on and the apps start, by name; the platform does not, nor the seed, which runs apart. The
         # on file keeps the playground and the gateway, which is turned on like an add-on turned on by hand
         plan = self.plan(on(self.project), self.up(platform=False), fresh=True)
-        self.check(plan, starts=[HOTELS, HYBRID], playground="hotels", explicit=["hybrid"])
-        self.assertEqual(plan["services"], {"remove": [], "start": ["apim-hybrid-gateway", "hotels-api",
-                                                                    "hybrid-redis"]})
+        self.check(plan, starts=[HOTELS, HYSSOP], playground="hotels", explicit=["hyssop"])
+        self.assertEqual(plan["services"], {"remove": [], "start": ["apim-hyssop-gateway", "hotels-api",
+                                                                    "hyssop-redis"]})
         self.assertEqual((plan["do"], plan["kind"], plan["id"], plan["label"], plan["fresh"]),
                          ("start", "playground", "hotels", "Start", True))
         self.assertAlone(plan)
@@ -1191,67 +1191,67 @@ class Places(Case):
 
     def test_the_gateway_that_serves_this_place_is_left_as_it_is(self):
         # It runs, and so do the apps: nothing starts, nothing restarts, and it still names the place
-        state = on(self.project, ["hybrid"], "hotels")
-        plan = self.plan(state, self.up("hybrid", playgrounds=["hotels"]))
-        self.check(plan, playground="hotels", explicit=["hybrid"])
+        state = on(self.project, ["hyssop"], "hotels")
+        plan = self.plan(state, self.up("hyssop", playgrounds=["hotels"]))
+        self.check(plan, playground="hotels", explicit=["hyssop"])
         self.assertEqual(plan["services"], {"remove": [], "start": []})
         self.assertTrue(layers.asks(plan))
         # Its apps do not run: they start, it does not
-        plan = self.plan(state, self.up("hybrid"))
-        self.check(plan, starts=[HOTELS], playground="hotels", explicit=["hybrid"])
+        plan = self.plan(state, self.up("hyssop"))
+        self.check(plan, starts=[HOTELS], playground="hotels", explicit=["hyssop"])
         self.assertEqual(plan["services"]["start"], ["hotels-api"])
         # Its Redis alone runs: the gateway starts, said as the add-on
-        running = self.up("hybrid", playgrounds=["hotels"])
-        running["services"].discard("apim-hybrid-gateway")
-        self.check(self.plan(state, running), starts=[HYBRID], playground="hotels", explicit=["hybrid"])
+        running = self.up("hyssop", playgrounds=["hotels"])
+        running["services"].discard("apim-hyssop-gateway")
+        self.check(self.plan(state, running), starts=[HYSSOP], playground="hotels", explicit=["hyssop"])
 
     def test_a_gateway_that_does_not_run_starts_whatever_it_serves(self):
         # Set to serve another place, stopped: it starts, and the job gives it this place's token. Nothing is restarted
         plan = self.plan(on(self.project), self.up(), where=place(here=False, serving=TEST))
-        self.check(plan, starts=[HOTELS, HYBRID], playground="hotels", explicit=["hybrid"])
+        self.check(plan, starts=[HOTELS, HYSSOP], playground="hotels", explicit=["hyssop"])
 
     def test_a_gateway_that_serves_another_place_is_made_again(self):
         # It runs for Test: it restarts with this place's token, and the place says what it serves and stops serving
-        state = on(self.project, ["hybrid"], "hotels")
-        running = self.up("hybrid", playgrounds=["hotels"])
+        state = on(self.project, ["hyssop"], "hotels")
+        running = self.up("hyssop", playgrounds=["hotels"])
         plan = self.plan(state, running, where=place(here=False, serving=TEST))
-        self.check(plan, restarts=[HYBRID], serves=[ENVIRONMENT], stops_serving=[row("environment", TEST["id"],
+        self.check(plan, restarts=[HYSSOP], serves=[ENVIRONMENT], stops_serving=[row("environment", TEST["id"],
                                                                                     TEST["name"])],
-                   playground="hotels", explicit=["hybrid"])
+                   playground="hotels", explicit=["hyssop"])
         # Both of its services, by name, without what they depend on; its Redis, unchanged, is left as it is
-        self.assertEqual(plan["services"], {"remove": [], "start": ["apim-hybrid-gateway", "hybrid-redis"]})
+        self.assertEqual(plan["services"], {"remove": [], "start": ["apim-hyssop-gateway", "hyssop-redis"]})
         self.assertEqual(layers.starting(plan["services"]["start"]),
-                         [[*compose.COMPOSE, "up", "-d", "--no-deps", "apim-hybrid-gateway", "hybrid-redis"]])
+                         [[*compose.COMPOSE, "up", "-d", "--no-deps", "apim-hyssop-gateway", "hyssop-redis"]])
         # Its row says Starting, and the playground's, as for any start that runs what runs again
-        self.assertEqual(layers.changes(self.project, plan), {"start": [["addon", "hybrid"], ["playground", "hotels"]],
+        self.assertEqual(layers.changes(self.project, plan), {"start": [["addon", "hyssop"], ["playground", "hotels"]],
                                                               "stop": []})
         self.assertTrue(layers.asks(plan))
         self.assertAlone(plan)
         # Its apps do not run: they start besides, the gateway is not said twice
-        plan = self.plan(state, self.up("hybrid"), where=place(here=False, serving=TEST))
-        self.check(plan, starts=[HOTELS], restarts=[HYBRID], serves=[ENVIRONMENT],
+        plan = self.plan(state, self.up("hyssop"), where=place(here=False, serving=TEST))
+        self.check(plan, starts=[HOTELS], restarts=[HYSSOP], serves=[ENVIRONMENT],
                    stops_serving=[row("environment", TEST["id"], TEST["name"])], playground="hotels",
-                   explicit=["hybrid"])
+                   explicit=["hyssop"])
         # What it served is not known (a gateway made in the Cloud console): nothing is said to stop
         plan = self.plan(state, running, where=place(here=False))
-        self.check(plan, restarts=[HYBRID], serves=[ENVIRONMENT], playground="hotels", explicit=["hybrid"])
+        self.check(plan, restarts=[HYSSOP], serves=[ENVIRONMENT], playground="hotels", explicit=["hyssop"])
 
     def test_a_gateway_that_runs_behind_what_is_saved_is_not_restarted_twice(self):
         # Its own services among those that run behind: the swap is the one row that remakes them
-        state = on(self.project, ["hybrid"], "hotels")
-        plan = self.plan(state, self.up("hybrid", playgrounds=["hotels"]), where=place(here=False, serving=TEST),
-                         behind={"apim-hybrid-gateway", "hybrid-redis", "hotels-api"})
-        self.check(plan, restarts=[HYBRID, row("service", "hotels-api", "hotels-api")], serves=[ENVIRONMENT],
+        state = on(self.project, ["hyssop"], "hotels")
+        plan = self.plan(state, self.up("hyssop", playgrounds=["hotels"]), where=place(here=False, serving=TEST),
+                         behind={"apim-hyssop-gateway", "hyssop-redis", "hotels-api"})
+        self.check(plan, restarts=[HYSSOP, row("service", "hotels-api", "hotels-api")], serves=[ENVIRONMENT],
                    stops_serving=[row("environment", TEST["id"], TEST["name"])], playground="hotels",
-                   explicit=["hybrid"])
+                   explicit=["hyssop"])
 
     def test_a_gateway_that_serves_this_place_and_runs_behind_what_is_saved_is_made_again_as_saved(self):
         # As any add-on a playground brings: its services that run behind, by their own rows, with no notes
-        state = on(self.project, ["hybrid"], "hotels")
-        plan = self.plan(state, self.up("hybrid", playgrounds=["hotels"]), behind={"apim-hybrid-gateway"})
-        self.check(plan, restarts=[row("service", "apim-hybrid-gateway", "apim-hybrid-gateway")],
-                   playground="hotels", explicit=["hybrid"])
-        self.assertEqual(plan["services"]["start"], ["apim-hybrid-gateway"])
+        state = on(self.project, ["hyssop"], "hotels")
+        plan = self.plan(state, self.up("hyssop", playgrounds=["hotels"]), behind={"apim-hyssop-gateway"})
+        self.check(plan, restarts=[row("service", "apim-hyssop-gateway", "apim-hyssop-gateway")],
+                   playground="hotels", explicit=["hyssop"])
+        self.assertEqual(plan["services"]["start"], ["apim-hyssop-gateway"])
 
     def test_the_seed_is_never_among_what_up_names(self):
         # Whether the start sets the playground up there is the caller's to say, a place at a time (fresh): the seed
@@ -1272,33 +1272,33 @@ class Places(Case):
         is on does the same."""
         services, core = self.project["services"], self.core
         self.project["playgrounds"]["hotels"].update(restarts=core, addons=["kiosk"])
-        self.project["addons"]["hybrid"]["restarts"] = ["apim-gateway"]
+        self.project["addons"]["hyssop"]["restarts"] = ["apim-gateway"]
         self.project["addons"]["kiosk"]["restarts"] = ["apim-management-api"]
         services["hotels-api"]["depends_on"] = ["mongodb", "alert-engine"]
         services["hotels-seed"]["depends_on"] = core
         services["kiosk"]["depends_on"] = ["mongodb"]
-        services["hybrid-redis"]["depends_on"] = ["mongodb"]
+        services["hyssop-redis"]["depends_on"] = ["mongodb"]
         self.project["playgrounds"]["welcome"]["restarts"] = ["apim-gateway"]
 
     def test_no_core_service_is_in_the_plan_of_a_remote_place(self):
         # Over every service of the core, in every situation: of what is on, of what runs, of the place and the start
         self.worst()
-        states = [on(self.project), on(self.project, playground="hotels"), on(self.project, ["hybrid"], "hotels"),
+        states = [on(self.project), on(self.project, playground="hotels"), on(self.project, ["hyssop"], "hotels"),
                   on(self.project, ["jade", "kiosk"], "welcome"), on(self.project, ["kazoo"], "demo")]
-        runnings = [self.up(platform=False), self.up(), self.up(stopped=["databases"]), self.up("hybrid"),
-                    self.up("hybrid", "kiosk", playgrounds=["hotels"]),
+        runnings = [self.up(platform=False), self.up(), self.up(stopped=["databases"]), self.up("hyssop"),
+                    self.up("hyssop", "kiosk", playgrounds=["hotels"]),
                     self.up("jade", "kiosk", "agent-lens", playgrounds=["welcome"]),
-                    self.up("hybrid", platform=False, created=["hotels"])]
+                    self.up("hyssop", platform=False, created=["hotels"])]
         places = [place(), place(here=False, serving=TEST), place(TEST, here=False)]
-        behind = [frozenset(), frozenset(self.core), frozenset({*self.core, "hotels-api", "hybrid-redis", "kiosk",
-                                                               "apim-hybrid-gateway"})]
+        behind = [frozenset(), frozenset(self.core), frozenset({*self.core, "hotels-api", "hyssop-redis", "kiosk",
+                                                               "apim-hyssop-gateway"})]
         for state, running, where, late, fresh in itertools.product(states, runnings, places, behind, (True, False)):
             plan = self.plan(state, running, where=where, behind=late, fresh=fresh)
             self.assertAlone(plan)
-            self.assertIn("hybrid", plan["explicit"])
+            self.assertIn("hyssop", plan["explicit"])
         # The same over the gateway's own start, the swap
         for state, running, where in itertools.product(states, runnings, places):
-            self.assertAlone(self.plan(state, running, "addon", "hybrid", where=where))
+            self.assertAlone(self.plan(state, running, "addon", "hyssop", where=where))
 
     def test_the_core_services_another_playground_restarts_are_not_restarted(self):
         # Welcome is on with AI Agent Lens, which configures the gateway: on this machine, Hotels' start stops them
@@ -1309,29 +1309,29 @@ class Places(Case):
         local = layers.plan(self.project, state, running, "playground", "hotels", "start")
         self.assertEqual(local["restarts"], [GATEWAY])
         plan = self.plan(state, running)
-        self.check(plan, starts=[HOTELS, HYBRID], stops=[APPS, INSPECTOR], keeps=[DATA], playground="hotels",
-                   explicit=["hybrid"])
+        self.check(plan, starts=[HOTELS, HYSSOP], stops=[APPS, INSPECTOR], keeps=[DATA], playground="hotels",
+                   explicit=["hyssop"])
         self.assertEqual(plan["services"]["remove"], ["agent-lens", "hello-app", "seed"])
         self.assertAlone(plan)
 
     def test_what_is_in_conflict_with_the_gateway_goes_as_with_any_add_on(self):
-        self.project["addons"]["kiosk"]["conflicts"] = {"hybrid": "same ports"}
+        self.project["addons"]["kiosk"]["conflicts"] = {"hyssop": "same ports"}
         state = on(self.project, ["kiosk"])
         plan = self.plan(state, self.up("kiosk"))
-        self.check(plan, starts=[HOTELS, HYBRID], stops=[KIOSK], playground="hotels", explicit=["hybrid"])
+        self.check(plan, starts=[HOTELS, HYSSOP], stops=[KIOSK], playground="hotels", explicit=["hyssop"])
         self.assertEqual(plan["services"]["remove"], ["kiosk"])
 
     # --- Blocked, asked, said ---------------------------------------------------------------------------------------
 
     def test_the_gateway_s_token_is_not_asked_for(self):
         # The job writes it from the one the Lab keeps; the person types none. Another add-on still asks for its own
-        state = on(self.project, missing=["hybrid"])
+        state = on(self.project, missing=["hyssop"])
         self.assertIsNone(self.plan(state, self.up())["blocked"])
-        self.assertIsNone(self.plan(state, self.up(), "addon", "hybrid", where=place(here=False))["blocked"])
-        self.assertEqual(layers.plan(self.project, state, self.up(), "addon", "hybrid", "start")["blocked"],
+        self.assertIsNone(self.plan(state, self.up(), "addon", "hyssop", where=place(here=False))["blocked"])
+        self.assertEqual(layers.plan(self.project, state, self.up(), "addon", "hyssop", "start")["blocked"],
                          "Hybrid gateway needs settings")
         self.project["playgrounds"]["hotels"]["addons"] = ["kiosk"]
-        state = on(self.project, missing=["hybrid", "kiosk"])
+        state = on(self.project, missing=["hyssop", "kiosk"])
         self.assertEqual(self.plan(state, self.up())["blocked"], "Kiosk needs settings")
         # An on file of your own changes blocks everything, here too
         self.assertEqual(self.plan(on(self.project, locked=layers.LOCKED), self.up())["blocked"], layers.LOCKED)
@@ -1346,28 +1346,28 @@ class Places(Case):
         self.assertIsNone(self.plan(on(self.project), self.up())["blocked"])
 
     def test_a_remote_place_always_asks_and_says_where(self):
-        plan = self.plan(on(self.project, ["hybrid"], "hotels"), self.up("hybrid", playgrounds=["hotels"]))
+        plan = self.plan(on(self.project, ["hyssop"], "hotels"), self.up("hyssop", playgrounds=["hotels"]))
         self.assertTrue(layers.asks(plan))
         self.assertEqual(layers.dialog(plan), {**{key: plan[key] for key in layers.ROWS},
                                                "deploys_to": [ENVIRONMENT], "serves": [], "stops_serving": []})
         # The gateway alone has no place to deploy to: the swap is all it says
-        plan = self.plan(on(self.project, ["hybrid"]), self.up("hybrid"), "addon", "hybrid", where=place(here=False))
+        plan = self.plan(on(self.project, ["hyssop"]), self.up("hyssop"), "addon", "hyssop", where=place(here=False))
         self.assertEqual((plan["deploys_to"], [row["kind"] for row in plan["restarts"]], layers.asks(plan)),
                          ([], ["addon"], True))
         # Not running, the gateway's start is the add-on's, and says nothing more
-        plan = self.plan(on(self.project), self.up(), "addon", "hybrid", where=place(here=False, serving=TEST))
-        self.check(plan, starts=[HYBRID], deploys_to=[], playground=None, explicit=["hybrid"])
+        plan = self.plan(on(self.project), self.up(), "addon", "hyssop", where=place(here=False, serving=TEST))
+        self.check(plan, starts=[HYSSOP], deploys_to=[], playground=None, explicit=["hyssop"])
         self.assertFalse(layers.asks(plan))
 
     def test_the_gateway_outlives_the_playground_s_stop(self):
         # The on file after the deploy holds it on its own: the playground's stop leaves it, and does not name it
         plan = self.plan(on(self.project), self.up(platform=False))
         state = on(self.project, plan["explicit"], plan["playground"])
-        running = self.up("hybrid", playgrounds=["hotels"])
+        running = self.up("hyssop", playgrounds=["hotels"])
         stop = layers.plan(self.project, state, running, "playground", "hotels", "stop")
         self.assertEqual((stop["stops"], stop["turns_off"], stop["keeps"], stop["restarts"]),
                          ([HOTELS], [], [row("data", "hotels", "What Hotels created in Gravitee")], []))
-        self.assertEqual((stop["explicit"], stop["playground"]), (["hybrid"], None))
+        self.assertEqual((stop["explicit"], stop["playground"]), (["hyssop"], None))
         self.assertEqual(stop["services"]["remove"], ["hotels-api", "hotels-seed"])
         # A place changes nothing of a stop
         again = layers.plan(self.project, state, running, "playground", "hotels", "stop", place=place())
@@ -1378,7 +1378,7 @@ class Places(Case):
     def test_the_plan_is_given_the_gateway_and_does_not_read_its_key(self):
         state, running = on(self.project), self.up(platform=False)
         before = self.plan(state, running)
-        del self.project["addons"]["hybrid"]["gateway"]
+        del self.project["addons"]["hyssop"]["gateway"]
         self.assertEqual(self.plan(state, running), before)
 
     def test_a_place_is_for_a_playground_an_add_on_a_setup_and_the_gateway(self):
@@ -1387,7 +1387,7 @@ class Places(Case):
             with self.subTest(uid=uid):
                 plan = self.plan(state, running, kind, uid)
                 self.assertAlone(plan)
-                self.assertIn("hybrid", plan["explicit"])
+                self.assertIn("hyssop", plan["explicit"])
                 self.assertEqual(plan["deploys_to"], [ENVIRONMENT])
                 self.assertIsNone(plan["blocked"])
         with self.assertRaises(paths.NotFound):
@@ -1398,22 +1398,22 @@ class Places(Case):
     def test_what_an_add_on_sets_on_the_gateway_restarts_the_gateway_of_the_platform_not_the_one_of_this_machine(self):
         # Kazoo sets the gateway: where it goes to a place, the hybrid gateway that runs is made again to take it; the
         # gateway of this machine, which runs too, is not touched
-        running = self.up("hybrid", "kazoo", platform=True)
-        plan = self.plan(on(self.project, ["hybrid"]), running, "addon", "kazoo", where=place())
+        running = self.up("hyssop", "kazoo", platform=True)
+        plan = self.plan(on(self.project, ["hyssop"]), running, "addon", "kazoo", where=place())
         restarting = {row["id"] for row in plan["restarts"]}
-        self.assertIn(self.project["addons"]["hybrid"]["gateway"]["service"], restarting)
+        self.assertIn(self.project["addons"]["hyssop"]["gateway"]["service"], restarting)
         self.assertNotIn("apim-gateway", restarting)
         self.assertNotIn("apim-gateway", {*plan["services"]["start"], *plan["services"]["remove"]})
 
 
     def test_an_item_that_runs_on_a_platform_restarts_the_gateway_of_that_platform_when_it_stops(self):
-        running = self.up("hybrid", "kazoo", platform=True)
-        state = {**on(self.project, ["hybrid", "kazoo"]), "targets": {"addon:kazoo": "cloud"}}
+        running = self.up("hyssop", "kazoo", platform=True)
+        state = {**on(self.project, ["hyssop", "kazoo"]), "targets": {"addon:kazoo": "cloud"}}
         stop = layers.plan(self.project, state, running, "addon", "kazoo", "stop")
         restarting = {row["id"] for row in stop["restarts"]}
         self.assertNotIn("apim-gateway", restarting, "the gateway of this machine was never set by it")
         # On this machine it is what it was: the gateway it set is made again
-        local = layers.plan(self.project, on(self.project, ["hybrid", "kazoo"]), running, "addon", "kazoo", "stop")
+        local = layers.plan(self.project, on(self.project, ["hyssop", "kazoo"]), running, "addon", "kazoo", "stop")
         self.assertIn("apim-gateway", {row["id"] for row in local["restarts"]})
 
 
@@ -1501,7 +1501,7 @@ class Files(Case):
                  *self.project["playgrounds"].values()]
         for unit in units:
             self.write(unit["file"])
-        self.write(".lab/catalogs/fixture/addons/hybrid/.env", "HYBRID_CLOUD_TOKEN=token\n")
+        self.write(".lab/catalogs/fixture/addons/hyssop/.env", "HYSSOP_CLOUD_TOKEN=token\n")
 
     def on_file(self, text):
         self.write(paths.ON_FILE, text)
@@ -1516,7 +1516,7 @@ class Files(Case):
     KAZOO = ("services:\n  apim-gateway:\n    environment:\n      gravitee_kafka_enabled: \"true\"\n"
              "  kazoo:\n    container_name: gio-apim-gateway-probe\n    depends_on:\n      apim-gateway:\n"
              "        condition: service_healthy\n    environment:\n      HOST: http://apim-gateway:8082\n")
-    NAMES = {"cloud": {"apim-gateway": "apim-hybrid-gateway"}}
+    NAMES = {"cloud": {"apim-gateway": "apim-hyssop-gateway"}}
 
     def test_an_item_that_runs_on_another_platform_is_its_copy_for_it(self):
         self.write(".lab/catalogs/fixture/addons/kazoo/compose.yml", self.KAZOO)
@@ -1527,9 +1527,9 @@ class Files(Case):
                          f'  - {{path: "{copy}", project_directory: ".lab/catalogs/fixture/addons/kazoo"}}\n  - .lab/catalogs/fixture/addons/kiosk/compose.yml\n')
         made = (self.root / copy).read_text(encoding="utf-8")
         # The service, what depends on it and the host that names it are the platform's; a container name is not
-        self.assertIn("  apim-hybrid-gateway:\n    environment:", made)
-        self.assertIn("      apim-hybrid-gateway:\n        condition: service_healthy", made)
-        self.assertIn("HOST: http://apim-hybrid-gateway:8082", made)
+        self.assertIn("  apim-hyssop-gateway:\n    environment:", made)
+        self.assertIn("      apim-hyssop-gateway:\n        condition: service_healthy", made)
+        self.assertIn("HOST: http://apim-hyssop-gateway:8082", made)
         self.assertIn("container_name: gio-apim-gateway-probe", made)
         self.assertNotIn("\n  apim-gateway:", made)
         # What is on is read as the files it was made of, and where each runs is said
@@ -1544,7 +1544,7 @@ class Files(Case):
         layers.write(None, ["kazoo", "kiosk"])   # another item turned on, nothing said of the kazoo
         self.assertEqual(layers.current(self.project)["targets"], {"addon:kazoo": "cloud"})
         self.assertIn("MORE: yes", (self.root / ".lab/targets/cloud/.lab__catalogs__fixture__addons__kazoo__compose.yml").read_text(encoding="utf-8"))
-        self.assertIn("apim-hybrid-gateway", (self.root / ".lab/targets/cloud/.lab__catalogs__fixture__addons__kazoo__compose.yml").read_text(encoding="utf-8"))
+        self.assertIn("apim-hyssop-gateway", (self.root / ".lab/targets/cloud/.lab__catalogs__fixture__addons__kazoo__compose.yml").read_text(encoding="utf-8"))
         layers.write(None, ["kiosk"])   # turned off: it is no more where it was
         self.assertEqual(layers.current(self.project)["targets"], {})
         layers.write(None, ["kazoo"])   # turned on again: on this machine
@@ -1572,7 +1572,7 @@ class Files(Case):
         self.assertEqual(stop["targets"], {})
 
     def test_a_start_back_on_this_machine_makes_again_what_its_plain_file_changes(self):
-        # Kazoo was deployed (its copy sets gravitee_kafka_enabled on apim-hybrid-gateway), then its containers stopped
+        # Kazoo was deployed (its copy sets gravitee_kafka_enabled on apim-hyssop-gateway), then its containers stopped
         # while it stayed on. Its Start on This machine writes the plain file, which sets it on apim-gateway, which runs
         self.write(".lab/catalogs/fixture/addons/kazoo/compose.yml", self.KAZOO)
         layers.write(None, ["kazoo"], {".lab/catalogs/fixture/addons/kazoo/compose.yml": "cloud"}, self.NAMES)
@@ -1589,19 +1589,19 @@ class Files(Case):
         cloud(self.project)
         self.write(".lab/catalogs/fixture/playgrounds/welcome/compose.yml", "services:\n  apim-gateway:\n    environment:\n      WELCOME: \"on\"\n"
                    "  hello-app:\n    image: busybox\n")
-        layers.write("welcome", ["hybrid"], {".lab/catalogs/fixture/playgrounds/welcome/compose.yml": "cloud"}, self.NAMES)   # deployed to Cloud
+        layers.write("welcome", ["hyssop"], {".lab/catalogs/fixture/playgrounds/welcome/compose.yml": "cloud"}, self.NAMES)   # deployed to Cloud
         state = layers.current(self.project)
         self.assertEqual(state["targets"], {"playground:welcome": "cloud"})
         # Its app was stopped from Containers; the core and the hybrid gateway run. Start on This machine
-        plan = layers.plan(self.project, state, up("hybrid", project=self.project), "playground", "welcome", "start")
+        plan = layers.plan(self.project, state, up("hyssop", project=self.project), "playground", "welcome", "start")
         _, (_, write, command), _ = self.applied(plan)
         write(mock.Mock(lines=[]))
         self.assertIn("  - .lab/catalogs/fixture/playgrounds/welcome/compose.yml\n", (self.root / paths.ON_FILE).read_text(encoding="utf-8"))
         self.assertIn("apim-gateway", command)   # its `apim-gateway:` override is this machine's gateway's now
-        self.assertIn("apim-hybrid-gateway", command, "and no longer the hybrid gateway's")
+        self.assertIn("apim-hyssop-gateway", command, "and no longer the hybrid gateway's")
 
     def test_what_a_start_brings_back_on_this_machine_is_made_again(self):
-        # Kazoo runs on its Cloud copy (HOST http://apim-hybrid-gateway:8082); Kazoo Desk, which needs it, starts here
+        # Kazoo runs on its Cloud copy (HOST http://apim-hyssop-gateway:8082); Kazoo Desk, which needs it, starts here
         self.write(".lab/catalogs/fixture/addons/kazoo/compose.yml", self.KAZOO)
         layers.write(None, ["kazoo"], {".lab/catalogs/fixture/addons/kazoo/compose.yml": "cloud"}, self.NAMES)
         plan = layers.plan(self.project, layers.current(self.project), up("kazoo"), "addon", "kazoo-desk", "start")
@@ -1697,19 +1697,19 @@ class Files(Case):
 
     def test_missing_settings_are_read_from_the_add_on_env(self):
         self.assertEqual(layers.current(self.project)["missing"], [])
-        (self.root / ".lab/catalogs/fixture/addons/hybrid/.env").write_text("HYBRID_CLOUD_TOKEN=\n", encoding="utf-8")   # a required setting without a value
-        self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
-        (self.root / ".lab/catalogs/fixture/addons/hybrid/.env").unlink()
-        self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
+        (self.root / ".lab/catalogs/fixture/addons/hyssop/.env").write_text("HYSSOP_CLOUD_TOKEN=\n", encoding="utf-8")   # a required setting without a value
+        self.assertEqual(layers.current(self.project)["missing"], ["hyssop"])
+        (self.root / ".lab/catalogs/fixture/addons/hyssop/.env").unlink()
+        self.assertEqual(layers.current(self.project)["missing"], ["hyssop"])
 
     def test_a_setting_in_the_root_env_is_no_missing_setting_for_compose_reads_that_file_first(self):
-        env = paths.unit_env("addon", "hybrid")
-        self.write(env, "HYBRID_CLOUD_TOKEN=\n")
-        self.write(".env", "HYBRID_CLOUD_TOKEN=token\n")
+        env = paths.unit_env("addon", "hyssop")
+        self.write(env, "HYSSOP_CLOUD_TOKEN=\n")
+        self.write(".env", "HYSSOP_CLOUD_TOKEN=token\n")
         self.assertEqual(layers.current(self.project)["missing"], [])
-        self.write(".env", "HYBRID_CLOUD_TOKEN=\n")
-        self.write(env, "HYBRID_CLOUD_TOKEN=token\n")
-        self.assertEqual(layers.current(self.project)["missing"], ["hybrid"], "the root's empty value wins, as with Compose")
+        self.write(".env", "HYSSOP_CLOUD_TOKEN=\n")
+        self.write(env, "HYSSOP_CLOUD_TOKEN=token\n")
+        self.assertEqual(layers.current(self.project)["missing"], ["hyssop"], "the root's empty value wins, as with Compose")
 
     def applied(self, plan):
         """The job layers.apply() starts for a plan: (title, steps, its other arguments)."""
@@ -2098,8 +2098,8 @@ class Gates(Case):
 
     def test_a_place_judges_the_item_and_the_gateway_it_starts(self):
         cloud(self.project)
-        self.block("hybrid", "Publishes a port to the network")
-        place = {"id": "acme/dev", "name": "Dev (Acme)", "gateway": "hybrid", "here": True, "serving": None}
+        self.block("hyssop", "Publishes a port to the network")
+        place = {"id": "acme/dev", "name": "Dev (Acme)", "gateway": "hyssop", "here": True, "serving": None}
         plan = layers.plan(self.project, on(self.project), up(project=self.project), "playground", "hotels", "start",
                            place=place)
         self.assertEqual(plan["blocked"], "Publishes a port to the network")
@@ -2235,7 +2235,7 @@ class From(Case):
     def test_a_place_plan_has_the_row_of_the_item_it_deploys(self):
         cloud(self.project)
         self.come_from("hotels", "playground")
-        place = {"id": "acme/dev", "name": "Dev (Acme)", "gateway": "hybrid", "here": True, "serving": None}
+        place = {"id": "acme/dev", "name": "Dev (Acme)", "gateway": "hyssop", "here": True, "serving": None}
         plan = layers.plan(self.project, on(self.project), up(project=self.project), "playground", "hotels", "start",
                            place=place)
         self.assertEqual(plan["from"][0]["name"], "Partner Bank")
@@ -2289,7 +2289,7 @@ class Entries(Case):
 
     def test_a_write_keeps_what_it_is_given_and_nothing_else(self):
         self.write(paths.ON_FILE, 'include:\n  - .lab/catalogs/fixture/addons/kazoo/compose.yml\n  - .lab/catalogs/local/addons/whoami/compose.yml\n'
-                   '  - {path: ".lab/targets/cloud/addons__hybrid__compose.yml", project_directory: ".lab/catalogs/fixture/addons/hybrid"}\n'
+                   '  - {path: ".lab/targets/cloud/addons__hyssop__compose.yml", project_directory: ".lab/catalogs/fixture/addons/hyssop"}\n'
                    "  - .lab/catalogs/fixture/setups/events.yml\n")
         layers.write(None, ["kiosk"])
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
@@ -2299,7 +2299,7 @@ class Entries(Case):
 
     def test_an_item_of_a_catalog_runs_on_a_platform_through_its_copy(self):
         self.write(paths.unit_file("addon", "kazoo"), "services:\n  apim-gateway:\n    environment:\n      A: b\n")
-        layers.write(None, ["kazoo"], {paths.unit_file("addon", "kazoo"): "cloud"}, {"cloud": {"apim-gateway": "apim-hybrid"}})
+        layers.write(None, ["kazoo"], {paths.unit_file("addon", "kazoo"): "cloud"}, {"cloud": {"apim-gateway": "apim-hyssop"}})
         self.assertEqual((self.root / paths.ON_FILE).read_text(encoding="utf-8"),
                          'include:\n  - {path: ".lab/targets/cloud/.lab__catalogs__fixture__addons__kazoo__compose.yml", '
                          'project_directory: ".lab/catalogs/fixture/addons/kazoo"}\n')
@@ -2307,18 +2307,18 @@ class Entries(Case):
         self.assertEqual((state["explicit"], state["targets"], state["locked"]), (["kazoo"], {"addon:kazoo": "cloud"}, None))
 
     def test_the_settings_of_an_add_on_of_a_catalog_are_read_from_a_plain_env_only(self):
-        env = self.root / paths.unit_env("addon", "hybrid")
-        self.write(paths.unit_env("addon", "hybrid"), "HYBRID_CLOUD_TOKEN=token\n")
+        env = self.root / paths.unit_env("addon", "hyssop")
+        self.write(paths.unit_env("addon", "hyssop"), "HYSSOP_CLOUD_TOKEN=token\n")
         self.assertEqual(layers.current(self.project)["missing"], [])
         # A link that a catalog shipped, to a file of the person's: the settings it holds are not read
         outside = self.root / "outside.env"
-        outside.write_text("HYBRID_CLOUD_TOKEN=token\n", encoding="utf-8")
+        outside.write_text("HYSSOP_CLOUD_TOKEN=token\n", encoding="utf-8")
         env.unlink()
         os.symlink(outside, env)
-        self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
+        self.assertEqual(layers.current(self.project)["missing"], ["hyssop"])
         env.unlink()
         os.mkfifo(env)   # a pipe is not waited for
-        self.assertEqual(layers.current(self.project)["missing"], ["hybrid"])
+        self.assertEqual(layers.current(self.project)["missing"], ["hyssop"])
 
     # --- The writer ------------------------------------------------------------------------------------------------
 
