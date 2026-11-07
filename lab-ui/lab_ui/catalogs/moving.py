@@ -46,7 +46,6 @@ import posixpath
 import secrets
 import shutil
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import paths
@@ -182,16 +181,14 @@ UNREAD = "{names} could not be read once in Personal ({why}), so Personal is as 
 
 def placed_without_claims(rels):
     """The check of a swap from a file (a move, an import to Personal), once its items are in Personal: each of them read as the
-    project reads it (project.read_own, the one reader of twins), side by side, and none says it is a copy. An item it cannot read,
+    project reads it (project.read_own, the one reader of twins), and none says it is a copy. An item it cannot read,
     or a claim, undoes the swap (CatalogError, `swap_in`) and says why. Only the items placed are read: not the whole project."""
     def one(rel):
         kind, slug = ("setup", posixpath.basename(rel)[:-4]) if rel.startswith("setups/") else (rel.split("/")[0][:-1], posixpath.basename(rel))
         return rel, project.read_own(paths.unit_file(kind, f"{paths.LOCAL}/{slug}"))
 
     def check():
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            read = list(pool.map(one, rels))
-        for rel, (config, why) in read:
+        for rel, (config, why) in map(one, rels):
             if config is None:
                 said = why if why.startswith("Compose") else why[:1].lower() + why[1:]   # within a sentence
                 raise _fail("placed_unread", UNREAD.format(names=_names_of([rel]), why=said), 409)
@@ -471,19 +468,9 @@ def _settle(swap, rels):
 
 
 def _note(swap, **journal):
-    """The journal of a swap written whole and to the disk, its folder too, before the step it announces: a stop of the machine
-    never leaves a step done that the journal does not say."""
-    temporary = swap / f".{JOURNAL}.tmp"
-    with open(temporary, "w", encoding="utf-8") as out:
-        out.write(json.dumps(journal, sort_keys=True) + "\n")
-        out.flush()
-        os.fsync(out.fileno())
-    os.replace(temporary, swap / JOURNAL)
-    folder = os.open(swap, os.O_RDONLY)
-    try:
-        os.fsync(folder)
-    finally:
-        os.close(folder)
+    """The journal of a swap on the disk before the step it announces: a stop of the machine never leaves a step done that the
+    journal does not say."""
+    paths.write_atomic(swap / JOURNAL, json.dumps(journal, sort_keys=True) + "\n")
 
 
 def _holds_people(swap):
