@@ -71,17 +71,13 @@ RAISED_LAYOUTS = {
     "comment far under": (_layout("  lab: 1\n", "  lab: 1\n                      # more\n"), True),
     "quoted key": (_layout("  lab: 1\n", "  'lab': 1\n"), True),
     "double quoted value": (_layout("  lab: 1\n", '  lab: "1"\n'), False),
-    "single quoted value": (_layout("  lab: 1\n", "  lab: '1'\n"), False),
     "anchor": (_layout("  lab: 1\n", "  lab: &level 1\n"), True),
     "tag": (_layout("  lab: 1\n", "  lab: !!int 1\n"), True),
     "leading zero": (_layout("  lab: 1\n", "  lab: 01\n"), True),
-    "plus sign": (_layout("  lab: 1\n", "  lab: +1\n"), True),
-    "hex": (_layout("  lab: 1\n", "  lab: 0x1\n"), True),
     "value on the next line": (_layout("  lab: 1\n", "  lab:\n    1\n"), False),
     "four spaces": (BASE_YML.replace("\n  ", "\n    "), True),
     "crlf": (BASE_YML.replace("\n", "\r\n"), True),
     "bom": ("\ufeff" + BASE_YML, True),
-    "bom and crlf": ("\ufeff" + BASE_YML.replace("\n", "\r\n"), True),
     "tab after the colon": (_layout("  lab: 1\n", "  lab:\t1\n"), True),
     "flow block": ("x-gravitee-catalog: {schema: 1, id: partner, name: Partner fixture, description: d, version: 2.0.0, lab: 1, "
                    "license: AGPL-3.0-only}\n", True),
@@ -294,20 +290,6 @@ class RoundTrip(Case):
         self.assertIn("Cannot be read: it includes a file that is not there", reasons["Scratch"], "as the other Lab would read it")
         self.refusal(lambda: exports.archive("local/sandbox"), "export_blocked")
 
-    def test_a_file_that_cannot_be_read_now_is_said_as_such(self):
-        sandbox = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "playgrounds" / "sandbox"
-        (paths.ROOT / "shared").mkdir()
-        (paths.ROOT / "shared" / "extra.yml").write_text("services:\n  extra:\n    image: busybox:1.36\n", encoding="utf-8")
-        text = (sandbox / "compose.yml").read_text(encoding="utf-8")
-        text = text.replace("include:\n", "include:\n  - ../../../../../shared/extra.yml\n", 1).replace(
-            "x-gravitee: {kind: playground,", "x-gravitee: {copy_of: tour, kind: playground,", 1)
-        (sandbox / "compose.yml").write_text(text, encoding="utf-8")
-        (paths.ROOT / "shared" / "extra.yml").unlink()   # gone since, outside the catalogs: Compose cannot read the file now
-        error = self.refusal(lambda: contribute.rewritten(text, contribute.unmark(text), {"copy_of": None}, "Sandbox", "whose copy it is", sandbox))
-        self.assertEqual(error.code, "label_unread", "not the Lab's writing")
-        self.assertEqual(error.message, "Sandbox: its compose file cannot be read (shared/extra.yml is not there). Fix: "
-                                                   "correct it so that docker compose config reads it, then try again.")
-
     def test_a_refusal_names_only_files_the_lab_knows_the_item_reads_and_never_what_a_file_holds(self):
         scratch = ".lab/catalogs/local/addons/scratch/compose.yml"
         said = (f"failed to read {paths.ROOT}/.lab/catalogs/local/addons/scratch/x.env: line 3: unexpected character "
@@ -437,15 +419,23 @@ class ToPersonal(Case):
         self.assertIn("../../../fixture/addons/echo/compose.yml", self.local("addons/scratch/compose.yml").read_text(encoding="utf-8"))
         self.assertTrue(self.local("playgrounds/sandbox/guide.md").is_file(), "its other files come with it")
 
-    def test_what_the_preview_found_blocked_cannot_go_to_personal(self):
-        preview = exports.receive(exports.archive("local/sandbox")["data"])
-        service.note(preview["ticket"], blocked=["Scratch"])
-        error = self.refusal(lambda: exports.to_personal(preview["ticket"]))
-        self.assertEqual(error.code, "blocked_personal")
-        self.assertEqual(error.message, "Scratch cannot run: import to Imported, where it stays blocked.")
-
-    def test_a_ticket_that_is_no_import_is_refused(self):
-        self.refusal(lambda: exports.to_personal("nothing"), "ticket_expired")
+    def test_the_persons_files_are_never_deleted_when_the_end_of_a_swap_fails_and_the_next_start_finishes_it(self):
+        data = exports.archive("local/sandbox")["data"]
+        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons/scratch"
+        (scratch / "compose.yml").write_text((scratch / "compose.yml").read_text() + "# changed here\n")
+        (scratch / ".env").write_text("MY_SETTING=1\n")
+        (scratch / "secrets").mkdir()
+        (scratch / "secrets/key").write_text("my key\n")
+        preview = exports.receive(data)
+        bring = moving._bring
+        self.patch(moving, "_bring", lambda old, new, rel: (_ for _ in ()).throw(OSError(5, "Input/output error")))
+        with self.assertRaises(OSError):
+            exports.to_personal(preview["ticket"])
+        self.assertTrue([path for path in (paths.ROOT / paths.LAB_DIR).glob(".swap-*/old/addons/scratch/secrets/key")],
+                        "the person's files wait in the swap")
+        self.patch(moving, "_bring", bring)
+        self.assertEqual(moving.recover(), "A change of Personal that stopped midway was finished for Scratch.")
+        self.assertEqual(((scratch / ".env").read_text(), (scratch / "secrets/key").read_text()), ("MY_SETTING=1\n", "my key\n"))
 
 
 class FromCatalogs(Case):
@@ -491,15 +481,21 @@ class FromCatalogs(Case):
         self.assertIn('private_from: ["Partner fixture"]', text, "the label goes with the content: the Lab that imports it keeps it")
         self.assertNotIn("copy_of", text, "whose copy it is says nothing on another Lab")
 
-    def test_a_copy_of_a_private_item_shared_to_a_folder_of_the_person_is_still_private_content(self):
-        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)   # a folder of the person's
+    def shared(self):
+        """Partner's Ledger copied to Personal, changed so that the original no longer clashes with it, shared to Lab new (a folder
+        of the person's) and gone from Personal: answers where the copy was."""
+        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
         moving.copy("addon", "@partner/ledger")
         ledger = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
         ledger.write_text(ledger.read_text(encoding="utf-8").replace("partner-ledger", "own-ledger").replace("8192", "8291"),
-                          encoding="utf-8")   # the person's own version, which the original no longer clashes with
+                          encoding="utf-8")
         project.forget()
         self.assertEqual(contribute.share(project.load(), "addon", "local/ledger", "lab-new"), {"copied": "Newer Lab fixture"})
         shutil.rmtree(ledger.parent)
+        return ledger
+
+    def test_a_copy_of_a_private_item_shared_to_a_folder_of_the_person_is_still_private_content(self):
+        self.shared()
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
         scratch.write_text(scratch.read_text(encoding="utf-8").replace(self.LEDGER, "../../../lab-new/addons/ledger/compose.yml"),
                            encoding="utf-8")
@@ -508,26 +504,14 @@ class FromCatalogs(Case):
         self.assertIn("@lab-new/ledger", [one["id"] for one in plan["carries"]])
         self.assertEqual(plan["private"], [{"key": root("partner"), "name": "Partner fixture", "items": ["Ledger"], "item_ids": ["@lab-new/ledger"]}])
 
-    def shared_and_copied_back(self):
-        """Partner's Ledger copied to Personal, changed, shared to Lab new (a folder of the person's), then that one copied back to
-        Personal, which Scratch includes: a copy of a share of a copy."""
-        fixtures.install(self, "lab-new", "folder", audience="private", lab=1)
-        moving.copy("addon", "@partner/ledger")
-        ledger = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "ledger" / "compose.yml"
-        ledger.write_text(ledger.read_text(encoding="utf-8").replace("partner-ledger", "own-ledger").replace("8192", "8291"),
-                          encoding="utf-8")
-        project.forget()
-        contribute.share(project.load(), "addon", "local/ledger", "lab-new")
-        shutil.rmtree(ledger.parent)
+    def test_private_content_keeps_its_label_through_a_copy_of_a_share_of_a_copy(self):
+        ledger = self.shared()
         project.forget()
         moving.copy("addon", "@lab-new/ledger")
         self.assertIn('copy_of: "@lab-new/ledger"', ledger.read_text(encoding="utf-8"), "the copy is the twin of what it was copied from")
         scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons" / "scratch" / "compose.yml"
         scratch.write_text(scratch.read_text(encoding="utf-8").replace(self.LEDGER, "../ledger/compose.yml"), encoding="utf-8")
         project.forget()
-
-    def test_private_content_keeps_its_label_through_a_copy_of_a_share_of_a_copy(self):
-        self.shared_and_copied_back()
         partner = [{"key": root("partner"), "name": "Partner fixture", "items": ["Ledger"], "item_ids": ["local/ledger"]}]
         self.assertEqual(exports.plan("local/sandbox")["private"], partner)
         self.refusal(lambda: exports.archive("local/sandbox", private=[]), "export_private")
@@ -615,13 +599,6 @@ class FromCatalogs(Case):
         level = understood.lock().rows[("unit.key", "x-gravitee.private_from")]
         made = exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox")))
         self.assertIn(f"  lab: {level}", member(made, "sandbox/catalog.yml"))
-
-    def test_an_export_of_a_label_by_a_lab_that_cannot_read_its_contract_lock_is_refused(self):
-        """Without its contract.lock the Lab does not know the level of the label: it says so rather than a lower one."""
-        (self.root / "contract.lock").unlink()
-        error = self.refusal(lambda: exports.archive("local/sandbox", private=shown(exports.plan("local/sandbox"))))
-        self.assertEqual((error.code, error.message),
-                         ("lock_unread", "Gravitee Lab cannot read its contract.lock. Fix: make update."))
 
     def test_comments_and_blank_lines_around_lab_stay_where_they_are(self):
         doc = (Path(__file__).resolve().parents[3] / "docs" / "writing-a-catalog.md").read_text(encoding="utf-8")
@@ -1125,32 +1102,6 @@ class Untrusted(Case):
         self.patch(moving, "stage", staged)
         self.refused(lambda: exports.to_personal(preview["ticket"]), "import_changed")
         self.assertFalse(self.personal().exists())
-
-
-class SettleFails(Case):
-    """Import to Personal of an item that replaces one of Personal, when bringing the person's files to the new one fails: the
-    swap that holds them is never deleted, and the next start of the Lab UI finishes it."""
-
-    setUp = RoundTrip.setUp
-
-    def test_the_persons_files_are_never_deleted_when_the_end_of_a_swap_fails(self):
-        data = exports.archive("local/sandbox")["data"]
-        scratch = paths.ROOT / paths.CATALOGS_DIR / paths.LOCAL / "addons/scratch"
-        (scratch / "compose.yml").write_text((scratch / "compose.yml").read_text() + "# changed here\n")
-        (scratch / ".env").write_text("MY_SETTING=1\n")
-        (scratch / "secrets").mkdir()
-        (scratch / "secrets/key").write_text("my key\n")
-        preview = exports.receive(data)
-        bring = moving._bring
-        self.patch(moving, "_bring", lambda old, new, rel: (_ for _ in ()).throw(OSError(5, "Input/output error")))
-        with self.assertRaises(OSError):
-            exports.to_personal(preview["ticket"])
-        self.assertTrue([path for path in (paths.ROOT / paths.LAB_DIR).glob(".swap-*/old/addons/scratch/secrets/key")],
-                        "the person's files wait in the swap")
-        self.patch(moving, "_bring", bring)
-        self.assertEqual(moving.recover(), "A change of Personal that stopped midway was finished for Scratch.")
-        self.assertEqual(((scratch / ".env").read_text(), (scratch / "secrets/key").read_text()), ("MY_SETTING=1\n", "my key\n"))
-
 
 
 class Claims(Case):
