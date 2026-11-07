@@ -43,5 +43,4 @@ that is a folder gets the files. This is the same by hand. The rules are in `doc
    anything cannot be moved there. Until then both are listed, and the Lab starts one only while the other is off. It is
    refused while the catalog's item is blocked or needs a newer Gravitee Lab: the personal copy is the one that runs.
 
-A catalog's item is not made personal again: it would leave the catalog for everyone who updates it. For a private
-variant, create a personal item with `new-addon`, `new-setup` or `new-playground`.
+A catalog's item stays there. For a private variant, **Copy to Personal** in its menu makes one ([Your own items](../../../docs/catalogs.md#your-own-items)).

@@ -787,7 +787,7 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
     else the state component: "Up to date", muted, with a muted check, when what runs is the newest of its channel (its popover which
     channel), "Update available" in amber when a newer one exists (its popover the two versions under *Running* and *Latest release*
     or *Latest pre-release*, and that it is chosen on the Images page), nothing while it cannot be told, a spinner while the registry
-    is being asked. A pre-release is compared with the latest pre-release, else with the stable one (`dashboard.judge`). The words say
+    is being asked. A pre-release is compared with the latest pre-release, else with the stable one (`versions.judge`). The words say
     it without a heading over them (under 640 px). What only informs ("Management API stopped") is for the Containers page.
   - *Consoles*, at the end of the row: the ones that run, from the state's `links` whose `service` is one of the group's, a 32 px
     button each (`.btn` with the icon of a link out and the console's name, cut with an ellipsis and named in full for a screen
@@ -799,7 +799,7 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
     *Open* for one target, *Open* and a chevron for several. A product with one console has that button only.
     A console that does not run is not drawn, and neither is a link of an add-on or a playground, whose services are in no group of the
     platform: those are on their lists' rows and on Containers. Nothing waits on a click on a name.
-  - The server decides the versions (`dashboard.judge`): each product has `channel` (`stable` or `pre-release`), `latest` (the
+  - The server decides the versions (`versions.judge`): each product has `channel` (`stable` or `pre-release`), `latest` (the
     newest of that channel, null while unknown) and `status` (`latest`, `newer`, `unknown`), and keeps `stable` and
     `prerelease`. They are the Docker Hub tags that `images.py` reads, kept an hour; a missing one fills in as it comes
     (`pending`).
