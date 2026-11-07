@@ -560,23 +560,6 @@ def machine_name(rel) -> bool:
             or (name.startswith(".env.") and name != ".env.example") or name.endswith(bare.KEY_SUFFIXES))
 
 
-def _manifest_in(root, ns) -> Optional[dict]:
-    """The manifest inside the folder `root` as the registry would accept it for catalog `ns`, whatever
-    commit it is for, or None: a folder can be an install, a staging folder or a `.removed-<ns>-*` folder, and each says
-    what it holds in its own file."""
-    try:
-        return registry._load_manifest(ns)(_read(os.path.join(root, paths.MANIFEST), MANIFEST_LIMIT))
-    except Unsafe:
-        return None
-
-
-def _listed(ns, root) -> Set[str]:
-    """The content paths of the folder `root` of catalog `ns`: its manifest's files. A folder with no manifest holds none, so
-    nothing in it is ever deleted as content."""
-    found = _manifest_in(root, ns)
-    return set(found["files"]) if found else set()
-
-
 def _scan(root, listed: Optional[Set[str]]) -> List[str]:
     """The machine entries of a folder: the top-most paths that hold no content, a file, a link, or a folder whose files are all
     the machine's. `listed` is the set of content paths; None for a folder of a person's own, where a name tells, and anything
@@ -611,6 +594,23 @@ def _scan(root, listed: Optional[Set[str]]) -> List[str]:
                 content += 1
         return content, tops
     return look("", 0)[1]
+
+
+def _manifest_in(root, ns) -> Optional[dict]:
+    """The manifest inside the folder `root` as the registry would accept it for catalog `ns`, whatever
+    commit it is for, or None: a folder can be an install, a staging folder or a `.removed-<ns>-*` folder, and each says
+    what it holds in its own file."""
+    try:
+        return registry._load_manifest(ns)(_read(os.path.join(root, paths.MANIFEST), MANIFEST_LIMIT))
+    except Unsafe:
+        return None
+
+
+def _listed(ns, root) -> Set[str]:
+    """The content paths of the folder `root` of catalog `ns`: its manifest's files. A folder with no manifest holds none, so
+    nothing in it is ever deleted as content."""
+    found = _manifest_in(root, ns)
+    return set(found["files"]) if found else set()
 
 
 def _machine(ns, root) -> List[str]:
