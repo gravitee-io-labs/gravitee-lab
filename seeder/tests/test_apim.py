@@ -1599,7 +1599,6 @@ OWN = {"apim/apis/open.json": definition("PROXY", "open-id", "Open API", "/open/
        "apim/applications/web.yaml": "name: Web\n",
        "apim/subscriptions/web.yaml": "subscriptions:\n  - {application: Web, api: Open API, plan: Open}\n"}
 DIRECTORY = {"astrid.holm": "astrid.holm", "mikkel.dahl": "mikkel.dahl", "lena.vogt": "lena.vogt"}
-NOVO_API = "Batch status [novo]"
 
 
 class Estates(Seed):
