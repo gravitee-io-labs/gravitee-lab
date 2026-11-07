@@ -1051,8 +1051,7 @@ const more = async (label) => {
   page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item").find((el) => text(el.querySelector("span")) === label) }));
   await flush();
 };
-const NO_PLATFORM = { platforms: [], places: [] };
-const mine = (extra = {}) => visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" }, ...extra }, { ...NO_PLATFORM, id: "local/hotels" });
+const mine = (extra = {}) => visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" }, ...extra }, { platforms: [], places: [], id: "local/hotels" });
 // What a browser would save of an Export: the click on its link is kept
 const saving = () => {
   const saved = [], make = page.doc.createElement.bind(page.doc);
@@ -1082,7 +1081,7 @@ test("a playground of another catalog says which in its About, with a link to th
   assert.equal(section.querySelectorAll("#pg-star > *").length, 1, "the star alone");
   assert.equal(catalogFact().length, 0);
   await leave();
-  await visit({ ...off, ...HUB }, { ...NO_PLATFORM, id: "@acme-hub/hotels" });
+  await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   assert.equal(section.querySelectorAll("#pg-star > *").length, 1, "the star alone, no catalog beside the name");
   assert.equal(section.querySelector("#pg-star").classList.contains("list-marks"), false);
   const [fact] = catalogFact();
@@ -1092,7 +1091,7 @@ test("a playground of another catalog says which in its About, with a link to th
 });
 
 test("its file button reads View and shows no path of this machine; the file of a playground of this machine is Edit with its path", async () => {
-  await visit({ ...off, ...HUB }, { ...NO_PLATFORM, id: "@acme-hub/hotels" });
+  await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   const file = section.querySelector("#pg-actions [data-file]");
   assert.deepEqual([file.getAttribute("data-tip"), file.getAttribute("aria-label")], ["View compose.yml", "View compose.yml"]);
   section.querySelector("#pg-actions [data-more]").click();
@@ -1119,7 +1118,7 @@ test("a playground of this machine has a More, last of the page's actions, with 
 });
 
 test("Delete of the page is held for the reason the list gives, and the Lab UI not answering holds Share and Delete", async () => {
-  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "Stop Acme Hostels first" } }, { ...NO_PLATFORM, id: "local/hotels" });
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "Stop Acme Hostels first" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
   assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Share", ""], ["Delete", "Stop Acme Hostels first"]]);
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
@@ -1148,7 +1147,7 @@ test("Export for Docker Compose says what the folder runs, leaves out and needs,
   server.standalone = { name: "Acme Hostels", file: "hotels-docker-compose.zip", runs: ["API Management", "Databases", "Acme Hostels"],
     leaves_out: ["Alert Engine"], license: ["apim-feature"], host: ["Ollama with a model"], plugins_missing: ["acme-policy"], private: [],
     registries: [] };
-  await visit({ ...off, ...HUB }, { ...NO_PLATFORM, id: "@acme-hub/hotels" });
+  await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   server.calls = [];
   await more("Export for Docker Compose");
   assert.equal(effects().title, "Export Acme Hostels for Docker Compose");
@@ -1165,7 +1164,7 @@ test("Export for Docker Compose says what the folder runs, leaves out and needs,
   await leave();
   const plain = server.standalone;
   server.standalone = { ...plain, license: ["a-feature", "b-feature", "c-feature"], private: [{ key: "1a2b3c", name: "Internal", items: ["Ledger"], item_ids: ["@internal/ledger"] }] };
-  await visit({ ...off, ...HUB }, { ...NO_PLATFORM, id: "@acme-hub/hotels" });
+  await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   await more("Export for Docker Compose");
   assert.equal(effects().notes[1][1][0], "A license with 3 features", "more features than fit a line are counted");
   assert.deepEqual(effects().notes.at(-1), ["Private", ["Internal"]]);
@@ -1234,7 +1233,7 @@ test("an imported playground moves to Personal from its menu: with what it bring
     together: { moves: ["Acme Hostels", "Kiosk"], stays: [{ name: "Ledger", why: "Used by Notes" }], replaces: [], held: "", uses_machine: ["Kiosk"] },
     alone: { moves: ["Acme Hostels"], stays: [], replaces: ["Acme Hostels"], held: "" }, used_by: "" };
   const imported = { ...off, id: "@hostels/hotels", origin: { id: "imported", name: "Imported" }, held: { delete: "" } };
-  await visit(imported, { ...NO_PLATFORM, id: "@hostels/hotels" });
+  await visit(imported, { platforms: [], places: [], id: "@hostels/hotels" });
   server.calls = [];
   await more("Move to Personal");
   assert.equal(effects().title, "Move Acme Hostels to Personal");
@@ -1250,7 +1249,7 @@ test("an imported playground moves to Personal from its menu: with what it bring
   // What the import could not delete is said once the move is done
   page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
   server.moveDone = { warning: "Some files were created by Docker and could not be deleted. Remove the folder .lab/imports/hostels with administrator rights." };
-  await visit(imported, { ...NO_PLATFORM, id: "@hostels/hotels" });
+  await visit(imported, { platforms: [], places: [], id: "@hostels/hotels" });
   await more("Move to Personal");
   await answer(true);
   await flush();
@@ -1264,7 +1263,7 @@ test("a playground of a catalog is copied to Personal from its menu: alone, or w
   server.copyPlan = {
     alone: { copies: ["Acme Hostels"], switches: [], uses_machine: [], held: "" },
     with_users: { copies: ["Acme Hostels", "Tour"], switches: ["Notes"], uses_machine: [], held: "" } };
-  await visit({ ...off, id: "@acme-hub/hotels", origin: { id: "acme-hub", name: "Acme Hub" } }, { ...NO_PLATFORM, id: "@acme-hub/hotels" });
+  await visit({ ...off, id: "@acme-hub/hotels", origin: { id: "acme-hub", name: "Acme Hub" } }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   server.calls = [];
   await more("Copy to Personal");
   assert.equal(effects().title, "Copy Acme Hostels to Personal");
@@ -1291,7 +1290,7 @@ test("Delete names the folder by the path the item is read by (display_file), th
 test("what a playground lacks of the catalogs is the first of Before you start: each reason in its own words, with the button that mends it", async () => {
   store.state = { ...plain, catalogs: ROWS, content: content("ready") };
   const lacks = [need(), need({ reason: "downloading" }), need({ reason: "failed" }), need({ id: "ledger-hub", name: "Ledger Hub", reason: "gone", unit: "Ledger" }), need({ reason: "old", have: "1.0.0" })];
-  await visit({ ...off, needs_catalogs: lacks, ...HUB }, { ...NO_PLATFORM, id: "@acme-hub/hotels" });
+  await visit({ ...off, needs_catalogs: lacks, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   store.state = { ...store.state, catalogs: ROWS };
   playgroundPage.render(store.state);
   const found = prepared().filter((line) => line.kind === "warn");
@@ -1317,7 +1316,7 @@ test("what a playground lacks of the catalogs is the first of Before you start: 
 test("the line of a catalog that failed says why", async () => {
   const failed = catalogRow({ id: "partner-bank", name: "Partner Bank", commit: "", listed: false, state: { key: "unreachable", label: "Unreachable", tone: "warn",
     reason: "Cannot reach github.com.", next: "Check your connection, then try again." } });
-  await visit({ ...off, ...HUB, needs_catalogs: [need({ reason: "failed" })] }, { ...NO_PLATFORM, id: "@acme-hub/hotels" });
+  await visit({ ...off, ...HUB, needs_catalogs: [need({ reason: "failed" })] }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   store.state = { ...store.state, catalogs: [FIRST(), failed] };
   playgroundPage.render(store.state);
   assert.equal(prepared().find((one) => one.name === "Needs Partner Bank").sub, "Cannot reach github.com. Check your connection, then try again.");
@@ -1411,7 +1410,7 @@ test("a playground of this machine that is not listed is not waited for while th
 
 test("a catalog's name and the author's words are text, never markup, in the head and the lines", async () => {
   await visit({ ...off, ...HUB, origin: origin({ name: HOSTILE }), needs_catalogs: [need({ name: HOSTILE })], uses_machine: [{ service: "a", what: [], why: HOSTILE }] },
-    { ...NO_PLATFORM, id: "@acme-hub/hotels" });
+    { platforms: [], places: [], id: "@acme-hub/hotels" });
   assert.equal(section.querySelectorAll("img").length, 0);
   const named = section.querySelectorAll(".pairs a").find((link) => link.getAttribute("href").startsWith("#/catalogs/"));
   assert.equal(text(named), HOSTILE, "as text, whole");

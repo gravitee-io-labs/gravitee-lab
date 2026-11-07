@@ -775,8 +775,8 @@ const drop = async (file = ZIP()) => {
 // What the server says of that file
 const IMPORTED = (more = {}) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" }, imported: true,
   counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: [], same: [] }, ...more });
-// Import to Personal confirmed, and where it sent the person
-const keptPersonal = async () => {
+// The import confirmed, and where it sent the person
+const confirmed = async () => {
   const went = [], go = router.go;
   router.go = (to) => went.push(to);
   await submit(primary());
@@ -792,7 +792,7 @@ test("Import to Personal keeps the playground as the person's own, says what it 
   await drop();
   assert.deepEqual(rowsOf().find(([label]) => label === "Replaces"), ["Replaces", "Kiosk The new version gets your settings"]);
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
-  assert.deepEqual(await keptPersonal(), ["#/playgrounds/local/contoso"]);
+  assert.deepEqual(await confirmed(), ["#/playgrounds/local/contoso"]);
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70" }]);
   // What cannot run is never Personal's: Imported is the one choice, and Personal says why
   openImport();
@@ -815,7 +815,7 @@ test("Import to Personal of what uses this machine is the person's allowance: th
   click(adding().querySelector('[data-dest="personal"]'));
   assert.equal(face(primary()), "Allow and import");
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
-  await keptPersonal();
+  await confirmed();
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70", allow: true }]);
 });
 
@@ -836,7 +836,7 @@ test("Settings kept from a removed import of that name are said, used or not, an
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Used"]);
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso",
     kept: { items: ["Kiosk"], where: ".lab/kept-settings/contoso-1a2b3c4d" } };
-  await keptPersonal();
+  await confirmed();
   assert.deepEqual(toasts(), ["Imported. The kept settings of Kiosk stay apart: see Kept settings on the Catalogs page."]);
 });
 
@@ -861,7 +861,7 @@ test("Import takes the file of an exported playground, shows the preview of an A
   assert.equal(dest("imported").getAttribute("aria-checked"), "true");
   server.answers["/api/catalogs"] = { catalog: { id: "contoso", host: null } };
   store.state.playgrounds = [{ kind: "playground", id: "@contoso/contoso", name: "Contoso demo" }];
-  assert.deepEqual(await keptPersonal(), ["#/playgrounds/@contoso/contoso"], "its page opens");
+  assert.deepEqual(await confirmed(), ["#/playgrounds/@contoso/contoso"], "its page opens");
   assert.deepEqual([last().path, last().body], ["/api/catalogs", { ticket: "9f3a4c1d2e5b6a70" }]);
   assert.deepEqual(toasts(), ["Imported"]);
   // A file this Lab has: said on the file's screen, in the server's words
@@ -1872,8 +1872,6 @@ test("a catalog just created is revealed on the Catalogs page unless the person 
   assert.equal(hashOf(), "#/catalogs/my-catalog");
   router.current = null;
 });
-
-// --- Add from a line of an item that needs a catalog ------------------------------------------------------------------------------
 
 // --- What a server says is text -------------------------------------------------------------------------------------------------
 
