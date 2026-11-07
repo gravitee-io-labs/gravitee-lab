@@ -221,15 +221,14 @@ ahead of time. If the seed of a playground ends with a timeout while waiting for
 ### Start is disabled
 
 **Symptom:** the Start button of a playground is grey, and its row says *Needs newer versions* or *Needs settings*. The
-reason reads `Needs Access Management 4.13.0-alpha.9 or later and API Management 4.13.0-alpha.5 or later: choose them on the Images
+reason reads `Needs Access Management 4.14 or later and API Management 4.14 or later: choose them on the Images
 page`, or `<name> needs settings`; the badge leads to the Images page or to that add-on.
 
 **Cause:** the playground needs later or pre-release builds of API Management or Access Management, and the core's
 default versions are older. Or an add-on that the playground brings lacks a setting that has no default.
 
-**Fix:** for the images, open the Images page and choose a 4.13 pre-release (alpha) tag: `4.13.0-alpha.5` or later for
-API Management, `4.13.0-alpha.9` or later for Access Management. One visit is enough: the reason names every image that is too old. For a
-setting, open the key button of the add-on and fill in the field marked *Required*.
+**Fix:** for the images, open the Images page and choose the versions the reason names, or later ones. One visit is enough: it names
+every image that is too old. For a setting, open the key button of the add-on and fill in the field marked *Required*.
 
 ### A start fails right after a version change
 
@@ -305,16 +304,6 @@ make restart SVC=apim-gateway
 If an added plugin does not load, check the Plugins page. A plugin found twice, bundled in the image and added in the
 folder, loads from the most recent file, not the highest version. The page says `Added, ignored` when the bundled one is
 newer.
-
-### Gamma's Tracing pages list nothing
-
-**Symptom:** Agent Management, Observability, Tracing shows no call.
-
-**Cause:** tracing must be enabled on the API (a playground's LLM, MCP and A2A proxies can have it), and the Gamma Spans
-add-on must be on and running. A page lists the last 5 minutes at first.
-
-**Fix:** turn Gamma Spans on, pick a longer range, and wait a few seconds after the call. Jade and the AI Agent
-Inspector cannot run with Gamma Spans: all three take the gateway's OpenTelemetry exporter.
 
 ### Ollama is not reachable from the containers
 
@@ -451,7 +440,8 @@ Without internet, once the images are pulled and the apps are built, the platfor
 
 - the Images page cannot list tags, the Dashboard shows no update for the Gravitee versions, and the Plugins
   page cannot load its catalog or install a plugin;
-- a guide shows as plain text and the file editor as a plain text area, because the browser cannot load their libraries;
+- a guide shows as plain text, the file editor as a plain text area and a playground's terminal says it needs the internet, because
+  the browser cannot load their libraries;
 - the gateway cannot download the AI models of an item that uses them the first time;
 - a new image build cannot download its packages.
 
