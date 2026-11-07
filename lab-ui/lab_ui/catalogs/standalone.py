@@ -30,8 +30,10 @@ pulls from a registry that asks for a login is said too (`exports._registries`).
 
 import base64
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -222,12 +224,18 @@ def _ignore(folder: Path):
     return ignore
 
 
+def _writable(source, target):
+    """A copy that another service with the same file can write over: what a catalog installs is read-only here."""
+    shutil.copy2(source, target)
+    os.chmod(target, os.stat(target).st_mode | stat.S_IWUSR)
+
+
 def _copy(source: Path, target: Path):
     if source.is_dir():
-        shutil.copytree(source, target, ignore=_ignore(source), dirs_exist_ok=True)
+        shutil.copytree(source, target, ignore=_ignore(source), copy_function=_writable, dirs_exist_ok=True)
     elif source.is_file() and not (source.is_symlink() and not source.resolve().is_relative_to(paths.ROOT.resolve())):
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        _writable(source, target)
 
 
 def _plugins(unit, product, target: Path):

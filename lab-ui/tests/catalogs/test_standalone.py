@@ -7,6 +7,7 @@ import base64
 import io
 import shutil
 import subprocess
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -20,6 +21,17 @@ from .. import Case, fixtures
 
 class Pieces(Case):
 
+
+    def test_two_services_with_one_read_only_folder_copy_it_twice(self):
+        """What a catalog installs is read-only here, and its add-on's services may build from one folder."""
+        with tempfile.TemporaryDirectory() as folder:
+            source, target = Path(folder, "image"), Path(folder, "out", "image")
+            source.mkdir()
+            Path(source, "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+            Path(source, "Dockerfile").chmod(0o444)
+            for _ in range(2):
+                standalone._copy(source, target)
+            self.assertEqual(Path(target, "Dockerfile").read_text(encoding="utf-8"), "FROM scratch\n")
     def test_a_value_is_plain_when_it_reads_back_as_the_same_text_and_quoted_else(self):
         for value, written in (("mongodb", "mongodb"), ("127.0.0.1:8092:8092", '"127.0.0.1:8092:8092"'), ("8092", '"8092"'),
                                ("@scope/pkg", '"@scope/pkg"'), ("foo:", '"foo:"'), ("2026-10-24", '"2026-10-24"'), ("0b101", '"0b101"'),
