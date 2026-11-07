@@ -5,7 +5,6 @@
 # A target that stands for a `docker compose` command shows it, so you can type it yourself; checks and helpers stay
 # quiet.
 
-makefile := $(MAKEFILE_LIST)
 SVC ?=
 
 # The Python that makes .venv, and that runs the lab when there is no .venv: the first of these that is 3.9 or later, as a system
@@ -32,7 +31,7 @@ help:   # what `make` alone prints
 	awk -v color=$$color 'BEGIN {if (color) {bold = "\033[1m"; cyan = "\033[36m"; off = "\033[0m"}} \
 		/^##@/ {printf "\n%s%s%s\n", bold, substr($$0, 5), off} \
 		/^[a-zA-Z0-9_-]+:.*## / {name = $$0; sub(/:.*/, "", name); text = $$0; sub(/^[^#]*## /, "", text); \
-			printf "  %s%-10s%s %s\n", cyan, name, off, text}' $(makefile)
+			printf "  %s%-10s%s %s\n", cyan, name, off, text}' $(MAKEFILE_LIST)
 
 # What the targets need, checked first so that a missing tool is one line and not a stack trace
 readme := (see Prerequisites in docs/installation.md)

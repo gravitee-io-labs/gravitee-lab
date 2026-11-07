@@ -252,15 +252,14 @@ class Install(unittest.TestCase):
         self.assertEqual([line for line in screen if len(line) > 60], [])
         self.assertTrue(any(re.match(r"  \S+ Ready in \d+s\.", line) for line in screen), said)
 
-    def test_a_terminal_that_is_not_utf8_gets_ascii_and_no_color_gets_none(self):
-        code, said = self.terminal(LANG="C")
-        self.assertEqual(code, 0, said)
-        self.assertIn("+\x1b[0m \x1b[1mTools", said)
-        self.assertNotIn("✔", said)
-        code, said = self.terminal(NO_COLOR="1")
-        self.assertEqual(code, 0, said)
-        self.assertIn("✔ Tools", said)
-        self.assertNotRegex(said, r"\x1b\[(1|2|3\d)m")
+    def test_what_a_terminal_that_is_not_utf8_no_color_and_ci_leave_out(self):
+        for env, kept, left_out in (({"LANG": "C"}, r"\+\x1b\[0m \x1b\[1mTools", "✔"), ({"NO_COLOR": "1"}, "✔ Tools", r"\x1b\[(1|2|3\d)m"),
+                                    ({"CI": "true"}, "✔ Tools", r"\x1b")):
+            with self.subTest(env=env):
+                code, said = self.terminal(**env)
+                self.assertEqual(code, 0, said)
+                self.assertRegex(said, kept)
+                self.assertNotRegex(said, left_out)
 
     def test_a_package_manager_shows_as_a_count_and_words_never_as_its_own_lines(self):
         code, said = self.terminal(**self.linux_without_git())
@@ -286,12 +285,6 @@ class Install(unittest.TestCase):
         code, said = self.install(GRAVITEE_LAB_REPOSITORY=str(self.folder / "nothing"))
         self.assertEqual(code, 1, said)
         self.assertIn(f"{self.folder / 'nothing'} does not exist, or is private", " ".join(said.split()))
-
-    def test_ci_prints_plain_lines_even_in_a_terminal(self):
-        code, said = self.terminal(CI="true")
-        self.assertEqual(code, 0, said)
-        self.assertNotIn("\033", said)
-        self.assertIn("✔ Tools", said)
 
     def test_ctrl_c_stops_it_with_the_cursor_back_and_says_how_to_go_on(self):
         code, said = self.terminal(interrupt_on="Downloading", **self.slow_git(), FAKE_WAIT="30")

@@ -384,25 +384,17 @@ class PinnedTest(Served):
         self.assertEqual((len(calls), self.asked, len(server.heads)), (2, [("44.0.0.8", 443)], 1),
                          "the name is asked for the look and for the connection, never again")
 
-    def test_every_address_of_the_answer_has_to_be_public_and_the_next_one_is_tried_when_one_does_not_answer(self):
-        self.serve({"/v2/x/y/manifests/1": (200, None)}, down=("44.0.0.1",))
-        self.patch_resolver(resolver({"two.example.com": ["44.0.0.1", "44.0.0.2"], "mixed.example.com": ["44.0.0.9", "10.0.0.9"]}))
-        connection = self.connection("two.example.com", 443)
-        connection.connect()
-        self.assertEqual(self.asked, [("44.0.0.1", 443), ("44.0.0.2", 443)], "in the order of the answer")
-        self.asked.clear()
-        with self.assertRaisesRegex(OSError, "does not resolve to addresses of the public network"):
-            self.connection("mixed.example.com", 443).connect()
-        with self.assertRaisesRegex(OSError, "public network"):
-            self.connection("nowhere.example.com", 443).connect()
-        self.assertEqual(self.asked, [], "one address of the machine's network in the answer is enough to refuse it")
-
-    def test_when_no_address_answers_the_last_error_is_the_error(self):
-        self.serve({}, down=("44.0.0.1", "44.0.0.2"))
+    def test_the_next_address_is_tried_when_one_does_not_answer_and_the_last_error_is_the_error(self):
         self.patch_resolver(resolver({"two.example.com": ["44.0.0.1", "44.0.0.2"]}))
-        with self.assertRaises(ConnectionRefusedError):
-            self.connection("two.example.com", 443).connect()
-        self.assertEqual(self.asked, [("44.0.0.1", 443), ("44.0.0.2", 443)])
+        for down, connects in ((("44.0.0.1",), True), (("44.0.0.1", "44.0.0.2"), False)):
+            with self.subTest(down=down):
+                self.asked.clear()
+                self.serve({}, down=down)
+                if connects:
+                    self.connection("two.example.com", 443).connect()
+                else:
+                    self.assertRaises(ConnectionRefusedError, self.connection("two.example.com", 443).connect)
+                self.assertEqual(self.asked, [("44.0.0.1", 443), ("44.0.0.2", 443)], "in the order of the answer")
 
     def test_the_opener_of_the_script_connects_to_the_address_it_checked_and_to_no_other(self):
         """`exists` with no opener given is the script as it runs: the handshake of a real context fails against this plain server,
@@ -431,14 +423,13 @@ class PinnedTest(Served):
         connection.connect()
         self.assertEqual((self.asked, calls), ([("proxy.corp.example", 3128)], []), "the name of the proxy, as given, and no look")
 
-    def test_the_connection_is_not_pinned_by_the_way_the_name_is_written(self):
+    def test_every_address_of_the_answer_has_to_be_public_however_the_name_is_written(self):
         self.serve({"/v2/x/y/manifests/1": (200, None)})
-        self.patch_resolver(resolver({"[::1]": "::1"}))
-        for host in ("127.0.0.1", "10.0.0.9", "169.254.169.254", "0x7f.1", "localhost.", "127.0.0.1.nip.io", "internal.example.com"):
-            with self.subTest(host=host):
-                with self.assertRaises(OSError):
-                    self.connection(host, 443).connect()
-        self.assertEqual(self.asked, [])
+        for host in ("mixed.example.com", "nowhere.example.com", "127.0.0.1", "10.0.0.9", "169.254.169.254", "0x7f.1", "localhost.",
+                     "127.0.0.1.nip.io", "internal.example.com"):
+            with self.subTest(host=host), self.assertRaisesRegex(OSError, "public network"):
+                self.connection(host, 443).connect()
+        self.assertEqual(self.asked, [], "one address of the machine's network in the answer is enough to refuse it")
 
     def connection(self, host, port):
         """A pinned connection that is closed when the test ends."""
