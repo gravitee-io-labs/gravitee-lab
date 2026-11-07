@@ -1365,8 +1365,8 @@ def _reads(kind, slug, copy):
 def _renames(items, to) -> Dict[str, str]:
     """{old: new} of the settings the items of a share read ([(kind, slug, copy)]) that are their own and not named for `to`: an item of a catalog reads
     the settings named for its catalog (T20), and one that was the person's, or came from another catalog, is named for where it
-    was (GRAVITEE_INTERNAL_GKO_LOG_LEVEL). A setting is an item's own when the name of one of the items is in it (GKO): it then
-    starts there, after the prefix of `to` (TEAM_DEMOS_GKO_LOG_LEVEL). The platform's settings, the shared ones, the image's
+    was (ACME_HUB_KIOSK_LOG_LEVEL). A setting is an item's own when the name of one of the items is in it (KIOSK): it then
+    starts there, after the prefix of `to` (TEAM_DEMOS_KIOSK_LOG_LEVEL). The platform's settings, the shared ones, the image's
     (*_VERSION, *_REGISTRY, *_PULL_POLICY) and a name that holds no item's are left as they are: the check says it if it is wrong."""
     inputs = projects.loaded()[1]
     core = {one["key"] for one in (inputs.get("variables") or {}).get(paths.CORE_FILE, [])}

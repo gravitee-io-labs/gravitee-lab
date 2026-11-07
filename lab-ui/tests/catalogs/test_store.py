@@ -1185,7 +1185,7 @@ class Reading(Remote):
         return self.fetched() if subjects else last
 
     def test_the_log_is_the_subjects_newest_first_without_merges_and_dependency_bumps(self):
-        tip = self.commits("Add the echo add-on", "Bump wiremock from 3.9.0 to 3.9.1", "Merge pull request #4 from x/y",
+        tip = self.commits("Add the echo add-on", "Bump kazoo from 3.9.0 to 3.9.1", "Merge pull request #4 from x/y",
                            'Revert "Add the echo add-on"', "Fix the guide of the shop", "Merge branch 'x'", "Bumper cars are fun")
         self.assertEqual(store.log(self.store, self.tip, tip, ["addons/echo"]),
                          ["Bumper cars are fun", "Fix the guide of the shop", "Add the echo add-on"])

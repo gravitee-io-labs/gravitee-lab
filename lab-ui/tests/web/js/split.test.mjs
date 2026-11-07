@@ -159,7 +159,7 @@ test("an action link is `action:` and an id of lowercase letters, digits and hyp
   for (const id of ["ask-pip-accounts", "leak-a-token", "move-600-through-pip", "a", "0", "1-see-everything", "a--b", "a-"]) {
     assert.equal(actionOf(`action:${id}`), id, id);
   }
-  for (const href of ["action:", "action:-a", "action:Ask-Pip", "action:ask pip", "action:ask_pip", "action:ask.ace", "action:ask/ace", "action:ask:ace",
+  for (const href of ["action:", "action:-a", "action:Ask-Pip", "action:ask pip", "action:ask_pip", "action:ask.pip", "action:ask/pip", "action:ask:pip",
     "action:é", "action:ask\n", "action:\nask", "Action:ask", "ACTION:ask", "action", "actions:ask", " action:ask", "xaction:ask",
     "http://localhost:8110/action:ask", "javascript:alert(1)", "#action:ask", "", null, undefined, 42, {}]) {
     assert.equal(actionOf(href), null, String(href));

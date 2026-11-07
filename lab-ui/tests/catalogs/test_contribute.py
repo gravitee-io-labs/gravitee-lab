@@ -1363,23 +1363,23 @@ class Copied(Seam):
         self.demo()
         notes = self.root / ".lab/catalogs/local/addons/notes/compose.yml"
         notes.write_text(notes.read_text().replace("services: {}\n", "services:\n  notes-app:\n    image: busybox:1.36\n"
-                         "    environment: {LEVEL: \"${GRAVITEE_INTERNAL_NOTES_LEVEL:-info}\", URL: \"${OLLAMA_URL:-x}\"}\n"))
+                         "    environment: {LEVEL: \"${TEAM_NOTES_LEVEL:-info}\", URL: \"${OLLAMA_URL:-x}\"}\n"))
         project.forget()
         answer = self.share("local/demo", "lab-new", "playground", True)
-        self.assertEqual(answer["renames"], [{"from": "GRAVITEE_INTERNAL_NOTES_LEVEL", "to": "LAB_NEW_NOTES_LEVEL"}],
+        self.assertEqual(answer["renames"], [{"from": "TEAM_NOTES_LEVEL", "to": "LAB_NEW_NOTES_LEVEL"}],
                          "a setting that names no item is left as it is")
         self.share("local/demo", "lab-new", "playground")
         copied = (self.target / "addons/notes/compose.yml").read_text()
         self.assertIn("${LAB_NEW_NOTES_LEVEL:-info}", copied)
         self.assertIn("${OLLAMA_URL:-x}", copied)
         env = self.target / "addons/notes/.env"
-        env.write_text("GRAVITEE_INTERNAL_NOTES_LEVEL=debug\nOTHER=1\n")
+        env.write_text("TEAM_NOTES_LEVEL=debug\nOTHER=1\n")
         contribute._rename_settings("addon", "@lab-new/notes")
         self.assertEqual(env.read_text(), "LAB_NEW_NOTES_LEVEL=debug\nOTHER=1\n", "the person's value, under the new name")
         self.assertNotIn("addon:@lab-new/notes", json.loads((self.root / contribute.RENAMES).read_text()))
 
     def test_a_rename_changes_what_reads_the_setting_not_the_names_a_container_and_its_seed_are_given(self):
-        compose_text = ("x-gravitee: {kind: playground, name: Kc}\nservices:\n  kc-app:\n    image: quay.io/keycloak/keycloak:26.0\n"
+        compose_text = ("x-gravitee: {kind: playground, name: Kc}\nservices:\n  kc-app:\n    image: busybox:1.36\n"
                         "    environment:\n      KC_ADMIN: ${KC_ADMIN:-admin}\n      KC_LEVEL: \"$KC_LEVEL\"\n      LITERAL: $${KC_LEVEL}\n"
                         "  kc-seed:\n    image: busybox:1.36\n    environment:\n      KC_URL: ${KC_URL:-http://kc-app:8080}\n")
         files = {"playgrounds/kc/compose.yml": compose_text, "playgrounds/kc/seed/apim/apis.yaml": "url: ${KC_URL}\nother: ${KC_OTHER}\n",

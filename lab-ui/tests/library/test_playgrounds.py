@@ -1241,7 +1241,7 @@ class Playgrounds(Case):
     # --- What a catalog chose to check on this machine ------------------------------------------------------------------
 
     HOST = {"requires": {"host": [{"name": "Ollama", "check": "http://localhost:11434/api/tags", "help": "Run ollama"},
-                                  {"name": "Hub", "check": "https://huggingface.co/api", "help": "Needs the internet"},
+                                  {"name": "Hub", "check": "https://example.invalid/api", "help": "Needs the internet"},
                                   {"name": "Loose", "help": "Say it"}]}}
 
     def test_an_address_a_catalog_chose_that_is_not_on_this_machine_is_not_opened(self):
@@ -2484,9 +2484,9 @@ class HostChecks(Case):
 
     def test_another_machine_is_asked_through_the_proxy_of_the_environment(self):
         asked = self.proxied()
-        self.assertEqual(playgrounds._host_check({"check": "http://huggingface.co/api/models", "expect": "qwen3"}),
+        self.assertEqual(playgrounds._host_check({"check": "http://example.invalid/api/models", "expect": "qwen3"}),
                          (True, "Ready"))
-        self.assertEqual(asked, ["http://huggingface.co/api/models"])
+        self.assertEqual(asked, ["http://example.invalid/api/models"])
 
 
 if __name__ == "__main__":

@@ -1698,7 +1698,7 @@ class Notes(Golden):
 
 
     def test_n03_a_host_check_is_held_to_the_same(self):
-        for url, ok in (("http://localhost:11434/api/tags", True), ("https://huggingface.co", False)):
+        for url, ok in (("http://localhost:11434/api/tags", True), ("https://example.invalid", False)):
             def edit(arguments, url=url):
                 arguments["unit"]["meta"]["requires"] = {"host": [{"name": "x", "check": url}]}
             with self.subTest(url=url):

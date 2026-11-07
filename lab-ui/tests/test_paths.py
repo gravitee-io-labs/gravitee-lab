@@ -317,7 +317,7 @@ class InCatalogs(OnDisk):
         ("addon", "@acme-hub/mock-bank", ".lab/catalogs/acme-hub/addons/mock-bank/compose.yml",
          ".lab/catalogs/acme-hub/addons/mock-bank"),
         ("setup", "kookaburra-flow", ".lab/catalogs/gravitee/setups/kookaburra-flow.yml", None),
-        ("setup", "local/ai-agents", ".lab/catalogs/local/setups/ai-agents.yml", None),
+        ("setup", "local/tern-flock", ".lab/catalogs/local/setups/tern-flock.yml", None),
         ("setup", "@acme-hub/bank-stack", ".lab/catalogs/acme-hub/setups/bank-stack.yml", None),
         ("playground", "acme-bakery", ".lab/catalogs/gravitee/playgrounds/acme-bakery/compose.yml",
          ".lab/catalogs/gravitee/playgrounds/acme-bakery"),
