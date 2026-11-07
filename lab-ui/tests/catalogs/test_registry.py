@@ -101,7 +101,6 @@ class Disk(Case):
         return sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*"))
 
 
-
 class Errors(Case):
 
     def test_the_status_is_a_bad_request_unless_said_and_the_facts_are_empty(self):
@@ -749,8 +748,7 @@ class Places(Disk):
 class Namespaces(Disk):
 
     def refused(self, ns, **how):
-        error = self.refusal(lambda: registry.check_namespace(ns, **how))
-        return error
+        return self.refusal(lambda: registry.check_namespace(ns, **how))
 
     def test_a_namespace_is_accepted(self):
         for ns in ("acme-hub", "ab", "a1", "a-b", "x" * 24, "partner-bank", "a0-0b"):
