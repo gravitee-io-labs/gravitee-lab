@@ -555,6 +555,11 @@ class Starting(Tool):
 class Reset(Tool):
     """Without a catalog on the machine: the first run and the opt-out before the first start."""
 
+    def test_before_the_first_start_the_opt_out_writes_the_empty_list(self):
+        self.assertIsNone(self.config())
+        self.assertEqual(self.run_tool("reset", "--empty"), (0, "The catalogs are empty.\n", ""))
+        self.assertEqual(self.config(), {"schema": 1, "catalogs": []})
+
     def test_a_git_catalog_goes_with_its_settings_kept(self):
         gitfixture.require()
         isolated(self)
