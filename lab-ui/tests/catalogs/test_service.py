@@ -2509,7 +2509,9 @@ class Gate(Real):
         project.forget()
         with self.assertRaises(RuntimeError) as raised:
             service.preflight(built, [("addon", "@partner/ledger")])
-        self.assertEqual(raised.exception.code, "damaged")
+        self.assertEqual(lines_of(raised.exception), ("damaged", 409,
+                                                      "Ledger changed on disk after it was installed. Repair Partner fixture, then start it again."))
+        self.assertEqual(registry.lock_of("partner")["error"], "damaged")
         self.assertEqual(service.repair("partner")["catalog"]["state"]["key"], "uptodate")
 
     def test_a_refusal_is_recorded_so_that_the_row_says_damaged_with_repair_and_a_check_does_not_clear_it(self):
