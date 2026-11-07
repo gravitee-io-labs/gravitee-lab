@@ -1077,10 +1077,6 @@ class Linked(Rendered):
     names it, through the link, and nothing is written in the author's folder."""
 
     LINK = {"link": True}
-    # Where a file stands in the on file has nothing to do with how its catalog is installed
-    test_a_preview_keeps_the_place_of_a_file_among_those_that_change_the_same_service = None
-    test_a_preview_of_a_file_that_other_files_include_gives_the_hashes_of_the_files_in_place = None
-    test_a_preview_of_a_file_between_those_that_change_the_gateway_gives_the_hashes_of_the_files_in_place = None
 
 
 if __name__ == "__main__":
