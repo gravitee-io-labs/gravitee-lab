@@ -492,7 +492,7 @@ What the person sees is in [docs/lab-ui.md](../docs/lab-ui.md#the-guide-and-the-
   - The details tab has an id no service has (`@details`). The frames follow the system's light or dark, not the Lab
     UI's switch.
 - **The page knows nothing of the apps in its frames.** It posts one message, the action of a guide's button, and
-  listens to two, an address to load in a tab and that the app listens (`split.js` decides whom to believe).
+  listens to three: an address to load in a tab, that the app listens, and the page a UI is on (`split.js` decides whom to believe).
 - **History.** A page of the guide is turned with `turn` (`playground.js`: `router.replace`, never `pushState` or
   `location.hash =`), running or not, because a UI adds entries of its own to the one session history. A tab change
   and a divider move are no navigation. An address loaded in a frame is an entry of that UI's own (`location.href`;

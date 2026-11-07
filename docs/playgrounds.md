@@ -818,7 +818,7 @@ The button is disabled, with a tooltip that says why, while it cannot work: the 
 first start too), it lists no console, or its first console cannot be used (it is not running, does not answer, or
 refuses to be shown in a frame). It is never clicked to fail.
 
-What an app does is two messages, `window.postMessage`, each checked on both sides for the origin and for the window it
+What an app does is these messages, `window.postMessage`, each checked on both sides for the origin and for the window it
 comes from:
 
 | Message | From, to | Means |
