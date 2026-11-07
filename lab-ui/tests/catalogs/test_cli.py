@@ -190,6 +190,13 @@ class Linking(Tool):
         self.assertEqual(self.run_tool("unlink", PARTNER), (0, "Unlinked partner.\n", ""))
         self.assertFalse(os.path.lexists(self.link_of(PARTNER)))
 
+    def test_a_catalog_declared_and_waiting_for_its_download_is_a_plain_link_too(self):
+        folder = self.author()
+        fixtures.declare(self, PARTNER)
+        self.assertEqual(registry.inputs()[PARTNER]["state"], "downloading")
+        self.assertEqual(self.run_tool("link", str(folder))[:2], (0, "partner\n"))
+        self.assertEqual(registry.inputs()[PARTNER]["state"], "linked")
+
     def test_the_allowance_is_set_for_a_catalog_that_is_not_listed_and_is_kept_when_linking_again(self):
         folder = self.author()
         self.run_tool("link", str(folder), "--allow-machine")
