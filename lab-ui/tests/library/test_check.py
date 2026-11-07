@@ -414,36 +414,36 @@ class Items(Machine):
                          ["x-gravitee.tested: NOPE_VERSION is not the version or the registry variable of an image"])
 
     def test_the_action_links_of_a_guide_name_an_id_of_lowercase_letters_digits_and_hyphens(self):
-        good = "## 1. One\n\nClick [Ask Ace](action:ask-ace-accounts), then [Leak](action:leak-an-iban) and [Ask Ace](action:ask-ace-accounts).\n"
+        good = "## 1. One\n\nClick [Ask Pip](action:ask-pip-accounts), then [Leak](action:leak-a-token) and [Ask Pip](action:ask-pip-accounts).\n"
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": good}))), [])
-        bad = "## 1. One\n\n[A](action:Ask-Ace) [B](action:ask_ace) [C](action:) [D](action:-a) [E](action:ask ace) [F](https://x.test/action:Z)\n"
+        bad = "## 1. One\n\n[A](action:Ask-Pip) [B](action:ask_pip) [C](action:) [D](action:-a) [E](action:ask pip) [F](https://x.test/action:Z)\n"
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": bad}))), [
-            "guide.md: action:Ask-Ace is no action, an id is lowercase letters, digits and hyphens",
-            "guide.md: action:ask_ace is no action, an id is lowercase letters, digits and hyphens",
+            "guide.md: action:Ask-Pip is no action, an id is lowercase letters, digits and hyphens",
+            "guide.md: action:ask_pip is no action, an id is lowercase letters, digits and hyphens",
             "guide.md: action: is no action, an id is lowercase letters, digits and hyphens",
             "guide.md: action:-a is no action, an id is lowercase letters, digits and hyphens",
-            "guide.md: action:ask ace is no action, an id is lowercase letters, digits and hyphens"])
+            "guide.md: action:ask pip is no action, an id is lowercase letters, digits and hyphens"])
         # an id has at most 64 characters, as the page and the apps read it
         long = f"[A](action:{'a' * 64}) [B](action:{'a' * 65})\n"
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": long}))),
                          [f"guide.md: action:{'a' * 65} is no action, an id is lowercase letters, digits and hyphens"])
 
     def test_an_action_link_may_have_a_title_and_a_guide_may_show_the_syntax_in_code(self):
-        titled = '## 1. One\n\n[A](action:ask-ace "Ask Ace") and [B](action:Bad "x")\n'
+        titled = '## 1. One\n\n[A](action:ask-pip "Ask Pip") and [B](action:Bad "x")\n'
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": titled}))),
                          ["guide.md: action:Bad is no action, an id is lowercase letters, digits and hyphens"])
         shown = "## 1. One\n\nWrite `[Label](action:Not An Id)` and:\n\n```md\n[Label](action:Not_An_Id)\n```\n\n~~~\n[x](action:Y)\n~~~\n"
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": shown}))), [])
 
     def test_the_account_links_of_a_guide_name_a_user_of_its_accounts(self):
-        accounts = [{"for": "Portal", "username": "maya.chen", "password": "${PW:-x}"}, {"for": "Key", "key": "${K:-k}"}]
-        text = ("## 1. One\n\nSign in as [Maya](account:maya.chen) or [Bob](account:bob \"Bob\"), not `[x](account:shown)`.\n\n"
+        accounts = [{"for": "Portal", "username": "nora.pine", "password": "${PW:-x}"}, {"for": "Key", "key": "${K:-k}"}]
+        text = ("## 1. One\n\nSign in as [Nora](account:nora.pine) or [Bob](account:bob \"Bob\"), not `[x](account:shown)`.\n\n"
                 "```md\n[y](account:also-shown)\n```\n")
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": text}), accounts)),
                          ["guide.md: account:bob is no user of x-gravitee.accounts, so the page cannot show its sign-in"])
         # A playground without accounts has no sign-in to show
-        self.assertEqual(list(check._guide(self.folder(files={"guide.md": "[Maya](account:maya.chen)\n"}))),
-                         ["guide.md: account:maya.chen is no user of x-gravitee.accounts, so the page cannot show its sign-in"])
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": "[Nora](account:nora.pine)\n"}))),
+                         ["guide.md: account:nora.pine is no user of x-gravitee.accounts, so the page cannot show its sign-in"])
 
     def test_an_account_link_finds_a_user_name_yaml_read_as_a_number_as_the_page_does(self):
         # `username: 1234` unquoted: the check reads the playground's accounts as the page gets them

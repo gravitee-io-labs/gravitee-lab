@@ -156,10 +156,10 @@ test("only a web address is ever loaded in a tab: blob, data, file and websocket
 // --- The actions of a guide ----------------------------------------------------------------------------------------
 
 test("an action link is `action:` and an id of lowercase letters, digits and hyphens, which starts with a letter or a digit", () => {
-  for (const id of ["ask-ace-accounts", "leak-an-iban", "move-600-through-ace", "a", "0", "1-see-everything", "a--b", "a-"]) {
+  for (const id of ["ask-pip-accounts", "leak-a-token", "move-600-through-pip", "a", "0", "1-see-everything", "a--b", "a-"]) {
     assert.equal(actionOf(`action:${id}`), id, id);
   }
-  for (const href of ["action:", "action:-a", "action:Ask-Ace", "action:ask ace", "action:ask_ace", "action:ask.ace", "action:ask/ace", "action:ask:ace",
+  for (const href of ["action:", "action:-a", "action:Ask-Pip", "action:ask pip", "action:ask_pip", "action:ask.ace", "action:ask/ace", "action:ask:ace",
     "action:é", "action:ask\n", "action:\nask", "Action:ask", "ACTION:ask", "action", "actions:ask", " action:ask", "xaction:ask",
     "http://localhost:8110/action:ask", "javascript:alert(1)", "#action:ask", "", null, undefined, 42, {}]) {
     assert.equal(actionOf(href), null, String(href));
@@ -177,7 +177,7 @@ test("an address makes a new page unless it has a fragment, which may only move 
 });
 
 test("what the page posts for an action is its type and its id and nothing else", () => {
-  assert.deepEqual(actionMessage("ask-ace-accounts"), { type: "gravitee-lab:action", id: "ask-ace-accounts" });
+  assert.deepEqual(actionMessage("ask-pip-accounts"), { type: "gravitee-lab:action", id: "ask-pip-accounts" });
   assert.deepEqual(Object.keys(actionMessage("a")), ["type", "id"]);
 });
 

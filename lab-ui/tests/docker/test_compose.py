@@ -199,7 +199,7 @@ class Interpolated(Case):
         self.assertEqual(self.text("pass$${A:-x}word"), "pass${A:-x}word")
 
     def test_a_text_without_variable_is_left_alone(self):
-        self.assertEqual(self.text("HelloWorld@123"), "HelloWorld@123")
+        self.assertEqual(self.text("PlainDemo@123"), "PlainDemo@123")
         self.assertEqual(self.text(""), "")
 
     def test_braces_never_closed_are_read_in_one_pass(self):
