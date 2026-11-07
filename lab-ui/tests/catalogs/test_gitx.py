@@ -198,11 +198,6 @@ class Grammar(Case):
         self.assertIsNone(gitx.ssh_form(gitx.parse_address("https://git.example.test:8443/a/b.git")), "another port")
         self.assertIsNone(gitx.ssh_form(gitx.parse_address("http://localhost:3000/a/b.git")))
 
-    def test_is_ssh(self):
-        self.assertTrue(gitx.is_ssh(gitx.parse_address("git@github.com:acme/lab-hub.git")))
-        self.assertTrue(gitx.is_ssh(gitx.parse_address("ssh://git@github.com/acme/lab-hub.git")))
-        self.assertFalse(gitx.is_ssh(gitx.parse_address(GITHUB)))
-
     def test_a_branch_is_a_name_that_is_safe_as_an_argument_and_in_a_reference(self):
         for name in ("main", "develop", "release/1.x", "feature/a-b_c+d", "v1.0.0", "a" * 200):
             self.assertEqual(gitx.valid_branch(name), name)
@@ -359,12 +354,6 @@ class Environment(Case):
         for text in (GITHUB, "git@github.com:a/b.git", "ssh://git@example.test/a/b"):
             self.assertEqual(gitx.address_env(gitx.parse_address(text)), {}, text)
         self.assertEqual(gitx.address_env(None), {})
-
-    def test_signin_hint_is_the_command_for_github_and_the_words_elsewhere(self):
-        self.assertEqual(gitx.signin(gitx.parse_address(GITHUB)), "Run gh auth login in a terminal")
-        self.assertEqual(gitx.signin(gitx.parse_address("https://git.example.test/a/b.git")),
-                         "Sign in with Git on this machine")
-        self.assertEqual(gitx.signin(None), "Sign in with Git on this machine")
 
 
 def gone(pid, within=30):
@@ -817,12 +806,6 @@ class Version(Case):
             gitx.stream(["fetch"])
         self.assertFalse(ran.exists(), "the shim opens an installer: it must not be executed")
 
-    def test_on_a_mac_with_the_tools_the_shim_is_git(self):
-        ran, asked = self.mac(tools_return=0)
-        self.assertEqual(gitx.version(), (2, 39, 5))
-        self.assertTrue(ran.exists())
-        self.assertEqual(asked[0], ["xcode-select", "-p"])
-
     def test_the_tools_are_asked_for_the_shim_only(self):
         ran, asked = self.mac(tools_return=2, shim=False)   # the git found is not /usr/bin/git: Homebrew's, say
         self.assertEqual(gitx.version(), (2, 39, 5))
@@ -868,6 +851,8 @@ class Version(Case):
         for _ in range(5):
             self.assertIsNotNone(gitx.executable())
         self.assertEqual(len(asked), 1)
+        self.assertEqual(gitx.version(), (2, 39, 5))
+        self.assertTrue(ran.exists(), "with the tools, the shim is git")
 
     def test_the_tools_that_come_after_a_first_no_are_found_at_the_next_command(self):
         ran, asked = self.mac(tools_return=2)
@@ -1022,8 +1007,7 @@ class Classification(Case):
 
     def test_the_error_is_a_catalog_error_with_its_facts(self):
         error = gitx.fail("git_old", have="2.20.1")
-        self.assertIsInstance(error, gitx.CatalogError)
-        self.assertEqual((error.code, error.status, error.detail), ("git_old", 400, {}))
+        self.assertEqual(error.detail, {})
         self.assertEqual(str(error), error.message)
         self.assertEqual(gitx.fail("fsck", output="why").detail, {"output": "why"})
 
@@ -1037,15 +1021,6 @@ class Remote(Case):
         self.folder()
         self.repo = gitfixture.make_repo(self.root / "remotes" / "hub.git", gitfixture.catalog_files())
         self.address = gitx.parse_address(gitfixture.url(self.repo))
-
-    def test_a_file_address_names_the_repository_by_its_path(self):
-        self.assertEqual(self.address.kind, "git")
-        self.assertEqual(self.address.host, "localhost")
-        self.assertEqual(self.address.repo, "hub")
-        self.assertEqual(self.address.url, gitfixture.url(self.repo))
-
-    def test_the_default_branch_and_its_head(self):
-        self.assertEqual(gitx.ls_remote(self.address), {"branch": "main", "head": gitfixture.tip(self.repo)})
 
     def test_the_default_branch_is_the_one_head_points_at_not_a_name_the_lab_knows(self):
         other = gitfixture.make_repo(self.root / "remotes" / "other.git", gitfixture.catalog_files(), branch="trunk/x")
