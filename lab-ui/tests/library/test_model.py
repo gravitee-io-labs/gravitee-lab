@@ -1361,7 +1361,7 @@ class Behind(Built):
         self.project["services"]["apim-gateway"]["tag"] = "4.12-debian"
         saved = {**SAVED, "images": {**SAVED["images"], "apim-management-api": "sha256:saved"}}
         body = self.build(containers=containers, saved=saved,
-                          changed={"apim-gateway": {"settings": ["GRAVITEE_LICENSE"], "labels": False}})
+                          changed={"apim-gateway": ["GRAVITEE_LICENSE"]})
         said = {name: body["services"][name]["note_title"] for name in ("mongodb", "apim-management-api", "apim-gateway")}
         self.assertEqual(said, {"mongodb": "8.3.12 is saved, 8.3.11 still runs.",
                                 "apim-management-api": "Image 4.13.0 changed since it started.",

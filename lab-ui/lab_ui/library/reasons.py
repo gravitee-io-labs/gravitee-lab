@@ -2,8 +2,7 @@
 
 A service has one of three causes, the first that holds: another image tag is saved than the one that runs (`tag`),
 the image its tag names here is not the one that runs (`image`, a pull or a build since it started), or its
-configuration changed since it started (`config`, with the settings and the labels that differ when drift.py told
-them). A cause that is not established is never claimed: the last one says only that the configuration changed. Never a
+configuration changed since it started (`config`, with the settings that differ when drift.py told them). A cause that is not established is never claimed: the last one says only that the configuration changed. Never a
 value: a tag and a setting's name are all a line holds. The same causes are given structured (causes()), for the page to draw
 them: the kind, the tags saved and running (and whether the one saved is `older`, which Apply goes back to), the names of
 the settings, the services a cause is about."""
@@ -13,16 +12,16 @@ from . import versions
 SHOWN = 3   # names a line spells out before it counts the rest
 
 
-def why(service, container, cause, settings=(), labels=False):
+def why(service, container, cause, settings=()):
     """The cause of one service that runs behind what is saved, `cause` being model.lateness()'s answer for it:
-    {kind: tag, saved, running}, {kind: image, tag, built} or {kind: config, settings, labels}. `container`: what ps()
+    {kind: tag, saved, running}, {kind: image, tag, built} or {kind: config, settings}. `container`: what ps()
     says of it. An image that Docker names by its id (a tag that a pull moved) tells no tag: it is a newer image."""
     running = _tag(container.get("image"))
     if running and service["tag"] and running != service["tag"]:
         return {"kind": "tag", "saved": service["tag"], "running": running}
     if cause == "image":
         return {"kind": "image", "tag": service["tag"], "built": bool(service["built"])}
-    return {"kind": "config", "settings": list(settings), "labels": bool(labels)}
+    return {"kind": "config", "settings": list(settings)}
 
 
 def _tag(image):
@@ -78,9 +77,9 @@ def _clauses(whys):
     configs = {}
     for name, found in whys.items():
         if found["kind"] == "config":
-            configs.setdefault((tuple(found["settings"]), found["labels"]), []).append(name)
-    for (settings, labels), names in configs.items():
-        what = "settings" if settings else "configuration"   # the labels Compose sets are no word of a person's: they are the configuration
+            configs.setdefault(tuple(found["settings"]), []).append(name)
+    for settings, names in configs.items():
+        what = "settings" if settings else "configuration"
         clauses.append((names, f"its {what} changed since it started" + (f": {spelled(settings)}" if settings else ""),
                         f"their {what} changed since they started" + (f": {spelled(settings)}" if settings else ""),
                         {"kind": "settings", "settings": list(settings)} if settings else {"kind": "config"}))

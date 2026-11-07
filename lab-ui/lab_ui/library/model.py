@@ -1039,7 +1039,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     reads it, None without one to read; `platforms` the platforms registered here (platforms.read()), of which the
     page gets {id, name, kind, url}; `deployed` what each playground holds in the places besides This machine:
     {id: [{place, environment, created: [{what, count}]}]} (places.deployed); `changed` the settings that differ in
-    what runs behind by configuration ({service: {settings: [name], labels}}, drift.changes). Of the job, the page gets all but
+    what runs behind by configuration ({service: [name]}, drift.changes). Of the job, the page gets all but
     `changes`, `containers` and `settled` (_job): they are in the state and the progress of every item. Of Docker, it gets why
     it does not answer and what to know of its memory; `wait` says why nothing can be started now, and `unread` the entry of
     the on file that Compose cannot read (layers.current), which holds what reads the files besides. `blind`: what runs
@@ -1064,8 +1064,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     changing = layers.changing(project, running_job["changes"]) if running_job else {}
     # What runs behind what is saved; what the running job starts or stops is on its way, not behind
     causes = {name: cause for name, cause in lateness(project, containers, saved).items() if name not in changing}
-    late = {name: reasons.why(project["services"][name], containers[name], cause,
-                              *[(changed or {}).get(name, {}).get(key, default) for key, default in (("settings", ()), ("labels", False))])
+    late = {name: reasons.why(project["services"][name], containers[name], cause, (changed or {}).get(name, ()))
             for name, cause in causes.items()}
     waiting = {name: _unlicensed(license_status) for name in held(project, containers)}
     services = _services(project, state, containers, running_job, late, waiting)
