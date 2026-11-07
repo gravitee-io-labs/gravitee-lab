@@ -786,28 +786,22 @@ class Rekey(Moves):
     def read(self, file):
         return json.loads(self.text(file))
 
-    def test_a_star_follows_its_item(self):
-        self.stars({"addon": ["echo", "moved-echo"], "playground": ["mine", "shop"]})
-        moves.rekey({"addon:moved-echo": "@acme-hub/moved-echo", "playground:mine": "local/mine"})
-        self.assertEqual(self.read(".lab/starred.json"), {"addon": ["@acme-hub/moved-echo", "echo"],
-                                                          "playground": ["local/mine", "shop"]})
-        self.assertEqual(self.text(".lab/starred.json"), json.dumps(self.read(".lab/starred.json"), indent=2) + "\n")
-
-    def test_two_stars_on_one_id_are_one(self):
-        self.stars({"addon": ["@acme-hub/moved-echo", "moved-echo"]})
-        moves.rekey({"addon:moved-echo": "@acme-hub/moved-echo"})
-        self.assertEqual(self.read(".lab/starred.json"), {"addon": ["@acme-hub/moved-echo"]})
-
-    def test_a_kind_is_named_so_the_same_name_of_another_kind_keeps_its_star(self):
-        self.stars({"addon": ["echo"], "setup": ["echo"], "playground": ["echo"]})
-        moves.rekey({"setup:echo": "local/echo"})
-        self.assertEqual(self.read(".lab/starred.json"),
-                         {"addon": ["echo"], "setup": ["local/echo"], "playground": ["echo"]})
-
-    def test_other_kinds_and_keys_of_the_file_are_kept(self):
-        self.stars({"addon": ["echo"], "future-kind": ["x"], "setup": []})
-        moves.rekey({"addon:echo": "local/echo"})
-        self.assertEqual(self.read(".lab/starred.json"), {"addon": ["local/echo"], "future-kind": ["x"], "setup": []})
+    def test_a_star_follows_its_item_of_its_kind_and_the_rest_of_the_file_stays(self):
+        for why, before, mapping, after in (
+                ("each by its kind", {"addon": ["echo", "moved-echo"], "playground": ["mine", "shop"]},
+                 {"addon:moved-echo": "@acme-hub/moved-echo", "playground:mine": "local/mine"},
+                 {"addon": ["@acme-hub/moved-echo", "echo"], "playground": ["local/mine", "shop"]}),
+                ("two stars on one id are one", {"addon": ["@acme-hub/moved-echo", "moved-echo"]},
+                 {"addon:moved-echo": "@acme-hub/moved-echo"}, {"addon": ["@acme-hub/moved-echo"]}),
+                ("the same name of another kind keeps its star", {"addon": ["echo"], "setup": ["echo"], "playground": ["echo"]},
+                 {"setup:echo": "local/echo"}, {"addon": ["echo"], "setup": ["local/echo"], "playground": ["echo"]}),
+                ("other kinds and keys are kept", {"addon": ["echo"], "future-kind": ["x"], "setup": []},
+                 {"addon:echo": "local/echo"}, {"addon": ["local/echo"], "future-kind": ["x"], "setup": []})):
+            with self.subTest(why):
+                self.stars(before)
+                moves.rekey(mapping)
+                self.assertEqual(self.read(".lab/starred.json"), after)
+                self.assertEqual(self.text(".lab/starred.json"), json.dumps(after, indent=2) + "\n")
 
     def test_the_tested_sets_follow_a_playground(self):
         self.versions({"mine": sets("4.12.1", "4.12.2"), "shop": sets("4.11.0")})
