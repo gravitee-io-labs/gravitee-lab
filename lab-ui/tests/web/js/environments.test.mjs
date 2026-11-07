@@ -50,24 +50,20 @@ test("a gateway that runs here, connected, with a valid token, is running and ca
   assert.equal(found.gateway.id, "g1");
   assert.deepEqual(found.gateway.tip, ["lab"], "its name: where it answers is said under the state");
   assert.equal(found.deploy.dot, "healthy");
-  assert.equal(found.deploy.expires, "2099-01-31T00:00:00Z");
   assert.deepEqual(found.action, { do: "stop-gateway", label: "Stop gateway", disabled: false, reason: "" });
 });
 
-test("under the state: the version and, while it runs here, the address a person calls, never the name of a container", () => {
+test("while it runs here, the address a person calls, never the name of a container", () => {
   lab();
   const running = status([gateway({ here: true })], VALID).gateway;
   assert.equal(running.address, "localhost:8090", "apim-hyssop-gateway is the name of the container: only the other containers know it");
-  assert.deepEqual(running.details, ["4.12.20", "localhost:8090"]);
   const connecting = status([gateway({ here: true, connection: "NOT_CONNECTED" })], VALID).gateway;
-  assert.deepEqual([connecting.key, connecting.details], ["connecting", ["4.12.20", "localhost:8090"]]);
+  assert.deepEqual([connecting.key, connecting.address], ["connecting", "localhost:8090"]);
   lab({ addons: [ADDON(STOPPED)] });
-  assert.deepEqual(status([gateway({ here: true })], VALID).gateway.details, ["4.12.20"], "it answers nowhere while it is stopped");
-  assert.equal(status([gateway({ here: true })], VALID).gateway.address, "");
+  assert.equal(status([gateway({ here: true })], VALID).gateway.address, "", "it answers nowhere while it is stopped");
   lab();
   const elsewhere = status([gateway({ name: "Alice laptop", kept: false, domains: ["alice.local:8082"] })], VALID).gateway;
-  assert.deepEqual([elsewhere.key, elsewhere.details, elsewhere.address], ["elsewhere", ["Alice laptop", "4.12.20"], ""], "the machine says who runs it; its address is none to call");
-  assert.deepEqual(status().gateway.details, []);
+  assert.deepEqual([elsewhere.key, elsewhere.address], ["elsewhere", ""], "its address is none to call");
 });
 
 test("the gateway states in the words of the page, with the one action of each", () => {
@@ -162,7 +158,6 @@ test("the gateway of an environment is the one that runs here, else one the Lab 
   const idle = gateway({ id: "d", name: "idle", kept: false, connection: "NOT_CONNECTED" }), other = gateway({ id: "e", environmentId: "env-test" });
   const hosted = gateway({ id: "f", type: "SAAS" });
   assert.equal(status([seen, kept, mine, other, hosted]).gateway.name, "mine");
-  assert.deepEqual(status([seen, kept, mine, other, hosted]).gateway.others.map((g) => g.name), ["kept", "seen"]);
   assert.equal(status([seen, kept]).gateway.name, "kept");
   assert.equal(status([seen, idle]).gateway.name, "seen");
   assert.equal(status([other, hosted]).gateway.key, "none");
@@ -174,7 +169,6 @@ test("a gateway nobody here keeps, and that is not connected, is none the Lab ca
   const idle = gateway({ id: "d", name: "idle", kept: false, connection: "NOT_CONNECTED" }), failed = gateway({ id: "x", name: "failed", kept: false, connection: "UNKNOWN_HYBRID", status: "FAILED" });
   const found = status([idle, failed]);
   assert.equal(found.gateway.key, "none");
-  assert.deepEqual(found.gateway.others.map((g) => g.name), ["idle", "failed"], "both are there to be removed");
   assert.equal(found.used, true);
   assert.equal(found.action.do, "create-gateway");
   assert.equal(found.action.label, "Create gateway");
@@ -187,11 +181,9 @@ test("a gateway Cloud deleted while it runs here is the environment's, in red, a
   assert.equal(found.used, true);
   assert.deepEqual([found.gateway.key, found.gateway.dot, found.gateway.word, found.gateway.id, found.gateway.here], ["orphan", "issue", "Removed in Cloud", "gone", true]);
   assert.deepEqual(found.gateway.tip, ["Removed in Gravitee Cloud", "It still runs here, with a token Cloud no longer accepts"]);
-  assert.deepEqual(found.gateway.details, ["Still runs here"]);
   assert.equal(found.action.do, "create-gateway");
   lab({ addons: [ADDON(STOPPED)] });
   assert.equal(status([], undefined, {}, { orphan }).gateway.tip[1], "Its token is still in the settings of the Hybrid gateway");
-  assert.deepEqual(status([], undefined, {}, { orphan }).gateway.details, ["Its token is still set"]);
   assert.equal(status([], undefined, { id: "env-test", name: "Test" }, { orphan }).used, false, "it is the environment of the token's, not another");
   lab();
   assert.equal(status([gateway({ here: true })], VALID, {}, { orphan }).gateway.key, "running", "a gateway that is listed is not lost");
@@ -372,7 +364,7 @@ test("with the catalogs there and no add-on to run a gateway, the cell says so a
   assert.deepEqual(found.action, { do: "add-catalog", label: "Add catalog", disabled: false, reason: "" });
   assert.deepEqual(found.gateway.tip, ["No gateway add-on", "No catalog has an add-on that runs a gateway for My Account.", "Add a catalog that has one."],
     "the platform is named by its record, never by the page");
-  assert.deepEqual([found.gateway.dot, found.gateway.details, found.gateway.version, found.gateway.extra], ["", [], "", ""]);
+  assert.deepEqual([found.gateway.dot, found.gateway.version, found.gateway.extra], ["", "", ""]);
   // Nothing is made of a gateway nobody can start here: not the other actions of an add-on, not a token that is no use
   assert.equal(status([], undefined).used, false);
   assert.equal(status([], undefined).action.do, "set-up", "an environment that is not in use is offered to set up, as it was");

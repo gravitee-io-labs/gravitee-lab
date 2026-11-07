@@ -143,7 +143,7 @@ function soon(expires) {
   return days >= SOON ? "" : days <= 0 ? "Expires today" : days === 1 ? "Expires tomorrow" : `Expires in ${days} days`;
 }
 
-// What the Lab may do in an environment: {key, dot, word, note, tip, expires}. A Cloud Token that is set and valid is no use without a
+// What the Lab may do in an environment: {key, dot, word, note, tip}. A Cloud Token that is set and valid is no use without a
 // gateway of the environment on this machine, which a deploy goes through: the word says what is missing and the note that the token is
 // set; with a gateway that another machine runs it says it needs one here. `note` is the line under the word, the expiry in amber when it is near.
 function deployState(token, gateway) {
@@ -151,12 +151,12 @@ function deployState(token, gateway) {
   const dated = expires ? `${state === "expired" ? "Expired on" : "Expires"} ${day(expires)}` : "";
   const near = state === "valid" && expires ? soon(expires) : "";
   if (state === "valid") {
-    return usable(gateway) ? { key: "ready", dot: near ? "warn" : "healthy", word: "Can deploy", note: near, soon: !!near, tip: dated ? [dated] : [], expires }
+    return usable(gateway) ? { key: "ready", dot: near ? "warn" : "healthy", word: "Can deploy", note: near, soon: !!near, tip: dated ? [dated] : [] }
       : { key: "gateway", dot: "stopped", word: gateway ? "Needs a gateway here" : "Needs a gateway", note: near ? `Cloud Token set, ${near.toLowerCase()}` : "Cloud Token set", soon: !!near,
-        tip: ["A deploy goes through a gateway of this environment that runs here", ...(dated ? [dated] : [])], expires };
+        tip: ["A deploy goes through a gateway of this environment that runs here", ...(dated ? [dated] : [])] };
   }
   const [dot, word] = TOKENS[state];
-  return { key: state, dot, word, note: "", soon: false, tip: dated ? [dated] : [], expires };
+  return { key: state, dot, word, note: "", soon: false, tip: dated ? [dated] : [] };
 }
 
 // What the playgrounds deployed in an environment, from the records the Lab keeps for each place: [{id, name, created}] and the line
@@ -204,13 +204,11 @@ function actionOf(used, main, gateway, deploy, addon, gap) {
 // ({id, name, token}) and, for the page that polls, `late`: the gateway that runs here has not connected for long.
 //   used      the Lab has something here: a gateway of the environment, any (even one it cannot use, so that it can be removed), a
 //             gateway it lost in Cloud, a Cloud Token, or a deploy
-//   gateway   {key, dot, word, tip, details, version, address, name, id, here, kept, others, count}: key is none, running, connecting, late,
+//   gateway   {key, dot, word, tip, version, address, name, id, here, kept, count}: key is none, running, connecting, late,
 //             starting, stopping, stopped, elsewhere, issue, license, orphan, unknown, or, with no add-on to run it, noaddon, downloading or
-//             nocontent (`extra` the button that mends it); `details` the words under the state (its
-//             version and, while it runs here, `address`, the one to call; the name of a gateway of another machine; what is left of
-//             one Cloud deleted); `others` are the gateways beyond the first one, `count` how many hybrid gateways the environment
-//             has; `license` is set when the word of an issue is a license that is missing, which the action then adds
-//   deploy    {key, dot, word, note, tip, expires, soon}: key is ready, gateway, unset, expired or refused; `note` the line under the word
+//             nocontent (`extra` the button that mends it); `address` the one to call while it runs here; `count` how many hybrid
+//             gateways the environment has; `license` is set when the word of an issue is a license that is missing, which the action then adds
+//   deploy    {key, dot, word, note, tip, soon}: key is ready, gateway, unset, expired or refused; `note` the line under the word
 //   deployed  [{id, name, created}] what playgrounds deployed there, and `summary` the line that says it
 //   action    {do, label, disabled, reason} the one action to offer, do being set-up, add-license, create-gateway, start-gateway,
 //             add-token, replace-token, stop-gateway or add-catalog (the Catalogs page); null when there is none
@@ -223,10 +221,8 @@ export function environmentStatus(platform, check, env, { late = false } = {}) {
   const state = gap && own.key !== "elsewhere" ? gapState(platform, gap) : own, bare = state !== own;
   // It answers where it runs: not while it is stopped, or waits for a license
   const address = main?.here && ["running", "connecting", "late"].includes(state.key) ? addressOf(main, addon) : "";
-  const details = bare ? [] : !main ? (lost ? [runs(addon) ? "Still runs here" : "Its token is still set"] : []) : state.key === "elsewhere" ? [main.name, main.version] : [main.version, address];
-  const gateway = { ...state, details: details.filter(Boolean), version: bare ? "" : main?.version || "", address,
-    name: main?.name || "", id: main?.id || lost?.gateway || "", here: !!main?.here || !!lost, kept: !!main?.kept,
-    others: found.filter((other) => other !== main), count: found.length };
+  const gateway = { ...state, version: bare ? "" : main?.version || "", address,
+    name: main?.name || "", id: main?.id || lost?.gateway || "", here: !!main?.here || !!lost, kept: !!main?.kept, count: found.length };
   const deploy = deployState(env.token || {}, main), deployed = deployedIn(platform, env);
   const used = found.length > 0 || !!lost || deploy.key !== "unset" || deployed.length > 0;
   return { id: env.id, name: env.name, used, gateway, deploy, deployed, summary: said(deployed), action: actionOf(used, main, gateway, deploy, addon, gap) };
