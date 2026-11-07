@@ -1097,11 +1097,11 @@ test("Fix it on a row opens the form that takes what its place lacks, as on its 
   const lacking = { id: "cloud-eu/env-development", name: "Development (Gravitee Cloud)", platform: { id: "cloud-eu", name: "Gravitee Cloud", kind: "cloud" }, cannot: [],
     environment: { id: "env-development", name: "Development" }, state: "missing", missing: "No hybrid gateway", reason: "Set up a gateway first", token: { state: "unset" } };
   server.places = [lacking];
-  const state = { ...lab({ playgrounds: [item("playground", "shop", "Acme Shop", { starred: true, deploys_to: ["cloud"], requires: {} })] }), core: CLOUD_CORE };
+  const state = { ...lab({ playgrounds: [item("playground", "stall", "Acme Stall", { starred: true, deploys_to: ["cloud"], requires: {} })] }), core: CLOUD_CORE };
   await open({ state, listed: [PLATFORM], checks: { "cloud-eu": check([]) } });
   const gatewayForm = page.doc.querySelector("#gateway-name").closest("form");
   gatewayForm.checkValidity = () => true;
-  catalog().find((one) => text(one).includes("Acme Shop")).querySelector("[data-fix]").click();
+  catalog().find((one) => text(one).includes("Acme Stall")).querySelector("[data-fix]").click();
   await flush();
   assert.equal(text(gatewayForm.querySelector("h2")), "Create hybrid gateway for Development");
   gatewayForm.closest("dialog").close();
