@@ -1564,7 +1564,7 @@ class Linking(Case):
     def test_the_catalogs_it_needs_are_the_labs_own_with_what_the_lab_holds_of_them_and_no_other(self):
         fixtures.install(self, "partner")
         fixtures.install(self, "lab-new")
-        fixtures.local(self, "scratch", "addon")
+        fixtures.local(self, "scratch")
         fixtures.lock(self, "partner", audience="private")
         project.forget()
         with check.temporary_link(self.folder_of, "fixture", needs=["partner", "ghost"]) as linked:

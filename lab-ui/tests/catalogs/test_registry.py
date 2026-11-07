@@ -1894,7 +1894,7 @@ class Fixtures(Case):
         fixtures.project(self, paths, ns="fixture", kind="git")
         fixtures.install(self, "partner", kind="git")
         fixtures.install(self, "lab-new", kind="folder")
-        fixtures.local(self, fixtures.units("local")[0][1], fixtures.units("local")[0][0])
+        fixtures.local(self, fixtures.units("local")[0][1])
         rows = registry.inputs()
         self.assertEqual(list(rows), ["fixture", "local", "partner", "lab-new"])
         fixture, partner, new = rows["fixture"], rows["partner"], rows["lab-new"]
