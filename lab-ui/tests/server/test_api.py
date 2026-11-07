@@ -281,8 +281,9 @@ class Static(LabUI):
             with self.subTest(path=path):
                 self.assertEqual(self.request("GET", path)[0], 404)
 
+
 class Calls(LabUI):
-    """A route calls one function with what the request says: the logic is the function's."""
+    """A route calls one function with what the request says and answers what it answers: the logic is the function's."""
 
     FILE = {"path": "addons/kazoo/compose.yml", "content": "services: {}\n", "version": "v1"}
     ACME = "/api/catalogs/acme-hub"
@@ -305,7 +306,6 @@ class Calls(LabUI):
         # A platform
         ("POST", "/api/platforms", {"url": "u", "token": "t"}, api.platforms, "add", (), {"url": "u", "token": "t", "account": None}),
         ("POST", "/api/platforms/p/check", {}, api.platforms, "check", ("p", PROJECT), {}),
-        ("POST", "/api/platforms/p/delete", {}, api.platforms, "remove", ("p", PROJECT), {}),
         ("POST", "/api/platforms/p/token", {"token": "new"}, api.platforms, "replace_account_token", ("p", "new"), {}),
         ("POST", "/api/platforms/p/token", {}, api.platforms, "replace_account_token", ("p", None), {}),
         ("POST", "/api/platforms/p/environments/e/token", {"token": "t"}, api.platforms, "set_cloud_token", ("p", "e", "t"), {}),
@@ -342,6 +342,7 @@ class Calls(LabUI):
         ("POST", f"{ACME}/delete", {"keep_settings": False}, api.service, "remove", ("acme-hub",), {"keep_settings": False}),
         ("POST", f"{ACME}/delete", {"keep_settings": True}, api.service, "remove", ("acme-hub",), {"keep_settings": True}),
     )
+    NAMED = {"sections": "sections", "destinations": "destinations", "guide": "markdown"}   # the key the page reads these by
 
     def test_each_call(self):
         self.patch(api.project, "load", return_value=PROJECT)
@@ -350,7 +351,9 @@ class Calls(LabUI):
         for method, path, body, module, name, arguments, keywords in self.CALLS:
             with self.subTest(path=path, body=body):
                 called = self.patch(module, name, return_value={"id": "p"})
-                self.assertEqual(self.request(method, path, body)[0], 200)
+                status, _, answer = self.request(method, path, body)
+                self.assertEqual((status, json.loads(answer)),
+                                 (200, {self.NAMED[name]: {"id": "p"}} if name in self.NAMED else {"id": "p"}))
                 called.assert_called_once_with(*arguments, **keywords)
 
 
@@ -1043,6 +1046,7 @@ class PlatformRoutes(LabUI):
             with self.subTest(path=path):
                 self.assertEqual(self.request("POST", path, sent)[0], 200)
                 self.invalidate.assert_called_once_with("gravitee-cloud")
+        api.platforms.remove.assert_called_once_with("gravitee-cloud", PROJECT)
         self.invalidate.reset_mock()
         self.patch(api.platforms, "check", side_effect=paths.NotFound("No platform nope"))
         self.assertEqual(self.request("POST", "/api/platforms/nope/check")[0], 404)
