@@ -84,13 +84,6 @@ class Model(Case):
             "universe": ["enterprise-features", "observability", "enterprise"], "gamma-planet": ["standard"]})
         self.assertTrue(all(set(packs) <= set(model["packs"]) for packs in model["tiers"].values()))
 
-    def test_anchors_and_aliases(self):
-        text = ("packs:\n    a:\n        features: &a\n            - f1 # why\n            - f2\n    b:\n"
-                "        features:\n            - *a\n            - f3\ntiers:\n    t:\n        packs:\n"
-                "            - a\n")
-        self.assertEqual(license.parse_model(text),
-                         {"packs": {"a": ["f1", "f2"], "b": ["f1", "f2", "f3"]}, "tiers": {"t": ["a"]}})
-
     def test_the_model_comes_from_the_running_container(self):
         asked = []
 

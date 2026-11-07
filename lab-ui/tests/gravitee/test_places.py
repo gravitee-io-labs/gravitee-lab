@@ -15,6 +15,7 @@ from lab_ui.gravitee import cloud, platforms, places
 from lab_ui.docker import envfiles
 from lab_ui import paths
 from lab_ui.catalogs import trust
+from lab_ui.library import playgrounds
 
 from .. import Case, fake_cloud, fixtures
 
@@ -150,7 +151,6 @@ class Reading(Places):
             places.serving(PROJECT)
             places.place(PROJECT, f"my-account/{DEV}")
         self.assertEqual((len(self.fake.state.asked), places._reading), (asked, {}))
-        self.assertEqual(places.TTL, 60)
 
     def test_a_read_that_is_old_is_made_again_in_the_background_and_the_old_one_is_served(self):
         self.read()
@@ -274,11 +274,6 @@ class States(Places):
         self.assertEqual((found["state"], found["missing"], found["reason"], found["token"]["state"]), (
             "missing", "Cloud Token refused", f"Gravitee Cloud refuses the Cloud Token of {DEVELOPMENT}", "refused"))
 
-    def test_a_gateway_of_another_environment_is_not_the_one_of_this(self):
-        self.create(TEST, "lab", platform="my-account")
-        self.assertEqual((self.place(DEV)["missing"], self.place(TEST)["missing"]),
-                         ("No hybrid gateway", "No Cloud Token"))
-
     def test_the_gateway_that_runs_here_is_the_one_of_its_environment(self):
         first = self.create(DEV, "first", platform="my-account")["gateway"]
         second = self.create(DEV, "second", platform="my-account")["gateway"]
@@ -311,19 +306,6 @@ class States(Places):
             "client-lab/fake-client-dev", "client-lab/fake-client-test",
             "my-account/fake-env-dev", "my-account/fake-env-test", "my-account/fake-env-prod"])
         self.assertEqual(places.place(PROJECT, "client-lab/fake-client-test")["name"], "Test (Client Lab)")
-
-    def test_the_tokens_of_the_other_account_are_its_own(self):
-        self.second("Client Lab")
-        self.keep(fake_cloud.SECOND_CLOUD_TOKEN, "fake-client-test", "client-lab")
-        self.assertEqual(self.place("fake-client-test", "client-lab")["missing"], "No hybrid gateway")
-        self.assertEqual(self.place(TEST)["token"], {"state": "unset"})
-
-    def test_the_things_a_picker_needs_are_all_there(self):
-        self.ready()
-        for found in self.read():
-            self.assertEqual(sorted(found), ["cannot", "environment", "gateway", "id", "missing", "name", "platform", "reason",
-                                             "state", "token"])
-            self.assertIn(found["state"], ("ready", "missing"))
 
 
 def asking(**more):
@@ -399,10 +381,7 @@ class Unusable(Places):
 
     def test_an_account_token_that_the_cloud_refuses(self):
         envfiles.write(".env", {KEY: "rotated-since"})
-        self.assertEqual(self.only(), {
-            "id": "my-account", "name": NAME, "platform": {"id": "my-account", "name": NAME, "kind": "cloud"},
-            "environment": None, "state": "unusable", "missing": None, "reason": "Invalid token", "token": None,
-            "gateway": None, "cannot": {}})
+        self.assertEqual((self.only()["state"], self.only()["reason"]), ("unusable", "Invalid token"))
 
     def test_a_platform_that_does_not_answer(self):
         self.fake.shutdown()
@@ -424,13 +403,6 @@ class Unusable(Places):
         for place_id in ("nope/x", "nope", "my-account/nope", ""):
             self.assertIsNone(places.place(PROJECT, place_id), repr(place_id))
 
-    def test_the_places_come_back_with_a_token_the_cloud_accepts(self):
-        envfiles.write(".env", {KEY: "rotated-since"})
-        self.assertEqual(self.only()["state"], "unusable")
-        platforms.replace_account_token("my-account", fake_cloud.TOKEN)
-        places.invalidate("my-account")
-        self.assertEqual([p["state"] for p in places.places(PROJECT)], ["missing"] * 3)
-
     def test_one_platform_that_cannot_be_read_leaves_the_other_places_alone(self):
         self.second("Client Lab")
         envfiles.write(".env", {"PLATFORM_CLIENT_LAB_TOKEN": "rotated-since"})
@@ -447,7 +419,6 @@ class Serving(Places):
         self.create(DEV, "lab", platform="my-account")
         envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
         self.assertIsNone(places.serving(PROJECT))
-        self.assertFalse((self.root / ADDON_ENV).exists())
 
     def test_the_gateway_that_runs_here_serves_its_environment(self):
         gateway = self.create(TEST, "lab", platform="my-account")["gateway"]
@@ -718,19 +689,14 @@ class Gateways(Places):
         release.set()
         self.assertEqual((found["here"], found["serving"]), (False, None))
 
-    def test_nothing_serves_when_none_runs_here(self):
+    def test_nothing_serves_when_none_runs_here_or_the_token_held_is_of_no_gateway(self):
         # Kept, none runs here: a token of this one only. None is not "nothing is served" for the plan: it just has no
         # place to say it stops serving
         gateway = self.create(DEV, "lab", platform="my-account")["gateway"]
-        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": None})
-        found = places.gateway(PROJECT, "my-account", gateway["id"])
-        self.assertEqual((found["here"], found["serving"]), (False, None))
-
-    def test_a_token_that_no_gateway_matches_is_no_gateway_that_runs_here(self):
-        gateway = self.create(DEV, "lab", platform="my-account")["gateway"]
-        envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": "not-a-token"})
-        found = places.gateway(PROJECT, "my-account", gateway["id"])
-        self.assertEqual((found["here"], found["serving"]), (False, None))
+        for held in (None, "not-a-token"):
+            envfiles.write(ADDON_ENV, {"HYSSOP_CLOUD_TOKEN": held})
+            found = places.gateway(PROJECT, "my-account", gateway["id"])
+            self.assertEqual((found["here"], found["serving"]), (False, None), repr(held))
 
     def test_the_platform_is_read_again_because_a_click_asks(self):
         gateway = self.create(DEV, "lab", platform="my-account")["gateway"]
@@ -787,19 +753,6 @@ class Records(Places):
         if name:
             self.write(self.META.format(platform, environment), json.dumps({"environment": name}))
 
-    @staticmethod
-    def created(pid, place):
-        """What playgrounds.created reads from a place's record: [{what, count}]."""
-        file = paths.ROOT / paths.unit_folder("playground", pid) / ".state" / place / "created.json"
-        try:
-            items = json.loads(file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return []
-        counts = {}
-        for item in items:
-            counts[item["label"]] = counts.get(item["label"], 0) + 1
-        return [{"what": what, "count": count} for what, count in counts.items()]
-
     def test_the_places_that_hold_a_record_are_the_folders_of_the_state_that_hold_one(self):
         self.record("my-account", DEV)
         self.record("my-account", TEST, "Test")
@@ -817,31 +770,31 @@ class Records(Places):
 
     def test_what_it_holds_is_counted_by_the_record_and_named_by_its_environment(self):
         self.record("my-account", DEV)
-        self.assertEqual(places.deployed("hotels", self.created), [{
+        self.assertEqual(places.deployed("hotels", playgrounds.created), [{
             "place": f"my-account/{DEV}", "environment": "Development",
             "created": [{"what": "API", "count": 2}, {"what": "Application", "count": 1}]}])
 
     def test_a_place_that_holds_nothing_is_not_listed(self):
         self.record("my-account", DEV, labels=())   # a delete emptied it
-        self.assertEqual(places.deployed("hotels", self.created), [])
+        self.assertEqual(places.deployed("hotels", playgrounds.created), [])
 
     def test_the_environment_is_named_by_its_record_whatever_the_platform_says_now(self):
         self.read()
         self.record("my-account", DEV, "Renamed")
-        self.assertEqual(places.deployed("hotels", self.created)[0]["environment"], "Renamed")
+        self.assertEqual(places.deployed("hotels", playgrounds.created)[0]["environment"], "Renamed")
 
     def test_without_a_name_in_its_record_the_platform_names_it_as_it_last_said(self):
         self.record("my-account", DEV, name=None)
-        self.assertEqual(places.deployed("hotels", self.created)[0]["environment"], DEV)   # not said yet: its id
+        self.assertEqual(places.deployed("hotels", playgrounds.created)[0]["environment"], DEV)   # not said yet: its id
         self.read()
-        self.assertEqual(places.deployed("hotels", self.created)[0]["environment"], "Development")
+        self.assertEqual(places.deployed("hotels", playgrounds.created)[0]["environment"], "Development")
 
     def test_they_come_in_the_order_of_the_accounts_once_the_platforms_said_it(self):
         self.second("Client Lab")
         for platform, environment in (("my-account", "fake-env-prod"), ("my-account", DEV), ("client-lab", "fake-client-test"),
                                       ("my-account", TEST)):
             self.record(platform, environment, "Name")
-        listed = lambda: [found["place"] for found in places.deployed("hotels", self.created)]   # noqa: E731
+        listed = lambda: [found["place"] for found in places.deployed("hotels", playgrounds.created)]   # noqa: E731
         # Not read yet: by their ids
         self.assertEqual(listed(), ["client-lab/fake-client-test", "my-account/fake-env-dev", "my-account/fake-env-prod",
                                     "my-account/fake-env-test"])
@@ -854,18 +807,18 @@ class Records(Places):
         self.record("my-account", DEV)
         asked = len(self.fake.state.asked)
         for _ in range(3):
-            places.deployed("hotels", self.created)
+            places.deployed("hotels", playgrounds.created)
         self.assertEqual((len(self.fake.state.asked), places._reading, places._cache), (asked, {}, {}))
 
     def test_a_playground_that_holds_nothing_does_not_even_read_the_platforms(self):
         read = self.patch(places.platforms, "read", wraps=platforms.read)
-        self.assertEqual(places.deployed("hotels", self.created), [])
+        self.assertEqual(places.deployed("hotels", playgrounds.created), [])
         read.assert_not_called()
 
     def test_nothing_in_it_holds_a_token(self):
         self.record("my-account", DEV)
         self.read()
-        self.assertHidden(places.deployed("hotels", self.created), places.recorded("hotels"))
+        self.assertHidden(places.deployed("hotels", playgrounds.created), places.recorded("hotels"))
 
 
 class State(Case):

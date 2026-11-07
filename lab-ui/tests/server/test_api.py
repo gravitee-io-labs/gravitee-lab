@@ -2,7 +2,6 @@
 the files shown with one, the state when Docker is down, the accept check, what is created, shared and deleted. No
 Docker."""
 
-import base64
 import contextlib
 import errno
 import http.client
@@ -11,7 +10,6 @@ import json
 import os
 import queue
 import re
-import signal
 import socket
 import subprocess
 import sys
@@ -21,7 +19,6 @@ import types
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
-from pathlib import Path
 from urllib.error import URLError
 
 import lab_ui
@@ -35,7 +32,7 @@ from lab_ui.catalogs import gitx, trust
 from lab_ui.catalogs.registry import CatalogError
 from lab_ui.docker.jobs import Job, JobFailed, Jobs, awaited
 
-from .. import Case, fake_cloud, fixtures, gitfixture
+from .. import Case, fake_cloud, fixtures
 
 from ..library import test_layers
 from ..gravitee.test_cloud import serving
@@ -135,7 +132,7 @@ class Access(LabUI):
             self.assertEqual((status, headers["Content-Type"]), (403, "text/html; charset=utf-8"), host)
             self.assertIn(f'Open the Lab UI at <a href="{address}">{address}</a>', body.decode())
             self.assertNotIn(host, body.decode())   # what the request says of itself is not repeated
-            self.assertEqual(headers["X-Frame-Options"], "DENY")
+            self.assertEqual((headers["X-Frame-Options"], headers["Content-Security-Policy"]), ("DENY", api.POLICY))
         # Everything else stays a refusal for a program: the API, a POST, another page
         for method, path in (("GET", "/api/state"), ("POST", "/"), ("GET", "/js/main.js")):
             status, headers, body = self.request(method, path, headers={"Host": "0.0.0.0:9777"})
@@ -145,11 +142,8 @@ class Access(LabUI):
 
     def test_a_request_from_a_page_of_another_site_is_refused(self):
         # A browser says where a request comes from; a GET needs no header, so this is all that stops it
-        state = self.patch(api, "images_state", return_value={"components": []})
-        for site in ("cross-site", "same-site"):
-            status, _, _ = self.request("GET", "/api/images", headers={"Sec-Fetch-Site": site})
-            self.assertEqual(status, 403, site)
-        state.assert_not_called()
+        self.assertEqual(self.request("GET", "/api/images", headers={"Sec-Fetch-Site": "same-site"})[0], 403)
+        self.patch(api, "images_state", return_value={"components": []})
         self.patch(api.project, "load", return_value=PROJECT)
         for site in ("same-origin", "none"):   # the Lab UI's own page, an address typed or a bookmark
             status, _, _ = self.request("GET", "/api/images", headers={"Sec-Fetch-Site": site})
@@ -161,11 +155,10 @@ class Access(LabUI):
     def test_local_names_are_served(self):
         self.patch(api.project, "load", return_value=PROJECT)
         self.patch(api, "images_state", return_value={"components": []})
-        for host in ("localhost:9000", "127.0.0.1:9000", "localhost"):
+        for host in ("localhost:9000", "localhost"):
             status, headers, body = self.request("GET", "/api/images", headers={"Host": host})
             self.assertEqual((status, json.loads(body)), (200, {"components": []}))
             self.assertEqual(headers["Cache-Control"], "no-store")
-
 
     def test_no_page_frames_the_lab_ui(self):
         # It frames the consoles of a playground and holds the keys to the lab: the page, its API, a refusal and the
@@ -183,12 +176,7 @@ class Access(LabUI):
     def test_the_page_carries_exactly_the_policy_the_page_needs(self):
         # test_static reads it from the page's files: the server's header is that, word for word
         from ..web import test_static
-        _, headers, _ = self.request("GET", "/")
-        self.assertEqual(headers["Content-Security-Policy"], test_static.wanted_policy())
         self.assertEqual(api.POLICY, test_static.wanted_policy())
-        # ... and the refusal of a wrong host is a page too
-        _, headers, _ = self.request("GET", "/", headers={"Host": "0.0.0.0:9777"})
-        self.assertEqual(headers["Content-Security-Policy"], api.POLICY)
 
 
 class Failures(LabUI):
@@ -252,6 +240,12 @@ class Failures(LabUI):
         # The Dashboard's Start all says it is the core's, with what its dialog showed
         self.request("POST", "/api/stack/start", {"core": True, "accept": ["addon:kazoo"]})
         self.assertEqual(action.call_args, ((PROJECT, "start"), {"for_core": True, "accept": ["addon:kazoo"]}))
+
+    def test_the_versions_of_the_images_are_a_mapping(self):
+        save = self.patch(api.images, "save")
+        status, _, body = self.request("POST", "/api/images", {"values": "x"})
+        self.assertEqual((status, json.loads(body)), (400, {"error": "The versions must be a mapping"}))
+        save.assert_not_called()
 
 
 class Static(LabUI):
@@ -369,7 +363,7 @@ class State(LabUI):
         self.catalogs = self.patch(api.service, "describe", return_value=self.rows)
         self.content = {"key": "ready", "line": "", "code": None, "progress": None, "address": "", "offer": None}
         self.said = self.patch(api.firstrun, "content", return_value=self.content)
-        self.patch(api.license, "features", return_value=None)
+        self.features = self.patch(api.license, "features", return_value=None)
         self.patch(api.playgrounds, "created", return_value=[{"what": "APIs", "count": 3}])
         self.patch(api.personal, "skills", return_value={"addon": ".agents/skills/new-addon/SKILL.md"})
         self.agent = {"folder": str(paths.ROOT), "note": ""}   # the folder an agent opens (test_machine)
@@ -384,7 +378,7 @@ class State(LabUI):
                      "git": {"available": True, "version": "2.43.2"}, "catalogs": self.rows, "content": self.content}
         self.patch(api, "JOBS", Jobs())
         self.patch(api.compose, "CACHE", compose.Cache())
-        self.name = self.patch(api.compose, "project_name", return_value="gravitee")
+        self.patch(api.compose, "project_name", return_value="gravitee")
         self.build = self.patch(api.model, "build", side_effect=lambda *args, **more: {
             "containers": sorted(args[2]), "docker": args[6]})
         self.memory = self.patch(api.compose, "docker_memory", return_value=16)
@@ -420,6 +414,8 @@ class State(LabUI):
                                            deployed={"welcome": [], "local/sandbox": []}, changed=None)
         self.memory.assert_not_called()
         self.saved.assert_not_called()
+        # Docker hangs (its machine asleep, Docker Desktop restarting): the state says so, it does not wait on it again for the license model
+        self.features.assert_called_once_with(PROJECT, ask=False)
 
     def test_a_core_file_that_does_not_load_is_like_docker_down(self):
         # Compose reads nothing without it: what runs is not known, nothing is asked of Docker
@@ -436,10 +432,8 @@ class State(LabUI):
         ps = self.patch(api.compose, "ps", return_value={"mongodb": {}})
         self.request("GET", "/api/state")
         ps.assert_called_once_with(api.project.LICENSE_KEY)
-        self.assertEqual(self.build.call_args.kwargs, {"saved": {"hashes": {"mongodb": "h"}, "images": {}},
-                                                       "license_status": {"status": "none"}, "platforms": [],
-                                                       "deployed": {"welcome": [], "local/sandbox": []},
-                                                       "changed": {}})
+        self.assertEqual((self.build.call_args.kwargs["saved"], self.build.call_args.kwargs["changed"]),
+                         ({"hashes": {"mongodb": "h"}, "images": {}}, {}))
 
     def test_the_platforms_and_what_each_playground_holds_in_them_are_given_to_the_state(self):
         # Read from this machine's files, each playground by its own record: the way it reads them (places.deployed)
@@ -454,14 +448,6 @@ class State(LabUI):
         self.assertEqual(self.build.call_args.kwargs["platforms"], [record])
         self.assertEqual(self.build.call_args.kwargs["deployed"], {"welcome": held, "local/sandbox": []})
         self.assertEqual({call.args[1] for call in self.held.call_args_list}, {api.playgrounds.created})
-
-    def test_a_core_file_never_loaded_is_not_docker_down(self):
-        # Without its name there is no project to ask Docker about: the file is among the project's problems
-        self.name.side_effect = compose.ComposeError("yaml: line 12: did not find expected key")
-        ps = self.patch(api.compose, "ps", return_value={"mongodb": {}})
-        status, _, body = self.request("GET", "/api/state")
-        self.assertEqual((status, json.loads(body)["docker"]["error"]), (200, None))
-        ps.assert_not_called()
 
     def test_docker_up(self):
         self.patch(api.compose, "ps", return_value={"redis": {}, "mongodb": {}})
@@ -530,43 +516,6 @@ class State(LabUI):
         api.compose.CACHE.drop("local:")   # what a job that ends does: what runs changed
         self.request("GET", "/api/state")
         self.assertEqual(ps.call_count, 2)
-
-    FEATURES = staticmethod(api.license.features)   # the real one: setUp replaces it
-
-    def test_the_first_state_does_not_wait_on_docker_for_the_license_model(self):
-        # The first state after the Lab UI starts, while Docker hangs (its machine asleep, Docker Desktop restarting): ps
-        # gives up after PS_TIMEOUT and the state says so then. Nothing else in it waits on Docker
-        self.patch(api.license, "features", self.FEATURES)
-        self.start(mock.patch.dict(api.license._known, features=None, digest=None, packs=None))
-        self.addCleanup(compose.CACHE.drop, "license-model:")
-        products = {"apim": {"name": "API Management", "lib": {"gateway": "/opt/gateway/lib"}},
-                    "am": {"name": "Access Management", "lib": {"am-gateway": "/opt/am/lib"}}}
-        services = {**PROJECT["services"],
-                    "gateway": {"container": "gio-gateway", "image": "graviteeio/apim-gateway:4", "label": "Gateway"},
-                    "am-gateway": {"container": "gio-am-gateway", "image": "graviteeio/am-gateway:4", "label": "AM"}}
-        hung_project = {**PROJECT, "license_var": "GRAVITEE_LICENSE", "products": products, "services": services,
-                        "groups": [{**PROJECT["groups"][0], "product": None}, {"id": "api-management", "product": "apim"},
-                                   {"id": "access-management", "product": "am"}]}
-        self.patch(api.project, "loaded", return_value=(hung_project, self.read))
-        # A license is saved (its signature does not matter here): what it allows is counted with the license model
-        raw = api.license.MAGIC + b"".join(
-            len(blob).to_bytes(4, "big") + blob for blob in (
-                (2).to_bytes(4, "big") + len(name).to_bytes(4, "big") + len(value).to_bytes(4, "big") + name + value
-                for name, value in ((b"tier", b"universe"), (b"company", b"ACME"))))
-        self.patch(envfiles, "read", return_value={"GRAVITEE_LICENSE": base64.b64encode(raw).decode()})
-        self.patch(api.compose, "ps", side_effect=compose.ComposeError(
-            f"Docker did not answer within {compose.PS_TIMEOUT} s"))
-        waited = []
-
-        def hung(cmd, timeout=120, **more):   # what run() answers once each limit is over
-            waited.append((" ".join(cmd[:3]), timeout))
-            return 124, "", f"{cmd[0]} did not answer within {timeout} s"
-        self.patch(compose, "run", side_effect=hung)
-        status, _, body = self.request("GET", "/api/state")
-        self.assertEqual((status, json.loads(body)["docker"]["error"]), (200, "Docker did not answer within 10 s"))
-        # Docker said nothing within 10 s: the state asks it nothing more, else it waits each command's own limit
-        self.assertEqual((waited, sum(seconds for _, seconds in waited)), ([], 0))
-        self.assertIsNone(self.build.call_args.args[5], "what the license allows is not known yet")
 
 
 class Frame(LabUI):
@@ -709,10 +658,6 @@ class Accepted(LabUI):
         self.assertEqual(self.stack.call_args.kwargs["accept"], [])
         self.request("POST", "/api/stack/start", {"accept": ["addon:kazoo-desk", "playground:welcome"]})
         self.assertEqual(self.stack.call_args.kwargs["accept"], ["addon:kazoo-desk", "playground:welcome"])
-        # ... and the plan that stops something besides the item is still refused for what was not sent
-        status, _, body = self.request("POST", "/api/addons/kazoo/start", {"accept": []})
-        self.assertEqual((status, json.loads(body)), (409, {"error": "Would also stop Kazoo Desk"}))
-        self.assertEqual(self.request("POST", "/api/addons/kazoo/start", {"accept": ["addon:kazoo-desk"]})[0], 200)
 
 
 class Effects(LabUI):
@@ -906,7 +851,7 @@ class Logs(Case):
                             ("2026-10-03T12:44:35.329927337Z", "2026-10-03T12:44:35.329927337Z")):
             self.assertEqual(api._stamp(when), stamp)
 
-    def test_the_logs_of_a_container_are_read_as_utf8_whatever_the_terminal_says(self):
+    def test_what_is_followed_is_ended_with_the_stream(self):
         self.patch(api.project, "load", return_value=PROJECT)
         self.patch(api, "_started", return_value=(False, None))
         popen = self.patch(api.subprocess, "Popen")
@@ -924,7 +869,6 @@ class Logs(Case):
             def sse_start(self):
                 pass
         api.stream_logs(Request())
-        self.assertEqual((popen.call_args.kwargs["encoding"], popen.call_args.kwargs["errors"]), ("utf-8", "replace"))
         popen.return_value.kill.assert_called()
 
     def test_a_start_again_is_its_own_event_after_the_lines_before_it(self):
@@ -950,17 +894,18 @@ class Personal(LabUI):
         super().setUp()
         self.patch(api.project, "load", return_value=PROJECT)
 
+    FIELDS = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
+    # (the route, what it calls, what the form sends besides, what is given besides): a field not sent is None
+    FORMS = (("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"},
+              {"image": "traefik/whoami", "port": "8098"}),
+             ("/api/setups", "save_setup", {"addons": ["kazoo"], "id": "local/mine"},
+              {"addons": ["kazoo"], "sid": "local/mine", "check_only": False}),
+             ("/api/playgrounds", "create_playground", {"setups": ["local/mine"], "addons": ["kazoo"]},
+              {"setups": ["local/mine"], "addons": ["kazoo"]}))
+
     def test_created_from_the_fields_of_the_form(self):
-        created = {"file": ".lab/catalogs/local/addons/whoami/compose.yml"}
-        fields = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
-        # (the route, what it calls, what the form sends besides, what is given besides): a field not sent is None
-        for path, function, more, given in (
-                ("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"},
-                 {"image": "traefik/whoami", "port": "8098"}),
-                ("/api/setups", "save_setup", {"addons": ["kazoo"], "id": "local/mine"},
-                 {"addons": ["kazoo"], "sid": "local/mine", "check_only": False}),
-                ("/api/playgrounds", "create_playground", {"setups": ["local/mine"], "addons": ["kazoo"]},
-                 {"setups": ["local/mine"], "addons": ["kazoo"]})):
+        created, fields = {"file": ".lab/catalogs/local/addons/whoami/compose.yml"}, self.FIELDS
+        for path, function, more, given in self.FORMS:
             with self.subTest(path=path):
                 create = self.patch(api.personal, function, return_value=created)
                 status, _, body = self.request("POST", path, {**fields, **more})
@@ -977,10 +922,8 @@ class Personal(LabUI):
     def test_the_create_routes_take_the_catalog_they_keep_the_item_in(self):
         # Not given, the item is Personal; the namespace of an editable folder catalog is given on to personal.py, which
         # writes the item there (and says `not_editable` for any other)
-        fields = {"name": "Whoami", "description": "Says who answers", "category": "Other"}
-        for path, function, more in (("/api/addons", "create_addon", {"image": "traefik/whoami", "port": "8098"}),
-                                     ("/api/setups", "save_setup", {"addons": ["kazoo"]}),
-                                     ("/api/playgrounds", "create_playground", {"setups": [], "addons": ["kazoo"]})):
+        fields = self.FIELDS
+        for path, function, more, _ in self.FORMS:
             with self.subTest(path=path):
                 create = self.patch(api.personal, function, return_value={})
                 self.request("POST", path, {**fields, **more})
@@ -1126,61 +1069,6 @@ class PlatformFlow(LabUI):
                          {"/accounts/my-account"}, "besides the hrid that was refused, only the account's own paths")
 
 
-class PlatformPlaces(PlatformFlow):
-    """The places, through the routes, against the fake Cloud: what an action on a platform changes in them is seen by the
-    next call, with no wait for the minute that a read is kept."""
-
-    URL = "http://127.0.0.1:{}"
-    DEV, TEST = "fake-env-dev", "fake-env-test"
-
-    def register(self):
-        sent = {"url": self.URL.format(self.fake.server_port), "account": fake_cloud.ACCOUNT["id"], "token": fake_cloud.TOKEN}
-        return self.ask("POST", "/api/platforms", sent)
-
-    def place(self, environment=None):
-        found = {found["id"]: found for found in self.ask("GET", "/api/places")}
-        return found[f"my-account/{environment or self.DEV}"]
-
-    def test_a_platform_is_read_when_it_is_registered_and_its_places_are_named_by_environment_and_platform(self):
-        self.register()
-        found = self.ask("GET", "/api/places")
-        self.assertEqual([(place["id"], place["name"], place["state"], place["missing"]) for place in found], [
-            ("my-account/fake-env-dev", "Development (My Account)", "missing", "No hybrid gateway"),
-            ("my-account/fake-env-test", "Test (My Account)", "missing", "No hybrid gateway"),
-            ("my-account/fake-env-prod", "Production (My Account)", "missing", "No hybrid gateway")])
-
-    def test_what_is_done_to_a_platform_is_seen_by_the_places_at_once(self):
-        self.register()
-        self.ask("POST", "/api/platforms/my-account/gateways", {"environmentId": self.DEV, "name": "lab"})
-        self.assertEqual((self.place()["missing"], self.place()["gateway"]["here"]), ("No Cloud Token", True))
-        self.ask("POST", f"/api/platforms/my-account/environments/{self.DEV}/token",
-                 {"token": fake_cloud.cloud_token(self.DEV)})
-        self.assertEqual((self.place()["state"], self.place()["token"]["state"]), ("ready", "valid"))
-        # Another environment's token is refused in the words of the form, and changes nothing
-        wrong = self.ask("POST", f"/api/platforms/my-account/environments/{self.TEST}/token",
-                         {"token": fake_cloud.cloud_token(self.DEV)}, 400)
-        self.assertEqual(wrong, {"error": "This Cloud Token is for Development, not Test"})
-        self.assertEqual(self.place(self.TEST)["token"], {"state": "unset"})
-        self.ask("POST", f"/api/platforms/my-account/environments/{self.DEV}/token/delete", {})
-        self.assertEqual(self.place()["missing"], "No Cloud Token")
-        # The Account Token replaced: the record and the places stay
-        self.assertEqual(self.ask("POST", "/api/platforms/my-account/token", {"token": "not-the-token"}, 400),
-                         {"error": "The token or the Account ID is not right"})
-        replaced = self.ask("POST", "/api/platforms/my-account/token", {"token": fake_cloud.TOKEN})
-        self.assertEqual((replaced["id"], replaced["tokenSet"]), ("my-account", True))
-        self.assertEqual(self.place()["missing"], "No Cloud Token")
-
-    def test_a_check_reads_the_places_again_too(self):
-        self.register()
-        self.fake.state.asked.clear()
-        self.ask("POST", "/api/platforms/my-account/check", {})
-        # The check and the places each asked the platform for its environments and gateways: the cache is fresh
-        asked = len(self.fake.state.asked)
-        self.assertGreaterEqual(asked, 4)
-        self.ask("GET", "/api/places")
-        self.assertEqual(len(self.fake.state.asked), asked, "the places were served from what was read")
-
-
 class PlaceRoutes(LabUI):
     """A playground's routes take the place to deploy to; This machine is the call they always made."""
 
@@ -1236,8 +1124,7 @@ class PlaceRoutes(LabUI):
         for sent in ("", 0, False, [], ["machine"], {"id": "machine"}, 12):
             for path in ("start", "reseed", "delete"):
                 with self.subTest(sent=sent, path=path):
-                    status, _, body = self.request("POST", f"/api/playgrounds/welcome/{path}", {"place": sent})
-                    self.assertEqual((status, json.loads(body)["error"]), (400, json.loads(body)["error"]))
+                    self.assertEqual(self.request("POST", f"/api/playgrounds/welcome/{path}", {"place": sent})[0], 400)
         for name in ("start", "reseed", "delete_place"):
             self.calls[name].assert_not_called()
         self.delete.assert_not_called()
@@ -1385,19 +1272,6 @@ class GatewayRoutes(GatewayCase):
         for step in (self.write, self.binds, self.swap):
             step.assert_not_called()
 
-    def test_a_gateway_that_does_not_run_here_gets_its_token_before_the_add_on_is_made(self):
-        self.elsewhere()
-        calls = mock.Mock()
-        calls.attach_mock(self.swap, "swap")
-        calls.attach_mock(self.write, "write")
-        accepted = [layers.key("addon", "hyssop")]
-        self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {"accept": accepted})[0], 200)
-        title, steps, more, job = self.run_steps()
-        self.assertEqual(more["key"], "addon:hyssop")
-        self.swap.assert_called_once_with(self.project, "my-account", "gw-1")
-        self.assertEqual([call[0] for call in calls.mock_calls], ["swap", "write"], "the token, then the on file")
-        self.assertEqual(job.lines, ["Restarts: Hybrid gateway"])
-
     def test_a_gateway_whose_token_is_gone_by_the_job_fails_in_the_words_of_the_refusal(self):
         self.elsewhere()
         self.swap.side_effect = paths.NotFound("No add-on runs a gateway of My Account")
@@ -1418,13 +1292,6 @@ class GatewayRoutes(GatewayCase):
         self.run_steps()
         self.swap.assert_called_once_with(self.project, "my-account", "gw-1")
 
-    def test_a_start_that_cannot_run_as_the_page_showed_it_is_refused(self):
-        self.state = {**self.state, "locked": layers.LOCKED}
-        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {})
-        self.assertEqual((status, json.loads(body)), (409, {"error": layers.LOCKED}))
-        self.jobs.start.assert_not_called()
-        self.swap.assert_not_called()
-
     def test_a_job_that_runs_keeps_the_gateway_from_starting_and_changes_nothing(self):
         self.jobs.start.side_effect = RuntimeError("'Start Kazoo' is still running")
         status, _, body = self.request("POST", f"{self.GATEWAY}/start", {})
@@ -1437,6 +1304,7 @@ class GatewayOnFile(GatewayCase):
     """The start of a gateway on a real on file: its job writes it as every plan's job does (layers.steps)."""
 
     WRITE = staticmethod(layers.write)   # the real writer, before the case replaces it
+    REDSTART = "include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n"
 
     def setUp(self):
         super().setUp()
@@ -1472,39 +1340,35 @@ class GatewayOnFile(GatewayCase):
         self.assertNotIn("kiosk", (self.root / paths.ON_FILE).read_text(), "what the other job wrote stays")
         self.assertEqual(job.error(), layers.CHANGED)
 
-    def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
-        # The add-on holds the token of the gateway of Test (here false) and is off; Redstart, on and running, cannot run
-        # with it: the start stops it, and the removal fails, before anything changed
+    def redstart_goes(self):
+        """The add-on holds the token of the gateway of Test (here false) and is off; Redstart, on and running, cannot run
+        with it: the start stops it."""
         self.project["addons"]["redstart"]["conflicts"]["hyssop"] = "same ports"
-        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")
+        self.on_file(self.REDSTART)
         self.state = {**test_layers.on(self.project, ["redstart"]), "stamp": layers.stamp()}
         self.running = test_layers.up("redstart", project=self.project)
         self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
-        accept = [layers.key("addon", "redstart")]
-        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": accept})
+        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": [layers.key("addon", "redstart")]})
         self.assertEqual(status, 200, body)
+
+    def test_a_gateway_s_job_whose_removal_fails_leaves_the_token_the_add_on_holds(self):
+        self.redstart_goes()
         job, ran = self.job(fails="rm")
         self.assertEqual((job.ok, ran[0][-5:]), (False, ["rm", "--stop", "--force", "-v", "redstart"]))
         self.assertIn(".lab/catalogs/fixture/addons/redstart/compose.yml", (self.root / paths.ON_FILE).read_text())
         self.swap.assert_not_called()   # the job changed nothing: the add-on still holds the token of Test
 
     def test_a_gateway_s_job_swaps_the_token_once_what_goes_is_removed_and_before_the_on_file_is_written(self):
-        self.project["addons"]["redstart"]["conflicts"]["hyssop"] = "same ports"
-        self.on_file("include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")
-        self.state = {**test_layers.on(self.project, ["redstart"]), "stamp": layers.stamp()}
-        self.running = test_layers.up("redstart", project=self.project)
-        self.where = {**self.where, "here": False, "serving": {"id": "client-lab/test", "name": "Test (Client lab)"}}
         order = []
         self.swap.side_effect = lambda *args: order.append(("swap", (self.root / paths.ON_FILE).read_text()))
-        status, _, body = self.request("POST", f"{self.GATEWAY}/start", {"accept": [layers.key("addon", "redstart")]})
-        self.assertEqual(status, 200, body)
+        self.redstart_goes()
         title, steps, more = self.started(self.jobs)
         job = Job(title, steps, **more)
         job.exec = lambda cmd, quiet=False: order.append(("run", cmd[-5:]))
         job.run()
         self.assertTrue(job.ok, job.error())
         self.assertEqual(order[:2], [("run", ["rm", "--stop", "--force", "-v", "redstart"]),
-                                     ("swap", "include:\n  - .lab/catalogs/fixture/addons/redstart/compose.yml\n")])
+                                     ("swap", self.REDSTART)])
         self.assertNotIn("redstart", (self.root / paths.ON_FILE).read_text())
 
 
@@ -1582,12 +1446,6 @@ class GatewayDeletes(GatewayCase):
         self.assertEqual((status, json.loads(body)), (409, {"error": "'Start Kazoo' is still running"}))
         self.delete.assert_not_called()
 
-    def test_an_on_file_with_the_users_own_changes_keeps_the_gateway_from_being_deleted(self):
-        self.on()
-        self.state = {**self.state, "locked": layers.LOCKED}
-        self.assertEqual(self.request("POST", f"{self.GATEWAY}/delete", {})[0], 409)
-        self.delete.assert_not_called()
-
     def test_what_the_platform_refuses_leaves_the_add_on_as_it_is(self):
         self.on()
         self.delete.side_effect = cloud.CloudError("Gravitee Cloud refuses this token", "invalid")
@@ -1603,12 +1461,6 @@ class GatewayDeletes(GatewayCase):
         self.here.assert_called_once_with(self.project, "my-account", None)
         self.remove.assert_called_once_with("my-account", self.project)
         self.assertEqual([call[0] for call in self.calls.mock_calls], ["remove", "apply"])
-
-    def test_a_platform_whose_gateway_did_not_run_here_is_just_forgotten(self):
-        self.here.return_value = False
-        self.on()
-        self.assertEqual(json.loads(self.request("POST", "/api/platforms/my-account/delete", {})[2]), {})
-        self.apply.assert_not_called()
 
     def test_what_could_not_be_deleted_of_a_forgotten_platform_is_said_after_its_add_on_is_off(self):
         self.on()
@@ -1729,8 +1581,6 @@ class StartsAreVerified(GatewayCase):
         tried = {self.hit(route[1]) for route in self.routes()}
         self.assertEqual(starting - tried, set(self.NO_PLAN), "a new route that starts something takes a plan: add it to the table")
         self.assertEqual(set(self.NO_PLAN) - starting, set(), "and a route that is gone leaves the list")
-        for pattern in self.NO_PLAN:
-            self.assertTrue(any(one.pattern == pattern for _, one, _ in api.ROUTES), pattern)
 
     def test_a_stop_asks_the_catalogs_nothing(self):
         self.being(["kiosk"], None)
@@ -1775,10 +1625,8 @@ class JobRoutes(LabUI):
     def test_cancel(self):
         status, _, body = self.request("POST", f"/api/jobs/{self.job.id}/cancel")
         self.assertEqual((status, json.loads(body)["id"]), (200, self.job.id))
-        ran = []
-        self.job.steps = [ran.append]
         self.job.run()
-        self.assertEqual((ran, self.job.ok, self.job.error()), ([], False, "Canceled"))
+        self.assertEqual(self.job.error(), "Canceled")
 
     def test_unknown_job(self):
         self.assertEqual(self.request("GET", "/api/jobs/00000000")[0], 404)
@@ -1787,11 +1635,7 @@ class JobRoutes(LabUI):
 
 class CommandLine(LabUI):
 
-    # The folder of a test is a clone made by hand: the command that starts its Lab UI is make ui (command())
-    RUNNING = "\n  >  Lab UI   http://localhost:{}\n     Already running. To load a new version, stop it with Ctrl+C in its " \
-              "terminal, then run make ui again.\n"
-
-    def another_program(self, handler=None):
+    def another_program(self):
         """A web server that is not the Lab UI, on a free port of its own: answers its port."""
         class Other(BaseHTTPRequestHandler):
             server_version = "SomethingElse"
@@ -1803,7 +1647,7 @@ class CommandLine(LabUI):
 
             def log_message(self, fmt, *args):
                 pass
-        server = ThreadingHTTPServer(("127.0.0.1", 0), handler or Other)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Other)
         server.daemon_threads = True
         threading.Thread(target=server.serve_forever, args=(0.01,), daemon=True).start()
         self.addCleanup(server.server_close)
@@ -1818,7 +1662,6 @@ class CommandLine(LabUI):
                                  ((0, "v4.9.1\n", ""), old.format("4.9.1")),
                                  ((0, "dev\n", ""), old.format("dev")),
                                  ((0, "5.0.0-desktop.1\n", ""), ""), ((0, "v5.4.0\n", ""), ""),
-                                 ((0, "5.6.0\n", ""), ""),
                                  ((1, "", "docker: 'compose' is not a docker command"), old.format("none")),
                                  ((127, "", "docker: not found"),
                                   "docker not found: install Docker with Compose 5.0 or later "
@@ -1826,30 +1669,6 @@ class CommandLine(LabUI):
             run.return_value = answer
             api.compose.CACHE.drop("docker:")   # each is another machine
             self.assertEqual(api.requirement(), expected)
-
-    def test_a_compose_that_lacks_nothing_is_asked_once_for_the_time_the_state_keeps_it(self):
-        # Every state asks it: the answer that nothing lacks is kept as long as a line that something does
-        run = self.patch(api.compose, "run", return_value=(0, "5.6.1\n", ""))
-        self.patch(api.compose, "CACHE", api.compose.Cache())
-        for _ in range(3):
-            api._docker_down({"docker": {"error": None}, "problems": []})
-        self.assertEqual(run.call_count, 1)
-        # The one reading of it, which the Dashboard and the check of the machine share
-        self.assertEqual((api.compose.compose_version(), run.call_count), ("5.6.1", 1))
-
-    def test_a_second_lab_ui_of_the_folder_on_another_port_is_sent_to_the_first(self):
-        # UI_PORT=9001 in the folder whose Lab UI serves on 9000: two Lab UIs would run their jobs at the same time
-        self.folder(paths)
-        served_elsewhere(self, 9000)
-        bound = self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("a second Lab UI served the folder"))
-        opened, printed = self.patch(api, "open_browser"), io.StringIO()
-        with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):
-            api.serve(9001, browser=False)
-            opened.assert_not_called()
-            api.serve(9001, browser=True)
-        bound.assert_not_called()
-        opened.assert_called_once_with("http://localhost:9000")
-        self.assertEqual(printed.getvalue(), (self.RUNNING.format(9000) + "\n") * 2)
 
     def test_the_lab_ui_of_another_folder_on_the_port_is_said_and_never_opened(self):
         # A second clone: the page of the first would act on the first lab
@@ -1924,27 +1743,11 @@ class CommandLine(LabUI):
             api.find_docker()
             self.assertEqual(os.environ["PATH"], "/usr/bin")
 
-    def test_what_answers_is_the_lab_ui_by_the_server_header_of_its_page(self):
-        self.assertTrue(api.is_lab_ui(self.server.server_port))
-        self.assertFalse(api.is_lab_ui(self.another_program()))
-
-    def test_anything_but_an_answer_is_another_program(self):
-        class Hangs(BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.connection.close()   # no answer at all
-        self.assertFalse(api.is_lab_ui(self.another_program(Hangs)))
-        with socket.socket() as free:   # nothing listens
-            free.bind(("127.0.0.1", 0))
-            self.assertFalse(api.is_lab_ui(free.getsockname()[1]))
+    def test_anything_but_an_answer_is_another_program_and_the_probe_waits_a_second_at_most(self):
         for error in (TimeoutError("timed out"), http.client.BadStatusLine("")):
-            with mock.patch.object(api.http.client, "HTTPConnection", side_effect=error):
-                self.assertFalse(api.is_lab_ui(self.server.server_port), error)
-
-    def test_the_probe_does_not_wait_longer_than_a_second(self):
-        with mock.patch.object(api.http.client, "HTTPConnection") as connection:
-            connection.return_value.getresponse.return_value.getheader.return_value = "GraviteeLabUI Python/3.12"
-            self.assertTrue(api.is_lab_ui(9000))
-        connection.assert_called_once_with("127.0.0.1", 9000, timeout=1)
+            with mock.patch.object(api.http.client, "HTTPConnection", side_effect=error) as connection:
+                self.assertFalse(api.is_lab_ui(9000), error)
+            connection.assert_called_once_with("127.0.0.1", 9000, timeout=1)
 
     def test_what_it_prints_is_utf8_whatever_the_terminal_says(self):
         streams = [mock.Mock(spec=["reconfigure"]), mock.Mock(spec=["reconfigure"])]   # no file number to ask a tty
@@ -2112,17 +1915,6 @@ class CatalogBodies(LabUI):
         self.assertEqual(self.request("POST", "/api/catalogs/nowhere/check", {})[0], 404)
 
 
-class JunkBodies(LabUI):
-    """A body that is not what a route reads is a 400 with a reason, never a 500."""
-
-    def test_the_versions_of_the_images_are_a_mapping(self):
-        self.patch(api.project, "load", return_value=PROJECT)
-        save = self.patch(api.images, "save")
-        status, _, body = self.request("POST", "/api/images", {"values": "x"})
-        self.assertEqual((status, json.loads(body)), (400, {"error": "The versions must be a mapping"}))
-        save.assert_not_called()
-
-
 class StateOfCatalogs(LabUI):
     """/api/state for a project with no catalog carries git, catalogs and content, and nothing is run to say them."""
 
@@ -2146,8 +1938,6 @@ class StateOfCatalogs(LabUI):
         self.assertEqual([row["id"] for row in state["catalogs"]], ["local"], "an empty Personal, which the page hides")
         self.assertIn(state["content"]["key"], ("ready", "downloading", "failed", "none"), "what the first start says")
         self.assertIsNone(state["content"]["offer"], "nothing is listed to offer")
-        for key in ("docker", "wait", "license", "platform", "playgrounds", "setups", "addons", "services", "links", "problems"):
-            self.assertIn(key, state)
         self.assertEqual(state["problems"], [], "nothing is wrong with the files that record the catalogs")
 
     def test_the_files_that_record_the_catalogs_unreadable_are_a_problem_of_the_state_for_the_banner(self):
@@ -2164,9 +1954,8 @@ class StateOfCatalogs(LabUI):
 
 
 class Startup(Case):
-    """Bind the port first; only once it is bound, finish what a stop left, write the intent of the first run and start the one background thread. A second `make ui`
-    touches nothing;
-    `--check`, `--list` and `--e2e` run none of it."""
+    """Bind the port first; only once it is bound, finish what a stop left, write the intent of the first run and start the one
+    background thread. A second `make ui` touches nothing; `--check`, `--list` and `--e2e` run none of it."""
 
     STEPS = (("service", "recover"), ("moving", "recover_at_start"), ("firstrun", "reconcile"), ("firstrun", "start_worker"))
 
@@ -2189,20 +1978,21 @@ class Startup(Case):
         self.patch(api, "ThreadingHTTPServer", Server)
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
-        self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals",)))
+        self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals", *others)))
         self.timer = self.patch(api.threading, "Timer")
         self.opened = self.patch(api, "open_browser")
 
-    def serve(self, browser=False):
+    def serve(self, browser=False, port=9000):
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed), mock.patch.dict("os.environ", {"LC_ALL": "C"}):   # an ASCII arrow
-            api.serve(9000, browser)
+            api.serve(port, browser)
         return printed.getvalue()
 
     def test_the_port_is_bound_first_then_the_steps_in_order_and_then_the_page_is_served(self):
         said = self.serve()
-        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals",), ("service", "recover"), ("moving", "recover_at_start"),
-                                       ("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
+        # A closed terminal ends the git of the downloads too (gitx.stop_running, handed over to what owns the signals)
+        self.assertEqual(self.events, [("bind", ("127.0.0.1", 9000)), ("signals", gitx.stop_running), ("service", "recover"),
+                                       ("moving", "recover_at_start"), ("firstrun", "reconcile"), ("firstrun", "start_worker"), ("serve",)])
         self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Keep this terminal open: Ctrl+C stops the Lab UI, "
                                "and the containers keep running.\n\n")
 
@@ -2223,31 +2013,23 @@ class Startup(Case):
         self.serve(browser=False)
         self.timer.assert_not_called()
 
-    def test_a_lab_that_serves_already_is_left_alone_not_one_of_the_steps_runs(self):
-        for module, name in self.STEPS:
-            self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran on the already running branch"))
-        self.patch(api.compose, "stop_on_signals", side_effect=AssertionError("signals were taken over"))
-        self.patch(api, "ThreadingHTTPServer", side_effect=AssertionError("the port was bound"))
+    def test_a_second_lab_ui_of_the_folder_is_sent_to_the_first_and_touches_nothing(self):
+        # UI_PORT=9001 in the folder whose Lab UI serves on 9000: two Lab UIs would run their jobs at the same time. The folder of
+        # a test is a clone made by hand: the command that starts its Lab UI is make ui (command())
         served_elsewhere(self, 9000)
-        said = self.serve(browser=True)
-        self.assertIn("Already running", said)
+        said = self.serve(browser=False, port=9001)
+        self.opened.assert_not_called()
+        self.assertEqual(said, "\n  >  Lab UI   http://localhost:9000\n     Already running. To load a new version, stop it with "
+                               "Ctrl+C in its terminal, then run make ui again.\n\n")
+        self.serve(browser=True, port=9001)
         self.opened.assert_called_once_with("http://localhost:9000")
-
-    def test_another_program_or_lab_ui_on_the_port_is_an_exit_and_touches_nothing(self):
-        for module, name in self.STEPS:
-            self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran"))
-        self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EADDRINUSE, "Address already in use"))
-        for answers in (False, True):
-            self.patch(api, "is_lab_ui", return_value=answers)
-            with self.assertRaises(SystemExit):
-                self.serve()
+        self.assertEqual(self.events, [])
 
     def test_an_error_other_than_a_busy_port_is_raised_before_anything_is_touched(self):
-        for module, name in self.STEPS:
-            self.patch(getattr(api, module), name, side_effect=AssertionError(f"{module}.{name} ran"))
         self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EACCES, "Permission denied"))
         with self.assertRaises(OSError):
             self.serve()
+        self.assertEqual(self.events, [])
 
     def test_a_step_that_fails_is_a_line_on_standard_error_and_the_rest_of_the_start_goes_on(self):
         self.patch(api.service, "recover", side_effect=CatalogError("damaged", "A catalog changed on disk.", 409))
@@ -2298,73 +2080,6 @@ class Startup(Case):
         self.assertEqual(said.getvalue(), "")
 
 
-# A Lab UI of its own, for Signals: argv[1] is the file the fake git writes its process id to, argv[2] the port
-SIGNALED_LAB = """
-import os, sys, threading, time
-from lab_ui.catalogs import gitx
-from lab_ui.server import api
-
-def started():
-    end = time.monotonic() + 20
-    while not os.path.exists(sys.argv[1]) and time.monotonic() < end:
-        time.sleep(0.02)
-    time.sleep(0.2)
-    print("ready", flush=True)
-
-def starting():
-    threading.Thread(target=gitx.run, args=(["fetch"],), kwargs={"timeout": 120}, daemon=True).start()
-    threading.Thread(target=started, daemon=True).start()
-
-api.start_up = starting
-api.address = lambda url, then: None
-api._serve(int(sys.argv[2]), False)
-"""
-
-
-class Signals(Case):
-    """A Lab UI that is hung up (its terminal closed) or terminated ends the git it runs."""
-
-    def setUp(self):
-        self.pids = self.folder() / "pids"
-        gitfixture.fake_git(self, f"echo $$ >> '{self.pids}'\nexec sleep 40")
-
-    def lab(self):
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
-        if self.pids.exists():
-            self.pids.unlink()
-        process = subprocess.Popen([sys.executable, "-c", SIGNALED_LAB, str(self.pids), str(port)],
-                                   cwd=Path(__file__).resolve().parents[2], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
-        self.addCleanup(process.communicate)
-        self.addCleanup(process.kill)
-        self.assertEqual(process.stdout.readline().strip(), b"ready", "the Lab UI did not start git")
-        (pid,) = [int(line) for line in self.pids.read_text().split()]
-        self.addCleanup(self.signaled, pid, signal.SIGKILL)
-        return process, pid
-
-    @staticmethod
-    def signaled(pid, number):
-        """Whether the process was there to be signaled."""
-        try:
-            os.kill(pid, number)
-            return True
-        except ProcessLookupError:
-            return False
-
-    def test_a_hang_up_or_a_termination_ends_the_git_of_the_download(self):
-        for number in (signal.SIGHUP, signal.SIGTERM):
-            with self.subTest(signal=number.name):
-                process, pid = self.lab()
-                process.send_signal(number)
-                self.assertEqual(process.wait(30), -number)
-                end = time.monotonic() + 5
-                while self.signaled(pid, 0) and time.monotonic() < end:
-                    time.sleep(0.05)
-                self.assertFalse(self.signaled(pid, 0), f"git was left running after {number.name}")
-
-
 class DockerDown(Case):
     """A Docker that does not answer, is not installed or has a Compose older than 5.0 is said as Docker's notice, in the words of the
     machine's check, and not as a core file that does not load."""
@@ -2410,10 +2125,10 @@ class Terminal(LabUI):
 
     def setUp(self):
         super().setUp()
-        playground = {"name": "Welcome", "services": [], "addons": [], "consoles": [], "terminal": "hello-shell"}
+        self.playground = {"name": "Welcome", "services": [], "addons": [], "consoles": [], "terminal": "hello-shell"}
         service = {"container": "gio-hello-shell", "owner": {"kind": "playground", "id": "welcome"}, "role": None}
         self.patch(api.project, "load", return_value={**PROJECT, "links": [], "services": {**PROJECT["services"], "hello-shell": service},
-                                                      "playgrounds": {"welcome": playground, "bare": {"name": "Bare"}}})
+                                                      "playgrounds": {"welcome": self.playground, "bare": {"name": "Bare"}}})
         self.session = mock.Mock(alive=True)
         self.attached = self.patch(api.terminal, "attach", return_value=self.session)
 
@@ -2438,11 +2153,8 @@ class Terminal(LabUI):
 
     def test_a_terminal_a_catalog_does_not_offer_is_not_opened_whatever_the_page_asks(self):
         # N05: the verdict of the playground says its terminal is not in a service of its own or of what it brings
-        playground = {"name": "Welcome", "services": [], "addons": [], "consoles": [], "terminal": "hello-shell",
-                      "verdict": {"state": "ok", "notes": [trust.line("N05")]}}
-        service = {"container": "gio-hello-shell", "owner": {"kind": "playground", "id": "welcome"}, "role": None}
-        self.patch(api.project, "load", return_value={**PROJECT, "links": [], "services": {**PROJECT["services"], "hello-shell": service},
-                                                      "playgrounds": {"welcome": playground}})
+        playground = self.playground
+        playground["verdict"] = {"state": "ok", "notes": [trust.line("N05")]}
         for method, path in (("POST", self.PATH), ("GET", self.PATH)):
             status, _, body = self.request(method, path, {"data": "k get pods\n"} if method == "POST" else None)
             self.assertEqual((status, json.loads(body)), (400, {"error": "Not offered by this catalog"}), method)

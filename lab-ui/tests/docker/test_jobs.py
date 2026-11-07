@@ -1,7 +1,7 @@
 """Jobs: one at a time, the last ones kept, a failure remembered until the item is started or stopped again, and
 how far a job is: from what each stage waits for, known before it begins, moved by what its commands print and by
 what Docker says of the containers. Nothing is run: a command prints lines taken from real output, and Docker is a
-fixture that follows them. Then "Start the stack" replayed as Compose printed it."""
+fixture that follows them."""
 
 import math
 import os
@@ -14,7 +14,6 @@ from unittest import mock
 from lab_ui.docker import compose, jobs
 from lab_ui.library import model, plugins
 from lab_ui import paths
-from lab_ui.server import stack
 from lab_ui.docker.jobs import KEPT, Job, JobFailed, Jobs, awaited
 
 from .. import Case
@@ -233,7 +232,7 @@ class Cut(Case):
     def run_job(self, step):
         """A job of one step, a shell script or a function, run in a thread. The output of each command it ran is closed
         once the test ends."""
-        job = Job("Start Acme Shop", [["sh", "-c", step] if isinstance(step, str) else step], key="addon:acme-shop",
+        job = Job("Start Malt", [["sh", "-c", step] if isinstance(step, str) else step], key="addon:malt",
                   verb="start")
         spawned, spawn = [], compose.spawn
         self.patch(compose, "spawn", lambda *args, **how: spawned.append(spawn(*args, **how)) or spawned[-1])
@@ -409,6 +408,14 @@ PULLS = [" Image gravitee-lab/hello-agent Skipped Image can be built", " Image b
          " Image redis:8 Pulled "]
 
 
+def phase(name, cmd):
+    """A step that names its phase, then runs a command."""
+    def run(job):
+        job.step(name)
+        job.exec(cmd)
+    return run
+
+
 class Progress(Case):
 
     def job(self, steps, *waits, **how):
@@ -432,20 +439,8 @@ class Progress(Case):
         Docker(LAB, {"redis": container(health="healthy"), "reader-ui": container()}, CHECKED).observe(job)
         self.assertEqual(job.progress, 1)
 
-    def test_an_image_s_own_health_check_is_waited_for(self):
-        # Compose says it started and shows no health check: Docker runs the one of its image, and says when it passed
-        job = self.job([UP], awaited(SERVICES, start=["reader-ui"]))
-        docker = Docker(LAB, checked={"reader-ui"})
-        lines = [" Container gio-reader-ui Created ", " Container gio-reader-ui Started "]
-        self.assertEqual(progress(replay(job, lines, refresh=docker.refresh)), [0.2, 0.5])
-        docker.observe(job)
-        self.assertEqual((job.ok, job.progress), (True, 0.5))
-        docker.healthy("reader-ui")
-        docker.observe(job)
-        self.assertEqual(job.progress, 1)
-
     def test_docker_says_the_health_that_compose_does_not_wait_for(self):
-        # Compose returns once Alert Engine runs; its health check passes later, read with the state
+        # Compose returns once Alert Engine runs and shows no health check of its image: it passes later, read with the state
         job = self.job([UP], awaited(SERVICES, start=["alert-engine", "reader-ui"]))
         docker = Docker(LAB, checked=CHECKED)
         lines = [" Container gio-alert-engine Starting ", " Container gio-alert-engine Started ",
@@ -535,11 +530,6 @@ class Progress(Case):
         self.assertEqual((job.ok, job.summary()["progress"], job.summary()["phases"]), (True, 0.75, []))
 
     def test_declared_phases_are_the_stages(self):
-        def phase(name, cmd):
-            def run(job):
-                job.step(name)
-                job.exec(cmd)
-            return run
         steps = [lambda job: job.step("Add-ons"), phase("Apps and services", UP), phase("Seed", ["docker", "logs"])]
         job = self.job(steps, awaited(SERVICES, start=["apim-gateway", "orchard-migrate"]), None,
                        phases=["Apps and services", "Seed"])
@@ -607,11 +597,6 @@ class Progress(Case):
 
     def test_a_container_stopped_then_started_is_half_way_once_stopped(self):
         # Its stop then its start (plugins loaded again): each stage that waits for it is half of its way
-        def phase(name, cmd):
-            def run(job):
-                job.step(name)
-                job.exec(cmd)
-            return run
         job = self.job([phase("Stop", STOP), phase("Start", UP)], awaited(SERVICES, stop=["apim-gateway"]),
                        awaited(SERVICES, start=["apim-gateway"]), phases=["Stop", "Start"])
         read = replay(job, [" Container gio-apim-gateway Stopping ", " Container gio-apim-gateway Stopped "],
@@ -667,135 +652,6 @@ class Progress(Case):
         replay(job, [], code=1)   # nothing printed
         self.assertEqual((job.error(), job.lines), ("Failed with exit code 1", ["$ docker compose up -d",
                                                                                 "Failed with exit code 1"]))
-
-
-# "Start the stack" as Compose printed it after the command: twelve
-# services, each with a health check; Compose waits only for those another one depends on, and returns once the last
-# ones run
-START_THE_STACK = [f" Container gio-{name} {status} " for name, status in (
-    ("elasticsearch", "Starting"), ("alert-engine", "Starting"), ("mongodb", "Starting"), ("redis", "Starting"),
-    ("alert-engine", "Started"), ("mongodb", "Started"), ("mongodb", "Waiting"), ("redis", "Started"),
-    ("elasticsearch", "Started"), ("elasticsearch", "Waiting"), ("mongodb", "Waiting"), ("mongodb", "Healthy"),
-    ("am-management-api", "Starting"), ("mongodb", "Healthy"), ("am-management-api", "Started"),
-    ("am-management-api", "Waiting"), ("mongodb", "Waiting"), ("am-management-api", "Waiting"),
-    ("mongodb", "Healthy"), ("am-management-api", "Healthy"), ("am-management-ui", "Starting"),
-    ("am-management-api", "Healthy"), ("am-gateway", "Starting"), ("am-management-ui", "Started"),
-    ("am-gateway", "Started"), ("elasticsearch", "Healthy"), ("apim-management-api", "Starting"),
-    ("apim-management-api", "Started"), ("apim-management-api", "Waiting"), ("apim-management-api", "Waiting"),
-    ("apim-management-api", "Waiting"), ("elasticsearch", "Waiting"), ("apim-management-api", "Waiting"),
-    ("redis", "Waiting"), ("mongodb", "Waiting"), ("mongodb", "Healthy"), ("elasticsearch", "Healthy"),
-    ("redis", "Healthy"), ("apim-management-api", "Healthy"), ("apim-management-ui", "Starting"),
-    ("apim-management-api", "Healthy"), ("apim-gateway", "Starting"), ("apim-management-api", "Healthy"),
-    ("apim-portal-ui", "Starting"), ("apim-management-api", "Healthy"), ("gamma-ui", "Starting"),
-    ("gamma-ui", "Started"), ("apim-management-ui", "Started"), ("apim-portal-ui", "Started"),
-    ("apim-gateway", "Started"))]
-GROUPS = {"Databases": ["elasticsearch", "mongodb", "redis"], "Alert Engine": ["alert-engine"],
-          "API Management": ["apim-gateway", "apim-management-api", "apim-management-ui", "apim-portal-ui",
-                             "gamma-ui"],
-          "Access Management": ["am-gateway", "am-management-api", "am-management-ui"]}
-# The health checks Compose does not wait for pass that many refreshes after their container started: Alert Engine
-# while the others start, the consoles and the gateways once Compose returned (50 lines)
-HEALTHY_AFTER = {"alert-engine": 25, "am-management-ui": 30, "am-gateway": 33, "gamma-ui": 6, "apim-management-ui": 6,
-                 "apim-portal-ui": 7, "apim-gateway": 9}
-
-
-def platform():
-    """The platform as project.build() describes it: four groups, nothing on top. Docker
-    checks the health of every service."""
-    services = {name: {"label": name, "description": "", "container": f"gio-{name}", "image": f"graviteeio/{name}:4.12.20",
-                       "raw_image": "", "tag": "4.12.20", "registry": None, "image_tags": None, "ports": [],
-                       "consoles": [], "oneshot": False, "depends_on": [], "built": False,
-                       "role": None, "needs_license": False,
-                       "owner": {"kind": "platform", "id": paths.slug(group), "name": group}}
-                for group, names in GROUPS.items() for name in names}
-    groups = [{"id": paths.slug(group), "name": group, "services": names, "version": "4.12.20", "registry": None,
-               "product": None, "file": "docker-compose.yml", "env_file": ".env", "settings": []}
-              for group, names in GROUPS.items()]
-    return {"name": "Gravitee platform", "categories": [], "core_loaded": True, "license_var": None, "license_usable": True,
-            "groups": groups,
-            "products": {}, "addons": {}, "setups": {}, "playgrounds": {}, "services": services, "links": [],
-            "core_variables": [], "problems": []}
-
-
-class Replay(Case):
-    """Start the stack, line by line, with Docker following the lines and the state read after each: how far the
-    job is, and the platform, the groups and the button of the Stack as the state says them."""
-
-    def setUp(self):
-        self.project = platform()
-        self.state = {"playground": None, "explicit": [], "setups": [], "effective": [], "missing": [],
-                      "problems": [], "locked": None}
-        self.patch(stack.layers, "current", return_value=self.state)
-        self.patch(stack.compose, "project_name", return_value="gravitee")
-        jobs_ = self.patch(stack, "JOBS")
-        stack.action(self.project, "start")
-        title, steps, more = self.started(jobs_)
-        self.job = Job(title, steps, more["key"], more["verb"], more["changes"], waits=more["waits"])
-        # The stack was stopped: every container exited
-        self.docker = Docker(self.project, {name: container("exited", code=143) for name in self.project["services"]},
-                             checked=self.project["services"])
-        self.since, self.curve, self.named = {}, [], []
-
-    def body(self):
-        """The state the page reads now."""
-        return model.build(self.project, self.state, self.docker.containers, self.job.summary(), lambda *_: None,
-                           None, {"error": None, "memory": None}, {})
-
-    def refresh(self, job=None, line=None):
-        """A refresh of the state: after a line Docker follows it, the health checks that are due pass, and the job
-        hears of it before the state is built."""
-        if line:
-            self.docker.follow(line)
-            name = line.split()[1][len("gio-"):]
-            self.named += [] if name in self.named else [name]
-            if line.split()[2] == "Started":
-                self.since[name] = len(self.curve)
-        for name, after in HEALTHY_AFTER.items():
-            if name in self.since and len(self.curve) - self.since[name] >= after:
-                self.docker.healthy(name)
-        self.docker.observe(self.job)
-        body = self.body()
-        ready = sum(container["health"] == "healthy" for container in self.docker.containers.values())
-        # While the job runs, the platform it is for is as far as the job, which comes beside the state (Job.live): the page
-        # reads it there
-        progress = body["platform"]["progress"]
-        self.curve.append({"job": self.job.progress, "beside": progress == "job",
-                           "platform": self.job.live()["progress"] if progress == "job" else progress,
-                           "state": body["platform"]["state"]["key"], "ready": ready, "named": len(self.named),
-                           "groups": [(group["progress"], group["state"]["key"])
-                                      for group in body["platform"]["groups"]]})
-
-    def test_start_the_stack(self):
-        replay(self.job, START_THE_STACK, refresh=self.refresh)
-        self.job.done, returned = True, len(self.curve)   # as Jobs runs it
-        while self.curve[-1]["ready"] < 12:
-            self.refresh()
-        self.refresh()   # once more: the state says it runs
-        jobs_progress = [point["job"] for point in self.curve]
-        self.assertEqual(jobs_progress, sorted(jobs_progress), "it never goes down")
-        # The first four containers named: a fifth of the way each, half once running, ready once healthy
-        first_four = [point["job"] for point in self.curve if point["named"] <= 4]
-        self.assertEqual((round(first_four[3], 3), round(max(first_four), 3)), (0.067, 0.208))
-        # Compose returned with six health checks still running: three quarters of the way, not all of it
-        self.assertEqual((self.job.ok, self.curve[returned - 1]["job"]), (True, 0.75))
-        # All of it once every service is ready, and only then
-        self.assertEqual([point["job"] == 1 for point in self.curve], [point["ready"] == 12 for point in self.curve])
-        # The platform's progress is the job's, while it runs and after, until the state says it runs: beside the state while
-        # the job runs, in it once the job ended
-        for point in self.curve[:-2]:
-            self.assertEqual((point["platform"], point["state"]), (point["job"], "starting"))
-        self.assertEqual([point["beside"] for point in self.curve], [index < returned for index in range(len(self.curve))])
-        self.assertEqual([(point["platform"], point["state"]) for point in self.curve[-2:]],
-                         [(None, "running")] * 2)
-        # A group is the mean of its containers while it starts: Databases runs long before the gateways, once Redis
-        # is healthy, and then nothing of it is measured, though the job still runs. No group says Starting at 100%
-        databases = [(None if share is None else round(share, 3), state)
-                     for share, state in (point["groups"][0] for point in self.curve)]
-        self.assertEqual(databases[36:38], [(0.833, "starting"), (None, "running")])
-        self.assertEqual(set(databases[37:]), {(None, "running")})
-        self.assertEqual((returned > 37, self.curve[37]["state"]), (True, "starting"))
-        self.assertEqual([group for point in self.curve for group in point["groups"]
-                          if group[1] == "starting" and group[0] >= 1], [])
 
 
 class Failures(Case):

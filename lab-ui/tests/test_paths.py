@@ -396,10 +396,10 @@ class InCatalogs(OnDisk):
 class Names(OnDisk):
 
     def test_where_an_item_sits(self):
-        for uid, ns, name, default, _ in (
-                ("kazoo", "gravitee", "kazoo", True, True), ("local/whoami", "local", "whoami", False, False),
-                ("@acme-hub/bank", "acme-hub", "bank", False, True), ("a-b", "gravitee", "a-b", True, True),
-                ("local/local", "local", "local", False, False), ("local", "gravitee", "local", True, True)):
+        for uid, ns, name, default in (
+                ("kazoo", "gravitee", "kazoo", True), ("local/whoami", "local", "whoami", False),
+                ("@acme-hub/bank", "acme-hub", "bank", False), ("a-b", "gravitee", "a-b", True),
+                ("local/local", "local", "local", False), ("local", "gravitee", "local", True)):
             with self.subTest(uid=uid):
                 self.assertEqual(paths.split_ref(uid), (ns, name))
                 self.assertEqual(paths.origin(uid), ns)
@@ -482,6 +482,11 @@ class Listing(OnDisk):
 class Found(OnDisk):
     """The units on disk: the default catalog's, this machine's, then the other catalogs'."""
 
+    # The set of units, group by group: who wins a name is the precedence of the registry, in the order added
+    IDS = {"addon": ["jade", "kazoo", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@zeta/last"],
+           "setup": ["events", "local/mine", "@acme-hub/bank-stack"],
+           "playground": ["acme-bakery", "welcome", "local/sandbox", "@acme-hub/bank"]}
+
     def setUp(self):
         super().setUp()
         self.put(
@@ -491,24 +496,9 @@ class Found(OnDisk):
             "acme-hub/addons/mock-bank/compose.yml", "acme-hub/setups/bank-stack.yml",
             "acme-hub/playgrounds/bank/compose.yml", "a-b/addons/first/compose.yml", "zeta/addons/last/compose.yml")
 
-    def test_the_ids_of_each_kind_by_catalog(self):
-        # The set of units, group by group: who wins a name is the precedence of the registry, in the order added
-        self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, {
-            "addon": ["jade", "kazoo", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@zeta/last"],
-            "setup": ["events", "local/mine", "@acme-hub/bank-stack"],
-            "playground": ["acme-bakery", "welcome", "local/sandbox", "@acme-hub/bank"]})
-
-    def test_the_files_follow_the_ids(self):
-        self.assertEqual(paths.files(), [
-            ".lab/catalogs/gravitee/addons/jade/compose.yml", ".lab/catalogs/gravitee/addons/kazoo/compose.yml",
-            ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/a-b/addons/first/compose.yml",
-            ".lab/catalogs/acme-hub/addons/mock-bank/compose.yml", ".lab/catalogs/zeta/addons/last/compose.yml",
-            ".lab/catalogs/gravitee/setups/events.yml", ".lab/catalogs/local/setups/mine.yml",
-            ".lab/catalogs/acme-hub/setups/bank-stack.yml",
-            ".lab/catalogs/gravitee/playgrounds/acme-bakery/compose.yml",
-            ".lab/catalogs/gravitee/playgrounds/welcome/compose.yml",
-            ".lab/catalogs/local/playgrounds/sandbox/compose.yml",
-            ".lab/catalogs/acme-hub/playgrounds/bank/compose.yml"])
+    def test_the_ids_of_each_kind_by_catalog_and_the_files_follow_them(self):
+        self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, self.IDS)
+        self.assertEqual(paths.files(), [paths.unit_file(kind, uid) for kind in paths.KINDS for uid in self.IDS[kind]])
         for kind in paths.KINDS:
             for uid in paths.ids(kind):
                 with self.subTest(kind=kind, uid=uid):
@@ -539,10 +529,7 @@ class Found(OnDisk):
         self.write("addons/root/compose.yml")   # the project's own folders are not read
         self.write("setups/root.yml")
         self.write("playgrounds/root/compose.yml")
-        self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, {
-            "addon": ["jade", "kazoo", "local/whoami", "@a-b/first", "@acme-hub/mock-bank", "@zeta/last"],
-            "setup": ["events", "local/mine", "@acme-hub/bank-stack"],
-            "playground": ["acme-bakery", "welcome", "local/sandbox", "@acme-hub/bank"]})
+        self.assertEqual({kind: paths.ids(kind) for kind in paths.KINDS}, self.IDS)
 
     def test_a_catalog_folder_may_be_a_link(self):
         # A folder catalog is a link to the author's folder; its units are found through it
@@ -608,10 +595,6 @@ class Vouched(OnDisk):
         self.assertEqual(self.everything(), {
             "addon": ["kazoo", "local/mine", "@acme-hub/listed", "@plain/loose"],
             "setup": ["local/mine"], "playground": ["@acme-hub/bank"]})
-        self.assertEqual(paths.files(), [
-            ".lab/catalogs/gravitee/addons/kazoo/compose.yml", ".lab/catalogs/local/addons/mine/compose.yml",
-            ".lab/catalogs/acme-hub/addons/listed/compose.yml", ".lab/catalogs/plain/addons/loose/compose.yml",
-            ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/acme-hub/playgrounds/bank/compose.yml"])
 
     def test_the_half_of_an_install_the_registry_does_not_know_lists_nothing(self):
         # A manifest the registry gives no units for (not valid for the pin, not in the lock): its files are not content

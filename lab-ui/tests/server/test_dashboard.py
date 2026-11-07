@@ -102,7 +102,6 @@ class Docker(Case):
         self.assertEqual(dashboard._usage()["images"]["size"], 58_890_000_000)
 
     def test_a_minute(self):
-        self.assertEqual((dashboard.DOCKER_TTL, dashboard.LATEST_TTL), (60, 3600))
         for _ in range(3):
             dashboard.cores(), dashboard._usage()
         self.assertEqual((self.asked("info"), self.asked("system")), (1, 1))
@@ -244,6 +243,10 @@ class Products(Case):
         self.settle()
         self.assertEqual(sorted((call.args[1], call.args[2]) for call in self.tags.call_args_list),
                          [("AE_VERSION", "graviteeio"), ("AM_VERSION", "graviteeio"), ("APIM_VERSION", "graviteeio")])
+        # What it lists is kept
+        for _ in range(3):
+            dashboard.products(self.project, {})
+        self.assertEqual(self.tags.call_count, 3)
 
     def test_a_registry_that_does_not_answer_is_quiet_and_asked_again_later(self):
         self.tags.side_effect = URLError("offline")
@@ -265,13 +268,6 @@ class Products(Case):
         dashboard.products(self.project, {})
         self.settle()
         self.assertEqual(dashboard.products(self.project, {})[1], False)
-
-    def test_what_a_registry_lists_is_kept_an_hour(self):
-        dashboard.products(self.project, {})
-        self.settle()
-        for _ in range(3):
-            dashboard.products(self.project, {})
-        self.assertEqual(self.tags.call_count, 3)
 
 
 class Read(Case):

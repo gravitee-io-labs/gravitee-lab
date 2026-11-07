@@ -18,7 +18,7 @@ APIM = {"kind": "platform", "id": "api-management", "name": "API Management"}
 KAZOO = {"kind": "addon", "id": "kazoo", "name": "Kazoo"}
 KIOSK = {"kind": "addon", "id": "kiosk", "name": "Kiosk"}
 TOOLS = {"kind": "addon", "id": "tools", "name": "Tools"}
-SHOP = {"kind": "playground", "id": "shop", "name": "Acme Shop"}
+SHOP = {"kind": "playground", "id": "shop", "name": "Malt Shop"}
 
 GATEWAY_IMAGE = ("${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway"
                  ":${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}")
@@ -40,8 +40,8 @@ SERVICES = {
     "kazoo-ui": (KAZOO, "Kazoo UI", "acmecontainer/kazoo-ui:latest", "acmecontainer/kazoo-ui:latest", None),
     "kiosk": (KIOSK, "Kiosk", "docker.elastic.co/kiosk/kiosk:${KIOSK_VERSION:-${ELASTICSEARCH_VERSION:-9.5.2}}",
                "docker.elastic.co/kiosk/kiosk:9.5.2", None),
-    "mcp-lens": (TOOLS, "MCP Lens", "ghcr.io/modelcontextprotocol/inspector:${MCP_LENS_VERSION:-2.9.0}",
-                      "ghcr.io/modelcontextprotocol/inspector:2.9.0", None),
+    "malt-lens": (TOOLS, "Malt Lens", "ghcr.io/malt/inspector:${MALT_LENS_VERSION:-2.9.0}",
+                      "ghcr.io/malt/inspector:2.9.0", None),
     "mirror": (TOOLS, "Mirror", "localhost:5000/team/mirror:${MIRROR_VERSION:-1}", "localhost:5000/team/mirror:1",
                None),
     "built": (TOOLS, "Built here", "gravitee-lab/built", "gravitee-lab/built", None),
@@ -91,7 +91,7 @@ class Images(Case):
         self.assertEqual(where, {
             "MONGODB_VERSION": ("third-party", None, "library/mongo", "Docker Hub", None),
             "KAZOO_VERSION": ("third-party", None, "acmecontainer/kazoo", "Docker Hub", None),
-            "MCP_LENS_VERSION": ("third-party", "ghcr.io", "modelcontextprotocol/inspector", "ghcr.io", None),
+            "MALT_LENS_VERSION": ("third-party", "ghcr.io", "malt/inspector", "ghcr.io", None),
             "MIRROR_VERSION": ("third-party", "localhost:5000", "team/mirror", "localhost:5000", None)})
 
     def test_tags_label_says_where_tags_are_listed(self):
@@ -116,7 +116,13 @@ class Images(Case):
         # Under one owner, what most services share first: API Management before its gateway
         self.assertEqual([c["id"] for c in images.components(self.project)],
                          ["ELASTICSEARCH_VERSION", "MONGODB_VERSION", "APIM_VERSION", "APIM_GATEWAY_VERSION",
-                          "KAZOO_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION", "MIRROR_VERSION"])
+                          "KAZOO_VERSION", "KIOSK_VERSION", "MALT_LENS_VERSION", "MIRROR_VERSION"])
+        # The groups in the order they are declared, the add-ons by name
+        self.project["groups"].reverse()
+        self.project["services"]["kazoo"]["owner"] = {"kind": "addon", "id": "kazoo", "name": "zookeeper and Kazoo"}
+        self.assertEqual([c["id"] for c in images.components(self.project)],
+                         ["APIM_VERSION", "APIM_GATEWAY_VERSION", "ELASTICSEARCH_VERSION", "MONGODB_VERSION",
+                          "KIOSK_VERSION", "MALT_LENS_VERSION", "MIRROR_VERSION", "KAZOO_VERSION"])
 
     def test_the_gateway_of_an_add_on_follows_the_group_that_runs_its_image(self):
         # The hybrid gateway runs API Management's gateway image (project._gateway_groups): its component comes after
@@ -132,7 +138,7 @@ class Images(Case):
         found = images.components(self.project)
         self.assertEqual([c["id"] for c in found],
                          ["ELASTICSEARCH_VERSION", "MONGODB_VERSION", "APIM_VERSION", "APIM_GATEWAY_VERSION",
-                          "HYSSOP_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION",
+                          "HYSSOP_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MALT_LENS_VERSION",
                           "MIRROR_VERSION"])
         gateway = self.component("HYSSOP_GATEWAY_VERSION")
         self.assertEqual((gateway["label"], gateway["detail"], gateway["owner"], gateway["group"]),
@@ -142,16 +148,9 @@ class Images(Case):
         # A gateway whose image no group runs stays with the add-ons, by name
         self.project["addons"]["hyssop"]["gateway"]["group"] = None
         self.assertEqual([c["id"] for c in images.components(self.project)][4:],
-                         ["HYSSOP_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION",
+                         ["HYSSOP_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MALT_LENS_VERSION",
                           "MIRROR_VERSION"])
         self.assertEqual(self.component("HYSSOP_GATEWAY_VERSION")["detail"], "Hybrid gateway")
-
-    def test_groups_in_declared_order_and_add_ons_by_name(self):
-        self.project["groups"].reverse()
-        self.project["services"]["kazoo"]["owner"] = {"kind": "addon", "id": "kazoo", "name": "zookeeper and Kazoo"}
-        self.assertEqual([c["id"] for c in images.components(self.project)],
-                         ["APIM_VERSION", "APIM_GATEWAY_VERSION", "ELASTICSEARCH_VERSION", "MONGODB_VERSION",
-                          "KIOSK_VERSION", "MCP_LENS_VERSION", "MIRROR_VERSION", "KAZOO_VERSION"])
 
     def test_host_rule(self):
         for name, where in {"redis": (None, "library/redis"), "orchard/orchard": (None, "orchard/orchard"),
@@ -278,14 +277,14 @@ class Images(Case):
             self.patch(images, name, side_effect=lambda *where, name=name: [name, *where])
         asked = {(cid, registry): images.tags(self.project, cid, registry) for cid, registry in (
             ("APIM_VERSION", None), ("APIM_VERSION", "graviteeio"), ("APIM_VERSION", "registry.example.com/team"),
-            ("ELASTICSEARCH_VERSION", None), ("MCP_LENS_VERSION", "ignored"))}
+            ("ELASTICSEARCH_VERSION", None), ("MALT_LENS_VERSION", "ignored"))}
         self.assertEqual(asked, {
             ("APIM_VERSION", None): ["_azure_tags", "graviteeio.azurecr.io", "apim-management-api"],
             ("APIM_VERSION", "graviteeio"): ["_hub_tags", "graviteeio/apim-management-api"],
             ("APIM_VERSION", "registry.example.com/team"): ["_oci_tags", "registry.example.com",
                                                             "team/apim-management-api"],
             ("ELASTICSEARCH_VERSION", None): ["_hub_tags", "library/elasticsearch"],
-            ("MCP_LENS_VERSION", "ignored"): ["_oci_tags", "ghcr.io", "modelcontextprotocol/inspector"]})
+            ("MALT_LENS_VERSION", "ignored"): ["_oci_tags", "ghcr.io", "malt/inspector"]})
         with self.assertRaises(ValueError):
             images.tags(self.project, "APIM_VERSION", "bad registry")
         with self.assertRaises(paths.NotFound):
@@ -349,13 +348,14 @@ class Images(Case):
             with self.assertRaises(ValueError, msg=key):
                 images.login("graviteeio.azurecr.io", key)
 
-    def test_without_the_azure_cli_its_registries_say_to_install_it(self):
+    def test_without_the_cli_of_a_registry_it_says_to_install_it(self):
         # Not the error of running a program that is not there: what to do
         self.patch(images.shutil, "which", return_value=None)
         jobs, run = self.patch(images, "JOBS"), self.patch(compose, "run")
-        for call in (lambda: images.login("graviteeio.azurecr.io"),
-                     lambda: images._azure_tags("graviteeio.azurecr.io", "apim-management-api")):
-            with self.assertRaisesRegex(RuntimeError, r"^Install the Azure CLI \(az\)$"):
+        for call, words in ((lambda: images.login("graviteeio.azurecr.io"), r"^Install the Azure CLI \(az\)$"),
+                            (lambda: images._azure_tags("graviteeio.azurecr.io", "apim-management-api"), r"^Install the Azure CLI \(az\)$"),
+                            (lambda: images.login("ghcr.io"), r"^Install the GitHub CLI \(gh\)$")):
+            with self.assertRaisesRegex(RuntimeError, words, msg=words):
                 call()
         jobs.start.assert_not_called()
         run.assert_not_called()
@@ -394,13 +394,6 @@ class Images(Case):
         answers["login"] = (1, "", "Error response from daemon: Get https://ghcr.io/v2/: denied")
         with self.assertRaisesRegex(images.JobFailed, "denied$"):
             steps[0](mock.Mock(lines=[]))
-
-    def test_without_the_github_cli_ghcr_io_says_to_install_it(self):
-        self.patch(images.shutil, "which", return_value=None)
-        jobs = self.patch(images, "JOBS")
-        with self.assertRaisesRegex(RuntimeError, r"^Install the GitHub CLI \(gh\)$"):
-            images.login("ghcr.io")
-        jobs.start.assert_not_called()
 
     def test_an_expired_azure_session_says_to_log_in_with_the_azure_cli(self):
         # Tags are listed with the Azure CLI's own session, which the page's Log in (Docker's) cannot renew; and a
@@ -453,30 +446,18 @@ class Images(Case):
     def test_a_registry_that_does_not_answer_says_why_in_plain_words(self):
         compose.CACHE.drop("tags:")
         self.addCleanup(compose.CACHE.drop, "tags:")
-        reasons = {"offline": images.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")),
-                   "limited": images.urllib.error.HTTPError("https://hub.docker.com", 429, "Too Many Requests", {}, None),
-                   "refused": images.urllib.error.HTTPError("https://ghcr.io", 403, "Forbidden", {}, None),
-                   "absent": images.urllib.error.HTTPError("https://hub.docker.com", 404, "Not Found", {}, None),
-                   "slow": images.urllib.error.URLError(TimeoutError("timed out"))}
-        said = {}
-        for name, error in reasons.items():
+        for error, words in ((images.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")), "Cannot reach {}"),
+                             (images.urllib.error.HTTPError("https://hub.docker.com", 429, "Too Many Requests", {}, None),
+                              "Too many requests to {}: try again later"),
+                             (images.urllib.error.HTTPError("https://ghcr.io", 403, "Forbidden", {}, None), "{} refuses the request"),
+                             (images.urllib.error.HTTPError("https://hub.docker.com", 404, "Not Found", {}, None), "Not found on {}"),
+                             (images.urllib.error.URLError(TimeoutError("timed out")), "{} does not answer in time")):
             compose.CACHE.drop("tags:")
             self.patch(images.urllib.request, "urlopen", side_effect=error)
-            for cid in ("ELASTICSEARCH_VERSION", "MCP_LENS_VERSION"):
-                with self.assertRaises(RuntimeError) as failed:
+            for cid, where in (("ELASTICSEARCH_VERSION", "Docker Hub"), ("MALT_LENS_VERSION", "ghcr.io")):
+                with self.subTest(words=words, where=where), self.assertRaises(RuntimeError) as failed:
                     images.tags(self.project, cid)
-                said[name, cid] = str(failed.exception)
-        self.assertEqual(said, {
-            ("offline", "ELASTICSEARCH_VERSION"): "Cannot reach Docker Hub",
-            ("offline", "MCP_LENS_VERSION"): "Cannot reach ghcr.io",
-            ("limited", "ELASTICSEARCH_VERSION"): "Too many requests to Docker Hub: try again later",
-            ("limited", "MCP_LENS_VERSION"): "Too many requests to ghcr.io: try again later",
-            ("refused", "ELASTICSEARCH_VERSION"): "Docker Hub refuses the request",
-            ("refused", "MCP_LENS_VERSION"): "ghcr.io refuses the request",
-            ("absent", "ELASTICSEARCH_VERSION"): "Not found on Docker Hub",
-            ("absent", "MCP_LENS_VERSION"): "Not found on ghcr.io",
-            ("slow", "ELASTICSEARCH_VERSION"): "Docker Hub does not answer in time",
-            ("slow", "MCP_LENS_VERSION"): "ghcr.io does not answer in time"})
+                self.assertEqual(str(failed.exception), words.format(where))
 
     def test_a_long_list_of_tags_is_read_page_by_page(self):
         # The registry API lists a thousand at most, by name, and says where the next ones are (Link): the newest
