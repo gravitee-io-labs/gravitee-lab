@@ -31,8 +31,8 @@ stars, done. shadow: record, move (each), install, link, config, lock, done. uns
 install, then apply, file, removed and manifest of the repair it makes, move (each), config, lock, done. recover: begin,
 pending, sweep, done.
 
-The locks are the catalogs lock and the advisory lock of the other processes (`registry.LOCK`, `registry.flock`), then
-`project.exclusive()` around the steps that change what a reader reads, in that order (, rule 11)."""
+The locks are the advisory lock of the catalogs (`registry.flock`), then `project.exclusive()` around the steps that change
+what a reader reads, in that order."""
 
 import contextlib
 import hashlib
@@ -130,13 +130,6 @@ def _utc():
 
 def _compact(offset=0):
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(time.time() + offset))
-
-
-@contextlib.contextmanager
-def _guard():
-    """The two locks of an operation, in their order: this process's, then the other processes'."""
-    with registry.LOCK, registry.flock():
-        yield
 
 
 def _exclusive():
@@ -790,7 +783,7 @@ def commit_add(staged: Staged, address: gitx.Address, branch: Optional[str], aud
     of the stage, `branch` the one the remote resolved (None or "" for the default one), `roots` the
     root commits seen at the fetch. A folder stage is renamed to the link and recorded. Answers {entry, lock}."""
     ns = staged.ns
-    with _guard():
+    with registry.flock():
         _step("add:begin")
         entry, held = registry.entry(ns), registry.lock_of(ns)
         _free(ns, entry, held, address)
@@ -1086,7 +1079,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     has a key this Lab does not read (`lab_new`: it needs a newer Gravitee Lab), the staged folder cleared. The
     plan is applied by `apply_update`, which asks again."""
     context = dict(context or {})
-    with _guard():
+    with registry.flock():
         _git_entry(ns)
         _settle(ns)
         held, old = registry.lock_of(ns), registry.manifest(ns)
@@ -1215,7 +1208,7 @@ def apply_update(ns: str, plan: dict, confirm_history: bool = False) -> None:
     installed version did not list where the new one now has a file) is `damaged` before anything is touched; but for a
     regular file that is the very file the new version writes there (what an update that failed halfway left, and a Repair
     to the old pin did not take away): it is taken over."""
-    with _guard():
+    with registry.flock():
         _git_entry(ns)
         _settle(ns)
         held = registry.lock_of(ns)
@@ -1362,7 +1355,7 @@ def repair(ns: str) -> None:
     is cleared. A file the manifest does not list is the machine's and stays. It runs as an update from the pin to the
     pin, so a stop in the middle is finished by `recover()`. When the store lacks an object it raises `fsck`
     (`store.MissingObject`): the caller fetches again and repairs again. Nothing to do for a folder catalog."""
-    with _guard():
+    with registry.flock():
         entry = registry.entry(ns)
         if entry is None:
             raise ValueError(f"{ns} is not a catalog of this machine")
@@ -1423,7 +1416,7 @@ def remove(ns: str, keep_settings: bool = True) -> dict:
     asks the same of what is up, which only it can see."""
     if not isinstance(ns, str) or ns == paths.LOCAL or not _NS.fullmatch(ns):
         raise ValueError(f"{ns!r} is not a catalog")
-    with _guard():
+    with registry.flock():
         entry, held = registry.entry(ns), registry.lock_of(ns)
         if entry is not None and (held.get("shadowed") or (entry["kind"] == "folder" and entry.get("shadows"))):
             raise CatalogError("linked", LINKED, 409)
@@ -1506,7 +1499,7 @@ def shadow(ns: str, folder: str) -> dict:
     marked `shadowed` (the store and the pin stay). What is done is recorded in `.shadow-<ns>.json` first, so that a
     stop is finished by `recover()` and `unshadow` knows what to take back. The caller refuses while an item is on or
     up; this refuses what the on file turns on. Answers {"moved": [...], "kept": [...], "folder": path}."""
-    with _guard():
+    with registry.flock():
         entry, held = registry.entry(ns), registry.lock_of(ns)
         if entry is None:
             raise ValueError(f"{ns} is not a catalog of this machine")
@@ -1603,7 +1596,7 @@ def unshadow(ns: str) -> dict:
     {"moved": [...]}. The working copy is never touched but for the entries taken back. A store that does not hold the
     pin (the cache was cleared: it is disposable) is `fsck` before anything is written, with the link in place: the
     caller fetches the address in `entry["shadows"]` into the store of the catalog and unlinks again."""
-    with _guard():
+    with registry.flock():
         entry = registry.entry(ns)
         if entry is None or entry["kind"] != "folder" or not entry.get("shadows"):
             raise ValueError(f"{ns} is not a git catalog that a working copy stands in for")
@@ -1742,7 +1735,7 @@ def sweep() -> None:
     folders that have no entry in `catalogs.json` (`_sweep_install`). `local` is never swept, a link is never followed, and no
     install is touched while the file that lists the catalogs cannot be read, so a damaged file never turns every install into
     garbage."""
-    with _guard():
+    with registry.flock():
         _sweep_stale()
         if registry.config_problem():
             return
@@ -1785,7 +1778,7 @@ def recover() -> None:
     one catalog never ends the start, and neither does a start without git (state `needs_git`): an operation under way
     keeps its record. It raises `busy` when another process holds the lock
     for longer than the wait."""
-    with _guard():
+    with registry.flock():
         _step("recover:begin")
         problem = registry.config_problem()
         for ns in sorted(registry.read_lock()["catalogs"]):

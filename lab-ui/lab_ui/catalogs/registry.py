@@ -8,11 +8,10 @@ kept for the Catalogs page (`config_problem`), never a crash. The only read that
 read, so that a damaged file is never mistaken for a first run. Writes are atomic (`paths.write_atomic`, mode 0600), and
 a file the Lab cannot read is kept aside (`<name>.bad-<utc>`) before it is replaced, never overwritten.
 
-Every function reads `paths.ROOT` at call time and keeps no path of its own. Two locks serialize the writers: `LOCK` for
-the threads of this process and an advisory lock on `.lab/catalogs.flock` for the other processes, the command line and
-a second Lab. `flock()` takes both, LOCK first, so that whoever holds the advisory lock holds LOCK as well and no two
-threads can wait for each other. The order is always LOCK, then the advisory lock, then the project lock. A reader takes
-neither: it reads whole files and tolerates a pair that is half written. What a read accepts, a write can store back.
+Every function reads `paths.ROOT` at call time and keeps no path of its own. An advisory lock on `.lab/catalogs.flock`
+(`flock()`) serializes the writers: the threads of this process, the command line and a second Lab. The order is always this
+lock, then the project lock. A reader takes neither: it reads whole files and tolerates a pair that is half written. What a
+read accepts, a write can store back.
 
 A git install is trusted only through its manifest: a unit is a unit of the catalog only if
 `.installed.json` lists it, and the manifest is valid only for the commit the lock pins, or for the one an operation
@@ -34,8 +33,6 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .. import paths
-
-LOCK = threading.RLock()
 
 SCHEMA = 1
 LOCAL = paths.LOCAL
@@ -96,8 +93,8 @@ class CatalogError(Exception):
 
 # ---------------------------------------------------------------- locks
 
-# The advisory locks this thread holds, by file, with a depth: flock(2) would block a thread on a second descriptor of
-# a file it already holds
+# The advisory locks this thread holds, by file: flock(2) would block a thread on a second descriptor of a file it already
+# holds
 _held = threading.local()
 
 
@@ -136,35 +133,23 @@ def _acquire(path, wait):
 
 @contextlib.contextmanager
 def flock(wait: Optional[float] = None):
-    """Holds LOCK and then the advisory lock on `.lab/catalogs.flock` (the other processes of this machine are kept
-    out), for up to `wait` seconds of waiting for both (FLOCK_WAIT when not given, 0 to try once), else the change is
-    `busy`. LOCK is taken here, first: a thread that holds the advisory lock holds LOCK too, so it can go on to call a
-    writer while another thread of this process waits for the lock, and neither waits for the other. A thread that
-    holds it takes it again at no cost, so a function may take it whether its caller did or not (`with LOCK, flock()`
-    works as well). Where the lock file cannot be made, LOCK is all there is."""
+    """Holds the advisory lock on `.lab/catalogs.flock`, for up to `wait` seconds of waiting (FLOCK_WAIT when not given, 0 to
+    try once), else the change is `busy`. Another thread waits as another process does: flock(2) goes by the open file. A
+    thread that holds it takes it again at no cost, so a function may take it whether its caller did or not. Where the lock file
+    cannot be made there is nothing to hold."""
     path = str(Path(paths.ROOT) / FLOCK_FILE)
-    held = _held.__dict__.setdefault("held", {})
+    held = _held.__dict__.setdefault("held", set())
     if path in held:
-        held[path] += 1
-        try:
-            yield
-        finally:
-            held[path] -= 1
+        yield
         return
-    deadline = time.monotonic() + (FLOCK_WAIT if wait is None else wait)
-    if not LOCK.acquire(timeout=max(0.0, deadline - time.monotonic())):
-        raise busy()
+    descriptor = _acquire(path, FLOCK_WAIT if wait is None else wait)
+    held.add(path)
     try:
-        descriptor = _acquire(path, max(0.0, deadline - time.monotonic()))
-        held[path] = 1
-        try:
-            yield
-        finally:
-            del held[path]
-            if descriptor is not None:
-                os.close(descriptor)   # closing the descriptor releases the lock
+        yield
     finally:
-        LOCK.release()
+        held.discard(path)
+        if descriptor is not None:
+            os.close(descriptor)   # closing the descriptor releases the lock
 
 
 # ---------------------------------------------------------------- reading files
@@ -544,7 +529,7 @@ def write_config(config: dict) -> None:
     first kept as `catalogs.json.bad-<utc>`, never overwritten, so a hand edit that went wrong is kept for the person.
     Refuses (ValueError) what would not read back as given: an entry with no valid id, a reserved id that is not listed,
     a repeated id; and an address with a user name (bad_address_secret). The allowance of a listed catalog is not
-    written (it is implied). Reading the file again is the caller's, under LOCK and flock, as any change of catalogs."""
+    written (it is implied). Reading the file again is the caller's, under the flock, as any change of catalogs."""
     text = _dump(_checked_config(config))
     with flock():
         _write(CONFIG_FILE, text, _load_config()[1])
@@ -699,7 +684,7 @@ def lock_of(ns: str) -> dict:
 
 def set_lock(ns: str, **fields) -> dict:
     """Sets fields of the lock entry of `ns` (made if it has none) and writes the file: read, change and write under
-    LOCK and flock, so that two changes never lose one another, in this process or in another. A field set to None is
+    the flock, so that two changes never lose one another, in this process or in another. A field set to None is
     its blank (`shadowed`: removed). Answers the new entry."""
     if not _namespace(ns):
         raise ValueError(f"not a namespace: {ns!r}")

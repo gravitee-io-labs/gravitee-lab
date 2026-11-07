@@ -232,15 +232,6 @@ class Base(Case):
             made.append(f"{unit}/{rel}")
         return made
 
-    @staticmethod
-    def held_elsewhere(lock) -> bool:
-        """Whether another thread cannot take `lock` now, which is to say that this one holds it."""
-        free = []
-        thread = threading.Thread(target=lambda: free.append(lock.acquire(blocking=False)) or (free[0] and lock.release()))
-        thread.start()
-        thread.join()
-        return free == [False]
-
     def whole(self, ns, when=""):
         """What a reader sees of catalog `ns` is whole: a manifest the lock accepts lists files that are all there with
         the sha256 it says, and the units are those of the manifest."""
@@ -1348,7 +1339,7 @@ class Updating(Base):
 
         @contextlib.contextmanager
         def exclusive():
-            seen.append(self.held_elsewhere(registry.LOCK))
+            seen.append(bool(registry._held.held))
             yield
         self.patch(project, "exclusive", exclusive, create=True)
         install.apply_update("partner", plan)

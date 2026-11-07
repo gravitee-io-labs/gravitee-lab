@@ -67,9 +67,8 @@ def free(lock):
 
 
 def unlocked():
-    """Whether the thread that asks holds none of the locks of a change of catalogs: the lock of this process, the
-    advisory lock of the others, the project's."""
-    return free(registry.LOCK) and not getattr(registry._held, "held", {}) and free(project._lock)
+    """Whether the thread that asks holds none of the locks of a change of catalogs: the advisory lock, the project's."""
+    return not getattr(registry._held, "held", ()) and free(project._lock)
 
 
 class Recorded(dict):

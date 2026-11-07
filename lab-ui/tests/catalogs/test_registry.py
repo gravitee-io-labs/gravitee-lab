@@ -625,20 +625,13 @@ class LockWrite(Disk):
         self.assertEqual(registry.lock_of("acme-hub")["pin"], A)
         self.assertIsNone(registry.config_problem())
 
-    def test_a_write_takes_the_two_locks_in_their_order(self):
-        order, real = [], registry._acquire
-
-        def spy(path, wait):
-            order.append(registry.LOCK._is_owned())   # the advisory lock is asked for with LOCK held by this thread
-            return real(path, wait)
-
-        with mock.patch.object(registry, "_acquire", spy):
+    def test_every_write_takes_the_lock(self):
+        with mock.patch.object(registry, "_acquire", side_effect=registry._acquire) as asked:
             registry.set_lock("acme-hub", pin=A)
             registry.write_config({"schema": 1, "catalogs": []})
             registry.write_lock({"schema": 1, "catalogs": {}})
             registry.drop_lock("acme-hub")
-        self.assertEqual(order, [True, True, True, True])
-        self.assertFalse(registry.LOCK._is_owned())
+        self.assertEqual(asked.call_count, 4)
 
     def test_threads_never_lose_one_another_s_change(self):
         def work(n):
@@ -746,7 +739,7 @@ class Flock(Disk):
             release.set()
             thread.join(10)
 
-    def test_a_lock_file_that_cannot_be_made_leaves_the_lock_of_the_process(self):
+    def test_a_lock_file_that_cannot_be_made_stops_nothing(self):
         os.makedirs(self.root / ".lab")
         self.lock_file().mkdir()   # a folder in its place: it cannot be opened for writing
         with registry.flock(wait=0):
@@ -777,42 +770,6 @@ class Flock(Disk):
             thread.join(10)
             self.assertFalse(thread.is_alive())
 
-    def other_thread(self, work):
-        """What `work()` answered in another thread of this process: (result, None) or (None, the exception)."""
-        box = []
-
-        def run():
-            try:
-                box.append((work(), None))
-            except BaseException as error:  # noqa: BLE001 - whatever it was, the test looks at it
-                box.append((None, error))
-        thread = threading.Thread(target=run)
-        thread.start()
-        thread.join(30)
-        self.assertFalse(thread.is_alive())
-        return box[0]
-
-    def lock_is_free(self):
-        """Whether another thread of this process can take LOCK now (and gives it back)."""
-        def take():
-            if registry.LOCK.acquire(timeout=0.05):
-                registry.LOCK.release()
-                return True
-            return False
-        return self.other_thread(take)
-
-    def test_it_holds_the_lock_of_the_process_first_and_gives_it_back(self):
-        self.assertFalse(registry.LOCK._is_owned())
-        with registry.flock():
-            self.assertTrue(registry.LOCK._is_owned())
-            self.assertTrue(self.held_elsewhere())
-            self.assertEqual(self.lock_is_free(), (False, None))
-            with registry.flock(wait=0):
-                self.assertTrue(registry.LOCK._is_owned())
-            self.assertTrue(registry.LOCK._is_owned())
-        self.assertFalse(registry.LOCK._is_owned())
-        self.assertEqual(self.lock_is_free(), (True, None))
-
     def test_a_thread_that_holds_it_can_write_while_another_writer_waits_for_it(self):
         # What recover() does (it takes the flock and then works with the registry) while a request writes: the two never
         # wait for each other until the end of the wait, where one would fail busy and the other would stall
@@ -836,30 +793,7 @@ class Flock(Disk):
         self.assertEqual(results, ["done"])
         self.assertEqual(sorted(registry.read_lock()["catalogs"]), ["alpha-one", "beta-two"])
 
-    def test_the_wait_is_one_wait_for_both_locks(self):
-        holder, release = threading.Event(), threading.Event()
-
-        def hold():
-            with registry.LOCK:   # a thread that has the lock of the process and not the advisory one
-                holder.set()
-                release.wait(30)
-        thread = threading.Thread(target=hold)
-        thread.start()
-        self.assertTrue(holder.wait(10))
-        try:
-            started = time.monotonic()
-            with self.assertRaises(registry.CatalogError) as raised, registry.flock(wait=0.3):
-                self.fail("taken while another thread held LOCK")
-            self.assertEqual(raised.exception.code, "busy")
-            self.assertGreaterEqual(time.monotonic() - started, 0.25)
-            self.assertFalse(self.lock_file().exists() and self.held_elsewhere())   # the advisory lock was not taken
-            with self.assertRaises(registry.CatalogError), registry.flock(wait=0):
-                pass
-        finally:
-            release.set()
-            thread.join(10)
-
-    def test_busy_on_the_advisory_lock_gives_the_lock_of_the_process_back(self):
+    def test_busy_on_the_advisory_lock_leaves_nothing_held(self):
         os.makedirs(self.root / ".lab")
         descriptor = os.open(self.lock_file(), os.O_RDWR | os.O_CREAT, 0o600)
         self.addCleanup(os.close, descriptor)
@@ -867,16 +801,7 @@ class Flock(Disk):
         with self.assertRaises(registry.CatalogError) as raised, registry.flock(wait=0.2):
             self.fail("taken while another process held the lock")
         self.assertEqual(raised.exception.code, "busy")
-        self.assertFalse(registry.LOCK._is_owned())
-        self.assertEqual(self.lock_is_free(), (True, None))
-        self.assertEqual(getattr(registry._held, "held", {}), {})
-
-    def test_it_composes_with_the_lock_of_the_process_taken_before_it(self):
-        with registry.LOCK, registry.flock(wait=0):
-            self.assertTrue(self.held_elsewhere())
-            registry.set_lock("acme-hub", pin=A)
-        self.assertFalse(self.held_elsewhere())
-        self.assertFalse(registry.LOCK._is_owned())
+        self.assertEqual(getattr(registry._held, "held", set()), set())
 
 
 class Places(Disk):

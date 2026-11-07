@@ -2193,7 +2193,7 @@ def forget():
 @contextlib.contextmanager
 def exclusive():
     """The project's one lock, held: no one reads the project (loaded) or forgets it while a change of the catalogs is made.
-    The lock order is the catalogs' (registry.LOCK, then its flock), then this one; whoever holds it can load and forget."""
+    The lock order is the catalogs' (registry.flock), then this one; whoever holds it can load and forget."""
     with _lock:
         yield
 

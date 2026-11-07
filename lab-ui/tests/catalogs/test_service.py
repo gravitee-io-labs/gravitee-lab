@@ -680,13 +680,16 @@ class Holds(Seam):
 # Add: the check, the ticket, the commit
 # ---------------------------------------------------------------------------------------------------------------------
 
-def held_elsewhere(lock) -> bool:
-    """Whether another thread cannot take `lock` now, which is to say that this one holds it."""
+def held_elsewhere() -> bool:
+    """Whether another thread cannot take the lock of the catalogs now, which is to say that this one holds it."""
+    def ask():
+        with contextlib.suppress(registry.CatalogError), registry.flock(wait=0):
+            free.append(True)
     free = []
-    thread = threading.Thread(target=lambda: free.append(lock.acquire(blocking=False)) or (free[0] and lock.release()))
+    thread = threading.Thread(target=ask)
     thread.start()
     thread.join()
-    return free == [False]
+    return not free
 
 
 class Check(Seam):
@@ -735,7 +738,7 @@ class Check(Seam):
         real, seen = bare.fetch, {}
 
         def fetch(address, branch, store_path, **how):
-            seen["lock"] = held_elsewhere(registry.LOCK)
+            seen["lock"] = held_elsewhere()
             seen["flock"] = registry.flock(wait=0)
             with seen["flock"]:
                 pass
@@ -1664,7 +1667,7 @@ class Checking(Seam):
         real = bare.fetch
 
         def fetch(*args, **how):
-            seen["lock"] = held_elsewhere(registry.LOCK)
+            seen["lock"] = held_elsewhere()
             return real(*args, **how)
         self.patch(bare, "fetch", fetch)
         service.check_now("partner")
@@ -2634,7 +2637,7 @@ class Repairing(Seam):
         real = bare.fetch
 
         def fetch(*args, **how):
-            seen["lock"] = held_elsewhere(registry.LOCK)
+            seen["lock"] = held_elsewhere()
             return real(*args, **how)
         self.patch(bare, "fetch", fetch)
         service.repair("partner")
