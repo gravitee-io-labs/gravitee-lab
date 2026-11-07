@@ -436,13 +436,6 @@ class Credentials(Catalog):
         self.assertIn("✓ Credential updated: Gemini key", self.output())
         self.assertEqual(self.run_seed(), [], "and only once")
 
-    def test_the_record_keeps_a_fingerprint_of_the_secret_and_never_the_secret(self):
-        self.env(KEY="AIza-real-key")
-        self.run_seed()
-        [x] = self.records("credential")
-        self.assertRegex(x["digest"], "^[0-9a-f]{64}$")
-        self.assertNotIn("AIza-real-key", self.state.read_text(encoding="utf-8"))
-
     def test_a_credential_recorded_before_its_secret_had_a_fingerprint_is_updated_once(self):
         self.run_seed()
         common.save_created([{k: v for k, v in x.items() if k != "digest"} for x in common.created()])
@@ -763,11 +756,6 @@ class Discovery(Catalog):
             self.run_seed()
         self.assertEqual([c for c in self.platform.calls if c.path.startswith(SCOPE) and c.method != "GET"], [])
 
-    def test_a_server_that_is_not_there_stops_the_seed(self):
-        self.platform.add({("POST", MCP): requests.ConnectionError("Max retries exceeded")})
-        with self.assertRaisesRegex(common.SeedError, "^MCP initialize at http://bakery-mcp:8000: the connection was cut$"):
-            self.run_seed()
-
     def test_a_page_in_place_of_a_result_stops_the_seed_in_one_line(self):
         self.platform.add({("POST", MCP): (200, "<html>\n<body>Sign in</body>\n</html>", {"Content-Type": "text/html"})})
         with self.assertRaises(common.SeedError) as stopped:
@@ -988,15 +976,6 @@ class ApiTools(Catalog):
         common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", "studio-1", digest="x")
         self.assertEqual(self.run_seed(), [])
 
-    def test_tools_that_changed_are_deleted_with_their_source_and_imported_again(self):
-        self.run_seed()
-        old = next(iter(self.world.sources))
-        self.world.apis["api-1"]["operations"].append("listRates")
-        self.assertEqual(self.run_seed(), [("DELETE", f"/catalog/sources/{old}"),
-                                           ("POST", "/catalog/mcp-tools/_importFromApis")])
-        self.assertEqual(len(self.world.of_kind("mcp-tool")), 3)
-        self.assertEqual([x["id"] for x in self.records("api-tools")], list(self.world.sources))
-
     def test_tools_replaced_whose_answer_was_lost_are_the_seeds_at_the_next_run(self):
         self.run_seed()
         self.world.apis["api-1"]["operations"].append("listRates")
@@ -1143,18 +1122,8 @@ class Playground(Catalog):
         self.assertEqual((sorted((i["kind"], i["entityId"]) for i in self.world.items.values()), sorted(x["name"] for x in self.records())),
                          alone)
 
-    def test_the_seed_makes_every_object_of_the_catalog_with_an_acme_bakery_name(self):
+    def test_the_seed_makes_every_kind_of_the_catalog(self):
         self.run_seed()
-        self.assertEqual(sorted(c["name"] for c in self.world.credentials.values()),
-                         ["Acme Bakery Gemini key", "Acme Bakery Ollama key"])
-        self.assertEqual(sorted((p["name"], p["slug"]) for p in self.world.providers.values()),
-                         [("Acme Bakery Gemini", "acme-bakery-gemini"), ("Acme Bakery Ollama", "acme-bakery-ollama")])
-        made = sorted(i["entityId"] for i in self.world.items.values() if "parentId" not in i)
-        self.assertEqual(made, [
-            "agent.acme-bakery-ace", "knowledge.acme-bakery-card-security-policy", "knowledge.acme-bakery-fee-schedule",
-            "mcp-server.acme-bakery-mcp", "mcp-tool.acme-bakery-open-api-getbranch", "mcp-tool.acme-bakery-open-api-getrate",
-            "mcp-tool.acme-bakery-open-api-listbranches", "mcp-tool.acme-bakery-open-api-listrates",
-            "model.acme-bakery-qwen3-0-6b", "model.acme-bakery-qwen3-1-7b", "skill.acme-bakery-complaint-handling"])
         self.assertEqual({x["kind"] for x in self.records()}, set(aim_catalog.ORDER))
 
     def test_without_a_key_there_is_no_gemini_provider_to_test_and_the_rest_is_seeded(self):

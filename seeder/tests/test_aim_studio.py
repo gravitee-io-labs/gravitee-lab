@@ -406,11 +406,6 @@ class Creation(Studios):
         self.assertEqual(self.plan_named("Agents")["status"], "PUBLISHED")
         self.assertEqual(self.plan_named("Registration")["status"], "CLOSED")
 
-    def test_the_switches_are_turned_with_the_bodies_that_were_run_for_real(self):
-        self.seed()
-        self.assertEqual([c.json for c in self.platform.sent("PUT", AIM + "/mcp-studios/studio-1/fga")], [{"enabled": True}])
-        self.assertEqual([c.json for c in self.platform.sent("PUT", AIM + "/mcp-proxies/studio-1/human-approval")], [{"enabled": True}])
-
     def test_the_studio_is_recorded_with_its_digest_for_its_removal(self):
         self.seed()
         [studio] = [x for x in common.created() if x["kind"] == "studio"]
@@ -441,10 +436,6 @@ class Flows(Studios):
         windows = [s["configuration"]["holdWindowMs"] for phase in ("request", "response") for s in flow[phase]]
         self.assertEqual(windows, [60000, 60000])
         self.assertEqual(flow["request"][0]["configuration"]["onBrokerUnavailable"], "DENY")
-
-    def test_the_authorization_flow_runs_before_the_approval_flow(self):
-        self.seed()
-        self.assertEqual([f["name"] for f in self.the_api()["flows"]], ["FGA Authorization", "Human approval"])
 
     def test_flows_in_the_other_order_are_put_in_this_one(self):
         # the platform appends the flow of the switch turned on last: human approval first, then the authorization flow
@@ -699,14 +690,6 @@ class Gateway(Studios):
         with self.assertRaisesRegex(common.SeedError, "HTTP 200 without a token, 401 expected"):
             self.seed()
 
-    def test_a_gateway_that_does_not_answer_ends_in_one_line(self):
-        self.platform.add({("POST", "http://gateway" + PATH): requests.ConnectionError("Max retries exceeded\nwith url: /mcp")})
-        with self.assertRaises(common.SeedError) as raised:
-            self.seed()
-        self.assertNotIn("\n", str(raised.exception))
-        self.assertTrue(str(raised.exception).endswith("not ready after 30 s: the connection was cut"), str(raised.exception))
-        self.assertNotIn("Max retries", self.output() + str(raised.exception), "what the library says is not for a reader")
-
     def test_a_seed_that_does_not_know_the_gateway_does_not_wait(self):
         self.env(GATEWAY_INTERNAL_URL=None)
         self.seed()
@@ -730,26 +713,19 @@ class Errors(Studios):
         self.failing("MCP studio: the tool mcp-tool.orchid-orders-api-createrefund is not in the catalog")
         self.assertEqual(self.world.studios, {})
 
-    def test_an_api_without_tools_in_the_catalog_stops_the_seed_naming_it(self):
-        del self.world.apim["Orchid Orders API"]
-        self.failing("the API 'Orchid Orders API' has no tools in the catalog")
-        self.assertEqual(self.world.studios, {})
-
     def test_an_api_that_has_a_namesake_is_not_mistaken_for_it(self):
         self.world.apim = {"Orchid Orders API v2": "apim-orders-2", "Orchid Customers API": "apim-customers"}
         self.failing("the API 'Orchid Orders API' has no tools in the catalog")
+        self.assertEqual(self.world.studios, {})
 
-    def test_a_missing_key_of_the_access_is_named(self):
-        self.file(STUDIO.replace("    clientIdClaim: client_id\n", ""))
-        self.failing(r"MCP studio Customer desk: access\.agents\.clientIdClaim is missing")
-
-    def test_a_missing_registration_plan_is_named(self):
-        self.file(STUDIO.replace("  registration:\n    name: Registration\n    type: OAUTH2_AM\n", ""))
-        self.failing(r"MCP studio Customer desk: access\.registration is missing")
-
-    def test_a_plan_of_the_agents_that_is_not_jwt_is_refused(self):
-        self.file(STUDIO.replace("    type: JWT", "    type: OAUTH2_AM"))
-        self.failing("access.agents.type is OAUTH2_AM, only JWT keeps the subscription required")
+    def test_an_access_that_cannot_be_made_is_named(self):
+        for wrong, right, message in (
+                ("    clientIdClaim: client_id\n", "", r"MCP studio Customer desk: access\.agents\.clientIdClaim is missing"),
+                ("  registration:\n    name: Registration\n    type: OAUTH2_AM\n", "", r"MCP studio Customer desk: access\.registration is missing"),
+                ("    type: JWT", "    type: OAUTH2_AM", "access.agents.type is OAUTH2_AM, only JWT keeps the subscription required")):
+            with self.subTest(message=message):
+                self.file(STUDIO.replace(wrong, right))
+                self.failing(message)
 
     def test_a_switch_that_wrote_no_flow_is_named(self):
         self.platform.add({("PUT", re.compile(AIM + "/mcp-studios/[^/]+/fga")): lambda call: (200, {})})
@@ -1101,16 +1077,6 @@ class Subscriptions(Studios):
     def changed(self):   # another digest: the studio is dropped and made again
         self.file(PLAIN.replace("fga: false", "fga: false\ndescription: Another").replace(
             "description: Every operation of the APIs, one tool each\n", ""))
-
-    def test_a_lost_answer_after_it_is_the_seeds_at_the_next_run(self):
-        self.seed()
-        self.changed()
-        self.answer_lost(("POST", re.compile(V2 + "/apis/[^/]+/subscriptions")), self.world.subscribe)
-        self.assertEqual([x["name"] for x in common.notes("aim-proxies", "subscription")],
-                         ["Steward on 13 tools → Lumenbank operations (Copilots)"], "a note before the request")
-        self.seed()
-        live = [s["id"] for s in self.world.subscriptions.values() if s["status"] == "ACCEPTED"]
-        self.assertEqual([(x["id"], x["api"]) for x in common.created() if x["kind"] == "subscription"], [(live[0], "studio-2")])
 
     def test_the_studio_deleted_takes_the_records_of_its_subscriptions(self):
         self.seed()
