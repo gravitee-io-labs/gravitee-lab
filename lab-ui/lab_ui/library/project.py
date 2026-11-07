@@ -27,7 +27,8 @@ from pathlib import Path, PurePosixPath
 from ..docker import compose, envfiles
 from ..gravitee import license, platforms
 from .. import paths
-from ..catalogs import registry, renames, resolve, trust, understood
+from ..catalogs import manifest, registry, renames, resolve, trust, understood
+from ..catalogs.registry import CatalogError
 from ..products import AM, APIM, APIM_FEATURES, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
@@ -391,12 +392,6 @@ def _plain_file(path):
         return None
 
 
-# The key `include` wherever a YAML text can put one: at the start of a line (after the dashes, question marks and properties
-# a key may have) or after the brace, bracket or comma of a flow collection
-INCLUDE_KEY = re.compile(r"""(?:^|[{\[,])[ \t]*(?:[-?][ \t]+)*(?:[&!][^\s,\[\]{}]*[ \t]+)*["']?include["']?[ \t]*:""", re.M)
-BREAKS = re.compile(r"\r(?!\n)|[\u0085\u2028\u2029]")   # the line breaks of YAML that are not \n or \r\n: a text with one is not read by line
-
-
 def _reach(start, bad, clean=()):
     """What the include closure of a unit file reaches: {files: those that exist, targets: every one it names,
     missing: those under .lab/catalogs/ that are not files, unsafe: those it must not be given to Compose with}. A catalog's
@@ -612,22 +607,18 @@ def _core_config():
 
 
 def _shared_settings(ns):
-    """The names a catalog says its units share (`shared_settings` of its catalog.yml, 4.1): a list of setting names. Read
-    with Compose, after the same screen as a unit and only when the file includes nothing (it is no unit: nothing screens
-    what it would include); [] when the file says none or cannot be read, and a failure of Compose is not kept."""
-    file = f"{paths.CATALOGS_DIR}/{ns}/catalog.yml"
+    """The names a catalog says its units share (`shared_settings` of its catalog.yml): a list of setting names, read as every
+    reader reads that file (manifest.read_catalog); [] when the file says none or cannot be read, and a failure of Compose is
+    not kept."""
+    file = f"{paths.CATALOGS_DIR}/{ns}/{manifest.FILE}"
 
     def read():
-        text, why = _read(file)
-        if why or trust.prescreen(text, file) or not re.search(r"^\s*shared_settings\s*:", text, re.M) \
-                or BREAKS.search(text) or INCLUDE_KEY.search(trust.unescaped(text)):
+        try:
+            return manifest.read_catalog(file, published=True)["shared_settings"]
+        except CatalogError as error:
+            return None if UNANSWERED.fullmatch(str((error.detail or {}).get("output") or "").strip()) else []
+        except (ValueError, RecursionError):   # nested deeper than Python reads
             return []
-        config, problem = _raw(file, timeout=UNIT_TIMEOUT)
-        if problem:
-            return None if UNANSWERED.fullmatch(problem["message"].strip()) else []
-        names = ((config or {}).get("x-gravitee-catalog") or {}).get("shared_settings")
-        return [name for name in names if isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)] \
-            if isinstance(names, list) else []
     return _remembered(f"catalog:{ns}", _stamp([file], ()), read, lambda found: found is not None) or []
 
 

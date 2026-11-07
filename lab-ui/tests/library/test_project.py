@@ -3679,34 +3679,28 @@ class Reading(Case):
         self.patch(paths, "default_ns", return_value="fixture")
         self.assertEqual(project._seed_names("unit", safe=True), [])
 
-    def test_a_catalog_file_that_includes_something_is_not_read_for_the_names_its_units_share(self):
+    def test_a_catalog_file_that_holds_more_than_its_block_is_not_read_for_the_names_its_units_share(self):
         shared = "x-gravitee-catalog:\n  id: z\n  shared_settings: [A_ONE]\n"
-        with mock.patch.object(project, "_raw", side_effect=AssertionError("Compose was asked")):
+        with mock.patch.object(compose, "raw", side_effect=AssertionError("Compose was asked")):
             for number, text in enumerate(("include:\n  - pipe.yml\n", "include: [pipe.yml]\n", "x: {include: [pipe.yml]}\n",
                                            '"include":\n  - pipe.yml\n', '"inclu\\u0064e": [pipe.yml]\n')):
                 with self.subTest(text=text):
                     self.write(f".lab/catalogs/inc{number}/catalog.yml", text + shared)
                     self.assertEqual(project._shared_settings(f"inc{number}"), [])
-        self.write(".lab/catalogs/fine/catalog.yml", shared + "  description: Does not include: much\n")
-        with mock.patch.object(project, "_raw", lambda path, **how: ({"x-gravitee-catalog": {"shared_settings": ["A_ONE"]}}, None)):
-            self.assertEqual(project._shared_settings("fine"), ["A_ONE"])
+            self.assertEqual(project._shared_settings("absent"), [])
 
     def test_a_file_that_includes_nothing_it_can_read_includes_nothing(self):
         self.assertEqual(project._includes("bytes.yml"), [])
         self.assertEqual(project._includes("absent.yml"), [])
         self.assertEqual(project._includes("pipe.yml"), [])
 
-    def test_the_names_a_catalog_says_its_units_share_are_read_after_the_same_screen_as_a_unit(self):
-        self.write(".lab/catalogs/x/catalog.yml", "x-gravitee-catalog:\n  id: x\n  shared_settings: [A_ONE, b_two, 'not a name', 3]\n")
-        with mock.patch.object(project, "_raw", lambda path, **how: ({"x-gravitee-catalog": {"shared_settings": [
-                "A_ONE", "b_two", "not a name", 3]}}, None)):
-            self.assertEqual(project._shared_settings("x"), ["A_ONE", "b_two"])
-        self.write(".lab/catalogs/y/catalog.yml", "include: [/etc/passwd]\nx-gravitee-catalog:\n  shared_settings: [A]\n")
-        with mock.patch.object(project, "_raw", side_effect=AssertionError("Compose was asked")):
-            self.assertEqual(project._shared_settings("y"), [])
-            self.assertEqual(project._shared_settings("absent"), [])
-            self.write(".lab/catalogs/z/catalog.yml", "x-gravitee-catalog:\n  id: z\n")
-            self.assertEqual(project._shared_settings("z"), [], "no word of it, no call")
+    def test_the_names_a_catalog_says_its_units_share_are_those_of_a_catalog_yml_that_reads(self):
+        block = {"id": "xy", "name": "XY", "description": "It", "version": "1.0.0"}
+        self.write(".lab/catalogs/xy/catalog.yml", "x-gravitee-catalog:\n  id: xy\n")
+        for shared, names in ((["A_ONE"], ["A_ONE"]), (["A_ONE", "not a name"], []), ("A_ONE", [])):
+            with self.subTest(shared=shared), mock.patch.object(compose, "raw", lambda path, **how: {"x-gravitee-catalog": {**block, "shared_settings": shared}}):
+                project.forget()
+                self.assertEqual(project._shared_settings("xy"), names)
 
     def test_the_level_of_the_core_and_its_seeder_are_read_with_a_floor_of_one(self):
         self.assertEqual(project._contract({}), {"contract": 1, "contract_min": 1, "seeder_image": ""})
