@@ -625,7 +625,7 @@ replaces or deletes only what that record says it created:
   playground and then Re-seed: the credential keeps its id, so the providers that name it get the new key. The record keeps a
   fingerprint of the secret, never the secret.
 - The approval settings of the environment are the one thing it replaces that it did not create: it records the values they had, and a removal puts them back unless someone changed them since.
-- The entities of an `entities:` list are recorded once for each type, with their ids.
+- The entities of an `entities:` list are recorded once for their source, with their ids in the order they were saved.
 - An [environment of its own](#environments-of-its-own) is never created, changed or deleted. A group, a portal, its theme,
   a page or a link with the hrid of one of its own, that it did not create, is an error, and so is a page of an API itself with
   the type and name of one of its own (`AsyncAPI`, `Overview`), and an API that a listing would
