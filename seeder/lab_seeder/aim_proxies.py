@@ -305,8 +305,6 @@ def recorded_digest(studio_id):
 class McpProxies:
     def __init__(self):
         self.g = gamma.Gamma()
-        self.slugs = {}
-        self.sources = {}
         self.entities = {}   # catalog id of a tool -> its entity id, as the catalog lists them
 
     def connect(self):
@@ -315,13 +313,11 @@ class McpProxies:
     def server_slug(self, name):
         """The slug the catalog gave an MCP server, from its name: it prefixes the tools in the access rules, and what
         the catalog derives it from is its own business."""
-        if name not in self.slugs:
-            servers = self.g.aim.rows("/catalog/mcp-servers", gamma.CATALOG)
-            found = next((s for s in servers if server_name(s) == name), None)
-            if found is None:
-                raise SeedError(f"MCP server {name} is not in the catalog: seed/aim/mcp-servers imports it before the proxy")
-            self.slugs[name] = found["slug"]
-        return self.slugs[name]
+        servers = self.g.aim.rows("/catalog/mcp-servers", gamma.CATALOG)
+        found = next((s for s in servers if server_name(s) == name), None)
+        if found is None:
+            raise SeedError(f"MCP server {name} is not in the catalog: seed/aim/mcp-servers imports it before the proxy")
+        return found["slug"]
 
     # --- An MCP proxy -------------------------------------------------------------------------
 
@@ -452,14 +448,12 @@ class McpProxies:
 
     def api_source(self, name):
         """The catalog source an API of API Management gave its tools: a studio holds the key it calls that API with by it."""
-        if name not in self.sources:
-            api = next((a for a in self.g.aim.rows("/catalog/api-tools/sources", gamma.CATALOG, q=name) if a["name"] == name), None)
-            sources = self.g.aim.rows("/catalog/sources", gamma.CATALOG, sourceKind="apim.api")
-            source = api and next((s for s in sources if (s.get("definition") or {}).get("apiId") == api["id"]), None)
-            if not source:
-                raise SeedError(f"MCP studio: the API '{name}' has no tools in the catalog: seed/aim/api-tools imports them before the studio")
-            self.sources[name] = source["id"]
-        return self.sources[name]
+        api = next((a for a in self.g.aim.rows("/catalog/api-tools/sources", gamma.CATALOG, q=name) if a["name"] == name), None)
+        sources = self.g.aim.rows("/catalog/sources", gamma.CATALOG, sourceKind="apim.api")
+        source = api and next((s for s in sources if (s.get("definition") or {}).get("apiId") == api["id"]), None)
+        if not source:
+            raise SeedError(f"MCP studio: the API '{name}' has no tools in the catalog: seed/aim/api-tools imports them before the studio")
+        return source["id"]
 
     def existing(self, name, path):
         """The studio at this path, which must be one the seed made."""
