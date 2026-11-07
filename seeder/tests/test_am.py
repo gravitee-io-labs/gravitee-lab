@@ -414,8 +414,12 @@ class Kinds(Case):
         with self.assertRaisesRegex(common.SeedError, "Group 'g': user 'nobody' is not in the domain"):
             self.seed()
 
-    def test_an_engine_can_be_optional(self):
-        self.seed_files({"am/domain.yaml": "name: bank\nauthorizationEngines: [{type: openfga, name: OpenFGA, store: Gone, connectionUri: x, optional: true}]\n"})
+    def test_an_engine_stops_the_seed_unless_it_is_optional(self):
+        engine = "name: bank\nauthorizationEngines: [{type: openfga, name: OpenFGA, store: Gone, connectionUri: x%s}]\n"
+        self.seed_files({"am/domain.yaml": engine % ""})
+        with self.assertRaisesRegex(common.SeedError, "OpenFGA store 'Gone' is not in seed/openfga"):
+            self.seed()
+        self.seed_files({"am/domain.yaml": engine % ", optional: true"})
         self.seed()
         self.assertIn("! Skipped 'OpenFGA': OpenFGA store 'Gone' is not in seed/openfga", self.output())
 
