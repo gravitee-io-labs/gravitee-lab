@@ -6,7 +6,6 @@ Nothing here is a real name or address: the Lab is `acme/gravitee-lab`, the owne
 import json
 import os
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -70,12 +69,16 @@ def identity(case: Case) -> Path:
 
 
 class Repo:
-    """A work tree with an origin (a bare repository beside it), both in a temporary folder. `git(...)` runs the Lab's own git."""
+    """A work tree with an origin (a bare repository beside it), both in a temporary folder, or with `git=False` the files in a
+    plain folder. `git(...)` runs the Lab's own git."""
 
-    def __init__(self, case: Case, files: Optional[Dict[str, bytes]] = None, name: str = "work"):
+    def __init__(self, case: Case, files: Optional[Dict[str, bytes]] = None, name: str = "work", git: bool = True):
         self.top = Path(tempfile.mkdtemp(prefix="gravitee-lab-standard-")).resolve()
         case.addCleanup(shutil.rmtree, self.top, True)
         self.root = self.top / name
+        if not git:
+            write(self.root, files)
+            return
         self.origin = self.top / "origin.git"
         self.git_in(self.top, "init", "--quiet", "--bare", str(self.origin))
         self.root.mkdir()
@@ -143,10 +146,6 @@ def set_level(template: Path, level: int) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     data["level"] = level
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-
-def executable(path) -> bool:
-    return bool(os.stat(path).st_mode & stat.S_IXUSR)
 
 
 def run_shell(script: str, env: Dict[str, str], cwd, timeout: int = 60) -> subprocess.CompletedProcess:
