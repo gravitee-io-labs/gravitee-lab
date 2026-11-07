@@ -13,13 +13,13 @@ A setup is a compose file that includes add-ons, and nothing else: they start an
    is in `catalogs.default.json`) and do not search the tree by pattern, which skips it.
 2. Settle what the request does not say. Infer what you can, ask the rest:
    - **Its name**, and its id: the name in lower case, with every run of characters other than a-z and 0-9 one dash and
-     no dash at either end (*Kafka streams* is `kafka-streams`). The id names its file, and the check refuses another
+     no dash at either end (*Acme stack* is `acme-stack`). The id names its file, and the check refuses another
      (ST23). Not `local`, and not the id of a setup of any catalog.
    - **Its add-ons**: the folders of `addons/` of the catalogs and of `.lab/catalogs/local/addons/`. The `x-gravitee` block
      of each `compose.yml` says what it adds and what it cannot run with. One is missing: create it first, with the
      `new-addon` skill.
    - **Its category and a description**: a noun phrase without a leading article or final period that says what it
-     turns on, such as "Kafka with Gravitee's Kafka Desk and the Kafka gateway".
+     turns on, such as "Acme broker with its console and its gateway".
    - **Where it is kept**: Personal, on this machine only, or a catalog that is a folder of the person's (a folder
      catalog: the Lab UI's New catalog, or the `new-catalog` skill). Personal unless the person names a catalog.
 3. Write it where it belongs:

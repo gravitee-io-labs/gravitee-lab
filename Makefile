@@ -161,7 +161,7 @@ lint: python-ok ## Check the Python code with ruff (needs make setup)
 		echo "ruff not found: run make setup (Python 3.10 or later)"; exit 1; }
 	@$(PYTHON) -m ruff check .
 
-test: python-ok ## Run the unit tests of the Lab UI (in parallel), the seeder and the tooling (no Docker needed)
+test: python-ok ## Run the unit tests of the Lab UI (in parallel), the tooling and the seeder (no Docker needed)
 	@$(PYTHON) lab-ui/tests/run.py
 	@$(PYTHON) -m unittest discover -s .github/tests -t .github/tests
 	@if $(PYTHON) -c 'import requests, yaml, redis' 2>/dev/null; then \

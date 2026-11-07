@@ -145,7 +145,7 @@ def units(ns):
 
 
 def expected():
-    """expected.json: {"kind:id": {verdict, reasons, notes, surface, closure, ports, lint}} for fixture and partner."""
+    """expected.json: {"kind:id": {verdict, reasons, notes, surface, closure, lint}} for fixture and partner."""
     return json.loads((DATA / "expected.json").read_text(encoding="utf-8"))
 
 

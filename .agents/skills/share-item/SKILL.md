@@ -29,9 +29,9 @@ that is a folder gets the files. This is the same by hand. The rules are in `doc
 
    | Kind | From | To | In its files |
    |---|---|---|---|
-   | Add-on | `.lab/catalogs/local/addons/<id>/` | `<catalog>/addons/<id>/` | `../../../<catalog id>/addons/kafka/compose.yml` becomes `../kafka/compose.yml` |
-   | Setup | `.lab/catalogs/local/setups/<id>.yml` | `<catalog>/setups/<id>.yml` | `../../<catalog id>/addons/kafka/compose.yml` becomes `../addons/kafka/compose.yml` |
-   | Playground | `.lab/catalogs/local/playgrounds/<id>/` | `<catalog>/playgrounds/<id>/` | `../../../<catalog id>/addons/kafka/compose.yml` becomes `../../addons/kafka/compose.yml` |
+   | Add-on | `.lab/catalogs/local/addons/<id>/` | `<catalog>/addons/<id>/` | `../../../<catalog id>/addons/<id>/compose.yml` becomes `../<id>/compose.yml` |
+   | Setup | `.lab/catalogs/local/setups/<id>.yml` | `<catalog>/setups/<id>.yml` | `../../<catalog id>/addons/<id>/compose.yml` becomes `../addons/<id>/compose.yml` |
+   | Playground | `.lab/catalogs/local/playgrounds/<id>/` | `<catalog>/playgrounds/<id>/` | `../../../<catalog id>/addons/<id>/compose.yml` becomes `../../addons/<id>/compose.yml` |
 
 5. A catalog that is a repository gets it as a branch named `lab/<id>-<yyyymmdd>` from the tip of the catalog, with the
    person's own name and email on the commit and a plain subject ("Add Acme Shop"): never a tool as author, never a

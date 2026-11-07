@@ -18,8 +18,8 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
      (`ACME_SHOP_*`).
    - **The use case**: the add-ons and setups it needs, its apps and where they are built from (their own folder or a
      repository), what it creates in Gravitee (APIs, applications, users) and the lessons of its guide.
-   - **Whether it also deploys to Gravitee Cloud**: nothing to declare, the Lab works it out. A seed of `seed/apim/`
-     only, backend apps, no change to the core.
+   - **Whether it also deploys to Gravitee Cloud**: nothing to declare, the Lab works it out. A seed of `seed/apim/`,
+     `seed/am/` and `seed/openfga/` at most, backend apps, no change to the core.
    - **Whether a lesson teaches a protection** that starts switched off (a
      [control](../../../docs/playgrounds.md#controls-the-protections-a-lesson-switches-on)) or spends a budget that
      Re-seed puts back (a [refill](../../../docs/playgrounds.md#refills-what-a-lesson-spends-put-back)).

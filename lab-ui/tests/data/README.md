@@ -57,9 +57,7 @@ Public, `partner` is another catalog and Private, no `.env` sets anything.
 | `notes` | The lines of N01 to N05 |
 | `surface` | The seven keys of the surface. Own services only. A service with a `build` is under `builds`, the official seed's build included. `core` lists the core services a unit sets keys on |
 | `closure` | The unit first, then the setups it includes, then its add-ons, each sorted by id |
-| `ports` | The host ports published by the services of the closure, the core's own services left out |
 | `lint` | What `catalog.py check` is expected to say of the unit besides its Blocked reasons, which are errors and which `reasons` already holds |
-| `variants` | Where another context changes the answer: `setup:pair` is `ok` when partner is Public |
 
 Two units are blocked: `future` (`Needs a newer Gravitee Lab`) and `pair` (`Depends on private content`).
 

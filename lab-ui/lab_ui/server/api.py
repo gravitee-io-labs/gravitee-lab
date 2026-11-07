@@ -1164,7 +1164,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Gravitee Lab UI")
     parser.add_argument("--port", type=port_number, help="9000, or UI_PORT")
     parser.add_argument("--no-open", action="store_true", help="do not open the browser")
-    parser.add_argument("--check", action="store_true", help="check every add-on, setup and playground, then exit")
+    parser.add_argument("--check", action="store_true", help="check the core and the agent wiring, then exit")
     parser.add_argument("--list", action="store_true", help="print what is on and the consoles, then exit")
     parser.add_argument("--e2e", metavar="KIND:ID", help="start an add-on, a setup or a playground on a machine with no lab, "
                         "check that it works, remove what it made, then exit (for CI: see docs/maintaining.md)")

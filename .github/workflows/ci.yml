@@ -51,7 +51,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m unittest discover -s lab-ui/tests/catalogs/rules -t lab-ui -p test_workflows.py
 
-  # Every add-on, setup and playground, then the project as a whole, with the Compose release the lab pins and with the newest one,
+  # The core and the agent wiring, with the Compose release the lab pins and with the newest one,
   # which is what a Linux user gets from Docker's repository
   compose:
     name: Compose files

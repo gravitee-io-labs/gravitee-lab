@@ -13,7 +13,6 @@
       "uses_machine": []
     },
     "closure": ["addon:@partner/ledger"],
-    "ports": [8192],
     "lint": []
   },
   "addon:cluster": {
@@ -32,7 +31,6 @@
       ]
     },
     "closure": ["addon:cluster"],
-    "ports": [],
     "lint": []
   },
   "addon:echo": {
@@ -49,7 +47,6 @@
       "uses_machine": []
     },
     "closure": ["addon:echo"],
-    "ports": [8191],
     "lint": []
   },
   "addon:echo-core": {
@@ -68,7 +65,6 @@
       "uses_machine": []
     },
     "closure": ["addon:echo-core", "addon:echo"],
-    "ports": [8191],
     "lint": []
   },
   "addon:echo-twin": {
@@ -85,7 +81,6 @@
       "uses_machine": []
     },
     "closure": ["addon:echo-twin"],
-    "ports": [8191],
     "lint": []
   },
   "addon:future": {
@@ -102,7 +97,6 @@
       "uses_machine": []
     },
     "closure": ["addon:future"],
-    "ports": [8194],
     "lint": []
   },
   "addon:gateway": {
@@ -119,7 +113,6 @@
       "uses_machine": []
     },
     "closure": ["addon:gateway"],
-    "ports": [8195],
     "lint": []
   },
   "addon:port-core": {
@@ -136,7 +129,6 @@
       "uses_machine": []
     },
     "closure": ["addon:port-core"],
-    "ports": [8082],
     "lint": ["publishes port 8082, like docker-compose.yml"]
   },
   "setup:pair": {
@@ -153,14 +145,7 @@
       "uses_machine": []
     },
     "closure": ["setup:pair", "addon:@partner/ledger", "addon:echo"],
-    "ports": [8191, 8192],
-    "lint": [],
-    "variants": {
-      "partner public": {
-        "verdict": "ok",
-        "reasons": []
-      }
-    }
+    "lint": []
   },
   "playground:shop": {
     "verdict": "ok",
@@ -179,7 +164,6 @@
       "uses_machine": []
     },
     "closure": ["playground:shop"],
-    "ports": [8193],
     "lint": []
   },
   "playground:tour": {
@@ -198,7 +182,6 @@
       "uses_machine": []
     },
     "closure": ["playground:tour"],
-    "ports": [],
     "lint": []
   }
 }

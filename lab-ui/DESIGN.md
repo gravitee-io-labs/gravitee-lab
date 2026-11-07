@@ -1215,7 +1215,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 
 - The add-on that runs the gateway of a kind of platform says so with `x-gravitee.gateway` (`platform`, `service`,
   `token`); the Lab finds it by that key. Its domains are derived from the service's first published port, never listed:
-  `localhost:8090` for a browser and `apim-hybrid-gateway:8082` for a container of the lab. Cloud matches the `Host` of a
+  `localhost:<port>` for a browser and `<service>:<its port>` for a container of the lab. Cloud matches the `Host` of a
   request against the domains registered for the environment, so both are registered when the gateway is created.
 - **It is a gateway of the group that runs its image** (`gateway.group`, `project._gateway_groups`): the group of the platform one
   of whose services runs the same image as the gateway's service, whatever its registry and its tag (`apim-gateway`: API
@@ -1401,7 +1401,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - A job says what it acts on (`for`) and what it does (`verb`); the button with that key shows it at work.
   - `for`: `addon:<id>`, `setup:<id>`, `playground:<id>`, `group:<id>`, `service:<name>`, `platform`,
     `plugins:<product>`, `registry:<host>`. A login asked from an item's menu is the item's. The gateway of a platform
-    is the job of its add-on (`addon:hybrid-gateway`), whichever button started it.
+    is the job of its add-on, whichever button started it.
   - `verb`: start, stop, restart, update, pull, apply, reseed, deploy, delete, down, reset, login. `deploy` is a seed of
     a place that holds no record yet, `delete` what the seed created in one place.
 - A job measures how far it is from what each of its stages waits for, known before the stage begins (`jobs.awaited`): the
