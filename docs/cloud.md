@@ -98,8 +98,8 @@ shows how the Lab reaches the account: its name, its Account ID, its address and
 
 Each environment of the card is *In use* or *Not set up*. An environment is in use once it holds a hybrid gateway (any,
 so that one the Lab cannot use can be removed), a gateway Cloud deleted while it ran here, a Cloud Token of the Lab's, or
-something the Lab deployed in it. The others are one quiet line each, with *Set up*. When more than two of them would
-show, the card lists two and says *Show 3 more environments*.
+something the Lab deployed in it. The others are one quiet line each, with *Set up*. When more than three of them would
+show, the card lists two and says how many more (*Show 3 more environments*).
 
 Choose *Set up*. It opens *Set up Development*, the second step of *Connect Gravitee Cloud* for that environment alone, with
 two parts, both ticked, which you may leave out (their fields show while they are ticked):
