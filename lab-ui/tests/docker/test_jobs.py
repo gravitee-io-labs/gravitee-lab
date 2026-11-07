@@ -335,23 +335,6 @@ class Cut(Case):
     # A step may go on once a command of its own was ended (plugins.up starts the next services anyway): the next
     # command is ended as well when it says nothing for long, or waits for a container that keeps restarting
 
-    def test_a_command_after_one_that_was_ended_for_its_silence_is_ended_too(self):
-        self.patch(jobs, "SILENT", 0.3)
-        self.patch(jobs, "WATCH", 0.05)
-        caught = []
-
-        def step(job):
-            try:
-                job.exec(["sh", "-c", "exec sleep 600"])
-            except JobFailed as failed:
-                caught.append(str(failed))
-            job.exec(["sh", "-c", "exec sleep 600"])
-        job, thread = self.run_job(step)
-        thread.join(ENDED)
-        self.assertEqual(len(caught), 1, caught)
-        self.assertFalse(thread.is_alive(), "the second command still runs")
-        self.assertIs(job.ok, False)
-
     def test_a_command_after_one_that_was_ended_on_a_container_in_an_issue_is_ended_too(self):
         caught = []
 

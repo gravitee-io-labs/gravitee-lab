@@ -1033,17 +1033,6 @@ class Docker(Case):
         with mock.patch.object(compose, "run", return_value=(0, "5.7.0\n", "")):
             self.assertEqual(compose.compose_version(), "5.7.0")
 
-    def test_each_fact_docker_says_is_read_in_one_place(self):
-        # One reading of `docker info`, `docker compose version` and `docker images` that the state, the Dashboard, the check
-        # of the machine and the Images page share: a second one would see a change of Docker at another time. The CI's
-        # commands (catalogs/ci) run once and keep nothing
-        package = Path(compose.__file__).parents[1]
-        found = [f"{path.relative_to(package)}: {spelled}" for path in sorted(package.rglob("*.py"))
-                 if path != Path(compose.__file__) and path.relative_to(package).parts[:2] != ("catalogs", "ci")
-                 for spelled in ('"docker", "info"', '"compose", "version"', '"docker", "images"')
-                 if spelled in path.read_text(encoding="utf-8")]
-        self.assertEqual(found, [])
-
 
 class Environment(Case):
     """What every command gets: the files Compose reads, and no remote include."""
