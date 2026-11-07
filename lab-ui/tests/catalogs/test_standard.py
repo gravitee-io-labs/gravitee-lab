@@ -82,9 +82,9 @@ class Template(unittest.TestCase):
 
     def test_the_level_is_nine_and_nine_levels_exist(self):
         # Levels 4 to 6 add no file: they change those that are there, so that a catalog below them is behind, not edited by hand.
-        # Level 7 adds versions.yml; levels 8 and 9 add no file
-        self.assertEqual((standard.LEVEL, standard.levels()), (9, 9))
-        self.assertEqual(sorted(standard.manifest()["notes"]), ["1", "2", "3", "4", "5", "6", "7", "8", "9"])
+        # Level 7 adds versions.yml; levels 8 to 10 add no file
+        self.assertEqual((standard.LEVEL, standard.levels()), (10, 10))
+        self.assertEqual(sorted(standard.manifest()["notes"], key=int), [str(level) for level in range(1, 11)])
         self.assertEqual(max(each["since"] for each in standard.manifest()["files"]), 7)
 
     def test_the_manifest_is_a_copy(self):
@@ -153,7 +153,7 @@ class Template(unittest.TestCase):
 
     def test_the_text_of_a_level_that_the_template_has_not_edited_is_the_file_itself(self):
         text = (standard.TEMPLATE / "managed" / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        self.assertEqual(standard.managed_text(".github/workflows/ci.yml", 9), text)
+        self.assertEqual(standard.managed_text(".github/workflows/ci.yml", standard.LEVEL), text)
 
     def test_an_edit_that_does_not_find_its_lines_once_is_a_mistake_said_when_it_is_rendered(self):
         data = standard.manifest()
@@ -512,7 +512,7 @@ class Rendering(unittest.TestCase):
     def test_the_standard_json_is_the_example_of_section_3_2(self):
         text = render()[".github/standard.json"].decode()
         self.assertEqual(text, '{\n  "form": "inline",\n  "lab": {\n    "ref": "%s",\n    "repository": "acme/gravitee-lab"\n  },\n'
-                               '  "platforms": ["linux/amd64"],\n  "standard": 9\n}\n' % LAB_COMMIT)
+                               '  "platforms": ["linux/amd64"],\n  "standard": %d\n}\n' % (LAB_COMMIT, standard.LEVEL))
         self.assertEqual(json.loads(text)["standard"], standard.LEVEL)
         both = standard.render_new(params(platforms="linux/amd64,linux/arm64"))[".github/standard.json"].decode()
         self.assertIn('"platforms": ["linux/amd64", "linux/arm64"]', both)
@@ -949,8 +949,9 @@ class Drift(Case):
         self.assertEqual([(each.code, each.severity) for each in self.check(same)], [("SD02", "error")])
 
     def test_a_level_above_the_labs_is_sd05_once_and_no_file_is_compared(self):
-        files = at(9)
-        files[".github/standard.json"] = files[".github/standard.json"].replace(b'"standard": 9', b'"standard": 10')
+        files = at(standard.LEVEL)
+        files[".github/standard.json"] = files[".github/standard.json"].replace(f'"standard": {standard.LEVEL}'.encode(),
+                                                                                f'"standard": {standard.LEVEL + 1}'.encode())
         files = edited(files, ".github/workflows/ci.yml", lambda text: text + "# changed\n")
         found = self.check(files)
         self.assertEqual([(each.code, each.severity, each.path, each.message) for each in found],
@@ -1256,7 +1257,7 @@ class Commands(Case):
         lab = self.lab()
         code, out, err = self.new("--maintainers", "@acme/maintainers", "--license", "Apache-2.0", "--images", "ghcr.io/acme/lab-hub", lab=lab.root)
         self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.split("\n")[0], "Created Acme Hub in " + str(self.work / "hub") + " (standard 9, 32 files)")
+        self.assertEqual(out.split("\n")[0], "Created Acme Hub in " + str(self.work / "hub") + f" (standard {standard.LEVEL}, 32 files)")
         self.assertIn('  1. cd ' + str(self.work / "hub") + ' && git init -b main && git add . && git commit -m "Create the catalog"', out)
         self.assertIn("  2. gh repo create OWNER/hub --private --source . --push", out)
         self.assertIn("  3. make settings                see what GitHub still has to set\n"
@@ -1482,7 +1483,7 @@ class Upgrading(Case):
         repo = self.repo()
         plan = self.plan(repo)
         self.assertEqual((plan["pending"], plan["refused"], self.actions(plan), plan["owned"]), (False, "", {}, []))
-        self.assertEqual(self.upgrade(repo), (0, "Acme Hub is on standard 9. This Lab has standard 9.\n\nNothing to upgrade\n", ""))
+        self.assertEqual(self.upgrade(repo), (0, f"Acme Hub is on standard {standard.LEVEL}. This Lab has standard {standard.LEVEL}.\n\nNothing to upgrade\n", ""))
 
     def test_the_lines_older_labs_read_are_written_when_catalog_yml_lacks_them_and_made_true_when_they_are_wrong(self):
         """Older Gravitee Labs need `schema` and read `lab`: `upgrade --write` is the fix `check` names for them."""
@@ -1525,8 +1526,8 @@ class Upgrading(Case):
         written = standard.upgrade_apply(repo.root, plan)
         self.assertNotIn(".github/workflows/publish.yml", written)
         self.assertFalse((repo.root / ".github/workflows/publish.yml").exists())
-        self.assertEqual(json.loads((repo.root / ".github/standard.json").read_text())["standard"], 9)
-        self.assertEqual(standard.drift(FolderTree(repo.root), 9), [])
+        self.assertEqual(json.loads((repo.root / ".github/standard.json").read_text())["standard"], standard.LEVEL)
+        self.assertEqual(standard.drift(FolderTree(repo.root), standard.LEVEL), [])
         self.assertFalse(self.plan(repo)["pending"])
         self.assertIn("schedule", (repo.root / ".github/workflows/nightly.yml").read_text())
 
