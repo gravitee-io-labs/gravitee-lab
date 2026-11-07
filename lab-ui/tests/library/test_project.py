@@ -2452,41 +2452,13 @@ class Anchored(Case):
 
     def test_without_the_anchor_the_same_unit_mounts_files_outside_its_folder(self):
         for name, lock in (("no contract.lock", None), ("no anchor in it", "contract 1\ncontract_min 1\nanchor seeder since=1\n"),
-                           ("the other product's", "anchor plugins/am since=1\n")):
+                           ("the other product's", "contract 1\ncontract_min 1\nanchor plugins/am since=1\n")):
             with self.subTest(name):
                 inputs, unit = self.read(lock)
                 self.assertEqual(inputs["products"], ["am"] if lock and "plugins/am" in lock else [])
                 self.assertEqual((unit["blocked"] or {}).get("reasons"), [self.OUTSIDE])
         inputs, unit = self.read(None, ("apim",))
         self.assertIsNone(unit["blocked"], "the folder is there: it never needed the anchor")
-
-    def test_what_the_contract_names_is_read_as_a_folder_name_and_only_so(self):
-        lock = "\n".join(["anchor plugins/ok-1 since=1", "anchor plugins/ok-2", "anchor plugins/../etc since=1", "anchor plugins/UPPER since=1",
-                          "anchor plugins/deep/er since=1", "anchor plugins/apim/ since=1", "anchor plugins/ since=1",
-                          "  anchor plugins/indented since=1", "anchors plugins/near since=1", "anchor plugins/a.b since=1",
-                          "anchor plugins/space name since=1", "anchor plugins/tab\tsince=1", "# anchor plugins/commented",
-                          "anchor seeder since=1", "anchor lab-ui port=9000", "anchor plugins/\u0430pim since=1"])
-        self.folder(project)
-        self.write("contract.lock", lock)
-        self.assertEqual(project._anchored_plugins(), ["ok-1", "ok-2", "space", "tab"])
-        self.assertEqual(project._plugin_folders(), ["ok-1", "ok-2", "space", "tab"])
-
-    def test_a_contract_that_is_a_link_or_too_big_or_not_text_names_nothing(self):
-        self.folder(project)
-        (self.root.parent / "elsewhere.lock").write_text("anchor plugins/apim since=1\n", encoding="utf-8")
-        self.addCleanup((self.root.parent / "elsewhere.lock").unlink)
-        (self.root / "contract.lock").symlink_to(self.root.parent / "elsewhere.lock")
-        self.assertEqual(project._anchored_plugins(), [], "a link is not followed")
-        (self.root / "contract.lock").unlink()
-        self.write("contract.lock", "anchor plugins/apim since=1\n" + "# x\n" * (project.TEXT_LIMIT // 4))
-        self.assertEqual(project._anchored_plugins(), [], "over the limit")
-        (self.root / "contract.lock").write_bytes(b"anchor plugins/apim since=1\n\xff\xfe")
-        self.assertEqual(project._anchored_plugins(), [], "not UTF-8 text")
-        (self.root / "contract.lock").unlink()
-        (self.root / "contract.lock").mkdir()
-        self.assertEqual(project._anchored_plugins(), [], "a folder")
-        (self.root / "contract.lock").rmdir()
-        self.assertEqual(project._anchored_plugins(), [], "none")
 
     def test_a_change_of_the_contract_reads_the_project_again(self):
         self.folder(project)

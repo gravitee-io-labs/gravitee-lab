@@ -54,8 +54,6 @@ URL_HOST = re.compile(r"://(?:[^/?#\s@]*@)?([\w.-]+)")   # the host a URL names,
 # The pages of the Lab UI that the platform's UIs and the apps let frame them (x-ui-frames in docker-compose.yml, the
 # frame-ancestors of the apps): the Lab UI is served on its own port, 9000
 PAGES = ("http://localhost:9000", "http://127.0.0.1:9000")
-LOCK_FILE = "contract.lock"   # what the engine promises units: its anchors say which plugin folders a unit may mount
-ANCHOR = re.compile(r"anchor[ \t]+plugins/([a-z0-9-]+)(?:[ \t]|$)")   # one line of it: `anchor plugins/apim since=1`
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -103,7 +101,7 @@ def fingerprint():
     and nothing else."""
     inputs = _cache.get("inputs") or {}
     reach = inputs.get("reach") or {}
-    files = [CORE_FILE, ENV_FILE, LOCK_FILE, *_catalog_files(), *(inputs.get("seed_files") or ())]
+    files = [CORE_FILE, ENV_FILE, understood.LOCK_FILE, *_catalog_files(), *(inputs.get("seed_files") or ())]
     for file in paths.files():
         found = paths.unit_of(file)
         files += _read_from((reach.get(file) or {}).get("files") or [file])
@@ -662,26 +660,19 @@ def _contract(core):
             "seeder_image": seeder["image"] if isinstance(seeder.get("image"), str) else ""}
 
 
-def _anchored_plugins():
-    """The plugin folders the contract names as anchors (contract.lock: `anchor plugins/apim`, `anchor plugins/am`): the places
-    in the engine that a unit may mount to give a service the plugins of a product. A fresh clone has not made them yet (`make
-    init` does) and a catalog's CI run has no plugins/ folder at all; a unit that binds one where it is meant to be is no unit
-    that mounts files outside its folder, whether the folder is there or not. Only a plain file is read; [] when it is not."""
-    text, why = _read(LOCK_FILE)
-    if why:
-        return []
-    return [found.group(1) for found in (ANCHOR.match(row) for row in text.splitlines()) if found]
-
-
 def _plugin_folders():
     """The names of the products whose plugin folders a unit may reach (the roots of inputs["products"]): the folders of
-    plugins/, and the anchors the contract names, which are there for the Lab and for a catalog's check alike."""
+    plugins/, and the anchors the contract names (contract.lock: `anchor plugins/apim`), which a fresh clone has not made yet
+    (`make init` does) and a catalog's CI run has not at all: a unit that binds one where it is meant to be is no unit that
+    mounts files outside its folder, whether the folder is there or not."""
     base = os.path.join(ROOT, "plugins")
     try:
         here = [name for name in os.listdir(base) if os.path.isdir(os.path.join(base, name))]
     except OSError:
         here = []
-    return sorted({*here, *_anchored_plugins()})
+    held = understood.lock()
+    return sorted({*here, *(name.partition("/")[2] for kind, name in (held.rows if held else ())
+                            if kind == "anchor" and name.startswith("plugins/"))})
 
 
 def gather():

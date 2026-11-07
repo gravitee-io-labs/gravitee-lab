@@ -685,15 +685,6 @@ def _relative(source, root):
         return source
 
 
-def _anchored(products):
-    """The plugin folders a unit may reach: the ones the project has and the ones the contract names as anchors
-    (contract.lock: plugins/am, plugins/apim), which a fresh clone has not made yet (`make init` does). A unit that binds one
-    of them where it is meant to be is not told where the anchor is, whether the folder is there or not."""
-    locked = _lock()
-    named = {name.partition("/")[2] for kind, name in (locked[2] if locked else ()) if kind == "anchor" and name.startswith("plugins/")}
-    return sorted({*products, *named})
-
-
 def _anchors(products):
     """The places a unit may reach beyond its own folder, real: the seeder and each plugin folder; `project` is the
     whole of the project, where a depth mistake lands."""
@@ -1157,7 +1148,7 @@ def catalog_problems(ns, project=None, inputs=None):
             or any(gone in ((unit.get("blocked") or {}).get("reasons") or ()) for _, _, unit in catalog_units(ns, project)):
         raise ComposeGone(NO_COMPOSE)
     raw, found = inputs["raw"], []
-    products = _anchored(inputs.get("products") or ())
+    products = inputs.get("products") or ()
 
     def shown(path):
         return _shown(path, ns)

@@ -740,12 +740,6 @@ class Sharing(Machine):
         self.whoami()
         self.assertEqual([check.publishers().get(number) for number in ("8082", "8098", "9999")], [CORE, WHOAMI, None])
 
-    def test_the_plugin_folders_of_the_contract_are_anchors_before_a_clone_has_made_them(self):
-        self.assertEqual(check._anchored([]), [], "no contract.lock, no anchor")
-        shutil.copy(REPO / check.LOCK_FILE, self.root / check.LOCK_FILE)
-        self.assertEqual(check._anchored([]), ["am", "apim"])
-        self.assertEqual(check._anchored(["apim", "mine"]), ["am", "apim", "mine"])
-
     def test_the_core_is_checked_whoever_asks(self):
         self.whoami()
         self.machine(self.units, core=lambda core: core["services"]["apim-gateway"].update(
@@ -1833,7 +1827,7 @@ class FreshClone(Shared):
     def test_the_right_depth_is_still_told_for_a_folder_that_is_not_an_anchor(self):
         unit, folder = {"services": ["hyssop-gateway"]}, self.root / ".lab/catalogs/partner/addons/hyssop"
         config = {"services": {"hyssop-gateway": {"volumes": [{"type": "bind", "source": str(self.root / "plugins/other")}]}}}
-        anchors = {**check._anchors(check._anchored([])), "closure": []}
+        anchors = {**check._anchors(project._plugin_folders()), "closure": []}
         [said] = check._geometry(unit, config, folder, {}, anchors)
         self.assertIn("is outside the folder of this unit", said)
         self.assertEqual(list(check._geometry(
