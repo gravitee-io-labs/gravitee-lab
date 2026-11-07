@@ -779,7 +779,6 @@ class Drift(Case):
             "standard": ("standard is a whole number from 1: the level of the managed files in this repository", [0, -1, "1", True, 1.5, 1000]),
             "form": ("form is inline", ["sideways", "reusable", 1, None]),
             "platforms": ("platforms is a list of linux/amd64, linux/arm64 or both", [[], ["linux/riscv64"], "linux/amd64", ["linux/amd64"] * 2]),
-            "strict": ("strict is a list of rule codes such as DF22", ["DF22", ["df22"], [5], ["DF22!"], ["X" * 5]]),
             "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}",
                       [[], "hub", {"Hub": {"repository": "a/b", "ref": LAB_COMMIT}}, {"hub": {"repository": "a/b", "ref": "main"}},
                        {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}]),
@@ -812,11 +811,6 @@ class Drift(Case):
         found = [(each.severity, each.message) for each in self.check(files) if each.code == "SD04"]
         self.assertEqual(sorted(found), [("warning", ".github/standard.json: color is not a key of the standard."),
                                          ("warning", ".github/standard.json: lab.x is not a key of the standard.")])
-
-    def test_strict_is_a_good_key(self):
-        base = json.loads(render()[".github/standard.json"])
-        files = {**render(), ".github/standard.json": json.dumps({**base, "strict": ["DF22", "DF23"]}).encode()}
-        self.assertEqual(self.check(files), [])
 
     def test_without_standard_json_the_files_are_judged_as_the_labs_own_level_and_sd04_is_silent(self):
         files = render()

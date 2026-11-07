@@ -371,15 +371,10 @@ class Audit(WithGit):
         found = [each for each in self.run_in(repo).problems if each.code == "ST06"]
         self.assertEqual(["error"], [each.severity for each in found], "on main itself, debt is an error")
 
-    def test_a_warning_a_catalog_or_a_run_makes_an_error_is_one(self):
+    def test_a_warning_a_run_makes_an_error_is_one(self):
         repo = self.work("warn", support.files({"apps/x/Dockerfile": "FROM python:3\nUSER app\n"}))
         self.assertEqual(["warning"], [each.severity for each in self.run_in(repo).problems if each.code == "DF22"])
         self.assertEqual(["error"], [each.severity for each in self.run_in(repo, error=("DF22",)).problems if each.code == "DF22"])
-        marked = support.files({"apps/x/Dockerfile": "FROM python:3\nUSER app\n",
-                                ".github/standard.json": support.GOOD[".github/standard.json"].replace(
-                                    '"standard": 1', '"standard": 1,\n  "strict": ["DF22"]')})
-        repo = self.work("strict", marked)
-        self.assertEqual(["error"], [each.severity for each in self.run_in(repo).problems if each.code == "DF22"])
 
     def test_the_exit_code(self):
         clean, bad = audit.Result([], []), audit.Result([ERROR], [])

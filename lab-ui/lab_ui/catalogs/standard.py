@@ -420,11 +420,6 @@ def parse_standard(raw: bytes) -> Tuple[Optional[dict], List[Tuple[str, str]]]:
     if not isinstance(platforms, list) or not platforms or any(each not in PLATFORMS for each in platforms) \
             or len(set(map(str, platforms))) != len(platforms):
         found.append((ERROR, "platforms is a list of linux/amd64, linux/arm64 or both"))
-    if "strict" in data:
-        strict = data["strict"]
-        if not isinstance(strict, list) or len(strict) > 50 or any(not isinstance(each, str) or not re.fullmatch(
-                r"[A-Z]{2,3}[0-9]{2}", each) for each in strict):
-            found.append((ERROR, "strict is a list of rule codes such as DF22"))
     if "needs" in data:
         needs = data["needs"]
         if not isinstance(needs, dict) or len(needs) > 10 or any(
@@ -432,7 +427,7 @@ def parse_standard(raw: bytes) -> Tuple[Optional[dict], List[Tuple[str, str]]]:
                 or not lab_repository_ok(what.get("repository")) or not isinstance(what.get("ref"), str)
                 or not _COMMIT.fullmatch(what["ref"]) for name, what in needs.items()):
             found.append((ERROR, "needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}"))
-    for key in sorted(set(data) - {"standard", "form", "lab", "platforms", "strict", "needs"}, key=str)[:5]:
+    for key in sorted(set(data) - {"standard", "form", "lab", "platforms", "needs"}, key=str)[:5]:
         found.append((WARNING, f"{printable(str(key))[:40]} is not a key of the standard"))
     return data, found
 
