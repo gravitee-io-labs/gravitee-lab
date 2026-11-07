@@ -164,14 +164,14 @@ class Session:
 
 class FakeRedis:
     """The part of redis-py a refill uses, over the hashes of a dict, {key: {field: value}}: scan_iter with a glob, a
-    pipeline of hget, delete and close. A key whose value is not a dict is not a hash: asking it for a field is an error,
+    pipeline of hget, and delete. A key whose value is not a dict is not a hash: asking it for a field is an error,
     which a pipeline gives in place of the answer when it is told not to raise. `calls` lists what was asked."""
 
     class WrongType(Exception):
         pass
 
     def __init__(self, hashes=None):
-        self.data, self.calls, self.closed = {key: value for key, value in (hashes or {}).items()}, [], False
+        self.data, self.calls = {key: value for key, value in (hashes or {}).items()}, []
 
     def scan_iter(self, match="*", count=None):
         self.calls.append(("scan", match))
@@ -190,9 +190,6 @@ class FakeRedis:
     def delete(self, *keys):
         self.calls.append(("delete", sorted(keys)))
         return sum(self.data.pop(key, None) is not None for key in keys)
-
-    def close(self):
-        self.closed = True
 
 
 class FakeBatch:

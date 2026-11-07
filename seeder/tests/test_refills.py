@@ -148,13 +148,10 @@ class Deleting(unittest.TestCase):
         self.assertEqual(client.calls, [("scan", "ratelimit:*:cost-rl"), ("pipeline", 1)])
         self.assertEqual(refills.drop(FakeRedis(), self.refill, SANDBOX), 0)
 
-    def test_the_keys_are_asked_by_the_pattern_of_the_counters_and_read_in_chunks(self):
+    def test_the_keys_are_asked_by_the_pattern_of_the_counters(self):
         client = FakeRedis({f"ratelimit:ws:{n}:cost-rl": counter("sub-" + str(n)) for n in range(7)} | {KEY: counter(SANDBOX)})
-        with mock.patch.object(refills, "CHUNK", 3):
-            self.assertEqual(refills.drop(client, self.refill, SANDBOX), 1)
-        self.assertEqual([call for call in client.calls if call[0] != "delete"],
-                         [("scan", "ratelimit:*:cost-rl"), ("pipeline", 3), ("pipeline", 3), ("pipeline", 2)])
-        self.assertEqual(client.calls[-1], ("delete", [KEY]))
+        self.assertEqual(refills.drop(client, self.refill, SANDBOX), 1)
+        self.assertEqual(client.calls, [("scan", "ratelimit:*:cost-rl"), ("pipeline", 8), ("delete", [KEY])])
 
     def test_a_key_that_is_not_a_hash_is_no_ones_counter_and_does_not_stop_the_others(self):
         client = FakeRedis({"ratelimit:a:1:cost-rl": "text", KEY: counter(SANDBOX)})
@@ -189,7 +186,6 @@ class Running(Seed):
         refills.run([self.refill], {"team-a": SANDBOX})
         self.assertNotIn(KEY, self.client.data)
         self.assertEqual(self.output(), "[refills] ✓ hackathon: the cost budget of team-a is whole again\n")
-        self.assertTrue(self.client.closed)
 
     def test_a_second_run_finds_nothing_spent_and_says_so(self):
         refills.run([self.refill], {"team-a": SANDBOX})
@@ -208,7 +204,6 @@ class Running(Seed):
         self.assertIn("! Could not refill hackathon: team-a has no subscription in Teams. The budget is whole again when its period ends",
                       self.output())
         self.assertEqual(sorted(orphan.data), sorted(["ratelimit:ws-1:no-owner:cost-rl", KEY]))
-        self.assertTrue(orphan.closed)
 
     def test_without_a_refill_redis_is_not_reached(self):
         refills.run([], {"team-a": SANDBOX})
@@ -226,7 +221,6 @@ class Running(Seed):
         refills.run([self.refill], {"team-a": SANDBOX})
         self.assertIn("! Could not refill hackathon: PermissionError: NOPERM this user has no permissions to run the 'scan' command.",
                       self.output())
-        self.assertTrue(self.client.closed)
 
     def test_an_error_on_one_refill_does_not_keep_the_next_from_being_refilled(self):
         second = refills.Refill("care", {"workspace": "Teams", "member": "team-b", "counters": "cost"})
@@ -258,11 +252,6 @@ class Running(Seed):
         self.assertNotIn("s3cret-value", self.output())
         self.assertIn("redis://:***@redis:6379", self.output())
 
-    def test_a_connection_that_fails_to_close_is_not_a_failure(self):
-        self.client.close = mock.Mock(side_effect=OSError("already closed"))
-        refills.run([self.refill], {"team-a": SANDBOX})
-        self.assertIn("✓ hackathon", self.output())
-
 
 class TheLibrary(unittest.TestCase):
     """What FakeRedis stands for. Where redis-py is installed (the seed image has it, and so does make setup) the real
@@ -279,7 +268,7 @@ class TheLibrary(unittest.TestCase):
         import inspect
 
         calls = {"scan_iter": self.redis.Redis.scan_iter, "pipeline": self.redis.Redis.pipeline, "delete": self.redis.Redis.delete,
-                 "close": self.redis.Redis.close, "hget": self.redis.client.Pipeline.hget, "execute": self.redis.client.Pipeline.execute}
+                 "hget": self.redis.client.Pipeline.hget, "execute": self.redis.client.Pipeline.execute}
         self.assertLessEqual({"match", "count"}, set(inspect.signature(calls["scan_iter"]).parameters))
         self.assertIn("transaction", inspect.signature(calls["pipeline"]).parameters)
         self.assertIn("raise_on_error", inspect.signature(calls["execute"]).parameters)

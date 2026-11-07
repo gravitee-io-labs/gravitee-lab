@@ -27,7 +27,7 @@ FILE = "refills.yaml"
 KEYS = ("workspace", "member", "counters")
 COUNTERS = {"cost": "ratelimit:*:cost-rl"}   # the pattern of the keys of each kind of counter the gateway keeps in Redis
 OWNER = "subscription"                       # the field of a counter that says whose it is
-CHUNK = 500                                  # keys read in one round trip
+CHUNK = 500                                  # keys one round trip of the scan asks for
 TIMEOUT = 10                                 # seconds to reach Redis and to wait for each answer
 AFTER = "The budget is whole again when its period ends"
 
@@ -113,15 +113,11 @@ def connect():
 def owned(client, pattern, subscription):
     """The keys of `pattern` whose hash says it counts for this subscription, and no others."""
     keys = list(client.scan_iter(match=pattern, count=CHUNK))
-    mine = []
-    for start in range(0, len(keys), CHUNK):
-        chunk = keys[start:start + CHUNK]
-        batch = client.pipeline(transaction=False)
-        for key in chunk:
-            batch.hget(key, OWNER)
-        # A key that is not a hash answers with an error in its place: it is no one's counter
-        mine += [key for key, answer in zip(chunk, batch.execute(raise_on_error=False)) if answer == subscription]
-    return mine
+    batch = client.pipeline(transaction=False)
+    for key in keys:
+        batch.hget(key, OWNER)
+    # A key that is not a hash answers with an error in its place: it is no one's counter
+    return [key for key, answer in zip(keys, batch.execute(raise_on_error=False)) if answer == subscription]
 
 
 def drop(client, refill, subscription):
@@ -158,19 +154,13 @@ def run(found, subscriptions):
     except Exception as e:  # noqa: BLE001 - Redis is not the seed's to fix: whatever it says is told, and the seed goes on
         log(SECTION, f"! Could not refill {', '.join(refill.id for refill in waiting)}: {told(e)}. {AFTER}")
         return
-    try:
-        for refill in waiting:
-            try:
-                removed = drop(client, refill, subscriptions[refill.member])
-            except Exception as e:  # noqa: BLE001 - as above
-                log(SECTION, f"! Could not refill {refill.id}: {told(e)}. {AFTER}")
-                continue
-            if removed:
-                log(SECTION, f"✓ {refill.id}: the {refill.counters} budget of {refill.member} is whole again")
-            else:
-                log(SECTION, f"{refill.id}: {refill.member} has spent nothing in this period")
-    finally:
+    for refill in waiting:
         try:
-            client.close()
-        except Exception:  # noqa: BLE001 - closing a connection that failed
-            pass
+            removed = drop(client, refill, subscriptions[refill.member])
+        except Exception as e:  # noqa: BLE001 - as above
+            log(SECTION, f"! Could not refill {refill.id}: {told(e)}. {AFTER}")
+            continue
+        if removed:
+            log(SECTION, f"✓ {refill.id}: the {refill.counters} budget of {refill.member} is whole again")
+        else:
+            log(SECTION, f"{refill.id}: {refill.member} has spent nothing in this period")
