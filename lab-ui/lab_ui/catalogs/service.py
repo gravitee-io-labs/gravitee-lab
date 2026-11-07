@@ -36,7 +36,6 @@ TICKETS = {}   # ticket -> what a check showed, for the change it is for: {kind,
 TTL = 600.0   # seconds a ticket lives: ten minutes
 GIT_AGE = 30.0   # seconds the version of git is kept: it is one more process for every poll
 CHECK_CAP = 60.0   # seconds a check of an installed catalog may take
-LONG_DOWNLOAD = 10.0   # seconds after which a download lights the dot of the menu
 PATIENCE = 1.5   # seconds a change waits for the lock before it is `busy`: a write of the lock lasts milliseconds, a change seconds
 WAIT_STAGE = 30.0   # seconds a second Add waits for the first to finish staging and judging its tree
 MAX_TICKETS = 8   # checks that are kept at once: a tree of up to 100 MB is staged for each, so an eager script fills no disk
@@ -51,7 +50,6 @@ UP_TO_DATE = "Already up to date."
 _lock = threading.Lock()   # TICKETS and the memory below
 _staging = threading.Lock()   # one tree is staged and judged at a time: the folder of a stage is named by the catalog
 _checking = {}   # ticket -> how far the fetch of an Add check is (0..1 or None): state.catalogs[] says it
-_started = {}   # catalog -> when a download was first seen under way (monotonic): the menu dot lights after a while
 _known = {"at": None, "version": None}   # the version of git and when it was asked
 _creating = threading.Lock()   # one new catalog at a time: its id is chosen from the ones that are there, and a folder that fails is taken away
 _asking = threading.Lock()   # one question to git at a time, and not under the lock of the tickets: git may be slow
@@ -375,10 +373,10 @@ def _folder_state(key):
     return _state(key, reason="The folder is gone.", next="Put it back or remove the catalog.")
 
 
-def _attention(ns, found, held, entry, state_key):
+def _attention(found, held, entry, state_key):
     """What the dot of the menu is for: "update", "repair", "lab", "download" or None. The version the person just
     left with Go back does not light it again, a catalog that is not checked automatically never lights it for an update, and
-    a download that lasts a few seconds lights nothing."""
+    a download lights it once it has failed."""
     if state_key == "damaged":
         return "repair"
     if _update_available(held) and entry and entry.get("auto") is not False \
@@ -386,11 +384,7 @@ def _attention(ns, found, held, entry, state_key):
         return "update"
     if state_key == "lab_new":
         return "lab"
-    if found.get("kind") == "git" and not held.get("pin"):
-        since = _started.get(ns)
-        if held.get("error") or (state_key == "downloading" and since is not None and _now() - since > LONG_DOWNLOAD):
-            return "download"
-    return None
+    return "download" if found.get("kind") == "git" and not held.get("pin") and held.get("error") else None
 
 
 def _progress_of(ns, state_key):
@@ -501,35 +495,12 @@ def _held_of(ns, project_, held, on):
     return {"update": why or "", "remove": why or turn or "", "undo": previous or why or turn or ""}
 
 
-def _remembered(ns, found, held):
-    """The code of the failure this process remembers for a catalog that is in the commit of a download, else None. The disk
-    says Downloading for the milliseconds of a commit (`pending`, with the `error` the commit cleared), but when the attempt
-    is a silent retry (one a person cannot see: it has no mark in `firstrun.PROGRESS`) of a download that failed, the page
-    already says it failed, and must go on saying it until the copy is there. A click on Try again clears the failure and
-    marks the catalog before the attempt starts, so that one is a download, as the page was told. The rule is
-    `firstrun._failure`'s, the single one: this module asks it, and reaches the module here and not above (the worker calls
-    this one)."""
-    if found.get("state") != "downloading" or held.get("pin") or held.get("error") or not held.get("pending"):
-        return None
-    from . import firstrun
-    if ns in firstrun.PROGRESS:
-        return None
-    return firstrun._failure(ns, {ns: held})
-
-
 def _git_row(ns, found, summary, project_, entry, contract, on=frozenset()):
     held = registry.lock_of(ns)
-    code = _remembered(ns, found, held)
-    if code:   # the failure the page says, through the milliseconds of a silent retry's commit
-        found, held = {**found, "state": registry.FAILURES.get(code, "failed")}, {**held, "error": code, "pending": None}
     url = defaults.effective(entry)[0] if entry and entry["kind"] == "git" else None
     address = registry.display_address(url or (entry or {}).get("path") or "")
     state = _folder_state(found["state"]) if found["kind"] == "folder" else _kind_state(ns, found, held, entry, contract)
     progress = _progress_of(ns, state["key"])
-    if state["key"] == "downloading" and ns not in _started:
-        _started[ns] = _now()
-    elif state["key"] != "downloading":
-        _started.pop(ns, None)
     pin = held.get("pin")
     return {
         "id": ns, "kind": found["kind"], "listed": bool(found.get("listed")), "name": found["name"], "imported": registry.imported(ns),
@@ -538,7 +509,7 @@ def _git_row(ns, found, summary, project_, entry, contract, on=frozenset()):
         "version": found.get("version"), "commit": _short(pin), "updated": held.get("installed"),
         "checked": held.get("checked"), "audience": found.get("audience") or "private",
         "counts": _counts(found.get("units") or {}), "state": state, "progress": progress,
-        "attention": _attention(ns, found, held, entry, state["key"]), "auto": (entry or {}).get("auto") is not False,
+        "attention": _attention(found, held, entry, state["key"]), "auto": (entry or {}).get("auto") is not False,
         "has_previous": bool(held.get("previous")),
         "host": found.get("host") or "no", "held": _held_of(ns, project_, held, on),
         "blocked": [dict(one) for one in summary.get("blocked") or []],

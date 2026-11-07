@@ -30,7 +30,6 @@ from lab_ui.catalogs import store as bare
 from lab_ui.catalogs.registry import CatalogError
 
 from .. import Case, fixtures, gitfixture
-from .test_provision import Served
 
 HOUR = 3600
 BARE = {"contract": 1, "contract_min": 1, "seeder_image": ""}   # the level of this Lab, as the core says it
@@ -64,7 +63,6 @@ class Base(Case):
         self.patch(jobs, "JOBS", jobs.Jobs())
         self.patch(service, "TICKETS", {})
         self.patch(service, "_checking", {})
-        self.patch(service, "_started", {})
         self.patch(service, "_known", {"at": None, "version": None})
         self.remotes = {}
 
@@ -327,83 +325,6 @@ class Rows(Seam):
         self.assertIsNone(self.rows()["lab-new"]["web_url"])
 
 
-class Retrying(Served, Case):
-    """A download that failed and is tried again, nobody watching: `firstrun.content` says it failed through every step
-    of the commit, and the row of the Catalogs page says the same, not Downloading for the milliseconds the disk does."""
-
-    def setUp(self):
-        self.world()
-        self.patch(service, "_started", {})
-
-    def failed_once(self):
-        """An entry with no copy whose first attempt found the host unreachable: the lock holds the failure, this process
-        remembers its line, and nothing is on the bar."""
-        registry.write_config({"schema": 1, "catalogs": [{"id": self.ns, "kind": "git", "url": self.remote.url}]})
-        with mock.patch.object(gitx, "ls_remote", side_effect=gitx.fail("unreachable")), self.assertRaises(CatalogError):
-            firstrun.provision(self.ns)
-        self.assertEqual(self.row()["state"]["key"], "unreachable")
-
-    def row(self):
-        return next(one for one in service.describe({}, {}) if one.get("id") == self.ns and one.get("kind") != "progress")
-
-    def steps(self):
-        """The attempt, with the row and the content as the page reads them at every step of the commit: [(step, row state key,
-        content key)]."""
-        seen = []
-        self.patch(install, "STEP", lambda step: seen.append((step, self.row()["state"]["key"], firstrun.content({})["key"])))
-        firstrun.provision(self.ns)
-        return seen
-
-    def test_a_silent_retry_leaves_the_row_failed_through_every_step_of_its_commit_and_up_to_date_when_the_copy_is_there(self):
-        self.failed_once()
-        seen = self.steps()
-        labels = [step for step, _, _ in seen]
-        self.assertTrue({"add:pending", "add:install", "add:placed", "add:lock", "add:done"} <= set(labels), labels)
-        end = labels.index("add:done")
-        self.assertEqual({(row, content) for _, row, content in seen[:end]}, {("unreachable", "failed")}, str(seen))
-        self.assertEqual({(row, content) for _, row, content in seen[end:]}, {("uptodate", "ready")}, str(seen))
-        row = self.row()
-        self.assertEqual((row["state"]["key"], row["progress"], row["attention"]), ("uptodate", None, None))
-
-    def test_the_row_of_a_silent_retry_says_the_failure_in_the_words_of_the_lock_and_asks_for_the_download_dot(self):
-        self.failed_once()
-        held = {}
-        self.patch(install, "STEP", lambda step: held.update({step: self.row()}) if step == "add:placed" else None)
-        firstrun.provision(self.ns)
-        row = held["add:placed"]
-        self.assertEqual((row["state"]["label"], row["state"]["tone"]), ("Unreachable", "warn"))
-        self.assertEqual((row["state"]["reason"], row["state"]["next"]),
-                         ("Cannot reach localhost.", "Check your connection, then try again."))
-        self.assertEqual((row["attention"], row["progress"], row["commit"]), ("download", None, None))
-
-    def test_a_retry_a_click_started_is_a_download_through_every_step_of_its_commit(self):
-        self.failed_once()
-        registry.set_lock(self.ns, error=None)   # what service.check_now does, and then it marks the catalog
-        firstrun.reconcile()
-        self.assertEqual(self.row()["state"]["key"], "downloading")
-        seen = self.steps()
-        labels = [step for step, _, _ in seen]
-        end = labels.index("add:done")
-        self.assertEqual({row for _, row, _ in seen[:end]}, {"downloading"}, str(seen))
-        self.assertEqual({row for _, row, _ in seen[end:]}, {"uptodate"}, str(seen))
-
-    def test_the_first_attempt_and_the_code_in_the_lock_are_what_they_were(self):
-        registry.write_config({"schema": 1, "catalogs": [{"id": self.ns, "kind": "git", "url": self.remote.url}]})
-        self.assertEqual(self.row()["state"]["key"], "downloading", "no attempt yet: nothing is remembered")
-        firstrun.reconcile()
-        seen = self.steps()   # the first attempt, seen by a person (reconcile marked it): a download to the end
-        self.assertEqual({row for step, row, _ in seen if step != "add:done"} - {"uptodate"}, {"downloading"}, str(seen))
-        self.assertEqual(self.row()["state"]["key"], "uptodate")
-
-    def test_a_failure_only_this_process_remembers_is_not_a_failure_of_a_catalog_that_has_a_copy(self):
-        self.failed_once()
-        firstrun.provision(self.ns)
-        firstrun._lines[self.ns] = ("unreachable", "stale")   # a memory that outlived the failure
-        self.assertEqual(self.row()["state"]["key"], "uptodate")
-        registry.set_lock(self.ns, pending={"op": "update", "from": self.remote.head(), "to": self.remote.head()})
-        self.assertEqual(self.row()["state"]["key"], "updating", "and an update under way is an update")
-
-
 class States(Seam):
     """The state key and the words of a git catalog, the first that applies."""
 
@@ -584,18 +505,9 @@ class Attention(Seam):
         fixtures.declare(self, "lab-new", error="unreachable")
         self.assertEqual(self.row("lab-new")["attention"], "download")
 
-    def test_a_download_of_a_few_seconds_lights_nothing_and_one_that_lasts_does(self):
+    def test_a_download_under_way_lights_nothing(self):
         fixtures.declare(self, "lab-new")
-        now = [100.0]
-        self.patch(service, "_now", lambda: now[0])
         self.assertEqual(self.row("lab-new")["attention"], None)
-        now[0] += service.LONG_DOWNLOAD - 1
-        self.assertEqual(self.row("lab-new")["attention"], None)
-        now[0] += 2
-        self.assertEqual(self.row("lab-new")["attention"], "download")
-        registry.set_lock("lab-new", error=None, pin="a" * 40)   # it ended: the memory of its start goes
-        self.row("lab-new")
-        self.assertNotIn("lab-new", service._started)
 
     def test_the_offline_state_of_an_installed_catalog_does_not_light_it(self):
         self.given(error="unreachable")

@@ -398,7 +398,6 @@ class EndToEnd(Case):
         self.patch(jobs, "JOBS", jobs.Jobs())
         self.patch(service, "TICKETS", {})
         self.patch(service, "_checking", {})
-        self.patch(service, "_started", {})
         self.patch(service, "_known", {"at": None, "version": None})
         self.patch(service, "_running", lambda found, ns: set())
         self.patch(compose, "image_ids", lambda: {})   # Docker is not asked: no daemon here
