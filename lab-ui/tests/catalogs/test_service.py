@@ -400,8 +400,7 @@ class States(Seam):
 
     def test_the_failures_of_a_check_are_the_state_with_the_lines_of_section_11(self):
         cases = {
-            "unreachable": ("unreachable", "Unreachable", "warn", "Cannot reach {host}. Showing the copy from 16 Oct.",
-                            "Check your connection, then check again."),
+            "unreachable": ("unreachable", "Unreachable", "warn", "Cannot reach {host}.", "Check your connection, then try again."),
             "timeout": ("unreachable", "Unreachable", "warn", "{host} did not answer in time.", "Try again."),
             "certificate": ("unreachable", "Unreachable", "warn", "The certificate of {host} was refused.",
                             "A company proxy may be in the way."),

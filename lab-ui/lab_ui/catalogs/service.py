@@ -198,7 +198,6 @@ WORDS = {
     "damaged": ("Damaged", "error"), "linked": ("Linked", "muted"), "missing_folder": ("Folder not found", "error"),
     "suggested": ("Not added", "muted"), "failed": ("Failed", "error"),
 }
-MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def _instant(text):
@@ -222,15 +221,6 @@ def ago(text):
     return "just now"
 
 
-def _day(text):
-    """"12 Oct" for a stamp: the date of the copy that is shown while the address does not answer."""
-    then = _instant(text)
-    if then is None:
-        return ""
-    when = time.gmtime(then)
-    return f"{when.tm_mday} {MONTHS[when.tm_mon - 1]}"
-
-
 def _address_of(url):
     """The address as the lines of the catalogue of errors name it, or None for one the grammar refuses."""
     try:
@@ -239,7 +229,7 @@ def _address_of(url):
         return None
 
 
-def _failure(code, url, installed):
+def _failure(code, url):
     """(reason, next) of a failure code for the popover of a row: the line of the catalogue of errors, cut where its sentence ends."""
     address = _address_of(url)
     host = (address.host or address.display) if address else "the host"
@@ -249,8 +239,7 @@ def _failure(code, url, installed):
     if code == "docker_missing":
         return ("Docker is not ready.", "Start Docker: the catalog is read again by itself.")
     if code == "unreachable":
-        return (f"Cannot reach {host}." + (f" Showing the copy from {installed}." if installed else ""),
-                "Check your connection, then check again." if installed else "Check your connection, then try again.")
+        return f"Cannot reach {host}.", "Check your connection, then try again."
     if code in gitx.MESSAGES:
         line = gitx.fail(code, address).message
         first, _, rest = line.partition(". ")
@@ -287,7 +276,6 @@ def _kind_state(ns, found, held, entry, contract):
     key = found["state"]
     listed = bool(found.get("listed"))
     url = defaults.effective(entry)[0] if entry and entry.get("kind") == "git" else None
-    installed = _day(held.get("installed"))
     seen = _seen(held)
     level = manifest.compat(found.get("lab"), contract.get("contract", 1), contract.get("contract_min", 1)) \
         if isinstance(found.get("lab"), int) else "ok"
@@ -302,7 +290,7 @@ def _kind_state(ns, found, held, entry, contract):
         elif not held.get("checked"):
             key = "checking"
     if key in ("unreachable", "noaccess", "needs_git", "needs_docker", "failed") and held.get("error"):
-        reason, after = _failure(held["error"], url, installed if held.get("pin") else "")
+        reason, after = _failure(held["error"], url)
         return _state(key, reason=reason, next=after)
     if key == "uptodate":   # a copy that is no release (a catalog that makes none, commits made after the last one) says so
         said = [f"Version {found['version']}"] if found.get("version") else []
@@ -531,8 +519,6 @@ def _suggested_row(one):
     row = {"id": one.get("id"), "kind": "suggested", "listed": bool(one.get("listed")), "name": one["name"],
            "description": one.get("description") or "", "address": address, "url": one["url"],
            "state": _state("suggested", reason=one.get("description") or ""), "progress": None, "attention": None}
-    if one.get("branch"):
-        row["branch"] = one["branch"]
     if one.get("host_access"):
         row["host_access"] = True
     return row
@@ -888,7 +874,6 @@ def add(ticket):
     _spend(ticket)
     with contextlib.suppress(OSError):   # the .env is for a docker compose typed by hand: the catalog is added all the same
         layers.prepare_catalogs()
-    git_version(fresh=True)
     return {"catalog": _row_of(ns)}
 
 
