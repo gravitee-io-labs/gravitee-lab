@@ -544,7 +544,7 @@ creates the APIs. The choice is one for the lab, kept in this browser; without o
 is. With no account connected, none of this is drawn.
 
 [Deploy a playground](cloud.md#deploy-a-playground) is the whole path (the picker, *Before you start*, the dialog and its phases,
-*Deployed to*), and [Use both places](cloud.md#use-both-places) says what *Re-seed*, *Stop* and *Reset* do with several places.
+*Deployed to*), and [Use both places](cloud.md#use-both-places) says what *Stop* and *Reset* do with several places.
 
 On the Playgrounds list, a playground that can go to Gravitee Cloud has a cloud mark, and its note says what the place you picked
 lacks (*Needs a hybrid gateway*, *Needs a Cloud Token*, *Invalid token*, *Unreachable*), leading to the form that fixes it. Its

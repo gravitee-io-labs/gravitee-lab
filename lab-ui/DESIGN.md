@@ -223,7 +223,7 @@ of the first environment) and the control keeps saying what is kept: never a sil
 nothing. Don't: a third look for this choice, a choice that starts something, the choice in a card's head.
 
 **Choice cards** (`.core-cards`, `.core-card`, `.core-card-text`, `.core-card-where`, `.core-more`). A choice of one among two or three that
-needs more words than a segment, the welcome dialog's *Where does your Gravitee run?*: a `radiogroup` named by its question, each card a
+needs more words than a segment, the welcome dialog's *Where does API Management run?*: a `radiogroup` named by its question, each card a
 `label` around a visible radio (at its top right), the `.cta-icon` of the license cards, a strong title, one sentence of what it is, then
 muted facts read from the state (the products of this machine's platform) and what the choice still needs, or the place it is, as a pill.
 Side by side, one over the other under 640 px. What is chosen has the edge of a field, as a checked segment; the keyboard's ring is the

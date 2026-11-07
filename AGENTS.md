@@ -113,7 +113,7 @@ on top of it and change its services only by the keys they need.
   `make check` asks for the last two. A UI to open adds `io.gravitee.console.<id>.name` and `.url`.
 - An image is `${NAME_VERSION:-tag}`, and a Gravitee image `${NAME_REGISTRY:-graviteeio}/repository:${NAME_VERSION:-tag}`.
   The Images page finds each component from these lines and writes the chosen version to `.env`, so a version never goes
-  in code. The variables: [images and versions](docs/configuration.md#images-and-versions).
+  in code. The variables: [the settings of the core](docs/contract.md#settings-of-the-core).
 - `x-ui-frames` is the `command` of the consoles that the Lab UI shows in frames next to a guide. It removes
   `X-Frame-Options` and lets `http://localhost:9000` frame the page. A platform service listed in a playground's
   `consoles` needs it, or a setting of its own that names `http://localhost:9000` and `http://127.0.0.1:9000` as the pages that
