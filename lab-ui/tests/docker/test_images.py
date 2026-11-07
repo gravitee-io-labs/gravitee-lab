@@ -154,7 +154,7 @@ class Images(Case):
                           "KIOSK_VERSION", "MCP_LENS_VERSION", "MIRROR_VERSION", "KAZOO_VERSION"])
 
     def test_host_rule(self):
-        for name, where in {"redis": (None, "library/redis"), "openfga/openfga": (None, "openfga/openfga"),
+        for name, where in {"redis": (None, "library/redis"), "orchard/orchard": (None, "orchard/orchard"),
                             "docker.io/redis": (None, "library/redis"), "graviteeio/apim-gateway":
                             (None, "graviteeio/apim-gateway"), "localhost/a/b": ("localhost", "a/b"),
                             "graviteeio.azurecr.io/apim-gateway": ("graviteeio.azurecr.io", "apim-gateway"),

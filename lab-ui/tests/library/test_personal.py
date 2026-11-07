@@ -302,7 +302,7 @@ services:
         self.write(f"{LOCAL}/addons/leftover/.env", "TOKEN=1\n")
         # Two image versions the project has: the platform's, and the one of an add-on's database
         self.project["services"]["apim-gateway"]["raw_image"] = "graviteeio/apim-gateway:${APIM_VERSION:-4.12.20}"
-        self.project["services"]["openfga"]["raw_image"] = "postgres:${OPENFGA_POSTGRES_VERSION:-17.9}"
+        self.project["services"]["orchard"]["raw_image"] = "postgres:${ORCHARD_POSTGRES_VERSION:-17.9}"
         before = self.tree()
         for fields, message in (
                 ({"name": " "}, "Give the add-on a name of 60 characters at most"),
@@ -315,7 +315,7 @@ services:
                 ({"name": "MongoDB"}, "The project has a service named mongodb"),
                 ({"name": "3scale"}, "Start the name with a letter"),
                 ({"name": "APIM"}, "The project has an image version named APIM_VERSION: choose another name"),
-                ({"name": "OpenFGA Postgres"}, "The project has an image version named OPENFGA_POSTGRES_VERSION"),
+                ({"name": "Orchard Postgres"}, "The project has an image version named ORCHARD_POSTGRES_VERSION"),
                 ({"name": "Zz $HOME thing"}, r"Write the name without \$"),
                 ({"name": "Leftover"}, "A folder named leftover is already there"),
                 ({"description": ""}, "Describe the add-on in one line"),

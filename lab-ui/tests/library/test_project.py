@@ -22,7 +22,7 @@ from lab_ui.catalogs import trust
 from .. import Case, fixtures
 
 CORE, KAZOO, CONSOLE = "docker-compose.yml", ".lab/catalogs/fixture/addons/kazoo/compose.yml", ".lab/catalogs/fixture/addons/kazoo-desk/compose.yml"
-JADE, OPENFGA = ".lab/catalogs/fixture/addons/jade/compose.yml", ".lab/catalogs/fixture/addons/openfga/compose.yml"
+JADE, ORCHARD = ".lab/catalogs/fixture/addons/jade/compose.yml", ".lab/catalogs/fixture/addons/orchard/compose.yml"
 INSPECTOR = ".lab/catalogs/fixture/addons/agent-lens/compose.yml"
 EVENTS, MINE, WELCOME = ".lab/catalogs/fixture/setups/event-streams.yml", ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/fixture/playgrounds/welcome/compose.yml"
 WHOAMI, SANDBOX = ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/playgrounds/sandbox/compose.yml"
@@ -82,11 +82,11 @@ INSPECTOR_SERVICES = {
                                build={"context": "https://example.com/repo.git"}),
     "apim-gateway": {"environment": {"gravitee_reporters_tcp_enabled": "true"}},
 }
-OPENFGA_SERVICES = {
-    "openfga": service("openfga/openfga:${OPENFGA_VERSION:-v1.21.0}", "OpenFGA", ports=[port(3000)],
-                       depends_on={"openfga-migrate": {"condition": "service_completed_successfully",
+ORCHARD_SERVICES = {
+    "orchard": service("orchard/orchard:${ORCHARD_VERSION:-v1.21.0}", "Orchard", ports=[port(3000)],
+                       depends_on={"orchard-migrate": {"condition": "service_completed_successfully",
                                                        "required": True}}),
-    "openfga-migrate": service("openfga/openfga:${OPENFGA_VERSION:-v1.21.0}", restart=None),
+    "orchard-migrate": service("orchard/orchard:${ORCHARD_VERSION:-v1.21.0}", restart=None),
 }
 
 RAW = {
@@ -157,9 +157,9 @@ RAW = {
                        "requires": {"license": ["apim-reporter-tcp"]}},
         "services": INSPECTOR_SERVICES,
     },
-    OPENFGA: {
-        "x-gravitee": {"kind": "addon", "name": "OpenFGA", "category": "AI", "description": "Authorization"},
-        "services": OPENFGA_SERVICES,
+    ORCHARD: {
+        "x-gravitee": {"kind": "addon", "name": "Orchard", "category": "AI", "description": "Authorization"},
+        "services": ORCHARD_SERVICES,
     },
     EVENTS: {"x-gravitee": {"kind": "setup", "name": "Event streams", "category": "Event", "description": "Kazoo"},
              "services": {}},
@@ -172,7 +172,7 @@ RAW = {
                        "requires": {"plugins": {"apim": ["gravitee-policy-interrupt"]}},
                        "accounts": [{"for": "Website", "username": "john", "password": "${WELCOME_PASSWORD:-doe}"}]},
         "services": {
-            **INSPECTOR_SERVICES, **OPENFGA_SERVICES,
+            **INSPECTOR_SERVICES, **ORCHARD_SERVICES,
             "acme-website": service("gravitee-lab/acme-website", "ACME Hello website", ports=[port(8002, 80)],
                                     build={"context": "https://example.com/repo.git"}, pull_policy="build",
                                     labels={"io.gravitee.console.acme.name": "ACME Hello",
@@ -195,14 +195,14 @@ IMAGES = {
     "apim-gateway": "graviteeio.azurecr.io/apim-gateway:4.13.0-debian",
     "kazoo": "docker.io/acmecontainer/kazoo:3.9", "kazoo-client": "docker.io/acmecontainer/kazoo:3.9",
     "kazoo-desk": "localhost:5000/team/apim-kazoo-desk:4.9.0", "jade": "jadetracing/jade:2.21.0",
-    "openfga": "openfga/openfga:v1.21.0", "openfga-migrate": "openfga/openfga:v1.21.0",
+    "orchard": "orchard/orchard:v1.21.0", "orchard-migrate": "orchard/orchard:v1.21.0",
 }
 
 
 def resolved():
     """One interpolated configuration of everything: each service once, images with their values."""
     services = {}
-    for path in (WELCOME, OPENFGA, INSPECTOR, JADE, CONSOLE, KAZOO, CORE):
+    for path in (WELCOME, ORCHARD, INSPECTOR, JADE, CONSOLE, KAZOO, CORE):
         for name, definition in RAW[path]["services"].items():
             if "image" in definition:
                 services[name] = dict(definition, image=IMAGES.get(name, definition["image"]))
@@ -213,8 +213,8 @@ def resolved():
 def inputs():
     return copy.deepcopy({
         "raw": RAW,
-        "includes": {CORE: [], KAZOO: [], CONSOLE: [KAZOO], JADE: [], INSPECTOR: [], OPENFGA: [],
-                     EVENTS: [CONSOLE], MINE: [JADE, CONSOLE], WELCOME: [OPENFGA, INSPECTOR]},
+        "includes": {CORE: [], KAZOO: [], CONSOLE: [KAZOO], JADE: [], INSPECTOR: [], ORCHARD: [],
+                     EVENTS: [CONSOLE], MINE: [JADE, CONSOLE], WELCOME: [ORCHARD, INSPECTOR]},
         "variables": {
             CORE: [variable("GRAVITEE_LICENSE", "", "Enterprise license"), variable("REDIS_VERSION", "8.10.1-alpine"),
                    variable("REDIS_PASSWORD", "redispassword", "Redis password"), variable("MONGODB_VERSION", "8.0.29"),
@@ -347,7 +347,7 @@ class Build(AsOwn):
         addons = self.project["addons"]
         self.assertEqual(addons["kazoo"]["restarts"], ["apim-gateway"])
         self.assertEqual(addons["kazoo-desk"]["restarts"], ["apim-management-api"])   # the gateway is Kazoo's
-        self.assertEqual(addons["openfga"]["restarts"], [])
+        self.assertEqual(addons["orchard"]["restarts"], [])
         self.assertEqual(self.project["playgrounds"]["welcome"]["restarts"], ["apim-gateway"])
 
     def test_a_core_service_that_two_includes_change_is_theirs(self):
@@ -420,14 +420,14 @@ class Build(AsOwn):
 
     def test_a_playground_brings_the_add_ons_of_the_setups_it_includes(self):
         given = inputs()
-        given["includes"][WELCOME] = [EVENTS, OPENFGA, INSPECTOR]
+        given["includes"][WELCOME] = [EVENTS, ORCHARD, INSPECTOR]
         # Compose merges in what the setup's add-ons define; the gateway keeps the playground's own change
         merged = given["raw"][WELCOME]["services"]
         merged.update({name: service for name, service in RAW[CONSOLE]["services"].items() if name not in merged})
         playground = project.build(given)["playgrounds"]["welcome"]
         self.assertEqual(playground["setups"], ["event-streams"])
-        self.assertEqual(playground["includes"], ["openfga", "agent-lens"])   # in the order of the file
-        self.assertEqual(playground["addons"], ["agent-lens", "kazoo", "kazoo-desk", "openfga"])
+        self.assertEqual(playground["includes"], ["orchard", "agent-lens"])   # in the order of the file
+        self.assertEqual(playground["addons"], ["agent-lens", "kazoo", "kazoo-desk", "orchard"])
         # What the setup's add-ons run and change is theirs
         self.assertEqual(playground["services"], ["acme-website", "hello-agent", "hello-seed"])
         self.assertEqual(playground["restarts"], ["apim-gateway"])
@@ -435,7 +435,7 @@ class Build(AsOwn):
     def test_playground(self):
         playground = self.project["playgrounds"]["welcome"]
         self.assertEqual(playground["setups"], [])
-        self.assertEqual(playground["addons"], ["agent-lens", "openfga"])
+        self.assertEqual(playground["addons"], ["agent-lens", "orchard"])
         self.assertEqual(playground["services"], ["acme-website", "hello-agent", "hello-seed"])
         self.assertEqual(playground["apps"], ["acme-website", "hello-agent"])
         self.assertEqual(playground["seed"], "hello-seed")
@@ -492,7 +492,7 @@ class Build(AsOwn):
         services = self.project["services"]
         oneshot = {name for name, s in services.items() if s["oneshot"]}
         # Kazoo UI has no restart policy, but it publishes a port; the Kazoo client restarts unless stopped
-        self.assertEqual(oneshot, {"openfga-migrate", "hello-seed"})
+        self.assertEqual(oneshot, {"orchard-migrate", "hello-seed"})
 
     def test_a_service_says_whether_it_needs_a_license(self):
         # The label io.gravitee.license: required, as Compose runs the service; any other value, or none, is no need
@@ -504,8 +504,8 @@ class Build(AsOwn):
 
     def test_what_a_service_depends_on(self):
         services = self.project["services"]
-        self.assertEqual((services["openfga"]["depends_on"], services["openfga-migrate"]["depends_on"]),
-                         (["openfga-migrate"], []))
+        self.assertEqual((services["orchard"]["depends_on"], services["orchard-migrate"]["depends_on"]),
+                         (["orchard-migrate"], []))
 
     def test_a_service_has_the_command_it_runs_as_one_text(self):
         given = inputs()
@@ -1065,64 +1065,64 @@ class Deployable(AsOwn):
         self.assertEqual(self.why(), [])
 
     def test_nor_do_the_add_ons_it_brings(self):
-        self.brings(OPENFGA)   # nothing of the core
+        self.brings(ORCHARD)   # nothing of the core
         self.assertEqual(self.why(), [])
-        self.brings(OPENFGA, KAZOO)   # a port and a setting on the gateway: written for the gateway of the platform
+        self.brings(ORCHARD, KAZOO)   # a port and a setting on the gateway: written for the gateway of the platform
         self.assertEqual(self.why(), [])
-        self.brings(OPENFGA, CONSOLE)   # a setting on the Management API, which is not here
+        self.brings(ORCHARD, CONSOLE)   # a setting on the Management API, which is not here
         self.assertEqual(self.why(), [CHANGES])
-        self.brings(EVENTS, OPENFGA)   # through a setup, and the add-on it includes
+        self.brings(EVENTS, ORCHARD)   # through a setup, and the add-on it includes
         self.given["includes"][EVENTS] = [CONSOLE]
         self.given["raw"][CLOUD]["services"].update(self.given["raw"][CONSOLE]["services"])
         self.assertEqual(self.why(), [CHANGES])
         self.given["raw"][CLOUD]["services"].pop("apim-management-api", None)
-        self.brings(OPENFGA)
-        self.given["includes"][OPENFGA] = [JADE]   # what an add-on includes is brought too: it sets the gateway only
+        self.brings(ORCHARD)
+        self.given["includes"][ORCHARD] = [JADE]   # what an add-on includes is brought too: it sets the gateway only
         self.assertEqual(self.why(), [])
-        self.given["includes"][OPENFGA] = [CONSOLE]
+        self.given["includes"][ORCHARD] = [CONSOLE]
         self.assertEqual(self.why(), [CHANGES])
 
     def test_an_app_waits_for_no_service_of_the_core(self):
         # An add-on's service starts with the deploy; the seed's own dependencies are the core's place, not this one
-        self.brings(OPENFGA)
-        self.app(depends_on={"openfga": {"condition": "service_healthy", "required": True}})
+        self.brings(ORCHARD)
+        self.app(depends_on={"orchard": {"condition": "service_healthy", "required": True}})
         self.assertEqual(self.why(), [])
         # What of the platform runs here with the deploy (the databases, Access Management) is no reason; the control plane
         # of API Management is Gravitee Cloud's
-        self.app(depends_on={name: {"condition": "service_healthy", "required": True} for name in ("openfga", "redis")})
+        self.app(depends_on={name: {"condition": "service_healthy", "required": True} for name in ("orchard", "redis")})
         self.assertEqual(self.why(), [])
         self.app(depends_on={name: {"condition": "service_healthy", "required": True}
-                             for name in ("openfga", "apim-management-api")})
+                             for name in ("orchard", "apim-management-api")})
         self.assertEqual(self.why(), [USES])
         # The gateway is not one of them: what the app says of it is written for the gateway of the platform
         self.app(depends_on={"apim-gateway": {"condition": "service_healthy", "required": True}})
         self.assertEqual(self.why(), [])
 
     def test_nor_does_a_service_of_an_add_on_it_brings(self):
-        self.brings(OPENFGA)
-        self.needs(OPENFGA, "openfga-migrate", "openfga")   # for another of the add-on: it starts with the deploy
+        self.brings(ORCHARD)
+        self.needs(ORCHARD, "orchard-migrate", "orchard")   # for another of the add-on: it starts with the deploy
         self.assertEqual(self.why(), [])
-        self.needs(OPENFGA, "openfga-migrate", "redis", "openfga")   # the platform's database runs here too
+        self.needs(ORCHARD, "orchard-migrate", "redis", "orchard")   # the platform's database runs here too
         self.assertEqual(self.why(), [])
-        self.needs(OPENFGA, "openfga-migrate", "apim-management-api", "openfga")
+        self.needs(ORCHARD, "orchard-migrate", "apim-management-api", "orchard")
         self.assertEqual(self.why(), [USES])
-        self.needs(OPENFGA, "openfga-migrate", "openfga")
-        self.needs(OPENFGA, "openfga", "apim-management-api")   # each service of the add-on is read, not the first
+        self.needs(ORCHARD, "orchard-migrate", "orchard")
+        self.needs(ORCHARD, "orchard", "apim-management-api")   # each service of the add-on is read, not the first
         self.assertEqual(self.why(), [USES])
 
     def test_nor_one_of_a_setup_s_add_ons(self):
-        self.given["includes"][EVENTS] = [OPENFGA]
+        self.given["includes"][EVENTS] = [ORCHARD]
         self.brings(EVENTS)
         self.assertEqual(self.why(), [])
-        self.needs(OPENFGA, "openfga", "redis")
+        self.needs(ORCHARD, "orchard", "redis")
         self.assertEqual(self.why(), [])
-        self.needs(OPENFGA, "openfga", "apim-management-api")
+        self.needs(ORCHARD, "orchard", "apim-management-api")
         self.assertEqual(self.why(), [USES])
 
     def test_an_app_calls_no_gateway_nor_service_of_the_core(self):
-        self.brings(OPENFGA)
+        self.brings(ORCHARD)
         # A backend of an add-on, this machine, the internet, and a name in a sentence are fine
-        self.app(environment={"PORT": "8000", "FGA_URL": "http://openfga:8080", "NOTE": "the apim-gateway is not called",
+        self.app(environment={"PORT": "8000", "FGA_URL": "http://orchard:8080", "NOTE": "the apim-gateway is not called",
                               "OLLAMA_URL": "${OLLAMA_URL:-http://host.docker.internal:11434}"},
                  command=["serve", "--upstream", "https://api.example.com"])
         self.assertEqual(self.why(), [])

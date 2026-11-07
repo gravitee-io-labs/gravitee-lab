@@ -120,7 +120,7 @@ def services(*specs):
 
 
 SERVICES = services(("mongodb", False), ("redis", False), ("reader-ui", False), ("alert-engine", False),
-                    ("apim-gateway", False), ("openfga-migrate", True))
+                    ("apim-gateway", False), ("orchard-migrate", True))
 LAB = {"services": SERVICES}
 # What Docker checks the health of: neither Reader UI nor the migration
 CHECKED = {"mongodb", "redis", "alert-engine", "apim-gateway"}
@@ -412,11 +412,11 @@ RESTARTS = [" Container gio-alert-engine Restarting ", " Container gio-alert-eng
 BUILDS = [" Image gravitee-lab/hello-agent Building ", "#1 [internal] load local bake definitions",
           "#42 [hello-agent 4/4] RUN pip install .", "#42 CACHED", " Image gravitee-lab/hello-agent Built ",
           " Network gio_default Creating ", " Container gio-mongodb Running ", " Container gio-apim-gateway Recreate ",
-          " Container gio-openfga-migrate Creating ", " Container gio-openfga-migrate Created ",
+          " Container gio-orchard-migrate Creating ", " Container gio-orchard-migrate Created ",
           " Container gio-apim-gateway Recreated ", " Container gio-mongodb Waiting ",
           " Container gio-apim-gateway Starting ", " Container gio-apim-gateway Started ",
-          " Container gio-openfga-migrate Starting ", " Container gio-openfga-migrate Started ",
-          " Container gio-openfga-migrate Exited ", " Container gio-apim-gateway Healthy "]
+          " Container gio-orchard-migrate Starting ", " Container gio-orchard-migrate Started ",
+          " Container gio-orchard-migrate Exited ", " Container gio-apim-gateway Healthy "]
 SEEDS = ["[seed] Seeding the playground", "[apim] ✓ API updated: ACME Hello API", "[seed] ✓ Playground ready"]
 # Pull images: an image that is built is skipped, one that two services run is pulled once, a layer's lines are not
 # streamed
@@ -504,11 +504,11 @@ class Progress(Case):
         self.assertEqual(progress(replay(job, STOPS, refresh=docker.refresh)), [0.5, 0.75, 1, 1, 1, 1])
 
     def test_a_one_shot_is_ready_once_it_ended_well(self):
-        job = self.job([UP], awaited(SERVICES, start=["openfga-migrate"]))
-        lines = [" Container gio-openfga-migrate Created ", " Container gio-openfga-migrate Started "]
+        job = self.job([UP], awaited(SERVICES, start=["orchard-migrate"]))
+        lines = [" Container gio-orchard-migrate Created ", " Container gio-orchard-migrate Started "]
         docker = Docker(LAB)
         self.assertEqual(progress(replay(job, lines, refresh=docker.refresh)), [0.2, 0.5])
-        docker.containers["openfga-migrate"] = container("exited", code=0)
+        docker.containers["orchard-migrate"] = container("exited", code=0)
         docker.observe(job)
         self.assertEqual(job.progress, 1)
 
@@ -522,7 +522,7 @@ class Progress(Case):
 
     def test_an_image_that_up_pulls_or_builds_is_waited_for_too(self):
         # Compose names it before any container: what is created from it waits for it. Build output says nothing
-        job = self.job([UP], awaited(SERVICES, start=["apim-gateway", "openfga-migrate"]))
+        job = self.job([UP], awaited(SERVICES, start=["apim-gateway", "orchard-migrate"]))
         self.assertEqual(progress(replay(job, BUILDS)),
                          [0, 0, 0, 0, 0.333, 0.333, 0.333, 0.333, 0.333, 0.4, 0.467, 0.467, 0.467, 0.567, 0.567, 0.667,
                           0.833, 1])
@@ -558,7 +558,7 @@ class Progress(Case):
                 job.exec(cmd)
             return run
         steps = [lambda job: job.step("Add-ons"), phase("Apps and services", UP), phase("Seed", ["docker", "logs"])]
-        job = self.job(steps, awaited(SERVICES, start=["apim-gateway", "openfga-migrate"]), None,
+        job = self.job(steps, awaited(SERVICES, start=["apim-gateway", "orchard-migrate"]), None,
                        phases=["Apps and services", "Seed"])
         read = replay(job, BUILDS, SEEDS)
         self.assertEqual(progress(read)[:15], [0, 0, 0, 0, 0.167, 0.167, 0.167, 0.167, 0.167, 0.2, 0.233, 0.233,

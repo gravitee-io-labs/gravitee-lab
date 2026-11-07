@@ -110,32 +110,32 @@ class Services(Case):
         containers = {"apim-gateway": container(), "apim-management-api": container(health="starting"),
                       "mongodb": container(health="unhealthy"), "kazoo": container(health=""),
                       "kazoo-ui": container(health="", restarts=3), "kazoo-desk": container("created", ""),
-                      "jade": exited(143), "openfga-migrate": exited(0), "seed": container(health=""),
+                      "jade": exited(143), "orchard-migrate": exited(0), "seed": container(health=""),
                       "hello-app": exited(1), "redpanda": container("restarting", "")}
         steps = model.container_steps(project, containers)
         self.assertEqual({name: steps[f"lab-{name}"] for name in containers}, {
             "apim-gateway": "ready", "apim-management-api": "running", "mongodb": "issue", "kazoo": "ready",
-            "kazoo-ui": "issue", "kazoo-desk": "created", "jade": "stopped", "openfga-migrate": "ready",
+            "kazoo-ui": "issue", "kazoo-desk": "created", "jade": "stopped", "orchard-migrate": "ready",
             "seed": "running", "hello-app": "stopped", "redpanda": "issue"})
         self.assertEqual((steps["lab-kiosk"], len(steps)), ("absent", len(project["services"])))
 
     def test_up(self):
         project = lab()
         containers = {**healthy("apim-gateway", "kazoo-ui", "hello-app"), "kiosk": exited(143),
-                      "openfga-migrate": exited(0), "stray": container()}
+                      "orchard-migrate": exited(0), "stray": container()}
         self.assertEqual(model.up(project, containers), {
             "platform": True, "groups": set(), "addons": {"kazoo"}, "playgrounds": {"welcome"},
             # What runs, what has a container, the one-shots that ended well
             "services": {"apim-gateway", "kazoo-ui", "hello-app", "stray"}, "created": set(containers),
-            "ready": {"apim-gateway", "kazoo-ui", "hello-app", "stray"}, "done": {"openfga-migrate"}})
+            "ready": {"apim-gateway", "kazoo-ui", "hello-app", "stray"}, "done": {"orchard-migrate"}})
         self.assertEqual(model.up(project, {}), {"platform": False, "groups": set(), "addons": set(),
                                                  "playgrounds": set(), "services": set(), "created": set(),
                                                  "ready": set(), "done": set()})
         # Ready as a job judges it: not while its health check has not passed, nor a one-shot that runs
-        project["services"]["openfga-migrate"]["oneshot"] = True
-        waiting = {**healthy("hello-app", "openfga-migrate"), "apim-gateway": container(health="starting")}
+        project["services"]["orchard-migrate"]["oneshot"] = True
+        waiting = {**healthy("hello-app", "orchard-migrate"), "apim-gateway": container(health="starting")}
         self.assertEqual((model.up(project, waiting)["services"], model.up(project, waiting)["ready"]),
-                         ({"hello-app", "apim-gateway", "openfga-migrate"}, {"hello-app"}))
+                         ({"hello-app", "apim-gateway", "orchard-migrate"}, {"hello-app"}))
         # A group runs when all its services do; a one-shot does not have to
         project["services"]["mongodb"]["oneshot"] = True
         self.assertEqual(model.up(project, healthy("apim-gateway", "apim-management-api"))["groups"],
@@ -451,21 +451,21 @@ class State(Built):
 
     def test_one_shot_without_a_container_is_left_out(self):
         # It ended and was pruned: neither an issue of what it belongs to, nor the service a note names
-        running = {**CORE, **healthy("openfga")}
-        item = self.item("addon", "openfga", explicit=["openfga"], containers=running)
+        running = {**CORE, **healthy("orchard")}
+        item = self.item("addon", "orchard", explicit=["orchard"], containers=running)
         self.assertEqual((item["state"]["key"], item["note"]), ("running", ""))
-        failed_migration = {**running, "openfga-migrate": exited(1)}
-        self.assertEqual(self.note("addon", "openfga", explicit=["openfga"], containers=failed_migration),
-                         ("OpenFGA migration exited (1)", "err"))
+        failed_migration = {**running, "orchard-migrate": exited(1)}
+        self.assertEqual(self.note("addon", "orchard", explicit=["orchard"], containers=failed_migration),
+                         ("Orchard migration exited (1)", "err"))
         half = {**CORE, **healthy("kazoo")}   # a service that should run counts, with or without a container
         self.assertEqual(self.note("addon", "kazoo", explicit=["kazoo"], containers=half), ("Kazoo UI not created", ""))
-        self.project["setups"]["local/mine"]["members"] = ["openfga", "kazoo"]
+        self.project["setups"]["local/mine"]["members"] = ["orchard", "kazoo"]
         half = {**running, "kazoo": container(), "kazoo-ui": exited(143)}
-        self.assertEqual(self.note("setup", "local/mine", explicit=["kazoo", "openfga"], containers=half),
+        self.assertEqual(self.note("setup", "local/mine", explicit=["kazoo", "orchard"], containers=half),
                          ("Kazoo UI stopped", ""))
         # Alone, it is all there is to look at: on and not run yet, its add-on is stopped
-        self.project["addons"]["openfga"]["services"] = ["openfga-migrate"]
-        self.assertEqual(self.item("addon", "openfga", explicit=["openfga"])["state"]["key"], "stopped")
+        self.project["addons"]["orchard"]["services"] = ["orchard-migrate"]
+        self.assertEqual(self.item("addon", "orchard", explicit=["orchard"])["state"]["key"], "stopped")
 
     def test_blocked_gives_its_reason(self):
         # A short label in the warn tone that leads to the add-on that lacks them, its name in the explanation
@@ -714,16 +714,16 @@ class State(Built):
     def test_what_the_seed_needs_must_run(self):
         # Re-seed, and the stop that deletes what the seed created, wait for the services the seed depends on: the
         # first that does not run says why
-        self.project["services"]["seed"]["depends_on"] = ["apim-management-api", "openfga"]
-        self.project["playgrounds"]["welcome"]["addons"] = ["agent-lens", "openfga"]
+        self.project["services"]["seed"]["depends_on"] = ["apim-management-api", "orchard"]
+        self.project["playgrounds"]["welcome"]["addons"] = ["agent-lens", "orchard"]
         down = stopped("apim-gateway", "apim-management-api", "mongodb")
         item = self.item("playground", "welcome", playground="welcome", containers=down)
         said = {"enabled": False, "reason": "Management API is not running"}
         self.assertEqual((item["reseed"], item["stop"]["delete"]), (said, said))
         item = self.item("playground", "welcome", playground="welcome", containers={**CORE, **WELCOME})
-        said = {"enabled": False, "reason": "openfga is not running"}   # the lab names it by its id
+        said = {"enabled": False, "reason": "orchard is not running"}   # the lab names it by its id
         self.assertEqual((item["reseed"], item["stop"]["delete"]), (said, said))
-        running = {**CORE, **WELCOME, **healthy("openfga"), "openfga-migrate": exited(0)}
+        running = {**CORE, **WELCOME, **healthy("orchard"), "orchard-migrate": exited(0)}
         item = self.item("playground", "welcome", playground="welcome", containers=running)
         self.assertEqual(item["reseed"], {"enabled": True, "reason": None})
         # What they depend on in turn: the management API runs, MongoDB, which it needs, does not
@@ -985,15 +985,15 @@ class State(Built):
     def test_progress_counts_what_the_job_waits_for(self):
         # A migration counts as soon as the job waits for it, before it was created; a playground that is what the
         # job is for has the job's own progress, its seed and its phases included
-        welcome = job("Start Welcome", start=[["addon", "openfga"], ["playground", "welcome"]],
+        welcome = job("Start Welcome", start=[["addon", "orchard"], ["playground", "welcome"]],
                        key="playground:welcome", progress=0.4,
-                       containers={"lab-openfga": 1, "lab-openfga-migrate": 0, "lab-hello-app": 1, "lab-seed": 0})
-        found = self.progress(explicit=["openfga"], playground="welcome", job=welcome)
-        self.assertEqual((found["addon", "openfga"], found["playground", "welcome"]), (0.5, "job"))
-        # What it does not wait for is not counted: OpenFGA restarted alone, its migration left as it is
-        restart = job("Restart the stack", start=[["addon", "openfga"]], key="platform",
-                      containers={"lab-openfga": 0.5})
-        self.assertEqual(self.progress(explicit=["openfga"], job=restart)["addon", "openfga"], 0.5)
+                       containers={"lab-orchard": 1, "lab-orchard-migrate": 0, "lab-hello-app": 1, "lab-seed": 0})
+        found = self.progress(explicit=["orchard"], playground="welcome", job=welcome)
+        self.assertEqual((found["addon", "orchard"], found["playground", "welcome"]), (0.5, "job"))
+        # What it does not wait for is not counted: Orchard restarted alone, its migration left as it is
+        restart = job("Restart the stack", start=[["addon", "orchard"]], key="platform",
+                      containers={"lab-orchard": 0.5})
+        self.assertEqual(self.progress(explicit=["orchard"], job=restart)["addon", "orchard"], 0.5)
 
     def test_progress_goes_on_after_the_job_until_what_it_started_is_there(self):
         # Start Kazoo ended: Compose returned while the broker's health check runs; the gateway it restarted is healthy
@@ -1069,7 +1069,7 @@ class State(Built):
         body = self.build(explicit=["kazoo", "jade"], containers=running)
         self.assertEqual([item["name"] for item in body["addons"]],
                          ["AI Agent Lens", "Hybrid gateway", "Jade", "Kazoo", "Kazoo Desk", "Kiosk",
-                          "OpenFGA", "Redpanda"])
+                          "Orchard", "Redpanda"])
         addons = {item["id"]: item for item in body["addons"]}
         self.assertEqual(addons["kazoo-desk"]["needs"], [{"id": "kazoo", "name": "Kazoo"}])
         self.assertEqual(addons["jade"]["conflicts"], {"agent-lens": "both take the gateway's exporter"})
@@ -1306,7 +1306,7 @@ class Behind(Built):
     def test_what_runs_behind_what_is_saved(self):
         # Another configuration, or another image than its tag names here (a tag that moved with a pull)
         containers = {**AS_SAVED, "apim-gateway": made("old"), "mongodb": made(image_id="sha256:old"),
-                      "kazoo": made("old", state="exited", code=143), "openfga-migrate": made("old", health=""),
+                      "kazoo": made("old", state="exited", code=143), "orchard-migrate": made("old", health=""),
                       "kiosk": made("old")}
         # Not compared: what does not run (it takes what is saved as it starts), a one-shot, what Compose does not
         # read (Kiosk is off: no hash), what is not known

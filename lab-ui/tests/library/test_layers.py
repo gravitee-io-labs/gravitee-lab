@@ -18,7 +18,7 @@ from .. import Case, fixtures
 from .test_project import read
 
 SERVICE_LABELS = {"apim-gateway": "Gateway", "apim-management-api": "Management API", "kazoo": "Kazoo broker",
-                  "kazoo-ui": "Kazoo UI", "openfga-migrate": "OpenFGA migration", "seed": "Seed"}
+                  "kazoo-ui": "Kazoo UI", "orchard-migrate": "Orchard migration", "seed": "Seed"}
 EXPORTER = "both take the gateway's exporter"
 
 
@@ -54,7 +54,7 @@ def lab():
               _addon("agent-lens", "AI Agent Lens", ["agent-lens"], conflicts={"jade": EXPORTER},
                      restarts=["apim-gateway"]),
               _addon("redpanda", "Redpanda", ["redpanda"], conflicts={"kazoo": "same ports"}),
-              _addon("openfga", "OpenFGA", ["openfga", "openfga-migrate"]),
+              _addon("orchard", "Orchard", ["orchard", "orchard-migrate"]),
               _addon("hybrid", "Hybrid gateway", ["hybrid-gateway"], required=["HYBRID_CLOUD_TOKEN"])]
     welcome = {"id": "welcome", "kind": "playground", "name": "Welcome", "personal": False, "category": "AI",
                 "description": "", "tags": [], "source": None, "duration": None, "first_start": None,
@@ -739,26 +739,26 @@ class Plans(Case):
         self.assertEqual(plan["services"]["start"], ["kazoo-desk"])
 
     def test_the_one_shots_what_starts_depends_on_run_again_first(self):
-        # OpenFGA's migration ran, then OpenFGA and its database stopped: its start runs the migration again before
+        # Orchard's migration ran, then Orchard and its database stopped: its start runs the migration again before
         # it, and the database before the migration, as Compose would without --no-deps; a migration has nothing more
         # to do the second time. Whether it ran or not, alike
-        services, openfga = self.project["services"], self.project["addons"]["openfga"]
-        services["openfga-db"] = _service("openfga-db", services["openfga"]["owner"])
-        openfga["services"].append("openfga-db")
-        services["openfga"]["depends_on"] = ["openfga-migrate"]
-        services["openfga-migrate"]["depends_on"] = ["openfga-db"]
-        state = on(self.project, ["openfga"])
-        running = up("openfga")
-        running["services"] -= {"openfga", "openfga-db"}
+        services, orchard = self.project["services"], self.project["addons"]["orchard"]
+        services["orchard-db"] = _service("orchard-db", services["orchard"]["owner"])
+        orchard["services"].append("orchard-db")
+        services["orchard"]["depends_on"] = ["orchard-migrate"]
+        services["orchard-migrate"]["depends_on"] = ["orchard-db"]
+        state = on(self.project, ["orchard"])
+        running = up("orchard")
+        running["services"] -= {"orchard", "orchard-db"}
         for found in (running, up()):
-            plan = self.plan(state, found, "addon", "openfga", "start")
-            self.assertEqual(plan["services"]["start"], ["openfga", "openfga-db", "openfga-migrate"])
+            plan = self.plan(state, found, "addon", "orchard", "start")
+            self.assertEqual(plan["services"]["start"], ["orchard", "orchard-db", "orchard-migrate"])
         # What a start restarts runs its one-shots first too: Kazoo restarts the gateway, which depends on one here
-        services["apim-gateway"]["depends_on"] = ["openfga"]
-        running = up("openfga")
-        running["services"].add("openfga-db")
-        plan = self.plan(on(self.project, ["openfga"]), running, "addon", "kazoo", "start")
-        self.assertEqual(plan["services"]["start"], ["apim-gateway", "kazoo", "kazoo-ui", "openfga-migrate"])
+        services["apim-gateway"]["depends_on"] = ["orchard"]
+        running = up("orchard")
+        running["services"].add("orchard-db")
+        plan = self.plan(on(self.project, ["orchard"]), running, "addon", "kazoo", "start")
+        self.assertEqual(plan["services"]["start"], ["apim-gateway", "kazoo", "kazoo-ui", "orchard-migrate"])
 
     # --- A stop removes what goes by name and restarts the core services it changed --------------------------------
 
@@ -964,13 +964,13 @@ class Plans(Case):
         self.assertEqual(layers.platform_starts(self.project, state, up(platform=False)),
                          [PLATFORM, APPS, INSPECTOR, KAZOO, CONSOLE])
         # Databases stopped from the Stack, and Kazoo UI: the group, and Kazoo. A one-shot is left out: it runs once
-        state = on(self.project, ["kazoo-desk", "openfga"], "welcome")
-        running = up("agent-lens", "kazoo", "kazoo-desk", "openfga", playgrounds=["welcome"],
+        state = on(self.project, ["kazoo-desk", "orchard"], "welcome")
+        running = up("agent-lens", "kazoo", "kazoo-desk", "orchard", playgrounds=["welcome"],
                      stopped=["databases"])
         running["services"].discard("kazoo-ui")
-        running["done"].discard("openfga-migrate")
+        running["done"].discard("orchard-migrate")
         self.assertEqual(layers.platform_starts(self.project, state, running), [DATABASES, KAZOO])
-        running = up("agent-lens", "kazoo", "kazoo-desk", "openfga", playgrounds=["welcome"])
+        running = up("agent-lens", "kazoo", "kazoo-desk", "orchard", playgrounds=["welcome"])
         self.assertEqual(layers.platform_starts(self.project, state, running), [])
 
     def test_own_changes_in_the_on_file_block_everything(self):
@@ -1054,13 +1054,13 @@ class Plans(Case):
     def test_what_a_command_waits_for(self):
         # What it starts among what it names, everything it covers when it names nothing; all that it stops. A
         # container that starts is there once ready, a one-shot once it ended well
-        pairs = {"start": [["playground", "welcome"], ["addon", "openfga"], ["service", "apim-gateway"]],
+        pairs = {"start": [["playground", "welcome"], ["addon", "orchard"], ["service", "apim-gateway"]],
                  "stop": [["addon", "jade"]]}
-        self.assertEqual(layers.awaits(self.project, pairs, ["hello-app", "openfga", "openfga-migrate"]), {
+        self.assertEqual(layers.awaits(self.project, pairs, ["hello-app", "orchard", "orchard-migrate"]), {
             ("Container", "lab-jade"): "stop", ("Container", "lab-hello-app"): "start",
-            ("Container", "lab-openfga"): "start", ("Container", "lab-openfga-migrate"): "once"})
+            ("Container", "lab-orchard"): "start", ("Container", "lab-orchard-migrate"): "once"})
         self.assertEqual(set(layers.awaits(self.project, pairs)), {
-            ("Container", f"lab-{name}") for name in ("jade", "hello-app", "seed", "openfga", "openfga-migrate",
+            ("Container", f"lab-{name}") for name in ("jade", "hello-app", "seed", "orchard", "orchard-migrate",
                                                       "apim-gateway")})
 
     def test_each_command_of_a_plan_waits_for_what_it_changes(self):
@@ -1427,47 +1427,47 @@ class Applies(Case):
         self.project = lab()
         services = self.project["services"]
         services["kazoo-ui"]["depends_on"] = ["kazoo"]
-        services["kazoo-desk"]["depends_on"] = ["kazoo-ui", "openfga-migrate"]
+        services["kazoo-desk"]["depends_on"] = ["kazoo-ui", "orchard-migrate"]
 
     def applies(self, states, behind, on=None):
-        on = on if on is not None else layers.up_services(self.project, None, ["kazoo", "kazoo-desk", "openfga"])
+        on = on if on is not None else layers.up_services(self.project, None, ["kazoo", "kazoo-desk", "orchard"])
         return layers.applies(self.project, on, states, behind)
 
     def test_what_runs_behind_and_what_failed(self):
-        # OpenFGA runs behind: its migration runs again before it, as Compose would run it without --no-deps, and is
+        # Orchard runs behind: its migration runs again before it, as Compose would run it without --no-deps, and is
         # said with it
-        self.project["services"]["openfga"]["depends_on"] = ["openfga-migrate"]
+        self.project["services"]["orchard"]["depends_on"] = ["orchard-migrate"]
         states = {"apim-gateway": self.RUNNING, "apim-management-api": self.RUNNING, "mongodb": self.STOPPED,
-                  "kazoo": self.RUNNING, "kazoo-ui": self.FAILED, "openfga": self.RUNNING,
-                  "openfga-migrate": self.DONE}
-        found = self.applies(states, {"apim-gateway", "openfga"})
-        self.assertEqual(found, {"names": ["apim-gateway", "kazoo-ui", "openfga", "openfga-migrate"],
-                                 "restarts": [GATEWAY, row("addon", "openfga", "OpenFGA")], "starts": [KAZOO],
+                  "kazoo": self.RUNNING, "kazoo-ui": self.FAILED, "orchard": self.RUNNING,
+                  "orchard-migrate": self.DONE}
+        found = self.applies(states, {"apim-gateway", "orchard"})
+        self.assertEqual(found, {"names": ["apim-gateway", "kazoo-ui", "orchard", "orchard-migrate"],
+                                 "restarts": [GATEWAY, row("addon", "orchard", "Orchard")], "starts": [KAZOO],
                                  "runs": True})
         # Not known: every service that runs is named, Compose makes again what changed
         self.assertEqual(self.applies(states, None)["names"],
-                         ["apim-gateway", "apim-management-api", "kazoo", "kazoo-ui", "openfga", "openfga-migrate"])
-        # Nothing of OpenFGA behind: its migration is left as it is
+                         ["apim-gateway", "apim-management-api", "kazoo", "kazoo-ui", "orchard", "orchard-migrate"])
+        # Nothing of Orchard behind: its migration is left as it is
         self.assertEqual(self.applies(states, {"apim-gateway"})["names"], ["apim-gateway", "kazoo-ui"])
 
     def test_what_failed_waits_for_what_it_needs(self):
         # Kazoo stopped: Kazoo UI would fail again alone, and Kazoo Desk, which needs it, too, and nothing runs
         # the migration Kazoo Desk needs
         states = {"apim-gateway": self.RUNNING, "kazoo": self.STOPPED, "kazoo-ui": self.FAILED,
-                  "kazoo-desk": self.FAILED, "openfga-migrate": self.DONE}
+                  "kazoo-desk": self.FAILED, "orchard-migrate": self.DONE}
         self.assertEqual(self.applies(states, set())["names"], [])
         # Kazoo runs: both start again, after the migration, said with what starts
         states["kazoo"] = self.RUNNING
         found = self.applies(states, set())
-        self.assertEqual((found["names"], found["starts"]), (["kazoo-desk", "kazoo-ui", "openfga-migrate"],
-                                                             [KAZOO, CONSOLE, row("addon", "openfga", "OpenFGA")]))
+        self.assertEqual((found["names"], found["starts"]), (["kazoo-desk", "kazoo-ui", "orchard-migrate"],
+                                                             [KAZOO, CONSOLE, row("addon", "orchard", "Orchard")]))
         # What is off does not count: its file may add a dependency to a service that is on
         self.project["services"]["kazoo-ui"]["depends_on"] = ["kazoo", "jade"]
-        self.assertEqual(self.applies(states, set())["names"], ["kazoo-desk", "kazoo-ui", "openfga-migrate"])
+        self.assertEqual(self.applies(states, set())["names"], ["kazoo-desk", "kazoo-ui", "orchard-migrate"])
         # A one-shot whose own dependency does not run would fail: it is not run again, and what needs it starts on
         # what it did before
-        self.project["services"]["openfga-migrate"]["depends_on"] = ["openfga"]
-        states["openfga"] = self.STOPPED
+        self.project["services"]["orchard-migrate"]["depends_on"] = ["orchard"]
+        states["orchard"] = self.STOPPED
         self.assertEqual(self.applies(states, set())["names"], ["kazoo-desk", "kazoo-ui"])
 
     def test_nothing_while_nothing_of_what_is_on_runs(self):
