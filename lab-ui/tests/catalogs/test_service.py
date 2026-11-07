@@ -350,7 +350,7 @@ class Retrying(Served, Case):
         """The attempt, with the row and the content as the page reads them at every step of the commit: [(step, row state key,
         content key)]."""
         seen = []
-        self.patch(install, "STEP", lambda step: seen.append((step, self.row()["state"]["key"], firstrun.content({})["key"])))
+        self.patch(install, "STEP", lambda step: seen.append((step, self.row()["state"]["key"], firstrun.content()["key"])))
         firstrun.provision(self.ns)
         return seen
 

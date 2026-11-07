@@ -466,8 +466,8 @@ def _dump(document):
 
 def _set_aside(file):
     """Keeps the file `file` as `<name>.bad-<utc>` (with a number if that name is taken) before a write replaces it. A
-    regular file is linked, not moved (copied where links are not allowed): until the write succeeds the file is still
-    where it was, so a write that fails never turns a damaged file into a missing one, which would read as a first run.
+    regular file is copied, not moved: until the write succeeds the file is still where it was, so a write that fails never
+    turns a damaged file into a missing one, which would read as a first run.
     Anything else (a folder, a link, a pipe) is moved. The person's file is never overwritten: when it cannot be kept,
     the write fails."""
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -484,10 +484,7 @@ def _set_aside(file):
     if not regular:
         os.rename(file, target)
         return target
-    try:
-        os.link(file, target)
-    except OSError:
-        shutil.copyfile(file, target)
+    shutil.copyfile(file, target)
     return target
 
 

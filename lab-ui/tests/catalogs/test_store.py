@@ -1398,7 +1398,7 @@ class Fixtures(Case):
         with mock.patch.dict(os.environ, {"PATH": str(shim.parent)}):
             self.patch(gitx, "PLATFORM", "darwin")
             self.patch(gitx, "SHIM", str(shim))
-            self.patch(gitx, "_TOOLS", {"at": None, "ok": False})
+            self.patch(gitx, "_tools_found", False)
             self.patch(gitx.subprocess, "run", tools)
             self.assertIsNone(gitfixture._find())
         self.assertEqual(asked, [["xcode-select", "-p"]])

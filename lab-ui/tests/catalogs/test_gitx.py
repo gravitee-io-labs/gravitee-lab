@@ -784,7 +784,8 @@ class Version(Case):
         self.assertEqual((raised.exception.code, raised.exception.status), ("git_old", 400))
         self.assertEqual(raised.exception.message,
                          "Git 2.20.1 is too old. Install Git 2.25 or later, then add the catalog again.")
-        self.assertEqual(gitx.require((2, 20)), (2, 20, 1))
+        self.patch(gitx, "MINIMUM", (2, 20))
+        self.assertEqual(gitx.require(), (2, 20, 1))
 
     def mac(self, tools_return, shim=True):
         """A Mac whose git is the shim: `xcode-select -p` answers `tools_return`. The shim is a script that records
@@ -804,7 +805,7 @@ class Version(Case):
     def setUp(self):
         self.scratch = Path(tempfile.mkdtemp()).resolve()
         self.addCleanup(lambda: shutil.rmtree(self.scratch, True))
-        self.patch(gitx, "_TOOLS", {"at": None, "ok": False})   # what an earlier test learned of the tools is not known here
+        self.patch(gitx, "_tools_found", False)   # what an earlier test learned of the tools is not known here
 
     def test_on_a_mac_without_the_command_line_tools_the_shim_is_never_run(self):
         ran, asked = self.mac(tools_return=2)
@@ -861,26 +862,19 @@ class Version(Case):
         def hangs(argv, **how):
             raise subprocess.TimeoutExpired(argv, 10)
         self.patch(gitx.subprocess, "run", hangs)
-        gitx._TOOLS.update({"at": None, "ok": False})
         self.assertIsNone(gitx.version())
         self.assertFalse(ran.exists())
 
-    def test_the_tools_are_asked_once_in_a_while_not_for_every_command(self):
+    def test_the_tools_once_found_are_not_asked_for_again(self):
         ran, asked = self.mac(tools_return=0)
         for _ in range(5):
             self.assertIsNotNone(gitx.executable())
         self.assertEqual(len(asked), 1)
-        gitx._TOOLS["at"] -= gitx.TOOLS_AGE + 1   # the answer is old: asked again
-        self.assertIsNotNone(gitx.executable())
-        self.assertEqual(len(asked), 2)
 
-    def test_the_tools_that_come_after_a_first_no_are_found_within_the_age_of_an_answer(self):
+    def test_the_tools_that_come_after_a_first_no_are_found_at_the_next_command(self):
         ran, asked = self.mac(tools_return=2)
         self.assertIsNone(gitx.executable())
-        self.assertIsNone(gitx.executable())
-        self.assertEqual(len(asked), 1, "a no is kept as long as a yes")
         self.patch(gitx.subprocess, "run", lambda argv, **how: subprocess.CompletedProcess(argv, 0, b"", b""))
-        gitx._TOOLS["at"] -= gitx.TOOLS_AGE + 1
         self.assertIsNotNone(gitx.executable())
         self.assertFalse(ran.exists(), "asking is not running the shim")
 
@@ -1111,11 +1105,7 @@ class Remote(Case):
             gitx.ls_remote(self.address)
         self.assertEqual(raised.exception.code, "bad_address")
 
-    def test_a_server_that_answers_no_branch_for_head_is_asked_which_one_it_is(self):
-        """A server without symref: the branch is the one at HEAD's commit, `main` first."""
-        head = gitfixture.tip(self.repo)
-        gitfixture.git("update-ref", "refs/heads/zeta", head, repo=self.repo)
-        gitfixture.git("update-ref", "refs/heads/alpha", head, repo=self.repo)
+    def test_a_server_that_answers_no_branch_for_head_leaves_it_to_head(self):
         real = gitx.run
 
         def without_symref(args, **how):
@@ -1123,10 +1113,7 @@ class Remote(Case):
                 args = [a for a in args if a != "--symref"]
             return real(args, **how)
         self.patch(gitx, "run", without_symref)
-        self.assertEqual(gitx.ls_remote(self.address), {"branch": "main", "head": head})
-        gitfixture.git("update-ref", "-d", "refs/heads/main", repo=self.repo)
-        gitfixture.git("symbolic-ref", "HEAD", "refs/heads/zeta", repo=self.repo)
-        self.assertEqual(gitx.ls_remote(self.address), {"branch": "alpha", "head": head})
+        self.assertEqual(gitx.ls_remote(self.address), {"branch": None, "head": gitfixture.tip(self.repo)})
 
     def test_an_anonymous_question_forgets_the_credential_helper_and_the_headers(self):
         seen = []

@@ -42,8 +42,8 @@ def problems(**changes):
     return manifest.validate_catalog(meta)
 
 
-def pick(*args, **how):
-    return manifest.searched(*args, **how)[:2]
+def pick(levels, contract, contract_min, readable=lambda commit: True):
+    return manifest.searched(levels, contract, contract_min, readable)[:2]
 
 
 class Levels(Case):
@@ -99,7 +99,7 @@ class Picking(Case):
     def test_the_budget_of_time_stops_the_reading_too(self):
         clock = iter(range(0, 1000, 4))
         with mock.patch.object(manifest.time, "monotonic", lambda: next(clock)):
-            found = manifest.searched([(str(number), None) for number in range(10)], 1, 1, lambda commit: False, seconds=10)
+            found = manifest.searched([(str(number), None) for number in range(10)], 1, 1, lambda commit: False)
         self.assertEqual(found[:2], (None, "new"))
         self.assertLess(found[2], 5)
 
@@ -136,8 +136,8 @@ class Picking(Case):
         levels = [(str(number), None) for number in range(20)]
         self.assertEqual(pick(levels, 1, 1, readable), (None, "new"))
         self.assertEqual(len(asked), manifest.READS)
-        self.assertEqual(pick(levels, 1, 1, lambda commit: commit == "3", reads=3), (None, "new"),
-                         "past the reads none is taken")
+        self.patch(manifest, "READS", 3)
+        self.assertEqual(pick(levels, 1, 1, lambda commit: commit == "3"), (None, "new"), "past the reads none is taken")
 
     def test_the_case_table_of_9_2(self):
         # A level is what a catalog.yml says; the two numbers are the contract and the floor of this Lab
@@ -1050,7 +1050,7 @@ class History(Case):
 
     def offer(self, contract=1, contract_min=1):
         bare.fetch(self.address, "main", self.store)
-        return manifest.offer(self.store, bare.resolve(self.store, "tip"), contract, contract_min)
+        return manifest.offer(self.store, bare.resolve(self.store, "tip"), contract, contract_min, None, lambda commit: True)
 
     def test_a_catalog_with_no_release_is_offered_its_newest_commit_as_before(self):
         self.push({"addons/a/README.md": "x\n"})

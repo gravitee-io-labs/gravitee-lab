@@ -89,8 +89,6 @@ def _mode_of(info: os.stat_result) -> str:
         return "120000"
     if stat.S_ISREG(info.st_mode):
         return "100755" if info.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH) else "100644"
-    if stat.S_ISDIR(info.st_mode):
-        return "040000"
     return "%06o" % (stat.S_IFMT(info.st_mode),)
 
 

@@ -45,7 +45,6 @@ _progress = threading.Lock()   # the only shared state the worker writes
 
 OPT_OUT = "LAB_NO_FIRST_RUN"   # set to 1: no intent written, no thread (for tests and tools)
 
-STALL, CAP = 30.0, 600.0   # a fetch ends after this many seconds without a byte, and after this many in all
 SCHEDULE = (15.0, 60.0, 300.0)   # seconds before the first, second and third automatic retry of a failure
 LATER = 1800.0   # then every 30 minutes
 FIRST_CHECK = 5.0   # seconds after the start before the first check of the installed catalogs
@@ -208,7 +207,7 @@ def _failure(ns: str, held: dict) -> Optional[str]:
     return one.get("error") or (said[0] if said and one.get("pending") else None)
 
 
-def content(inputs: dict) -> dict:
+def content() -> dict:
     """What the state says of the content, from the disk and from memory, never from the network:
     {key, line, code, progress, address, offer}. `key` is `ready` when a catalog has a copy or a folder catalog is there;
     else `downloading` while a git catalog has an attempt a person can see, or has not failed yet (one that is under way,
@@ -220,13 +219,9 @@ def content(inputs: dict) -> dict:
     entries = registry.entries()
     held = registry.read_lock()["catalogs"]
     with _progress:
-        seen = {ns: dict(one) for ns, one in PROGRESS.items() if isinstance(one, dict)}
+        seen = dict(PROGRESS)
     answer = {"key": "none", "line": "", "code": None, "progress": None, "address": "", "offer": None}
-    folders = [entry for entry in entries if entry["kind"] == "folder"]
-    rows = inputs.get("catalogs") if isinstance(inputs, dict) and isinstance(inputs.get("catalogs"), dict) else None
-    if folders and rows is None:
-        rows = registry.inputs()
-    here = any((rows or {}).get(entry["id"], {}).get("state") == "linked" for entry in folders)
+    here = any(entry["kind"] == "folder" and registry.install_dir(entry["id"]).is_dir() for entry in entries)
     git = [entry for entry in entries if entry["kind"] == "git"]
     copies = any((held.get(entry["id"]) or {}).get("pin") for entry in git)
     waiting = [entry for entry in git if not (held.get(entry["id"]) or {}).get("pin")]
@@ -236,7 +231,8 @@ def content(inputs: dict) -> dict:
         answer["key"] = "ready"
     elif running:
         found = running[0]
-        answer.update(key="downloading", address=_shown(found), progress=_fraction(seen, running))
+        answer.update(key="downloading", address=_shown(found),
+                      progress=next((seen[entry["id"]]["fraction"] for entry in running if entry["id"] in seen), None))
     elif failed:
         found = failed[0]
         error = _failure(found["id"], held)
@@ -253,15 +249,6 @@ def content(inputs: dict) -> dict:
 def _shown(entry: dict) -> str:
     """The address of a catalog as a person reads it: github.com/owner/repo."""
     return registry.display_address(defaults.effective(entry)[0] or "")
-
-
-def _fraction(seen: dict, running: List[dict]) -> Optional[float]:
-    """How far the first download that has a number is, else None."""
-    for entry in running:
-        value = (seen.get(entry["id"]) or {}).get("fraction")
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return float(value)
-    return None
 
 
 # ---------------------------------------------------------------- one download
@@ -305,8 +292,7 @@ def _download(ns: str, entry: Optional[dict], row: Optional[dict]) -> None:
     own = entry is not None
     store_path = registry.store_dir(ns) if own else registry.new_store_dir(secrets.token_hex(8))
     try:
-        tip = bare.fetch(address, remote["branch"], store_path, stall=STALL, cap=CAP,
-                         progress=lambda fraction: _set(ns, "fetch", fraction))
+        tip = bare.fetch(address, remote["branch"], store_path, progress=lambda fraction: _set(ns, "fetch", fraction))
         roots = bare.roots(store_path, tip)
         contract = _contract()
         offered = manifest.offer(store_path, tip, contract["contract"], contract["contract_min"], address,
@@ -378,17 +364,9 @@ def _record(ns: str, error: CatalogError) -> None:
 
 
 def _row(ns: str) -> dict:
-    """The row of a catalog as the state draws it, from the disk alone. The install is done when this is asked, so a
-    row that cannot be drawn is no failure of the download: the little one the disk gives is returned instead."""
-    try:
-        from . import service   # here and not above: the worker calls this module
-        return next(one for one in service.describe({}, {}) if one.get("id") == ns and one.get("kind") != "progress")
-    except Exception:  # noqa: BLE001 - see above
-        held = registry.lock_of(ns)
-        found = registry.inputs().get(ns) or {}
-        return {"id": ns, "kind": "git", "name": found.get("name") or ns, "version": found.get("version"),
-                "commit": (held.get("pin") or "")[:7] or None, "error": held.get("error"),
-                "state": {"key": found.get("state") or "uptodate"}}
+    """The row of a catalog as the state draws it, from the disk alone."""
+    from . import service   # here and not above: the worker calls this module
+    return next(one for one in service.describe({}, {}) if one.get("id") == ns and one.get("kind") != "progress")
 
 
 def provision(ns: str) -> dict:
@@ -453,24 +431,11 @@ class Worker:
     def __init__(self, clock: Callable[[], float] = time.monotonic):
         self.clock = clock
         self.stop = threading.Event()
-        self.nudge = threading.Event()
+        self.nudge = threading.Event()   # a click on Try again: the schedule starts again, and what has no copy is attempted now
         self.thread = None
         self.failures = 0   # attempts that failed in a row, for the schedule
         self.retry_at = None   # when the next automatic attempt is due, None while none is waiting
         self.check_at = clock() + FIRST_CHECK
-        self._clicked = False
-        self._mutex = threading.Lock()
-
-    def wake(self) -> None:
-        """A click on Try again: the schedule starts again, and what has no copy is attempted now."""
-        with self._mutex:
-            self._clicked = True
-        self.nudge.set()
-
-    def _click(self) -> bool:
-        with self._mutex:
-            clicked, self._clicked = self._clicked, False
-        return clicked
 
     def _download(self, clicked: bool) -> None:
         """One round: every catalog with no copy, in order, when none is waiting for its turn."""
@@ -519,7 +484,8 @@ class Worker:
 
     def tick(self) -> float:
         """What is due now, and the seconds until something is due again."""
-        clicked = self._click()
+        clicked = self.nudge.is_set()
+        self.nudge.clear()
         if clicked:
             self.failures, self.retry_at = 0, None
         self._download(clicked)
@@ -537,7 +503,6 @@ class Worker:
                 print(f"Gravitee Lab UI: the download of catalogs failed ({type(error).__name__}: {error})", file=sys.stderr)
                 wait = NAP
             self.nudge.wait(max(wait, 0.01))
-            self.nudge.clear()
 
 
 _worker = None
@@ -565,5 +530,5 @@ def wake() -> None:
     worker."""
     worker = _worker
     if worker is not None:
-        worker.wake()
+        worker.nudge.set()
 

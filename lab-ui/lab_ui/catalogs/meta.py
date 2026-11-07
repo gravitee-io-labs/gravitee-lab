@@ -240,9 +240,9 @@ def _unquoted(raw):
     return (raw[:comment.start()] if comment else raw).strip()
 
 
-def keys(text, name="x-gravitee"):
-    """The top-level keys of the block, as written: [] when there is none, or it is an alias."""
-    return [key for key, _, _ in _entries(text, name)[1] if isinstance(key, str)]
+def keys(text):
+    """The top-level keys of the x-gravitee block, as written: [] when there is none, or it is an alias."""
+    return [key for key, _, _ in _entries(text)[1] if isinstance(key, str)]
 
 
 def value(text, key):

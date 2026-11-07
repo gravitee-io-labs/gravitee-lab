@@ -405,25 +405,20 @@ def redact(text: str) -> str:
     return re.sub(r"(://)[^/\s@]*@", r"\1", text or "")
 
 
-# The seconds an answer of `xcode-select -p` is kept: it is one more process for every command, and the Command Line
-# Tools do not come and go between two clicks
-TOOLS_AGE = 30.0
-_TOOLS = {"at": None, "ok": False}
-_TOOLS_LOCK = threading.Lock()
+_tools_found = False   # they do not go away while the Lab runs: until they are there, each command asks
 
 
 def _tools() -> bool:
-    """Whether the Command Line Tools of macOS are installed (`xcode-select -p`), asked at most every TOOLS_AGE seconds."""
-    with _TOOLS_LOCK:
-        now = time.monotonic()
-        if _TOOLS["at"] is None or now - _TOOLS["at"] >= TOOLS_AGE:
-            try:
-                answer = subprocess.run(["xcode-select", "-p"], stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
-                ok = answer.returncode == 0
-            except (OSError, subprocess.SubprocessError):
-                ok = False
-            _TOOLS.update({"at": now, "ok": ok})
-        return _TOOLS["ok"]
+    """Whether the Command Line Tools of macOS are installed (`xcode-select -p`): one more process for a command until they are
+    found, none after."""
+    global _tools_found
+    if not _tools_found:
+        try:
+            _tools_found = subprocess.run(["xcode-select", "-p"], stdin=subprocess.DEVNULL, capture_output=True,
+                                          timeout=10).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return _tools_found
 
 
 def executable() -> Optional[str]:
@@ -656,11 +651,11 @@ def run(args: List[str], cwd=None, timeout: float = 60, input=None, env: Optiona
     return _go(args, cwd, env, input, timeout, None, limit, None)
 
 
-def stream(args: List[str], cwd=None, env: Optional[Dict[str, str]] = None, stall: float = 30, cap: float = 600,
-           on_stderr: Optional[Callable[[str], None]] = None, limit: Optional[int] = None) -> Result:
+def stream(args: List[str], env: Optional[Dict[str, str]] = None, stall: float = 30, cap: float = 600,
+           on_stderr: Optional[Callable[[str], None]] = None) -> Result:
     """Like `run` for a command that talks to a network and reports progress: it is killed after `stall` seconds without
     a byte on either output, or `cap` seconds in all, and `on_stderr(text)` is given the errors as they arrive."""
-    return _go(args, cwd, env, None, cap, stall, limit, on_stderr)
+    return _go(args, None, env, None, cap, stall, None, on_stderr)
 
 
 def require_ok(result: Result, address: Optional[Address] = None) -> Result:
@@ -681,12 +676,12 @@ def version() -> Optional[Tuple[int, int, int]]:
     return tuple(int(part or 0) for part in found.groups()) if found else None
 
 
-def require(minimum: Tuple[int, ...] = MINIMUM) -> Tuple[int, int, int]:
-    """The version of git, or git_missing, or git_old when it is below `minimum`."""
+def require() -> Tuple[int, int, int]:
+    """The version of git, or git_missing, or git_old when it is below MINIMUM."""
     have = version()
     if have is None:
         raise fail("git_missing")
-    if have < tuple(minimum):
+    if have < MINIMUM:
         raise fail("git_old", have=".".join(str(part) for part in have))
     return have
 
@@ -751,7 +746,8 @@ STRANGER = ["-c", "credential.helper=", "-c", "http.extraHeader="]
 
 
 def ls_remote(address: Address, branch: Optional[str] = None, anonymous: bool = False, timeout: float = 20) -> dict:
-    """What the remote has: {"branch": the branch asked for or the default one, "head": the sha it points to}. Raises
+    """What the remote has: {"branch": the branch asked for or the default one (None for a server that does not say which),
+    "head": the sha it points to}. Raises
     the classified error of a failure; `branch_missing` for a branch the remote lacks (an empty `branch` asks for the
     default one: `asked_branch`); `not_catalog` for an empty repository. `anonymous` asks as a stranger would, to
     measure whether the catalog is Public: no credential helper, no stored header, a home folder that is empty, so that
@@ -818,30 +814,12 @@ def _ls_remote(address, branch, timeout, options, env):
         return {"branch": branch, "head": heads[f"refs/heads/{branch}"]}
     if "HEAD" not in heads:
         raise fail("not_catalog", address)
-    if symref is None or not symref.startswith("refs/heads/"):
-        symref = _default_branch(address, heads["HEAD"], timeout, options, how)
+    if symref is None or not symref.startswith("refs/heads/"):   # a server that does not say: it is fetched as HEAD
+        return {"branch": None, "head": heads["HEAD"]}
     return {"branch": valid_branch(symref[len("refs/heads/"):], address), "head": heads["HEAD"]}
 
 
-def _default_branch(address, head, timeout, options, env):
-    """The branch of a remote that did not say which one HEAD is (a server without symref): the one at the same
-    commit, `main` or `master` first. Asked the way the question before it was."""
-    result = run([*options, "ls-remote", "--heads", "--", address.url], timeout=timeout, env=env)
-    require_ok(result, address)
-    names = []
-    for line in result.out.decode("utf-8", "replace").splitlines():
-        sha, _, name = line.partition("\t")
-        if sha == head and name.startswith("refs/heads/"):
-            names.append(name)
-    for preferred in ("refs/heads/main", "refs/heads/master"):
-        if preferred in names:
-            return preferred
-    if not names:
-        raise fail("branch_missing", address, branch="HEAD")
-    return sorted(names)[0]
-
-
-def push_probe(address: Address, commit: str, store, timeout: float = 20) -> str:
+def push_probe(address: Address, commit: str, store) -> str:
     """Whether the person can push to the remote: "yes", "no" (the remote refused the sign-in or the permission) or
     "unknown" (the network, a certificate, a timeout: the question was not answered; or the bare repository `store` lacks the
     commit, a cache that was cleared, and it cannot be asked). A dry run of a push of `commit` to a branch that does not exist
@@ -851,7 +829,7 @@ def push_probe(address: Address, commit: str, store, timeout: float = 20) -> str
         return "unknown"
     target = f"refs/heads/lab/probe-{secrets.token_hex(4)}"
     result = run(["--git-dir", str(store), "push", "--dry-run", "--", address.url, f"{commit}:{target}"],
-                 timeout=timeout, env=address_env(address))
+                 timeout=20, env=address_env(address))
     if result.code == 0:
         return "yes"
     return "no" if classify(result.err, address).code in ("no_access", "ssh_denied", "not_found") else "unknown"

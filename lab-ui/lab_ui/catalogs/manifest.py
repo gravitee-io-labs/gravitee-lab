@@ -100,32 +100,25 @@ def compat(level: int, contract: int, contract_min: int) -> str:
     return "new" if level > high else "old" if level < low else "ok"
 
 
-def searched(levels: list, contract: int, contract_min: int, readable=None, reads: Optional[int] = None,
-             seconds: Optional[float] = None) -> tuple:
+def searched(levels: list, contract: int, contract_min: int, readable) -> tuple:
     """The compatible pin. `levels` is [(commit, lab)], newest first (`levels()`, or a catalog's releases): `levels[0]` is the
     tip with the `lab` its catalog.yml states. Answers (the first commit this Lab reads, or None; how the tip stands: "ok",
     "new" when it needs a newer Gravitee Lab, "old"; the number of versions read when the budget ran out with none found, else
     0). With nothing to choose from there is no commit and the tip is "old".
 
     A `lab` is a fast hint: a version whose `lab` this Lab does not read (`compat`) is passed over, its files unread. Any other
-    version is read when `readable` is given, `readable(commit)` saying whether this Lab understands every item of the contract
-    that its files use (`understood`): what it does not is a version that needs a newer Gravitee Lab. At most `reads` versions
-    are read (READS by default), and none starts once `seconds` (READ_SECONDS) have gone: a read that started goes on, so the
-    budget is about that long; past it none is taken. Without `readable` (a caller that reads the version it stages) a
-    `lab` of None, the form with no `lab` and the form the tolerant reader could not be sure of, is taken for a version this Lab
-    may read, and the strict reading of the staged file decides. Pure but for `readable` and the clock."""
-    reads = READS if reads is None else reads
-    seconds = READ_SECONDS if seconds is None else seconds
+    version is read, `readable(commit)` saying whether this Lab understands every item of the contract that its files use
+    (`understood`): what it does not is a version that needs a newer Gravitee Lab. At most READS versions are read, and none
+    starts once READ_SECONDS have gone: a read that started goes on, so the budget is about that long; past it none is taken.
+    Pure but for `readable` and the clock."""
     if not levels:
         return None, "old", 0
-    left, began, spent = [reads], time.monotonic(), [False]
+    left, began, spent = [READS], time.monotonic(), [False]
 
     def fits(commit, lab):
         if lab is not None and compat(lab, contract, contract_min) != "ok":
             return False
-        if readable is None:
-            return True
-        if left[0] <= 0 or time.monotonic() - began > seconds:
+        if left[0] <= 0 or time.monotonic() - began > READ_SECONDS:
             spent[0] = True
             return False
         left[0] -= 1
@@ -140,7 +133,7 @@ def searched(levels: list, contract: int, contract_min: int, readable=None, read
     for commit, lab in levels[1:]:
         if fits(commit, lab):
             return commit, tip_state, 0
-    return None, tip_state, (reads - left[0]) if spent[0] else 0
+    return None, tip_state, (READS - left[0]) if spent[0] else 0
 
 
 NEWER = "This catalog needs a newer Gravitee Lab. Run make update, then add it again."
@@ -668,8 +661,7 @@ class Offer(NamedTuple):
     searched: int = 0
 
 
-def offer(store: Path, tip: str, contract: int, contract_min: int, address: Optional[gitx.Address] = None,
-          readable=None) -> Offer:
+def offer(store: Path, tip: str, contract: int, contract_min: int, address: Optional[gitx.Address], readable) -> Offer:
     """The version of a catalog this Lab installs, from what the store holds of the branch it follows (`tip`). A catalog
     with a release on that branch is offered its greatest release this Lab reads, and the commits made since are not offered
     until they are released; one with none is offered the newest commit this Lab reads (`levels`), as it always was. A tip
