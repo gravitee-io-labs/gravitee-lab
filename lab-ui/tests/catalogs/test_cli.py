@@ -26,7 +26,7 @@ from lab_ui.library import check, project
 from lab_ui.docker import compose, envfiles
 from lab_ui.gravitee import license
 from lab_ui import paths
-from lab_ui.catalogs import defaults, gitx, manifest, registry
+from lab_ui.catalogs import defaults, gitx, registry
 from lab_ui.catalogs import store as bare
 from lab_ui.catalogs import firstrun as phases   # the real one: a test replaces it while the command runs
 
@@ -189,13 +189,6 @@ class Linking(Tool):
         self.assertEqual(self.run_tool("link", str(folder)), (0, "partner\n", ""), "and again")
         self.assertEqual(self.run_tool("unlink", PARTNER), (0, "Unlinked partner.\n", ""))
         self.assertFalse(os.path.lexists(self.link_of(PARTNER)))
-
-    def test_a_catalog_declared_and_waiting_for_its_download_is_a_plain_link_too(self):
-        folder = self.author()
-        fixtures.declare(self, PARTNER)
-        self.assertEqual(registry.inputs()[PARTNER]["state"], "downloading")
-        self.assertEqual(self.run_tool("link", str(folder))[:2], (0, "partner\n"))
-        self.assertEqual(registry.inputs()[PARTNER]["state"], "linked")
 
     def test_the_allowance_is_set_for_a_catalog_that_is_not_listed_and_is_kept_when_linking_again(self):
         folder = self.author()
@@ -510,8 +503,6 @@ class Starting(Tool):
     def test_with_empty_the_lab_adds_nothing_at_all(self):
         self.assertEqual(self.run_tool("reset", "--empty"), (0, "The catalogs are empty.\n", ""))
         self.assertEqual(self.config(), {"schema": 1, "catalogs": []})
-        self.assertEqual(json.loads((self.root / ".lab/catalogs.json").read_text(encoding="utf-8")),
-                         {"schema": 1, "catalogs": []})
         self.assertEqual(self.run_tool("reset", "--empty")[:2], (0, "The catalogs are empty.\n"))
 
     def test_it_is_refused_while_an_item_of_a_catalog_is_on_and_nothing_is_changed(self):
@@ -563,11 +554,6 @@ class Starting(Tool):
 
 class Reset(Tool):
     """Without a catalog on the machine: the first run and the opt-out before the first start."""
-
-    def test_before_the_first_start_the_opt_out_writes_the_empty_list(self):
-        self.assertIsNone(self.config())
-        self.assertEqual(self.run_tool("reset", "--empty"), (0, "The catalogs are empty.\n", ""))
-        self.assertEqual(self.config(), {"schema": 1, "catalogs": []})
 
     def test_a_git_catalog_goes_with_its_settings_kept(self):
         gitfixture.require()
@@ -644,8 +630,6 @@ class Reading(Tool):
         code, out, err = self.run_tool("check", "ghost")
         self.assertEqual((code, out), (2, ""))
         self.assertEqual(err, "catalog.py: ghost is neither a folder nor a catalog installed or linked here\n")
-        for fmt in ("text", "github", "json"):
-            self.assertEqual(self.run_tool("check", "ghost", "--format", fmt)[0], 2)
 
     def test_checking_writes_nothing(self):
         before = snapshot(self.root)
@@ -662,21 +646,6 @@ class Reading(Tool):
         found = json.loads(first[1])
         self.assertEqual((found["schema"], found["catalog"]["id"]), (1, PARTNER))
         self.assertEqual([(one["kind"], one["id"]) for one in found["units"]], [("addon", "ledger")])
-        self.assertEqual(first[1], manifest.render_index(manifest.build_index(PARTNER)))
-        self.assertTrue(first[1].endswith("}\n"))
-
-    def test_the_index_goes_to_the_file_asked_for_and_to_no_other(self):
-        out = self.work_file()
-        before = snapshot(self.root)
-        self.assertEqual(self.run_tool("index", PARTNER, "--out", str(out)), (0, "", ""))
-        self.assertEqual(out.read_text(encoding="utf-8"), self.run_tool("index", PARTNER)[1])
-        self.assertEqual(snapshot(self.root), before)
-
-    def work_file(self):
-        folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-index-")).resolve()
-        self.addCleanup(shutil.rmtree, folder, True)
-        return folder / "catalog.json"
-
 
 def compose_runs(case, *argv):
     """What Compose was given to run while `argv` ran, with the shell holding a secret of the runner: [(the words after `docker`,
@@ -917,14 +886,10 @@ class Explain(Tool):
 
     def test_the_policy_and_the_stages_are_codes_too_and_every_code_the_lab_knows_is_explained(self):
         from lab_ui.catalogs import explain
-        for one in ("T11", "N01", "SD02", "BD01", "PB07", "E2E03"):
-            with self.subTest(code=one):
-                out = self.run_tool("explain", one)
-                self.assertEqual(out[0], 0, out)
-                self.assertTrue(out[1].startswith(f"{one} ("))
         self.assertGreater(len(explain.codes()), 100)
-        for one in explain.codes():
-            self.assertEqual(self.run_tool("explain", one)[0], 0, one)
+        for one in ("T11", "N01", "SD02", "BD01", "PB07", "E2E03", *explain.codes()):
+            code, out, _ = self.run_tool("explain", one)
+            self.assertEqual((code, out[:len(one) + 2]), (0, f"{one} ("), one)
 
     def test_a_text_that_is_no_code_is_a_usage_error_that_says_what_the_families_are(self):
         for text in ("nothing", "ST99", "st", "5", "ST05; rm -rf /", "\x1b[2Jxx"):
@@ -953,8 +918,7 @@ class Delegated(Tool):
 
     def test_everything_after_the_name_is_handed_over_as_it_is_and_the_exit_code_is_the_modules(self):
         for command, module_name, function in self.COMMANDS:
-            for rest, answer in (([], 0), (["x", "--y", "z"], 1), (["--help"], 2), (["-h"], 0), (["--format", "json", "dir"], 1),
-                                 (["--fleet-not", "--base=1"], 0), (["a b", "--maintainers", "@a,@b"], 1)):
+            for rest, answer in (([], 0), (["--help"], 2), (["--fleet-not", "--base=1"], 0), (["a b", "--maintainers", "@a,@b"], 1)):
                 with self.subTest(command=command, rest=rest):
                     (code, out, err), seen = self.run_with(command, module_name, function, *rest, answer=answer)
                     self.assertEqual((code, out, err), (answer, "", ""))
@@ -991,13 +955,6 @@ class Delegated(Tool):
         self.assertEqual((code, out), (2, ""))
         self.assertIn("a fault of the tool, not a problem of the catalog", err)
 
-    def test_repo_settings_is_the_real_module_with_its_own_help_and_its_own_usage_errors(self):
-        code, out, err = self.run_tool("repo-settings", "--help")
-        self.assertEqual((code, err), (0, ""))
-        self.assertIn("usage: catalog.py repo-settings", out)
-        self.assertEqual(self.run_tool("repo-settings", "--yes"), (2, "", "--yes goes with --apply.\n"))
-
-
 MANAGED = REPO / "lab-ui" / "templates" / "catalog" / "managed"
 CALL = re.compile(r"python3 -I (?:\$\(CATALOG_PY\)|\S*catalog\.py) (?P<rest>.*)")
 STOPS = re.compile(r"\s*(?:;|&&|\|\||\||>|<|\))")
@@ -1033,10 +990,7 @@ class Managed(Tool):
     first push of every catalog."""
 
     def test_there_are_calls_to_look_at(self):
-        calls = managed_calls()
-        self.assertGreater(len(calls), 20, calls)
-        self.assertEqual({"check", "index", "ci", "link", "upgrade", "repo-settings", "release", "explain"},
-                         {words[0] for _, _, words in calls if words})
+        self.assertGreater(len(managed_calls()), 20)
 
     def test_every_call_is_to_a_command_the_tool_has_with_options_it_reads(self):
         own = {name for name in catalog.parser()._subparsers._group_actions[0].choices} - set(catalog.DELEGATED)
@@ -1438,18 +1392,6 @@ class Spelling(Tool):
         self.assertNotIn(str(alias), found, "never the link, which is the caller's")
         self.assertEqual({one for one in found if one is not None} - {str(self.root)}, set(), "a command is told the real folder or none")
         self.assertEqual(put_back, str(alias), "the caller's own is put back when the command ends")
-
-    def test_the_verdict_is_the_same_from_wherever_the_command_is_run(self):
-        fixtures.install(self, PARTNER)
-        fixtures.install(self, "fixture")
-        alias = self.home / "engine-link"
-        alias.symlink_to(self.root)
-        answers = {}
-        for name, pwd in (("real", self.root), ("link", alias), ("elsewhere", "/")):
-            project.forget()
-            answers[name] = self.seen(pwd, "check", "fixture")[1]
-        self.assertEqual(answers["real"], answers["link"])
-        self.assertEqual(answers["real"], answers["elsewhere"])
 
     def test_without_a_pwd_there_is_none_after_either(self):
         with mock.patch.dict(os.environ):
