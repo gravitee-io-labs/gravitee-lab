@@ -1213,8 +1213,7 @@ def _products(services, running):
             source, target = Path(volume.get("source") or ""), volume.get("target") or ""
             # Compose gives the path as written, the project's own is resolved: /var and /tmp are links on macOS
             if volume.get("type") == "bind" and source.resolve().parent == ROOT / "plugins":
-                product = products.setdefault(source.name, {"name": services[name]["owner"]["name"], "services": {},
-                                                            "folder": f"plugins/{source.name}", "lib": {}})
+                product = products.setdefault(source.name, {"services": {}, "folder": f"plugins/{source.name}", "lib": {}})
                 product["services"][name] = target[:-len("-ext")] if target.endswith("-ext") else target
                 product["lib"][name] = str(PurePosixPath(target).parent / "lib")
     return products

@@ -18,7 +18,7 @@ from .. import Case
 from ..docker.test_jobs import Docker, container, progress, replay
 
 PROJECT = {
-    "products": {"apim": {"name": "API Management", "folder": "plugins/apim",
+    "products": {"apim": {"folder": "plugins/apim",
                           "services": {"gateway": "/opt/gateway/plugins"}, "lib": {"gateway": "/opt/gateway/lib"}}},
     "services": {"gateway": {"container": "gio-gateway", "image": "graviteeio/apim-gateway:4", "label": "Gateway",
                              "oneshot": False,
@@ -694,7 +694,7 @@ class Installed(Case):
         services = {"api": service("gio-api", ["mongodb"]), "gateway": service("gio-gateway", ["api", "mongodb"]),
                     "hyssop": service("gio-hyssop", ["hyssop-redis"]), "hyssop-redis": service("gio-hyssop-redis"),
                     "mongodb": service("gio-mongodb"), "web": service("gio-web", ["gateway"])}
-        product = {"name": "API Management", "folder": "plugins/apim", "lib": {},
+        product = {"folder": "plugins/apim", "lib": {},
                    "services": {"api": "/opt/api/plugins", "gateway": "/opt/gateway/plugins", "hyssop": "/opt/h/plugins"}}
         return {"products": {"apim": product}, "services": services}
 

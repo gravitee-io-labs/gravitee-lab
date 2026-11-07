@@ -1230,6 +1230,11 @@ class State(Built):
                                   "message": f"open {paths.ROOT}/.lab/catalogs/local/addons/x/.env: permission denied"})
         self.assertEqual(problem["message"], "open .lab/catalogs/local/addons/x/.env: permission denied")
 
+    def test_a_product_is_named_after_its_group_of_the_core(self):
+        """Not after a service of a playground that mounts its plugins too and sorts first."""
+        self.project["groups"][0]["product"] = "apim"
+        self.assertEqual(self.build()["products"], [{"id": "apim", "name": self.project["groups"][0]["name"]}])
+
     def test_body(self):
         self.project["problems"] = [{"file": ".lab/catalogs/fixture/addons/x/compose.yml", "message": "broken"},
                                     {"file": "docker-compose.yml", "message": "x-gravitee must be a mapping"},

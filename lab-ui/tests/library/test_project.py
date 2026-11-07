@@ -329,7 +329,7 @@ class Build(AsOwn):
 
     def test_products_from_plugin_mounts(self):
         self.assertEqual(self.project["products"], {"apim": {
-            "name": "API Management", "folder": "plugins/apim",
+            "folder": "plugins/apim",
             "services": {"apim-gateway": "/opt/graviteeio-gateway/plugins",
                          "apim-management-api": "/opt/graviteeio-management-api/plugins"},
             "lib": {"apim-gateway": "/opt/graviteeio-gateway/lib",

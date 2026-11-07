@@ -1098,8 +1098,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
             "platform": _platform(c),
             "platforms": [{**{key: record[key] for key in ("id", "name", "kind", "url")}, "account": {"hrid": record["account"]["hrid"]}}
                           for record in platforms],
-            "products": [{"id": group["product"], "name": project["products"][group["product"]]["name"]}
-                         for group in project["groups"] if group["product"]],
+            "products": [{"id": group["product"], "name": group["name"]} for group in project["groups"] if group["product"]],
             "categories": project["categories"],
             "playgrounds": _by_name(_playground(c, p, addons, created) for p in project["playgrounds"].values()),
             "setups": _by_name(_setup(c, setup, addons) for setup in project["setups"].values()),
