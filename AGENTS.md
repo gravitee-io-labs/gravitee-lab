@@ -76,7 +76,7 @@ the default catalog, `@<catalog>/<id>` for another.
 - **No hardcoded password.** Every password, secret, token and key in a compose file is a setting, never a literal:
   `${NAME:-default}`, whose default may be a public demo value, or `${NAME}` when the user must provide it. In a
   file of a catalog, its check refuses a literal in a key whose name contains `PASSWORD`, `PASSWD`, `PASSPHRASE`, `SECRET` or
-  `API_KEY` or ends in `_TOKEN`, in the `password` and `key` of `x-gravitee.accounts`, and in a URI
+  `API_KEY` or ends in `_TOKEN` or `_KEY`, in the `password` and `key` of `x-gravitee.accounts`, and in a URI
   (`postgres://user:password@host`). It cannot see a secret under another name: make it a setting too. A script that
   puts a secret in a file, as the `generate.sh` of the certificates does, reads the same setting, from the environment
   or the `.env`. The one literal it accepts is the demo sign-in a console shows (`io.gravitee.console.<id>.password`),
