@@ -1,7 +1,7 @@
 """The template of a catalog repository (lab-ui/templates/catalog), as the engine's CI sees it: what `catalog.py new` renders is a
 catalog that passes its own rules on day one, with the engine's pins, the engine's Dependabot reaching the template's workflows,
 and nothing of the engine's owner, address or any tool in a file. The rules and the renderer are the Lab's own modules
-(`lab_ui.catalogs.standard`, `lab_ui.catalogs.rules.workflows`); this file reads the template as text and renders it, and runs
+(`lab_ui.catalogs.standard`, `lab_ui.catalogs.rules`); this file reads the template as text and renders it, and runs
 nothing of it. No network, no Docker."""
 
 import contextlib
@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lab-ui"))
 
 from lab_ui.catalogs import audit, standard  # noqa: E402
-from lab_ui.catalogs.rules import commits, workflows  # noqa: E402
+from lab_ui.catalogs.rules import commits  # noqa: E402
 
 TEMPLATE = ROOT / "lab-ui" / "templates" / "catalog"
 MANAGED = TEMPLATE / "managed"
@@ -78,26 +78,6 @@ class Dependabot(unittest.TestCase):
 
 class Rules(unittest.TestCase):
 
-    def files(self, level):
-        extra = EVERYTHING if level >= 3 else {}
-        return standard.render_files({**PARAMS, **extra}, level)
-
-    def test_every_managed_workflow_and_action_passes_every_workflow_rule_at_every_level(self):
-        std = {"repository": PARAMS["lab_repository"], "ref": PARAMS["lab_ref"]}
-        seen = 0
-        for level in (1, 2, 3):
-            for path, data in self.files(level).items():
-                if path.startswith(".github/workflows/") or path.endswith("/action.yml"):
-                    seen += 1
-                    self.assertEqual(workflows.problems(path, data.decode("utf-8"), workflows.ALL, std), [], f"{path} at level {level}")
-        self.assertGreaterEqual(seen, 6)
-
-    def test_the_engines_generic_rules_hold_on_the_template_too(self):
-        for path in sorted(MANAGED.rglob("*.yml")):
-            relative = str(path.relative_to(MANAGED))
-            if relative.startswith(".github/workflows/") or relative.endswith("/action.yml"):
-                self.assertEqual(workflows.problems(relative, path.read_text(encoding="utf-8"), workflows.GENERIC), [], relative)
-
     def test_a_new_catalog_passes_every_rule_that_needs_no_docker_on_day_one(self):
         with tempfile.TemporaryDirectory() as folder:
             standard.create(Path(folder) / "hub", PARAMS)
@@ -154,12 +134,10 @@ class Clean(unittest.TestCase):
                 self.assertIsNone(commits.CREDITS.search(line), f"{name}: {line}")
 
     def test_the_rendered_files_are_as_clean_as_the_template(self):
-        for level in (1, 3):
-            extra = EVERYTHING if level >= 3 else {}
-            for path, data in standard.render_files({**PARAMS, **extra}, level).items():
-                text = data.decode("utf-8")
-                self.assertIsNone(self.OWNERS.search(text), path)
-                self.assertIsNone(commits.NAMES.search(text), path)
+        for path, data in standard.render_new({**PARAMS, **EVERYTHING}).items():
+            text = data.decode("utf-8")
+            self.assertIsNone(self.OWNERS.search(text), path)
+            self.assertIsNone(commits.NAMES.search(text), path)
 
 
 if __name__ == "__main__":

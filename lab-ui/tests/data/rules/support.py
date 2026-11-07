@@ -90,7 +90,8 @@ def run(module, *changes, drop: Iterable[str] = (), base: Optional[dict] = None,
 
 def timed(call: Callable, *args, **kwargs):
     """(answer, seconds) of a call: the seconds of processor it took, not the seconds that went by, because the machine of a
-    test run is shared and a loaded one makes a quick call slow."""
+    test run is shared and a loaded one makes a quick call slow. A hostile shape is bounded at 3 s: a pattern that backtracks takes
+    tens of seconds, a linear one about 0.5 s of a laptop at worst and three times that on a runner of GitHub."""
     start = time.process_time()
     answer = call(*args, **kwargs)
     return answer, time.process_time() - start

@@ -19,8 +19,7 @@ from unittest import mock
 from lab_ui.library import check, project
 from lab_ui.docker import compose, envfiles
 from lab_ui import paths
-from lab_ui.catalogs import ci, explain, registry
-from lab_ui.catalogs.ci import main as ci_main
+from lab_ui.catalogs import ci, registry
 from lab_ui.catalogs.ci import run, smoke
 from tests import Case
 from tests import fixtures
@@ -40,7 +39,7 @@ def unit(kind="playground", name="bank", services=None, own=None, folder="", **m
     """A loaded unit: its resolved services and the names of those it defines itself (all of them by default)."""
     services = services if services is not None else {"web": service()}
     file = ci.unit_path(kind, name)
-    return ci.Loaded(kind, name, name, file, folder, {"services": services}, tuple(services if own is None else own), (), None,
+    return ci.Loaded(kind, name, file, folder, {"services": services}, tuple(services if own is None else own), (), None,
                      **more)
 
 
@@ -51,7 +50,7 @@ def loader(*units, refused=()):
         asked.append((folder, list(names)))
         wanted = set(names)
         return ci.Loading([each for each in units if (each.kind, each.name) in wanted],
-                          [each for each in refused if (each.kind, each.name) in wanted], [])
+                          [each for each in refused if (each.kind, each.name) in wanted])
     load.asked = asked
     return load
 
@@ -78,10 +77,6 @@ class Selection(unittest.TestCase):
         found = self.chosen({"bakery-mcp": service(), "bakery-seed": service(labels={"io.gravitee.role": "seed"})})
         self.assertEqual(found.waves, [["bakery-mcp"]])
         self.assertEqual(found.left, [("bakery-seed", "it is the seed, which needs the platform")])
-
-    def test_the_labels_may_be_a_list_in_the_json_of_an_older_compose(self):
-        found = self.chosen({"a": service(labels=["io.gravitee.role=seed"]), "b": service()})
-        self.assertEqual(found.waves, [["b"]])
 
     def test_a_service_that_runs_once_starts_with_the_service_that_waits_for_it(self):
         done = {"condition": "service_completed_successfully"}
@@ -173,36 +168,6 @@ class Selection(unittest.TestCase):
 
 class Reading(unittest.TestCase):
 
-    def test_requires_license_reads_the_unit_file_as_text(self):
-        for text, expected in (
-                ("x-gravitee:\n  requires:\n    license: [apim-x]\nservices: {}\n", True),
-                ("x-gravitee:\n  requires:\n    license:\n      apim-x: step 4\n", True),
-                ("x-gravitee:\n  requires:\n    license:\n      - apim-x\n", True),
-                ("x-gravitee: {requires: {license: [apim-x]}}\n", True),
-                ("x-gravitee:\n  requires:\n    license: []\n", False),
-                ("x-gravitee:\n  requires:\n    images: {APIM_VERSION: '4.13'}\n", False),
-                ("x-gravitee:\n  name: Bank\n", False), ("services: {}\n", False), ("", False), (None, False)):
-            with self.subTest(text=text):
-                self.assertEqual(smoke.requires_license(text), expected)
-
-    def test_runs_remote_gateway_reads_the_unit_file_as_text(self):
-        for text, expected in (
-                ("x-gravitee:\n  gateway:\n    platform: cloud\n    service: gw\n    token: GW_TOKEN\nservices: {}\n", True),
-                ("x-gravitee: {gateway: {platform: cloud, service: gw, token: GW_TOKEN}}\n", True),
-                ("x-gravitee:\n  gateway:\n", False), ("x-gravitee: {gateway: {}}\n", False),
-                ("x-gravitee:\n  name: Gateway\n", False), ("services:\n  gateway: {}\n", False), ("", False), (None, False)):
-            with self.subTest(text=text):
-                self.assertEqual(smoke.runs_remote_gateway(text), expected)
-
-    def test_a_line_of_a_megabyte_is_read_in_under_a_second(self):
-        for text in ("x-gravitee: {" + "[" * 1_000_000, "x-gravitee:\n  requires:\n    license: " + "[" * 1_000_000,
-                     "x-gravitee: {requires: {license: " + "a" * 60_000 + "}}", "services:\n" + "  a: &x\n" * 100_000,
-                     "x-gravitee:\n" + "  - \n" * 200_000, "x" * 1_000_000):
-            with self.subTest(start=text[:24]):
-                for read in (smoke.requires_license, smoke.runs_remote_gateway):
-                    _, spent = support.timed(read, text)
-                    self.assertLess(spent, 1.0)
-
     def test_a_unit_refused_for_a_setting_it_lacks_is_not_a_fault_of_the_unit(self):
         needs = ci.Refused("addon", "x", "addons/x/compose.yml", (
             "Cannot be read: error while interpolating services.web.environment.TOKEN: required variable TOKEN is missing a "
@@ -218,26 +183,13 @@ class Reading(unittest.TestCase):
             self.assertFalse(smoke.needs_settings(refused), refused.reasons)
         self.assertFalse(smoke.needs_settings(ci.Refused("addon", "w", "w", ())))
 
-    def test_the_rows_of_ps_may_be_lines_or_an_array(self):
+    def test_the_rows_of_ps_are_lines_and_what_is_not_one_is_left_out(self):
         lines = ps_lines("a", ("b", "exited", "", 3))
-        array = json.dumps([json.loads(line) for line in lines.splitlines()])
-        for text in (lines, array, lines + "not json\n"):
+        for text in (lines, lines + "not json\n"):
             with self.subTest(text=text[:20]):
                 found = smoke.state_of(smoke.ps_rows(text), ["a", "b", "c"])
                 self.assertEqual(found, {"a": ("running", "", 0), "b": ("exited", "", 3), "c": ("missing", "", 0)})
         self.assertEqual(smoke.ps_rows(""), [])
-        self.assertEqual(smoke.ps_rows("[1, 2, {\"Service\": \"a\"}]"), [{"Service": "a"}])
-
-    def test_the_messages_are_the_words_of_the_standard(self):
-        self.assertEqual(smoke.finding("SM01", "p", service="bakery-mcp").message, "bakery-mcp was not healthy after 240 s")
-        self.assertEqual(smoke.finding("SM02", "p", service="bakery-mcp", code=3).message, "bakery-mcp exited with 3")
-        sm03 = smoke.finding("SM03", "p", unit="addon:hybrid")
-        self.assertEqual(sm03.message, "addon:hybrid was not tried: it needs settings or a license.")
-        self.assertEqual([smoke.finding(code, "p", service="s", code=1, unit="u").severity for code in ("SM01", "SM02", "SM03")],
-                         ["error", "error", "warning"])
-        table = {code: (severity, message) for code, severity, _, message in explain.STAGES if code.startswith("SM")}
-        for code, (severity, message) in smoke.MESSAGES.items():
-            self.assertEqual((severity, message), table[code])
 
 
 class Stage(Case):
@@ -262,11 +214,7 @@ class Stage(Case):
             yield smoke.Session(str(self.project), lambda each: ["-f", "docker-compose.yml", "-f", f"on-{each.name}.yml"])
         return opened()
 
-    def run_stage(self, *units, refused=(), only=None, extra=(), files=None):
-        for path, text in (files or {}).items():
-            file = self.catalog / path
-            file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text(text, encoding="utf-8")
+    def run_stage(self, *units, refused=(), only=None, extra=()):
         wanted = only if only is not None else [f"{each.kind}:{each.name}" for each in units]
         wanted += [f"{each.kind}:{each.name}" for each in refused]
         with mock.patch.object(ci, "LOADER", loader(*units, refused=refused)):
@@ -316,14 +264,14 @@ class Stage(Case):
         self.fake.when(*UP, code=1, stderr="container p-certs-1 exited (2)")
         self.fake.when(*PS, stdout=ps_lines(("certs", "exited", "", 2), ("broker", "created", "")))
         self.fake.when("compose", "logs", stdout="no\n")
-        self.assertEqual(self.run_stage(unit(services=services), extra=["--format", "json"]), 1)
+        self.assertEqual(self.run_stage(unit(services=services)), 1)
         self.assertIn("certs exited with 2", self.out.getvalue())
 
     def test_a_service_that_is_not_healthy_is_sm01_with_its_log_and_the_project_is_taken_down(self):
         self.fake.when(*UP, code=1, stderr="container p-bakery-mcp-1 is unhealthy")
         self.fake.when(*PS, stdout=ps_lines(("bakery-mcp", "running", "unhealthy")))
         self.fake.when("compose", "logs", stdout="line one\nline two\n::error::forged\n")
-        code = self.run_stage(unit(services={"bakery-mcp": service()}), extra=["--format", "github"])
+        code = self.run_stage(unit(services={"bakery-mcp": service()}), extra=["--ci"])
         self.assertEqual(code, 1)
         text = self.out.getvalue()
         self.assertIn("::error file=playgrounds/bank/compose.yml,title=SM01::bakery-mcp was not healthy after 240 s", text)
@@ -337,19 +285,16 @@ class Stage(Case):
         self.fake.when(*UP, code=1, stderr="dependency failed to start")
         self.fake.when(*PS, stdout=ps_lines(("bakery-mcp", "exited", "", 137)))
         self.fake.when("compose", "logs", stdout="Killed\n")
-        code = self.run_stage(unit(services={"bakery-mcp": service()}), extra=["--format", "json"])
+        code = self.run_stage(unit(services={"bakery-mcp": service()}))
         self.assertEqual(code, 1)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["message"]) for each in found], [("SM02", "bakery-mcp exited with 137")])
-        self.assertEqual(found[0]["path"], "playgrounds/bank/compose.yml")
+        self.assertIn("✗ playgrounds/bank/compose.yml\n    SM02 bakery-mcp exited with 137\n", self.out.getvalue())
 
     def test_a_service_that_dies_after_it_started_is_found_when_the_wave_is_looked_at_again(self):
         self.fake.when(*PS, stdout=ps_lines(("bakery-mcp", "exited", "", 1)))
         self.fake.when("compose", "logs", stdout="boom\n")
-        code = self.run_stage(unit(services={"bakery-mcp": service()}), extra=["--format", "json"])
+        code = self.run_stage(unit(services={"bakery-mcp": service()}))
         self.assertEqual(code, 1)
-        self.assertEqual([(each["code"], each["message"]) for each in json.loads(self.out.getvalue())],
-                         [("SM02", "bakery-mcp exited with 1")])
+        self.assertIn("SM02 bakery-mcp exited with 1\n", self.out.getvalue())
         self.assertEqual(self.slept, [smoke.SETTLE])
 
     def test_a_first_wave_that_fails_stops_the_next_ones_and_the_project_still_goes_down(self):
@@ -396,32 +341,20 @@ class Stage(Case):
     def test_a_unit_that_needs_settings_is_not_tried_and_is_never_a_pass(self):
         needs = ci.Refused("addon", "apigee", "addons/apigee/compose.yml", (
             "Cannot be read: error while interpolating services.a.environment.KEY: required variable KEY is missing a value",))
-        code = self.run_stage(refused=[needs], extra=["--format", "json"])
+        code = self.run_stage(refused=[needs], extra=["--ci"])
         self.assertEqual(code, 0)   # (a warning: it is said, it fails nothing)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["severity"], each["message"]) for each in found],
-                         [("SM03", "warning", "addon:apigee was not tried: it needs settings or a license.")])
+        self.assertIn("::warning file=addons/apigee/compose.yml,title=SM03::addon:apigee was not tried: it needs settings or a license.\n",
+                      self.out.getvalue())
         self.assertEqual(self.fake.calls(), [])   # (not even a docker version: there was nothing to start)
 
-    def test_a_unit_that_needs_a_license_is_not_tried(self):
-        text = "x-gravitee:\n  requires:\n    license: [apim-x]\nservices:\n  a:\n    image: example.test/a:1\n"
-        code = self.run_stage(unit(kind="addon", name="lic", services={"a": service()}), files={"addons/lic/compose.yml": text})
-        self.assertEqual(code, 0)
-        text = self.out.getvalue()
-        self.assertIn("Smoke: 0 started, 0 failed, 1 not tried", text)
-        self.assertRegex(text, r"- addon:lic  it needs settings or a license")
-        self.assertNotIn("✓", text)
-        self.assertEqual(self.up_calls(), [])
-
-    def test_a_unit_that_runs_the_gateway_of_a_remote_platform_is_not_tried(self):
-        # It works only with the platform's token: started without it, its gateway never becomes healthy
-        text = ("x-gravitee:\n  gateway:\n    platform: cloud\n    service: gw\n    token: GW_TOKEN\n"
-                "services:\n  gw:\n    image: example.test/gw:1\n")
-        code = self.run_stage(unit(kind="addon", name="hub", services={"gw": service()}), files={"addons/hub/compose.yml": text})
+    def test_a_unit_that_needs_a_license_or_the_token_of_a_platform_is_not_tried(self):
+        # Started without them, its gateway never becomes healthy and its services exit
+        code = self.run_stage(unit(kind="addon", name="hub", services={"gw": service()}, needs_credentials=True))
         self.assertEqual(code, 0)
         text = self.out.getvalue()
         self.assertIn("Smoke: 0 started, 0 failed, 1 not tried", text)
         self.assertRegex(text, r"- addon:hub  it needs settings or a license")
+        self.assertNotIn("✓", text)
         self.assertEqual(self.up_calls(), [])
 
     def test_a_unit_with_nothing_that_starts_without_the_platform_is_left_to_the_end_to_end_run(self):
@@ -436,9 +369,8 @@ class Stage(Case):
 
     def test_a_unit_the_trust_policy_blocks_is_an_error_and_is_never_started(self):
         blocked = ci.Refused("addon", "bad", "addons/bad/compose.yml", ("Mounts the Docker socket",), "T10")
-        self.assertEqual(self.run_stage(refused=[blocked], extra=["--format", "json"]), 1)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["path"]) for each in found], [("T10", "addons/bad/compose.yml")])
+        self.assertEqual(self.run_stage(refused=[blocked], extra=["--ci"]), 1)
+        self.assertIn("::error file=addons/bad/compose.yml,title=T10::", self.out.getvalue())
         self.assertEqual(self.fake.calls(), [])
 
     def test_the_bind_folders_a_unit_keeps_its_state_in_are_made_before_it_starts(self):
@@ -507,23 +439,6 @@ class Stage(Case):
         self.assertNotIn("::error::x", self.out.getvalue())
 
 
-class Dispatch(unittest.TestCase):
-
-    def test_the_runner_of_make_ci_finds_this_stage_and_gives_it_what_it_gives_the_others(self):
-        self.assertEqual(ci.STAGES["smoke"], ("smoke", "main"))
-        self.assertIs(run.stage_function("smoke"), smoke.main)
-        self.assertIn("smoke", run.ORDER)
-        self.assertEqual(run.SMOKE_LEVEL, 2)
-
-    def test_the_command_line_reaches_the_stage_and_says_a_usage_error_with_exit_2(self):
-        out, err = io.StringIO(), io.StringIO()
-        self.assertEqual(ci_main(["smoke", "--units", "not json"], out, err), 2)
-        self.assertIn("--units is not JSON", err.getvalue())
-        err = io.StringIO()
-        self.assertEqual(ci_main(["smoke", "--units", '["playground:Bank"]'], io.StringIO(), err), 2)
-        self.assertEqual(ci_main(["smoke"], io.StringIO(), io.StringIO()), 2)
-
-
 class MakeCi(support.WithGit):
     """`make ci` from level 2: the runner of `ci` gives this stage the units it planned, with no line of its own to change."""
 
@@ -550,7 +465,7 @@ class MakeCi(support.WithGit):
         def session(folder):
             yield smoke.Session(str(project), lambda each: ["-f", "docker-compose.yml", "-f", "on.yml"])
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(run, "level", return_value=2), mock.patch.object(ci, "LOADER", loader(unit("addon", "echo"))):
+        with mock.patch.object(ci, "LOADER", loader(unit("addon", "echo"))):
             code = run.main([str(repo)], out, err, stages={name: quiet(name) for name in ("manifests", "build", "test", "gitleaks")},
                             session=session, sleep=lambda seconds: None)
         self.assertEqual(code, 0, out.getvalue() + err.getvalue())
@@ -590,11 +505,10 @@ class Real(Case):
     def test_an_addon_that_needs_nothing_starts_in_a_temporary_project_and_the_unit_that_needs_a_license_is_not_tried(self):
         self.fake.when(*PS, stdout=ps_lines("fixture-echo"))
         before = (registry.entries(), registry.read_lock(), sorted(os.listdir(Path(paths.ROOT) / paths.CATALOGS_DIR)))
-        code = smoke.main([self.folder, "--units", '["addon:echo", "playground:shop"]', "--format", "json"], self.out, self.err,
+        code = smoke.main([self.folder, "--units", '["addon:echo", "playground:shop"]'], self.out, self.err,
                           sleep=lambda seconds: None)
         self.assertEqual((code, self.err.getvalue()), (0, ""))
-        self.assertEqual([(each["code"], each["message"]) for each in json.loads(self.out.getvalue())],
-                         [("SM03", "playground:shop was not tried: it needs settings or a license.")])
+        self.assertIn("SM03 playground:shop was not tried: it needs settings or a license.\n", self.out.getvalue())
         up = self.fake.commands(*UP)
         self.assertEqual(len(up), 1)
         self.assertEqual(up[0][up[0].index("-p") + 1], "catalog-smoke-addon-echo")

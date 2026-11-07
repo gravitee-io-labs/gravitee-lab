@@ -23,8 +23,8 @@ from .. import store
 from ..report import ERROR, WARNING, Problem
 from ..tree import REGULAR
 from .secrets import flow_items, flow_key
-from . import AREAS, TEXT_LIMIT, Context, basename, context, garbled, is_binary, line_of, newlines, outline, problem, read_limit, \
-    say, scalar, table, text_of, unit_of
+from . import TEXT_LIMIT, Context, basename, garbled, is_binary, line_of, newlines, outline, problem, read_limit, scalar, \
+    table, text_of, unit_of
 
 RULES = table([
     ("ST01", ERROR, "Symbolic link (git mode 120000)",
@@ -173,7 +173,7 @@ def case_twins(paths: List[str]) -> List[Tuple[str, str]]:
 def _folder(path: str) -> str:
     """The unit folder a path is in, as ST14 and ST15 name it: `playgrounds/x` for what is below it, else the path itself."""
     parts = path.split("/")
-    return "/".join(parts[:2]) if len(parts) >= 3 and parts[0] in AREAS and parts[0] != "setups" else path
+    return "/".join(parts[:2]) if len(parts) >= 3 and parts[0] in store.AREAS and parts[0] != "setups" else path
 
 
 def _scope_folder(scope: str) -> str:
@@ -187,16 +187,14 @@ def _size(count: int, unit: str) -> str:
     return f"{count // (1024 * 1024)} MB" if unit == "bytes" else f"{count} {unit}"
 
 
-def _from_store(entries) -> Tuple[List[Problem], Set[str]]:
-    """The findings that are `store.rejections`' and `store.overflows`' and the paths they are about."""
+def _from_store(entries) -> List[Problem]:
+    """The findings that are `store.rejections`' and `store.overflows`'."""
     listing = [store.Entry(each.mode, "0" * 40, each.size, each.path) for each in entries]
     found: List[Problem] = []
-    flagged: Set[str] = set()
     unit_codes: Set[Tuple[str, str]] = set()
     for entry, code in store.rejections(listing):
         if code not in FROM_STORE:
             continue
-        flagged.add(entry.path)
         if code in ("ST14", "ST15"):
             where = _folder(entry.path)
             if (code, where) in unit_codes:
@@ -204,9 +202,7 @@ def _from_store(entries) -> Tuple[List[Problem], Set[str]]:
             unit_codes.add((code, where))
             found.append(problem(RULES, code, where))
         elif code == "ST09":
-            base = basename(entry.path).lower()
-            limit = store.TEXT_FILE if base.endswith(store.TEXT_SUFFIXES) else store.OTHER_FILE
-            found.append(problem(RULES, code, entry.path, n=-(-entry.size // 1024), m=limit // 1024))
+            found.append(problem(RULES, code, entry.path, n=-(-entry.size // 1024), m=read_limit(entry.path) // 1024))
         else:
             found.append(problem(RULES, code, entry.path))
     for over in store.overflows(listing):
@@ -214,29 +210,25 @@ def _from_store(entries) -> Tuple[List[Problem], Set[str]]:
         label = where or "The catalog"
         found.append(problem(RULES, "ST10", where, unit=label, found=_size(over.found, over.measure),
                              limit=_size(over.limit, over.measure) if over.measure == "bytes" else over.limit))
-    return found, flagged
+    return found
 
 
-def _outside(entries, skip: Set[str]) -> Tuple[List[Problem], Set[str]]:
+def _outside(entries, skip: Set[str]) -> List[Problem]:
     """ST01 to ST06 and ST09 for what the Lab does not install either (a `.env` at the top, a key under `docs/`). The
     agents' files there are the standard's own (ST07 is about a unit)."""
     found: List[Problem] = []
-    flagged: Set[str] = set()
     for entry in entries:
         parts = entry.path.split("/")
-        if entry.path in skip or entry.path == "catalog.yml" or parts[0] in AREAS:
+        if entry.path in skip or entry.path == "catalog.yml" or parts[0] in store.AREAS:
             continue
         code = store.refusal(store.Entry(entry.mode, "0" * 40, entry.size, entry.path))
         if code is None or code == "ST07":
             continue
-        flagged.add(entry.path)
         if code == "ST09":
-            base = basename(entry.path).lower()
-            limit = store.TEXT_FILE if base.endswith(store.TEXT_SUFFIXES) else store.OTHER_FILE
-            found.append(problem(RULES, code, entry.path, n=-(-entry.size // 1024), m=limit // 1024))
+            found.append(problem(RULES, code, entry.path, n=-(-entry.size // 1024), m=read_limit(entry.path) // 1024))
         else:
             found.append(problem(RULES, code, entry.path))
-    return found, flagged
+    return found
 
 
 def _place(entries, flagged: Set[str]) -> List[Problem]:
@@ -245,13 +237,11 @@ def _place(entries, flagged: Set[str]) -> List[Problem]:
     for entry in entries:
         path = entry.path
         parts = path.split("/")
-        if path in flagged or parts[0] in AREAS or parts[0] in TOP_FOLDERS or path in TOP_FILES:
+        if path in flagged or parts[0] in store.AREAS or parts[0] in TOP_FOLDERS or path in TOP_FILES:
             continue
         if any("/".join(parts[:count]) in flagged for count in range(1, min(len(parts), FOLDERS + 1))):
             continue   # a folder that is already an error (case twins) is not also a warning for each file below it
         if len(parts) == 1 and path.startswith("."):
-            continue
-        if runs_on_reader(path):
             continue
         found.append(problem(RULES, "ST08", path))
     return found
@@ -277,13 +267,10 @@ def scanner_file(path: str) -> bool:
 
 
 def _license(text: str, spdx: str) -> bool:
-    """Whether the text of a LICENSE is the license named by `spdx`: the phrases of its fingerprint, for the three the
-    standard can tell apart; any text for another."""
-    wanted = FINGERPRINTS.get(spdx.lower())
-    if wanted is None:
-        return True
+    """Whether the text of a LICENSE is the license named by `spdx`, one the standard can tell apart: the phrases of its
+    fingerprint."""
     folded = " ".join(text.lower().split())
-    return all(phrase in folded for phrase in wanted)
+    return all(phrase in folded for phrase in FINGERPRINTS[spdx.lower()])
 
 
 def _contents(tree, entries, ctx: Context) -> List[Problem]:
@@ -395,23 +382,15 @@ def _named(tree, entries) -> List[Problem]:
     return found
 
 
-def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
+def check(tree, ctx: Context) -> List[Problem]:
     """ST01 to ST23 over a tree."""
-    ctx = ctx if ctx is not None else context(tree)
     entries = tree.entries()
-    found, flagged = _from_store(entries)
-    more, outside = _outside(entries, flagged)
-    found += more
-    flagged |= outside
+    found = _from_store(entries)
+    found += _outside(entries, {each.path for each in found})
     for path, other in case_twins([each.path for each in entries]):
         found.append(problem(RULES, "ST13", path, other=other))
-        flagged.add(path)
     found += _contents(tree, entries, ctx)
     found += _files(entries, ctx)
     found += _named(tree, entries)
-    flagged |= {each.path for each in found if each.path and each.severity == ERROR}
-    found += _place(entries, flagged)
+    found += _place(entries, {each.path for each in found if each.path and each.severity == ERROR})
     return found
-
-
-__all__ = ["MORE", "RULES", "check", "case_twins", "program", "runs_on_reader", "scanner_file", "say"]

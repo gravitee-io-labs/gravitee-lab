@@ -330,6 +330,19 @@ class Audit(WithGit):
         self.assertEqual(2, audit.status(result, audit.Options(ci=True)))
         self.assertIn("Not checked: the services of playgrounds/shop/gone.yml", report.render(result.problems, "text", skipped=result.skipped))
 
+    def test_a_key_that_a_later_commit_only_lengthened_is_still_found(self):
+        """The old line is not in the file any more, whole: a character added to a public key does not make it private."""
+        repo = self.catalog()
+        self.put(repo, "docs/k.md", f"key = {support.aws_key()}\n")
+        self.commit(repo, "Add a key")
+        self.assertEqual(1, len([each for each in self.run_in(repo, families=self.OWN).problems if each.code == "SE02"]))
+        self.put(repo, "docs/k.md", f"key = {support.aws_key()}9\n")
+        self.commit(repo, "Hide it")
+        found = [each for each in self.run_in(repo, families=self.OWN).problems if each.code == "SE02"]
+        self.assertEqual(1, len(found), "the tree is clean now and the pull request is not")
+        self.assertIn("in commit ", found[0].message)
+        self.assertIn(", removed later in this pull request", found[0].message)
+
     def test_a_commit_in_a_tools_name_is_an_error_and_its_credit_a_warning(self):
         repo = self.catalog()
         self.put(repo, "docs/a.md", "a\n")

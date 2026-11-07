@@ -46,6 +46,10 @@ jobs:
       - name: Run the seeder's tests
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m unittest discover -s seeder/tests -t seeder
+      # A test compares the reader of the workflow rules with a real YAML reader, and this job is the one that has PyYAML
+      - name: Run the workflow rules' tests
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python -m unittest discover -s lab-ui/tests/catalogs/rules -t lab-ui -p test_workflows.py
 
   # Every add-on, setup and playground, then the project as a whole, with the Compose release the lab pins and with the newest one,
   # which is what a Linux user gets from Docker's repository

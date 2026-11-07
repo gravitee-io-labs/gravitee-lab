@@ -43,7 +43,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### SD03
 
-*Warning.* A managed file is behind: the repository's level is below the Lab's (an error when that level is urgent).
+*Warning.* A managed file is behind: the repository's level is below the Lab's.
 
 - **Message**: {path} is from standard {have}; this Lab has {now}. Fix: catalog.py upgrade --write.
 
@@ -58,12 +58,6 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 *Warning.* The repository's level is above the Lab's.
 
 - **Message**: .github/standard.json says standard {n}; this Lab knows {m}. Fix: update the Lab with git pull, then run again.
-
-### SD06
-
-*Error.* The level went down, or a managed file lost its marker in this change (--base).
-
-- **Message**: {what}. Fix: undo that change; the level only goes up and a managed file keeps its marker.
 
 ### SD07
 
@@ -296,13 +290,6 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 - **Message**: {path}:{line} holds a URL with a password. Fix: take the password from a setting.
 - **Why**: A password in a URL is a password in the file. In a Compose file or a seed it is used, in a guide it is usually an example.
 
-### SE06
-
-*Error.* A private identifier: a registry host, an image prefix, a name or an address of any catalog this Lab has added (Share, target Public).
-
-- **Message**: {path}:{line} names {identifier}, which belongs to a private catalog. Fix: remove it, or share to a Private catalog.
-- **Why**: A catalog shared to a Public catalog must not name a private one: its registry, its image prefix or its address.
-
 ### SE07
 
 *Error.* The text gitleaks:allow, or another scanner's allow marker.
@@ -358,35 +345,11 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 - **Message**: {file}: job {job} has no timeout-minutes. Add one, so that a stuck build ends.
 
-### WF06
-
-*Error.* `runs-on` is `ubuntu-24.04`, `ubuntu-24.04-arm`, or exactly `${{ matrix.runner }}` where the job's `matrix` is `fromJSON(needs.&lt;job>.outputs.matrix)` of a job of the same file, or lists only those two labels.
-
-- **Message**: {file}: job {job} runs on {label}. Use ubuntu-24.04 or ubuntu-24.04-arm, or a matrix that the plan job of this file makes: a self-hosted runner keeps what a pull request leaves on it.
-
 ### WF07
 
 *Error.* Every `actions/checkout` says `persist-credentials: false`.
 
 - **Message**: {file}:{line}: actions/checkout leaves its token in .git. Add persist-credentials: false.
-
-### WF08
-
-*Error.* Each secret is read only where a rule allows: `LAB_DEPLOY_KEY` as the `key:` of the `lab` action or as the same-named entry of a caller's `secrets:`; `GITHUB_TOKEN` or `REGISTRY_TOKEN` as the `password:` of `docker/login-action` in `publish.yml` (and `catalog-publish.yml`, its reusable counterpart in the Lab); `GRAVITEE_LICENSE` in exactly one step of `e2e.yml` and of `versions.yml`; `VERSIONS_DEPLOY_KEY` in the step of `versions.yml` that pushes (`git push --atomic`) and runs no `catalog.py`; `GRAVITEE_REGISTRY_USERNAME` and `GRAVITEE_REGISTRY_PASSWORD` in the step of `e2e.yml` and of `versions.yml` that logs in to `graviteeio.azurecr.io` and runs nothing of the Lab. Never `secrets: inherit`.
-
-- **Message**: {file}:{line}: secrets.{name} is read where no rule allows it. Pass it by name to the one step that needs it.
-
-### WF09
-
-*Error.* Write permissions only where the file may have them: none in `ci.yml` and `e2e.yml`; `issues` in the job `report` of `nightly.yml` and of `versions.yml`; `packages` in `images` and `attest`, `id-token` and `attestations` in `attest`, `contents` in `release`, of `publish.yml`; in the reusable form the single call job of `publish.yml` holds their union.
-
-- **Message**: {file}: job {job} holds {permission}: write. Only publish.yml's images, attest and release jobs, and the report jobs of nightly.yml and versions.yml, may write.
-
-### WF10
-
-*Error.* A job with steps and `packages: write` declares an `environment` (a call job of the reusable form is exempt: the jobs of its callee are checked).
-
-- **Message**: {file}: job {job} writes packages without an environment. Add environment: publish.
 
 ### WF11
 
@@ -402,7 +365,7 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF13
 
-*Error.* `id-token: write` appears in the job `attest` of `publish.yml` and `catalog-publish.yml` only, and no step exports the runtime token of Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, `ACTIONS_RESULTS_URL`, `ghaction-github-runtime`).
+*Error.* `id-token: write` appears in the job `attest` of `publish.yml` only, and no step exports the runtime token of Actions (`ACTIONS_RUNTIME_TOKEN`, `ACTIONS_CACHE_URL`, `ACTIONS_RESULTS_URL`, `ghaction-github-runtime`).
 
 - **Message**: {file}: the identity token and the runtime token of Actions go to the attest job of publish.yml only.
 
@@ -412,29 +375,11 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 - **Message**: {file}:{line}: continue-on-error hides a failure. Make the step decide its own exit code.
 
-### WF15
-
-*Error.* Reusable form: the Lab repository and commit named by a caller equal `lab.repository` and `lab.ref` of `standard.json`.
-
-- **Message**: {file}: the Lab pinned here is not lab.ref of .github/standard.json. Fix: catalog.py upgrade --lab-ref {ref}.
-
-### WF16
-
-*Error.* Reusable form: a caller passes `LAB_DEPLOY_KEY` and nothing else.
-
-- **Message**: {file}: pass the Lab key by name and nothing else; secrets: inherit hands over every secret.
-
 ### WF17
 
 *Error.* No cache of any kind: no `actions/cache`, no `cache:` input of a `setup-*` action, no `cache-from` or `cache-to`, no `type=gha` or `type=registry`.
 
 - **Message**: {file}:{line}: a cache lets a pull request write what main later reads. Remove it.
-
-### WF18
-
-*Error.* In `publish.yml` and `catalog-publish.yml` a `needs.&lt;job>.result` is compared with `== 'success'` or `contains(fromJSON('["success","skipped"]'), ...)`, never with `!=` (a canceled or timed-out job is neither a failure nor a success).
-
-- **Message**: {file}:{line}: needs.{job}.result is tested with !=. Fix: name what you accept: contains(fromJSON('["success","skipped"]'), needs.{job}.result).
 
 ### WF19
 
@@ -444,13 +389,13 @@ Every rule that `catalog.py check` and the stages of `catalog.py ci` can print, 
 
 ### WF20
 
-*Error.* No `ACTIONS_ALLOW_UNSECURE_COMMANDS`; no `run-id` or `github-token` on `actions/download-artifact` (an artifact of another run is data that someone may have written); no dynamic access to secrets: `secrets[`, `toJSON(secrets)`, `toJson(secrets)`.
+*Error.* No `ACTIONS_ALLOW_UNSECURE_COMMANDS`; no `run-id` or `github-token` on `actions/download-artifact` (an artifact of another run is data that someone may have written); no dynamic access to secrets: `secrets[`, `toJSON(secrets)`, `toJson(secrets)`, `secrets: inherit`.
 
 - **Message**: {file}:{line}: {what}. Fix: name the one secret a step needs, and download only the artifact of this run.
 
 ### WF21
 
-*Error.* Fail closed. The rules read by indentation, so a workflow that hides what they read is refused: a flow mapping or sequence as the value of `on`, `permissions`, `secrets`, `runs-on`, `uses` or `environment`; `permissions: write-all` or `read-all`; an anchor, an alias or a tag (`&x`, `*x`, `!!x`); a quoted key.
+*Error.* Fail closed. The rules read by indentation, so a workflow that hides what they read is refused: a flow mapping or sequence as the value of `on`, `permissions`, `secrets`, `runs-on`, `uses` or `environment`; `permissions: write-all` or `read-all`; an anchor, an alias or a tag (`&x`, `*x`, `!!x`); a quoted key; a backslash in a double-quoted scalar or a flow list; a quote not closed on its line; a plain scalar that goes on to the next line.
 
 - **Message**: {file}:{line}: this is written so that the rules cannot read it. Fix: write it in block style, one key per line.
 

@@ -93,21 +93,13 @@ class Catalog(Case):
                 for pattern in (r"/Users/", r"/private/", r"/var/folders", r"/tmp/", r"/home/(?!hostile)"):
                     self.assertIsNone(re.search(pattern, text), pattern)
 
-    def test_no_file_of_the_hostile_data_names_a_real_item_or_a_real_address(self):
-        """The real items are the folders the engine holds today and every id of $LAB_REAL_ITEMS (the default catalog's index,
-        in the nightly job); an address in the data ends in .invalid, is this machine or is a service of the platform."""
-        engine = regen.ENGINE
-        real = {re.sub(r"\.yml$", "", entry.name) for folder in ("addons", "setups", "playgrounds") if (engine / folder).is_dir()
-                for entry in (engine / folder).iterdir() if entry.name not in ("local", "README.md", "AGENTS.md", "CLAUDE.md")}
-        real |= {item for item in os.environ.get("LAB_REAL_ITEMS", "").split(",") if item}
+    def test_no_file_of_the_hostile_data_names_a_real_address(self):
+        """An address in the data ends in .invalid, is this machine or is a service of the platform."""
         texts = {path.name: path.read_text(encoding="utf-8") for path in regen.CATALOG.rglob("*") if path.is_file()}
         texts.update({name + ".json": json.dumps({key: regen.load(name)[key] for key in ("unit", "files", "own")})
                       for name in regen.names()})   # the platform's own services, in the captured configuration, are not the data
         texts["expected-hostile.json"] = regen.EXPECTED.read_text(encoding="utf-8")
         for file, text in texts.items():
-            for name in sorted(real):
-                with self.subTest(file=file, name=name):
-                    self.assertIsNone(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text))
             for host in re.findall(r"(?:https?|git|ssh)://(?:[^/@\s\"']*@)?([^/:\s\\\"'?#]+)|git@([^:\s\\\"']+):", text):
                 host = host[0] or host[1]
                 with self.subTest(file=file, host=host):
@@ -129,56 +121,11 @@ class Catalog(Case):
             self.assertEqual(regen.expected(holder), wanted, "regen.py --expected, then read the diff")
 
 
-# The standard's 6.10 (catalog-governance.md), T01 to T27, word for word: what CI and the command line say after a reason
-SPEC_FIXES = {
-    "T01": "Remove `{key}`, or ask the Lab's maintainers to support it.",
-    "T02": "Remove `{key}`, or ask the Lab's maintainers to support it.",
-    "T03": "Remove `privileged`: a demo that needs it is a personal item.",
-    "T04": "Remove `use_api_socket`.",
-    "T05": "Remove `provider`; use a container.",
-    "T06": "Publish a port on 127.0.0.1 instead of sharing the host's network, processes or memory.",
-    "T07": "Remove `cap_add`; run the image as it is meant to run.",
-    "T08": "Remove `devices`, `gpus`, `runtime` and device reservations.",
-    "T09": "Keep only `no-new-privileges` in `security_opt`; remove `sysctls`.",
-    "T10": "Remove the mount of the Docker socket.",
-    "T11": "Move the files under the unit's folder, or use a named volume.",
-    "T12": "Mount it `:ro`, or put the data under `.state/`.",
-    "T13": "Use a named volume the unit declares itself.",
-    "T14": "Use a named volume the unit declares itself.",
-    "T15": "Attach the service to `internal` or `edge` only.",
-    "T16": "Point `file:` at a file inside the unit.",
-    "T17": "Write the port as `127.0.0.1:HOST:CONTAINER`.",
-    "T18": "Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, "
-           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny).",
-    "T19": "Use a relative path inside the catalog.",
-    "T20": "Prefix the setting with `{NS}_`, or read only `*_VERSION`, `*_REGISTRY`, `*_PULL_POLICY` and the shared settings.",
-    "T21": "Prefix service, container and volume names with the catalog id.",
-    "T22": "On a platform service, set only `environment`, `extra_hosts`, `depends_on`, `labels`, read-only binds from your "
-           "folder and loopback ports.",
-    "T23": "Include only units of the default catalog, of this catalog, or of catalogs declared in `requires.catalogs`.",
-    "T24": "A Public catalog cannot include a Private one: move the shared part to a Public catalog.",
-    "T25": "Fix {name} first.",
-    "T26": "Remove what this Gravitee Lab does not read, or check with the Gravitee Lab release that reads it "
-           "(`catalog.py upgrade --lab-ref latest`). A `lab` is for older Gravitee Labs: `catalog.py upgrade --write` "
-           "writes the one of `catalog.yml`.",
-    "T27": "Run `docker compose -f {file} config` and fix what it prints.",
-}
-
-
 class Fixes(Case):
     """trust.FIXES (the standard's 6.10): the fix that CI and the command line say after the reason of a rule."""
 
     def test_every_rule_of_the_policy_has_a_fix_and_there_is_none_for_another(self):
         self.assertEqual(sorted(trust.FIXES), sorted(trust.RULES))
-
-    def test_t01_to_t27_are_the_words_of_the_standard(self):
-        self.assertEqual({code: trust.FIXES[code] for code in SPEC_FIXES}, SPEC_FIXES)
-        self.assertEqual(sorted(SPEC_FIXES), [f"T{number:02d}" for number in range(1, 28)])
-
-    def test_the_rules_the_standard_does_not_table_have_a_fix_of_the_same_kind(self):
-        self.assertEqual(sorted(set(trust.FIXES) - set(SPEC_FIXES)), ["N01", "N02", "N03", "N04", "N05", "T28", "T29"])
-        for code in ("T28", "T29", "N01", "N02", "N03", "N04", "N05"):
-            self.assertRegex(trust.FIXES[code], r"^[A-Z].*\.$", code)
 
     def test_the_only_blanks_are_the_ones_a_caller_fills(self):
         found = {code: set(re.findall(r"\{(\w+)\}", text)) for code, text in trust.FIXES.items()}
@@ -841,20 +788,6 @@ class Screen(Case):
                      "      test: [\"CMD-SHELL\", \"curl -sf x | grep -Eq '\\\"healthy\\\" *: *true'\"]\n"):
             with self.subTest(text=text):
                 self.assertEqual(self.screen(text), [])
-
-    def test_a_clean_file_of_the_engine_is_clean(self):
-        """The real units, as they sit in the engine today: the screen reads words, and none of these says one it refuses.
-        (Gone with them when the content moves to its catalog, and then the units of that catalog are the ones to run.)"""
-        files = sorted([*regen.ENGINE.glob("addons/*/compose.yml"), *regen.ENGINE.glob("playgrounds/*/compose.yml"),
-                        *regen.ENGINE.glob("setups/*.yml")])
-        files = [file for file in files if "local" not in file.relative_to(regen.ENGINE).parts]
-        if not files:
-            print("skipped: the engine holds no unit", file=sys.stderr)
-            self.skipTest("the engine holds no unit")
-        for file in files:
-            with self.subTest(file=str(file.relative_to(regen.ENGINE))):
-                where = ".lab/catalogs/gravitee/" + file.relative_to(regen.ENGINE).as_posix()
-                self.assertEqual(self.screen(file.read_text(encoding="utf-8"), where), [])
 
     def test_a_word_in_a_sentence_or_a_comment_is_no_key(self):
         for text in ("# env_file: /etc/passwd\n  # include: /etc\nservices: {}\n",

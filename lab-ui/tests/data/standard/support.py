@@ -111,12 +111,6 @@ class Repo:
         return self.git_in(self.top, "--git-dir", str(self.origin), "for-each-ref", "--format=%(refname) %(objectname)")
 
 
-def catalog_repo(case: Case, **more) -> Repo:
-    """A repository holding the new catalog of the fixed parameters, committed on main and pushed."""
-    identity(case)
-    return Repo(case, render(**more))
-
-
 def release_manifest(level: Optional[int] = None) -> bytes:
     """The manifest.json of a Lab release as far as a pin reads it: the level of the standard it ships, this Lab's by default."""
     return json.dumps({"level": standard.LEVEL if level is None else level}).encode()

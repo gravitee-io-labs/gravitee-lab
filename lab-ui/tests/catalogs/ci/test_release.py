@@ -11,10 +11,9 @@ import os
 import re
 import tempfile
 import unittest
-from pathlib import Path
 from unittest import mock
 
-from lab_ui.catalogs import ci, install, store
+from lab_ui.catalogs import store
 from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import release
 from tests.data.rules import support
@@ -152,7 +151,6 @@ class Layout(Fixture):
 class SameFunction(Fixture):
 
     def test_the_subjects_are_the_ones_of_the_function_the_update_dialog_calls(self):
-        self.assertIs(install.bare, store, "the update plan's whatsnew is store.notes, from the module the dialog's plan calls")
         self.release("v1.0.0")
         for number in range(3):
             self.put(self.repo, "playgrounds/bank/guide.md", f"# {number}\n")
@@ -170,10 +168,6 @@ class SameFunction(Fixture):
         shown = store.log(git_dir, first, sha, ["playgrounds/bank"], 5)
         self.assertEqual(shown, ["Subject 2", "Subject 1", "Subject 0"])
         self.assertIn("  - " + "\n  - ".join(shown), self.text())
-        # and it is the call the dialog's plan makes, unit by unit, five subjects each
-        source = Path(install.__file__).read_text(encoding="utf-8")
-        self.assertIn("bare.notes(store_path, old, new, keys)", source)
-        self.assertEqual(store.notes.__defaults__, (5,))
 
 
 class Hostile(Fixture):
@@ -253,6 +247,7 @@ class Tags(Fixture):
         self.assertEqual(release.next_release("v1.0.0", "1.0.0"), ("1.1.0", False))
         self.assertEqual(release.next_release("v1.0.0", "1.1.0"), ("1.1.0", True), "catalog.yml says more: its tag is what is left")
         self.assertEqual(release.next_release("v1.0.0", "2.0.0"), ("2.0.0", True))
+        self.assertEqual(release.next_release("v1.0.0", "1234567.0.0"), ("1234567.0.0", True), "catalog.yml may say more digits")
         self.assertEqual(release.next_release("v1.4.0", "1.2.0"), ("1.5.0", False), "never below the last release")
         self.assertEqual(release.next_release(None, "0.3.0"), ("0.3.0", True))
         self.assertTrue(release.unreleased_text("v1.0.0", ["addon:a"], [], [], "1.1.0").endswith("make release VERSION=1.1.0 TAG=1"))
@@ -381,12 +376,11 @@ class Images(Fixture):
         self.assertFalse(self.notes.is_symlink())
 
     def test_the_command_line_reaches_the_stage(self):
-        self.assertEqual(ci.STAGES["release-notes"], ("release", "main"))
         out = io.StringIO()
         code = ci_main(["release-notes", str(self.repo), "--tag", "v1.0.0", "--records", str(self.records), "--notes", str(self.notes),
-                        "--images", str(self.images), "--format", "json"], out, io.StringIO())
+                        "--images", str(self.images)], out, io.StringIO())
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out.getvalue())["new"], ["addon:mock", "addon:old", "playground:bank", "setup:pair"])
+        self.assertIn("Notes for v1.0.0: 4 new, 0 changed, 0 removed, since the start;", out.getvalue())
         self.assertEqual(ci_main(["release-notes"], io.StringIO(), io.StringIO()), 2)
 
 
@@ -408,15 +402,12 @@ class Unreleased(Fixture):
         self.commit(self.repo, "Add the new add-on")
         self.assertEqual(self.unreleased(), "2 items changed since v1.0.0 and the Lab does not offer them until the next release: "
                                             "addon:new-one, playground:bank. Release: make release VERSION=1.1.0\n")
-        self.assertTrue(self.unreleased("--format", "github").startswith("::warning title=Unreleased::2 items changed since v1.0.0"))
-        self.assertEqual(json.loads(self.unreleased("--format", "json")),
-                         {"changed": ["playground:bank"], "new": ["addon:new-one"], "previous": "v1.0.0", "removed": [], "next": "1.1.0",
-                          "tag_only": False})
+        self.assertTrue(self.unreleased("--ci").startswith("::warning title=Unreleased::2 items changed since v1.0.0"))
 
     def test_a_catalog_with_no_release_is_told_how_to_make_its_first_and_not_warned(self):
         self.assertEqual(self.unreleased(), "No release yet: the Lab offers the newest commit of main until there is one. Release it: "
                                             "make release VERSION=1.0.0 TAG=1\n")
-        self.assertTrue(self.unreleased("--format", "github").startswith("::notice title=Unreleased::"))
+        self.assertTrue(self.unreleased("--ci").startswith("::notice title=Unreleased::"))
 
     def test_the_summary_holds_the_notes_the_next_release_would_have(self):
         self.release("v1.0.0")

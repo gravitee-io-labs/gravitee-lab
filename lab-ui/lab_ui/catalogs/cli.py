@@ -6,7 +6,7 @@ catalog from the template and keep it in step with the Lab's standard. `python3 
                                       every rule that needs no Docker and no network; a folder is read where it is
     explain CODE                      the long form of a rule code
     new DIR --id ID --name NAME --maintainers @A[,@B]   a catalog from the template          (standard.main_new)
-    upgrade [DIR] [--write] [--commit]  --fleet OWNER --lab-ref COMMIT       the managed files, at the Lab's level
+    upgrade [DIR] [--write]  --fleet OWNER --lab-ref COMMIT                  the managed files, at the Lab's level
                                                                              (standard.main_upgrade, fleet.main)
     release VERSION [--tag] [--pr]    prepare a release, then tag it                         (release.main)
     repo-settings [OWNER/REPO or DIR] audit and apply the repository standard on GitHub      (settings.main)
@@ -22,8 +22,7 @@ catalog from the template and keep it in step with the Lab's standard. `python3 
     reset [--empty]                   start over: the next start is a first run, or has no catalog at all
     index [PATH or ID] [--out FILE]   the generated catalog.json, of a folder as it is or of an added catalog
 
-The five commands marked with a module are run by it: everything after their name is handed over as it is. Of those,
-`new`, `upgrade` and `release` answer `--help` here (HELP): their modules have none, and `repo-settings` and `ci` have their own.
+The five commands marked with a module are run by it: everything after their name is handed over as it is, `--help` too.
 
 Exit 0 when it worked, 1 when it found a problem or an upgrade is pending or it was refused, 2 for a usage or environment error
 (not a catalog, a tool missing) or a fault of the tool (a crash is never
@@ -59,7 +58,6 @@ from .report import Problem
 ENVIRONMENT = ("bad_address", "bad_address_secret", "folder_missing", "folder_not_catalog", "folder_not_shared",
                "branch_missing", "not_listed", "symlink_unsupported", "git_missing", "git_old", "docker_missing", "unread",
                "busy")
-FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is
 # Why, when the download needs Docker that does not answer: the Makefile's words, since nothing runs to download later
@@ -800,10 +798,6 @@ def _write_summary(found, skipped):
         complain(f"catalog.py: the summary could not be written: {error.strerror or error}")
 
 
-SD11 = "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."
-WORKFLOW = re.compile(r"^[ \t-]*uses:[ \t]*([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/\.github/workflows/[A-Za-z0-9._-]+@([0-9a-f]{40})\b", re.M)
-
-
 def _line_of(text, needle):
     """The line (from 1) of a text that holds `needle`, else 0."""
     return next((number for number, line in enumerate(text.split("\n"), 1) if needle in line), 0)
@@ -817,9 +811,8 @@ def _on_main(sha):
 
 
 def _pin_problems(tree, notes):
-    """SD11 for `check --online`: the commit of the Lab that `.github/standard.json` pins, and the commit of each reusable caller
-    (`uses: <the Lab>/.github/workflows/...@<commit>`), has to be a release of the Lab (a tag vX.Y.Z on its `origin/main`), as the
-    Lab checkout that runs this knows it. A pin it cannot place is said, never taken for fine."""
+    """SD11 for `check --online`: the commit of the Lab that `.github/standard.json` pins has to be a release of the Lab (a tag
+    vX.Y.Z on its `origin/main`), as the Lab checkout that runs this knows it. A pin it cannot place is said, never taken for fine."""
     data = tree.read(".github/standard.json", 4097)
     if data is None or len(data) > 4096:
         return []
@@ -828,23 +821,17 @@ def _pin_problems(tree, notes):
     except (ValueError, RecursionError):
         return []
     lab = standard.get("lab") if isinstance(standard, dict) and isinstance(standard.get("lab"), dict) else {}
-    pins = {}
-    if isinstance(lab.get("ref"), str) and FULL_COMMIT.fullmatch(lab["ref"]):
-        pins[lab["ref"]] = (".github/standard.json", _line_of(data.decode("utf-8", "replace"), lab["ref"]))
-    for entry in tree.entries():
-        if entry.mode in trees.REGULAR and re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", entry.path):
-            text = tree.text(entry.path) or ""
-            for found in WORKFLOW.finditer(text):
-                if found.group(1) == lab.get("repository"):
-                    pins.setdefault(found.group(2), (entry.path, text.count("\n", 0, found.start()) + 1))
-    problems = []
-    for sha, (where, line) in pins.items():
-        state = _on_main(sha)
-        if state == "no":
-            problems.append(Problem("SD11", report.ERROR, where, line, SD11.format(sha7=sha[:7])))
-        elif state != "yes":
-            notes.append(f"SD11: {state}")
-    return problems
+    sha = lab.get("ref")
+    if not isinstance(sha, str) or not FULL_COMMIT.fullmatch(sha):
+        return []
+    state = _on_main(sha)
+    if state == "no":
+        line = _line_of(data.decode("utf-8", "replace"), sha)
+        message = _lab("standard").RULES["SD11"].message.format(sha7=sha[:7])
+        return [Problem("SD11", report.ERROR, ".github/standard.json", line, message)]
+    if state != "yes":
+        notes.append(f"SD11: {state}")
+    return []
 
 
 def _base_asked(args):
@@ -989,44 +976,16 @@ DELEGATED = {"new": ("standard", "main_new"), "upgrade": ("standard", "main_upgr
              "repo-settings": ("settings", "main"), "ci": ("ci", "main")}
 
 
-# What `catalog.py COMMAND --help` says for the commands whose module answers no help of its own (their parsers stop at the first
-# word they do not know, so the dispatcher says it): the words of the command and its usage line. `repo-settings` and `ci` are not
-# here: their modules list their options and their stages.
-HELP = {
-    "new": ("a catalog from the template of the standard, rendered into an empty folder",
-            "catalog.py new DIR --id ID --name NAME --maintainers @A[,@B or @ORG/TEAM] [--license SPDX] [--images PREFIX]\n"
-            "                [--description TEXT] [--security-contact ADDRESS] [--lab-repo OWNER/REPO] [--lab-ref COMMIT]\n"
-            "                [--platforms LIST] [--form inline|reusable] [--with e2e] [--local]"),
-    "upgrade": ("bring the managed files of a catalog to the level of this Lab, or of every catalog of an owner",
-                "catalog.py upgrade [DIR] [--write] [--commit] [--lab-ref COMMIT|latest] [--refresh-pins] [--adopt]\n"
-                "                   [--replace PATH] [--form inline|reusable] [--with e2e] [--maintainers @A] [--lab-repo OWNER/REPO]\n"
-                "                   [--format text|json]\n"
-                "catalog.py upgrade --fleet OWNER --lab-ref COMMIT [--format text|json|github]"),
-    "release": ("prepare a release of a catalog, then tag it",
-                "catalog.py release VERSION [--tag] [--pr] [--dir DIR]"),
-}
-
-
 def _fleet(rest):
     """Whether the words after `upgrade` are the loop over the catalogs of an owner (`--fleet OWNER`)."""
     return any(word == "--fleet" or word.startswith("--fleet=") for word in rest)
 
 
-def _help(command):
-    """The help of a delegated command that has none of its own: what it does and its usage line, on standard output."""
-    text, usage = HELP[command]
-    say(f"{text}\n\nusage: {usage}")
-    return 0
-
-
 def delegate(args):
     module, function = DELEGATED[args.command]
     rest = list(args.rest)
-    fleet = args.command == "upgrade" and _fleet(rest)
-    if fleet:
+    if args.command == "upgrade" and _fleet(rest):
         module, function = "fleet", "main"
-    elif args.command in HELP and any(word in ("-h", "--help") for word in rest):
-        return _help(args.command)
     return getattr(_lab(module), function)(rest)
 
 
@@ -1042,7 +1001,7 @@ def parser():
         return sub
 
     def formatted(sub):
-        sub.add_argument("--format", choices=FORMATS, help="text, github annotations or json (default text)")
+        sub.add_argument("--format", choices=report.FORMATS, help="text, github annotations or json (default text)")
         return sub
     sub = one("link", link, "link a folder as a catalog")
     sub.add_argument("path")
@@ -1095,9 +1054,7 @@ def parser():
                        ("release", "prepare a release, then tag it (catalog.py release VERSION [--tag] [--pr])"),
                        ("repo-settings", "audit and apply the repository standard on GitHub (catalog.py repo-settings --help)"),
                        ("ci", "the stages the managed workflows call: plan, gitleaks, manifests, build, test, smoke, run, ...")):
-        sub = one(name, delegate, text)
-        sub.set_defaults(command=name)
-        sub.add_argument("rest", nargs=argparse.REMAINDER)
+        one(name, delegate, text)
     return top
 
 

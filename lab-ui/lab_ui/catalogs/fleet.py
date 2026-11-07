@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Callable, List, NamedTuple, Optional
 
 from . import gitx, settings, standard as standards
+from .report import escape_data
 from .standard import pin_problem, release_state
 from .tree import FolderTree
 from .settings import FAIL, WARN, Refused, Unusable, Usage, as_dict, clean, is_int, plan_limit, refusal
@@ -38,8 +39,6 @@ LAB_LOG = 50                                            # the lines of the Lab's
 BRANCH_PREFIX = "standard/"
 PULL_LIMIT = 3
 STANDARD_FILE = ".github/standard.json"
-NO_IDENTITY = ("Please tell me who you are", "Author identity unknown", "unable to auto-detect email address",
-               "auto-detection is disabled")
 
 
 class Row(NamedTuple):
@@ -137,11 +136,11 @@ def render_audit(rows, fmt: str = "text") -> str:
         lines = []
         for row in rows:
             if _unread(row):
-                lines.append(f"::error title={settings.TOPIC}::" + settings.escape(f"{row.repo}: {row.error}"))
+                lines.append(f"::error title={settings.TOPIC}::" + escape_data(f"{row.repo}: {row.error}"))
             for finding in row.findings:
                 if finding.status in (FAIL, WARN):
                     level = "error" if finding.status == FAIL else "warning"
-                    lines.append(f"::{level} title={finding.id}::" + settings.escape(
+                    lines.append(f"::{level} title={finding.id}::" + escape_data(
                         f"{row.repo}: {finding.title}" + (f": {finding.now}" if finding.now else "")))
         return "\n".join(lines)
     if not rows:
@@ -193,7 +192,7 @@ class _Work:
         """The output of a git command, or the line of why it failed."""
         result = self.git(args, cwd=cwd, timeout=timeout)
         if result.code != 0:
-            if any(words in (result.err or "") for words in NO_IDENTITY):
+            if any(words in (result.err or "") for words in gitx.NO_IDENTITY):
                 raise _Failed("Git has no name and email to commit with. Set user.name and user.email, then run this again.")
             verb = next((a for i, a in enumerate(args) if not a.startswith("-") and (i == 0 or args[i - 1] != "-c")),
                         "command")
@@ -324,8 +323,8 @@ def _upgrade(work: _Work, repo: str, branch: str, folder: Path) -> Upgraded:
     if not now or now[0] != base:
         return Upgraded(repo, "moved", f"{branch} moved while the upgrade ran; run it again", owned)
     work.run(["push", "--quiet", "--", url, f"HEAD:refs/heads/{name}"], cwd=str(folder))
-    reply = settings.as_reply(work.runner("POST", f"repos/{repo}/pulls", {
-        "title": subject, "head": name, "base": branch, "body": "\n\n".join(lines + ([log] if log else []))}))
+    reply = work.runner("POST", f"repos/{repo}/pulls", {
+        "title": subject, "head": name, "base": branch, "body": "\n\n".join(lines + ([log] if log else []))})
     link = as_dict(reply.body).get("html_url")
     if not 200 <= reply.code < 300 or not isinstance(link, str):
         why = "the plan does not allow it" if plan_limit(reply) else refusal(reply)
@@ -407,7 +406,7 @@ def render_upgrade(results, fmt: str = "text") -> str:
         return json.dumps([item._asdict() for item in results], indent=2, sort_keys=True)
     if fmt == "github":
         return "\n".join(
-            f"::{'error' if item.status in ('failed', 'moved') else 'notice'} title=upgrade::" + settings.escape(
+            f"::{'error' if item.status in ('failed', 'moved') else 'notice'} title=upgrade::" + escape_data(
                 f"{item.repo}: {item.status}" + (f" {item.detail}" if item.detail else "")
                 + ("; owned files skipped: " + ", ".join(item.owned) if item.owned else ""))
             for item in results if item.status != "current")
@@ -434,7 +433,7 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, st
     of the Lab (SD11), a command line that makes no sense. `seams` are those of `upgrade_fleet`."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
     try:
-        parser = settings.Parser(prog="catalog.py upgrade", add_help=False)
+        parser = settings.Parser(prog="catalog.py upgrade")
         parser.add_argument("--fleet", required=True, metavar="OWNER")
         parser.add_argument("--lab-ref", required=True, metavar="COMMIT")
         parser.add_argument("--format", choices=("text", "json", "github"), default="text")

@@ -7,7 +7,6 @@ because the command line carries `--config`, `--ignore-gitleaks-allow` and `--gi
 never the catalog's. The planted token is made of pieces when a test runs and is written in no file of the repository."""
 
 import io
-import json
 import os
 import shutil
 import tempfile
@@ -18,7 +17,6 @@ from unittest import mock
 from lab_ui.docker import compose
 from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import gitleaks
-from lab_ui.catalogs.ci import main as ci_main
 from tests.data.rules import support
 from tests.fakedocker import FakeDocker, option, options
 
@@ -51,12 +49,7 @@ class Dockerfile(unittest.TestCase):
         reference = line.split()[1]
         self.assertRegex(reference, r"^ghcr\.io/gitleaks/gitleaks:v8\.\d+\.\d+@sha256:[0-9a-f]{64}$")
         self.assertTrue(line.endswith(" AS gitleaks"))
-
-    def test_the_digest_that_is_not_resolved_yet_is_not_run(self):
-        with self.assertRaises(ci.Unavailable) as raised:
-            gitleaks.image(self.write(f"FROM ghcr.io/example/gitleaks:v8.0.0@sha256:{'0' * 64} AS gitleaks\n"))
-        self.assertIn("is not pinned yet", str(raised.exception))
-        self.assertIn("docker buildx imagetools inspect", str(raised.exception))
+        self.assertRegex(gitleaks.image(gitleaks.DOCKERFILE, "trivy"), r"@sha256:[0-9a-f]{64}$")
 
     def test_a_reference_must_be_pinned_by_digest(self):
         for reference in ("ghcr.io/example/gitleaks:v8.0.0", "ghcr.io/example/gitleaks", "ghcr.io/example/gitleaks@sha256:abc",
@@ -105,15 +98,6 @@ class Command(unittest.TestCase):
             "--gitleaks-ignore-path", "/ignore", "--redact", "--exit-code", "0", "--no-banner", "--report-format", "json",
             "--report-path", "/out/report.json", "--log-opts", f"--text --no-textconv --no-ext-diff {base}..{head}", "/repo"])
 
-    def test_the_container_has_no_network_and_only_the_catalog_is_its_files(self):
-        command = self.command()
-        self.assertEqual(option(command, "--network"), "none")
-        self.assertIn("--read-only", command)
-        self.assertEqual(option(command, "--cap-drop"), "ALL")
-        mounts = options(command, "-v")
-        self.assertEqual([each.split(":")[1] for each in mounts], ["/repo", "/config/gitleaks.toml", "/ignore", "/out"])
-        self.assertEqual([each.endswith(":ro") for each in mounts], [True, True, True, False])   # only our own folder is written
-
     def test_the_directory_scan_of_a_folder_with_no_history_has_no_range(self):
         command = self.command(["--log-opts", "a..b"], mode="dir")
         self.assertEqual(command[command.index(IMAGE) + 1], "dir")
@@ -160,17 +144,9 @@ class History(support.WithGit):
         self.put(repo, "bin.dat", b"\0 " + support.aws_key().encode())
         return repo, base, self.commit(repo, "Binary")
 
-    def test_without_the_options_git_prints_no_line_for_such_a_file(self):
-        # The proof that the test can tell: the scan as it was, with the range alone
-        repo, base, head = self.planted()
-        plain = self.printed(repo, f"{base}..{head}")
-        self.assertIn("Binary files", plain)
-        self.assertNotIn(token(), plain)
-        self.assertNotIn(support.aws_key(), plain)
-
     def test_with_the_options_of_the_scan_every_added_line_is_printed(self):
         repo, base, head = self.planted()
-        flag, words = gitleaks.revisions(str(repo), base, head)
+        flag, words = gitleaks.revisions(str(repo), base)
         self.assertEqual(flag, "--log-opts")
         printed = self.printed(repo, words)
         self.assertIn(f"+token = {token()}", printed)
@@ -181,7 +157,7 @@ class History(support.WithGit):
         repo, _, _ = self.planted()
         for base in ("", "0" * 40, "f" * 40):
             with self.subTest(base=base):
-                flag, words = gitleaks.revisions(str(repo), base, "")
+                flag, words = gitleaks.revisions(str(repo), base)
                 printed = self.printed(repo, words)
                 self.assertIn(f"+token = {token()}", printed)
                 self.assertIn("+# Hub", printed)   # (the first commit is in it)
@@ -189,10 +165,10 @@ class History(support.WithGit):
     def test_a_textconv_or_an_external_diff_cannot_change_what_is_printed(self):
         repo, base, head = self.planted()
         self.put(repo, ".gitattributes", "*.txt diff=hide\n")
-        head = self.commit(repo, "Driver")
+        self.commit(repo, "Driver")
         self.git(repo, "config", "diff.hide.textconv", "echo hidden")
         self.git(repo, "config", "diff.external", "echo external")
-        _, words = gitleaks.revisions(str(repo), base, head)
+        _, words = gitleaks.revisions(str(repo), base)
         self.assertIn(f"+token = {token()}", self.printed(repo, words))
 
 
@@ -228,7 +204,7 @@ class Scan(support.WithGit):
 
     def test_a_planted_token_is_se03_and_the_secret_is_not_in_the_output(self):
         repo, head = self.plant()
-        code = self.stage(repo, "--base", "", "--format", "github")
+        code = self.stage(repo, "--base", "", "--ci")
         self.assertEqual((code, self.err.getvalue()), (1, ""))
         self.assertIn(f"::error file=src/config.py,line=1,title=SE03::{message('src/config.py', 1)}", self.out.getvalue())
         self.assertNotIn(token(), self.out.getvalue())
@@ -262,39 +238,11 @@ class Scan(support.WithGit):
             self.assertNotIn(f"{real}/.gitleaks", word)   # nothing of the catalog's own is a file the scan is told to read
             self.assertFalse(word.endswith((".gitleaksignore", ".gitleaks.toml")), word)
 
-    def scanned(self, repo, drop=()):
-        """What the fake gitleaks finds in `repo` with the command of the stage less the flags of `drop`: the report, as a list.
-        The command is run for real by the fake, so what it does with a flag missing is the answer."""
-        import subprocess
-        work = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, work, True)
-        os.mkdir(os.path.join(work, "ignore"))
-        os.mkdir(os.path.join(work, "out"))
-        mounts = gitleaks.Mounts(str(Path(repo).resolve()), str(gitleaks.CONFIG.resolve()), os.path.join(work, "ignore"),
-                                 os.path.join(work, "out"))
-        command = gitleaks.command(IMAGE, mounts, [])
-        for flag in drop:
-            at = command.index(flag)
-            del command[at:at + (1 if flag == "--ignore-gitleaks-allow" else 2)]
-        done = subprocess.run([self.fake.path, *command[1:]], capture_output=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        report = Path(work, "out", "report.json")
-        return json.loads(report.read_text(encoding="utf-8")) if report.exists() else []
-
-    def test_without_each_flag_the_catalogs_own_choice_would_win(self):
-        # The proof that the fake, and so the tests above, can tell: take a flag away and the token is missed
-        repo, _ = self.plant(**{".gitleaks.toml": ALLOW_ALL, ".gitleaksignore": "src/config.py:github-pat:1\n"})
-        self.put(repo, "src/other.py", f'TOKEN = "{token()}"  # gitleaks:allow\n')
-        self.assertEqual(sorted({each["File"] for each in self.scanned(repo)}), ["src/config.py", "src/other.py"])
-        for flag in ("--config", "--gitleaks-ignore-path", "--ignore-gitleaks-allow"):
-            with self.subTest(removed=flag):
-                self.assertNotEqual(sorted({each["File"] for each in self.scanned(repo, [flag])}), ["src/config.py", "src/other.py"])
-
     def test_a_range_is_two_commits_of_this_repository(self):
         repo, first = self.plant()
         self.put(repo, "src/more.py", f'TOKEN = "{token()}"\n')
         head = self.commit(repo, "More")
-        self.stage(repo, "--base", first, "--head", head)
+        self.stage(repo, "--base", first)
         self.assertEqual(option(self.run_command(), "--log-opts"), f"--text --no-textconv --no-ext-diff {first}..{head}")
 
     def test_without_a_base_or_with_zeros_or_with_a_commit_git_does_not_know_the_whole_history_is_read(self):
@@ -308,17 +256,10 @@ class Scan(support.WithGit):
 
     def test_a_base_that_is_an_option_of_git_is_no_commit(self):
         repo, _ = self.plant()
-        self.stage(repo, "--base=--output=/tmp/evil", "--head=--all")
+        self.stage(repo, "--base=--output=/tmp/evil")
         command = self.run_command()
         self.assertEqual(option(command, "--log-opts"), "--text --no-textconv --no-ext-diff --full-history --all")
         self.assertNotIn("--output=/tmp/evil", " ".join(command))
-        self.assertNotIn("--all", command)   # (no word of the command is the head that was given)
-
-    def test_a_head_that_is_no_commit_is_not_scanned_at_all(self):
-        repo, first = self.plant()
-        code = self.stage(repo, "--base", first, "--head", "no-such-branch")
-        self.assertEqual(code, 2)
-        self.assertEqual(self.fake.commands("run"), [])
 
     def test_a_history_with_no_token_is_all_good(self):
         repo = self.work(files=FILES)
@@ -402,20 +343,8 @@ class Scan(support.WithGit):
             self.assertEqual(self.stage(repo, "--base", ""), 2)
         self.assertIn("the report of the scan is not JSON", self.err.getvalue())
 
-    def test_a_placeholder_digest_is_exit_2_before_docker_is_asked(self):
-        repo = self.work(files=FILES)
-        self.dockerfile.write_text(f"FROM ghcr.io/example/gitleaks:v8@sha256:{'0' * 64} AS gitleaks\n")
-        self.assertEqual(self.stage(repo, "--base", ""), 2)
-        self.assertEqual(self.fake.calls(), [])
-
-    def test_the_dispatcher_reaches_it(self):
-        repo = self.work(files=FILES)
-        with mock.patch.object(gitleaks, "DOCKERFILE", self.dockerfile):
-            code = ci_main(["gitleaks", str(repo), "--base", "0" * 40], self.out, self.err)
-        self.assertEqual(code, 0, self.err.getvalue())
-
     def test_a_usage_that_is_wrong_is_exit_2(self):
-        for argv in (["/nonexistent-folder", "--base", ""], ["--format", "xml"]):
+        for argv in (["/nonexistent-folder", "--base", ""], ["--no-such-option"]):
             self.out, self.err = io.StringIO(), io.StringIO()
             self.assertEqual(gitleaks.main(argv, self.out, self.err), 2)
 

@@ -33,402 +33,56 @@
     {"path": ".github/ISSUE_TEMPLATE/config.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/ISSUE_TEMPLATE/bug_report.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/ISSUE_TEMPLATE/new_item.yml", "class": "seeded", "since": 1, "when": "always", "scope": "full"},
-    {"path": "addons/hello/compose.yml", "class": "sample", "since": 1, "when": "always", "scope": "both", "source": "addons/hello/compose.yml"},
-    {"path": "addons/hello/README.md", "class": "sample", "since": 1, "when": "always", "scope": "both", "source": "addons/hello/README.md"}
-  ],
-  "removed": [],
-  "edits": [
-    {
-      "path": ".github/workflows/e2e.yml",
-      "below": 9,
-      "from": [
-        "          printf '\\nGRAVITEE_LICENSE=%s\\n' \"$GRAVITEE_LICENSE\" >> .env",
-        "      # Gravitee's private registry, for an item that pulls from it: logged in when the environment holds a token that reads it",
-        "      - name: Log in to Gravitee's private registry",
-        "        env:",
-        "          REGISTRY_USERNAME: ${{ secrets.GRAVITEE_REGISTRY_USERNAME }}",
-        "          REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}",
-        "        run: |",
-        "          [ -n \"$REGISTRY_USERNAME\" ] || exit 0",
-        "          printf '%s' \"$REGISTRY_PASSWORD\" | docker login graviteeio.azurecr.io --username \"$REGISTRY_USERNAME\" --password-stdin"
-      ],
-      "to": [
-        "          printf '\\nGRAVITEE_LICENSE=%s\\n' \"$GRAVITEE_LICENSE\" >> .env"
-      ]
-    },
-    {
-      "path": ".github/workflows/versions.yml",
-      "below": 9,
-      "from": [
-        "          printf '\\nGRAVITEE_LICENSE=%s\\n' \"$GRAVITEE_LICENSE\" >> .env",
-        "      # Gravitee's private registry, for an item that pulls from it: logged in when the environment holds a token that reads it",
-        "      - name: Log in to Gravitee's private registry",
-        "        env:",
-        "          REGISTRY_USERNAME: ${{ secrets.GRAVITEE_REGISTRY_USERNAME }}",
-        "          REGISTRY_PASSWORD: ${{ secrets.GRAVITEE_REGISTRY_PASSWORD }}",
-        "        run: |",
-        "          [ -n \"$REGISTRY_USERNAME\" ] || exit 0",
-        "          printf '%s' \"$REGISTRY_PASSWORD\" | docker login graviteeio.azurecr.io --username \"$REGISTRY_USERNAME\" --password-stdin"
-      ],
-      "to": [
-        "          printf '\\nGRAVITEE_LICENSE=%s\\n' \"$GRAVITEE_LICENSE\" >> .env"
-      ]
-    },
-    {
-      "path": ".github/workflows/e2e.yml",
-      "below": 8,
-      "from": [
-        "          FROM: ${{ inputs.pr != '' && 'change' || 'catalog' }}",
-        "          # What is on main was reviewed: its items may use this machine, each for the reason its x-gravitee.host_access gives, as",
-        "          # once a person allows the catalog at Add. A pull request never may",
-        "          MACHINE: ${{ inputs.pr == '' && github.ref == 'refs/heads/main' }}",
-        "        run: |",
-        "          if [ \"$MACHINE\" = true ]; then",
-        "            python3 -I lab-ui/catalog.py link \"../$FROM\" --allow-machine",
-        "          else",
-        "            python3 -I lab-ui/catalog.py link \"../$FROM\"",
-        "          fi"
-      ],
-      "to": [
-        "          FROM: ${{ inputs.pr != '' && 'change' || 'catalog' }}",
-        "        run: |",
-        "          python3 -I lab-ui/catalog.py link \"../$FROM\""
-      ]
-    },
-    {
-      "path": ".github/workflows/versions.yml",
-      "below": 8,
-      "from": [
-        "#   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license. What is on main was",
-        "#            reviewed: its items may use this machine, each for the reason its x-gravitee.host_access gives"
-      ],
-      "to": [
-        "#   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license"
-      ]
-    },
-    {
-      "path": ".github/workflows/versions.yml",
-      "below": 8,
-      "from": [
-        "          python3 -I lab/lab-ui/catalog.py link catalog --allow-machine",
-        "          python3 -I lab/lab-ui/catalog.py ci versions-plan catalog --github-output"
-      ],
-      "to": [
-        "          python3 -I lab/lab-ui/catalog.py link catalog",
-        "          python3 -I lab/lab-ui/catalog.py ci versions-plan catalog --github-output"
-      ]
-    },
-    {
-      "path": ".github/workflows/versions.yml",
-      "below": 8,
-      "from": [
-        "          python3 -I lab-ui/catalog.py link ../catalog --allow-machine"
-      ],
-      "to": [
-        "          python3 -I lab-ui/catalog.py link ../catalog"
-      ]
-    },
-    {
-      "path": ".github/workflows/versions.yml",
-      "below": 8,
-      "from": [
-        "          python3 -I lab/lab-ui/catalog.py link catalog --allow-machine",
-        "          python3 -I lab/lab-ui/catalog.py ci versions-record catalog --plan plan.json --results results | tee recorded.txt"
-      ],
-      "to": [
-        "          python3 -I lab/lab-ui/catalog.py link catalog",
-        "          python3 -I lab/lab-ui/catalog.py ci versions-record catalog --plan plan.json --results results | tee recorded.txt"
-      ]
-    },
-    {
-      "path": ".github/rulesets/default-branch.json",
-      "below": 7,
-      "from": [
-        "  \"bypass_actors\": [",
-        "    {",
-        "      \"actor_id\": null,",
-        "      \"actor_type\": \"DeployKey\",",
-        "      \"bypass_mode\": \"always\"",
-        "    }",
-        "  ],"
-      ],
-      "to": [
-        "  \"bypass_actors\": [],"
-      ]
-    },
-    {
-      "path": ".github/rulesets/tags.json",
-      "below": 7,
-      "from": [
-        "      \"bypass_mode\": \"always\"",
-        "    },",
-        "    {",
-        "      \"actor_id\": null,",
-        "      \"actor_type\": \"DeployKey\",",
-        "      \"bypass_mode\": \"always\"",
-        "    }"
-      ],
-      "to": [
-        "      \"bypass_mode\": \"always\"",
-        "    }"
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 6,
-      "from": [
-        "  # Python 3.15 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when"
-      ],
-      "to": [
-        "  # Python 3.14 and the seeder's requirements, which the Lab pins: nothing the change wrote is installed. The catalog's own tests, when"
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 6,
-      "from": [
-        "          python-version: \"3.15\""
-      ],
-      "to": [
-        "          python-version: \"3.14\""
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 6,
-      "from": [
-        "#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, what does",
-        "#                not need the platform starts and answers its health check, and the images built have no critical flaw that has a fix"
-      ],
-      "to": [
-        "#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what",
-        "#                does not need the platform starts and answers its health check"
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 6,
-      "from": [
-        "  # Build, test, start, scan. The Dockerfiles of the change run here, so no secret and no registry login reaches this job"
-      ],
-      "to": [
-        "  # Build, test, start. The Dockerfiles of the change run here, so no secret and no registry login reaches this job"
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 6,
-      "from": [
-        "      # The scanner the Lab pins, on the images this job built: no registry and no secret, so a fork's pull request is scanned too",
-        "      - name: Scan the images it built",
-        "        if: ${{ !cancelled() && steps.build.outcome == 'success' }}",
-        "        env:",
-        "          UNITS: ${{ needs.static.outputs.units }}",
-        "        run: python3 -I lab/lab-ui/catalog.py ci scan-built catalog --units \"$UNITS\" --ci"
-      ],
-      "to": []
-    },
-    {
-      "path": ".github/actions/lab/action.yml",
-      "below": 5,
-      "from": [
-        "description: Checks out the Lab this catalog is written for, at the release .github/standard.json names, checks that it is a release of the Lab, and installs Compose 5"
-      ],
-      "to": [
-        "description: Checks out the Lab this catalog is written for, at the commit .github/standard.json names, checks that it is the Lab's own, and installs Compose 5"
-      ]
-    },
-    {
-      "path": ".github/actions/lab/action.yml",
-      "below": 5,
-      "from": [
-        "    description: \"true: the default branch of the Lab instead of the release standard.json names (the nightly early warning)\""
-      ],
-      "to": [
-        "    description: \"true: the default branch of the Lab instead of the commit standard.json names (the nightly compatibility run)\""
-      ]
-    },
-    {
-      "path": ".github/actions/lab/action.yml",
-      "below": 5,
-      "from": [
-        "    # The pin is a release of the Lab, a tag vX.Y.Z on its main: what people run. A commit that only a fork has would look like a",
-        "    # pin of the Lab once the Lab is public, and a commit of main that no release names is a Lab nobody has",
-        "    - name: The commit is a release of the Lab",
-        "      if: ${{ inputs.latest != 'true' }}",
-        "      shell: bash",
-        "      env:",
-        "        REF: ${{ steps.lab.outputs.ref }}",
-        "      run: |",
-        "        { git -C lab merge-base --is-ancestor \"$REF\" refs/remotes/origin/main \\",
-        "          && git -C lab tag --points-at \"$REF\" | grep -Eqx 'v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)'; } \\",
-        "          || { echo \"::error file=.github/standard.json,title=SD11::The Lab commit ${REF:0:7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest).\"; exit 1; }"
-      ],
-      "to": [
-        "    # A commit that exists only in a fork of the Lab would look like a pin of the Lab once the Lab is public: it must be on the Lab's main",
-        "    - name: The commit is on the Lab's main",
-        "      if: ${{ inputs.latest != 'true' }}",
-        "      shell: bash",
-        "      env:",
-        "        REF: ${{ steps.lab.outputs.ref }}",
-        "      run: |",
-        "        git -C lab merge-base --is-ancestor \"$REF\" refs/remotes/origin/main \\",
-        "          || { echo \"::error file=.github/standard.json,title=SD11::The Lab commit ${REF:0:7} is not on the Lab's main branch. Fix: pin a commit of the Lab's main (catalog.py upgrade --lab-ref COMMIT).\"; exit 1; }"
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 5,
-      "from": [
-        "#   Checks       the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches,",
-        "#                whether every image it pulls exists, and on a push to main what is merged and not released yet"
-      ],
-      "to": [
-        "#   Checks       the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches, and",
-        "#                whether every image it pulls exists"
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 5,
-      "from": [
-        "      # The Lab offers the releases of a catalog, not its main branch: what was merged since the last tag reaches nobody yet. A warning",
-        "      # and the notes of the next release in the summary, never a failure",
-        "      - name: Not released yet",
-        "        if: ${{ !cancelled() && github.event_name == 'push' }}",
-        "        # A warning at most: a clone git cannot read is said, and fails no run",
-        "        run: python3 -I lab/lab-ui/catalog.py ci unreleased catalog --ci || echo \"::warning title=Unreleased::What is not released yet could not be read\""
-      ],
-      "to": []
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 2,
-      "from": [
-        "#   Apps         the apps build on each architecture (a Mac runs arm64), pass their tests in their image with no network, and what",
-        "#                does not need the platform starts and answers its health check"
-      ],
-      "to": [
-        "#   Apps         the apps build on each architecture (a Mac runs arm64) and pass their tests in their image with no network"
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 2,
-      "from": [
-        "  # Build, test, start. The Dockerfiles of the change run here, so no secret and no registry login reaches this job"
-      ],
-      "to": [
-        "  # Build and test. The Dockerfiles of the change run here, so no secret and no registry login reaches this job"
-      ]
-    },
-    {
-      "path": ".github/workflows/ci.yml",
-      "below": 2,
-      "from": [
-        "      - name: Start what does not need the platform",
-        "        if: ${{ !cancelled() && steps.build.outcome == 'success' }}",
-        "        env:",
-        "          UNITS: ${{ needs.static.outputs.units }}",
-        "        run: python3 -I lab/lab-ui/catalog.py ci smoke catalog --units \"$UNITS\" --ci"
-      ],
-      "to": []
-    },
-    {
-      "path": ".github/workflows/nightly.yml",
-      "below": 3,
-      "from": [
-        "# Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the",
-        "# newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were",
-        "# published have no fixable critical flaw. The newest Lab is code nobody has read yet, so the job that runs it holds nothing: no token,",
-        "# no package access. A run that fails opens an issue, or adds to the one that is open."
-      ],
-      "to": [
-        "# Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the",
-        "# newest Lab's, the links of the guides answer, and the rules of the main branch are still the standard's. The newest Lab is code nobody",
-        "# has read yet, so the job that runs it holds nothing: no token, no package access. A run that fails opens an issue, or adds to the",
-        "# one that is open."
-      ]
-    },
-    {
-      "path": ".github/workflows/nightly.yml",
-      "below": 3,
-      "from": [
-        "  # The Lab at the commit the catalog pins, with the read access to packages that the audit and the scan need"
-      ],
-      "to": [
-        "  # The Lab at the commit the catalog pins, with the read access to packages that the audit needs"
-      ]
-    },
-    {
-      "path": ".github/workflows/nightly.yml",
-      "below": 3,
-      "from": [
-        "      - name: The published images have no fixable critical flaw",
-        "        if: ${{ !cancelled() }}",
-        "        env:",
-        "          GH_TOKEN: ${{ github.token }}",
-        "        run: python3 -I lab/lab-ui/catalog.py ci scan-published catalog"
-      ],
-      "to": []
-    }
+    {"path": "addons/hello/compose.yml", "class": "sample", "since": 1, "when": "always", "scope": "both"},
+    {"path": "addons/hello/README.md", "class": "sample", "since": 1, "when": "always", "scope": "both"}
   ],
   "notes": {
     "1": {
       "summary": "The shared files, the lab action, Dependabot, CODEOWNERS and the pull request template, the four rulesets as data, and ci.yml with static (which fetches the catalogs this one needs), seed, compile and result.",
       "manual": ["Give the repository its Lab key while the Lab is private: make settings prints the commands.",
         "A catalog that requires another, while that one is private: name it under needs in .github/standard.json and give the repository its read key, NEEDS_DEPLOY_KEY."],
-      "settings": ["Apply the rulesets and the repository settings: make settings APPLY=1 shows the requests, and make settings APPLY=1 YES=1 makes them."],
-      "urgent": false
+      "settings": ["Apply the rulesets and the repository settings: make settings APPLY=1 shows the requests, and make settings APPLY=1 YES=1 makes them."]
     },
     "2": {
       "summary": "Adds nightly.yml, which runs every night (the newest Lab, standard drift, the links of the guides, the rules of the main branch, one issue), and starts what needs no platform in the Apps job.",
       "manual": [],
-      "settings": ["Keep the workflow Nightly enabled: make settings shows its state."],
-      "urgent": false
+      "settings": ["Keep the workflow Nightly enabled: make settings shows its state."]
     },
     "3": {
       "summary": "Adds publish.yml (rendered once catalog.yml sets images, nothing is published before), the e2e.yml module (--with e2e), and the scan of the published images in nightly.yml.",
       "manual": ["To publish images, set images in catalog.yml to ghcr.io/OWNER/REPO and name each image ghcr.io/OWNER/REPO/UNIT-APP, then run catalog.py upgrade again.",
         "For the e2e.yml module, store GRAVITEE_LICENSE only as a secret of the environments e2e and e2e-nightly, never as a repository secret."],
-      "settings": ["Create the environments publish, e2e and e2e-nightly the same way: repo-settings shows what is missing."],
-      "urgent": false
+      "settings": ["Create the environments publish, e2e and e2e-nightly the same way: repo-settings shows what is missing."]
     },
     "4": {
       "summary": "Names every job and every step in plain words (Checks, Seed files, Apps; Newest Lab, Pinned Lab; Plan, Images, Attestations, Release), and runs nightly.yml every night, as its name says, instead of every week. No file is added.",
       "manual": [],
-      "settings": [],
-      "urgent": false
+      "settings": []
     },
     "5": {
       "summary": "On a push to main, the Checks job says what is merged and not released yet: a warning, and the notes of the next release in its summary. The Lab offers releases, not main. CI checks the catalog with a release of the Lab: the commit .github/standard.json pins is the commit of a tag vX.Y.Z (SD11), and catalog.py upgrade --lab-ref latest pins the latest one. No file is added.",
       "manual": ["If CI says SD11, pin the latest release of the Lab: catalog.py upgrade --lab-ref latest --write."],
-      "settings": [],
-      "urgent": false
+      "settings": []
     },
     "6": {
       "summary": "The Apps job of a pull request scans the images it built, with the scanner the Lab pins and the policy of the nightly scan: a critical flaw that has a fix fails the pull request (SC01), and the rest is said (SC02). It needs no secret, so a fork's pull request is scanned too, and only the images of the units the change touches are built and scanned. The nightly scan of the published images says the rest as well. The Seed files job runs Python 3.15, and a new catalog's sample add-on runs whoami v1.12.0. No file is added.",
       "manual": ["If a pull request says SC01, update the package or the base image of that app to the version the message names, then push again."],
-      "settings": [],
-      "urgent": false
+      "settings": []
     },
     "7": {
       "summary": "Adds versions.yml to the e2e module: every night each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest release of each of the five newest minor versions, and a pre-release above them). What works is written in its x-gravitee.tested, committed to main and released as the next patch version; what does not work opens an issue. The rulesets of main and of the tags let a deploy key through, for that commit and that tag, and two rulesets that no deploy key passes, history.json and tag-history.json, keep it from deleting or rewriting main or a tag.",
       "manual": ["Give versions.yml its key, in the repository's folder: ssh-keygen -t ed25519 -N '' -C versions -f versions-key, then gh repo deploy-key add versions-key.pub --allow-write --title versions, then gh secret set VERSIONS_DEPLOY_KEY --env versions < versions-key, then rm versions-key versions-key.pub."],
-      "settings": ["Create the environment versions, limited to main, and apply the rulesets again: make settings APPLY=1 shows the requests."],
-      "urgent": false
+      "settings": ["Create the environment versions, limited to main, and apply the rulesets again: make settings APPLY=1 shows the requests."]
     },
     "8": {
       "summary": "The catalog's own runs on main, the end-to-end one and versions.yml, allow its items to use the machine, each for the reason its x-gravitee.host_access gives, as a person does at Add: what is on main was reviewed. The run of a pull request never does. A playground that needs a privileged cluster is now tried every night like the others. No file is added.",
       "manual": [],
-      "settings": [],
-      "urgent": false
+      "settings": []
     },
     "9": {
       "summary": "The end-to-end run and versions.yml log in to Gravitee's private registry, graviteeio.azurecr.io, before they start an item, when the environment holds a token that reads it: an item that pulls from it is tried like the others. Without the token nothing changes. No file is added.",
       "manual": ["When an item pulls from graviteeio.azurecr.io: a token of that registry that only reads (az acr token create --scope-map _repositories_pull), in the environments e2e and e2e-nightly, as GRAVITEE_REGISTRY_USERNAME and GRAVITEE_REGISTRY_PASSWORD."],
-      "settings": [],
-      "urgent": false
+      "settings": []
     }
   }
 }

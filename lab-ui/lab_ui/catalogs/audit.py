@@ -27,15 +27,14 @@ import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Iterable, List, NamedTuple, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Tuple
 
 from .. import paths
 from . import gitx, tree as trees
 from .report import ERROR, WARNING, Problem, printable
-from .rules import HYGIENE, Context, context, outline
+from .rules import FAMILIES, HYGIENE, Context, context, outline
 from .rules.images import repository
 
-ORDER = ("SD", "ST", "SE", "CR", "WF", "DF", "GD", "CO", "IM")
 # The modules of each family: (module, the function that judges a tree). SD is the standard's own (`standard.drift`)
 MODULES = {"ST": "structure", "SE": "secrets", "CR": "commits", "WF": "workflows", "DF": "dockerfiles", "GD": "guides",
            "CO": "codeowners", "IM": "images"}
@@ -57,11 +56,9 @@ class Options(NamedTuple):
     base_tree      the tree of the base commit, when `tree` is not a folder of a repository
     commits        a `tree.History` to read instead of the repository's own
     families       the families to run (None: all); Share asks for ST, SE, DF, GD and IM
-    private        identifiers of private catalogs (SE06, Share into a Public catalog)
     units          the units that the caller loaded with Compose (IM reads their services instead of the files)
     seeder_images  the repositories of the Lab's seeder; None reads `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the top of a catalog
-    is_seeder      `f(unit_folder, context) -> bool`, for a caller that knows the real folders
     repository     OWNER/REPO of this repository (IM04); default $GITHUB_REPOSITORY, else the `origin` remote
     """
     base: Optional[str] = None
@@ -75,11 +72,9 @@ class Options(NamedTuple):
     base_tree: Optional[object] = None
     commits: Optional[object] = None
     families: Optional[Tuple[str, ...]] = None
-    private: Tuple[str, ...] = ()
     units: Optional[list] = None
     seeder_images: Optional[Tuple[str, ...]] = None
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
-    is_seeder: Optional[Callable] = None
     repository: str = ""
 
 
@@ -132,7 +127,7 @@ def _load(family_code: str):
     """The check function of a family: its module is imported when the family is run."""
     module = importlib.import_module(f"{__package__}.{'standard' if family_code == 'SD' else 'rules.' + MODULES[family_code]}")
     if family_code == "SD":
-        return lambda tree, ctx: module.drift(tree, module.LEVEL)
+        return lambda tree, ctx: module.drift(tree)
     return module.check
 
 
@@ -162,19 +157,18 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     return tree, history, base, lost
 
 
-def _context(tree, root, options: Options, history, base: str, notes: List[str]) -> Context:
+def _context(tree, root, options: Options, history) -> Context:
     seeders = options.seeder_images if options.seeder_images is not None else lab_seeder_images()
     repository = options.repository or os.environ.get("GITHUB_REPOSITORY", "")
     if not repository and (options.ci or options.online) and root is not None and trees.is_repository(root):
         repository = origin_repository(root)
     return context(tree, history=history, units=options.units, seeder_images=tuple(seeders), seeder_paths=options.seeder_paths,
-                   is_seeder=options.is_seeder, private=tuple(options.private), online=options.online, ci=options.ci,
-                   repository=repository, base=base, notes=notes)
+                   online=options.online, ci=options.ci, repository=repository)
 
 
 def _run_families(tree, ctx: Context, wanted: Iterable[str]) -> List[Problem]:
     found: List[Problem] = []
-    for code in ORDER:
+    for code in FAMILIES:
         if code not in wanted:
             continue
         if code in ("SD", "WF", "CO") and not ctx.git:
@@ -236,7 +230,7 @@ def _header(base: str, commits: int, options: Options, history, ctx: Optional[Co
         since = base[:7] if options.base or options.commits is not None else "origin/main"
         first = f"Reading the files and the {count} since {since}"
     if ctx is not None and not ctx.git and options.families is None:
-        left = [code for code in ORDER if code not in ("SD", "WF", "CO")]
+        left = [code for code in FAMILIES if code not in ("SD", "WF", "CO")]
         first += f"\nNo .github/standard.json: judged on the families that need no GitHub ({', '.join(left)})"
     return first
 
@@ -251,8 +245,8 @@ def run(root, options: Optional[Options] = None) -> Result:
         tree.entries()
     except trees.TreeError as error:
         return Result([], [str(error)], base, 0, "")
-    ctx = _context(tree, root, options, history, base, skipped)
-    wanted = options.families or ORDER
+    ctx = _context(tree, root, options, history)
+    wanted = options.families or FAMILIES
     found = _run_families(tree, ctx, wanted)
     if (options.ci or options.online) and not ctx.repository and ctx.meta("images") and "IM" in wanted:
         skipped.append("IM04: the address of this repository is not known")
@@ -269,7 +263,7 @@ def run(root, options: Optional[Options] = None) -> Result:
     found = _against_base(found, tree, root, options, base, ctx, skipped)
     if options.soft:
         found = [each._replace(severity=WARNING) if each.severity == ERROR else each for each in found]
-    found.sort(key=lambda each: (ORDER.index(family(each.code)) if family(each.code) in ORDER else len(ORDER), each.path,
+    found.sort(key=lambda each: (FAMILIES.index(family(each.code)) if family(each.code) in FAMILIES else len(FAMILIES), each.path,
                                  each.line, each.code, each.message))
     return Result(found, list(dict.fromkeys(skipped)), base, commits, _header(base, commits, options, history, ctx, lost))
 
@@ -296,6 +290,6 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
         skipped.append("which errors were already there at the base: the files of the base could not be read, so they stay errors")
         return found
     quiet = context(before, units=None, seeder_images=ctx.seeder_images, seeder_paths=ctx.seeder_paths,
-                    is_seeder=ctx.is_seeder, private=(), repository=ctx.repository, ci=ctx.ci, online=ctx.online)
-    earlier = _run_families(before, quiet, [code for code in ORDER if code in HYGIENE])
+                    repository=ctx.repository, ci=ctx.ci, online=ctx.online)
+    earlier = _run_families(before, quiet, [code for code in FAMILIES if code in HYGIENE])
     return subtract(found, promote(earlier, ctx.standard, options.error))

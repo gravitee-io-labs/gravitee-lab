@@ -26,11 +26,11 @@ Python 3.9 and later, standard library only."""
 import datetime
 import json
 import os
-import re
 from pathlib import Path
 
 from ... import compat, e2e
 from .. import release as releases
+from ..rules import catalog_meta
 from . import Parser, Unavailable, Usage, entry, json_line, parsed, write_outputs
 
 
@@ -178,7 +178,7 @@ def release_main(argv, out, err, **seams) -> int:
         raise Usage(f"{args.path} has no catalog.yml")
     latest = releases.latest_tag(folder)
     text = file.read_text(encoding="utf-8")
-    current = _version_of(text)
+    current = catalog_meta(text).get("version")
     if latest is None or (current and releases.numbers(current) > releases.numbers(latest[1:])):
         return 0   # no release to make: commit by commit, or a release its maintainers prepared
     numbers = releases.numbers(latest[1:])
@@ -187,9 +187,3 @@ def release_main(argv, out, err, **seams) -> int:
     file.write_text(releases.with_legacy(folder, text), encoding="utf-8")
     out.write(f"{version}\n")
     return 0
-
-
-def _version_of(text):
-    """The `version` catalog.yml says, three numbers, or None."""
-    found = re.search(r"^  version:\s*[\"']?(\d+\.\d+\.\d+)[\"']?\s*(?:#.*)?$", text, re.M)
-    return found.group(1) if found else None

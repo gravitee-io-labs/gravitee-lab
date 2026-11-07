@@ -46,22 +46,15 @@ from typing import Callable, Dict, FrozenSet, List, NamedTuple, Optional, Sequen
 from ...library import check
 from ...docker import compose
 from ... import paths
-from .. import report, tree as trees
-from ..report import ERROR, WARNING, Problem
-from ..rules import outline, say
-from . import (Loaded, Refused, Unavailable, conclude, docker_ready, entry, fence, load, parse_units, parsed, parser,
+from .. import report
+from ..report import Problem
+from . import (Loaded, Refused, Unavailable, conclude, docker_ready, entry, fence, load, parse_units, parsed, parser, problem,
                refusals, run_docker, seconds, tail)
 
-MESSAGES = {
-    "SM01": (ERROR, "{service} was not healthy after 240 s"),
-    "SM02": (ERROR, "{service} exited with {code}"),
-    "SM03": (WARNING, "{unit} was not tried: it needs settings or a license."),
-}
 WAIT = 240          # seconds `up --wait` gives the services of a wave to become healthy
 SETTLE = 5          # seconds a started wave is given before it is looked at again
 UP_TIMEOUT = 900    # seconds for one `up`: the wait, and what is pulled before it
 LOG_LINES = 60      # lines of the log of a container that is not up
-LOG_WIDTH = 2000    # characters of such a line that are kept
 SEED = "seed"
 ROLE = "io.gravitee.role"
 LICENSE_LABEL = "io.gravitee.license"
@@ -80,12 +73,6 @@ NO_IMAGE = re.compile(r"pull access denied|manifest unknown|no matching manifest
                       r"repository does not exist|image .{1,200} not found|No such image|failed to pull|error pulling image", re.I)
 
 
-def finding(which: str, path: str = "", **fields) -> Problem:
-    """The Problem of a code of this stage (`which`: SM01...), its message the words of 6.11 with the fields put in."""
-    severity, message = MESSAGES[which]
-    return Problem(which, severity, path, 0, say(message, **fields))
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # What to start
 # ---------------------------------------------------------------------------------------------------------------------
@@ -97,62 +84,11 @@ def needs_settings(refused: Refused) -> bool:
     return bool(refused.reasons) and bool(NEEDS_SETTING.match(refused.reasons[0] if isinstance(refused.reasons[0], str) else ""))
 
 
-def x_gravitee(text: Optional[str]):
-    """The `x-gravitee` node of a unit's file read as the text it is, None when it has none."""
-    if not text:
-        return None
-    return next((node for node in outline(text).root.children if node.key == "x-gravitee"), None)
-
-
-def runs_remote_gateway(text: Optional[str]) -> bool:
-    """Whether the `x-gravitee` block of a unit's file says `gateway:` with something in it: the unit runs the gateway of a
-    remote platform, which works only with that platform's token. Read as the text it is, as requires_license reads it."""
-    found = x_gravitee(text)
-    if found is None:
-        return False
-    if found.value.startswith("{"):   # the block in flow style, on one line
-        return bool(re.search(r"\bgateway\s*:\s*\{\s*[^}\s]", found.value))
-    gateway = found.get("gateway")
-    return gateway is not None and bool(gateway.children)
-
-
-def requires_license(text: Optional[str]) -> bool:
-    """Whether the `x-gravitee` block of a unit's file says `requires: license:` with something in it. Read as the text it is
-    (the merged JSON of Compose has the core's `x-gravitee`, not the unit's)."""
-    found = x_gravitee(text)
-    if found is None:
-        return False
-    if found.value.startswith("{"):   # the block in flow style, on one line
-        return bool(re.search(r"\blicense\s*:\s*(?:\[\s*[^\]\s]|\{\s*[^}\s]|[^\s,}\]\[{])", found.value))
-    requires = found.get("requires")
-    license_ = requires.get("license") if requires is not None else None
-    if license_ is None:
-        return False
-    if license_.children:
-        return True
-    return license_.value.strip() not in ("", "[]", "{}", "null", "~", '""', "''")
-
-
-def labels_of(service: dict) -> Dict[str, str]:
-    """The labels of a service in the shape of the resolved JSON (a mapping), or of a list of `key=value`."""
-    labels = service.get("labels")
-    if isinstance(labels, dict):
-        return {str(key): "" if value is None else str(value) for key, value in labels.items()}
-    if isinstance(labels, list):
-        return {str(each).partition("=")[0]: str(each).partition("=")[2] for each in labels}
-    return {}
-
-
 def dependencies(service: dict) -> Set[str]:
     """The names a service waits for or shares with: `depends_on`, and the other ways Compose ties one service to another (`links`,
     `volumes_from`, and the `service:` form of `network_mode`, `pid` and `ipc`). A `container:` reference is not a service of the
     unit: it is named as it is, which no own service is."""
-    found: Set[str] = set()
-    needs = service.get("depends_on")
-    if isinstance(needs, dict):
-        found |= {str(name) for name in needs}
-    elif isinstance(needs, list):
-        found |= {str(name) for name in needs}
+    found: Set[str] = {str(name) for name in service.get("depends_on") or ()}
     for key in ("links", "volumes_from"):
         for each in service.get(key) or ():
             found.add(str(each).split(":", 1)[0] if not str(each).startswith("container:") else str(each))
@@ -195,7 +131,7 @@ def select(unit: Loaded) -> Selection:
         if not isinstance(service, dict) or not SERVICE.fullmatch(str(name)):
             left[name] = "it cannot be read"
             continue
-        labels = labels_of(service)
+        labels = service.get("labels") or {}
         if labels.get(ROLE) == SEED:
             left[name] = "it is the seed, which needs the platform"
         elif labels.get(LICENSE_LABEL) == "required":
@@ -348,7 +284,6 @@ def project_session(folder: str):
 class Outcome(NamedTuple):
     """How a unit went: `state` is started, failed, not_tried or nothing (no service of it can start without the platform)."""
     unit: str
-    path: str
     state: str
     started: Tuple[str, ...] = ()
     seconds: float = 0.0
@@ -360,26 +295,14 @@ def up_words(services: Sequence[str]) -> List[str]:
     return ["up", "-d", "--wait", "--wait-timeout", str(WAIT), "--no-build", "--pull", "missing", "--no-deps", *services]
 
 
-def up_command(project: str, files: Sequence[str], services: Sequence[str]) -> List[str]:
-    """The whole `docker compose up` of 5.6 for one wave, as an argument list."""
-    return [*compose.COMPOSE, "-p", project, *files, *up_words(services)]
-
-
 def ps_rows(text: str) -> List[dict]:
-    """The containers `docker compose ps --all --format json` lists: one JSON object a line, or one array (Compose has done both)."""
-    text = (text or "").strip()
-    if not text:
-        return []
-    try:
-        data = json.loads(text)
-        rows = data if isinstance(data, list) else [data]
-    except (ValueError, RecursionError):
-        rows = []
-        for line in text.splitlines():
-            try:
-                rows.append(json.loads(line))
-            except (ValueError, RecursionError):
-                continue
+    """The containers `docker compose ps --all --format json` lists: one JSON object a line."""
+    rows = []
+    for line in (text or "").splitlines():
+        try:
+            rows.append(json.loads(line))
+        except (ValueError, RecursionError):
+            continue
     return [row for row in rows if isinstance(row, dict)]
 
 
@@ -416,7 +339,7 @@ class Docker:
 
     def logs(self, unit: Loaded, service: str) -> List[str]:
         code, out, said = self.compose(unit, "logs", "--no-color", "--tail", str(LOG_LINES), service, timeout=60)
-        return [line[:LOG_WIDTH] for line in tail(out + ("\n" + said if said and code != 0 else ""), LOG_LINES)]
+        return tail(out + ("\n" + said if said and code != 0 else ""), LOG_LINES)
 
     def down(self, unit: Loaded) -> str:
         """Removes the project with its volumes and orphans. Answers "" or why it could not."""
@@ -459,9 +382,9 @@ def start_unit(unit: Loaded, selection: Selection, docker: Docker, sleep: Callab
         for name in bad:
             state, _, exit_code = states[name]
             if state in ("exited", "dead"):
-                problems.append(finding("SM02", unit.file, service=report.printable(name), code=exit_code))
+                problems.append(problem("SM02", unit.file, service=report.printable(name), code=exit_code))
             else:
-                problems.append(finding("SM01", unit.file, service=report.printable(name)))
+                problems.append(problem("SM01", unit.file, service=report.printable(name)))
             logs[name] = docker.logs(unit, name)
         return Found(problems, logs, started + [name for name in wave if name not in bad])
     return Found(problems, logs, started)
@@ -504,8 +427,6 @@ def main(argv, out, err, **seams) -> int:
     found = parser("smoke", "Start what does not need the platform, and check that it answers.", units=True)
     args = parsed(found, argv)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     runner, sleep, session = seams.get("runner"), seams.get("sleep") or time.sleep, seams.get("session") or project_session
     loading = load(root, names)
@@ -513,26 +434,24 @@ def main(argv, out, err, **seams) -> int:
     outcomes: List[Outcome] = []
     for each in loading.refused:
         if needs_settings(each):
-            problems.append(finding("SM03", each.file, unit=f"{each.kind}:{each.name}"))
-            outcomes.append(Outcome(f"{each.kind}:{each.name}", each.file, "not_tried", (), 0.0, "it needs settings or a license"))
+            problems.append(problem("SM03", each.file, unit=f"{each.kind}:{each.name}"))
+            outcomes.append(Outcome(f"{each.kind}:{each.name}", "not_tried", (), 0.0, "it needs settings or a license"))
         else:
             problems += refusals([each], "tried")
-    tree = trees.FolderTree(root)
     logs: Dict[str, List[str]] = {}
     ready = False
     for unit in loading.units:
         if unit.kind == "setup":   # (it only includes: its units are the ones that start, when they are touched)
-            outcomes.append(Outcome(unit.key, unit.file, "nothing", (), 0.0, "it only includes other units"))
+            outcomes.append(Outcome(unit.key, "nothing", (), 0.0, "it only includes other units"))
             continue
         selection = select(unit)
-        text = tree.text(unit.file)
-        if requires_license(text) or runs_remote_gateway(text):
-            problems.append(finding("SM03", unit.file, unit=unit.key))
-            outcomes.append(Outcome(unit.key, unit.file, "not_tried", (), 0.0, "it needs settings or a license"))
+        if unit.needs_credentials:
+            problems.append(problem("SM03", unit.file, unit=unit.key))
+            outcomes.append(Outcome(unit.key, "not_tried", (), 0.0, "it needs settings or a license"))
             continue
         if not selection.waves:
             why = "; ".join(f"{report.printable(name)}: {why}" for name, why in selection.left[:3]) or "it has no service of its own"
-            outcomes.append(Outcome(unit.key, unit.file, "nothing", (), 0.0, why))
+            outcomes.append(Outcome(unit.key, "nothing", (), 0.0, why))
             continue
         if not ready:
             docker_ready(runner)
@@ -556,23 +475,16 @@ def main(argv, out, err, **seams) -> int:
         logs.update({f"{unit.key} {name}": lines for name, lines in result.logs.items()})
         if result.problems:
             bad = [each.message for each in result.problems]
-            outcomes.append(Outcome(unit.key, unit.file, "failed", tuple(result.started), spent, "; ".join(bad)))
+            outcomes.append(Outcome(unit.key, "failed", tuple(result.started), spent, "; ".join(bad)))
         else:
-            outcomes.append(Outcome(unit.key, unit.file, "started", tuple(result.started), spent))
-    skipped = list(loading.notes)
-    if args.format != "json":
-        out.write("\n".join(lines_of(outcomes)) + "\n")
-        for label, lines in logs.items():
-            out.write(f"The last {len(lines)} lines of the log of {report.printable(label)}:\n")
-            out.write(report.untrusted_text("\n".join(lines) + "\n"))
+            outcomes.append(Outcome(unit.key, "started", tuple(result.started), spent))
+    out.write("\n".join(lines_of(outcomes)) + "\n")
+    for label, lines in logs.items():
+        out.write(f"The last {len(lines)} lines of the log of {report.printable(label)}:\n")
+        out.write(report.untrusted_text("\n".join(lines) + "\n"))
     extra = ""
     if args.ci:
         extra = "### Units started\n\n" + (table(outcomes) if outcomes else "No unit to start.\n")
         for label, lines in logs.items():
             extra += f"\nThe last {len(lines)} lines of the log of `{label.replace('`', '')}`:\n\n" + fence(lines)
-    return conclude("smoke", problems, args, out, "make ci", skipped, title="Start what does not need the platform", extra=extra)
-
-
-__all__ = ["MESSAGES", "Outcome", "SETTLE", "Selection", "Session", "WAIT", "dependencies", "finding", "labels_of", "main", "make_state",
-           "needs_settings", "project_name", "project_session", "ps_rows", "requires_license", "runs_remote_gateway", "select", "state_folders",
-           "state_of", "up_command"]
+    return conclude(problems, args, out, "make ci", title="Start what does not need the platform", extra=extra)

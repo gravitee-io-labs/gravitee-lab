@@ -160,8 +160,9 @@ class Folder(Case):
         self.assertIn("| For | User | Password or key |", readme, "the accounts that are mappings are still listed")
         self.assertNotIn("alice", readme)
 
-    def test_an_account_whose_user_name_is_a_number_is_exported_as_the_page_shows_it(self):
-        # YAML reads an unquoted 1234 as a number; a user name that is a list is no text, which the readme leaves out
+    def test_every_form_of_an_account_is_exported_as_the_page_shows_it(self):
+        # YAML reads an unquoted 1234 as a number, and a user name that is a list is no text, which the readme leaves out. Compose reads
+        # a setting, a setting inside a longer text, a nested default and a dollar, and so does the page: the guide's links name what it shows
         shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
         for each in [shop, *shop.rglob("*")]:
             each.chmod(each.stat().st_mode | 0o200)
@@ -170,69 +171,33 @@ class Folder(Case):
         compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - for: Kiosk\n      username: 1234\n"
                                                                   "      password: ${SHOP_PIN:-0000}\n"
                                                                   "    - for: Till\n      username: [a, b]\n"
-                                                                  "      password: ${SHOP_TILL:-9999}\n"), encoding="utf-8")
-        project.forget()
-        found, _ = project.loaded()
-        self.assertIn({"for": "Kiosk", "username": "1234", "password": "0000"}, found["playgrounds"]["shop"]["accounts"],
-                      "the page shows it")
-        self.assertEqual(standalone.plan("shop")["runs"][-1], "Shop")
-        _, _, folder = self.unpacked()
-        readme = (folder / "README.md").read_text(encoding="utf-8")
-        self.assertIn("| Kiosk | `1234` | `0000` |", readme)
-        self.assertIn("| Till |  | `9999` |", readme)
-
-    def test_an_account_whose_user_name_is_a_setting_is_exported_as_the_page_shows_it(self):
-        # `username: ${SHOP_KIOSK_USER:-1234}`: the page shows its default, the guide's link names that, make check finds it
-        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
-        for each in [shop, *shop.rglob("*")]:
-            each.chmod(each.stat().st_mode | 0o200)
-        compose_file = shop / "compose.yml"
-        written = compose_file.read_text(encoding="utf-8")
-        compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - for: Kiosk\n"
-                                                                  "      username: ${SHOP_KIOSK_USER:-1234}\n"
-                                                                  "      password: ${SHOP_PIN:-0000}\n"), encoding="utf-8")
-        guide = shop / "guide.md"
-        guide.write_text(guide.read_text(encoding="utf-8").replace("Open the Shop tab.", "Sign in: [Kiosk](account:1234). Open the Shop tab."),
-                         encoding="utf-8")
-        project.forget()
-        found, _ = project.loaded()
-        accounts = found["playgrounds"]["shop"]["accounts"]
-        self.assertIn({"for": "Kiosk", "username": "1234", "password": "0000"}, accounts, "the page shows it")
-        self.assertEqual([m for m in check._guide(shop, accounts) if "account:" in m], [], "make check finds the link")
-        _, _, folder = self.unpacked()
-        readme = (folder / "README.md").read_text(encoding="utf-8")
-        self.assertIn("| Kiosk | `1234` | `0000` |", readme)
-        self.assertIn("Sign in: **Kiosk** (user `1234`, password `0000`).", readme)
-
-    def test_a_setting_inside_a_longer_text_a_nested_default_and_a_dollar_are_exported_as_the_page_shows_them(self):
-        # Compose reads each of these forms, and so does the page: what a clean Lab shows, the guide's links name
-        shop = paths.ROOT / Path(fixtures.unit_file("fixture", "playground", "shop")).parent
-        for each in [shop, *shop.rglob("*")]:
-            each.chmod(each.stat().st_mode | 0o200)
-        compose_file = shop / "compose.yml"
-        written = compose_file.read_text(encoding="utf-8")
-        compose_file.write_text(written.replace("  accounts:\n", "  accounts:\n    - for: Kiosk\n"
-                                                                  "      username: ${SHOP_KIOSK_USER:-kiosk}@shop.example.test\n"
-                                                                  "      password: ${SHOP_PIN:-Pa$$w0rd}\n"
-                                                                  "    - for: Till\n"
-                                                                  "      username: ${SHOP_TILL_USER:-${SHOP_USER:-till}}\n"
-                                                                  "      password: ${SHOP_TILL_PIN:-9999}\n"), encoding="utf-8")
+                                                                  "      password: ${SHOP_TILL:-9999}\n"
+                                                                  "    - for: Desk\n      username: ${SHOP_DESK_USER:-5678}\n"
+                                                                  "      password: ${SHOP_DESK_PIN:-1111}\n"
+                                                                  "    - for: Mail\n      username: ${SHOP_MAIL_USER:-mail}@shop.example.test\n"
+                                                                  "      password: ${SHOP_MAIL_PIN:-Pa$$w0rd}\n"
+                                                                  "    - for: Back\n      username: ${SHOP_BACK_USER:-${SHOP_USER:-back}}\n"
+                                                                  "      password: ${SHOP_BACK_PIN:-2222}\n"), encoding="utf-8")
         guide = shop / "guide.md"
         guide.write_text(guide.read_text(encoding="utf-8").replace(
-            "Open the Shop tab.", "Sign in: [Kiosk](account:kiosk@shop.example.test). Then [Till](account:till). Open the Shop tab."),
+            "Open the Shop tab.", "Sign in: [Desk](account:5678). [Mail](account:mail@shop.example.test), then [Back](account:back). Open the Shop tab."),
             encoding="utf-8")
         project.forget()
         found, _ = project.loaded()
         accounts = found["playgrounds"]["shop"]["accounts"]
-        self.assertIn({"for": "Kiosk", "username": "kiosk@shop.example.test", "password": "Pa$w0rd"}, accounts, "the page shows it")
-        self.assertIn({"for": "Till", "username": "till", "password": "9999"}, accounts, "the page shows it")
+        for account in ({"for": "Kiosk", "username": "1234", "password": "0000"}, {"for": "Desk", "username": "5678", "password": "1111"},
+                        {"for": "Mail", "username": "mail@shop.example.test", "password": "Pa$w0rd"},
+                        {"for": "Back", "username": "back", "password": "2222"}):
+            self.assertIn(account, accounts, "the page shows it")
         self.assertEqual([m for m in check._guide(shop, accounts) if "account:" in m], [], "make check finds the links")
+        self.assertEqual(standalone.plan("shop")["runs"][-1], "Shop")
         _, _, folder = self.unpacked()
         readme = (folder / "README.md").read_text(encoding="utf-8")
-        self.assertIn("| Kiosk | `kiosk@shop.example.test` | `Pa$w0rd` |", readme)
-        self.assertIn("| Till | `till` | `9999` |", readme)
-        self.assertIn("Sign in: **Kiosk** (user `kiosk@shop.example.test`, password `Pa$w0rd`). "
-                      "Then **Till** (user `till`, password `9999`).", readme)
+        for line in ("| Kiosk | `1234` | `0000` |", "| Till |  | `9999` |", "| Desk | `5678` | `1111` |",
+                     "| Mail | `mail@shop.example.test` | `Pa$w0rd` |", "| Back | `back` | `2222` |",
+                     "Sign in: **Desk** (user `5678`, password `1111`). **Mail** (user `mail@shop.example.test`, password `Pa$w0rd`), "
+                     "then **Back** (user `back`, password `2222`)."):
+            self.assertIn(line, readme)
 
     def test_the_plan_says_what_runs_what_is_left_out_and_what_it_needs(self):
         plan = standalone.plan("shop")

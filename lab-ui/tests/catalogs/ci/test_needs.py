@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lab_ui.catalogs.ci import MESSAGES, main, needs
+from lab_ui.catalogs.ci import main, needs
 
 COMMIT = "a" * 40
 KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"
@@ -88,9 +88,6 @@ class Needs(unittest.TestCase):
         code, out, _ = self.stage(folder, into, {needs.KEY: KEY}, linker=lambda path: "it has no catalog.yml")
         self.assertEqual(code, 1)
         self.assertIn("it has no catalog.yml", out)
-
-    def test_the_messages_of_the_stage_are_in_the_table(self):
-        self.assertEqual({"ND01", "ND02"} - set(MESSAGES), set())
 
 
 if __name__ == "__main__":

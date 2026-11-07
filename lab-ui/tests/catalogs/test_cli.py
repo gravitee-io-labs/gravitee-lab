@@ -16,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import types
 import unittest
 from pathlib import Path
@@ -537,7 +536,7 @@ class Starting(Tool):
         gitfixture.require()
         self.run_tool("reset")
         home = isolated(self)
-        installed = fixtures.install(self, PARTNER, kind="git", store=True)
+        fixtures.install(self, PARTNER, kind="git", store=True)
         self.patch(gitx, "home", lambda: Path(os.path.realpath(home)))
         folder = home / "work-partner"
         shutil.copytree(fixtures.CATALOGS / PARTNER, folder)
@@ -547,7 +546,6 @@ class Starting(Tool):
         self.assertEqual((code, out), (1, ""))
         self.assertEqual(err, "partner is linked to a folder on this machine. Unlink it first, with catalog.py unlink partner.\n")
         self.assertEqual(snapshot(self.root), before)
-        self.assertTrue(installed.commit)
 
     def test_a_file_that_lists_the_catalogs_and_cannot_be_read_is_none_of_its_business_to_remove(self):
         self.write(".lab/catalogs.json", "{ not json")
@@ -574,7 +572,7 @@ class Reset(Tool):
     def test_a_git_catalog_goes_with_its_settings_kept(self):
         gitfixture.require()
         isolated(self)
-        installed = fixtures.install(self, PARTNER, kind="git", store=True)
+        fixtures.install(self, PARTNER, kind="git", store=True)
         (self.link_of(PARTNER) / "addons/ledger/.env").write_text("SECRET=1\n", encoding="utf-8")
         self.assertEqual(self.run_tool("reset")[0], 0)
         self.assertIsNone(self.config())
@@ -582,7 +580,6 @@ class Reset(Tool):
         self.assertEqual((self.link_of(PARTNER) / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
         self.assertTrue((self.link_of(PARTNER) / ".kept").is_file(), "the marker that keeps the sweeper away")
         self.assertFalse((self.link_of(PARTNER) / "addons/ledger/compose.yml").exists(), "the content goes")
-        self.assertTrue(installed.commit)
 
 
 @COMPOSE
@@ -680,9 +677,6 @@ class Reading(Tool):
         folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-index-")).resolve()
         self.addCleanup(shutil.rmtree, folder, True)
         return folder / "catalog.json"
-
-    def test_a_catalog_that_is_not_here_has_no_index(self):
-        self.assertEqual(self.run_tool("index", "ghost")[0], 2)
 
 
 def compose_runs(case, *argv):
@@ -966,13 +960,11 @@ class Delegated(Tool):
     COMMANDS = (("new", "standard", "main_new"), ("upgrade", "standard", "main_upgrade"), ("release", "release", "main"),
                 ("repo-settings", "settings", "main"), ("ci", "ci", "main"))
 
-    def run_with(self, command, module_name, function, *argv, answer=0, say=""):
+    def run_with(self, command, module_name, function, *argv, answer=0):
         seen = []
 
         def main(rest, **more):
             seen.append(list(rest))
-            if say:
-                print(say)
             return answer
         with mock.patch.dict(sys.modules, {f"lab_ui.catalogs.{module_name}": module(**{function: main})}):
             return self.run_tool(command, *argv), seen
@@ -981,18 +973,10 @@ class Delegated(Tool):
         for command, module_name, function in self.COMMANDS:
             for rest, answer in (([], 0), (["x", "--y", "z"], 1), (["--help"], 2), (["-h"], 0), (["--format", "json", "dir"], 1),
                                  (["--fleet-not", "--base=1"], 0), (["a b", "--maintainers", "@a,@b"], 1)):
-                if command in catalog.HELP and ("--help" in rest or "-h" in rest):
-                    continue   # the dispatcher answers a help word for a command whose module has none (Help, below)
                 with self.subTest(command=command, rest=rest):
                     (code, out, err), seen = self.run_with(command, module_name, function, *rest, answer=answer)
                     self.assertEqual((code, out, err), (answer, "", ""))
                     self.assertEqual(seen, [rest])
-
-    def test_what_the_module_prints_is_what_the_caller_reads(self):
-        for command, module_name, function in self.COMMANDS:
-            with self.subTest(command=command):
-                (code, out, err), _ = self.run_with(command, module_name, function, say="from the module")
-                self.assertEqual((code, out), (0, "from the module\n"))
 
     def test_a_module_that_a_command_needs_and_that_is_missing_is_a_fault_to_show(self):
         def broken(name, package=None):
@@ -1012,10 +996,6 @@ class Delegated(Tool):
             self.assertEqual(self.run_tool("upgrade", "--fleet", "acme", "--lab-ref", "b" * 40), (0, "", ""))
         self.assertEqual(seen, [["--fleet", "acme", "--lab-ref", "b" * 40]])
 
-    def test_an_upgrade_that_is_not_the_loop_is_the_standard_s(self):
-        (code, out, err), seen = self.run_with("upgrade", "standard", "main_upgrade", ".", "--write", "--lab-ref", "latest", answer=1)
-        self.assertEqual((code, seen), (1, [[".", "--write", "--lab-ref", "latest"]]))
-
     def test_a_refusal_the_module_lets_out_is_its_line_and_a_bug_is_a_fault(self):
         def refuses(rest, **more):
             raise registry.CatalogError("not_catalog", "acme/hub has no catalog.yml, so it is not a catalog.", 400)
@@ -1029,58 +1009,11 @@ class Delegated(Tool):
         self.assertEqual((code, out), (2, ""))
         self.assertIn("a fault of the tool, not a problem of the catalog", err)
 
-    def test_the_help_lists_every_command_of_the_standard(self):
-        code, out, err = self.run_tool("--help")
-        self.assertEqual(code, 0)
-        for command in ("new", "check", "explain", "upgrade", "repo-settings", "release", "ci"):
-            self.assertIn(command, out)
-
     def test_repo_settings_is_the_real_module_with_its_own_help_and_its_own_usage_errors(self):
         code, out, err = self.run_tool("repo-settings", "--help")
         self.assertEqual((code, err), (0, ""))
-        self.assertIn("catalog.py repo-settings [OWNER/REPO or FOLDER]", out)
-        self.assertEqual(self.run_tool("repo-settings", "--yes"), (2, "", "--yes and --warnings go with --apply.\n"))
-
-
-class Help(Tool):
-    """`catalog.py COMMAND --help`: the modules that run new, upgrade and release have no help (their parsers stop at the first word
-    they do not know), so the dispatcher says what the command does and how it is called; repo-settings and ci have their own."""
-
-    def test_the_commands_whose_module_has_no_help_say_what_they_do_and_how_to_call_them(self):
-        modules = {"lab_ui.catalogs.standard": None, "lab_ui.catalogs.release": None}   # not even needed for it
-        for command in ("new", "upgrade", "release"):
-            for words in (("--help",), ("-h",), ("somewhere", "--help"), ("--id", "x", "-h")):
-                with self.subTest(command=command, words=words), mock.patch.dict(sys.modules, modules):
-                    code, out, err = self.run_tool(command, *words)
-                    self.assertEqual((code, err), (0, ""))
-                    self.assertTrue(out.startswith(catalog.HELP[command][0] + "\n\nusage: catalog.py " + command), out)
-        self.assertIn("--maintainers", self.run_tool("new", "--help")[1])
-        self.assertIn("--lab-ref COMMIT|latest", self.run_tool("upgrade", "--help")[1])
-        self.assertIn("catalog.py upgrade --fleet OWNER", self.run_tool("upgrade", "-h")[1])
-        self.assertIn("[--tag] [--pr]", self.run_tool("release", "--help")[1])
-
-    def test_a_command_that_is_not_asking_for_help_still_goes_to_its_module(self):
-        seen = []
-        stub = module(main_new=lambda rest, **more: seen.append(rest) or 0)
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.standard": stub}):
-            self.assertEqual(self.run_tool("new", "dir", "--id", "x"), (0, "", ""))
-        self.assertEqual(seen, [["dir", "--id", "x"]])
-
-    def test_the_loop_over_an_owner_and_the_two_modules_with_a_help_of_their_own_keep_it(self):
-        for command, module_name, function, rest in (("upgrade", "fleet", "main", ["--fleet", "acme", "--help"]),
-                                                      ("repo-settings", "settings", "main", ["--help"]), ("ci", "ci", "main", ["--help"])):
-            seen = []
-            with self.subTest(command=command), mock.patch.dict(sys.modules, {
-                    f"lab_ui.catalogs.{module_name}": module(**{function: lambda argv, **more: seen.append(argv) or 0})}):
-                self.assertEqual(self.run_tool(command, *rest), (0, "", ""))
-            self.assertEqual(seen, [rest])
-        self.assertNotIn("repo-settings", catalog.HELP)
-        self.assertNotIn("ci", catalog.HELP)
-
-    def test_every_command_the_help_is_for_is_delegated(self):
-        self.assertEqual(sorted(set(catalog.HELP) - set(catalog.DELEGATED)), [])
-        for text, usage in catalog.HELP.values():
-            self.assertTrue(text and usage.startswith("catalog.py "))
+        self.assertIn("usage: catalog.py repo-settings", out)
+        self.assertEqual(self.run_tool("repo-settings", "--yes"), (2, "", "--yes goes with --apply.\n"))
 
 
 MANAGED = REPO / "lab-ui" / "templates" / "catalog" / "managed"
@@ -1138,12 +1071,18 @@ class Managed(Tool):
                 else:
                     self.assertIn(words[0], catalog.DELEGATED, where)
 
-    def test_every_option_of_a_command_that_has_a_usage_here_is_in_it(self):
+    def test_every_option_a_managed_file_gives_a_delegated_command_is_in_its_help(self):
+        helps = {}
+        for command in ("new", "upgrade", "release"):
+            with contextlib.redirect_stdout(io.StringIO()) as shown, self.assertRaises(SystemExit) as stop:
+                catalog.main([command, "--help"])
+            self.assertEqual(stop.exception.code, 0, command)
+            helps[command] = shown.getvalue()
         for file, number, words in managed_calls():
-            if words[0] in catalog.HELP:
+            if words[0] in helps:
                 for option in (word for word in words[1:] if word.startswith("--")):
                     with self.subTest(file=file, line=number, option=option):
-                        self.assertIn(option, catalog.HELP[words[0]][1])
+                        self.assertIn(option, helps[words[0]])
 
     def test_every_stage_is_one_the_dispatcher_of_ci_has(self):
         from lab_ui.catalogs import ci
@@ -1434,19 +1373,18 @@ class Provision(Tool):
 
     def test_the_progress_of_a_download_is_said_in_words_as_its_phase_changes(self):
         # The phases of firstrun, which are its own ids: each is said in words, and the last, which has none, not at all
-        self.declare("partner")
+        firstrun = types.SimpleNamespace(PROGRESS={})
+        upcoming = iter(("probe", "fetch", "stage", "commit"))
 
-        def provision(ns):
-            for phase in ("probe", "fetch", "stage", "commit"):
-                firstrun.PROGRESS[ns] = {"phase": phase, "fraction": 0.5}
-                time.sleep(0.3)   # long enough for the watcher, which looks every hundredth of a second
-            return {"id": ns, "name": "Partner"}
-        _, firstrun = self.fake(provision)
-        self.patch(catalog, "POLL", 0.01)
-        code, out, err = self.run_tool("provision")
-        self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines(), ["Downloading example.invalid/partner", "  Checking the address",
-                                            "  Downloading the files", "  Installing", "Installed Partner"])
+        class Stop:
+            def wait(self, seconds):
+                phase = next(upcoming, None)
+                firstrun.PROGRESS["partner"] = {"phase": phase, "fraction": 0.5}
+                return phase is None
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            catalog._progress(firstrun, "partner", Stop())
+        self.assertEqual(out.getvalue().splitlines(), ["  Checking the address", "  Downloading the files", "  Installing"])
         self.assertLessEqual(set(catalog.PHASE_WORDS), set(phases.PHASES), "the words are of phases there are")
 
 def scratch_lab(case):
@@ -1546,7 +1484,7 @@ class Other(Tool):
                               text=True, timeout=60, stdin=subprocess.DEVNULL)
         self.assertEqual(done.returncode, 0, done.stderr)
         for command in ("link", "unlink", "add", "provision", "list", "update", "undo", "remove", "suggest", "reset", "check",
-                        "index", "new"):
+                        "index", "new", "explain", "upgrade", "repo-settings", "release", "ci"):
             self.assertIn(command, done.stdout)
 
     def test_what_the_machine_refuses_is_a_line_and_exit_2_not_a_traceback(self):

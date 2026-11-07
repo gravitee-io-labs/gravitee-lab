@@ -444,7 +444,7 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
 # The pre-flight
 # ---------------------------------------------------------------------------------------------------------------------
 
-# The rules of the standard whose finding is a secret in the copy (SE06 is `_named_private`)
+# The rules of the standard whose finding is a secret in the copy
 SECRETS = ("SE01", "SE02", "SE04", "SE05")
 LEAKS = (("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
          ("a token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16}"
@@ -478,7 +478,7 @@ def _leaked(copy, kind, slug):
 def _identifiers(ns, rows) -> Dict[str, str]:
     """{identifier: the name of the catalog it belongs to} for every other catalog of this machine that is not Public: its name,
     the address and the `owner/repo` of a repository, the prefix of the images its CI publishes and the host of that prefix
-    (a registry of its own: not one everyone pulls from). Each is looked for as a whole word. SE06."""
+    (a registry of its own: not one everyone pulls from). Each is looked for as a whole word."""
     found = {}
     for other, row in rows.items():
         if other in (ns, LOCAL) or row["audience"] == "public":

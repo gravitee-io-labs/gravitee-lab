@@ -43,38 +43,29 @@ TAIL = 15
 class Result(NamedTuple):
     """How one app's tests went: `outcome` is apptests.Outcome, `seconds` how long it took."""
     unit: str
-    image: str
     app: str
     path: str
     outcome: object
     seconds: float
 
 
-def tool():
-    """`apptests`, which builds an app and runs its tests in its image."""
-    return apptests
-
-
 def image_here(image: str, runner: Optional[Callable]) -> bool:
     return run_docker(["docker", "image", "inspect", image], timeout=60, runner=runner)[0] == 0
 
 
-def node_unavailable(reason: str, apptests) -> Unavailable:
+def node_unavailable(reason: str) -> Unavailable:
     """Why the Node image of the JavaScript tests could not be had, as the stage says it (exit 2): what Docker printed, and that it
     is not the author's change when the fault is Docker Hub's or the network's."""
     text = f"the Node image of the JavaScript tests could not be had: {report.printable(reason)[:300]}"
-    infra = getattr(apptests, "INFRA", None)
-    if infra is not None and infra.search(reason):
+    if apptests.INFRA.search(reason):
         text += ". This is not your change: run the job again in a few minutes"
     return Unavailable(text)
 
 
-def run_all(units: Sequence[Loaded], specs, runner: Optional[Callable] = None, apptests=None,
-            sleep: Optional[Callable] = None) -> List[Result]:
+def run_all(units: Sequence[Loaded], specs, runner: Optional[Callable] = None, sleep: Optional[Callable] = None) -> List[Result]:
     """Runs the tests of each spec (an image `ci build` makes) and answers the results in order. Unavailable when an image is
     not here, because it was not built, or when the Node image the JavaScript tests need cannot be had (asked once, before the
     first test: after the new tries of a pull that Docker Hub or the network refused)."""
-    apptests = apptests or tool()
     folders: Dict[str, str] = {unit.key: unit.folder for unit in units}
 
     def run(argv, timeout, cwd):
@@ -92,16 +83,16 @@ def run_all(units: Sequence[Loaded], specs, runner: Optional[Callable] = None, a
             raise Unavailable(report.printable(str(error))) from None
         reason = apptests.ensure_node(node, run, sleep or time.sleep)
         if reason:
-            raise node_unavailable(reason, apptests)
+            raise node_unavailable(reason)
     for spec, found in tests:
         name = app_of(spec.context)
         started = time.monotonic()
         if not found.any:
-            results.append(Result(spec.unit, spec.image, name, spec.path, apptests.Outcome(name, "none"), 0.0))
+            results.append(Result(spec.unit, name, spec.path, apptests.Outcome("none"), 0.0))
             continue
         guide = apptests.guide_of(spec.context, folders.get(spec.unit) or None)
-        outcome = apptests.run_app(spec.context, spec.image, run, node, guide, name, found)
-        results.append(Result(spec.unit, spec.image, name, spec.path, outcome, time.monotonic() - started))
+        outcome = apptests.run_app(spec.context, spec.image, run, node, guide, found)
+        results.append(Result(spec.unit, name, spec.path, outcome, time.monotonic() - started))
     return results
 
 
@@ -147,8 +138,6 @@ def main(argv, out, err, **seams) -> int:
     found.add_argument("--app", default=None, help="test only this app (the folder of its build context)")
     args = parsed(found, argv)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     loading = load(root, names)
     problems = refusals(loading.refused, "tested")
@@ -158,19 +147,18 @@ def main(argv, out, err, **seams) -> int:
     if specs:
         runner = seams.get("runner")
         docker_ready(runner)
-        results = run_all(loading.units, specs, runner, seams.get("apptests"), seams.get("sleep"))
+        results = run_all(loading.units, specs, runner, seams.get("sleep"))
         problems += findings(results)
-    if args.format != "json":
-        out.write("\n".join(lines_of(results)) + "\n")
-        for each in results:
-            if each.outcome.status == "failed":
-                lines = tail(each.outcome.output, TAIL)
-                out.write(f"The last {len(lines)} lines of the tests of {report.printable(each.app)}:\n")
-                out.write(report.untrusted_text("\n".join(lines) + "\n"))
+    out.write("\n".join(lines_of(results)) + "\n")
+    for each in results:
+        if each.outcome.status == "failed":
+            lines = tail(each.outcome.output, TAIL)
+            out.write(f"The last {len(lines)} lines of the tests of {report.printable(each.app)}:\n")
+            out.write(report.untrusted_text("\n".join(lines) + "\n"))
     extra = ""
     if args.ci:
         extra = "### Tests of the apps\n\n" + (table(results) if results else "No app to test.\n")
         for each in results:
             if each.outcome.status == "failed":
                 extra += f"\nThe last {TAIL} lines of the tests of `{cell(each.app)}`:\n\n" + fence(tail(each.outcome.output, TAIL))
-    return conclude("test", problems, args, out, "make ci", title="Test the apps", extra=extra)
+    return conclude(problems, args, out, "make ci", title="Test the apps", extra=extra)

@@ -6,19 +6,17 @@ honours it) is read by the settings audit (`files.codeowners`), not by a rule.
 The same two checks guard `catalog.py new --maintainers`: an owner string with a newline or a space would write a line of the
 file of its own (`"@x\\n/.github/ @evil"`), so `maintainers()` refuses anything that is not a name before anything is rendered.
 
-One more thing is read, because it is the point of the second line: a line that comes later in the file and matches a file under
+One more thing is read, because it is the point of the second line: a line that comes later in the file and can own a file under
 `.github/` with owners other than those of the `/.github/` line wins over it (the last matching line decides, and one approval
 from any owner on it is enough), so `/.github/` has no owner in fact. It is said with the same words: add the line again, at
-the end. "A file under `.github/`" is each file the template ships there, managed or seeded (`PROBES`), and anything a pattern
-names below `.github/` by its path, whether the file is there yet or not.
+the end. "Can own" is read from the start of the pattern, so a file that is not there yet counts: a pattern with no slash before
+its end matches at any depth, and one from the top by its first folder.
 
 Pure: it reads the tree, writes nothing, runs nothing, and a file of hostile lines costs a fraction of a second (a line is split
-at blanks, never matched with a pattern that can backtrack; a name or a path is looked up in a set; a pattern with a wildcard is
-matched in a table the size of the pattern and the path, after the cheap reasons it cannot match were tried, and only `WORK` of
-them are matched in a file: the rest are taken to match, as a pattern too long to read is)."""
+at blanks, never matched with a pattern that can backtrack, and a first folder is matched in a table the size of it and `.github`)."""
 
 import re
-from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 from ..report import ERROR, Problem, printable
 from . import OTHER_LIMIT, Context, say, table
@@ -41,24 +39,7 @@ TEAM = re.compile(r"@[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,9
 SEPARATE = re.compile(r"[ \t]+")
 SHOWN = 60            # characters of a stranger's word that a message shows
 MAX_OWNERS = 20       # owners of one line that `new` accepts
-MAX_PATTERN = 512     # a pattern longer than this is not matched (it cannot name a file of the standard): it counts as a shadow
-MAX_SEGMENTS = 64
-WORK = 2000           # patterns with a wildcard that are matched in one file; the next ones count as a shadow, like a pattern too long
-# The files under .github/ that the template ships, managed or seeded: the ones that run with a token, say who may change them, or
-# are what a reviewer reads. A later line that owns any of them differently shadows `/.github/`
-PROBES = (".github/CODEOWNERS", ".github/standard.json", ".github/dependabot.yml", ".github/PULL_REQUEST_TEMPLATE.md",
-          ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/new_item.yml",
-          ".github/workflows/ci.yml", ".github/workflows/nightly.yml", ".github/workflows/publish.yml", ".github/workflows/e2e.yml",
-          ".github/workflows/versions.yml",
-          ".github/actions/lab/action.yml", ".github/rulesets/default-branch.json", ".github/rulesets/tags.json",
-          ".github/rulesets/push.json", ".github/rulesets/protected-paths.json", ".github/rulesets/history.json",
-          ".github/rulesets/tag-history.json")
-_NAMES = tuple(tuple(path.split("/")) for path in PROBES)
-_FILES = frozenset(PROBES)
-_FOLDERS = frozenset("/".join(names[:cut]) for names in _NAMES for cut in range(1, len(names)))
-_ANY = frozenset(name for names in _NAMES for name in names)          # every name a probe is made of
-_DIRS = frozenset(name for names in _NAMES for name in names[:-1])    # and those that are folders
-STARS = re.compile(r"\*+")
+MAX_PATTERN = 512     # a first folder longer than this is not matched: it counts as a shadow
 
 
 class OwnerError(ValueError):
@@ -98,7 +79,7 @@ def maintainers(text) -> List[str]:
 def parse(text: str) -> List[Line]:
     """The rule lines of a CODEOWNERS text: (line number, pattern, owner words). A comment line, a blank one and a section
     header (`[Docs]`) are not rule lines. Words are split at blanks and tabs only, as GitHub splits them: any other kind of
-    blank stays inside a word and makes it a name that is none."""
+    blank stays inside a word and makes it a name that is none. A word that starts with `#` starts a comment."""
     lines: List[Line] = []
     if text.startswith("\U0000feff"):
         text = text[1:]
@@ -107,7 +88,8 @@ def parse(text: str) -> List[Line]:
         if not line or line.startswith("#") or line.startswith(("[", "^[")):
             continue
         words = SEPARATE.split(line)
-        lines.append(Line(number, words[0], tuple(words[1:])))
+        end = next((at for at, word in enumerate(words) if word.startswith("#")), len(words))
+        lines.append(Line(number, words[0], tuple(words[1:end])))
     return lines
 
 
@@ -134,108 +116,14 @@ def _segment(pattern: str, name: str) -> bool:
     return p == len(pattern)
 
 
-class Shape(NamedTuple):
-    """How a pattern is read: from the top of the repository or at any depth, a folder or a name, its body, its segments (a run of
-    `**` is one, a run of `*` inside a segment is one: the same patterns, a smaller table) and whether it has a wildcard."""
-    anchored: bool
-    folder: bool
-    body: str
-    parts: Tuple[str, ...]
-    wild: bool
-
-
-def shape(pattern: str) -> Optional[Shape]:
-    """The Shape of a pattern, or None when it is not read: too long, the root (it owns every file), or too many segments. Such a
-    pattern is taken to match: the file is judged by the stricter reading."""
-    if len(pattern) > MAX_PATTERN:
-        return None
-    body = pattern.strip("/")
-    raw = body.split("/") if body else []
-    if not raw or len(raw) > MAX_SEGMENTS:
-        return None
-    parts: List[str] = []
-    for part in raw:
-        if part != "**":
-            part = STARS.sub("*", part)
-        elif parts and parts[-1] == "**":
-            continue
-        parts.append(part)
-    return Shape("/" in pattern.rstrip("/"), pattern.endswith("/"), body, tuple(parts), "*" in body or "?" in body)
-
-
-def _reach(parts: Sequence[str], names: Sequence[str], last: int) -> bool:
-    """Whether the segments of a pattern, where `**` stands for any number of folders (none included), match the first `cut` names
-    of a path for some cut from 1 to `last` (a folder owns every file below it). One row of a table for each segment: the cuts
-    that can be reached after it, so that it ends when a row is empty. No recursion, no blow-up."""
-    row = [True] + [False] * last
-    for part in parts:
-        if part == "**":
-            first = row.index(True)
-            row = [False] * first + [True] * (last + 1 - first)
-            continue
-        after = [False] * (last + 1)
-        for cut in range(last):
-            if row[cut] and _segment(part, names[cut]):
-                after[cut + 1] = True
-        if True not in after:
-            return False
-        row = after
-    return True in row[1:]
-
-
-def _owns(form: Shape, path: str, names: Sequence[str]) -> bool:
-    """Whether a pattern of this Shape owns the file `path` (whose names are `names`)."""
-    if not form.wild:   # a name or a path: the common line, with no table to fill
-        if form.anchored:
-            return path.startswith(form.body + "/") or (path == form.body and not form.folder)
-        return any(name == form.body for name in names[:-1 if form.folder else len(names)]) if len(form.parts) == 1 else False
-    parts = form.parts if form.anchored or form.parts[0] == "**" else ("**",) + form.parts
-    # a folder owns every file below it: try every folder prefix of the path, and the file itself unless the pattern is a folder
-    last = len(names) - 1 if form.folder else len(names)
-    if sum(1 for part in parts if part != "**") > last:   # each segment but `**` takes exactly one name of the path
-        return False
-    return _reach(parts, names, last)
-
-
-def matches(pattern: str, path: str) -> bool:
-    """Whether a CODEOWNERS pattern owns a file, as git reads a pattern: a pattern with a slash in its start or middle is from the
-    top, one without matches at any depth; a trailing slash is a folder, whose files are all owned; `*` does not cross a slash and
-    `**` does. A pattern that is too long to read is taken to match: the file is judged by the stricter reading."""
-    form = shape(pattern)
-    return True if form is None else _owns(form, path, path.split("/"))
-
-
-def _cannot(form: Shape) -> bool:
-    """Whether a pattern with a wildcard cannot own any file of `PROBES`, for a reason that costs nothing to see: one of its segments
-    has no wildcard and is none of the names the files are made of, or it starts from the top and its first segment cannot be
-    `.github`."""
-    for part in form.parts:
-        if part != "**" and "*" not in part and "?" not in part and part not in _ANY:
-            return True
-    return form.anchored and form.parts[0] != "**" and not _segment(form.parts[0], ".github")
-
-
-def _reaches(pattern: str, seen: Dict[str, bool], work: List[int]) -> bool:
-    """Whether a pattern owns a file under `.github/` that the template ships (one of `PROBES`), or names by its path anything
-    below `.github/`: the same answer as `matches` gives for each probe, without trying them all when it is known sooner. `seen`
-    keeps the answers for the patterns with a wildcard, and `work` counts down how many of them may still be matched in this
-    file: when it is spent a pattern is taken to match."""
-    form = shape(pattern)
-    if form is None:
+def _reaches(pattern: str) -> bool:
+    """Whether a pattern can own a file under `.github/`: one with no slash before its end matches at any depth (the root, `/`, is
+    all of them), and one from the top when its first folder can be `.github`."""
+    body = pattern.rstrip("/")
+    if "/" not in body:
         return True
-    bare = pattern.lstrip("/")
-    if bare == ".github" or bare.startswith(".github/"):
-        return True   # a path below .github/ is a file of it, one of the template's or the catalog's own, there yet or not
-    if not form.wild:
-        if form.anchored:
-            return form.body in _FOLDERS or (not form.folder and form.body in _FILES)
-        return len(form.parts) == 1 and form.body in (_DIRS if form.folder else _ANY)
-    if _cannot(form):
-        return False
-    if pattern not in seen:
-        work[0] -= 1
-        seen[pattern] = work[0] < 0 or any(_owns(form, path, names) for path, names in zip(PROBES, _NAMES))
-    return seen[pattern]
+    first = body.lstrip("/").partition("/")[0]
+    return len(first) > MAX_PATTERN or _segment(first, ".github")
 
 
 def _fix_owners(lines: List[Line]) -> str:
@@ -290,14 +178,7 @@ def _shadowed(lines: List[Line]) -> List[Problem]:
     if not ruling.owners or not all(owner_ok(word) for word in ruling.owners):
         return []
     kept = {word.lower() for word in ruling.owners}
-    seen: Dict[str, bool] = {}
-    work = [WORK]
     for later in lines[own[-1] + 1:]:
-        if {word.lower() for word in later.owners} == kept:
-            continue
-        if _reaches(later.pattern, seen, work):
+        if {word.lower() for word in later.owners} != kept and _reaches(later.pattern):
             return [_no_owner(later.number, "/.github/", " ".join(ruling.owners))]
     return []
-
-
-__all__ = ["FILE", "MORE", "OwnerError", "REQUIRED", "RULES", "check", "maintainers", "matches", "owner_ok", "parse"]

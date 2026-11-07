@@ -10,9 +10,6 @@ import unittest
 
 import lab_ui
 
-# A stage of the standard that a later level ships: standard._reusable reads its absence and says so
-LATER = {("lab_ui.catalogs.standard", "workflows")}
-
 # The packages of the engine, in the order they import each other. The catalogs (catalogs/) and the commands at the root (e2e.py,
 # compat.py) are not in it
 ENGINE = ("lab_ui.paths", "lab_ui.products", "lab_ui.docker", "lab_ui.library", "lab_ui.gravitee", "lab_ui.server")
@@ -81,7 +78,7 @@ class Imports(unittest.TestCase):
                     continue
                 home = importlib.import_module(target)
                 for each in node.names:
-                    if each.name == "*" or hasattr(home, each.name) or (name, each.name) in LATER:
+                    if each.name == "*" or hasattr(home, each.name):
                         continue
                     try:
                         importlib.import_module(f"{target}.{each.name}")

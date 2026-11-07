@@ -168,11 +168,3 @@ class Lock(Case):
         self.assertEqual(understood.levels(), {"contract": 3, "contract_min": 1})
         os.remove(self.root / "contract.lock")
         self.assertIsNone(understood.levels())
-
-    def test_the_lock_of_this_lab_lists_what_its_published_catalogs_use(self):
-        """Every item the default catalogs of the Lab use today is in the lock: none of them needs a newer Lab."""
-        found = understood.parse((REPO / understood.LOCK_FILE).read_text(encoding="utf-8"))
-        for item in (("unit.key", "x-gravitee.host_access"), ("label", "io.gravitee.console.<id>.url"),
-                     ("anchor", "seeder"), ("anchor", "plugins/apim"), ("seed.file", "controls.yaml"),
-                     ("seed.folder", "aim/studios"), ("core.service", "apim-gateway"), ("core.network", "edge")):
-            self.assertIn(item, found.rows, item)

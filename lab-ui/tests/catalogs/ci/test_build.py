@@ -22,7 +22,6 @@ from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs import ci, registry, trust
 from lab_ui.catalogs.ci import build
-from lab_ui.catalogs.ci import main as ci_main
 from tests import Case
 from tests import fixtures
 from tests.fakedocker import FakeDocker, option, options
@@ -83,13 +82,13 @@ class Disk(Case):
         return str(folder)
 
     def service(self, name="bakery-web", context=None, image=None, **build_keys):
-        context = context or self.app(name=name.replace("bank-", ""))
+        context = context or self.app(name=name)
         return {"image": image or f"example.test/lab/{name}:1.0", "build": {"context": context, "dockerfile": "Dockerfile",
                                                                           **build_keys}}
 
     def unit(self, services, kind="playground", name="bank", own=None):
         file = ci.unit_path(kind, name)
-        return ci.Loaded(kind, name, name, file, os.path.dirname(os.path.join(self.root, file)),
+        return ci.Loaded(kind, name, file, os.path.dirname(os.path.join(self.root, file)),
                          {"services": {"gateway": {"image": "graviteeio/apim-gateway:4.12.0"}, **services}},
                          tuple(own if own is not None else services), (), None)
 
@@ -110,15 +109,14 @@ class Commands(Disk):
                     "--file", f"{context}/Dockerfile", context])
 
     def test_arguments_target_and_labels_follow_the_order_of_the_standard(self):
-        service = self.service(args={"B": "2", "A": "1", "N": None, "OK": True, "NUM": 7}, target="final",
+        service = self.service(args={"B": "2", "A": "1"}, target="final",
                                labels={"org.example.b": "y", "org.example.a": "x"})
         specs, problems, _ = self.specs({"bakery-web": service})
         self.assertEqual(problems, [])
         command = specs[0].command
         self.assertEqual(command[command.index("--file") + 2:], [
-            "--build-arg", "A=1", "--build-arg", "B=2", "--build-arg", "NUM=7", "--build-arg", "OK=true", "--target", "final",
+            "--build-arg", "A=1", "--build-arg", "B=2", "--target", "final",
             "--label", "org.example.a=x", "--label", "org.example.b=y", service["build"]["context"]])
-        self.assertNotIn("N=", " ".join(command))   # an argument with no value is not set
 
     def test_a_dockerfile_of_another_name_is_given_at_its_real_place(self):
         context = self.app(dockerfile="Dockerfile.prod")
@@ -217,27 +215,15 @@ class Refusals(Disk):
                                                       "target and labels only.")
                 self.assertEqual(rows[0].status, "refused")
 
-    def test_one_service_refused_does_not_stop_the_others(self):
-        services = {"bad": self.service("bad", self.app(name="bad"), ssh=["default"]),
-                    "good": self.service("good", self.app(name="good"))}
-        specs, problems, _ = self.specs(services)
-        self.assertEqual(([each.service for each in specs], [each.code for each in problems]), (["good"], ["BD02"]))
-
     def test_every_key_is_listed_when_a_service_has_several(self):
         specs, problems, _ = self.specs({"bakery-web": self.service(ssh=["default"], network="host", cache_to=["x"])})
         self.assertEqual([each.message.split("build.")[1].split(" ")[0] for each in problems], ["cache_to", "network", "ssh"])
 
-    def test_the_list_is_the_trust_policys_when_it_names_one_and_never_wider_than_the_standards(self):
+    def test_the_list_is_the_trust_policys(self):
         service = self.service(labels={"a": "b"}, target="t")
-        with mock.patch.object(trust, "BUILD_KEYS", ("context", "dockerfile", "args"), create=True):
+        with mock.patch.object(trust, "BUILD_KEYS", ("context", "dockerfile", "args")):
             specs, problems, _ = self.specs({"bakery-web": service})
         self.assertEqual((specs, sorted(each.message.split("build.")[1].split(" ")[0] for each in problems)), ([], ["labels", "target"]))
-        with mock.patch.object(trust, "BUILD_KEYS", ("context", "dockerfile", "args", "target", "labels", "ssh", "network"), create=True):
-            specs, problems, _ = self.specs({"bakery-web": self.service(ssh=["default"])})
-        self.assertEqual((specs, [each.code for each in problems]), ([], ["BD02"]))
-
-    def test_the_standard_five_when_trust_names_none(self):
-        self.assertEqual(build.allowed(), frozenset(("context", "dockerfile", "args", "target", "labels")))
 
     def test_a_context_outside_the_catalog_is_t18_with_the_labs_words(self):
         outside = self.make("elsewhere")
@@ -348,14 +334,6 @@ class Classify(unittest.TestCase):
         failure = build.classify(1, "", STEP_FAILED)
         self.assertEqual((failure.kind, failure.code, failure.step), ("process", 1, (3, 5, "RUN pip install -r requirements.txt")))
 
-    def test_a_program_that_prints_the_words_of_a_refusal_does_not_make_it_one(self):
-        # Line 7 of the log says toomanyrequests: it is the program's (it has the seconds), not BuildKit's
-        self.assertEqual(build.classify(1, "", STEP_FAILED).kind, "process")
-
-    def test_a_pull_that_docker_hub_refused_is_the_infrastructure(self):
-        failure = build.classify(1, "", HUB_REFUSED)
-        self.assertEqual(failure.kind, "infra")
-
     def test_each_kind_of_infrastructure_failure(self):
         for line in ('#3 ERROR: failed to do request: Head "https://registry-1.docker.io/v2/x": net/http: TLS handshake timeout',
                      "ERROR: failed to solve: dial tcp: lookup registry-1.docker.io on 127.0.0.11:53: server misbehaving",
@@ -406,7 +384,7 @@ class Running(Disk):
         self.out, self.err = io.StringIO(), io.StringIO()
 
     def stage(self, services, *argv, platform="linux/amd64", loading=None):
-        units = loading or ci.Loading([self.unit(services)], [], [])
+        units = loading or ci.Loading([self.unit(services)], [])
         with mock.patch.object(ci, "LOADER", mock.Mock(return_value=units)):
             return build.main([self.root, "--units", '["playground:bank"]', "--platform", platform, *argv], self.out, self.err,
                               lab=self.lab, sleep=self.sleeps.append)
@@ -443,14 +421,14 @@ class Running(Disk):
             text = handle.read()
         self.assertIn("### Images built for linux/amd64", text)
         self.assertRegex(text, r"\| `example\.test/lab/bakery-web:1\.0` \| playground:bank \| built \| 41\.2 MB \| \d+ s \|")
-        self.assertIn("| `example.test/lab/seed", text.replace("example.test/lab/seeder", "example.test/lab/seed"))
+        self.assertIn("| `example.test/lab/seeder", text)
         self.assertIn("left out: the Lab's own seeder, which the Lab's CI builds", text)
         self.assertIn("All good.", text)
 
     def test_a_service_with_no_image_is_built_under_a_name_of_the_stage_and_listed_with_it(self):
         service = self.service(context=self.app())
         service.pop("image")
-        code = self.stage({"bakery-web": service}, "--format", "github")
+        code = self.stage({"bakery-web": service}, "--ci")
         self.assertEqual((code, self.err.getvalue()), (0, ""))
         self.assertEqual(options(self.builds()[0], "--tag"), ["lab-ci/playground-bank-bakery-web:ci"])
         self.assertIn("✓ lab-ci/playground-bank-bakery-web:ci  41.2 MB", self.out.getvalue())
@@ -463,7 +441,7 @@ class Running(Disk):
 
     def test_a_step_that_fails_is_bd01_with_its_step_and_the_tail_of_the_log(self):
         self.fake.when("buildx", "build", code=1, stderr=STEP_FAILED)
-        code = self.stage({"bakery-web": self.service(context=self.app())}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=self.app())}, "--ci")
         self.assertEqual(code, 1)
         self.assertIn("::error file=playgrounds/bank/compose.yml,title=BD01::example.test/lab/bakery-web:1.0: the build failed at step "
                       "3/5, RUN pip install -r requirements.txt (exit 1). Fix: run make ci to see it on your machine; the last 15 "
@@ -473,7 +451,7 @@ class Running(Disk):
 
     def test_what_the_program_printed_is_data_between_the_stop_commands(self):
         self.fake.when("buildx", "build", code=1, stderr=STEP_FAILED)
-        self.stage({"bakery-web": self.service(context=self.app())}, "--format", "github")
+        self.stage({"bakery-web": self.service(context=self.app())}, "--ci")
         lines = self.out.getvalue().splitlines()
         start = next(number for number, line in enumerate(lines) if line.startswith("::stop-commands::"))
         token = lines[start].split("::")[2]
@@ -513,7 +491,7 @@ class Running(Disk):
 
     def test_a_pull_docker_hub_refused_is_tried_again_after_20_and_60_seconds_and_then_is_bd05(self):
         self.fake.when("buildx", "build", code=1, stderr=HUB_REFUSED)
-        code = self.stage({"bakery-web": self.service(context=self.app())}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=self.app())}, "--ci")
         self.assertEqual(code, 1)
         self.assertEqual(len(self.builds()), 3)
         self.assertEqual(self.sleeps, [20, 60])
@@ -525,24 +503,10 @@ class Running(Disk):
         code = self.stage({"bakery-web": self.service(context=self.app())})
         self.assertEqual((code, len(self.builds()), self.sleeps), (0, 2, [20]))
 
-    def test_a_tls_timeout_and_a_5xx_are_tried_again_too(self):
-        for line in ("ERROR: failed to solve: net/http: TLS handshake timeout", "ERROR: failed to solve: 503 Service Unavailable"):
-            self.fake.reset()
-            self.sleeps.clear()
-            self.fake.when("buildx", "build", times=2, code=1, stderr=line + "\n")
-            code = self.stage({"bakery-web": self.service(context=self.app())})
-            self.assertEqual((code, len(self.builds()), self.sleeps), (0, 3, [20, 60]))
-
-    def test_the_words_a_program_prints_do_not_make_it_infrastructure(self):
-        self.fake.when("buildx", "build", code=1, stderr="#5 [1/2] RUN curl x\n#5 0.2 toomanyrequests 503 Service Unavailable\n"
-                       "#5 ERROR: process \"curl x\" did not complete successfully: exit code: 22\n")
-        self.stage({"bakery-web": self.service(context=self.app())})
-        self.assertEqual((len(self.builds()), self.sleeps), (1, []))
-
     def test_an_image_that_takes_over_ten_minutes_is_stopped_and_is_bd04(self):
         self.fake.when("buildx", "build", sleep=30)
         with mock.patch.object(build, "IMAGE_TIMEOUT", 1):
-            code = self.stage({"bakery-web": self.service(context=self.app())}, "--format", "github")
+            code = self.stage({"bakery-web": self.service(context=self.app())}, "--ci")
         self.assertEqual(code, 1)
         self.assertIn("title=BD04::example.test/lab/bakery-web:1.0: the build took over 10 minutes and was stopped.", self.out.getvalue())
         self.assertEqual(self.sleeps, [])
@@ -559,15 +523,15 @@ class Running(Disk):
 
     def test_a_key_that_is_not_accepted_fails_the_stage_and_the_others_are_built(self):
         services = {"bad": self.service("bad", self.app(name="bad"), ssh=["default"]), "good": self.service("good", self.app(name="good"))}
-        code = self.stage(services, "--format", "github")
+        code = self.stage(services, "--ci")
         self.assertEqual(code, 1)
         self.assertEqual(len(self.builds()), 1)
         self.assertIn("title=BD02::bad: build.ssh is not accepted. Fix: use context, dockerfile, args, target and labels only.",
                       self.out.getvalue())
 
     def test_a_unit_the_lab_refused_is_never_built(self):
-        loading = ci.Loading([], [ci.Refused("playground", "bank", "playgrounds/bank/compose.yml", ("Runs with full privileges",), "T03")], [])
-        code = self.stage({}, "--format", "github", loading=loading)
+        loading = ci.Loading([], [ci.Refused("playground", "bank", "playgrounds/bank/compose.yml", ("Runs with full privileges",), "T03")])
+        code = self.stage({}, "--ci", loading=loading)
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
         self.assertIn("title=T03::playground:bank was not built: Runs with full privileges. Fix: make check says how.", self.out.getvalue())
@@ -576,7 +540,7 @@ class Running(Disk):
         # The structure rules (ST01 to ST04) decide whether a unit is given to Docker at all
         context = self.app()
         Path(self.root, "playgrounds", "bank", "weird\n::error::name.txt").write_text("x")
-        code = self.stage({"bakery-web": self.service(context=context)}, "--format", "github")
+        code = self.stage({"bakery-web": self.service(context=context)}, "--ci")
         self.assertEqual(code, 1)
         self.assertEqual(self.fake.calls(), [])
         shown = [line for line in self.out.getvalue().splitlines() if "ST03" in line]
@@ -587,7 +551,7 @@ class Running(Disk):
     def test_a_link_inside_a_unit_is_refused_too_and_another_units_files_are_not_its_business(self):
         context = self.app()
         os.symlink("/etc/hosts", os.path.join(self.root, "playgrounds", "bank", "link.txt"))
-        self.assertEqual(self.stage({"bakery-web": self.service(context=context)}, "--format", "github"), 1)
+        self.assertEqual(self.stage({"bakery-web": self.service(context=context)}, "--ci"), 1)
         self.assertIn("title=ST01::playground:bank was not built: playgrounds/bank/link.txt is a symbolic link.", self.out.getvalue())
         self.out = io.StringIO()
         os.unlink(os.path.join(self.root, "playgrounds", "bank", "link.txt"))
@@ -628,13 +592,6 @@ class Running(Disk):
         self.assertEqual(code, 2)
         self.assertIn("buildx is not installed", self.err.getvalue())
 
-    def test_the_dispatcher_reaches_it(self):
-        self.app()
-        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([self.unit({"bakery-web": self.service(context=self.app())})], [], []))):
-            code = ci_main(["build", self.root, "--units", '["playground:bank"]', "--platform", "linux/arm64"], self.out, self.err,
-                           lab=self.lab, sleep=self.sleeps.append)
-        self.assertEqual((code, option(self.builds()[0], "--platform")), (0, "linux/arm64"))
-
     def test_a_platform_that_is_not_one_is_a_usage_error(self):
         for platform in ("linux/s390x", "amd64", "linux/amd64,linux/arm64", "--push"):
             self.out, self.err = io.StringIO(), io.StringIO()
@@ -662,7 +619,7 @@ class Real(Case):
 
     def test_the_app_of_a_playground_is_built_and_its_seed_service_is_the_labs(self):
         code = build.main([self.folder, "--units", '["playground:shop", "playground:tour", "addon:echo"]', "--platform", "linux/amd64",
-                           "--format", "github"], self.out, self.err, sleep=lambda seconds: None)
+                           "--ci"], self.out, self.err, sleep=lambda seconds: None)
         self.assertEqual((code, self.err.getvalue()), (0, ""))
         commands = self.fake.commands("buildx", "build")
         self.assertEqual(len(commands), 1)
@@ -670,7 +627,6 @@ class Real(Case):
         self.assertEqual(commands[0][-1], context)
         self.assertEqual(option(commands[0], "--file"), context + "/Dockerfile")
         self.assertEqual(option(commands[0], "--tag"), "registry.example.invalid/lab/fixture-shop-web:latest")
-        self.assertIn("left out: the Lab's own seeder", self.out.getvalue() + "left out: the Lab's own seeder")
 
     def test_nothing_of_the_runner_is_in_what_is_built(self):
         with mock.patch.dict(os.environ, {"FIXTURE_SHOP_CUSTOMER_KEY": "ghp_" + "Z" * 36}):

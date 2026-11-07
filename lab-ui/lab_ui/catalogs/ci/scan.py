@@ -2,7 +2,7 @@
 stages share the scanner, its hardening and this policy:
 
     scan-built PATH --units JSON [--app NAME] [--ci]   the images `ci build` just built for a change, on this machine
-    scan-published PATH [--tag T]                      the images the catalog published, at `:latest` by default
+    scan-published PATH                                the images the catalog published, at `:latest`
 
     SC01  {image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image.     an error
     SC02  {image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a fix is out.   a warning
@@ -31,8 +31,8 @@ reaches the image's registry. The scanner is asked for the critical and the high
 that has a fixed version is SC01, an error; the others (high ones, and critical ones nobody can fix yet) are one SC02 warning for each
 image that has some, with their number and the first identifiers: what can be done today fails the check, the rest is said.
 
-Exit 0 nothing to fix, 1 a finding (or a unit that cannot be read), 2 the scan could not run (no Docker, a scanner that is not pinned
-yet, a registry that refuses, no sign-in): a scan that did not run is never a green one.
+Exit 0 nothing to fix, 1 a finding (or a unit that cannot be read), 2 the scan could not run (no Docker, a scanner that is not pinned,
+a registry that refuses, no sign-in): a scan that did not run is never a green one.
 
 Python 3.9 and later, standard library only."""
 
@@ -46,18 +46,14 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from ...docker import compose
 from .. import report, tree as trees
-from ..report import ERROR, Problem
-from ..rules import catalog_meta, say
-from ..report import WARNING
-from . import (Unavailable, Usage, conclude, docker_ready, entry, host_platform, load, parse_units, parsed, parser, refusals,
+from ..report import Problem
+from ..rules import catalog_meta
+from . import (Unavailable, Usage, conclude, docker_ready, entry, host_platform, load, parse_units, parsed, parser, problem, refusals,
                run_limited, tail)
 from .build import specs_of
 from .gitleaks import BAD_PATH, image as pinned_image
 from .publish import HOST, REPOSITORY, collect
 
-MESSAGES = {"SC01": (ERROR, "{image}: {id} in {package} {version}, fixed in {fixed}. Fix: update the package or the base image."),
-            "SC02": (WARNING, "{image}: {n} more flaws that fail nothing: {which}. Fix: update the base image or the packages once a "
-                              "fix is out.")}
 SEVERITIES = "CRITICAL,HIGH"   # what the scanner is asked for: SC01 is the critical ones with a fix, SC02 counts the rest
 NAMED = 5   # the identifiers an SC02 names, the first in order
 TOOL = "trivy"
@@ -72,11 +68,6 @@ ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
 NOT_THERE = re.compile(r"not found|manifest unknown|name unknown|no such manifest|404", re.I)
 HARDENED = ["--rm", "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g", "--cap-drop", "ALL", "--security-opt",
             "no-new-privileges", "--pids-limit", "256", "--memory", "6g", "-e", "HOME=/tmp"]
-
-
-def finding(code: str = "SC01", **fields) -> Problem:
-    severity, message = MESSAGES[code]
-    return Problem(code, severity, "", 0, say(message, **fields))
 
 
 class Folders(NamedTuple):
@@ -156,7 +147,7 @@ def findings_of(image: str, document) -> List[Problem]:
     """SC01 for each critical flaw with a fix in a Trivy report, then one SC02 that counts the rest: the high flaws and the critical
     ones with no fix yet."""
     flaws = _flaws(document)
-    found = [finding(image=report.printable(image), id=identity, package=report.printable(package)[:100],
+    found = [problem("SC01", image=report.printable(image), id=identity, package=report.printable(package)[:100],
                      version=report.printable(version)[:60], fixed=report.printable(fixed)[:100])
              for identity, package, version, fixed, severity in flaws if severity == "CRITICAL" and fixed][:FINDINGS]
     rest = [each for each in flaws if not (each[4] == "CRITICAL" and each[3])]
@@ -166,7 +157,7 @@ def findings_of(image: str, document) -> List[Problem]:
         parts = ([f"{high} high"] if high else []) + ([f"{unfixed} critical with no fix yet"] if unfixed else [])
         names = sorted({each[0] for each in rest})
         shown = ", ".join(names[:NAMED]) + (f" and {len(names) - NAMED} more" if len(names) > NAMED else "")
-        found.append(finding("SC02", image=report.printable(image), n=len(rest), which=f"{' and '.join(parts)} ({shown})"))
+        found.append(problem("SC02", image=report.printable(image), n=len(rest), which=f"{' and '.join(parts)} ({shown})"))
     return found
 
 
@@ -267,38 +258,31 @@ def _to_fix(problems: Sequence[Problem]) -> int:
 def main(argv, out, err, **seams) -> int:
     """`ci scan-published`."""
     found = parser("scan-published", "The published images have no critical flaw that has a fix.")
-    found.add_argument("--tag", default=TAG, help="the tag of each image to scan (default: latest, the tip of main)")
     args = parsed(found, argv)
-    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}", args.tag):
-        raise Usage("--tag is a tag of an image: letters, digits and . _ -")
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     meta = catalog_meta(trees.FolderTree(root).text("catalog.yml") or "")
     prefix = meta.get("images", "")
     if not prefix:
-        if args.format != "json":
-            out.write("Published images: catalog.yml names no registry in images, so nothing is published and nothing is scanned\n")
-        return conclude("scan-published", [], args, out, "catalog.py ci scan-published", [],
+        out.write("Published images: catalog.yml names no registry in images, so nothing is published and nothing is scanned\n")
+        return conclude([], args, out, "catalog.py ci scan-published", [],
                         title="The published images have no flaw to fix")
     if not prefix.startswith(HOST + "/") or not REPOSITORY.fullmatch(prefix[len(HOST) + 1:]):
         raise Usage(f"catalog.yml images is {report.printable(prefix)[:80]}, which is not {HOST}/<owner>/<repository>")
     scanner = pinned_image(seams.get("dockerfile"), TOOL)
     collected = collect(root, prefix, seams.get("lab"))
     problems = list(collected.problems)
-    references = [f"{each.name}:{args.tag}" for each in collected.images]
+    references = [f"{each.name}:{TAG}" for each in collected.images]
     skipped: List[str] = list(collected.notes)
     if references:
         docker_ready(seams.get("runner"))
         user = os.environ.get("GITHUB_ACTOR") or prefix[len(HOST) + 1:].split("/", 1)[0]
-        flaws, missing = scan_images(references, scanner, token_of(seams.get("environ")), user, seams, err if args.format == "json" else out)
+        flaws, missing = scan_images(references, scanner, token_of(seams.get("environ")), user, seams, out)
         problems += flaws
         skipped += [f"{report.printable(each)} is not in the registry yet, so it was not scanned" for each in missing]
-        if args.format != "json":
-            out.write(f"Published images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
-    elif args.format != "json":
+        out.write(f"Published images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
+    else:
         out.write("Published images: this catalog builds no image under its prefix, so nothing is scanned\n")
-    return conclude("scan-published", problems, args, out, "catalog.py ci scan-published", skipped,
+    return conclude(problems, args, out, "catalog.py ci scan-published", skipped,
                     title="The published images have no flaw to fix")
 
 
@@ -309,8 +293,6 @@ def built_main(argv, out, err, **seams) -> int:
     found.add_argument("--app", default=None, help="scan only the image of this app (the folder of its build context)")
     args = parsed(found, argv)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     loading = load(root, names)
     problems = refusals(loading.refused, "scanned")
@@ -321,14 +303,10 @@ def built_main(argv, out, err, **seams) -> int:
     if references:
         scanner = pinned_image(seams.get("dockerfile"), TOOL)
         docker_ready(seams.get("runner"))
-        flaws, missing = scan_images(references, scanner, "", "", seams, err if args.format == "json" else out, pull=False)
+        flaws, missing = scan_images(references, scanner, "", "", seams, out, pull=False)
         problems += flaws
         skipped += [f"{report.printable(each)} was not built here, so it was not scanned" for each in missing]
-        if args.format != "json":
-            out.write(f"Built images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
-    elif args.format != "json":
+        out.write(f"Built images: {len(references) - len(missing)} scanned, {_to_fix(flaws)} flaws to fix\n")
+    else:
         out.write("Built images: the change builds no image, so nothing is scanned\n")
-    return conclude("scan-built", problems, args, out, "make ci", skipped, title="The images built have no flaw to fix")
-
-
-__all__ = ["MESSAGES", "built_main", "findings_of", "main", "scan_command", "scan_images"]
+    return conclude(problems, args, out, "make ci", skipped, title="The images built have no flaw to fix")

@@ -74,8 +74,8 @@ def run(command: List[str], env: Dict[str, str]) -> Tuple[int, str]:
     return done.returncode, done.stdout
 
 
-def fetch(name: str, what: Dict[str, str], key: str, runner: Runner, into: Path) -> Optional[str]:
-    """The reason the catalog `name` could not be fetched, or None: `what["ref"]` of `what["repository"]` in `into`."""
+def fetch(what: Dict[str, str], key: str, runner: Runner, into: Path) -> Optional[str]:
+    """The reason a catalog could not be fetched, or None: `what["ref"]` of `what["repository"]` in `into`."""
     ssh = f"ssh -i {shlex.quote(key)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
     steps = [["git", "init", "-q", str(into)],
              ["git", "-C", str(into), "fetch", "-q", "--depth", "1", f"git@github.com:{what['repository']}.git", what["ref"]],
@@ -93,18 +93,16 @@ def main(argv, out, err, **seams) -> int:
     """`ci needs`. Exit 1 when a needed catalog cannot be fetched or linked, 2 when the stage cannot run."""
     found = parser("needs", "Fetch and link the catalogs this one requires, at the commits its standard.json names.")
     args = parsed(found, argv)
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     needs = declared(args.path)
     if not needs:
-        out.write("Needs: none\n" if args.format == "text" else "")
-        return conclude("needs", [], args, out, "make ci", title="Catalogs it needs")
+        out.write("Needs: none\n" if not args.ci else "")
+        return conclude([], args, out, "make ci", title="Catalogs it needs")
     environment = seams.get("environ", os.environ)
     secret = environment.get(KEY, "")
     problems = []
     if not secret.strip():
         problems.append(problem("ND01", ".github/standard.json", ids=", ".join(sorted(needs))))
-        return conclude("needs", problems, args, out, "make ci", title="Catalogs it needs")
+        return conclude(problems, args, out, "make ci", title="Catalogs it needs")
     runner: Runner = seams.get("runner") or run
     linker = seams.get("linker") or link
     where = Path(seams.get("into") or paths.ROOT / ".needs")
@@ -118,16 +116,16 @@ def main(argv, out, err, **seams) -> int:
             into = where / name
             shutil.rmtree(into, ignore_errors=True)
             into.mkdir(parents=True)
-            why = fetch(name, needs[name], str(keyfile), runner, into)
+            why = fetch(needs[name], str(keyfile), runner, into)
             if why is None:
                 why = linker(into)
             if why is not None:
                 problems.append(problem("ND02", ".github/standard.json", name=name, repository=needs[name]["repository"], why=why))
             else:
-                out.write(f"Needs: {name} at {needs[name]['ref'][:7]}\n" if args.format == "text" else "")
+                out.write(f"Needs: {name} at {needs[name]['ref'][:7]}\n" if not args.ci else "")
     finally:
         shutil.rmtree(folder, ignore_errors=True)   # the key goes with it
-    return conclude("needs", problems, args, out, "make ci", title="Catalogs it needs")
+    return conclude(problems, args, out, "make ci", title="Catalogs it needs")
 
 
 def link(folder: Path) -> Optional[str]:

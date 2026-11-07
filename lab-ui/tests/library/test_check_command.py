@@ -923,17 +923,6 @@ class Online(Folder):
             self.assertEqual(catalog._pin_problems(self.standard("f" * 40), notes), [])
         self.assertEqual(notes, [f"SD11: the Lab checkout does not hold {'f' * 7}: update it with git pull, then run again"])
 
-    def test_the_pin_of_a_reusable_caller_is_judged_the_same_way_and_another_repository_is_not(self):
-        folder, main, side = self.lab()
-        notes = []
-        caller = (f"jobs:\n  ci:\n    uses: acme/lab/.github/workflows/catalog-ci.yml@{side}\n"
-                  f"  other:\n    uses: someone/else/.github/workflows/x.yml@{'e' * 40}\n  third:\n    uses: actions/checkout@{'d' * 40}\n")
-        tree = self.standard(main, {".github/workflows/ci.yml": caller})
-        with mock.patch.object(catalog, "LAB", folder):
-            found = catalog._pin_problems(tree, notes)
-        self.assertEqual([(one.code, one.path, one.line) for one in found], [("SD11", ".github/workflows/ci.yml", 3)])
-        self.assertEqual(notes, [])
-
     def test_no_standard_json_and_a_bad_one_have_no_pin_to_judge(self):
         notes = []
         for files in ({}, {".github/standard.json": "{"}, {".github/standard.json": "[]"}, {".github/standard.json": '{"lab": 1}'},

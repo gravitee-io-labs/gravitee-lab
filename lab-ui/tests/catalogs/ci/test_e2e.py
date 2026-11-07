@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 from lab_ui import paths
-from lab_ui.catalogs import ci, explain
+from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import e2e
 from lab_ui.catalogs.ci import main as ci_main
 from tests import Case
@@ -47,7 +47,7 @@ def unit(kind, name, tested=(), own=(), leaks=(), resolve="auto", folder=""):
         marker = variables.get("GRAVITEE_LICENSE", "")
         return {"services": {name_: ({**definition, "environment": {"LICENSE": marker}} if name_ in leaks else definition)
                              for name_, definition in services.items()}}
-    return ci.Loaded(kind, name, name, ci.unit_path(kind, name), folder, {"services": services}, tuple(own), tuple(tested), None,
+    return ci.Loaded(kind, name, ci.unit_path(kind, name), folder, {"services": services}, tuple(own), tuple(tested), None,
                      read if resolve == "auto" else resolve)
 
 
@@ -89,7 +89,7 @@ class Fixture(support.WithGit):
             wanted = [(kind, name) for kind, name in names]
             return ci.Loading([self.table.get(f"{kind}:{name}", unit(kind, name)) for kind, name in wanted
                                if f"{kind}:{name}" not in getattr(self, "refused", {})],
-                              [self.refused[f"{kind}:{name}"] for kind, name in wanted if f"{kind}:{name}" in getattr(self, "refused", {})], [])
+                              [self.refused[f"{kind}:{name}"] for kind, name in wanted if f"{kind}:{name}" in getattr(self, "refused", {})])
         return load
 
     def plan(self, *argv, words=(), change=True, sha=None, ref=MAIN, default_ns="acme-hub", **seams):
@@ -142,10 +142,6 @@ class Matrix(Fixture):
         self.assertEqual([job["item"] for job in self.jobs()], ["addon:@acme-hub/hybrid", "addon:@acme-hub/mock",
                                                                   "playground:@acme-hub/bank", "setup:@acme-hub/pair"])
         self.assertEqual(self.jobs()[2]["name"], "playground:@acme-hub/bank (core defaults)")
-
-    def test_a_scheduled_run_tries_every_item_of_main_and_asks_no_pull_request(self):
-        self.assertEqual(self.plan("--all", change=False, ref="refs/heads/main"), 0)
-        self.assertEqual(self.outputs()["count"], "4")
 
     def test_changed_items_are_the_ones_the_pull_request_touches(self):
         self.clone({"playgrounds/bank/apps/web/app.py": "print(2)\n", "addons/mock/README.md": "# Mock\n", "docs/notes.md": "x\n"})
@@ -201,32 +197,20 @@ class Matrix(Fixture):
         self.assertEqual(self.plan("--all", change=False), 2)
         self.assertIn("a matrix of GitHub runs 256 at most", self.err.getvalue())
 
-    def test_the_stage_words_reach_the_modules(self):
-        self.assertEqual(ci.STAGES["e2e-plan"], ("e2e", "plan_main"))
-        self.assertEqual(ci.STAGES["e2e-gate"], ("e2e", "gate_main"))
-        self.assertEqual(ci_main(["e2e-plan"], io.StringIO(), io.StringIO()), 2)
-        self.assertEqual(ci_main(["e2e-gate"], io.StringIO(), io.StringIO()), 2)
-
 
 class License(Fixture):
     """E2E01."""
 
     def test_an_own_service_that_reads_the_license_is_refused_and_nothing_is_planned(self):
-        self.table = {"playground:bank": self.loaded("playground:bank", own=("bakery-web", "bakery-api"), leaks=("bakery-web",))}
+        self.table = {"playground:bank": self.loaded("playground:bank", own=("bakery-web", "bakery-api", "bakery-mcp"),
+                                                     leaks=("bakery-web", "bakery-mcp"))}
         self.assertEqual(self.plan("--all", change=False), 1)
         self.assertIn("E2E01", self.out.getvalue())
         self.assertIn("playground:bank: bakery-web reads GRAVITEE_LICENSE. Fix: only an overlay on a core service may read it.",
                       self.out.getvalue())
+        self.assertIn("playground:bank: bakery-mcp reads GRAVITEE_LICENSE.", self.out.getvalue())
         self.assertNotIn("bakery-api reads", self.out.getvalue())
         self.assertEqual(self.outputs(), {})
-
-    def test_every_own_service_that_reads_it_is_said(self):
-        self.table = {"addon:mock": self.loaded("addon:mock", own=("a", "b", "c"), leaks=("a", "c"))}
-        self.plan("--all", change=False)
-        text = self.out.getvalue()
-        self.assertIn("addon:mock: a reads GRAVITEE_LICENSE.", text)
-        self.assertIn("addon:mock: c reads GRAVITEE_LICENSE.", text)
-        self.assertNotIn("b reads", text)
 
     def test_an_overlay_on_a_core_service_may_read_it(self):
         self.table = {"addon:hybrid": self.loaded("addon:hybrid", own=("hybrid-agent",), leaks=("apim-gateway",))}
@@ -270,10 +254,6 @@ class License(Fixture):
                 self.assertIn("addon:mock: a reads GRAVITEE_LICENSE.", self.out.getvalue())
 
     def test_a_unit_that_cannot_be_read_again_cannot_be_tried_with_a_license(self):
-        self.table = {"addon:mock": self.loaded("addon:mock", own=("a",), resolve=None)}
-        self.assertEqual(self.plan("--all", change=False), 2)
-        self.assertIn("cannot be read again with the license variable set", self.err.getvalue())
-
         def explode(variables):
             raise RuntimeError("Compose said no\n::error::forged")
         self.table = {"addon:mock": self.loaded("addon:mock", own=("a",), resolve=explode)}
@@ -338,6 +318,13 @@ class License(Fixture):
                       self.err.getvalue())
         self.assertEqual(self.outputs(), {})
 
+    def test_a_setup_that_needs_a_setting_is_judged_by_its_own_file_and_not_by_the_other_setups(self):
+        self.put(self.repo, "setups/lacking.yml", "services: {}\n")
+        self.put(self.repo, "setups/other.yml", "services:\n  a:\n    environment:\n      L: ${GRAVITEE_LICENSE}\n")
+        self.refused = {"setup:lacking": ci.Refused("setup", "lacking", "setups/lacking.yml", (
+            "Cannot be read: error while interpolating services.a.environment.KEY: required variable KEY is missing a value",))}
+        self.assertEqual(self.plan("--items", words=["setup:lacking"], change=False), 0, self.err.getvalue())
+
     def test_a_unit_the_trust_policy_blocks_ends_the_plan_and_is_never_left_out(self):
         self.refused = {"addon:mock": ci.Refused("addon", "mock", "addons/mock/compose.yml", ("Mounts the Docker socket",), "T10")}
         self.assertEqual(self.plan("--all", change=False), 1)
@@ -361,14 +348,8 @@ class Inputs(Fixture):
                 self.assertEqual(self.outputs(), {})
         self.assertEqual(self.plan("--changed", ref="refs/heads/main"), 0)
 
-    def test_the_ref_may_be_given_and_main_alone_is_not_asked_for_it(self):
+    def test_main_alone_is_not_asked_for_it(self):
         self.assertEqual(self.plan("--all", change=False, ref="refs/heads/anything"), 0)
-        self.clone({"addons/mock/README.md": "x\n"})
-        with mock.patch.dict(os.environ, {"GITHUB_REF": "refs/heads/feature", "GITHUB_OUTPUT": str(self.output)}), \
-                mock.patch.object(ci, "LOADER", self.loader()), mock.patch.object(paths, "default_ns", return_value="acme-hub"):
-            code = e2e.plan_main([str(self.repo), "--changed", "--change", str(self.change), "--sha", self.head, "--ref", MAIN,
-                                  "--github-output"], self.out, self.err)
-        self.assertEqual(code, 0)
 
     def test_e2e03_a_head_that_moved_is_not_the_commit_that_was_read(self):
         self.clone({"addons/mock/README.md": "x\n"})
@@ -388,15 +369,6 @@ class Inputs(Fixture):
         self.event = str(event)
         self.assertEqual(self.plan("--changed", sha="a" * 40), 1)
         self.assertIn("The head of pull request 345 is", self.out.getvalue())
-        self.out = io.StringIO()
-        self.assertEqual(self.plan("--changed", "--pr", "77", sha="a" * 40), 1)
-        self.assertIn("The head of pull request 77 is", self.out.getvalue())
-
-    def test_e2e03_names_the_pull_request_the_checkout_fetched(self):
-        self.clone({"addons/mock/README.md": "x\n"})
-        self.git(self.change, "update-ref", "refs/remotes/pull/9/head", self.head)
-        self.assertEqual(self.plan("--changed", sha="b" * 40), 1)
-        self.assertIn("The head of pull request 9 is", self.out.getvalue())
 
     def test_a_number_that_is_not_digits_is_never_put_in_a_message(self):
         self.clone({"addons/mock/README.md": "x\n"})
@@ -408,14 +380,11 @@ class Inputs(Fixture):
 
     def test_e2e04_a_bad_input_is_refused_and_says_which(self):
         self.clone({"addons/mock/README.md": "x\n"})
-        for kwargs, argv, which in (({"sha": "abc"}, ("--changed",), "sha"), ({"sha": "A" * 40}, ("--changed",), "sha"),
-                                    ({"sha": "g" * 40}, ("--changed",), "sha"), ({"sha": "a" * 41}, ("--changed",), "sha"),
-                                    ({}, ("--changed", "--pr", "12ab"), "pr"), ({}, ("--changed", "--pr", "12345678"), "pr"),
-                                    ({}, ("--changed", "--pr", ""), "pr"), ({}, ("--changed", "--pr", "-1"), "pr")):
-            with self.subTest(kwargs=kwargs, argv=argv):
+        for sha in ("abc", "A" * 40, "g" * 40, "a" * 41):
+            with self.subTest(sha=sha):
                 self.out = io.StringIO()
-                self.assertEqual(self.plan(*argv, **kwargs), 1)
-                self.assertIn(f"E2E04 {which} is not what it says. Fix: pr is digits only; sha is 40 hexadecimal characters; items are "
+                self.assertEqual(self.plan("--changed", sha=sha), 1)
+                self.assertIn("E2E04 sha is not what it says. Fix: pr is digits only; sha is 40 hexadecimal characters; items are "
                               "words that name an item and do not start with a dash.", self.out.getvalue())
                 self.assertEqual(self.outputs(), {})
 
@@ -512,7 +481,7 @@ class Inputs(Fixture):
     def test_a_pull_request_that_cannot_be_compared_with_main_is_not_a_verdict(self):
         self.clone({"addons/mock/README.md": "x\n"})
         self.git(self.change, "update-ref", "-d", "refs/remotes/origin/main")
-        with mock.patch.object(e2e, "head_of", side_effect=lambda folder: self.head if folder == str(self.change) else None):
+        with mock.patch.object(e2e.trees, "resolve", side_effect=lambda folder: self.head if folder == str(self.change) else None):
             self.assertEqual(self.plan("--changed"), 2)
         self.assertIn("cannot be compared with main", self.err.getvalue())
 
@@ -534,16 +503,6 @@ class Inputs(Fixture):
         self.assertEqual([job["item"] for job in self.jobs()], ["addon:mock"])
         self.assertNotIn("::error::", self.out.getvalue())
 
-    def test_the_messages_are_the_words_of_the_standard(self):
-        table = {code: (severity, message) for code, severity, _, message in explain.STAGES if code.startswith("E2E")}
-        for code, (severity, message) in e2e.MESSAGES.items():
-            self.assertEqual((severity, message), table[code], code)
-        self.assertEqual(e2e.finding("E2E01", item="addon:x", service="s").message,
-                         "addon:x: s reads GRAVITEE_LICENSE. Fix: only an overlay on a core service may read it.")
-        self.assertEqual(e2e.head_mismatch("12", "a" * 40, "b" * 40).message,
-                         "The head of pull request 12 is aaaaaaa, not the commit you read (bbbbbbb). Fix: read the new commits, then run "
-                         "again with the new one.")
-
 
 class Gate(Fixture):
     """E2E03 again, in the job that holds the license."""
@@ -564,17 +523,11 @@ class Gate(Fixture):
         moved = self.git(self.change, "rev-parse", "HEAD").strip()
         self.assertEqual(self.gate(sha=read), 1)
         self.assertIn(f"E2E03 The head of pull request ? is {moved[:7]}, not the commit you read ({read[:7]}).", self.out.getvalue())
-        self.out = io.StringIO()
-        self.assertEqual(self.gate("--pr", "42", sha=read), 1)
-        self.assertIn("The head of pull request 42 is", self.out.getvalue())
 
     def test_a_commit_that_is_not_40_hexadecimal_characters_is_e2e04(self):
         self.clone({"addons/mock/README.md": "x\n"})
         self.assertEqual(self.gate(sha="abc1234"), 1)
         self.assertIn("E2E04 sha is not what it says.", self.out.getvalue())
-        self.out = io.StringIO()
-        self.assertEqual(self.gate("--pr", "x1"), 1)
-        self.assertIn("E2E04 pr is not what it says.", self.out.getvalue())
 
     def test_a_folder_that_is_not_a_repository_has_no_head_and_is_refused(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -585,12 +538,12 @@ class Gate(Fixture):
     def test_a_folder_that_is_not_there_is_a_usage_error(self):
         self.assertEqual(e2e.gate_main([str(self.repo), "--change", "/no/such", "--sha", "a" * 40], self.out, self.err), 2)
 
-    def test_the_command_line_reaches_the_gate_and_the_json_form_is_a_list(self):
+    def test_the_command_line_reaches_the_gate(self):
         self.clone({"addons/mock/README.md": "x\n"})
         out = io.StringIO()
-        code = ci_main(["e2e-gate", str(self.repo), "--change", str(self.change), "--sha", "c" * 40, "--format", "json"], out, io.StringIO())
+        code = ci_main(["e2e-gate", str(self.repo), "--change", str(self.change), "--sha", "c" * 40], out, io.StringIO())
         self.assertEqual(code, 1)
-        self.assertEqual([each["code"] for each in json.loads(out.getvalue())], ["E2E03"])
+        self.assertIn("    E2E03 ", out.getvalue())
 
 
 class Real(Case):

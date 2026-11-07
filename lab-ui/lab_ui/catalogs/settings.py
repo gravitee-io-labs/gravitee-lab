@@ -32,6 +32,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 from urllib.parse import quote
 
+from .report import escape_data
+from .standard import LEVEL
+
 ACTIONS_APP_ID = 15368            # the integration id of GitHub Actions: only a workflow can pass the required check
 REQUIRED_CHECK = "Catalog CI result"
 TOPIC = "gravitee-lab-catalog"
@@ -48,11 +51,9 @@ DOCKER_PATTERNS = ("docker/*",)
 # The Lab's own copy of the rulesets: the managed files of the template, applied as they are
 RULESETS = Path(__file__).resolve().parents[2] / "templates" / "catalog" / "managed" / ".github" / "rulesets"
 PUSH_RULE_TYPES = ("file_path_restriction", "file_extension_restriction", "max_file_size", "max_file_path_length")
-COMPANIONS = {"main": "history", "tags": "tag_history"}
-OPTIONAL_RULESETS = ("history", "tag_history")   # standard 7 brought them: a template of an older standard has none   # the ruleset that keeps the history of what the first one guards
+COMPANIONS = {"main": "history", "tags": "tag_history"}   # the ruleset that keeps the history of what the first one guards
 RULESET_FILES = {"main": "default-branch.json", "tags": "tags.json", "push": "push.json", "paths": "protected-paths.json",
                  "history": "history.json", "tag_history": "tag-history.json"}
-RULESET_LIMIT = 64 * 1024
 
 OK, FAIL, WARN, NA, MANUAL = "ok", "fail", "warn", "n.a.", "manual"
 STATUSES = (FAIL, WARN, OK, NA, MANUAL)
@@ -136,8 +137,6 @@ ENVIRONMENTS = {"publish": (("main", "branch"), ("v*", "tag")),
                 "versions": (("main", "branch"),)}
 PUBLISH_POLICY = {"protected_branches": False, "custom_branch_policies": True}
 
-SOLO_BYPASS = {"actor_id": ADMIN_ROLE, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
-SOLO_TUPLE = ("RepositoryRole", ADMIN_ROLE, "pull_request")
 # The deploy keys of the repository: versions.yml pushes the versions it recorded to main and tags their release with one
 DEPLOY_KEY = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
 DEPLOY_TUPLE = ("DeployKey", None, "always")
@@ -184,7 +183,7 @@ class Finding(NamedTuple):
 
 class Findings(list):
     """The findings of one audit, in the order of the table of 7.5. `repo` is the repository, `about` how it is described
-    (`private, user-owned`), `level` the standard it is audited against (None when the Lab has no template here),
+    (`private, user-owned`), `level` the standard it is audited against,
     `inapplicable` the ids whose `n.a.` says the rule does not apply to this repository, which is not a plan that falls short
     of the standard, and `optional` the ids whose `warn` is about something the plan sells and the standard does not ask
     for there (secret scanning on a private repository): `--strict` leaves both alone."""
@@ -207,7 +206,6 @@ class Applied(NamedTuple):
 class Standard(NamedTuple):
     """What `.github/standard.json` says that the audit needs. `error` is empty when the file was read."""
     level: Optional[int]
-    form: Optional[str]
     lab: Optional[str]
     error: str
     needs: Tuple[str, ...] = ()   # the catalogs it requires (`needs` of standard.json): each is read with NEEDS_SECRET
@@ -277,14 +275,6 @@ class Gh:
         return Reply(code, parsed if parsed is not None else {"message": err.splitlines()[0][:300] if err else ""})
 
 
-def as_reply(value) -> Reply:
-    if isinstance(value, Reply):
-        return value
-    if isinstance(value, (tuple, list)) and len(value) == 2 and isinstance(value[0], int):
-        return Reply(value[0], value[1])
-    raise TypeError("a runner answers a Reply(code, body)")
-
-
 class Reads:
     """The GET requests of one audit, each asked once."""
 
@@ -293,7 +283,7 @@ class Reads:
 
     def get(self, path: str) -> Reply:
         if path not in self.cache:
-            self.cache[path] = as_reply(self.runner("GET", path))
+            self.cache[path] = self.runner("GET", path)
         return self.cache[path]
 
     def pages(self, path: str, key: Optional[str] = None, limit: int = 5) -> Tuple[Reply, list]:
@@ -377,52 +367,23 @@ def _in_githubs_form(body: dict) -> None:
                                                     for each in params["restricted_file_extensions"]]
 
 
-def load_rulesets(folder: Optional[Path] = None) -> Tuple[Dict[str, dict], str]:
-    """({key: ruleset}, "") from the Lab's template with `_managed` taken off, or ({}, why not). Only the four files of the
-    template are read, and a link that leads out of the folder is not followed."""
-    folder = Path(RULESETS if folder is None else folder)
+def load_rulesets() -> Dict[str, dict]:
+    """{key: ruleset} from the Lab's own template, with `_managed` taken off."""
     found = {}
-    try:
-        root = os.path.realpath(folder)
-        for key, name in RULESET_FILES.items():
-            if key in OPTIONAL_RULESETS and not os.path.lexists(folder / name):
-                continue   # a template before standard 7
-            real = os.path.realpath(folder / name)
-            if os.path.dirname(real) != root:
-                return {}, f"{name} is not in the template's folder"
-            with open(real, "rb") as handle:
-                raw = handle.read(RULESET_LIMIT + 1)
-            if len(raw) > RULESET_LIMIT:
-                return {}, f"{name} is over {RULESET_LIMIT // 1024} KB"
-            body = json.loads(raw.decode("utf-8"))
-            if not isinstance(body, dict) or not isinstance(body.get("name"), str) or \
-                    body.get("target") not in ("branch", "tag", "push") or not isinstance(body.get("rules"), list):
-                return {}, f"{name} is not a ruleset"
-            body.pop("_managed", None)
-            _in_githubs_form(body)
-            found[key] = body
-    except (OSError, ValueError) as error:
-        return {}, f"the rulesets of the template could not be read ({type(error).__name__})"
-    return found, ""
-
-
-def template_level(folder: Optional[Path] = None) -> Optional[int]:
-    """The standard that the rulesets of the template say they are managed by (the number in their `_managed` line)."""
-    try:
-        with open(Path(RULESETS if folder is None else folder) / RULESET_FILES["main"], "rb") as handle:
-            body = json.loads(handle.read(RULESET_LIMIT).decode("utf-8"))
-    except (OSError, ValueError):
-        return None
-    found = re.search(r"standard (\d+)", str(as_dict(body).get("_managed")))
-    return int(found.group(1)) if found else None
+    for key, name in RULESET_FILES.items():
+        body = json.loads((RULESETS / name).read_text(encoding="utf-8"))
+        body.pop("_managed", None)
+        _in_githubs_form(body)
+        found[key] = body
+    return found
 
 
 def parse_standard(data) -> Standard:
     """The facts of a `standard.json` that the audit reads, each checked. The rest of the file is not looked at."""
     if not isinstance(data, dict):
-        return Standard(None, None, None, "it is not a JSON object")
-    level, form, lab = data.get("standard"), data.get("form"), as_dict(data.get("lab")).get("repository")
-    return Standard(level if is_int(level) and level >= 1 else None, form if form in ("inline", "reusable") else None,
+        return Standard(None, None, "it is not a JSON object")
+    level, lab = data.get("standard"), as_dict(data.get("lab")).get("repository")
+    return Standard(level if is_int(level) and level >= 1 else None,
                     lab if isinstance(lab, str) and REPO_NAME.fullmatch(lab) and ".." not in lab else None, "",
                     tuple(sorted(str(name) for name in as_dict(data.get("needs")))))
 
@@ -508,13 +469,12 @@ class _Audit:
         self.owner, self.name = repo.split("/", 1)
         self.reads = Reads(runner)
         self.found = Findings()
-        self.solo = options["solo"]
-        self.effective_only = options["effective_only"]
+        self.effective_only = bool(options.get("effective_only"))
         self.no_rulesets = False           # GitHub said the plan has none
         self.protected_paths_ok = False
         self.secret_state = ""
         self.listing_reply = Reply(200, None)
-        self._templates = None
+        self.templates = load_rulesets()
         self._listing = None
         self._standard = False
 
@@ -547,7 +507,7 @@ class _Audit:
             ("public" if meta.get("private") is False else "private")
         self.org = as_dict(meta.get("owner")).get("type") == "Organization"
         self.personal = self.visibility == "private" and not self.org
-        asked = self.options["as"]
+        asked = self.options.get("as")
         if asked in ("private", "internal") and self.visibility == "public":
             raise Usage(f"--as {asked} cannot describe a public repository.")
         self.profile = asked or self.visibility
@@ -555,16 +515,15 @@ class _Audit:
         branch = meta.get("default_branch")
         self.default = branch if isinstance(branch, str) and BRANCH_NAME.fullmatch(branch) else None
         self.found.repo = self.repo
-        self.found.level = template_level()
+        self.found.level = LEVEL
         self.found.about = f"{self.visibility}, {'organization' if self.org else 'user'}-owned" + \
             (f", audited as {self.profile}" if asked and asked != self.visibility else "")
 
     def standard(self) -> Optional[Standard]:
-        """The standard of the repository: the one given in the options, else the one read from `.github/standard.json` on
-        the default branch. None when the file is not there, which is a repository that is not a catalog yet."""
+        """The standard of the repository, read from `.github/standard.json` on the default branch. None when the file is not
+        there, which is a repository that is not a catalog yet."""
         if self._standard is False:
-            given = self.options["standard"]
-            self._standard = parse_standard(given) if given is not None else self.read_standard()
+            self._standard = self.read_standard()
         return self._standard
 
     def read_standard(self) -> Optional[Standard]:
@@ -577,49 +536,27 @@ class _Audit:
         size = body.get("size", 0)
         if reply.code != 200 or body.get("encoding") != "base64" or not isinstance(body.get("content"), str) or \
                 not is_int(size) or size > STANDARD_LIMIT or len(body["content"]) > 2 * STANDARD_LIMIT:
-            return Standard(None, None, None, refusal(reply) if reply.code != 200 else "it cannot be read")
+            return Standard(None, None, refusal(reply) if reply.code != 200 else "it cannot be read")
         try:
             return parse_standard(json.loads(base64.b64decode(body["content"]).decode("utf-8")))
         except (ValueError, binascii.Error, RecursionError):      # a contributor's file: brackets nested deeper than Python reads
-            return Standard(None, None, None, "it is not JSON")
+            return Standard(None, None, "it is not JSON")
 
-    def templates(self) -> Tuple[Dict[str, dict], str]:
-        if self._templates is None:
-            self._templates = load_rulesets()
-        return self._templates
-
-    def ruleset(self, key: str, solo: Optional[bool] = None) -> Optional[dict]:
-        """The template's ruleset `key` as it is applied here: `main` with the administrator bypass under --solo and with
-        the checks the caller named."""
-        body = copy.deepcopy(self.templates()[0].get(key))
-        if body is None:
-            return None
-        if key == "main":
-            keys = [dict(DEPLOY_KEY)] if DEPLOY_KEY in body.get("bypass_actors", []) else []
-            if self.solo if solo is None else solo:
-                body["bypass_actors"] = [dict(SOLO_BYPASS), *keys]
-            elif "bypass_actors" in body:
-                body["bypass_actors"] = keys
-            if self.options["required_checks"]:
-                for rule in body["rules"]:
-                    if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
-                        rule.setdefault("parameters", {})["required_status_checks"] = [
-                            {"context": name, "integration_id": ACTIONS_APP_ID} for name in self.options["required_checks"]]
-        return body
-
-    def ruleset_fix(self, key: str, solo: Optional[bool] = None):
+    def ruleset_fix(self, key: str):
         """The request that makes the template's ruleset `key` the one in force: the replacement of the ruleset of its name
-        when there is one, else its creation (`apply` asks again before it sends). Words when the template cannot be read. The
-        rulesets of main and of the tags come with their history (COMPANIONS): a deploy key passes the first, never the second."""
-        body = self.ruleset(key, solo)
-        if body is None:
-            return f"The Lab's rulesets are not here: {self.templates()[1] or 'update the Lab'}."
-        found = [self._ruleset_request(body)]
-        companion = self.ruleset(COMPANIONS[key]) if key in COMPANIONS else None
-        if companion is not None and not any(item["name"] == companion["name"] and item["target"] == companion["target"]
-                                             and item["source"] == "Repository" for item in self.rulesets()):
-            found.append(self._ruleset_request(companion))
+        when there is one, else its creation (`apply` asks again before it sends). The rulesets of main and of the tags come with
+        their history (COMPANIONS): a deploy key passes the first, never the second."""
+        found = [self._ruleset_request(self.templates[key])]
+        if key in COMPANIONS:
+            found += self._companion(key)
         return found
+
+    def _companion(self, key: str) -> list:
+        """The request that creates the history ruleset of `key`, when the repository does not have it."""
+        body = self.templates[COMPANIONS[key]]
+        have = any(item["name"] == body["name"] and item["target"] == body["target"] and item["source"] == "Repository"
+                   for item in self.rulesets())
+        return [] if have else [self._ruleset_request(body)]
 
     def _ruleset_request(self, body):
         for item in self.rulesets():
@@ -767,9 +704,7 @@ class _Audit:
         self.list_of_actions(body)
 
     def list_of_actions(self, body):
-        repo, standard = self.repo, self.standard()
-        reusable = standard is not None and standard.form == "reusable"
-        allowed = set(DOCKER_PATTERNS) | ({standard.lab + "/*"} if reusable and standard.lab else set())
+        repo = self.repo
         sel = None
         if body.get("allowed_actions") == "selected":
             sel = self.reads.get(f"repos/{repo}/actions/permissions/selected-actions")
@@ -778,16 +713,13 @@ class _Audit:
         patterns_now = as_list(as_dict(sel.body).get("patterns_allowed")) if sel is not None else []
         good = sel is not None and body.get("enabled") is True and as_dict(sel.body).get("github_owned_allowed") is True \
             and as_dict(sel.body).get("verified_allowed") is not True \
-            and all(within(pattern, allowed) for pattern in patterns_now)
+            and all(within(pattern, DOCKER_PATTERNS) for pattern in patterns_now)
         if good:
             return self.add("actions.listed", OK)
         now = shows(body, ("enabled", "allowed_actions")) + (
             ", " + shows(sel.body, ("github_owned_allowed", "verified_allowed", "patterns_allowed"))
             if sel is not None else "")
-        if reusable and not standard.lab:
-            return self.add("actions.listed", MANUAL, now="the standard says reusable but names no Lab repository, so the "
-                                                         "list of actions cannot be made")
-        patterns = sorted(allowed)
+        patterns = sorted(DOCKER_PATTERNS)
         if self.personal:
             # The pattern list may apply to public repositories only (V3): a list half in place is worse than none
             return self.add("actions.listed", WARN, now=now,
@@ -797,7 +729,7 @@ class _Audit:
                                 f"{', '.join(patterns)}")
         self.add("actions.listed", FAIL, now=now, fix=[
             request("PUT", f"repos/{repo}/actions/permissions",
-                    {"enabled": True, "allowed_actions": "selected", "sha_pinning_required": True}, enables_list=True),
+                    {"enabled": True, "allowed_actions": "selected", "sha_pinning_required": True}),
             request("PUT", f"repos/{repo}/actions/permissions/selected-actions",
                     {"github_owned_allowed": True, "verified_allowed": False, "patterns_allowed": patterns})])
 
@@ -914,12 +846,10 @@ class _Audit:
             if reply.code != 200:
                 return self.unreadable("actions.org_secrets", reply)
             names += names_of(items)
-        extra = sorted(set(names) - set(self.options["allow_org_secrets"]))
-        if not extra:
+        if not names:
             return self.add("actions.org_secrets", OK)
-        self.add("actions.org_secrets", FAIL, now="also: " + ", ".join(clean(name, 60) for name in extra),
-                 fix="Scope them to other repositories, or name them as the maintainers' own with --allow-org-secret NAME: "
-                     "they reach a workflow on any branch")
+        self.add("actions.org_secrets", FAIL, now="also: " + ", ".join(clean(name, 60) for name in sorted(set(names))),
+                 fix="Scope them to other repositories: they reach a workflow on any branch")
 
     def runners(self):
         repo, setting = self.repo, "Runner groups: Selected repositories, never a catalog; Allow public repositories off"
@@ -1076,9 +1006,7 @@ class _Audit:
                 self.add(id, OK)
             else:
                 self.add(id, FAIL, now="missing", fix=fix)
-        template = as_dict(self.templates()[0].get("main"))
-        want = {rule["type"]: as_dict(rule.get("parameters")) for rule in as_list(template.get("rules"))
-                if isinstance(rule, dict) and isinstance(rule.get("type"), str)}
+        want = {rule["type"]: rule.get("parameters", {}) for rule in self.templates["main"]["rules"]}
         self.pull_request(by_type, want, fix)
         self.checks(by_type, want, fix)
         if not self.effective_only:
@@ -1088,8 +1016,6 @@ class _Audit:
             self.push_rules()
 
     def pull_request(self, by_type, want, fix):
-        if "pull_request" not in want:
-            return self.add("rules.pull_request", MANUAL, now=self.templates()[1] or "the template has no pull_request rule")
         if "pull_request" not in by_type:
             return self.add("rules.pull_request", FAIL, now="missing", fix=fix)
         unmet = _unmet("pull_request", want["pull_request"], by_type["pull_request"])
@@ -1098,20 +1024,11 @@ class _Audit:
         self.add("rules.pull_request", OK)
 
     def checks(self, by_type, want, fix):
-        params = as_dict(want.get("required_status_checks"))
-        if not params:
-            return self.add("rules.checks", MANUAL,
-                            now=self.templates()[1] or "the template has no required_status_checks rule")
-        in_template = [c["context"] for c in map(as_dict, as_list(params.get("required_status_checks")))
-                       if isinstance(c.get("context"), str)]
-        names = self.options["required_checks"] or in_template
-        # The rule's title names the checks it asks for: those given (--required-check) rather than the template's
-        title = None if names == in_template else (
-            f"The check{'s' if len(names) > 1 else ''} {' and '.join(clean(name, 100) for name in names)}, run by GitHub Actions, "
-            f"pass{'' if len(names) > 1 else 'es'} first, on an up to date branch")
+        params = want["required_status_checks"]
+        names = [check["context"] for check in params["required_status_checks"]]
         instances = by_type.get("required_status_checks", [])
         if not instances:
-            return self.add("rules.checks", FAIL, title, now="missing", fix=fix)
+            return self.add("rules.checks", FAIL, now="missing", fix=fix)
         bound = {(plain(as_dict(c).get("context")), plain(as_dict(c).get("integration_id"))) for item in instances
                  for c in as_list(item.get("required_status_checks"))}
         problems = []
@@ -1122,8 +1039,8 @@ class _Audit:
         flags = {key: value for key, value in params.items() if key != "required_status_checks"}
         problems += _unmet("required_status_checks", flags, instances)
         if problems:
-            return self.add("rules.checks", FAIL, title, now="; ".join(problems), fix=fix)
-        self.add("rules.checks", OK, title)
+            return self.add("rules.checks", FAIL, now="; ".join(problems), fix=fix)
+        self.add("rules.checks", OK)
 
     def bypass(self, effective):
         # GitHub lists the rules of push rulesets among those of the branch; who may push past them is no way to merge a pull
@@ -1143,13 +1060,7 @@ class _Audit:
             return self.add("rules.bypass", MANUAL, now=hidden or "GitHub did not say which ruleset the rules come from")
         actors = sorted(set(actors) - {DEPLOY_TUPLE}, key=repr)   # a deploy key pushes what versions.yml recorded
         if not actors:
-            if self.solo:
-                return self.add("rules.bypass", FAIL, now="--solo asks for one administrator, in pull request mode, and there "
-                                                           "is none", fix=self.ruleset_fix("main", True))
             return self.add("rules.bypass", OK)
-        if actors == [SOLO_TUPLE]:
-            return self.add("rules.bypass", WARN, now="one administrator can merge their own pull request",
-                            fix=None if self.solo else self.ruleset_fix("main", False))
         self.add("rules.bypass", FAIL, now="bypass: " + clean(actors), fix=self.ruleset_fix("main"))
 
     def tags(self):
@@ -1215,8 +1126,7 @@ class _Audit:
                 for item, body in details.values())
             if not guarded:
                 problems.append(f"nothing keeps a deploy key from deleting or rewriting {'main' if target == 'branch' else 'a tag'}")
-                fix = self.ruleset_fix(key)
-                fixes += fix if isinstance(fix, list) else []
+                fixes += self.ruleset_fix(key)
         reply, keys = self.reads.pages(f"repos/{self.repo}/keys")
         if reply.code != 200 and not problems:
             return self.add("rules.deploy_key", MANUAL, now=f"the deploy keys cannot be read ({refusal(reply)})",
@@ -1232,23 +1142,17 @@ class _Audit:
     def deploy_key_fixes(self, details) -> list:
         """The requests that let the deploy key of versions.yml through the rulesets of main and of the tags, as the template of
         this standard does: the key added to their bypass, nothing else changed (an administrator who bypasses keeps it), and
-        the rulesets that keep it from deleting or rewriting main and the tags created when they are not there. None when the
-        template lets no deploy key through (a standard before 7)."""
+        the rulesets that keep it from deleting or rewriting main and the tags created when they are not there."""
         requests = []
         for key in ("main", "tags"):
-            template = self.ruleset(key)
-            if template is None or DEPLOY_KEY not in as_list(template.get("bypass_actors")):
-                return []
+            template = self.templates[key]
             for item, body in details.values():
                 if item["name"] == template["name"] and item["target"] == template["target"] \
                         and DEPLOY_KEY not in as_list(body.get("bypass_actors")):
                     kept = {field: body[field] for field in ("name", "target", "enforcement", "conditions", "rules") if field in body}
                     kept["bypass_actors"] = [*as_list(body.get("bypass_actors")), dict(DEPLOY_KEY)]
                     requests.append(request("PUT", f"repos/{self.repo}/rulesets/{item['id']}", kept, ruleset=item["name"]))
-            companion = self.ruleset(COMPANIONS[key])
-            if companion is not None and not any(item["name"] == companion["name"] and item["target"] == companion["target"]
-                                                 and item["source"] == "Repository" for item in self.rulesets()):
-                requests.append(self._ruleset_request(companion))
+            requests += self._companion(key)
         return requests
 
     def reaches_main(self, conditions) -> bool:
@@ -1267,9 +1171,7 @@ class _Audit:
                 self.push_rule(key, id)
 
     def push_rule(self, key, id):
-        template = self.templates()[0].get(key)
-        if template is None:
-            return self.add(id, MANUAL, now=self.templates()[1])
+        template = self.templates[key]
         listing = self.rulesets()
         if not listing and self.listing_reply.code != 200:
             return self.refused_or(id, self.listing_reply, NO_RULES)
@@ -1317,7 +1219,7 @@ class _Audit:
             self.add("security.scanning", OK)
         else:
             # On a private repository it is a paid add-on, also when the repository is audited as a public one: something
-            # to do when it is bought and never sent without --warnings, not a failure. The standard asks for it on a
+            # to do when it is bought, not a failure. The standard asks for it on a
             # private or internal repository nowhere, so --strict leaves it alone unless the audit is the go-public
             # gate, which lists what only a public repository can have
             wanted = {"security_and_analysis": {key: {"status": "enabled"} for key in ANALYSIS_KEYS}}
@@ -1389,32 +1291,14 @@ class _Audit:
         self.add("people.write", MANUAL, now=shown)
 
 
-def _options(options) -> dict:
-    given = dict(options or {})
-    asked = given.get("as")
-    if asked not in (None, "public", "private", "internal"):
-        raise Usage("--as takes public, private or internal.")
-    out = {}
-    for key, what in (("required_checks", "--required-check takes the name of a check."),
-                      ("allow_org_secrets", "--allow-org-secret takes a name.")):
-        names = list(as_list(given.get(key)))
-        if not all(isinstance(name, str) and 1 <= len(name) <= 100 and name.isprintable() for name in names):
-            raise Usage(what)
-        out[key] = names
-    return {"as": asked, "solo": bool(given.get("solo")), "effective_only": bool(given.get("effective_only")),
-            "standard": given.get("standard"), **out}
-
-
 def audit(repo: str, runner: Callable, options: Optional[dict] = None) -> Findings:
     """The findings for `repo` ("OWNER/REPO"), read through `runner`. `options`: `as` (public, private or internal: the
-    visibility the repository is audited against, else its own), `solo`, `effective_only`, `required_checks` (names that
-    replace "Catalog CI result"), `allow_org_secrets` (the names of the organization secrets and variables that are the
-    maintainers' own), `standard` (the parsed `.github/standard.json`, else it is read from the repository). Writes nothing.
+    visibility the repository is audited against, else its own), `effective_only`. Writes nothing.
     Raises Unusable for a repository that cannot be read and for a sign-in that is missing."""
     if not isinstance(repo, str) or not REPO_NAME.fullmatch(repo) or repo.endswith(".git") \
             or repo.split("/")[1] in (".", ".."):
         raise Usage("The repository is OWNER/REPO on github.com.")
-    return _Audit(repo, runner, _options(options)).run()
+    return _Audit(repo, runner, options or {}).run()
 
 
 # ---------------------------------------------------------------- apply
@@ -1461,29 +1345,24 @@ def _merge(wanted: List[Tuple[str, dict]]) -> List[Tuple[tuple, dict, List[str]]
     return [(key, req, ids) for key, (req, ids) in steps.items()]
 
 
-def apply(repo: str, runner: Callable, findings: list, yes: bool, warnings: bool = False) -> List[Applied]:
-    """The requests that bring `repo` to the standard, from the fixes of `findings` that failed (and that warn, with
-    `warnings`). Without `yes` they are only listed: no request but a read is made. A request of one fix is not made when an
+def apply(repo: str, runner: Callable, findings: list, yes: bool) -> List[Applied]:
+    """The requests that bring `repo` to the standard, from the fixes of `findings` that failed. Without `yes` they are only listed: no request but a read is made. A request of one fix is not made when an
     earlier request of that fix was refused or skipped, so an allow-list never comes in without its patterns. Rulesets are
     looked for by name just before they are sent: replaced if there, else created. A request is `done` when GitHub answered
     2xx; no answer is `refused` like a refusal is."""
-    wanted = [(finding.id, req) for finding in findings if finding.status == FAIL or (warnings and finding.status == WARN)
+    wanted = [(finding.id, req) for finding in findings if finding.status == FAIL
               for req in (finding.fix if isinstance(finding.fix, list) else [])]
     steps = _merge(wanted)
     chain: Dict[str, list] = {}
     for key, _, ids in steps:
         for id in ids:
             chain.setdefault(id, []).append(key)
-    lists_patterns = any(req["path"].endswith("/actions/permissions/selected-actions")
-                         and as_list(as_dict(req.get("body")).get("patterns_allowed")) for _, req, _ in steps)
     out, stopped = [], set()
     for key, req, ids in steps:
         method, path, body = req["method"], req["path"], req.get("body")
         reason = None
         if not allowed(repo, method, path, body):
             reason = "this is not a request repo-settings makes"
-        elif req.get("enables_list") and not lists_patterns:
-            reason = "an allow-list is not enabled without its patterns"
         elif any(earlier in stopped for id in ids for earlier in chain[id][:chain[id].index(key)]):
             reason = "an earlier request of the same fix was not made"
         elif "ruleset" in req:
@@ -1496,7 +1375,7 @@ def apply(repo: str, runner: Callable, findings: list, yes: bool, warnings: bool
         elif not yes:
             out.append(Applied(method, path, body, "planned", ""))
         else:
-            reply = as_reply(runner(method, path, body))
+            reply = runner(method, path, body)
             if 200 <= reply.code < 300:
                 out.append(Applied(method, path, body, "done", ""))
             else:
@@ -1549,11 +1428,6 @@ def fix_lines(fix) -> List[str]:
     return [f"{req['method']} {req['path']}" for req in fix] if isinstance(fix, list) else []
 
 
-def escape(text: str) -> str:
-    """Data of a workflow command of GitHub Actions: nothing in it can end the command or begin another."""
-    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-
-
 def render(findings, fmt: str = "text") -> str:
     """The audit as text (the table), as `github` annotations, or as one JSON document with sorted keys."""
     repo, about, level = getattr(findings, "repo", ""), getattr(findings, "about", ""), getattr(findings, "level", None)
@@ -1562,7 +1436,7 @@ def render(findings, fmt: str = "text") -> str:
                            "not_applicable": sorted(getattr(findings, "inapplicable", ())),
                            "findings": [finding._asdict() for finding in findings]}, indent=2, sort_keys=True)
     if fmt == "github":
-        return "\n".join(f"::{'error' if finding.status == FAIL else 'warning'} title={finding.id}::" + escape(
+        return "\n".join(f"::{'error' if finding.status == FAIL else 'warning'} title={finding.id}::" + escape_data(
             finding.title + (f": {finding.now}" if finding.now else "")) for finding in findings
             if finding.status in (FAIL, WARN))
     width = max([len(finding.id) for finding in findings] or [0])
@@ -1578,10 +1452,8 @@ def render(findings, fmt: str = "text") -> str:
     return "\n".join(lines)
 
 
-def render_applied(applied: List[Applied], fmt: str = "text") -> str:
+def render_applied(applied: List[Applied]) -> str:
     """The requests of `apply`: the `gh api` commands of a dry run, else what became of each."""
-    if fmt == "json":
-        return json.dumps([item._asdict() for item in applied], indent=2, sort_keys=True)
     if not applied:
         return "Nothing to change"
     lines = []
@@ -1647,33 +1519,15 @@ class Parser(argparse.ArgumentParser):
         raise Usage(text)
 
 
-def _name(text: str) -> str:
-    if not 1 <= len(text) <= 100 or not text.isprintable():
-        raise argparse.ArgumentTypeError("a name of 1 to 100 printable characters")
-    return text
-
-
-USAGE = """catalog.py repo-settings [OWNER/REPO or FOLDER] [--apply [--yes] [--warnings]] [--solo] [--effective-only]
-                         [--strict] [--as public or private or internal] [--required-check NAME]
-                         [--allow-org-secret NAME] [--fleet OWNER] [--format text or json or github]
-
-Audits the repository standard of a catalog on GitHub, through the gh command of the maintainer. --apply lists the
-requests that bring the repository to the standard, --yes makes them. Exit 0 when nothing failed, 1 when a rule failed
-(with --strict also a warning or a plan that cannot enforce a rule), 2 when it cannot be done."""
-
-
 def parser() -> argparse.ArgumentParser:
-    p = Parser(prog="catalog.py repo-settings", add_help=False)
+    p = Parser(prog="catalog.py repo-settings", description="Audits the repository standard of a catalog on GitHub, through the gh "
+               "command of the maintainer. --apply lists the requests that bring the repository to the standard, --yes makes them.")
     p.add_argument("target", nargs="?", help="OWNER/REPO or a folder (default: this folder)")
     p.add_argument("--apply", action="store_true")
     p.add_argument("--yes", action="store_true")
-    p.add_argument("--warnings", action="store_true")
-    p.add_argument("--solo", action="store_true")
     p.add_argument("--effective-only", action="store_true")
     p.add_argument("--strict", action="store_true")
     p.add_argument("--as", dest="visibility", choices=("public", "private", "internal"))
-    p.add_argument("--required-check", action="append", default=[], type=_name)
-    p.add_argument("--allow-org-secret", action="append", default=[], type=_name)
     p.add_argument("--fleet", metavar="OWNER")
     p.add_argument("--format", choices=("text", "json", "github"), default="text")
     return p
@@ -1685,17 +1539,13 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
     with --apply --yes, when GitHub refused a request), 2 when it cannot be done: no `gh`, no sign-in, a repository that is
     not on GitHub, a command line that makes no sense. Every exit 2 is one line on standard error."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
-    if argv is not None and any(word in ("-h", "--help") for word in argv):
-        print(USAGE, file=out)
-        return 0
     try:
         args = parser().parse_args(argv)
-        if (args.yes or args.warnings) and not args.apply:
-            raise Usage("--yes and --warnings go with --apply.")
+        if args.yes and not args.apply:
+            raise Usage("--yes goes with --apply.")
         if args.fleet is not None and (args.target or args.apply):
             raise Usage("--fleet audits every catalog of an owner: it takes no repository and no --apply.")
-        options = {"as": args.visibility, "solo": args.solo, "effective_only": args.effective_only,
-                   "required_checks": args.required_check, "allow_org_secrets": args.allow_org_secret}
+        options = {"as": args.visibility, "effective_only": args.effective_only}
         runner = runner or Gh()
         if args.fleet is not None:
             from . import fleet
@@ -1707,7 +1557,7 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, gi
         if not args.apply:
             print(render(findings, args.format), file=out)
             return exit_code(findings, args.strict)
-        applied = apply(repo, runner, findings, args.yes, args.warnings)
+        applied = apply(repo, runner, findings, args.yes)
         if args.format == "json":
             document = json.loads(render(findings, "json"))
             document["requests"] = [item._asdict() for item in applied]

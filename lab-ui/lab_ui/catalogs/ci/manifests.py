@@ -52,11 +52,9 @@ def images_of(unit: Loaded, version_sets: Callable, notes: List[str]) -> List[st
     from ... import e2e
     found = set(version_sets(unit.config.get("services") or {}))
     sets = [each for each in unit.tested if each]
-    if sets and unit.resolve is None:
-        notes.append(f"{unit.key}: the sets of versions it was tried with were not read")
-    for number in range(len(sets) if unit.resolve is not None else 0):
+    for number in range(len(sets)):
         try:
-            chosen = e2e.versions({"name": unit.name, "tested": sets}, number, None if unit.variables is None else set(unit.variables))
+            chosen = e2e.versions({"name": unit.name, "tested": sets}, number, set(unit.variables))
         except ValueError:
             notes.append(f"{unit.key}: set {number} of x-gravitee.tested sets something that is not the version or the "
                          "registry of an image, so it was not read")
@@ -129,15 +127,12 @@ def main(argv, out, err, **seams) -> int:
     found = parser("manifests", "Every image the touched units pull exists in its registry.", units=True)
     args = parsed(found, argv)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     loading = load(os.path.abspath(args.path), names)
     problems = refusals(loading.refused, "read")
-    skipped = list(loading.notes)
+    skipped: List[str] = []
     if loading.units:
         more, results, notes = run(loading.units, seams.get("ask"), seams.get("module"))
         problems += more
         skipped += notes
-        if args.format != "json":
-            out.write("\n".join(lines(results)) + "\n" if results else "")
-    return conclude("manifests", problems, args, out, "make ci", skipped, title="Every image exists in its registry")
+        out.write("\n".join(lines(results)) + "\n" if results else "")
+    return conclude(problems, args, out, "make ci", skipped, title="Every image exists in its registry")
