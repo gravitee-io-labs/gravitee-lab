@@ -1667,16 +1667,16 @@ def _kept_path(ns, rel):
     return os.path.join(paths.ROOT, moves.MIGRATION, "kept", "catalogs", ns, rel)
 
 
-def _relocate_into(source, target, rel, why, found):
+def _relocate_into(source, target, rel, found):
     """`moves.relocate` of `source/rel` to `target/rel`; where a folder is in both places it goes entry by entry (a
     `.state` or `secrets` folder only moves whole). Adds (path, result) to `found` for what was moved or could not be.
     """
     here, there = os.path.join(source, rel), os.path.join(target, rel)
-    result = moves.relocate(here, there, why)
+    result = moves.relocate(here, there)
     whole = os.path.basename(rel).lower() in _SECRET_DIRS
     if result == "conflict" and _real_dir(here) and _real_dir(there) and not whole:
         for child in sorted(os.listdir(here)):
-            _relocate_into(source, target, f"{rel}/{child}", why, found)
+            _relocate_into(source, target, f"{rel}/{child}", found)
     else:
         found.append((rel, result))
 
@@ -1692,10 +1692,10 @@ def _shadow_run(ns, record) -> dict:
                 continue
             _step("shadow:move")
             found = []
-            _relocate_into(root, target, top, "shadow", found)
+            _relocate_into(root, target, top, found)
             for rel, result in found:
                 if result == "conflict":   # the working copy's file wins; the install's is kept, not lost
-                    moves.relocate(os.path.join(root, rel), _kept_path(ns, rel), "shadow-conflict")
+                    moves.relocate(os.path.join(root, rel), _kept_path(ns, rel))
                     result = "kept"
                 record["moves"].append({"path": rel, "result": result})
                 done.add(rel)
@@ -1769,8 +1769,7 @@ def _unshadow_run(ns, record) -> dict:
             if one["result"] not in ("moved", "copied"):
                 continue
             _step("unshadow:move")
-            if moves.relocate(os.path.join(record["folder"], one["path"]), os.path.join(root, one["path"]),
-                              "unshadow") == "moved":
+            if moves.relocate(os.path.join(record["folder"], one["path"]), os.path.join(root, one["path"])) == "moved":
                 moved.append(one["path"])
         _step("unshadow:config")
         config = registry.read_config() or {"schema": 1, "catalogs": []}

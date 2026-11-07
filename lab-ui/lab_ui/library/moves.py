@@ -3,12 +3,11 @@ catalog: `relocate` moves a file or a folder and never overwrites, `repoint` wri
 moved, `rekey` follows an item to its new id in the stars and the tested sets.
 
 State based and idempotent: every function reads the disk and does what is left to do, so a run that crashed is run
-again, never undone. Every move is written to the journal (`.lab/migration/journal.jsonl`: paths, never a content)
-before it is made. Nothing here runs Docker, git or the network: whether git tracks a file is read from the index itself.
+again, never undone. Nothing here runs Docker, git or the network: whether git tracks a file is read from the index itself.
 `STEP` is the hook a test sets to crash a run between two steps.
 
-One folder of `.lab` is only for the person (0700, and so is whatever is made in it): `migration/`, with the journal and
-what was kept aside."""
+One folder of `.lab` is only for the person (0700, and so is whatever is made in it): `migration/`, with what was kept
+aside."""
 
 import errno
 import filecmp
@@ -20,19 +19,15 @@ import re
 import shutil
 import stat
 import struct
-import threading
-import time
 import unicodedata
 
 from .. import paths
 
 # A test sets it to a callable that takes the name of the step it is about to take and raises to stop the run there:
-# relocate:before, :journaled, :copy, :copied and :renamed, rekey:starred and :tested, and <why>:entry for each entry
-# `merge` moves
+# rekey:starred and :tested, and merge:entry for each entry `merge` moves
 STEP = None
 
-MIGRATION = f"{paths.LAB_DIR}/migration"   # the journal, and what was kept aside
-JOURNAL = f"{MIGRATION}/journal.jsonl"
+MIGRATION = f"{paths.LAB_DIR}/migration"   # what was kept aside
 STARRED = f"{paths.LAB_DIR}/starred.json"
 TESTED = f"{paths.LAB_DIR}/tested.json"
 TESTED_KEPT = 20   # per playground: the latest sets
@@ -118,61 +113,6 @@ def _discard(path):
             else:
                 os.rmdir(full)
     os.rmdir(path)
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# The journal
-# ---------------------------------------------------------------------------------------------------------------------
-
-_JOURNAL = threading.Lock()
-
-
-def _now():
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-def journal_path():
-    return paths.ROOT / JOURNAL
-
-
-def journal(op, **fields):
-    """Adds one line to the journal: the operation, what it names (paths, ids, counts; never a content) and the time.
-    Appended whole in one write, after a newline if a crash tore the line before. ASCII only, so a name that is not
-    valid UTF-8 survives the round trip."""
-    line = json.dumps({"op": op, **fields, "at": _now()}, default=str, separators=(",", ":")) + "\n"
-    file = journal_path()
-    with _JOURNAL:
-        _parents(str(file))
-        descriptor = os.open(file, os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-        try:
-            size = os.fstat(descriptor).st_size
-            torn = size and os.pread(descriptor, 1, size - 1) != b"\n"
-            os.write(descriptor, (b"\n" if torn else b"") + line.encode("ascii"))
-        finally:
-            os.close(descriptor)
-
-
-def read_journal():
-    """The lines of the journal that read, oldest first: a torn or foreign line is skipped, not an error."""
-    try:
-        raw = journal_path().read_bytes()
-    except OSError:
-        return []
-    found = []
-    for line in raw.decode("utf-8", errors="replace").split("\n"):
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(entry, dict) and isinstance(entry.get("op"), str):
-            found.append(entry)
-    return found
-
-
-def _copied_before(source, target):
-    """Whether the journal says `target` is a copy of `source` that was made here: it was kept, not a conflict."""
-    pair = (_rel(source), _rel(target))
-    return any(entry.get("op") == "copied" and (entry.get("src"), entry.get("dst")) == pair for entry in read_journal())
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -302,36 +242,31 @@ def tracked(path):
 def _copy_readable(source, target):
     """Copies what can be read of a file, a link or a folder to `target`, which is not there: links stay links and are
     never followed, modes and times are kept (the mode of `target` itself too: see `_sealed`), what cannot be read or is
-    not a file (a socket, a device) is left out. Answers how many entries were left out."""
-    left, folders, work = 0, [], [(source, target)]
+    not a file (a socket, a device) is left out."""
+    folders, work = [], [(source, target)]
     while work:
         origin, copy = work.pop()
         try:
             info = os.lstat(origin)
         except OSError:
-            left += 1
             continue
         if stat.S_ISLNK(info.st_mode):
             try:
                 os.symlink(os.readlink(origin), copy)
             except OSError:
-                left += 1
+                pass
         elif stat.S_ISDIR(info.st_mode):
             os.mkdir(copy, _COPY_MODE)   # its own mode comes last, once what is inside is in
             folders.append((copy, info))
             try:
                 names = sorted(os.listdir(origin))
             except OSError:
-                left += 1
                 continue
             work.extend((os.path.join(origin, name), os.path.join(copy, name)) for name in reversed(names))
         elif stat.S_ISREG(info.st_mode):
-            left += not _copy_file(origin, copy, info)
-        else:
-            left += 1
+            _copy_file(origin, copy, info)
     for copy, info in reversed(folders[1:]):   # the top one waits until it is renamed: a read-only folder cannot be
         _sealed(copy, info)
-    return left
 
 
 def _sealed(copy, info):
@@ -364,24 +299,19 @@ def _copy_file(origin, copy, info):
         os.close(reader)
 
 
-def _kept_copy(source, target, why):
+def _kept_copy(source, target):
     """The rename was refused for want of a right (a folder a container made as root, a read-only folder): the readable
-    part is copied next to `target` and renamed to it, and the original stays. The journal says so before the last
-    rename, so that a crash after it is a copy that was kept, not a conflict."""
+    part is copied next to `target` and renamed to it, and the original stays."""
     partial = target + ".partial"
     _discard(partial)
-    left = _copy_readable(source, partial)
-    _step("relocate:copy")
-    journal("copied", src=_rel(source), dst=_rel(target), why=why, left=left)
-    _step("relocate:copied")
+    _copy_readable(source, partial)
     os.rename(partial, target)
-    _step("relocate:renamed")
     if os.path.isdir(target) and not os.path.islink(target):
         _sealed(target, os.lstat(source))
     return "copied"
 
 
-def _across_devices(source, target, why):
+def _across_devices(source, target):
     """The rename crossed a filesystem. A file or a link is copied, checked byte for byte and removed from where it was;
     a folder is left where it is, since a copy of a tree that is then deleted cannot be undone half way."""
     info = os.lstat(source)
@@ -392,45 +322,13 @@ def _across_devices(source, target, why):
     elif stat.S_ISREG(info.st_mode):
         _discard(partial)
         if not _copy_file(source, partial, info):
-            return _stayed(source, target, why)
+            return "stayed"
         if os.path.getsize(partial) != info.st_size or not filecmp.cmp(source, partial, shallow=False):
             _discard(partial)
             raise OSError(errno.EIO, f"The copy of {_rel(source)} differs from it")
     else:
-        return _stayed(source, target, why)
-    _step("relocate:copy")
-    journal("copied", src=_rel(source), dst=_rel(target), why=why, left=0)
-    _step("relocate:copied")
+        return "stayed"
     os.rename(partial, target)
-    _step("relocate:renamed")
-    try:
-        os.unlink(source)
-    except OSError:
-        return "copied"
-    return "moved"
-
-
-def _stayed(source, target, why):
-    """The move announced in the journal was not made: a line says so, for whoever reads the journal for what happened."""
-    journal("stayed", src=_rel(source), dst=_rel(target), why=why)
-    return "stayed"
-
-
-def _finished(source, target):
-    """A copy made across devices whose original was not removed yet (a crash between the two): the same file or the
-    same link, so the original goes. A folder, or a file that differs, is left; a folder copy that a crash left without
-    its mode gets it."""
-    kinds = [stat.S_IFMT(os.lstat(path).st_mode) for path in (source, target)]
-    if kinds == [stat.S_IFDIR, stat.S_IFDIR]:   # the crash may have come before the folder had its mode
-        original = os.lstat(source)
-        # Only a copy that still has the mode it was made with: one made writable since is left as it is
-        if stat.S_IMODE(os.lstat(target).st_mode) == _COPY_MODE and stat.S_IMODE(original.st_mode) != _COPY_MODE:
-            _sealed(target, original)
-    same = kinds[0] == kinds[1] and (
-        (kinds[0] == stat.S_IFLNK and os.readlink(source) == os.readlink(target))
-        or (kinds[0] == stat.S_IFREG and filecmp.cmp(source, target, shallow=False)))
-    if not same:
-        return "copied"
     try:
         os.unlink(source)
     except OSError:
@@ -447,13 +345,12 @@ def _holds_project(path):
     return _inside(root, path) or _inside(os.path.realpath(root), os.path.join(os.path.realpath(parent), name))
 
 
-def relocate(src, dst, why: str) -> str:
+def relocate(src, dst) -> str:
     """Moves a file, a link or a folder to a place that is free, whole and with its mode, owner and unreadable children,
-    by one rename, and writes it to the journal first. A path is relative to the project or absolute. Answers
-    "gone" when `src` is not there (already moved), "conflict" when `dst` is (nothing is overwritten or merged),
-    "moved", "copied" when the rename was refused for a right and the readable part was copied while the original
-    stays (a repeat answers "copied" again and copies nothing), and "stayed" for a folder on another filesystem or one
-    that is busy. A link moves as a link, never followed. Refused (raises) when a path is empty, when `src` is the
+    by one rename. A path is relative to the project or absolute. Answers "gone" when `src` is not there (already moved),
+    "conflict" when `dst` is (nothing is overwritten or merged), "moved", "copied" when the rename was refused for a right
+    and the readable part was copied while the original stays, and "stayed" for a folder on another filesystem or one that
+    is busy. A link moves as a link, never followed. Refused (raises) when a path is empty, when `src` is the
     project folder or one above it, when git tracks `src`, when `dst` is `src` or inside it; any other error of the
     disk is raised, never swallowed. The caller's locks keep another writer away between the check and the rename."""
     if not os.fspath(src).strip() or not os.fspath(dst).strip():   # `_abs` would make of it the project folder
@@ -468,22 +365,18 @@ def relocate(src, dst, why: str) -> str:
     if tracked(source):
         raise Refused(f"{_rel(source)} is tracked by git: it is not moved")
     if os.path.lexists(target):
-        return _finished(source, target) if _copied_before(source, target) else "conflict"
-    _step("relocate:before")
+        return "conflict"
     _parents(target)
-    journal("move", src=_rel(source), dst=_rel(target), why=why)
-    _step("relocate:journaled")
     try:
         os.rename(source, target)
     except PermissionError:
-        return _kept_copy(source, target, why)
+        return _kept_copy(source, target)
     except OSError as error:
         if error.errno == errno.EXDEV:
-            return _across_devices(source, target, why)
+            return _across_devices(source, target)
         if error.errno in (errno.EBUSY, errno.ETXTBSY):
-            return _stayed(source, target, why)
+            return "stayed"
         raise
-    _step("relocate:renamed")
     return "moved"
 
 
@@ -591,18 +484,17 @@ def _replaced(file, text):
 
 
 def _stars(pairs):
-    """starred.json with every old id of the pairs replaced by the new one; the ids that changed, [] when none."""
+    """starred.json with every old id of the pairs replaced by the new one."""
     found = _object(STARRED)
-    changed = []
+    changed = False
     for kind, old, new in pairs:
         ids = found.get(kind) if found else None
         if isinstance(ids, list) and old in ids:
             found[kind] = sorted({uid for uid in ids if isinstance(uid, str) and uid != old} | {new})
-            changed.append((kind, old, new))
+            changed = True
     if changed:
         _step("rekey:starred")
         _replaced(STARRED, json.dumps(found, indent=2) + "\n")
-    return changed
 
 
 def _union(old, new):
@@ -620,18 +512,16 @@ def _union(old, new):
 
 
 def _tested(pairs):
-    """tested.json with the sets of every old playground id under the new one, joined with the ones it has; the pairs
-    that changed it."""
+    """tested.json with the sets of every old playground id under the new one, joined with the ones it has."""
     found = _object(TESTED)
-    changed = []
+    changed = False
     for kind, old, new in pairs:
         if kind == "playground" and found and isinstance(found.get(old), list):
             found[new] = _union(found.pop(old), found.get(new))
-            changed.append((kind, old, new))
+            changed = True
     if changed:
         _step("rekey:tested")
         _replaced(TESTED, json.dumps(found, indent=2, sort_keys=True))
-    return changed
 
 
 def rekey(mapping: dict) -> None:
@@ -641,9 +531,8 @@ def rekey(mapping: dict) -> None:
     file is replaced whole, and only when it changes; a file that does not read is not touched; an id nothing refers
     to is not an error. Repeating it changes nothing."""
     pairs = _pairs(mapping)
-    changed = _stars(pairs) + _tested(pairs)
-    if changed:
-        journal("rekey", ids={f"{kind}:{old}": new for kind, old, new in changed})
+    _stars(pairs)
+    _tested(pairs)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -658,7 +547,7 @@ def _plain(path):
         return False
 
 
-def _merge(origin, home, inside, found, why, depth=0, everywhere=False):
+def _merge(origin, home, inside, found, depth=0, everywhere=False):
     """Moves what is in the folder `origin` into `home`, a folder that exists. An entry that is a container (a folder
     `home` has too, other than the whole entries at the top, or at any depth with `everywhere`) is merged; every other entry
     is moved whole and never over what is there. Adds {"path", "result"} to `found` for each."""
@@ -666,13 +555,13 @@ def _merge(origin, home, inside, found, why, depth=0, everywhere=False):
         here, there = os.path.join(origin, name), os.path.join(home, name)
         whole = (depth == 0 or everywhere) and name in WHOLE
         if _plain(here) and _plain(there) and depth < DEEP and not whole:
-            _merge(here, there, f"{inside}{name}/", found, why, depth + 1, everywhere)
+            _merge(here, there, f"{inside}{name}/", found, depth + 1, everywhere)
             continue
-        _step(f"{why}:entry")
-        found.append({"path": f"{inside}{name}", "result": relocate(here, there, why)})
+        _step("merge:entry")
+        found.append({"path": f"{inside}{name}", "result": relocate(here, there)})
 
 
-def merge(origin: str, home: str, why: str, everywhere: bool = False) -> list:
+def merge(origin: str, home: str, everywhere: bool = False) -> list:
     """Moves what is in the folder `origin` into the folder `home`, which exists, by `relocate` and never over what is there:
     a folder both have is merged, down to `DEEP` levels; every other entry is moved whole, and so is a `.state` or a `secrets`
     folder (records and credentials are not meant to be mixed) at the top of `origin`, or at any depth with `everywhere`.
@@ -683,7 +572,7 @@ def merge(origin: str, home: str, why: str, everywhere: bool = False) -> list:
     if not (_plain(_abs(origin)) and _plain(_abs(home))):
         raise Refused(f"{_rel(origin)} and {_rel(home)} have to be folders to be merged")
     found = []
-    _merge(_abs(origin), _abs(home), "", found, why, everywhere=everywhere)
+    _merge(_abs(origin), _abs(home), "", found, everywhere=everywhere)
     return found
 
 

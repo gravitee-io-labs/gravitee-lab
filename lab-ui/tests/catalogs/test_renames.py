@@ -126,7 +126,6 @@ class Following(Case):
         self.assertFalse(self.old.exists(), "nothing of the old folder is left")
         self.assertEqual(done, [{"kind": "addon", "from": "@partner/books", "to": "@partner/ledger",
                                  "moved": [".env", ".state", "data", "secrets"], "kept": []}])
-        self.assertTrue(any(entry["op"] == "move" for entry in moves.read_journal()), "every move is in the journal")
 
     def test_an_entry_that_cannot_be_moved_whole_stops_the_rename_and_is_never_counted_as_moved(self):
         self.machine(**{".env": "BOOKS_CURRENCY=CHF\n", ".state/created.json": "[]\n"})
@@ -134,7 +133,7 @@ class Following(Case):
         real = moves.relocate
         for answer in ("copied", "stayed"):
             with self.subTest(answer=answer):
-                self.patch(moves, "relocate", lambda src, dst, why: answer if src.endswith(".state") else real(src, dst, why))
+                self.patch(moves, "relocate", lambda src, dst: answer if src.endswith(".state") else real(src, dst))
                 with self.assertRaises(registry.CatalogError) as raised:
                     renames.follow("partner", FOUND)
                 self.assertEqual(raised.exception.code, "rename_stuck")
@@ -295,9 +294,7 @@ class Following(Case):
         renames.follow("partner", FOUND)
         before = {path: path.read_bytes() for path in sorted(self.root.rglob("*")) if path.is_file()}
         self.assertEqual(renames.follow("partner", FOUND)[0]["moved"], [])
-        self.assertEqual({path: path.read_bytes() for path in sorted(self.root.rglob("*")) if path.is_file()
-                          if path.name != "journal.jsonl"},
-                         {path: data for path, data in before.items() if path.name != "journal.jsonl"})
+        self.assertEqual({path: path.read_bytes() for path in sorted(self.root.rglob("*")) if path.is_file()}, before)
 
     def test_a_pair_whose_new_item_is_not_installed_or_whose_old_one_still_is_moves_nothing(self):
         self.machine(**{".env": "BOOKS_CURRENCY=CHF\n"})
@@ -703,7 +700,7 @@ class EndToEnd(Case):
         self.person()
         self.release("1.1.0", V2)
         real = moves.relocate
-        self.patch(moves, "relocate", lambda src, dst, why: "stayed" if src.endswith("viewer/.state") else real(src, dst, why))
+        self.patch(moves, "relocate", lambda src, dst: "stayed" if src.endswith("viewer/.state") else real(src, dst))
         service.check_now("acme")
         plan = service.update("acme", check=True)
         with self.assertRaises(registry.CatalogError) as raised:

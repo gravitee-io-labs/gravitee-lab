@@ -161,13 +161,13 @@ def _aside(ns, kind, away, top, here, there):
     kept = []
     if top in moves.WHOLE or not (moves._plain(here) and moves._plain(there)):
         target = _kept(ns, kind, away, top)
-        if moves.relocate(here, target, "rename-kept") in ("moved", "copied"):
+        if moves.relocate(here, target) in ("moved", "copied"):
             kept.append(os.path.relpath(target, paths.ROOT))
         return kept
-    for found in moves.merge(here, there, "rename"):
+    for found in moves.merge(here, there):
         if found["result"] == "conflict":
             target = _kept(ns, kind, away, f"{top}/{found['path']}")
-            if moves.relocate(os.path.join(here, found["path"]), target, "rename-kept") in ("moved", "copied"):
+            if moves.relocate(os.path.join(here, found["path"]), target) in ("moved", "copied"):
                 kept.append(os.path.relpath(target, paths.ROOT))
     return kept
 
@@ -208,7 +208,7 @@ def _machine(ns, kind, away, home, step) -> dict:
             continue
         here, there = os.path.join(source, top), os.path.join(target, top)
         step("rename:entry")
-        answer = moves.relocate(here, there, "rename")
+        answer = moves.relocate(here, there)
         if answer == "conflict":
             found["kept"] += _aside(ns, kind, away, top, here, there)
             _emptied(here, source)   # what a merge moved leaves its folders behind
@@ -253,7 +253,6 @@ def _on_file(old_file, new_file, step):
     if written != text:
         step("rename:on")
         moves._replaced(file, written)
-        moves.journal("repoint", path=paths.ON_FILE, old=old_file, new=new_file)
     for copy in gone:
         if copy not in written and os.path.lexists(paths.ROOT / copy):
             os.unlink(paths.ROOT / copy)
@@ -290,7 +289,6 @@ def _includes(old, new, step):
         if written != text:
             step("rename:include")
             moves._replaced(file, written)
-            moves.journal("repoint", path=rel, old=old, new=new)
             written_files.append(rel)
     return written_files
 
@@ -324,7 +322,6 @@ def _copies(old_uid, new_uid, step):
         if written != text:
             step("rename:copy")
             moves._replaced(file, written)
-            moves.journal("copy_of", path=os.path.relpath(file, paths.ROOT), old=old_uid, new=new_uid)
 
 
 def _shared(kind, old_uid, new_uid):
@@ -367,8 +364,6 @@ def _settings(ns, units, settings, step):
             if written != text:
                 step("rename:settings")
                 moves._replaced(file, written)
-                moves.journal("rename_settings", path=os.path.relpath(file, paths.ROOT),
-                              names=sorted(old for old in settings if old in text))
 
 
 def _quiet(label):

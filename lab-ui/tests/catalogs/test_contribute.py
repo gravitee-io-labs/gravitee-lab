@@ -1671,10 +1671,10 @@ class Ended(Seam):
         self.write(f"{self.LOCAL}/data/db", "rows")
         real = moves.relocate
 
-        def refuse(source, target, why):
-            if why == "use-catalog-leftover":
+        def refuse(source, target):
+            if moves.MIGRATION in target:
                 raise moves.Refused("data is tracked by git: it is not moved")
-            return real(source, target, why)
+            return real(source, target)
         self.patch(moves, "relocate", refuse)
         with self.assertRaisesRegex(ValueError, "is tracked by git"):
             self.use()
