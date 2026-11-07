@@ -17,7 +17,7 @@ the default catalog follow the same rules.
 | Playgrounds | A use case: what is specific to one story | `playgrounds/<id>/` | Acme Shop |
 
 The test for add-on or playground: would someone turn it on without this use case? A broker, a tracing backend or a live
-view of agent traffic: yes, those are add-ons. The bank's apps, its APIs and users, and its guide: no, they belong to
+view of agent traffic: yes, those are add-ons. The shop's apps, its APIs and users, and its guide: no, they belong to
 the playground.
 
 A playground declares what it needs from the layers below. It never redefines them.
@@ -185,7 +185,7 @@ personal one.
 
 ### `terminal`
 
-`terminal: logistics-kubectl` names the service whose container gets a shell, under the UIs, in the page of the playground. The
+`terminal: shop-kubectl` names the service whose container gets a shell, under the UIs, in the page of the playground. The
 Lab UI starts `sh` there with `docker exec -it`, so everything the shell has comes from the container: its image, its
 working directory (`working_dir`), its environment, its mounts. A container that only waits for the shell (`entrypoint: ["sleep",
 "infinity"]`) is how a playground has one, with its lessons' files mounted and `ENV` naming a file of aliases that `sh` reads
@@ -360,10 +360,10 @@ An app follows [the rules of an add-on's services](units.md#add-ons), `restart: 
     container_name: gio-shop-api
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8113:8000"   # The bank's open REST API, which MCP Studio can turn into tools
+      - "127.0.0.1:8113:8000"   # The shop's open REST API, which MCP Studio can turn into tools
     labels:
       io.gravitee.name: Acme Shop open API
-      io.gravitee.description: The bank's open REST API, which MCP Studio can turn into tools
+      io.gravitee.description: The shop's open REST API, which MCP Studio can turn into tools
     # ...
     networks:
       - internal
@@ -389,7 +389,7 @@ An app follows [the rules of an add-on's services](units.md#add-ons), `restart: 
     # ...
     labels:
       io.gravitee.name: Acme Shop web app
-      io.gravitee.description: The bank's web app, where customers chat with Ace
+      io.gravitee.description: The shop's web app, where customers chat with Ace
       io.gravitee.console.shop-web.name: Acme Shop
       io.gravitee.console.shop-web.url: http://localhost:8110
 ```
@@ -417,7 +417,7 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
       # ...
     labels:
       io.gravitee.name: Playground seed
-      io.gravitee.description: Sets up the bank's APIs, applications and identity on the platform
+      io.gravitee.description: Sets up the shop's APIs, applications and identity on the platform
       io.gravitee.role: seed
     networks:
       - internal

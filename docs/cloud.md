@@ -227,8 +227,8 @@ row, *Run on* lists This machine and every environment it can go to, the one it 
 is greyed with the reason (the same reasons as a playground's, below: only what changes API Management's control plane keeps
 an item out of Cloud, and what the environment's plugins and license lack). Its *Start* then runs it there: the hybrid
 gateway of the environment, what the item needs of this machine's platform, and the item written for that gateway. The row
-says *Runs on Gravitee Cloud*. Without a choice, an item runs where API Management runs. What it sets on the gateway (Kafka's
-entrypoint, a tracing exporter) is set on the hybrid gateway, and the gateway of this machine is left as it is, so Kafka can
+says *Runs on Gravitee Cloud*. Without a choice, an item runs where API Management runs. What it sets on the gateway (an
+entrypoint, a tracing exporter) is set on the hybrid gateway, and the gateway of this machine is left as it is, so an add-on can
 run on one platform while a playground runs on the other. Started again on This machine, the item is set on this machine's
 gateway again: its Start makes that gateway and the hybrid gateway again when they run, with what of the item still runs,
 and its dialog says so.

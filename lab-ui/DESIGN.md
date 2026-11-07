@@ -392,7 +392,7 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
     the error tone. A canceled one gives its face back with nothing to say.
   - *Icon buttons.* A small icon button (the rows of Containers) shows a spinner in place of its icon, and its check at
     once.
-  - *The word* is the job's title without its item's name ("Turn off Kafka" becomes "Turn off"), else the verb's
+  - *The word* is the job's title without its item's name ("Turn off Acme Console" becomes "Turn off"), else the verb's
     (`WORD` in `ui.js`). The verb in -ing comes from one table (`ING` in `ui.js`). An action started from a menu shows
     on the main button of its row.
   - *While it works*, a busy button takes no click and says what runs in its tooltip. A refusal is said in a toast, or
