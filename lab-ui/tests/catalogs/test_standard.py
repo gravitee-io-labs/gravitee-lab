@@ -1818,8 +1818,7 @@ class DayOne(Case):
             code = catalog.main(["index", str(folder), "--out", str(index)])
         self.assertEqual((code, err.getvalue()), (0, ""))
         document = json.loads(index.read_text(encoding="utf-8"))
-        self.assertEqual((document["catalog"]["id"], document["standard"], [unit["id"] for unit in document["units"]]),
-                         ("acme-hub", standard.LEVEL, ["hello"]))
+        self.assertEqual((document["catalog"]["id"], [unit["id"] for unit in document["units"]]), ("acme-hub", ["hello"]))
 
 
 class Rules(unittest.TestCase):

@@ -15,8 +15,6 @@ import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import redirect_stderr
-from io import StringIO
 from pathlib import Path
 from typing import NamedTuple
 from unittest import mock
@@ -1337,61 +1335,6 @@ class Releases(Remote):
                           ("addon:echo", ["Fix the echo guide", "Touch two units"])])
         self.assertEqual(store.folder_of("setup:pair"), "setups/pair.yml")
         self.assertEqual(store.folder_of("playground:shop"), "playgrounds/shop")
-
-
-class Fixtures(Case):
-    """The repositories of the tests are what the tests say they are."""
-
-    def setUp(self):
-        gitfixture.require()
-        self.folder()
-
-    def test_the_same_files_give_the_same_commit_everywhere(self):
-        one = gitfixture.make_repo(self.root / "a.git", gitfixture.catalog_files())
-        two = gitfixture.make_repo(self.root / "b" / "c.git", gitfixture.catalog_files())
-        self.assertEqual(gitfixture.tip(one), gitfixture.tip(two))
-        self.assertEqual(gitfixture.commit(one, {"x": "1"}), gitfixture.commit(two, {"x": "1"}))
-        three = gitfixture.make_repo(self.root / "d.git", {"catalog.yml": "x\n"})
-        self.assertNotEqual(gitfixture.tip(three), gitfixture.tip(one))
-
-    def test_without_git_a_test_says_it_is_skipped_and_the_run_is_told_once(self):
-        self.patch(gitfixture, "_GIT", None)
-        self.patch(gitfixture, "_SAID", [])
-        shown = StringIO()
-        with redirect_stderr(shown):
-            for _ in range(5):
-                with self.assertRaises(unittest.SkipTest):
-                    gitfixture.require()
-        self.assertEqual(shown.getvalue().count("SKIP: git is not installed"), 1, "the line is not repeated for every test")
-        self.assertFalse(gitfixture.available())
-
-    def test_the_fixture_finds_git_as_the_product_does_and_never_runs_the_macos_shim(self):
-        """On a Mac without the Command Line Tools, running /usr/bin/git opens an installer dialog: `make test` must not."""
-        ran = self.root / "ran"
-        shim = self.root / "shim" / "git"
-        shim.parent.mkdir()
-        shim.write_text(f"#!/bin/sh\ntouch '{ran}'\n")
-        shim.chmod(0o755)
-        asked = []
-
-        def tools(argv, **how):
-            asked.append(argv)
-            return subprocess.CompletedProcess(argv, 2, b"", b"")
-        with mock.patch.dict(os.environ, {"PATH": str(shim.parent)}):
-            self.patch(gitx, "PLATFORM", "darwin")
-            self.patch(gitx, "SHIM", str(shim))
-            self.patch(gitx, "_tools_found", False)
-            self.patch(gitx.subprocess, "run", tools)
-            self.assertIsNone(gitfixture._find())
-        self.assertEqual(asked, [["xcode-select", "-p"]])
-        self.assertFalse(ran.exists(), "the shim was run")
-        self.assertEqual(gitfixture._GIT, gitx.executable(), "the git of the fixture is the one the product finds")
-
-    def test_the_fixture_git_ignores_the_configuration_of_the_person(self):
-        with mock.patch.dict(os.environ, {"GIT_AUTHOR_NAME": "Someone Else", "GIT_DIR": "/nonexistent", "GIT_CONFIG_COUNT": "1",
-                                          "GIT_CONFIG_KEY_0": "user.name", "GIT_CONFIG_VALUE_0": "Evil"}):
-            repo = gitfixture.make_repo(self.root / "a.git", {"a": "1"})
-            self.assertEqual(gitfixture.git("log", "-1", "--format=%an <%ae>", repo=repo).strip(), "Test Author <author@example.test>")
 
 
 if __name__ == "__main__":

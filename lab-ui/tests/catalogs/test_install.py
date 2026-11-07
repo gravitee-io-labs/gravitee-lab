@@ -177,6 +177,12 @@ class Base(Case):
         shutil.copytree(template, store_path, symlinks=True)
         return tip
 
+    def into_a_new_store(self, url, ticket):
+        """A fetch of the repository at `url` into a store of this ticket: (address, store, tip, kept, ignored)."""
+        address, store_path = gitx.parse_address(url), registry.new_store_dir(ticket)
+        tip = bare.fetch(address, None, store_path)
+        return (address, store_path, tip, *bare.selected(bare.listing(store_path, tip)))
+
     def installed(self, ns="partner"):
         """Catalog `ns` added, as `add` leaves it. The first time it is an Add; after that, the project folder and the
         remote of that Add are put back as they were, which is the same state for a hundredth of the time."""
@@ -524,10 +530,7 @@ class Staging(Base):
     def test_an_executable_file_stays_executable_and_read_only(self):
         files = {**gitfixture.catalog_files("scripts"), "addons/echo/run.sh": gitfixture.Executable("#!/bin/sh\n")}
         bare_repo = gitfixture.make_repo(self.home / "scripts.git", files)
-        address = gitx.parse_address(gitfixture.url(bare_repo))
-        store_path = registry.new_store_dir("ab12")
-        tip = bare.fetch(address, None, store_path)
-        kept, ignored = bare.selected(bare.listing(store_path, tip))
+        address, store_path, tip, kept, ignored = self.into_a_new_store(gitfixture.url(bare_repo), "ab12")
         staged = install.stage(address, "scripts", store_path, tip, kept, ignored)
         self.assertEqual(stat.S_IMODE((staged.path / "addons/echo/run.sh").stat().st_mode), EXECUTABLE)
         self.assertEqual(stat.S_IMODE((staged.path / "addons/echo/compose.yml").stat().st_mode), READ_ONLY)
@@ -543,10 +546,7 @@ class Staging(Base):
     def test_a_hostile_catalog_is_staged_without_what_the_filter_drops(self):
         files = {**gitfixture.catalog_files("hostile-one"), **gitfixture.hostile_files()}
         repo = gitfixture.make_repo(self.home / "hostile.git", files)
-        address = gitx.parse_address(gitfixture.url(repo))
-        store_path = registry.new_store_dir("cd34")
-        tip = bare.fetch(address, None, store_path)
-        kept, ignored = bare.selected(bare.listing(store_path, tip))
+        address, store_path, tip, kept, ignored = self.into_a_new_store(gitfixture.url(repo), "cd34")
         staged = install.stage(address, "hostile-one", store_path, tip, kept, ignored)
         found = {p.relative_to(staged.path).as_posix() for p in staged.path.rglob("*") if p.is_file() or p.is_symlink()}
         self.assertEqual(found, {entry.path for entry in kept})
@@ -580,21 +580,14 @@ class Staging(Base):
         self.assertEqual([p.name for p in outside.iterdir()], ["keep.txt"])
 
     def test_a_failed_stage_leaves_no_folder(self):
-        self.remote("partner")
-        address = gitx.parse_address(self.remote("partner").url)
-        store_path = registry.new_store_dir("ef56")
-        tip = bare.fetch(address, None, store_path)
-        kept, ignored = bare.selected(bare.listing(store_path, tip))
+        address, store_path, tip, kept, ignored = self.into_a_new_store(self.remote("partner").url, "ef56")
         with mock.patch.object(install, "safe_write", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
                 install.stage(address, "partner", store_path, tip, kept, ignored)
         self.assertFalse(registry.stage_dir("partner").exists())
 
     def test_an_object_the_store_lacks_is_the_damage_a_repair_fetches_for(self):
-        address = gitx.parse_address(self.remote("partner").url)
-        store_path = registry.new_store_dir("0a1b")
-        tip = bare.fetch(address, None, store_path)
-        kept, ignored = bare.selected(bare.listing(store_path, tip))
+        address, store_path, tip, kept, ignored = self.into_a_new_store(self.remote("partner").url, "0a1b")
         other = [bare.Entry(e.mode, "1" * 40, e.size, e.path) if e.path == "catalog.yml" else e for e in kept]
         self.refusal("fsck", install.stage, address, "partner", store_path, tip, other, ignored)
         self.assertFalse(registry.stage_dir("partner").exists())
@@ -605,10 +598,7 @@ class Staging(Base):
             install.stage(address, "partner", None, "a" * 40, [])
 
     def test_the_placeholder_stage_is_renamed_to_the_namespace(self):
-        address = gitx.parse_address(self.remote("partner").url)
-        store_path = registry.new_store_dir("1c2d")
-        tip = bare.fetch(address, None, store_path)
-        kept, ignored = bare.selected(bare.listing(store_path, tip))
+        address, store_path, tip, kept, ignored = self.into_a_new_store(self.remote("partner").url, "1c2d")
         staged = install.stage(address, "new-1c2d", store_path, tip, kept, ignored)
         self.assertEqual(staged.path.name, ".stage-new-1c2d")
         moved = install.rename_stage(staged, "partner")
@@ -3153,6 +3143,12 @@ class FolderAdds(Base):
         os.symlink(self.root, staged.path)
         self.refusal("ticket_expired", install.commit_add, staged, address, None, "private", [], meta_of("partner"))
         self.assertIsNone(registry.entry("partner"))
+
+    def test_a_folder_added_while_a_listed_download_waits_takes_its_entry(self):
+        self.listed("partner")
+        address = gitx.parse_address(str(self.folder_catalog("partner")))
+        install.commit_add(install.stage(address, "partner", None, "", []), address, None, "private", [], meta_of("partner"))
+        self.assertEqual(registry.entry("partner")["kind"], "folder")
 
     def test_the_same_folder_cannot_be_added_twice(self):
         folder = self.folder_catalog("partner")
