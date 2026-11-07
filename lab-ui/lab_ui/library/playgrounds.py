@@ -77,7 +77,7 @@ def created(pid, place=None):
     counts = Counter()
     for item in items if isinstance(items, list) else ():
         label = item.get("label") if isinstance(item, dict) else None
-        count = item.get("count", 1) if isinstance(item, dict) else None   # a record may stand for many: the entities of one type
+        count = item.get("count", 1) if isinstance(item, dict) else None   # a record may stand for many: the entities of a file
         if isinstance(label, str) and type(count) is int and count > 0:
             counts[label] += count
     return [{"what": what, "count": count} for what, count in counts.items()]

@@ -71,7 +71,6 @@ class Platform(World):
         self.schema_validation = (200,)  # the status of the validation route
         self.refused = {}                # entityId -> why the bulk save refuses it
         self.bulks = []                  # the ids of each bulk request
-        self.listed = []                 # the parameters of each listing
 
     def routes(self):
         routes = super().routes()
@@ -87,7 +86,6 @@ class Platform(World):
 
     # Entities
     def list_entities(self, call):
-        self.listed.append(dict(call.params))
         wanted = call.params.get("entityId")
         wanted = [wanted] if isinstance(wanted, str) else wanted
         rows = [entity for entity in self.entities.values()
@@ -561,7 +559,7 @@ entities:
   - {type: Folder, id: middle, parents: [[Folder, root]]}
   - {type: Folder, id: root, attributes: {label: Root}}
 """), ["leaf", "middle", "root"])
-        self.assertEqual(self.world.bulks[-1], ["root"], "root is saved again, and the record of the folders written anew")
+        self.assertEqual(self.world.bulks[-1], ["root"], "root is saved again, and stays where the record has it")
 
     def test_a_type_the_file_keeps_is_still_deleted_before_one_it_points_at_that_the_file_no_longer_lists(self):
         self.assertEqual(self.removed_after("""

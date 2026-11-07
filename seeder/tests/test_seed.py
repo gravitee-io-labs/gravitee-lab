@@ -1,6 +1,5 @@
 """The seed against management APIs that answer from a table: a removal that fails keeps its record, an authorization engine
-follows the seed's OpenFGA model, the modules run in their order and a module with nothing to seed leaves the platform alone.
-Also what keeps the fake platform the other tests build on from passing a call it should not."""
+follows the seed's OpenFGA model, the modules run in their order and a module with nothing to seed leaves the platform alone."""
 
 import json
 import os

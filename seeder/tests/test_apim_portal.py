@@ -1,4 +1,4 @@
-"""The Developer Portal of each environment: the theme, the portal, the pages, the links and the listings of a seed, made
+"""The Developer Portal of each environment: the theme, the portal, the pages and the listings of a seed, made
 once, found again by their hrid, never taken from someone else, and removed in the order of what depends on what. The
 platform here keeps what the Automation API and the Console's navigation routes kept on a live 4.13 (a theme that only a
 portal makes the one shown, a portal that deletes the folders it no longer names, an item that is published only under
@@ -91,7 +91,7 @@ FOLDER = ident("mallard", "folder", "/event-feeds/process-development")
 
 
 class World:
-    """Environments with a theme, a portal, pages, links and a navigation tree, as the platform keeps them."""
+    """Environments with a theme, a portal, pages and a navigation tree, as the platform keeps them."""
 
     def __init__(self, environments=None, apis=None):
         self.environments = environments or {"mallard": "Mallard"}
@@ -198,7 +198,7 @@ class World:
             self.remove_item(env, gone)
 
     def place(self, env, state, kind):
-        item = {"id": ident(env, kind, state["hrid"]), "type": "PAGE" if kind == "page" else "LINK", "title": state["name"],
+        item = {"id": ident(env, kind, state["hrid"]), "type": "PAGE", "title": state["name"],
                 "published": True, "visibility": state.get("visibility", "PUBLIC"), "order": state.get("order", 0)}
         folder = ident(env, "folder", state.get("location", ""))
         if folder in self.items[env]:
@@ -1721,7 +1721,7 @@ class Removal(Portals):
 
     two = Environments.two
 
-    def test_it_deletes_the_listings_the_links_the_pages_the_portal_then_the_theme_by_hrid(self):
+    def test_it_deletes_the_listings_the_pages_the_portal_then_the_theme_by_hrid(self):
         self.seeded()
         self.world.put("mallard", "page", "mallard-portal", {"hrid": "not-mine", "name": "N", "type": "GRAVITEE_MARKDOWN",
                                                               "content": "x", "area": "TOP_NAVBAR"})   # the seed did not make it

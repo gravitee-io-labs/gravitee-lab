@@ -1,5 +1,6 @@
-"""The checks of seed files: the seed service is read whichever way it is written, and the folders of seed/environments agree with themselves: a member of a group is a user, an application's group is a group, a subscription
-names an application, an API and a plan of the folder.
+"""The checks of seed files: the seed service is read whichever way it is written, and the folders of seed/environments
+agree with themselves: a member of a group is a user, an application's group is a group, a subscription names an
+application, an API and a plan of the folder.
 
 The checks are those of seedlint.py, which a catalog's CI runs on the command line (test_seedlint.py tests the command and runs
 it on the engine's sample); this file tests them on files made for it."""
