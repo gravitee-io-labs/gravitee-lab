@@ -10,7 +10,7 @@ import re
 from lab_seeder import am
 from lab_seeder import common
 from tests import test_am
-from tests.test_am import DOMAINS, GRANTS_OF_AN_AGENT, AccessManagement
+from tests.test_am import DOMAINS, AccessManagement
 
 SCOPES = re.compile(DOMAINS + "/[^/]+/scopes")
 APPLICATIONS = re.compile(DOMAINS + "/[^/]+/applications")
@@ -242,8 +242,7 @@ class Scopes(Case):
         self.settle()
         scope = self.am.one("scopes", key="createRefund")
         scope["description"] = "Edited in the console"
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [("PATCH", f"{DOMAINS}/{self.domain_id()}/scopes/{scope['id']}")])
         self.assertEqual(self.platform.sent("PATCH", re.compile(DOMAINS + "/[^/]+/scopes/[^/]+"))[0].json,
                          {"name": "Refund an order", "description": "Refund an order within the limits of your team"})
@@ -254,8 +253,7 @@ class Scopes(Case):
         self.settle()
         gone = self.am.one("scopes", key="getCustomer")
         del self.am.held[(self.domain_id(), "scopes")][gone["id"]]
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [("POST", f"{DOMAINS}/{self.domain_id()}/scopes")])
         self.assertEqual(self.am.one("scopes", key="getCustomer")["name"], "Read a customer profile")
 
@@ -345,8 +343,7 @@ class Agent(Case):
     def test_a_second_seed_saves_nothing(self):
         self.seed()
         self.settle()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [])
         self.assertIn("OAuth settings and identity provider as the file says", self.output())
         self.assertIn("3 scopes as the file says", self.output())
@@ -359,16 +356,14 @@ class Agent(Case):
         entries.reverse()
         for entry in entries:
             entry.update(requiredScope=False)
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [])
 
     def test_a_scope_it_lost_is_given_back_and_only_the_scopes_are_saved(self):
         self.seed()
         self.settle()
         self.oauth()["scopeSettings"].pop()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(self.writes()), 1)
         self.assertEqual([set(patch["settings"]["oauth"]) for patch in self.patches()], [{"scopeSettings"}])
         self.assertEqual(len(self.oauth()["scopeSettings"]), 6)
@@ -378,8 +373,7 @@ class Agent(Case):
         self.settle()
         self.am.add_scope(self.domain_id(), "offline_access", "Offline access", "Offline access")
         self.oauth()["scopeSettings"].append({"scope": "offline_access", "defaultScope": False, "scopeApproval": 0})
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(self.writes()), 1)
         self.assertEqual(len(self.oauth()["scopeSettings"]), 6)
         self.assertNotIn("offline_access", {entry["scope"] for entry in self.oauth()["scopeSettings"]})
@@ -389,8 +383,7 @@ class Agent(Case):
         self.settle()
         entry = next(entry for entry in self.oauth()["scopeSettings"] if entry["scope"] == "createRefund")
         entry.update(defaultScope=True, scopeApproval=0)
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(self.writes()), 1)
         entry = next(entry for entry in self.oauth()["scopeSettings"] if entry["scope"] == "createRefund")
         self.assertEqual((entry["defaultScope"], entry["scopeApproval"]), (False, 300))
@@ -399,8 +392,7 @@ class Agent(Case):
         self.seed()
         self.settle()
         self.files(agent=AGENT_FILE.replace("localhost:8130", "localhost:8140"))
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual([set(patch["settings"]["oauth"]) for patch in self.patches()], [{"redirectUris"}])
         self.assertEqual(self.oauth()["redirectUris"], ["http://localhost:8140/auth/callback"])
 

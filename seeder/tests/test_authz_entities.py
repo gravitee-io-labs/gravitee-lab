@@ -4,7 +4,6 @@ the one schema document of the environment, and the message of a policy the plat
 that keeps what it is given."""
 
 import json
-import re
 import unittest
 
 import requests
@@ -43,21 +42,9 @@ policy: |
 
 
 def syntax_error(text):
-    """What the platform says of a policy it cannot read, as far as a fake can tell: brackets that do not close and a
-    statement that does not end. None when the text can be read."""
-    pairs = {")": "(", "}": "{", "]": "["}
-    stack = []
-    for character in text:
-        if character in "({[":
-            stack.append(character)
-        elif character in pairs and (not stack or stack.pop() != pairs[character]):
-            return f"line {text[:text.index(character)].count(chr(10)) + 1}: unexpected '{character}'"
-    if stack:
-        return "line 1:20\n  missing ')' at the end\n  the statement is not complete"
-    statements = len(re.findall(r"^(?:permit|forbid) \(", text, re.M))
-    if text.count(";") != statements:
-        return "a statement ends with ';'"
-    return None
+    """What the platform says of a policy it cannot read, as far as a fake can tell: a bracket that does not close. None when
+    the text can be read."""
+    return "line 1:20\n  missing ')' at the end\n  the statement is not complete" if text.count("(") != text.count(")") else None
 
 
 class Platform(World):

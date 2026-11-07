@@ -80,7 +80,6 @@ class World:
             ("DELETE", re.compile(AUTHZ + "/entities/[^/]+")): self.deleting(self.entities),
             ("GET", AUTHZ + "/schemas"): lambda call: (200, list(self.schemas.values())),
             ("POST", AUTHZ + "/schemas"): self.create_schema,
-            ("PUT", re.compile(AUTHZ + "/schemas/[^/]+")): self.change_schema,
             ("DELETE", re.compile(AUTHZ + "/schemas/[^/]+")): self.deleting(self.schemas),
         }
 
@@ -129,10 +128,6 @@ class World:
         made = {"id": f"schema-{next(self.ids)}", **call.json}
         self.schemas[made["id"]] = made
         return 201, made
-
-    def change_schema(self, call):
-        self.schemas[self.last(call)].update(call.json)
-        return 200, self.schemas[self.last(call)]
 
 
 class Case(Seed):

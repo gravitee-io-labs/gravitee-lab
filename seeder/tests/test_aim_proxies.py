@@ -45,7 +45,7 @@ class World:
         self.proxies = {}        # hrid -> what the Automation API gives back
         self.apis = {}           # api id -> the API, its plans and its deployment state
         self.studios = {}        # id -> the studio as it was created, with its authorization check
-        self.gateway_calls, self.gateway_serves_after, self.tools_offered, self.event_stream = [], 0, {"alice": 7, "tina": 8}, False
+        self.gateway_calls, self.gateway_serves_after, self.tools_offered = [], 0, {"alice": 7, "tina": 8}
 
     def routes(self):
         return {
@@ -172,8 +172,6 @@ class World:
             return 404, {"message": "No context-path matches the request URI."}
         who = call.headers["Authorization"].removeprefix("Bearer token-")
         message = {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": f"tool-{n}"} for n in range(self.tools_offered[who])]}}
-        if self.event_stream:
-            return 200, "event: message\ndata: " + json.dumps(message) + "\n\n", {"Content-Type": "text/event-stream"}
         return 200, message
 
 

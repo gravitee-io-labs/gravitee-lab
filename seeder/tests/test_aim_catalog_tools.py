@@ -57,8 +57,6 @@ class ToolWorld(World):
     def generate(self, call):
         api_id = call.json["apiIds"][0]
         api = self.apis[api_id]
-        if "tools" not in api:
-            return super().generate(call)
         errors = [{"key": "invalidSpec", "message": m} for m in api.get("errors", [])]
         return 200, {"data": [{"apiId": api_id, "tools": copy.deepcopy(api["tools"]), "errors": errors}]}
 

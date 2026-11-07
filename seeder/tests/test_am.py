@@ -210,6 +210,11 @@ class Case(Seed):
     def seed(self):
         am.seed({})
 
+    def again(self):
+        """A seed, and the calls of that seed alone kept."""
+        self.platform.calls.clear()
+        self.seed()
+
     def settle(self):
         """What AM does at the first sign-in of a person: fields of its own in a profile."""
         for user in self.am.objects("users"):
@@ -246,8 +251,7 @@ class Bank(Case):
 
     def test_a_second_seed_saves_nothing(self):
         self.settle()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [])
         self.assertEqual(len(common.created()), 10)
 
@@ -266,8 +270,7 @@ class Bank(Case):
         domain["tokenExchangeSettings"].update(enabled=False, allowImpersonation=True)
         domain["oidc"]["clientRegistrationSettings"]["allowLocalhostRedirectUri"] = False
         domain["oidc"]["redirectUriStrictMatching"] = False
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [("PATCH", f"{DOMAINS}/{self.domain_id()}")])
         self.assertEqual((domain["enabled"], domain["tokenExchangeSettings"]["enabled"],
                           domain["tokenExchangeSettings"]["allowImpersonation"]), (True, True, False))
@@ -278,8 +281,7 @@ class Bank(Case):
         ace = self.am.one("applications", clientId="ace-agent")
         ace["settings"]["oauth"]["tokenCustomClaims"] = ace["settings"]["oauth"]["tokenCustomClaims"][:2]
         ace["identityProviders"] = []
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(self.writes()), 2)
         self.assertEqual(len(ace["settings"]["oauth"]["tokenCustomClaims"]), 5)
         self.assertEqual(ace["identityProviders"][0]["identity"], "idp-1")
@@ -290,8 +292,7 @@ class Bank(Case):
                                         forceS256CodeChallengeMethod=False, redirectUris=["http://localhost:8110/callback"])
         web["settings"]["advanced"]["skipConsent"] = False
         applications = len(self.am.objects("applications"))
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [("PATCH", f"{DOMAINS}/{self.domain_id()}/applications/{web['id']}")])
         oauth = web["settings"]["oauth"]
         self.assertEqual((oauth["grantTypes"], oauth["responseTypes"], oauth["forcePKCE"], oauth["forceS256CodeChallengeMethod"]),
@@ -299,23 +300,20 @@ class Bank(Case):
         self.assertEqual(oauth["redirectUris"], ["http://localhost:8110/callback", "http://127.0.0.1:8110/callback"])
         self.assertTrue(web["settings"]["advanced"]["skipConsent"])
         self.assertEqual(len(self.am.objects("applications")), applications, "changed, not made again")
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(self.writes(), [])
 
     def test_a_profile_someone_changed_is_made_as_the_file_says_with_the_fields_of_am_kept(self):
         tina = self.am.one("users", username="tina@acme-bakery.test")
         tina["additionalInformation"] = {"role": "customer", "sub": "from-am", "given_name": "Tina"}
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(tina["additionalInformation"], {"role": "teller", "sub": "from-am", "given_name": "Tina", "name": "Tina Torres"})
         self.assertEqual(self.writes(), [("PUT", f"{DOMAINS}/{self.domain_id()}/users/{tina['id']}")])
 
     def test_a_group_that_lost_a_member_gets_it_back_and_the_others_stay(self):
         customers = self.am.one("groups", name="customers")
         customers["members"].pop()
-        self.platform.calls.clear()
-        self.seed()
+        self.again()
         self.assertEqual(len(customers["members"]), 2)
         self.assertEqual(len(self.writes()), 1)
 
