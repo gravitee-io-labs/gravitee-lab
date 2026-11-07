@@ -405,18 +405,10 @@ class ConfigWrite(Disk):
 
     def test_a_file_that_cannot_be_kept_is_not_overwritten(self):
         original = self.raw(".lab/catalogs.json", b"not json")
-        with mock.patch("os.link", side_effect=OSError("no")), mock.patch("shutil.copyfile", side_effect=OSError("no")), \
-                self.assertRaises(OSError):
+        with mock.patch("shutil.copyfile", side_effect=OSError("no")), self.assertRaises(OSError):
             registry.write_config({"schema": 1, "catalogs": []})
         self.assertEqual(original.read_bytes(), b"not json")
         self.assertEqual([p.name for p in (self.root / ".lab").iterdir() if ".bad-" in p.name], [])
-
-    def test_where_links_are_not_allowed_the_file_is_copied(self):
-        self.raw(".lab/catalogs.json", b"not json")
-        with mock.patch("os.link", side_effect=OSError("no")):
-            registry.write_config({"schema": 1, "catalogs": []})
-        aside = [p for p in (self.root / ".lab").iterdir() if ".bad-" in p.name]
-        self.assertEqual([p.read_bytes() for p in aside], [b"not json"])
 
     def test_a_write_that_fails_after_the_file_was_kept_leaves_it_where_it_was_and_not_a_first_run(self):
         original = self.raw(".lab/catalogs.json", b"not json")

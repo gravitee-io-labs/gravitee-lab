@@ -506,23 +506,17 @@ class Worker:
 
 
 _worker = None
-_started = threading.Lock()
 
 
 def start_worker() -> None:
-    """Starts the one background thread of the Lab, a daemon: it provisions what has no copy, and then makes the
-    background check. A second call does nothing while the thread
-    runs. Nothing with LAB_NO_FIRST_RUN set."""
+    """Starts the one background thread of the Lab, a daemon, once a start: it provisions what has no copy, and then makes the
+    background check. Nothing with LAB_NO_FIRST_RUN set."""
     global _worker
     if opted_out():
         return
-    with _started:
-        if _worker is not None and _worker.thread is not None and _worker.thread.is_alive():
-            return
-        worker = Worker()
-        worker.thread = threading.Thread(target=worker.run, name="lab-first-run", daemon=True)
-        _worker = worker
-        worker.thread.start()
+    _worker = Worker()
+    _worker.thread = threading.Thread(target=_worker.run, name="lab-first-run", daemon=True)
+    _worker.thread.start()
 
 
 def wake() -> None:
