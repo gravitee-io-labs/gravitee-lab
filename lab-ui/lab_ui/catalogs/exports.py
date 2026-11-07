@@ -243,7 +243,8 @@ def _catalog_yml(text, gathered):
         row, url = rows.get(ns) or {}, _address(ns)
         if url is None:   # a catalog with no Git address cannot be named as needed: another Lab will say what it lacks
             continue
-        needed.append((ns, row.get("name") or ns, url, _least(row.get("version"))))
+        version = row.get("version") if re.fullmatch(r"\d+\.\d+\.\d+", str(row.get("version") or "")) else "0.1.0"
+        needed.append((ns, row.get("name") or ns, url, version))
     if needed:
         text = _requires(text, needed)
     if gathered["shared"]:
@@ -545,11 +546,6 @@ def _said_origins(folder: Path):
     return [one for one in items if isinstance(one, dict)] if isinstance(items, list) else []
 
 
-def _least(version):
-    """The version a catalog that needs this one asks for at least: one that says three numbers, else the first there is."""
-    return version if re.fullmatch(r"\d+\.\d+\.\d+", str(version or "")) else "0.1.0"
-
-
 def _requires(text, needed):
     """catalog.yml with the catalogs `needed` ([(ns, name, url, min)]) in its requires.catalogs, as an export writes them."""
     rows = "".join(f'      {ns}:\n        name: "{name}"\n        url: {url}\n        min: {least}\n' for ns, name, url, least in needed)
@@ -573,7 +569,8 @@ def _reuse(folder: Path, top):
         if url is None or item not in registry.units_of(ns).get(kind, ()) or not (folder / rel).exists():
             continue
         held = registry.lock_of(ns)
-        needed[ns] = (ns, str(held.get("name") or ns).replace('"', "'"), url, _least(held.get("version")))
+        least = held.get("version") if re.fullmatch(r"\d+\.\d+\.\d+", str(held.get("version") or "")) else "0.1.0"
+        needed[ns] = (ns, str(held.get("name") or ns).replace('"', "'"), url, least)
         table.append((f"{paths.CATALOGS_DIR}/{top}/{rel}", f"{paths.CATALOGS_DIR}/{ns}/{rel}"))
         gone.append(rel)
         reused.append({"name": str(one.get("name") or item), "catalog": str(held.get("name") or ns)})
