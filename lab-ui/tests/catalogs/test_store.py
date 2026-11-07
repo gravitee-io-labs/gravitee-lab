@@ -1000,7 +1000,7 @@ class Fetching(Remote):
         self.assertEqual(store.clean(self.store, age=0), 0)
         self.assertTrue(lock.is_file())
 
-    def test_a_file_system_that_cannot_lock_still_has_the_lock_of_the_process(self):
+    def test_a_file_system_that_cannot_lock_still_fetches(self):
         def refuse(descriptor, how):
             raise OSError(errno.ENOLCK, "No locks available")
         self.patch(store.fcntl, "flock", refuse)
