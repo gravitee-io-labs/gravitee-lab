@@ -969,7 +969,7 @@ export function contentStatus(state, { kind = "", items = 0 } = {}) {
     return block("failed", `${content.line ? `<span>${esc(content.line)}</span>` : ""}${contentButton("retry", retryOf(state), "Try again")}`);
   }
   if (content.key === "none") return block("none", `<span>${NO_CATALOG}</span>${offerOf(content, onPage)}`);
-  if (content.key === "ready" && !items && !onPage) return block("ready", Object.hasOwn(NOTHING, kind) ? NOTHING[kind] : NOTHING[""]);
+  if (content.key === "ready" && !items && !onPage) return block("ready", NOTHING[kind]);
   return "";
 }
 

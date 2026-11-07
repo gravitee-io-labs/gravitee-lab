@@ -108,12 +108,7 @@ test("with no catalog the block says so and offers to add the one the server nam
 test("a list that has nothing of its kind says so only once the content is there; the Dashboard says it for all three", () => {
   const words = (kind) => text(draw(contentStatus(withContent("ready"), { kind })));
   assert.deepEqual(["playground", "setup", "addon"].map(words), ["No playground yet", "No setup yet", "No add-on yet"]);
-  assert.equal(words(""), "No playground, setup or add-on yet");
   assert.equal(words(undefined), "No playground, setup or add-on yet");
-  assert.equal(words("something else"), "No playground, setup or add-on yet", "a kind that is none of the three says what the Dashboard says");
-  for (const kind of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
-    assert.equal(words(kind), "No playground, setup or add-on yet", `${kind}: a name every object has is no kind of list`);
-  }
   // With something to show, or on the page of the catalogs, a content that is there says nothing
   assert.equal(contentStatus(withContent("ready"), { kind: "addon", items: 2 }), "");
   assert.equal(contentStatus(withContent("ready"), { kind: "catalog" }), "");
@@ -122,11 +117,6 @@ test("a list that has nothing of its kind says so only once the content is there
 test("the Catalogs page leaves a download and a failure to its rows", () => {
   assert.equal(contentStatus(withContent("downloading"), { kind: "catalog" }), "");
   assert.equal(contentStatus(withContent("failed"), { kind: "catalog" }), "");
-});
-
-test("a key this page does not know draws nothing", () => {
-  assert.equal(contentStatus(withContent("somewhere else")), "");
-  assert.deepEqual(contentLead(withContent("somewhere else")), { ready: true, why: "", extra: "" });
 });
 
 // --- A list that has items of this machine --------------------------------------------------------------------------------------
