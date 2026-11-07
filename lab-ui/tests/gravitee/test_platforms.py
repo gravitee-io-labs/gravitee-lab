@@ -498,6 +498,7 @@ class Entitlements(Platforms):
         self.fake.state.subscription = {**self.fake.state.subscription, "gammaEnabled": True}
         self.fake.state.scopes = ["APIM", "AM"]
         found = self.read()
+        self.assertEqual(found["entitled"]["organizations"]["fake-organization"]["scopes"], ["AM", "APIM"])
         offered = platforms.capabilities(self.NAMED, found, DEV)
         self.assertEqual(offered["products"], {"API Management": "4.12.20", "Access Management": "", "Gamma": ""})
         # Without the plan, without the scope: neither
@@ -703,8 +704,9 @@ class CloudTokens(Platforms):
             platforms.prove("gravitee-cloud", DEV)
         self.assertEqual(self.token_of()["state"], "refused")
         self.assertEqual(self.token_of()["state"], "refused", "it is remembered, not asked again")
-        self.keep(fake_cloud.cloud_token(DEV))
-        self.assertEqual(self.token_of()["state"], "valid")
+        newer = fake_cloud.cloud_token(DEV)
+        self.keep(newer)
+        self.assertEqual((envfiles.read(".env")[DEV_KEY], self.token_of()["state"]), (newer, "valid"))
 
     def test_a_forgotten_token_is_not_refused_any_more(self):
         self.keep()
