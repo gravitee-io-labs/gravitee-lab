@@ -13,5 +13,3 @@ A file is `{"_about": text, "repo": "OWNER/REPO", "replies": {"METHOD path": {"c
 without its paging (`per_page`, `page`), and a path with a query keeps the rest of it (`collaborators?permission=push`). A
 status 200 with a `null` body is what `gh api` shows for the 204 of GitHub. Names are `acme` and `acme-labs`; no repository, person,
 secret or address here is real.
-
-The rehearsal of the standard (R-private and R-rules) replaces the built replies by recorded ones.

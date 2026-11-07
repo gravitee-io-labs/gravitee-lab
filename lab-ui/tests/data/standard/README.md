@@ -1,7 +1,6 @@
 # Fixtures of the standard tests
 
-What the tests of the catalog standard share (`tests/catalogs/test_standard.py`, `tests/catalogs/test_release_command.py`,
-`tests/catalogs/rules/test_codeowners.py`, and `.github/tests/test_catalog_template.py` for the engine's CI).
+What the tests of the catalog standard share (`tests/catalogs/test_standard.py`, `tests/catalogs/test_release_command.py`).
 
 | Path | What it is |
 |---|---|

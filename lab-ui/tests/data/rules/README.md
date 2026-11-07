@@ -1,6 +1,6 @@
 # Fixtures of the rule tests
 
-What the rule tests of the catalog standard read (`tests/test_rules_*.py`, `tests/catalogs/test_tree.py`, `tests/catalogs/test_report.py`).
+What the rule tests of the catalog standard read (`tests/catalogs/rules/`, `tests/catalogs/ci/`, `tests/catalogs/test_tree.py`, `tests/catalogs/test_report.py`).
 
 | Path | What it is |
 |---|---|

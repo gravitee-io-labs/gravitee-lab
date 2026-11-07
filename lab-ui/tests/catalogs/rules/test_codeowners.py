@@ -27,7 +27,7 @@ def found(text, *more):
     changes = ({FILE: text},) if text is not None else ()
     drop = [] if text is not None else [FILE]
     listing = support.tree(*changes, *more, drop=drop)
-    return [(each.line, each.message) for each in codeowners.check(listing, support.ctx_for(listing))]
+    return [(each.line, each.message) for each in codeowners.check(listing, support.context(listing))]
 
 
 def no_owner(pattern, owners="@acme/maintainers"):
