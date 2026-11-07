@@ -176,7 +176,7 @@ older ones: they stay tested. `make check` says when a name is not the version v
 
 ```yaml
 include:
-  - ../../addons/jade/compose.yml                 # Jade
+  - ../../addons/acme-console/compose.yml         # Acme Console
 ```
 
 A playground includes the add-ons and setups it needs. Starting it turns them on, and stops or turns off what conflicts
@@ -188,7 +188,7 @@ personal one.
 `terminal: logistics-kubectl` names the service whose container gets a shell, under the UIs, in the page of the playground. The
 Lab UI starts `sh` there with `docker exec -it`, so everything the shell has comes from the container: its image, its
 working directory (`working_dir`), its environment, its mounts. A container that only waits for the shell (`entrypoint: ["sleep",
-"infinity"]`) is how Acme Freight has one, with its lessons' files mounted and `ENV` naming a file of aliases that `sh` reads
+"infinity"]`) is how a playground has one, with its lessons' files mounted and `ENV` naming a file of aliases that `sh` reads
 at its start (`k` for `kubectl`). The terminal is for what the playground teaches to do from a command line; a shell on this
 machine is not what it opens.
 
@@ -229,8 +229,8 @@ environment of the Gravitee Cloud accounts you connected. An environment the pla
 reason as its tail. With [API Management in the Cloud](lab-ui.md#where-api-management-runs), its environment is the place
 proposed first; a playground that cannot go there proposes *This machine*, and its page says why.
 
-A deploy to Gravitee Cloud starts the gateway add-on of its kind and the apps, and runs the seed apart from the core
-(`docker compose run --rm --no-deps`), so that it starts, restarts and recreates nothing of the core.
+A deploy to Gravitee Cloud starts the gateway add-on of its kind, the apps and what they need of this machine's platform, and
+runs the seed apart (`docker compose run --rm --no-deps`). It restarts and recreates nothing of the core.
 
 What an environment runs comes from its gateways, as the Cloud lists them: each has a scope (`APIM` or `AM`) and a version,
 and the environment runs the product of each scope at the version of its oldest gateway. The product is named as the core's
@@ -243,6 +243,9 @@ gateway mounts what the Hybrid gateway add-on mounts. The Lab gives the first re
 | Nothing to deploy | There is no seed service, or `seed/` holds nothing | A seed service, and `seed/apim/` for the API Management it fills |
 | Needs Gamma | `seed/` holds `aim/` or `authz/`, and the account's plan does not enable Gamma | Nothing, when the playground is about Gamma |
 | Needs API Management 4.13 | `requires.images` asks for a later minor version of API Management than the oldest gateway of the environment runs | Ask for the version the environment runs, which the Gravitee Cloud page shows in the gateway's popover |
+| Needs the llm-proxy entrypoint | The APIs its seed creates use a plugin that the environment's Management API lacks (entrypoint, endpoint, policy or resource), read with its Cloud Token | Use what the environment has |
+| The license lacks ... | The license of the environment's organization does not deploy such a plugin, or lacks a feature of API Management that `requires.license` names, read with its Cloud Token | A license that has it |
+| Needs plugins on the gateway | `requires.plugins` lists a plugin and the gateway add-on mounts no plugins folder | Nothing, until the add-on mounts one |
 | Changes this machine's Management API | The playground, or an add-on or a setup it brings, changes a service of API Management's control plane (its Management API, its consoles): Gravitee Cloud runs them | Nothing of the control plane can change in Cloud: put the change on the gateway, which is the platform's |
 | Its apps use this machine's Management API | An app, or a service of an add-on it brings, has `depends_on` the Management API or a console of API Management, or an app calls one in a URL of its `environment` or `command` | Make the apps backends, which the gateway of Gravitee Cloud calls |
 | Seeds more than API Management and Access Management | `seed/` holds another entry than `apim/`, `am/` and `openfga/`: `aim/`, `authz/`, `environments/`, `controls.yaml`, `refills.yaml` | The seed of a deploy fills API Management in the platform, and Access Management and OpenFGA here. No management API creates the [environments of its own](#environments-of-its-own) a seed names |
@@ -332,18 +335,18 @@ An app is a service the playground builds and runs. Two ways to build one:
 An add-on that builds from a repository:
 
 ```yaml
-  agent-lens:
-    build: https://github.com/acme/agent-lens.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa:viewer   # Pinned to an upstream commit, so the image does not change unannounced
+  acme-viewer:
+    build: https://github.com/acme/viewer.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa:viewer   # Pinned to an upstream commit, so the image does not change unannounced
 ```
 
 A playground can build its apps from a repository too. An app that needs the whole repository as its context names
 its Dockerfile:
 
 ```yaml
-  acme-hostels-agent:
+  shop-assistant:
     build:
-      context: https://github.com/acme/hostels.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa
-      dockerfile: hotel-agent/Dockerfile
+      context: https://github.com/acme/shop.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa
+      dockerfile: assistant/Dockerfile
 ```
 
 An app follows the rules of an add-on's services, `restart: unless-stopped` included. See
@@ -400,7 +403,7 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
 ```yaml
   shop-seed:
     image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder:latest
-    build: ../../seeder
+    build: ../../../../../seeder
     pull_policy: ${ACME_SHOP_PULL_POLICY:-build}
     container_name: gio-shop-seed
     restart: "no"
@@ -427,8 +430,8 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
   `docker compose up`) runs it again, which is why running it twice must be safe.
 - **Endpoints, never container names.** A seed talks to endpoints. Its files hold no address and no container name: they
   use `${VAR}`, and the seed service sets each one, to a container name in the lab. The seeder reads every endpoint
-  from its settings, so the same files can seed another platform. the seed check of a catalog (`make ci`) fails on a literal address in a seed
-  file, and on a variable no seed service sets.
+  from its settings, so the same files can seed another platform. The *Seed files* job of a catalog's CI (`seedlint.py`) fails on a literal address
+  in a seed file, and on a variable no seed service sets.
 
 ### Files
 
@@ -754,9 +757,8 @@ hackathon:                          # lesson 6: a click on "Spend the Hackathon 
   ran).
 - **The refill is the one thing the seed does outside the management APIs.** It reaches the core's Redis. If it cannot,
   it says so and goes on.
-- **Test it** with `make test` (`seeder/tests/test_refills.py` and the refill tests of `test_aim_workspaces.py`: a fake
-  Redis and the real files of Acme Shop), and on the running lab: spend the budget, Re-seed, and call the workspace
-  again.
+- **Test it** on the running lab: spend the budget, Re-seed, and call the workspace again. A lesson that depends on a refill
+  gives a budget one run does not empty, or says in its guide that a spent budget is whole again when its period ends.
 
 ## The guide
 
@@ -777,7 +779,8 @@ hackathon:                          # lesson 6: a click on "Spend the Hackathon 
 A block of the guide whose fence says `run` after the language, as in ```` ```bash run ````, gets a *Run* button, which types the block
 at the prompt of the playground's [terminal](#terminal) and presses Enter after its last line. It reads as a block of the
 language in any other viewer. The button is disabled, with the reason, while the playground has no terminal or does not run. Write
-a block as what a person would paste: one command a line, a long one continued with a backslash. A block meant to be read, such as
+a block as what a person would paste: one command a line, a long one continued with a backslash, with the addresses of the
+container (`$GATEWAY`), not `localhost`. A block meant to be read, such as
 a manifest or an output, is a plain fence.
 
 ### Accounts in a guide
@@ -895,24 +898,9 @@ A running playground shows its page in a frame of the Lab UI, so what the app se
 
 ## Personal and shared
 
-A playground can be personal first, in `.lab/catalogs/local/playgrounds/<id>/` (git-ignored), with the id `local/<id>`. It is
-tagged *Personal* in the Lab UI. *New playground* writes either kind, from a form or with an AI agent.
-
-- A personal playground and a playground of a catalog sit at the same depth, so the same paths work in both: it includes an
-  add-on of its catalog as `../../addons/<id>/compose.yml`, a setup as `../../setups/<id>.yml`, one of another catalog as
-  `../../../<catalog id>/addons/<id>/compose.yml`, and its seed builds `../../../../../seeder`.
-- A playground of a catalog never includes a personal add-on or setup, and Share says so. A personal one includes what it
-  wants. A playground of a catalog stands alone, so it runs on any machine.
-
-To share one, start it here until its seed ends without an error, then choose *Share* in its ⋯ menu. The Lab UI says first
-what keeps it from being shared, for each catalog you can write to: it includes a personal add-on or setup, it has not run
-yet, its name is taken, or the catalog's rules find something in the copy. Then it copies the folder into the catalog: a
-branch of a repository to propose with a pull request, or a copy in a folder. The versions it ran on go into the copy as its
-`tested` set when its file declares none. Your personal playground stays and runs until *Use the catalog version* replaces it.
-Without the Lab UI, the `share-item` skill has the same steps. A playground of a catalog is not made personal again: create a
-personal one for a private variant.
-
-Deleting a personal playground says what its seed created and leaves in Gravitee (*Stays in Gravitee*).
+A playground can be personal first: [Personal and shared](../AGENTS.md#personal-and-shared) says where it is kept and what it may
+include, and [Create, share and star](lab-ui.md#create-share-and-star) how to share it. Start it here until its seed ends without
+an error first. Deleting a personal playground says what its seed created and leaves in Gravitee (*Stays in Gravitee*).
 
 ## Before you share
 
@@ -929,7 +917,8 @@ make ci
 `make check` (or `python3 lab-ui/catalog.py check <catalog id or folder>` from the Lab) covers the metadata, includes, conflicts,
 image defaults, restart policies, descriptions, ports, what a playground requires, and the API definitions its seed imports. It
 also checks that the catalog row of the playground reads as its metadata says, and prints the row it expects. `make ci` also
-checks the seed files of the playgrounds, builds the apps and runs their tests in their images. Then start the playground from
+builds the apps and runs their tests in their images, and the *Seed files* job of its CI reads the seed files of the playgrounds
+(`python seeder/seedlint.py <folder>/playgrounds`, with the seeder's requirements). Then start the playground from
 its page and go through its guide. Share runs the same rules on the copy before anything leaves your machine.
 
 To run a playground without the Lab UI, put `.lab/catalogs/<catalog>/playgrounds/<id>/compose.yml` first in the `include` list of
@@ -1042,14 +1031,3 @@ What a seed of [environments of its own](#environments-of-its-own) relies on, as
   `portal.next.access.enabled`, which the core sets from its environment (`metadata.readonly` lists them with `email.*`).
 - **One gateway serves every environment of the organization**: the lab sets no `organizations` or `environments` filter
   in the gateway's `gravitee.yml`.
-
-## Limits
-
-- One playground is on at a time. Two use cases would fight over gateway settings and ports, so starting another one
-  stops the first, or turns it off.
-- A playground that uses Enterprise features needs a license that includes them. A seed that fills Gamma needs the Gamma
-  modules of API Management 4.13 or later, and a playground can need pre-release builds of both API Management
-  and Access Management, chosen on the Images page. The page says what is missing before the start.
-- The UIs of a playground are framed only by the Lab UI on port 9000.
-- A seed stops on an object it finds and did not create. It never adopts, changes or deletes one.
-- A refill reaches the core's Redis. Without it, a spent budget stays spent until its period ends.

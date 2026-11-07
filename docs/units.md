@@ -27,8 +27,8 @@ addons/<id>/
 ```
 
 Depth: a personal add-on, in `.lab/catalogs/local/addons/<id>/`, and an add-on of a catalog sit at the same depth, so the same
-paths work in both. An add-on of the same catalog is `../jade/compose.yml`; one of another catalog, such as the default one, is
-`../../../<catalog id>/addons/jade/compose.yml`. An item of a catalog includes only its own catalog's and the catalogs it
+paths work in both. An add-on of the same catalog is `../<id>/compose.yml`; one of another catalog, such as the default one, is
+`../../../<catalog id>/addons/<id>/compose.yml`. An item of a catalog includes only its own catalog's and the catalogs it
 declares in `requires.catalogs`.
 
 ### compose.yml
@@ -40,12 +40,12 @@ x-gravitee:
   category: Other                         # one of x-gravitee.categories in docker-compose.yml
   description: Browser for what the gateway sends to Acme   # a noun phrase: what it adds
   conflicts:                              # optional: the add-ons it cannot run with, and why
-    jade: both take the gateway's OpenTelemetry exporter
+    acme-tracing: both take the gateway's OpenTelemetry exporter
   requires:
     license: [apim-reporter-tcp]          # optional: license features it needs
 
 include:
-  - ../kafka/compose.yml                  # optional: the add-ons it needs, Compose brings each once
+  - ../acme-broker/compose.yml            # optional: the add-ons it needs, Compose brings each once
 
 services:
 
@@ -88,14 +88,13 @@ services:
   `build: build it here at each start; never: build it here once; always: pull it, build it here if it cannot be
   pulled`. The unit's name is not repeated when the service already starts with it, and `catalog.py check` says the name
   it expects. The catalog's CI builds and publishes every such image under that one prefix, so a new add-on
-  adds nothing to it, and `always` pulls what CI published. A remote build context pins a commit; the AI Agent
-  Inspector, built from one, defaults to `never` (`AGENT_LENS_PULL_POLICY`). See
+  adds nothing to it, and `always` pulls what CI published. A remote build context pins a commit. See
   [built here, or pulled](configuration.md#built-here-or-pulled).
 - **Secrets and settings**: each is described by a comment on its line or heading its block; the settings form shows
   it, and puts a name with `TOKEN`, `SECRET`, `PASSWORD`, `LICENSE` or `_KEY` under Secrets
   ([settings and secrets](configuration.md#settings-and-secrets)). Their names follow
-  [the naming rule](../AGENTS.md#rules). `${VAR}` with no default is required: the add-on shows Settings instead of
-  Start until its `.env` gives it a value. An optional one carries an empty default, `${VAR:-}`. The core's
+  [the naming rule](../AGENTS.md#rules). `${VAR}` with no default is required: the add-on's Start waits and says which
+  until its `.env` gives it a value, and its key button opens them. An optional one carries an empty default, `${VAR:-}`. The core's
   `GRAVITEE_LICENSE`, `INTERNAL_API_PASSWORD` and `REDIS_PASSWORD` come from the core's `.env`: reference them with the
   core's defaults and never copy their values. A setting is never written into a `CMD-SHELL` test or a `command` written
   as one line, where a value with a space, an `&`, a `$` or a quote is split, run or expanded: a check reads the
@@ -171,19 +170,19 @@ follows, and what personal and shared mean. What a setup's Start and Stop do is 
 [the Lab UI documentation](lab-ui.md#start-and-stop-an-item).
 
 The file is `setups/<id>.yml`. Depth: a personal setup, in `.lab/catalogs/local/setups/<id>.yml`, and a setup of a catalog sit at
-the same depth. An add-on of the same catalog is `../addons/jade/compose.yml`; one of another catalog is
-`../../<catalog id>/addons/jade/compose.yml`.
+the same depth. An add-on of the same catalog is `../addons/<id>/compose.yml`; one of another catalog is
+`../../<catalog id>/addons/<id>/compose.yml`.
 
 ```yaml
 x-gravitee:
   kind: setup
-  name: Event Streams                    # short: it is the name of its row
+  name: Acme Streams                     # short: it is the name of its row
   category: Event                           # one of x-gravitee.categories in docker-compose.yml; required in a catalog
   # A noun phrase: it is the text of its row in the catalog
   description: A broker with its console and the gateway's broker support
 
 include:
-  - ../addons/jade/compose.yml               # what an add-on needs comes with it
+  - ../addons/acme-broker/compose.yml        # what an add-on needs comes with it
 ```
 
 - **Add-ons only**, each once. Two setups may include the same add-on: Compose brings it once. A playground may
@@ -212,8 +211,8 @@ The folder name is its id. Its settings, the ones read from the `.env` of its fo
 [the naming rule](../AGENTS.md#rules): `ACME_SHOP_PULL_POLICY` and `ACME_SHOP_PROTECTIONS` start with its id, and
 `OLLAMA_URL` keeps the common name of the host service. Depth: a personal playground, in
 `.lab/catalogs/local/playgrounds/<id>/`, and a playground of a catalog sit at the same depth. It includes an add-on of its
-catalog as `../../addons/jade/compose.yml`, a setup as `../../setups/event-streams.yml`, and one of another catalog as
-`../../../<catalog id>/addons/jade/compose.yml`; its seed builds `../../../../../seeder`.
+catalog as `../../addons/<id>/compose.yml`, a setup as `../../setups/<id>.yml`, and one of another catalog as
+`../../../<catalog id>/addons/<id>/compose.yml`; its seed builds `../../../../../seeder`.
 
 ### compose.yml
 
@@ -255,8 +254,8 @@ x-gravitee:
       key: *customer-key
 
 include:
-  - ../../addons/jade/compose.yml         # the add-ons and setups it needs
-  - ../../setups/event-streams.yml
+  - ../../addons/acme-console/compose.yml  # the add-ons and setups it needs
+  - ../../setups/acme-streams.yml
 
 services:
 
@@ -284,7 +283,7 @@ services:
 
   shop-seed:                                # the seed: runs once, then exits
     image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder:latest
-    build: ../../seeder
+    build: ../../../../../seeder
     pull_policy: ${ACME_SHOP_PULL_POLICY:-build}
     container_name: gio-shop-seed
     restart: "no"
@@ -306,43 +305,10 @@ services:
       - internal
 ```
 
-- **Add-ons and setups** are included, never listed in `requires`: a setup stands for the add-ons it includes. Starting
-  the playground turns them on. A playground includes add-ons and setups only.
-- **`requires`** has `images`, `plugins`, `license` and `host`, and `make check` rejects a key outside them. A key of
-  `images` is a version variable of the Images page, with its minimum version in quotes. `plugins` names a product
-  whose plugins the core loads (`apim`, `am`). `license` holds ids of the license model, not names of packs. A `check`
-  is an http or https URL. The shapes and what the Lab UI does with each: [requires](playgrounds.md#requires).
-- **Secrets are settings**: a password, secret, token or key is never a literal ([the rule](../AGENTS.md#rules)), and
-  the `password` and `key` of each account are no exception. Define each once, as a YAML anchor in an `x-<id>-secrets`
-  block placed before `x-gravitee` (an alias must come after its anchor), with the comment that describes it, then alias
-  it from the accounts and the services, as the example does. The passwords that the seed and the apps sign in to the
-  platform with are settings of the playground too (`ACME_SHOP_APIM_PASSWORD`, `ACME_SHOP_AM_PASSWORD`). The Lab UI
-  shows an account with its settings as they are now: the shell that runs it, then the root `.env`, then
-  `playgrounds/<id>/.env`, then the default
-  ([accounts and secrets](playgrounds.md#accounts-and-secrets)). `x-shop-secrets` in the compose file of Acme Shop below is the example.
-- **Image names and pull policy**: what a playground builds, its apps and its seed, is
-  `<images>/<unit>-<service>:latest` with `pull_policy: ${<ID>_PULL_POLICY:-build}`, as for an add-on
-  ([addons/AGENTS.md](units.md#add-ons)). The comment on the first service that uses the variable, which
-  is the help the Lab UI shows for the setting, says what each value does: `build: build it here at each start; always:
-  pull it, build it here if it cannot be pulled`. The seed's image is `seeder`, built from the shared folder the same
-  way by every playground. Two services of one image: only one has the `build:`, the other the same `image:` and
-  `pull_policy: never`.
-- **Consoles**: `consoles` lists the services whose UIs sit in tabs next to the guide (its apps, its add-ons, the
-  platform), each with its `io.gravitee.console.<id>` labels. A platform service in the list needs `x-ui-frames`, or a setting of its own that names the
-  Lab UI's pages ([the core](../AGENTS.md#the-core)). A UI whose sign-in leaves its frame for Access Management's login page, which refuses
-  frames, signs in in a popup, or is not listed.
-- **Terminal**: `x-gravitee.terminal` names the service whose container holds the shell under the UIs, where the guide's `bash run`
-  blocks run ([the key](playgrounds.md#terminal)). Give that container the aliases, variables and files a lesson types
-  (`working_dir`, `ENV` with the file `sh` reads, mounts), so a block is what a person would paste. The addresses in such a block
-  are those of the container (`$GATEWAY`), not `localhost`.
-- **Deploying to Gravitee Cloud**: the Lab works out whether a playground can be deployed to an environment of a connected
-  Gravitee Cloud account (a platform in files and code) from its files, and `make check` asks for no declaration. It can when its seed service
-  runs a `seed/` that holds `apim/` only (so no `am/`, `aim/`, `authz/`, `environments/`, `openfga/`, `controls.yaml` or `refills.yaml`),
-  it asks for no later API Management than the platform runs and no `requires.plugins`, neither it nor an add-on or a
-  setup it brings changes a service of the core, and its apps, and the add-ons it brings, neither depend on a service of
-  the core nor call the gateway or one. A deploy then starts the add-on that declares `x-gravitee.gateway` (`platform`,
-  `service`, `token`) for that kind, the Hybrid gateway, and the apps, and runs the seed apart from the core. The page
-  of a playground that cannot go says why. [Reference](playgrounds.md#deploying-to-gravitee-cloud).
+What the reference says of each part: [`include`](playgrounds.md#include), [`requires`](playgrounds.md#requires),
+[accounts and secrets](playgrounds.md#accounts-and-secrets), [image names and pull policy](playgrounds.md#apps),
+[`consoles`](playgrounds.md#consoles), [`terminal`](playgrounds.md#terminal) and
+[deploying to Gravitee Cloud](playgrounds.md#deploying-to-gravitee-cloud), which takes no declaration.
 
 ### Apps
 
@@ -388,86 +354,19 @@ The apps of a playground follow these conventions:
 A running playground shows its apps in frames of the Lab UI, and an app may be driven from the guide. What an app sends
 and listens for: [what an app does when it runs in the Lab UI](playgrounds.md#what-an-app-does-when-it-runs-in-the-lab-ui).
 
-### The seed
+### The seed and the guide
 
-The seed is the one service with the label `io.gravitee.role: seed` and `restart: "no"` (`make check` asks for exactly
-one when `seed/` exists). The seeder creates what the `seed/` folder describes through the products' management APIs.
-The Lab UI runs it when a Start sets the playground up and on Re-seed, never from the Containers page. A command that names no
-service (`make all`, `make start`, `make restart`, a plain `docker compose up`) runs it again, which is why running it
-twice must be safe: [seeder/AGENTS.md](../seeder/AGENTS.md).
+Each part has its section in the reference: [the seed](playgrounds.md#the-seed), [its files](playgrounds.md#files),
+[environments of its own](playgrounds.md#environments-of-its-own), [what it records](playgrounds.md#what-it-records),
+[controls](playgrounds.md#controls-the-protections-a-lesson-switches-on),
+[refills](playgrounds.md#refills-what-a-lesson-spends-put-back) and [the guide](playgrounds.md#the-guide). Running a seed twice
+must be safe: [seeder/AGENTS.md](../seeder/AGENTS.md).
 
-- **Seed files** use each product's own format, so they come from an export and go back the same way: API exports
-  (`apim/apis/*.json` and `environments/<id>/apis/*.json`, JSON objects: the Lab UI reads the plugins they use to tell which
-  license features the playground needs), and `.yaml` for applications, AM, OpenFGA, Agent Management (`aim/`) and
-  Authorization Management (`authz/`). The folders and the module that reads each: [seeder/README.md](../seeder/README.md).
-  The formats and the seed service's settings: [the seed](playgrounds.md#the-seed).
-- **Addresses** are `${VAR}`, set by the seed service. A seed file never names a container or writes an address.
-- **Environments of its own**: a playground for several tenants has a folder `seed/environments/<id>/` for each, which
-  repeats the layout of `seed/apim/` (settings, users, groups, APIs, applications, subscriptions, a developer portal). The
-  folder is the environment's id, `environment.yaml` repeats it and names the environment, and the seed and the catalog's
-  CI (`seedlint.py`) say when they differ. The seed looks an environment up and never creates or deletes it: [the folder's
-  layout](playgrounds.md#environments-of-its-own). Such a playground stays on *This machine*, and a `seed/apim/` is
-  optional.
-- **A one-shot service writes to the core's database only when no API can.** No management API creates an environment, so the
-  playground has a service with `restart: "no"` and no port that writes each one into the core's MongoDB from the seed's own
-  files, mounted read only, and the seed waits for it with `depends_on: {condition: service_completed_successfully}`.
-  `lumora-envs` in Lumora Bio is the example: it reads each `seed/environments/<id>/environment.yaml`, and
-  passes the values through its environment, never the command line. Anything an API can do, the seed does. The Lab UI
-  cannot see what such a service changes, so the playground's README says it.
-- **What the seed replaces or deletes** is only what its record in `.state/created.json` says it created:
-  [what it records](playgrounds.md#what-it-records).
-
-### Controls: the protections a lesson switches on
-
-Declare controls only when the lessons teach switching a protection on; a playground that shows a finished
-configuration declares none. Reference: [controls](playgrounds.md#controls-the-protections-a-lesson-switches-on).
-
-- `seed/controls.yaml` names each protection once. The seed files describe the protected state; a mode setting of the
-  playground (`ACME_SHOP_PROTECTIONS`: `off` or `on`) reaches the seed as `SEED_PROTECTIONS` and decides the state each
-  run brings the controls to. Without it the seed protects; any other value is an error.
-- A control has one target: an `api` or an `mcp-proxy` with a `flow` and its `steps` (`request`, `response`), an `api`
-  with `failover: true` (the API's failover, switched on or off), a `workspace` with `steps`, or a `policy`. Names are those of the seed files, not the console's, and a name that matches
-  nothing stops the seed.
-- A control is only what the platform can switch and the gateway honors (a step's `enabled`, an API's failover, a policy
-  deployed or not).
-  Test it on the platform before you declare it.
-- Re-seed brings every control back to the mode's state, and only the controls.
-- A guide or an app names a protection by what the console shows (the policy's name, the phase, the Description), never
-  by its name in `controls.yaml`.
-- The comment on the mode setting's line says what applies a change: Re-seed alone, or Save & apply first when a service
-  reads the mode itself. A check that follows the mode says both values in the file (`tools: {protected: 7, unprotected: 8}`).
-
-### Refills: what a lesson spends, put back
-
-A lesson that makes the person spend a budget (run to its limit to meet the 429) needs a refill, or Re-seed does not
-start it over. Reference: [refills](playgrounds.md#refills-what-a-lesson-spends-put-back).
-
-- `seed/refills.yaml` names each refill once, with `workspace` (the AI workspace by its name in `seed/aim/workspaces`),
-  `member` (a source id the workspace file lists) and `counters: cost`. No other key.
-- A refill deletes the member's cost counters in the core's Redis and nothing else: no platform call, and no counter of
-  another member, a token counter or the semantic cache.
-- The seed service needs `REDIS_URL` and `REDIS_PASSWORD`.
-- It is a convenience: a Redis that does not answer, or a member not seeded yet, is a `[refills] !` line and the seed
-  goes on. A declaration that is wrong stops it.
-- A lesson that depends on a refill gives a budget one run does not empty, or says in its guide that a spent budget is
-  whole again when its period ends.
-- Test it with `make test` (`seeder/tests/test_refills.py`) and on the running lab: spend the budget, Re-seed, call again.
-
-### The guide
-
-`guide.md` is Markdown, shown next to the live state of the playground one page at a time.
-
-- An introduction, then one `## 1. Title` section per lesson, numbered 1, 2, 3 in order (`make check`), then any other
-  `## ` section (troubleshooting, what to look at). `make check` words a lesson as a step, and `requires.license` names
-  one as `Lesson 4`.
-- Each section reads on its own: the page shows one at a time.
-- A block to run is ```` ```bash run ````: the page puts a *Run* button on it that types it in the terminal
-  ([commands to run](playgrounds.md#commands-to-run)). Plain fences stay for what is only read.
-- What only matters before a start (memory, the first start's time, what to fix) is not in the guide. The page says it
-  under "Before you start", from `requires` and `first_start`.
-- A diagram is a ```` ```mermaid ```` block.
-- An action link is `text`, with an id of lowercase letters, digits and dashes (`make check`). It clicks a
-  button of the app, which listens for it: [actions in a guide](playgrounds.md#actions-in-a-guide).
+**A one-shot service writes to the core's database only when no API can.** No management API creates an environment, so the
+playground has a service with `restart: "no"` and no port that writes each one into the core's MongoDB from the seed's own
+files, mounted read only, and the seed waits for it with `depends_on: {condition: service_completed_successfully}`. It reads each
+`seed/environments/<id>/environment.yaml`, and passes the values through its environment, never the command line. Anything an
+API can do, the seed does. The Lab UI cannot see what such a service changes, so the playground's README says it.
 
 ### Catalog and Lab UI
 
@@ -475,5 +374,4 @@ Add a row to README.md, written from the `x-gravitee` block as `make check` prin
 `| <name> | <description> | <duration> |`.
 
 Then run `make check` and start the playground from its page. What a playground's page shows, and what its Start,
-Re-seed, Stop and Reset do: [the playground page](lab-ui.md#the-playground-page). One playground is on at a time
-([limits](playgrounds.md#limits)). To share a personal one, see [Personal and shared](../AGENTS.md#personal-and-shared).
+Re-seed, Stop and Reset do: [the playground page](lab-ui.md#the-playground-page). To share a personal one, see [Personal and shared](../AGENTS.md#personal-and-shared).
