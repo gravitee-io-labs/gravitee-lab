@@ -509,10 +509,11 @@ class Creation(Portals):
         self.assertNotIn("ENV_ID", os.environ)
         self.assertNotIn("ENV_NAME", os.environ)
 
-    def test_a_page_goes_to_a_path_of_the_portal(self):
+    def test_a_page_goes_to_a_path_of_the_portal_with_the_type_of_its_file(self):
+        self.file("portal/pages/guide.yaml", GUIDE.replace("GRAVITEE_MARKDOWN", "ASYNCAPI"))
         self.run_seed()
         guide = next(page for page in self.sent("PUT", "/documentations") if page["hrid"] == "mallard-guide")
-        self.assertEqual((guide["location"], guide["order"], guide["area"]), ("/guides", 0, "TOP_NAVBAR"))
+        self.assertEqual((guide["type"], guide["location"], guide["order"], guide["area"]), ("ASYNCAPI", "/guides", 0, "TOP_NAVBAR"))
 
     def test_the_log_names_what_it_did_and_nothing_secret(self):
         self.env(APIM_PASSWORD="s3cret-pass")
