@@ -35,7 +35,10 @@ OPEN = "No access to example/demos. Run gh auth login in a terminal, then try ag
 
 def read_catalog(path, address=None, borrowed=(), published=False):
     """manifest.read_catalog without Compose: the scalars of the file, as the fixtures write them."""
-    text = (Path(paths.ROOT) / path).read_text(encoding="utf-8")
+    file = Path(paths.ROOT) / path
+    if not file.is_file():
+        raise manifest._missing(address)
+    text = file.read_text(encoding="utf-8")
 
     def scalar(key):
         return re.search(rf"^  {key}: (.+)$", text, re.M).group(1).strip()

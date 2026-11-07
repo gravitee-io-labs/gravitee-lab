@@ -321,9 +321,7 @@ class Calls(LabUI):
         # The catalogs
         ("POST", "/api/catalogs/check", {"address": "acme/lab-hub", "branch": "main"}, api.service, "check_address", ("acme/lab-hub", "main"), {}),
         ("POST", "/api/catalogs/check", {"address": "acme/lab-hub"}, api.service, "check_address", ("acme/lab-hub", None), {}),
-        ("POST", "/api/catalogs", {"ticket": "abc"}, api.service, "add", ("abc",), {"host": False}),
-        ("POST", "/api/catalogs", {"ticket": "abc", "host": True}, api.service, "add", ("abc",), {"host": True}),
-        ("POST", "/api/catalogs", {"ticket": "abc", "host": "yes"}, api.service, "add", ("abc",), {"host": False}),
+        ("POST", "/api/catalogs", {"ticket": "abc"}, api.service, "add", ("abc",), {}),
         ("POST", "/api/catalogs", {"listed": "gravitee"}, api.service, "add_listed", ("gravitee",), {}),
         ("POST", "/api/catalogs/new", {"name": "My catalog"}, api.service, "create_folder", ("My catalog",), {}),
         ("POST", f"{ACME}/check", {}, api.service, "check_now", ("acme-hub",), {}),
