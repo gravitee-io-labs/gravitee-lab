@@ -381,6 +381,7 @@ class ReleaseNotesTest(unittest.TestCase):
         labels = [label.strip().strip('"') for found in re.findall(r"^      labels: \[(.+)\]$", text, flags=re.M) for label in found.split(",")]
         self.assertEqual(labels[0], "major", "GitHub puts a pull request in the first section whose label it has")
         self.assertEqual(labels[-1], "*")
+        self.assertLess(labels.index("catalog-format"), labels.index("minor"), "a feature catalogs can use is said under For catalogs")
         source = (ROOT / ".github" / "scripts" / "next_version.py").read_text(encoding="utf-8")
         maintaining = (ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
         for label in labels[:-1]:
