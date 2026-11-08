@@ -4,11 +4,13 @@ the stylesheets is used and every class the page writes is styled, every script 
 hash, nothing of the page needs a script or a style the policy of its address would refuse, and every module is valid
 JavaScript."""
 
+import http.client
 import itertools
 import json
 import re
 import shutil
 import subprocess
+import threading
 import unittest
 from pathlib import Path
 
@@ -367,6 +369,38 @@ class Policy(Case):
         self.assertEqual(sorted(editor_sources()), [source for source in sources if "monaco" in source], "the editor's stylesheet and icon font come from where its script does")
         self.assertTrue(writes_styles(), "a style attribute is written (a bar's width, a link's), so the policy of styles allows inline ones")
         self.assertEqual(worker_schemes(), ["data:"], "the editor wraps the worker of its CDN in an address of data")
+
+
+class Burst(Case):
+    """A page asks for all its modules at once, each over a connection of its own, and the loop that accepts them may be late:
+    every one is answered, as a module that is not leaves the page empty. Only macOS resets what overflows the listen queue;
+    Linux drops it and the client tries again, so the test fails without the fix only on a Mac."""
+
+    def test_every_module_is_served_when_they_are_asked_for_together_before_the_server_accepts(self):
+        server = api.Server(("127.0.0.1", 0), api.Handler)
+        self.addCleanup(server.server_close)
+        late = threading.Timer(0.5, lambda: threading.Thread(target=server.serve_forever, args=(0.01,), daemon=True).start())
+        late.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(late.join)
+        answers = {}
+
+        def get(path):
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+            try:
+                connection.request("GET", path)
+                answers[path] = connection.getresponse().status
+            except OSError as error:
+                answers[path] = type(error).__name__
+            finally:
+                connection.close()
+        threads = [threading.Thread(target=get, args=("/" + module.relative_to(WEB).as_posix(),)) for module in MODULES]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual({path: answer for path, answer in answers.items() if answer != 200}, {})
+        self.assertEqual(len(answers), len(MODULES))
 
 
 class Syntax(Case):

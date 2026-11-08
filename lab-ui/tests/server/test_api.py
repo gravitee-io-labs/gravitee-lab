@@ -1965,7 +1965,6 @@ class Startup(Case):
         events = self.events
 
         class Server:
-            daemon_threads = False
             server_port = 9000
 
             def __init__(self, address, handler):
@@ -1975,7 +1974,7 @@ class Startup(Case):
                 events.append(("serve",))
                 raise KeyboardInterrupt
 
-        self.patch(api, "ThreadingHTTPServer", Server)
+        self.patch(api, "Server", Server)
         for module, name in self.STEPS:
             self.patch(getattr(api, module), name, side_effect=lambda module=module, name=name: events.append((module, name)))
         self.patch(api.compose, "stop_on_signals", side_effect=lambda *others: events.append(("signals", *others)))
@@ -2026,7 +2025,7 @@ class Startup(Case):
         self.assertEqual(self.events, [])
 
     def test_an_error_other_than_a_busy_port_is_raised_before_anything_is_touched(self):
-        self.patch(api, "ThreadingHTTPServer", side_effect=OSError(errno.EACCES, "Permission denied"))
+        self.patch(api, "Server", side_effect=OSError(errno.EACCES, "Permission denied"))
         with self.assertRaises(OSError):
             self.serve()
         self.assertEqual(self.events, [])
