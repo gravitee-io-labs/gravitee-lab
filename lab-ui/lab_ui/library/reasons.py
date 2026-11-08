@@ -32,8 +32,8 @@ def spelled(items):
 
 
 def _versions(saved, running):
-    """The two tags as a line says them: without the system they share ("4.12.20-debian" and "4.13.0-alpha.4-debian"
-    are 4.12.20 and 4.13.0-alpha.4), whole when the system is what differs."""
+    """The two tags as a line says them: without the system they share ("4.13.3-debian" and "4.14.0-alpha.4-debian"
+    are 4.13.3 and 4.14.0-alpha.4), whole when the system is what differs."""
     (one, system), (other, then) = versions.bare(saved), versions.bare(running)
     return (one, other) if system == then and one != other else (saved, running)
 
@@ -85,7 +85,7 @@ def line(whys, labels=None, owner="", whole=False):
     """One line for these services, {name: why()}: their causes grouped, in the order tag, image, config. `labels`:
     {name: how a person calls it}, None for a single service whose row says which it is. `owner`: what the services
     belong to ("API Management"), and `whole`: every one of its services is behind. The line then begins with the owner
-    ("API Management: 4.12.20 is saved, 4.13.0-alpha.4 still runs."), and the services a clause is about follow it in
+    ("API Management: 4.13.3 is saved, 4.14.0-alpha.4 still runs."), and the services a clause is about follow it in
     brackets ("Databases: MongoDB (8.0.29 is saved, 8.3.11 still runs)") when they are not all of them. On the owner's own
     row, with no `owner`, it begins with nothing. Empty when none runs behind."""
     clauses = _clauses(whys)

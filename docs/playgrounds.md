@@ -62,8 +62,8 @@ x-gravitee:
   first_start: 10 min
   requires:
     images:
-      APIM_VERSION: "4.13.0-alpha.5"
-      AM_VERSION: "4.13.0-alpha.9"
+      APIM_VERSION: "4.13.0"
+      AM_VERSION: "4.13.0"
     license:
       - gamma-aim-module
       - apim-mcp-proxy-reactor              # the MCP proxy, and its mcp-acl policy
@@ -109,7 +109,7 @@ x-gravitee:
 
 | Key | Shape | What the Lab UI does |
 |---|---|---|
-| `images` | `{VERSION_VARIABLE: "minimum"}`, the version in quotes | Warns under *Before you start*, with a link to the Images page, and blocks Start while the saved version is older. Start names every image that is too old in one sentence. A pre-release comes before its release, as in semantic versioning: `4.13.0-alpha.5` is not a `4.13`, so a minimum in release form (`4.13`, `4.13.0`) is met by a release only, or by a version the playground lists in `tested`. Ask for a pre-release (`4.13.0-alpha.3`) to accept it and the later ones. A version that is not a release (`major.minor.patch`: `4.13.0-alpha.5`, `amp-demo-latest`, `latest`) is never taken as safe, see [Tested versions](#tested-versions) |
+| `images` | `{VERSION_VARIABLE: "minimum"}`, the version in quotes | Warns under *Before you start*, with a link to the Images page, and blocks Start while the saved version is older. Start names every image that is too old in one sentence. A pre-release comes before its release, as in semantic versioning: `4.14.0-alpha.5` is not a `4.14`, so a minimum in release form (`4.14`, `4.14.0`) is met by a release only, or by a version the playground lists in `tested`. Ask for a pre-release (`4.14.0-alpha.3`) to accept it and the later ones. A version that is not a release (`major.minor.patch`: `4.14.0-alpha.5`, `amp-demo-latest`, `latest`) is never taken as safe, see [Tested versions](#tested-versions) |
 | `plugins` | `{apim: [plugin id]}`, or `am` | Checks the plugins, and installs the missing ones from download.gravitee.io at Start |
 | `license` | A list of license feature ids, or `{feature id: "Lesson 4"}` | Warns when the license lacks one: `Needs a license`, `License expired` or `Not in the license`. With the mapping, the row says `License needed for lesson 4` instead, and its tooltip names the packs that give the features |
 | `host` | A list of `name`, `check`, `expect` and `help` | Calls `check` from your machine before Start. `expect` is text that must appear in the answer. `help` says what to do |
@@ -137,15 +137,15 @@ What counts: a privileged container, the network, the processes, the shared memo
 ```yaml
 x-gravitee:
   tested:                                  # the versions it was built and checked on, the latest set last
-    - APIM_VERSION: "4.13.0-alpha.3"      # older sets stay tested: add a set, do not replace one
-    - APIM_VERSION: "4.13.0-alpha.5"
+    - APIM_VERSION: "4.13.0"              # older sets stay tested: add a set, do not replace one
+    - APIM_VERSION: "4.13.3"
       APIM_REGISTRY: graviteeio            # a tag is in one registry: a set may name it, and a switch goes to it
-      AM_VERSION: "4.13.0-alpha.9"
+      AM_VERSION: "4.13.3"
 ```
 
 A playground says the versions it was built and checked on, not the ones it asks for at least (`requires.images`). A version it lists
 there is also enough for its minimum. Only a release (`4.13.7`) is taken as it is: any other version (a pre-release such as
-`4.13.0-alpha.5`, a demo build, `latest`) is not tested unless the playground names that very version, in `tested` or as the
+`4.14.0-alpha.5`, a demo build, `latest`) is not tested unless the playground names that very version, in `tested` or as the
 `requires.images` it asks for. Without a tested version to go to, *Before you start* says to choose a release on the Images page,
 and Start starts on the images as they are. Gravitee changes things between versions, whatever its numbers say, and a playground that is not run on its versions may end on its
 seed after the whole setup. In a catalog of the standard, the nightly `versions.yml` tries each playground on the newest releases and
@@ -154,7 +154,7 @@ every image of one set:
 
 - A version it was tested with matches itself, whatever the image is built on (`-debian`).
 - A release matches the releases of its minor version: tested on `4.13.0`, `4.13.7` is fine and `4.14.0` is not.
-- A preview (`4.13.0-alpha.3`), a demo build (`4.13.0-amp-demo-SNAPSHOT`) and a tag without numbers (`latest`,
+- A preview (`4.14.0-alpha.3`), a demo build (`4.13.0-amp-demo-SNAPSHOT`) and a tag without numbers (`latest`,
   `amp-demo-latest`, `master-latest`) match only themselves: they say nothing of what comes after them, and a moving one
   nothing of what it holds today.
 

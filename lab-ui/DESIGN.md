@@ -782,7 +782,7 @@ its catalog have the Start or Stop of their item, as the lists' rows have.
     is never drawn in its place, as it may not be the one that runs.
     - *Status*: the first that holds. An issue (its culprit, in red) or "Needs a license" (which opens the form that takes one) says
     that; "2 of 5 running" in amber while the group is partly running; the badge "Apply needed" while the product runs behind what
-    is saved, its popover the group's causes ("4.12.20 is saved, 4.13.0-alpha.4 still runs": the version beside it is what runs) and,
+    is saved, its popover the group's causes ("4.13.3 is saved, 4.14.0-alpha.4 still runs": the version beside it is what runs) and,
     when a newer version is out, *Update available* and that version under them, which the badge would hide otherwise;
     else the state component: "Up to date", muted, with a muted check, when what runs is the newest of its channel (its popover which
     channel), "Update available" in amber when a newer one exists (its popover the two versions under *Running* and *Latest release*
@@ -955,7 +955,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
     as data (`reasons.causes`, `note_causes`: the kind, `tag` with `saved` and `running`, `image` with its `tag` and `built`,
     `settings` with their names, `config`; and `services`, who a cause is about when it is not all of the row's). The rows of
     `platform.behind` carry them too, with `count`, how many of their containers run behind. The cause is the first that holds: another tag saved
-    than the one that runs ("4.12.20 is saved, 4.13.0-alpha.4 still runs"; the system the two tags share, `-debian`, is left
+    than the one that runs ("4.13.3 is saved, 4.14.0-alpha.4 still runs"; the system the two tags share, `-debian`, is left
     out of the words, and said in full when it is what differs), the same tag on another image ("Image 3.0.2 changed since it
     started"; also a tag that a pull moved, which Docker then names by its id or digest, never read as a version), a
     configuration that changed, with what differs told when it can be (`drift.py`: the variables of the container against the
@@ -965,7 +965,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
     INTERNAL_API_PASSWORD", else "Its configuration changed since it started". Services that say the same are one
     clause, each set of settings its own, never a union said of all. A group, an add-on and a playground say it for their services
     grouped by cause, naming them while they are three or fewer, and with no name at all when one clause covers all of them. The
-    banner's rows and the head begin with the owner's name ("API Management: 4.12.20 is saved, 4.13.0-alpha.4 still runs."; "Databases:
+    banner's rows and the head begin with the owner's name ("API Management: 4.13.3 is saved, 4.14.0-alpha.4 still runs."; "Databases:
     MongoDB (8.0.29 is saved, 8.3.11 still runs); Redis (...)"), `platform.behind` giving a line for each of them: the head's
     tooltip and the banner's badge are those lines, in the words of the rows, with no count of "services" and no collapsed
     sentence for a few products. A group's version is then the tag it runs, without its system and in the color of every version,

@@ -393,7 +393,7 @@ def saved_setting(project, variable):
 def enough(unit, variable, tag, wanted):
     """Whether an image tag meets the minimum a playground asks of it (`requires.images`): it is that version or a later one
     (at_least), or the playground lists it among the versions it was tested with, which is the playground saying it works on it
-    (a preview such as 4.13.0-alpha.5 is before 4.13, and is fine only so)."""
+    (a preview such as 4.14.0-alpha.5 is before 4.14, and is fine only so)."""
     return versions.at_least(tag, wanted) or any(versions.bare(tag)[0] == versions.bare(version[variable])[0]
                                         for version in unit.get("tested") or [] if version.get(variable))
 
@@ -434,7 +434,7 @@ def switch(project, unit, chosen=False):
 
 
 def switch_rows(project, to):
-    """The rows of what a switch changes, one for each image ("API Management 4.12.20 → 4.13.0-alpha.3", with the registry it comes from
+    """The rows of what a switch changes, one for each image ("API Management 4.13.3 → 4.14.0-alpha.3", with the registry it comes from
     when that changes too), as (what goes forward or sideways, what goes back: _goes_back). `component` and `to` are for whoever says it
     in other words (the checks of a playground's page)."""
     rows, back = {}, set()
@@ -459,7 +459,7 @@ def switch_rows(project, to):
 
 def _tested(have, tested):
     """Whether an image tag is the version a playground was tested with, or taken for it: a release of the same minor
-    version (4.13.7 for 4.13.0), when the version it was tested with is a release too. A preview (4.13.0-alpha.3), a demo
+    version (4.13.7 for 4.13.0), when the version it was tested with is a release too. A preview (4.14.0-alpha.3), a demo
     build and a tag without numbers (latest) are tested only as they are: they say nothing of what comes after them, and a
     moving one nothing of what it holds today. Another minor or major version is not taken for it: Gravitee changes
     things between them."""
@@ -508,7 +508,7 @@ CONFORM = re.compile(r"\d+\.\d+\.\d+")   # major.minor.patch: a release, the onl
 
 def conform(tag):
     """Whether an image tag is a release (4.13.7, 4.13.7-debian). Anything else is not safe to assume of: a pre-release
-    (4.13.0-alpha.5), a demo build (amp-demo-latest), a moving tag (latest, 4.13), whatever its numbers say."""
+    (4.14.0-alpha.5), a demo build (amp-demo-latest), a moving tag (latest, 4.13), whatever its numbers say."""
     return bool(CONFORM.fullmatch(versions.bare(tag)[0]))
 
 

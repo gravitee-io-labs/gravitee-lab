@@ -72,7 +72,7 @@ export const splitKey = (key) => {
 
 // What a tag ends with to name the system its image is built on (its copy in lab_ui/products.py, which a test keeps equal)
 export const VARIANTS = ["chainguard-fips", "chainguard", "debian", "noble", "jammy", "alpine"];
-// A tag without the system it is built on, as a version is said: "4.13.0-alpha.4-debian" is 4.13.0-alpha.4
+// A tag without the system it is built on, as a version is said: "4.14.0-alpha.4-debian" is 4.14.0-alpha.4
 export const bareTag = (tag = "") => {
   const variant = VARIANTS.find((v) => tag.endsWith(`-${v}`));
   return variant ? tag.slice(0, -variant.length - 1) : tag;
