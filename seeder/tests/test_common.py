@@ -495,17 +495,27 @@ class Folders(Seed):
 
 class Waiting(Seed):
 
-    def test_a_refusal_the_wait_is_told_is_final_ends_it_at_once(self):
-        """A wrong password, a revoked token or a wrong environment id is not fixed by waiting five minutes."""
+    def test_a_refusal_the_wait_is_told_is_final_ends_it_once_the_grace_has_passed(self):
+        """A wrong password, a revoked token or a wrong environment id is not fixed by waiting five minutes: it is said once the
+        moment a platform that has just started may still refuse has passed."""
         api = common.Api("http://apim")
         for status in common.REFUSED:
             with self.subTest(status=status):
                 self.platform.calls.clear()
+                before = len(self.clock.sleeps)
                 self.answer({("GET", "/x"): (status, {"message": "no"})})
                 with self.assertRaisesRegex(common.SeedError, rf'^API: GET /x: HTTP {status} {{"message": "no"}}$'):
                     common.wait_until("test", "API", lambda: api.get("/x"), final=common.REFUSED)
-                self.assertEqual(len(self.platform.calls), 1)
-        self.assertEqual(self.clock.sleeps, [])
+                waited = sum(self.clock.sleeps[before:])
+                self.assertTrue(common.GRACE <= waited < common.GRACE + max(common.POLLS), waited)
+                self.assertGreater(len(self.platform.calls), 1)
+
+    def test_a_refusal_that_ends_within_the_grace_is_waited_out_even_when_the_wait_says_it_is_final(self):
+        """Access Management answers 401 to its admin for a moment after it says it is healthy, then signs it in."""
+        api = common.Api("http://am")
+        self.answer({("GET", "/x"): [(401, {"message": "no"}), (401, {"message": "no"}), 200]})
+        common.wait_until("test", "Access Management", lambda: api.get("/x"), final=common.REFUSED)
+        self.assertEqual(len(self.platform.calls), 3)
 
     def test_a_refusal_is_waited_out_when_the_wait_does_not_say_it_is_final(self):
         """A role just given takes a few seconds to count: some waits are for a refusal to end."""
