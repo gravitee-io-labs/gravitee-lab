@@ -1,5 +1,5 @@
 {
-  "level": 10,
+  "level": 11,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -432,6 +432,12 @@
     },
     "10": {
       "summary": "versions.yml looks for a new release of Gravitee every 30 minutes, not every night: a release is tried on the playgrounds within half an hour of its publication. When none is new, its plan reads Docker Hub and starts nothing. Every set it tries goes in the matrix of the catalog, docs/compatibility.md, which it writes. A set that fails opens an issue for its playground and minor version, closed once a set of that minor version works, and is not tried again until the playground or the Lab changes. A release of the catalog follows only a change of a tested.",
+      "manual": [],
+      "settings": [],
+      "urgent": false
+    },
+    "11": {
+      "summary": "versions.yml closes the issue of a run that did not finish, The workflow Gravitee versions did not finish, once a run finishes: a run that failed on the network does not leave it open.",
       "manual": [],
       "settings": [],
       "urgent": false

@@ -80,11 +80,11 @@ def blank(text, anchor, depth=1):
 class Template(unittest.TestCase):
     """The folder `lab-ui/templates/catalog`: what is in it, and that it is consistent."""
 
-    def test_the_level_is_nine_and_nine_levels_exist(self):
+    def test_the_level_is_eleven_and_eleven_levels_exist(self):
         # Levels 4 to 6 add no file: they change those that are there, so that a catalog below them is behind, not edited by hand.
-        # Level 7 adds versions.yml; levels 8 to 10 add no file
-        self.assertEqual((standard.LEVEL, standard.levels()), (10, 10))
-        self.assertEqual(sorted(standard.manifest()["notes"], key=int), [str(level) for level in range(1, 11)])
+        # Level 7 adds versions.yml; levels 8 to 11 add no file
+        self.assertEqual((standard.LEVEL, standard.levels()), (11, 11))
+        self.assertEqual(sorted(standard.manifest()["notes"], key=int), [str(level) for level in range(1, 12)])
         self.assertEqual(max(each["since"] for each in standard.manifest()["files"]), 7)
 
     def test_the_manifest_is_a_copy(self):
