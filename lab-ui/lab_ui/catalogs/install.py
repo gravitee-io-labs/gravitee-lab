@@ -1072,7 +1072,7 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
     {add, change, remove}, touched (what changed in each unit, `store.changed_parts`), rewritten,
     held (the changed or removed units that are on), release (the version of the release `target` is, or None), whatsnew
     (what is new in the units it changes, adds or removes, unit by unit, as the notes of a release say it: `store.notes`,
-    each subject once), ignored, kept (the files written), meta (the validated catalog.yml of the candidate), context}.
+    each subject once), notes ({unit key: its subjects}: the same notes, unit by unit), ignored, kept (the files written), meta (the validated catalog.yml of the candidate), context}.
     `rewritten`: the history is not the one installed (the roots differ, or the pin is not an ancestor of the target; for a
     Go back, the two are not one history); or `context["moved"]`,
     the release installed is a tag the owners moved to the target since, which an update does not take silently either. `context["on"]`, an iterable or a function: the units that are on or up, which the hold
@@ -1126,13 +1126,15 @@ def plan_update(ns: str, target: str, context: Optional[dict] = None) -> dict:
                                   if (now[path].oid, now[path].mode)
                                   != (_rec(old["files"], path).get("oid"), _rec(old["files"], path).get("mode")))}
         rewritten = _rewritten(store_path, held, target, op) or (op == "update" and bool(context.get("moved")))
-        news = _whatsnew(store_path, held["pin"], target, updates + adds + removes + sorted(renamed) + sorted(renamed.values())) \
-            if op == "update" else []
+        # What is new is said of a version that comes after the one installed: an update, or the version a Go back left, taken again
+        notes, news = _whatsnew(store_path, held["pin"], target, updates + adds + removes + sorted(renamed) + sorted(renamed.values())) \
+            if op == "update" or bare.is_ancestor(store_path, held["pin"], target) else ({}, [])
         touched = bare.changed_parts(files["add"] + files["change"] + files["remove"])
         return {"ns": ns, "op": op, "from": held["pin"], "to": target, "version": meta["version"], "adds": adds,
                 "updates": updates, "removes": removes, "renamed": renamed,
                 "files": files, "touched": touched, "rewritten": rewritten, "held": _held(ns, updates + removes, context),
-                "release": manifest.release_of(store_path, target, meta["version"]), "whatsnew": news, "ignored": ignored, "kept": kept,
+                "release": manifest.release_of(store_path, target, meta["version"]), "whatsnew": news, "notes": notes, "ignored": ignored,
+                "kept": kept,
                 "meta": meta, "context": context}
 
 
@@ -1154,11 +1156,12 @@ def _rewritten(store_path, held, target, op="update") -> bool:
 
 
 def _whatsnew(store_path, old, new, keys):
-    """What's new of an update: the notes of the units it touches (`store.notes`), their subjects one after the other, each
-    once, at most WHATSNEW; with no unit touched, those of catalog.yml."""
-    lines = [subject for _, subjects in bare.notes(store_path, old, new, keys) for subject in subjects] if keys \
+    """What's new of an update: ({unit key: its subjects}, the lines). The notes of the units it touches (`store.notes`), and their
+    subjects one after the other, each once, at most WHATSNEW; with no unit touched, no unit's notes and the lines of catalog.yml."""
+    notes = dict(bare.notes(store_path, old, new, keys)) if keys else {}
+    lines = [subject for subjects in notes.values() for subject in subjects] if keys \
         else bare.log(store_path, old, new, [manifest.FILE])
-    return list(dict.fromkeys(lines))[:WHATSNEW]
+    return notes, list(dict.fromkeys(lines))[:WHATSNEW]
 
 
 def _only(folder, rel, going) -> bool:

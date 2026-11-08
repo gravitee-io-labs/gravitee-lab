@@ -1036,8 +1036,8 @@ test("an item that is Blocked and also uses this machine counts once under Canno
   assert.ok(!rowsOf().some(([label]) => label === "Cannot run"), "allowed, it is no longer one that cannot run");
   shut();
   await updating(PLAN({ uses_machine: [{ id: "kookaburra", name: "Kookaburra", what: ["runs privileged"] }], blocked: [kea] }));
-  assert.equal(rowsOf().pop()[0], "Cannot run");
-  assert.equal(adding().querySelectorAll("#catalog-rows .choice-row").pop().querySelectorAll(".step-items li").length, 1);
+  const cannotRun = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Cannot run");
+  assert.equal(cannotRun.querySelectorAll(".step-items li").length, 1);
   shut();
 });
 
@@ -1049,15 +1049,15 @@ test("more than four lines fold under a line that counts them", async () => {
   shut();
 });
 
-test("the items of a plan are a list, every one of them on its line with its kind, under the hint of the row, however many they are", async () => {
-  // Removes says "No longer in the catalog" of its names
+test("the items of a plan are blocks, every one of them with what happens to it and its kind, however many they are; What's new alone is for a plan of no item", async () => {
   const notes = ["one", "two", "three", "four", "five", "six"];
   await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name, i) => ({ kind: i ? "addon" : "playground", name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: notes }));
   assert.equal(adding().querySelector("#catalog-rows details.choice-row"), null, "nothing of a plan is folded away");
-  const removes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Removes");
-  assert.deepEqual([text(removes.querySelector(".choice-row-label")), text(removes.querySelector(".choice-items > .muted"))], ["Removes", "No longer in the catalog"]);
-  assert.deepEqual(removes.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name")), text(li.querySelector(".step-kind"))]),
-    [["One", "Playground"], ["Two", "Add-on"], ["Three", "Add-on"], ["Four", "Add-on"], ["Five", "Add-on"]]);
+  assert.deepEqual(itemsOf().map(([name, tags, kind]) => [name, tags, kind]),
+    [["One", "Removed", "Playground"], ["Two", "Removed", "Add-on"], ["Three", "Removed", "Add-on"], ["Four", "Removed", "Add-on"], ["Five", "Removed", "Add-on"]]);
+  assert.ok(!rowsOf().some(([label]) => label === "What's new"), "each item says its own news");
+  shut();
+  await updating(PLAN({ removes: [], breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: notes }));
   assert.deepEqual(adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "What's new").querySelectorAll("li").map(text), notes);
   shut();
 });
@@ -1319,21 +1319,23 @@ async function updating(plan, more = {}, route = "update") {
   paintActions();
 }
 const buttons = () => adding().querySelectorAll(".dialog-actions .btn").map(face);
+// The items of a plan as the dialog says them: [name, its words (what happens to it, On), kind, its lines, the parts of its folder]
+const itemsOf = () => adding().querySelectorAll("#catalog-rows .plan-items > li").map((li) => [text(li.querySelector(".step-name")),
+  li.querySelectorAll(".plan-item-head .pill").map(text).join(" "), li.querySelector(".step-kind") ? text(li.querySelector(".step-kind")) : "",
+  li.querySelectorAll(".choice-lines li").map(text), li.querySelectorAll(".plan-item-files code").map(text)]);
 
 test("Update says what changes before it does: the version, who changes, what comes and goes, what breaks, what is new, what cannot run; Cancel, Show changes, Update", async () => {
   await updating(PLAN());
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { check: true }]]);
   assert.deepEqual([adding().hasAttribute("open"), heading(), onScreen()], [true, "Update Acme Hub", "effects"]);
-  assert.deepEqual(rowsOf(), [
-    ["Version", "1.5.0"],
-    ["Updates", "Acme Bakery Playground"],
-    ["Adds", "Ledger Add-on"],
-    ["Removes", "No longer in the catalog Old Add-on"],
-    ["Breaks", "Demo Needs Old Playground"],
-    ["What's new", "Add the ledger"],
-    ["Changes", "Acme Bakery now publishes port 8141"],
-    ["Cannot run", "X Publishes a port to the network Add-on"],
-  ]);
+  assert.deepEqual(rowsOf().map(([label]) => label), ["Version", "Items", "Changes", "Cannot run", "Go back to"]);
+  assert.deepEqual(itemsOf(), [
+    ["Old", "Removed", "Add-on", [], []],
+    ["Demo", "Breaks", "Playground", ["Loses Old"], []],
+    ["Ledger", "New", "Add-on", [], []],
+    ["Acme Bakery", "Updated", "Playground", [], []],
+  ], "what goes and what breaks first, then what comes, then what changes");
+  assert.deepEqual(rowsOf().slice(2), [["Changes", "Acme Bakery now publishes port 8141"], ["Cannot run", "X Publishes a port to the network Add-on"], ["Go back to", "9f1c2ab"]]);
   assert.deepEqual(buttons(), ["Cancel", "Show changes", "Update"]);
   const update = primary();
   assert.deepEqual([update.classList.contains("primary"), update.classList.contains("danger"), isOff(update)], [false, false, false]);
@@ -1346,9 +1348,11 @@ test("Update names an item it renames under its new name with the one it had, or
   await updating(PLAIN({ renames: [{ kind: "addon", id: "@acme-hub/trace-viewer", name: "Trace viewer", was: "Viewer", on: true },
     { kind: "playground", id: "@acme-hub/tide-pools", name: "Tide pools", was: "Tides", on: false },
     { kind: "addon", id: "@acme-hub/kiosk-browser", name: "Kiosk", was: "Kiosk", on: false }] }));
-  assert.deepEqual(rowsOf().find(([label]) => label === "Renames"),
-    ["Renames", "Your settings follow Trace viewer Was Viewer, stays on Add-on Tide pools Was Tides Playground Kiosk Same name Add-on"],
-    "a name that stays the same is no news: its folder is");
+  assert.deepEqual(itemsOf().filter(([, tags]) => tags.startsWith("Renamed")).map(([name, tags, kind, lines]) => [name, tags, kind, lines]), [
+    ["Trace viewer", "Renamed On", "Add-on", ["Was Viewer", "Your settings follow"]],
+    ["Tide pools", "Renamed", "Playground", ["Was Tides", "Your settings follow"]],
+    ["Kiosk", "Renamed", "Add-on", ["Your settings follow"]],
+  ], "a name that stays the same is no news: its folder is; one that is on says so, and stays on");
   assert.deepEqual(buttons(), ["Cancel", "Show changes", "Update"], "a rename holds nothing back");
   shut();
 });
@@ -1369,18 +1373,18 @@ test("the version reads from the one installed to the new one when the catalog r
   shut();
 });
 
-test("an item that is updated says what changed in it, the first three parts of its folder and how many more", async () => {
+test("an item that is updated says the parts of its folder that changed, every one", async () => {
   await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kazoo", name: "Kazoo", what: ["README.md"] },
     { kind: "playground", id: "@acme-hub/bank", name: "Acme Bakery", what: ["README.md", "compose.yml", "guide/", "seed/", "tests/"] }] }));
-  const updates = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Updates");
-  assert.deepEqual(updates.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name .muted")), text(li.querySelector(".step-kind"))]),
-    [["README.md", "Add-on"], ["README.md, compose.yml, guide/ and 2 more", "Playground"]]);
+  assert.deepEqual(itemsOf().filter(([, tags]) => tags === "Updated").map(([name, , kind, , files]) => [name, kind, files]),
+    [["Kazoo", "Add-on", ["README.md"]], ["Acme Bakery", "Playground", ["README.md", "compose.yml", "guide/", "seed/", "tests/"]]]);
   shut();
 });
 
 test("a row is left out when it has nothing: a plan that only adds says only that", async () => {
   await updating(PLAN({ updates: [], removes: [], breaks: [], changes: [], whatsnew: [], blocked: [] }));
-  assert.deepEqual(rowsOf(), [["Version", "1.5.0"], ["Adds", "Ledger Add-on"]]);
+  assert.deepEqual(rowsOf().map(([label]) => label), ["Version", "Items", "Go back to"]);
+  assert.deepEqual(itemsOf(), [["Ledger", "New", "Add-on", [], []]]);
   shut();
 });
 
@@ -1421,55 +1425,38 @@ test("a catalog rewritten or moved says so in the error tone, and its button is 
   assert.deepEqual(server.calls[0].body, { ticket: "b1c2d3e4f5a60718", confirm_history: true });
 });
 
-test("a listed catalog whose plan has nothing to decide is updated by the click, with no dialog", async () => {
-  clearToasts();
+test("every update is said before it is made: a listed catalog whose plan has nothing to decide opens what it changes, and the click sends only the check", async () => {
   show([FIRST({ id: hub(), state: STATES.update })]);
   server.answers[at("/update")] = (body) => (body.check ? PLAIN() : { catalog: FIRST() });
   server.calls.length = 0;
   click(row("Gravitee public").querySelector("[data-update]"));
   await settle();
-  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { check: true }], [at("/update"), { ticket: "b1c2d3e4f5a60718" }]]);
-  assert.equal(adding().hasAttribute("open"), false);
-  assert.deepEqual(toasts(), ["Updated"]);
-  // ... and the same plan for one that is not listed asks first
-  await updating(PLAIN());
-  assert.equal(adding().hasAttribute("open"), true);
+  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { check: true }]]);
+  assert.deepEqual([adding().hasAttribute("open"), heading()], [true, "Update Gravitee public"]);
   shut();
-  // ... as does a listed one with something to decide
-  for (const more of [{ changes: PLAN().changes }, { blocked: PLAN().blocked }, { breaks: PLAN().breaks }, { held: "Turn off X first" }, { rewritten: true }]) {
-    show([FIRST({ id: hub(), state: STATES.update })]);
-    server.answers[at("/update")] = PLAIN(more);
-    click(row("Gravitee public").querySelector("[data-update]"));
-    await settle();
-    assert.equal(adding().hasAttribute("open"), true, JSON.stringify(Object.keys(more)));
-    shut();
-  }
 });
 
-test("an update applied at once keeps the row's button at work from the click to its end: it does not rest between the check and the apply, and a second click starts nothing", async () => {
-  clearToasts();
-  show([FIRST({ id: hub(), state: STATES.update })]);
-  const wait = hold();
-  server.answers[at("/update")] = (body) => (body.check ? PLAIN() : wait.held.then(() => ({ catalog: FIRST() })));
-  server.calls.length = 0;
-  const button = () => row("Gravitee public").querySelector("[data-update]");
-  const key = `catalog-op:${current}`;
-  click(button());
-  for (let i = 0; i < 10; i++) await flush();
-  assert.deepEqual(server.calls.map((c) => c.body), [{ check: true }, { ticket: "b1c2d3e4f5a60718" }], "the check has answered and the apply is on its way");
-  // The 600 ms that a button stays at work after a click, which the check alone would have held it for
-  mock.timers.tick(700);
-  for (let i = 0; i < 3; i++) await flush();
-  assert.equal(store.pending.get(key), "update");
-  assert.ok(button().classList.contains("busy"), "the button still says Updating");
-  assert.equal(cells(row("Gravitee public")).state, "Updating");
-  click(button());
-  await flush();
-  assert.equal(server.calls.length, 2, "a second click is the same update");
-  wait.release();
-  await settle();
-  assert.deepEqual([toasts(), store.pending.has(key)], [["Updated"], false]);
-  assert.equal(server.calls.length, 2);
+test("each item says what changes in it that a person decides on, then the authors' words that do not repeat it", async () => {
+  await updating(PLAIN({ adds: [], updates: [{ kind: "playground", id: "@acme-hub/bank", name: "Acme Bakery", what: ["compose.yml"], on: true,
+    facts: ["Needs APIM_VERSION 4.13.0, was 4.13.1", "Tested on APIM_VERSION 4.13.3", "New setting ACME_TOKEN, required"],
+    notes: ["Tested on APIM_VERSION 4.13.3", "Hand the certificates to the seed whole"] }] }));
+  assert.deepEqual(itemsOf(), [["Acme Bakery", "Updated On", "Playground",
+    ["Needs APIM_VERSION 4.13.0, was 4.13.1", "Tested on APIM_VERSION 4.13.3", "New setting ACME_TOKEN, required", "Hand the certificates to the seed whole"], ["compose.yml"]]]);
+  shut();
+});
+
+test("the version has the page of its release beside it where the forge has one, and an update says the version Go back returns to", async () => {
+  await updating(PLAIN({ version_from: "1.4.0", release_url: "https://forge.example/acme/hub/releases/tag/v1.5.0" }));
+  const version = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Version");
+  const link = version.querySelector("a");
+  assert.deepEqual([text(link), link.getAttribute("href"), link.getAttribute("target"), link.getAttribute("rel")],
+    ["Release notes", "https://forge.example/acme/hub/releases/tag/v1.5.0", "_blank", "noopener noreferrer"]);
+  assert.deepEqual(rowsOf().pop(), ["Go back to", "1.4.0"]);
+  shut();
+  await updating(PLAIN({ version_from: "1.4.0" }), { has_previous: true, held: { update: "", remove: "", undo: "" } }, "undo");
+  assert.equal(heading(), "Go back to previous version");
+  assert.ok(!rowsOf().some(([label]) => label === "Go back to"), "going back says no way back of its own");
+  shut();
 });
 
 test("closing the dialog while Update is at work leaves the allowance chosen with it ungiven; the update is done and said", async () => {
@@ -1485,7 +1472,7 @@ test("closing the dialog while Update is at work leaves the allowance chosen wit
   wait.release();
   await settle();
   assert.deepEqual(server.calls.map((c) => c.path), [at("/update")]);
-  assert.deepEqual(toasts(), ["Updated"]);
+  assert.deepEqual(toasts(), ["Updated to 1.5.0"], "the version the catalog is on now");
 });
 
 test("a plan whose ticket expired is dead: its dialog closes and says so, whether the update or Show changes found out", async () => {
@@ -1635,7 +1622,7 @@ test("an update that makes items need this machine has the row and the choice of
   await updating(PLAN({ uses_machine: USES, blocked: [] }));
   assert.ok(rowsOf().some(([label, value]) => label === "Uses this machine" && value === "1 item"));
   assert.equal(adding().querySelector("#catalog-choice").hidden, false);
-  assert.equal(rowsOf().pop()[0], "Cannot run", "kept blocked: they cannot run");
+  assert.ok(rowsOf().some(([label]) => label === "Cannot run"), "kept blocked: they cannot run");
   allowThem();
   assert.ok(!rowsOf().some(([label]) => label === "Cannot run"));
   server.answers[at("/update")] = { catalog: GIT("uptodate") };

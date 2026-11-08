@@ -2464,6 +2464,8 @@ class Staged(Case):
                          (".lab/catalogs/partner/addons/ledger/compose.yml", "partner", "partner", None))
         self.assertEqual(verdicts[("addon", "@partner/ledger")]["state"], "ok")
         self.assertEqual(verdicts[("addon", "@partner/ledger")]["surface"]["ports"], [8192])
+        self.assertEqual([(one["key"], one["comment"]) for one in ledger["settings"]], [("PARTNER_LEDGER_CURRENCY", "Currency of the entries")],
+                         "its settings as the stage says them, the image version left to the Images page as for an installed one")
         self.assertIn("echo", judged["addon"], "everything installed is the world it is judged in")
         self.assertEqual({key: value for key, value in project.loaded()[1].items() if key not in ("realpath", "environ")}, before)
         self.assertNotIn("@partner/ledger", project.load()["addons"])

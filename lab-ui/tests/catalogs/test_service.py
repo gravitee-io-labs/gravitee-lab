@@ -1682,15 +1682,18 @@ class Updating(Partner):
     def test_the_plan_is_the_shape_of_13_2_and_a_ticket_that_lives_ten_minutes(self):
         target = self.news()
         plan = self.plan()
-        self.assertEqual(sorted(plan), ["adds", "blocked", "breaks", "changes", "from", "held", "release", "removes",
+        self.assertEqual(sorted(plan), ["adds", "blocked", "breaks", "changes", "from", "held", "release", "release_url", "removes",
                                         "renames", "rewritten", "ticket", "to", "updates", "uses_machine", "version", "version_from",
                                         "whatsnew"])
         self.assertEqual((plan["from"], plan["to"], plan["version"], plan["rewritten"], plan["held"]),
                          (self.first[:7], target[:7], "2.1.0", False, None))
-        self.assertEqual(plan["updates"], [{"kind": "addon", "id": "@partner/ledger", "name": "Ledger", "what": ["compose.yml"]}],
-                         "an item that changes says what changed in its folder")
+        self.assertEqual(plan["updates"], [{"kind": "addon", "id": "@partner/ledger", "name": "Ledger", "what": ["compose.yml"],
+                                            "notes": ["Add the audit trail"], "facts": [], "on": False}],
+                         "an item that changes says what changed in its folder, its notes and what changes in it that a person decides on")
         self.assertEqual(plan["version_from"], registry.lock_of("partner")["version"], "the version installed, beside the new one")
-        self.assertEqual(plan["adds"], [{"kind": "addon", "id": "@partner/audit", "name": "Audit"}])
+        self.assertEqual(plan["adds"], [{"kind": "addon", "id": "@partner/audit", "name": "Audit", "notes": ["Add the audit trail"],
+                                         "description": ""}], "a new item says its notes and its description (none in this judge)")
+        self.assertIsNone(plan["release_url"], "a catalog that is not on GitHub has no page of its release")
         self.assertEqual((plan["removes"], plan["breaks"], plan["changes"], plan["blocked"], plan["uses_machine"]),
                          ([], [], [], [], []))
         self.assertEqual(plan["whatsnew"], ["Add the audit trail"])
@@ -1732,8 +1735,9 @@ class Updating(Partner):
         self.items = [("playground", "local/demo", "Demo", ["@partner/ledger"]),
                       ("playground", "local/other", "Other", ["echo"])]
         plan = self.plan()
-        self.assertEqual(plan["removes"], [{"kind": "addon", "id": "@partner/ledger", "name": "Ledger"}])
-        self.assertEqual(plan["adds"], [{"kind": "addon", "id": "@partner/audit", "name": "Audit"}])
+        self.assertEqual(plan["removes"], [{"kind": "addon", "id": "@partner/ledger", "name": "Ledger", "notes": ["Retire the ledger"],
+                                            "on": False}])
+        self.assertEqual([(one["name"], one["notes"]) for one in plan["adds"]], [("Audit", ["Add the audit trail"])])
         self.assertEqual(plan["breaks"], [{"kind": "playground", "id": "local/demo", "name": "Demo", "needs": "Ledger"}])
         self.assertEqual(plan["whatsnew"], ["Add the audit trail", "Retire the ledger"], "the news of the units that come, change or go")
 
@@ -2024,7 +2028,7 @@ class GoingBack(Partner):
     def test_going_back_names_what_changes_and_leaves_the_version_it_left_on_offer_so_the_action_toggles(self):
         plan = service.undo("partner", check=True)
         self.assertEqual((plan["from"], plan["to"], plan["version"]), (self.second[:7], self.first[:7], "2.0.0"))
-        self.assertEqual(plan["removes"], [{"kind": "addon", "id": "@partner/audit", "name": "Audit"}])
+        self.assertEqual(plan["removes"], [{"kind": "addon", "id": "@partner/audit", "name": "Audit", "notes": [], "on": False}])
         self.assertEqual(plan["whatsnew"], [], "a step back has no news")
         row = service.undo("partner", ticket=plan["ticket"])["catalog"]
         held = registry.lock_of("partner")
@@ -2581,7 +2585,9 @@ class Reading2(Real):
     def test_a_new_port_and_a_new_privilege_are_lines_of_the_plan_and_the_dialog_can_say_what_the_item_now_does(self):
         self.grown()
         plan = service.update("partner", check=True)
-        self.assertEqual(plan["updates"], [{"kind": "addon", "id": "@partner/ledger", "name": "Ledger", "what": ["compose.yml"]}])
+        self.assertEqual(plan["updates"], [{"kind": "addon", "id": "@partner/ledger", "name": "Ledger", "what": ["compose.yml"],
+                                            "notes": ["Grow the ledger"], "facts": ["Setting PARTNER_LEDGER_CURRENCY removed"], "on": False}],
+                         "the new version no longer reads the setting: it says so")
         facts = [(one["id"], one["name"], one["fact"], one["value"]) for one in plan["changes"]]
         self.assertEqual(facts, [("@partner/ledger", "Ledger", "port", "8193"), ("@partner/ledger", "Ledger", "host", "runs privileged")])
         self.assertEqual([(one["id"], one["what"]) for one in plan["uses_machine"]], [("@partner/ledger", ["runs privileged"])],
@@ -2637,8 +2643,8 @@ class Planning(Real):
         remote.commit({"setups/combo.yml": SETUP_LEDGER}, "Combo drops the vault", remove=["addons/vault"])
         service.check_now("partner")
         plan = service.update("partner", check=True)
-        self.assertEqual(plan["removes"], [{"kind": "addon", "id": "@partner/vault", "name": "Vault"}])
-        self.assertEqual(plan["updates"], [{"kind": "setup", "id": "@partner/combo", "name": "Combo", "what": ["combo.yml"]}])
+        self.assertEqual([(one["name"], one["on"]) for one in plan["removes"]], [("Vault", False)])
+        self.assertEqual([(one["name"], one["what"]) for one in plan["updates"]], [("Combo", ["combo.yml"])])
         self.assertEqual(plan["breaks"], [], "after the update nothing includes the vault")
         service.update("partner", ticket=plan["ticket"])
         self.assertEqual(self.row("partner")["state"]["key"], "uptodate")
@@ -2657,5 +2663,5 @@ class Planning(Real):
                       "Reword the combo, drop the vault", remove=["addons/vault"])
         service.check_now("partner")
         plan = service.update("partner", check=True)
-        self.assertEqual(plan["updates"], [{"kind": "setup", "id": "@partner/combo", "name": "Combo", "what": ["combo.yml"]}])
+        self.assertEqual([(one["name"], one["what"]) for one in plan["updates"]], [("Combo", ["combo.yml"])])
         self.assertEqual(plan["breaks"], [{"kind": "setup", "id": "@partner/combo", "name": "Combo", "needs": "Vault"}])

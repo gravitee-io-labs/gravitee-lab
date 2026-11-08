@@ -463,9 +463,10 @@ class EndToEnd(Case):
         plan = service.update("acme", check=True)
         self.assertEqual(plan["held"], None, "an item that is on and has no container does not hold back the update")
         self.assertEqual((plan["adds"], plan["removes"], plan["breaks"]), ([], [], []))
-        self.assertEqual(plan["renames"], [
-            {"kind": "addon", "id": "@acme/cluster-board", "name": "Cluster board", "was": "Board", "on": True},
-            {"kind": "addon", "id": "@acme/trace-viewer", "name": "Trace viewer", "was": "Viewer", "on": True}])
+        self.assertEqual([{key: one[key] for key in ("kind", "id", "name", "was", "on", "notes")} for one in plan["renames"]], [
+            {"kind": "addon", "id": "@acme/cluster-board", "name": "Cluster board", "was": "Board", "on": True, "notes": ["Release 1.1.0"]},
+            {"kind": "addon", "id": "@acme/trace-viewer", "name": "Trace viewer", "was": "Viewer", "on": True, "notes": ["Release 1.1.0"]}],
+            "a renamed item says its news, from its folder under either name")
         self.containers = {"acme-board": {"state": "running", "name": "gio-acme-board", "id": "b" * 64}}
         self.refusal(lambda: service.update("acme", ticket=plan["ticket"]), "held")
         self.containers = {}

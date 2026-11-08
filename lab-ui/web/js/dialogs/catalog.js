@@ -168,9 +168,6 @@ const CHANGES = {
 };
 const changeLine = ({ name, fact, value }) => (own(CHANGES, fact) ? CHANGES[fact](name, value) : `${name}: ${fact} ${value ?? ""}`.trim());
 
-// What changed in an item, as the server names the parts of its folder ("README.md", "seed/"): the first three, then how many more
-const parts = (what = []) => (what.length > 3 ? `${what.slice(0, 3).join(", ")} and ${what.length - 3} more` : what.join(", "));
-
 // The version an update goes to, from the one installed: both when the catalog raised it, the one alone when it did not (a release the owners
 // moved). A version that is no release (a catalog that makes none) says so: the update is then the commits since, which it does not tell apart
 function versionItems(p) {
@@ -180,31 +177,56 @@ function versionItems(p) {
   return [{ text: p.version, code: true, hint: p.version_from || !p.release ? hint : "" }];
 }
 
-// What is said of an item a plan renames: the name it had, or that its name is the same (only its folder changed), and that one
-// that is on stays on
-const renamedHint = (r) => `${r.was && r.was !== r.name ? `Was ${r.was}` : "Same name"}${r.on ? ", stays on" : ""}`;
+// What a plan does to each item, one block to an item in the order a person weighs them: what goes, what breaks of theirs, what is renamed,
+// what comes, what changes. Each says how (a word, and On for one that is on now), what changes in it that a person decides on (`facts`: what
+// it needs, what it was tested on, its settings), the authors' words for it (`notes`, the subjects of its commits, those the facts say
+// already left out) and the parts of its folder that changed. An item of the person's own that the update breaks says what it loses.
+const STATUS_OF = [
+  ["removes", "Removed", "err"], ["breaks", "Breaks", "err"], ["renames", "Renamed", ""], ["adds", "New", "ok"], ["updates", "Updated", ""],
+];
 
-// What an update, or going back, says it does: its version, the items it touches, each with what changed in it, then what its commits say
-// (the authors' words). An item it renames is one item under a new name, with the name it had: what the person has of it follows it, and
-// one that is on stays on. A history that changed is an error for an update, which goes on only after the person said so (`confirm_history`);
-// going back is the person's own choice of an older version, which the server takes as confirmed, so the line is said without the tone that
-// asks for care.
+function lines(it) {
+  const said = new Set((it.facts || []).map((line) => line.toLowerCase()));
+  const own = (it.notes || []).filter((line) => !said.has(line.toLowerCase()));
+  const renamed = "was" in it ? [it.was && it.was !== it.name ? `Was ${it.was}` : "", "Your settings follow"] : [];
+  const extra = [it.description, ...renamed, it.needs ? `Loses ${it.needs}` : ""].filter(Boolean);
+  return [...extra, ...(it.facts || []), ...own];
+}
+
+function planItem([it, word, tone]) {
+  const said = lines(it), files = it.what || [];
+  const tags = `<span class="pill${tone === "err" ? " err" : tone === "ok" ? " ok" : ""}">${word}</span>${it.on ? '<span class="pill warn">On</span>' : ""}`;
+  return `<li><span class="plan-item-head"><span class="step-name">${esc(it.name)}</span>${tags}${
+    own(KIND, it.kind) ? `<span class="step-kind">${KIND[it.kind]}</span>` : ""}</span>${said.length ? sentences(said) : ""}${
+    files.length ? `<span class="plan-item-files">${files.map((f) => `<code>${esc(f)}</code>`).join("")}</span>` : ""}</li>`;
+}
+
+const planItems = (p) => STATUS_OF.flatMap(([key, word, tone]) => (p[key] || []).map((it) => [it, word, tone]));
+
+// The version a plan goes to, with the page of its release where the catalog's forge has one
+function versionRow(p) {
+  const link = p.release_url ? `<a class="text-link" href="${esc(p.release_url)}" target="_blank" rel="noopener noreferrer">Release notes</a>` : "";
+  return { label: "Version", html: versionItems(p).length ? `${versionItems(p).map(cell).join("")}${link}` : "" };
+}
+
+// What an update, or going back, says it does: its version, the items it touches, each with what changes in it, then what asks for care.
+// What's new stands alone only for an update that touches no item (what its commits of catalog.yml say). A history that changed is an error
+// for an update, which goes on only after the person said so (`confirm_history`); going back is the person's own choice of an older version,
+// which the server takes as confirmed, so the line is said without the tone that asks for care. An update says the version Go back returns to.
 function planRows(p, allow, kind) {
   const uses = p.uses_machine || [], blocked = cannot(p.blocked, uses, allow);
   const names = (list = [], hint = () => "") => list.map((x) => ({ text: x.name, kind: x.kind, hint: hint(x) }));
-  const tone = kind === "update" ? "danger" : undefined;
+  const tone = kind === "update" ? "danger" : undefined, items = planItems(p);
+  const back = p.version_from || p.from;
   return [
     { label: "Rewritten", tone, items: p.rewritten ? [{ text: "This catalog was rewritten or moved", tone }] : [] },
-    { label: "Version", items: versionItems(p) },
-    { label: "Updates", names: true, items: names(p.updates, (u) => parts(u.what)) },
-    { label: "Adds", names: true, items: names(p.adds) },
-    { label: "Renames", names: true, hint: "Your settings follow", items: names(p.renames, renamedHint) },
-    { label: "Removes", names: true, hint: "No longer in the catalog", items: names(p.removes) },
-    { label: "Breaks", names: true, items: names(p.breaks, (b) => `Needs ${b.needs}`) },
-    { label: "What's new", html: (p.whatsnew || []).length ? sentences(p.whatsnew) : "" },
+    versionRow(p),
+    { label: "Items", html: items.length ? `<ul class="step-items plan-items">${items.map(planItem).join("")}</ul>` : "" },
+    { label: "What's new", html: !items.length && (p.whatsnew || []).length ? sentences(p.whatsnew) : "" },
     usesRow(uses),
     { label: "Changes", html: (p.changes || []).length ? sentences(p.changes.map(changeLine)) : "" },
     { label: "Cannot run", tone: "danger", names: true, items: names(blocked, (b) => (b.reasons || [])[0] ?? "") },
+    { label: "Go back to", items: kind === "update" && back ? [{ text: back, code: true }] : [] },
   ];
 }
 
@@ -516,49 +538,29 @@ screens.file.addEventListener("drop", (e) => {
 // --- Update and Go back ---
 
 // A listed catalog whose plan has nothing to decide is updated at once: no history change, no growth, nothing Blocked, held or broken
-const plain = (p) => !p.rewritten && !(p.changes || []).length && !(p.blocked || []).length && !p.held && !(p.breaks || []).length && !(p.uses_machine || []).length;
-
 // What applies a plan: its ticket, and, for an update, the confirmation of a history that changed. Going back sends no confirmation: the server
 // takes an undo as confirmed, and the dialog asks nothing more of it than of an update with nothing to decide (a neutral button, Enter).
 const applying = (route, p) => (route === "update" && p.rewritten ? { ticket: p.ticket, confirm_history: true } : { ticket: p.ticket });
 // Whether a plan asks for care: an update of a history that changed (its button is Update anyway, in the danger tone, and Enter never presses it)
 const careful = (kind, p) => kind === "update" && !!p?.rewritten;
 
-// The check of a plan, and, for a listed catalog with nothing to decide, its apply: one request at work from the click to the end of it. A
-// key that was released between the two would put the row's button back to rest while the update is still applied, and let a second click
-// start a second one. The row's word is "Checking" while the plan is read, and "Updating" while it is applied: the apply takes the key
-// before the check lets it go.
+// The check of a plan, then what it changes, on screen before anything is done: the row's word is "Checking" while the plan is read. Every
+// update is said before it is made, the one with nothing to decide too: a person weighs what it changes, not only what it risks.
 async function ask(row, route, title, word) {
-  const at = `catalog-op:${row.id}`, update = route === "update";
-  const flow = async () => {
-    const plan = await api(ROUTES[route](row.id), { check: true });
-    if (plan.upToDate || !update || !row.listed || !plain(plan)) return { plan, applied: false };
-    const sent = busy(at, "update", (async () => {
-      await api(ROUTES[route](row.id), applying(route, plan));
-      await store.refresh();   // the row is released with the state it has now, not the one before
-    })(), { quiet: true });
-    store.notify();   // the row says Updating from now
-    await sent;
-    return { plan, applied: true };
-  };
-  let found;
+  const at = `catalog-op:${row.id}`;
+  let p;
   try {
-    const sent = busy(at, "check", flow(), { quiet: true });
+    const sent = busy(at, "check", api(ROUTES[route](row.id), { check: true }), { quiet: true });
     store.notify();   // the row says what is at work from the click, not from the next poll
-    found = await sent;
+    p = await sent;
   } catch (err) {
     toast(err.message, true);
     store.refresh();
     return;
   }
-  const { plan: p, applied } = found;
   if (p.upToDate) {
     toast(UP_TO_DATE);
     store.refresh();
-    return;
-  }
-  if (applied) {
-    toast("Updated");
     return;
   }
   seq += 1;
@@ -577,7 +579,7 @@ async function ask(row, route, title, word) {
   ($$("input", choiceEl).find((el) => el.checked) || (danger ? $("[data-cancel]", dialog) : $("#catalog-primary button", dialog)))?.focus();
 }
 
-// Update opens what changes; a listed catalog with nothing to decide is updated by the click
+// Update and Go back open what changes
 export const openUpdate = (row) => ask(row, "update", `Update ${row.name}`, "Update");
 export const openGoBack = (row) => ask(row, "undo", "Go back to previous version", "Go back");
 
@@ -605,7 +607,7 @@ async function applyShown() {
         toast(err.message, true);
       }
     }
-    toast("Updated");
+    toast(plan.version ? `${kind === "undo" ? "Back to" : "Updated to"} ${plan.version}` : "Updated");   // the version the catalog is on now
     store.refresh();
     if (live()) dialog.close();
   } catch (err) {

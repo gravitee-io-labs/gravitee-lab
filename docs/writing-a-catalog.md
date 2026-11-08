@@ -264,8 +264,8 @@ make release VERSION=1.1.0 TAG=1
 makes the annotated tag `v1.1.0` on `origin/main`, after checking that `catalog.yml` there says `1.1.0`, and prints the line that
 pushes it. An administrator pushes it. With `images` set, `publish.yml` then publishes the images and a GitHub release whose
 notes list the items that are new, changed (with the titles of the pull requests that changed them) and removed. Every Lab sees
-the release at its next check, and its Update dialog says *1.0.0 → 1.1.0* with those same lines as What's new: write pull request
-titles for the people who will read them there.
+the release at its next check, and its Update dialog says *1.0.0 → 1.1.0* with those same lines under each item: write pull
+request titles for the people who will read them there.
 
 A release is a promise that `v1.1.0` is always the same files. Never move or delete a tag that was pushed: a Lab that installed
 it says the catalog was rewritten, and its people must confirm an update they cannot judge. Fix a release with the next one.
