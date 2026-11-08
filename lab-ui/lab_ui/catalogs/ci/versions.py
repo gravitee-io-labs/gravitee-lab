@@ -103,9 +103,9 @@ def page(matrix):
     lines = ["# Compatibility", "",
              "What each playground was tried on, as the workflow *Gravitee versions* wrote it: a start from nothing, on a machine with",
              "no lab, with the license, as `make e2e` does. A set that fails opens an issue labeled `versions`.", ""]
-    for local, entry in sorted(matrix["playgrounds"].items(), key=lambda item: item[1].get("name", item[0]).lower()):
-        lines += [f"## {entry.get('name', local)}", "", "| Versions | Result | Date |", "|---|---|---|"]
-        rows = sorted(entry.get("results", {}).items(), reverse=True,
+    for local, held in sorted(matrix["playgrounds"].items(), key=lambda item: item[1].get("name", item[0]).lower()):
+        lines += [f"## {held.get('name', local)}", "", "| Versions | Result | Date |", "|---|---|---|"]
+        rows = sorted(held.get("results", {}).items(), reverse=True,
                       key=lambda item: [compat.order(found) for found in map(compat.parse, item[0].replace(",", " ").split()) if found])
         for label, result in rows:
             run = f" ([run]({result['run']}))" if result.get("run") else ""
