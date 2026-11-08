@@ -962,6 +962,12 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 .step-name { min-width: 0; overflow-wrap: anywhere; font-weight: var(--fw-2); }   /* a long one (a version and its registry) goes on, whole */
 .step-name .muted { font-weight: var(--fw-1); }   /* what is said of it, after it */
 .step-kind { flex: none; color: var(--muted); font-size: var(--fs-1); }
+/* An item of an update or of going back: its line (name, what happens to it, its kind), then what changes in it, then the parts of its folder */
+.plan-items > li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 10px 12px; }
+.plan-item-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.plan-item-head > .step-kind { margin-left: auto; }
+.plan-items .choice-lines { color: var(--text-2); font-size: var(--fs-1); }
+.plan-item-files { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); font-size: var(--fs-1); }
 .choice-text > .steps + .choice-row { margin-top: 4px; }
 
 /* A new add-on, setup or playground: its fields and what it includes, or the prompt that has an AI agent write it */

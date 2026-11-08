@@ -1292,6 +1292,7 @@ class Updating(Base):
         self.assertNotEqual(self.tree("partner"), before)
         again = install.plan_update("partner", target)
         self.assertEqual(again["op"], "undo", "the action toggles")
+        self.assertEqual(again["notes"], {"addon:ledger": ["Update the catalog"]}, "the version it left comes after: its news is said again")
         install.apply_update("partner", again)
         self.assertEqual(self.tree("partner")["addons/ledger/README.md"][1], b"Changed\n")
 

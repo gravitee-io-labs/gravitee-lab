@@ -43,17 +43,26 @@ shows. A catalog that needs another one says which; add that one first.
 *Update available* when a newer version exists ([Versions](#versions)), with a dot on the Catalogs entry of the menu. A version
 that uses what your Lab does not read yet is never installed: the row says it needs a newer Gravitee Lab, and you keep the newest version
 your Lab reads. **Update**
-is the only way a copy is replaced. A catalog
-with something to decide opens a dialog that says what changes first: the version, from the one you have to the new one
-(*Unreleased* when the catalog makes no releases, *Unchanged* when a release was moved), every item it updates, adds, removes or
-breaks with its kind, what changed in the folder of each item it updates (`README.md`, `compose.yml`, `seed/`), what is new in
-them, an item that is on (turn it off first, and the button says so), more asked of your machine, or a history that was rewritten
-or a release that was moved, which asks for one more confirmation (**Update anyway**) because the new version is not a
-continuation of the one you have. A catalog with nothing to decide is updated by the click, and **Go back** restores the previous
-copy. From a terminal: `python3 lab-ui/catalog.py update ID`.
+is the only way a copy is replaced, and it always says what changes first, in a dialog, before anything is done:
 
-**Renamed items.** A catalog can rename an item. The Update dialog lists it under **Renames**, by its new name, with the name it
-had (or *Same name* when only its folder changes): it is one item, not one removed and one added. Your settings, secrets and what
+- **Version**: from the one you have to the new one (*Unreleased* when the catalog makes no releases, *Unchanged* when a release
+  was moved), with **Release notes**, the page of that release on GitHub, for a catalog read from GitHub.
+- **Items**: one block for each item the update removes, breaks (an item of yours that includes one it removes), renames, adds or
+  updates, in that order, with its kind and *On* for one that is on now. Each block says what changes in it that you decide on:
+  the versions of Gravitee it needs (*Needs APIM_VERSION 4.13.0, was 4.13.1*), the features of the license and what this machine
+  must run, the versions it was tested on, the settings it adds (and whether one is required) or no longer reads. Then the words of
+  its authors, the subjects of its commits, and the parts of its folder that changed (`README.md`, `compose.yml`, `seed/`).
+- **Uses this machine**, **Changes** (what an item now does more: a port, a build, a privilege) and **Cannot run**, when the new
+  version has some.
+- **Go back to**: the version **Go back** restores afterwards.
+
+**Show changes** opens the files with their diff. An item that is on holds the update (turn it off first, and the button says
+so). A history that was rewritten or a release that was moved asks for one more confirmation (**Update anyway**), because the
+new version is not a continuation of the one you have. **Go back** restores the previous copy, with the same dialog. From a
+terminal: `python3 lab-ui/catalog.py update ID`.
+
+**Renamed items.** A catalog can rename an item. The Update dialog shows it as *Renamed*, by its new name, with the name it had
+(nothing more when only its folder changes) and *Your settings follow*: it is one item, not one removed and one added. Your settings, secrets and what
 its seed created move with it, its settings take their new names with their values, and your star, what is on, the items of yours
 that include it (and their copies for a Cloud platform) and your copy of it follow. A file of yours whose place is taken in the
 renamed item's folder is never written over: it is kept aside in `.lab/migration/kept/<catalog>/`. **Go back** renames them back.
@@ -102,7 +111,7 @@ one: the Lab never offers it as an update, so a version number always names the 
   Lab follows its newest commit. A branch made from a released main holds that release, so it is what the Lab offers until the
   branch has a release of its own. To try what is on a branch before it is released, link a working copy instead
   ([Writing a catalog](writing-a-catalog.md#try-it-in-the-lab)).
-- **What's new** is what the notes of a release say: for each item the update changes, adds or removes, the subjects of the
+- **The words of the authors** in each item of the Update dialog are what the notes of a release say: the subjects of the
   commits that touched it, five at most. The Lab reads them from the catalog's Git history, from the version you have to the
   one offered, with the same function that writes the notes of the release on GitHub (`ci release-notes`), so an update from one
   release to the next says the words of that release, and nothing is asked of GitHub.

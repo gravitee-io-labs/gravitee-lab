@@ -900,6 +900,7 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
    frame, its next line cut to say there is more */
 .choice-items:has(> .step-items) { flex-direction: column; align-items: stretch; gap: 6px; }
 .choice-items > .step-items { min-width: 0; grid-template-columns: minmax(0, 1fr); max-height: 218px; overflow: auto; overscroll-behavior: contain; }
+.choice-items > .plan-items { max-height: min(52vh, 460px); }   /* each item says what changes in it: more room before it scrolls */
 /* Show changes: a unified diff, the files that changed beside it (the editor's list and column). Added lines in green, removed in red. */
 #catalog-files { grid-template-columns: minmax(0, 1fr); }   /* a long path is cut in its column, with its status after it */
 .diff { flex: 1; min-height: 0; margin: 0; padding: var(--sp-3) 0; overflow: auto; font: 12px/1.55 var(--mono); color: var(--text-2); }

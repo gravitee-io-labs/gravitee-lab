@@ -28,7 +28,7 @@ from pathlib import Path
 from ..docker import compose, jobs
 from ..library import layers, model, project
 from .. import paths
-from . import defaults, gitx, install, manifest, registry, renames, resolve, trust, understood
+from . import defaults, facts, gitx, install, manifest, registry, renames, resolve, trust, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -1236,13 +1236,31 @@ def _plan(ns, op):
         uses = [] if host in ("listed", "allowed") else _uses_of(judged, verdicts, mine)
         ticket = secrets.token_hex(8)
         _keep(ticket, op, ns=ns, plan=plan)
-    updates = [{**one, "what": plan["touched"].get(key, [])}
+    notes, lit = plan.get("notes") or {}, on | running
+
+    def said(key, was=None):
+        """What the dialog says of one item: the notes of its commits, what changes in it that a person decides on, and whether it
+        is on now (`was`, the key it had, for an item it renames)."""
+        kind, _, name = key.partition(":")
+        before = (found.get(f"{kind}s") or {}).get(_unit_id(ns, (was or key).partition(":")[2])) or {}
+        after_unit = (judged.get(kind) or {}).get(_unit_id(ns, name)) or {}
+        return {"notes": list(dict.fromkeys(notes.get(key, []) + notes.get(was, []) if was else notes.get(key, []))),
+                "facts": facts.facts(before, after_unit) if before and after_unit else [], "on": (was or key) in lit}
+
+    updates = [{**one, "what": plan["touched"].get(key, []), **said(key)}
                for key, one in zip(sorted(plan["updates"]), _names_of_new(plan["updates"], ns, judged))]
+    adds = [{**one, "notes": notes.get(key, []), "description": resolve.shown(
+                ((judged.get(one["kind"]) or {}).get(one["id"]) or {}).get("description") or "", 200)}
+            for key, one in zip(sorted(plan["adds"]), _names_of_new(plan["adds"], ns, judged))]
+    removes = [{**one, "notes": notes.get(key, []), "on": key in lit}
+               for key, one in zip(sorted(plan["removes"]), _names_of(found, ns, plan["removes"]))]
+    renamed_rows = [{**one, **said(new, old)} for (old, new), one in zip(sorted((plan.get("renamed") or {}).items()),
+                                                                        _renames_of(found, ns, plan, judged, lit))]
     return {"ticket": ticket, "from": _short(plan["from"]), "to": _short(plan["to"]),
             "version": plan["version"], "version_from": held.get("version"), "release": plan["release"],
+            "release_url": _release_url(entry, plan["release"]),
             "rewritten": bool(plan["rewritten"]),
-            "updates": updates, "adds": _names_of_new(plan["adds"], ns, judged),
-            "removes": _names_of(found, ns, plan["removes"]), "renames": _renames_of(found, ns, plan, judged, on | running),
+            "updates": updates, "adds": adds, "removes": removes, "renames": renamed_rows,
             "breaks": breaks,
             "changes": _changes_of(plan, ns, judged, verdicts, old_verdicts), "whatsnew": list(plan["whatsnew"]),
             "blocked": _blocked_of(judged, mine), "uses_machine": uses, "held": stop}
@@ -1341,6 +1359,13 @@ def _renames_of(found, ns, plan, judged, on):
         row = _names_of_new([new], ns, judged)[0]
         rows.append({**row, "was": _unit_name(found, ns, old), "on": old in on})
     return rows
+
+
+def _release_url(entry, release):
+    """The page of a release on the forge the catalog is read from, for a release of a catalog on GitHub (where a tag `vX.Y.Z` has
+    a page of its notes, which `catalog.py release` writes); None for every other."""
+    web = registry.web_url(entry)
+    return f"{web}/releases/tag/v{release}" if release and web and web.startswith("https://github.com/") else None
 
 
 def _names_of_new(keys, ns, judged):

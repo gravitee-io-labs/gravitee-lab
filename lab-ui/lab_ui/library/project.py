@@ -2032,7 +2032,7 @@ def _staged_inputs(ns, meta, row, replacing, renamed=None):
         if found["raw"] is not None:
             merged["raw"][ours] = swap(found["raw"])
             merged["includes"][ours] = [swap(target) for target in _direct(file, screen)]
-            merged["variables"][ours] = []
+            merged["variables"][ours] = _variables(file)   # its settings as the new version says them: an Update tells them apart
             if file in seeds:
                 merged["seed_references"][ours] = trust.seed_reads(seeds[file][0])
         elif found.get("problem"):
