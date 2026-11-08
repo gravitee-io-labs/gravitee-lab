@@ -2,22 +2,17 @@
 that ask for them; an agent that keeps what its kind gives it and is given its scopes, its claims, its redirect URIs and a
 way to sign in with the secret of the file; users whose profile the tokens carry. The platform is a fake that answers as AM
 does for an agent (a hosted or autonomous one starts with `private_key_jwt`; a scope an application names must exist; a list
-of scopes has fifty a page at most). The files of the personal playground "agent-toolbox" run through it when they are there."""
+of scopes has fifty a page at most)."""
 
 import copy
 import re
 import unittest
-from unittest import mock
 
 from lab_seeder import am
 from lab_seeder import common
-from lab_seeder.testkit import PERSONAL, PLAYGROUNDS, Seed
+from lab_seeder.testkit import Seed
 from tests.test_am import DOMAINS, GRANTS_OF_AN_AGENT, LOGIN, AccessManagement
 
-# The playground is personal until it is shared: the same seed in either place
-HARBOR_SEED = next((seed for seed in (PERSONAL / "agent-toolbox" / "seed",
-                                      PLAYGROUNDS / "agent-toolbox" / "seed") if seed.is_dir()),
-                   PERSONAL / "agent-toolbox" / "seed")
 SCOPES = re.compile(DOMAINS + "/[^/]+/scopes")
 APPLICATIONS = re.compile(DOMAINS + "/[^/]+/applications")
 SYSTEM_SCOPES = ("openid", "profile", "email")
@@ -558,84 +553,6 @@ class Users(Case):
         for post in self.platform.sent("POST", re.compile(DOMAINS + "/[^/]+/users")):
             self.assertNotIn("optional", post.json)
         self.assertEqual(sorted(user["username"] for user in self.am.objects("users")), ["kim@harbor.test", "sam@harbor.test"])
-
-
-@unittest.skipUnless(HARBOR_SEED.is_dir(), "the playground agent-toolbox is not on this machine")
-class Harbor(Case):
-    """The seed files of the playground, as they are, through the module and against the fake."""
-
-    def setUp(self):
-        super().setUp()
-        self.env(AGENT_TOOLBOX_DEMO_PASSWORD="demo-password", AGENT_TOOLBOX_CLIENT_SECRET=SECRET,
-                 CARE_COPILOT_URL="http://localhost:8130")
-        patch = mock.patch.object(common, "SEED_DIR", HARBOR_SEED)
-        patch.start()
-        self.addCleanup(patch.stop)
-        self.domain = common.load(HARBOR_SEED / "am" / "domain.yaml")
-        self.application = common.load(HARBOR_SEED / "am" / "applications" / "care-copilot.yaml")
-
-    def test_the_seed_runs_without_a_stop(self):
-        self.seed()
-        self.assertNotIn("! ", self.output(), "no warning")
-        domain = next(iter(self.am.domains.values()))
-        self.assertEqual((domain["name"], domain["enabled"]), ("harbor", True))
-        self.assertEqual(domain["tokenExchangeSettings"]["allowImpersonation"], False)
-        self.assertTrue(domain["tokenExchangeSettings"]["allowDelegation"])
-
-    def test_every_tool_has_the_scope_the_file_lists_and_the_agent_asks_for_each_of_them(self):
-        self.seed()
-        keys = {scope["key"] for scope in self.am.objects("scopes") if not scope["system"]}
-        self.assertEqual(keys, {scope["key"] for scope in self.domain["scopes"]})
-        asked = {entry["scope"] for entry in self.oauth()["scopeSettings"]}
-        self.assertEqual(asked, set(self.application["scopes"]))
-        self.assertEqual(asked - set(SYSTEM_SCOPES), keys, "the agent may ask for the scope of every tool, and no other")
-
-    def test_every_scope_the_agent_asks_for_exists_in_the_domain_before_it_asks(self):
-        self.seed()
-        self.assertEqual(self.platform.sent("PATCH", re.compile(".*/applications/.*"))[0].json["settings"]["oauth"]["scopeSettings"][0]["scope"],
-                         "openid")
-        self.assertEqual({entry["scope"] for entry in self.oauth()["scopeSettings"]} - {s["key"] for s in self.am.objects("scopes")}, set())
-
-    def test_care_copilot_is_a_hosted_agent_that_signs_in_with_the_secret_of_the_seed(self):
-        self.seed()
-        agent = self.agent()
-        self.assertEqual((agent["name"], agent["type"], agent["kind"], agent["secret"]), ("Care copilot", "agent", "HOSTED_DELEGATED", SECRET))
-        self.assertEqual(self.oauth()["tokenEndpointAuthMethod"], "client_secret_basic")
-        self.assertEqual(self.oauth()["grantTypes"], GRANTS_OF_AN_AGENT)
-        self.assertEqual(self.oauth()["redirectUris"], ["http://localhost:8130/auth/callback"])
-        self.assertNotIn(SECRET, self.output() + self.state.read_text(encoding="utf-8"))
-
-    def test_its_tokens_say_the_username_the_name_the_region_and_the_team(self):
-        self.seed()
-        claims = {claim["claimName"]: claim["claimValue"] for claim in self.oauth()["tokenCustomClaims"]}
-        self.assertEqual(sorted(claims), ["name", "region", "team", "username"])
-        self.assertEqual(claims["region"], "{#context.attributes['user']['additionalInformation']['region']}")
-
-    def test_the_people_carry_the_region_and_the_team_the_tokens_say(self):
-        self.seed()
-        profiles = {user["username"]: user["additionalInformation"] for user in self.am.objects("users")}
-        self.assertEqual(sorted(profiles), sorted(user["username"] for user in self.domain["users"]))
-        for profile in profiles.values():
-            self.assertTrue({"name", "region", "team"} <= set(profile), profile)
-        self.assertEqual({user["password"] for user in self.am.objects("users")}, {"demo-password"})
-
-    def test_a_second_seed_saves_nothing(self):
-        self.seed()
-        self.settle()
-        self.platform.calls.clear()
-        self.seed()
-        self.assertEqual(self.writes(), [])
-
-    def test_a_removal_deletes_what_it_made_and_the_domain_last(self):
-        self.seed()
-        self.platform.calls.clear()
-        am.remove(common.created())
-        kinds = [path.split("/")[-2] for method, path in self.platform.changes() if method == "DELETE"]
-        self.assertEqual(kinds[0], "applications")
-        self.assertEqual(kinds.count("users"), 3)
-        self.assertEqual(kinds.count("scopes"), len(self.domain["scopes"]))
-        self.assertEqual(kinds[-1], "domains")
-        self.assertEqual(self.am.domains, {})
 
 
 if __name__ == "__main__":

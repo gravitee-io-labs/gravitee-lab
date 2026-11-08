@@ -246,6 +246,8 @@ class Record(Seed):
         """A removal and a seed of one playground may run at once, in two containers that share the folder."""
         common.save_created([self.ITEM])
         holder = subprocess.Popen([sys.executable, "-c", HOLDER, str(self.state) + ".lock"], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.stdout.close)
+        self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)
         self.assertEqual(holder.stdout.readline().strip(), "held")
         done = threading.Event()

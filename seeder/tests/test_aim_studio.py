@@ -13,13 +13,12 @@ import requests
 
 from lab_seeder import aim_proxies
 from lab_seeder import common
-from lab_seeder.testkit import PERSONAL, Seed
+from lab_seeder.testkit import Seed
 
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
 V1 = "/management/organizations/DEFAULT/environments/DEFAULT"
 V2 = "/management/v2/organizations/DEFAULT/environments/DEFAULT"
-CONTRACT = PERSONAL / "agent-toolbox" / "seed" / "aim" / "studios" / "customer-care.yaml"
-SETTINGS = {"AM_GATEWAY_URL": "http://am-gateway:8092", "AGENT_TOOLBOX_KEY": "harbor-key-123"}
+SETTINGS = {"AM_GATEWAY_URL": "http://am-gateway:8092", "HARBOR_TOOLS_KEY": "harbor-key-123"}
 PATH = "/mcp/customer-care"
 READ_ONLY = ("id", "apiId", "createdAt", "updatedAt", "publishedAt", "closedAt", "status", "type", "referenceId", "referenceType")
 
@@ -33,8 +32,8 @@ tools:
   - {api: Harbor Customers API, tool: getCustomer, alias: get_customer}
   - {api: Harbor Orders API, tool: createRefund, alias: create_refund}
 upstreamAuth:
-  - {api: Harbor Customers API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: "${AGENT_TOOLBOX_KEY}"}
-  - {api: Harbor Orders API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: "${AGENT_TOOLBOX_KEY}"}
+  - {api: Harbor Customers API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: "${HARBOR_TOOLS_KEY}"}
+  - {api: Harbor Orders API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: "${HARBOR_TOOLS_KEY}"}
 access:
   registration:
     name: Registration
@@ -600,7 +599,7 @@ class Replacement(Studios):
 
     def test_a_changed_key_replaces_the_studio(self):
         self.seed()
-        self.env(AGENT_TOOLBOX_KEY="another-key")
+        self.env(HARBOR_TOOLS_KEY="another-key")
         self.seed()
         self.assertEqual(list(self.world.studios), ["studio-2"])
 
@@ -1160,39 +1159,6 @@ class Removal(Studios):
         self.assertIn("✓ Deleted MCP studio 'Customer care'", self.output())
 
 
-@unittest.skipUnless(CONTRACT.is_file(), "the personal playground agent-toolbox is not on this machine")
-class Contract(Studios):
-    """The studio file of the playground, as its author wrote it."""
-
-    OPERATIONS = [(api, op) for api, ops in (
-        ("Harbor Customers API", ("searchCustomers", "getCustomer")),
-        ("Harbor Orders API", ("listOrders", "getOrder", "listRefunds", "createRefund", "cancelOrder")),
-        ("Harbor Catalog API", ("searchProducts", "getProduct", "getStock"))) for op in ops]
-
-    def setUp(self):
-        super().setUp()
-        self.env(AM_GATEWAY_URL="http://am-gateway:8092", AGENT_TOOLBOX_KEY="harbor-tool-layer-key")
-        self.file(CONTRACT.read_text(encoding="utf-8"))
-
-    def test_the_file_builds_the_studio_and_a_second_run_changes_nothing(self):
-        self.run_twice()
-        self.assertEqual(self.changes(), [])
-        studio = self.world.studios["studio-1"]["request"]
-        self.assertEqual(len(studio["specification"]["tools"]), 10)
-        self.assertEqual(len(studio["upstreamAuth"]), 3)
-        self.assertEqual([f["name"] for f in self.the_api()["flows"]], ["FGA Authorization", "Human approval"])
-        self.assertEqual(self.the_flow("Human approval")["request"][0]["configuration"]["holdWindowMs"], 90000)
-        check = self.the_flow("FGA Authorization")["request"]
-        self.assertEqual([s["policy"] for s in check], ["policy-assign-attributes", "authz-pep"])
-        self.assertEqual(len(check[0]["configuration"]["attributes"]), 4)
-        self.assertEqual([e["name"] for e in check[1]["configuration"]["subjectPropertiesExpr"]], ["region", "team"])
-        self.assertEqual([e["name"] for e in check[1]["configuration"]["contextExpr"]], ["amount", "customer", "order", "region"])
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AfterAStudioMadeAgain(Studios):
     """A studio made again from a changed file is subscribed again: what its first subscription left must not stand in the way."""
 
@@ -1273,3 +1239,7 @@ class PlainAuthorization(Studios):
                                                       "in steps"):
             self.seed()
         self.assertEqual(self.world.studios, {})
+
+
+if __name__ == "__main__":
+    unittest.main()

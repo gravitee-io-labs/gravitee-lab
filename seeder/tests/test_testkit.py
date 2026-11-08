@@ -18,7 +18,7 @@ import yaml
 from lab_seeder import common
 from lab_seeder import seedlint
 from lab_seeder import testkit
-from lab_seeder.testkit import SAMPLES, Seed, personal_root, playgrounds_root, seeded_playgrounds
+from lab_seeder.testkit import SAMPLES, Seed, seeded_playgrounds
 
 from . import chained, doubling
 
@@ -45,28 +45,6 @@ def readers_of_content(folder, exclude=()):
         if names:
             found[file.name] = names
     return found
-
-
-class Roots(unittest.TestCase):
-
-    def test_without_a_catalog_the_tests_read_the_sample_of_the_engine(self):
-        for environ in ({}, {"LAB_PLAYGROUNDS": ""}, {"OTHER": "x"}):
-            with self.subTest(environ=environ):
-                self.assertEqual(playgrounds_root(environ), SAMPLES)
-
-    def test_the_folder_a_catalog_names_is_the_one_read(self):
-        self.assertEqual(playgrounds_root({"LAB_PLAYGROUNDS": "/catalog/playgrounds"}), Path("/catalog/playgrounds").resolve())
-        self.assertEqual(playgrounds_root({"LAB_PLAYGROUNDS": "playgrounds"}), Path("playgrounds").resolve())
-        self.assertEqual(playgrounds_root({"LAB_PLAYGROUNDS": "~/playgrounds"}), Path("~/playgrounds").expanduser().resolve())
-
-    def test_the_personal_playgrounds_are_those_of_the_catalog_that_is_named_or_else_of_this_clone(self):
-        self.assertEqual(personal_root({"LAB_PLAYGROUNDS": "/catalog/playgrounds"}), Path("/catalog/playgrounds").resolve() / "local")
-        self.assertEqual(personal_root({}), Path(testkit.__file__).resolve().parents[2] / "playgrounds" / "local")
-        self.assertEqual(personal_root({"LAB_PLAYGROUNDS": ""}), personal_root({}))
-
-    def test_the_roots_of_the_tests_are_those_of_the_environment_they_run_in(self):
-        self.assertEqual(testkit.PLAYGROUNDS, playgrounds_root())
-        self.assertEqual(testkit.PERSONAL, personal_root())
 
 
 class Sample(unittest.TestCase):
@@ -114,14 +92,6 @@ class OneSetOfChecks(unittest.TestCase):
                             self.assertTrue(isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name)
                                             and value.value.id == "seedlint", ast.unparse(node))
         self.assertTrue(all(name not in vars(testkit) for name in ("re", "yaml")), "it parses and matches nothing itself")
-
-    def test_the_roots_are_resolved_as_the_command_resolves_them(self):
-        for environ in ({}, {"LAB_PLAYGROUNDS": ""}, {"LAB_PLAYGROUNDS": "/catalog/playgrounds"}, {"LAB_PLAYGROUNDS": "playgrounds"},
-                        {"LAB_PLAYGROUNDS": "~/playgrounds"}, {"OTHER": "x"}):
-            with self.subTest(environ=environ):
-                self.assertEqual(playgrounds_root(environ), seedlint.playgrounds_root(environ))
-        with mock.patch.dict(os.environ, {"LAB_PLAYGROUNDS": "/catalog/playgrounds"}):
-            self.assertEqual(playgrounds_root(), Path("/catalog/playgrounds").resolve())
 
     def test_the_playgrounds_without_a_root_are_those_the_tests_read(self):
         with tempfile.TemporaryDirectory() as folder:

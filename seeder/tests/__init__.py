@@ -1,8 +1,7 @@
 """The seeder's tests, run from the root of the repository with `python -m unittest discover -s seeder/tests -t seeder`.
 
 What they share, the fake platform and the `Seed` they run against, is `testkit.py` in the folder above, which a catalog
-imports too (`from testkit import Seed`). The files of a playground they read are the invented samples in `fixtures/samples/`,
-or those of the folder that `LAB_PLAYGROUNDS` names.
+imports too (`from testkit import Seed`). The files of a playground they read are the invented samples in `fixtures/samples/`.
 
 The four builders below make YAML that asks the loader for pairs it should not copy (a `<<` key merges the pairs of a mapping
 into another, and a mapping that merges one that has merged others makes the count grow): test_common.py counts them and
