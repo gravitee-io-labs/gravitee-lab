@@ -52,11 +52,11 @@ ORDER = ["subscription", "agent-application"]
 LABELS = {"subscription": "agent subscriptions", "agent-application": "agent applications"}
 # The statuses of a subscription that holds the access: a closed or a rejected one is none
 HELD = ("PENDING", "ACCEPTED", "PAUSED")
-# What a platform that does not serve an agent's application says, API Management 4.13.1 among them: the keys come from the
-# amp-demo build, and 4.13.1 links an agent to the gateway by its client ID instead
+# What a platform that does not serve an agent's application says, every release of API Management among them (4.13.0 to
+# 4.13.3): the keys come from the amp-demo build, and a release links an agent to the gateway by its client ID instead
 UNSERVED = ("The agent '{name}': this platform has no application for an agent of the catalog "
             "(/catalog/agents/{{id}}/application), which the keys identity and access of seed/aim/agents need: they work on the "
-            "amp-demo build, not on API Management 4.13.1. There, give the agent an application of seed/apim/applications whose "
+            "amp-demo build, not on a release of API Management. There, give the agent an application of seed/apim/applications whose "
             "client_id is its client ID in Access Management, and subscribe it to the plan of the studio")
 # What detaching an identity answers when there is nothing to do or to reach: no identity attached (409), the agent or
 # its application gone (404), Access Management out of reach (502)

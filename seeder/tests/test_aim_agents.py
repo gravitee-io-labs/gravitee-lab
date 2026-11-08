@@ -508,7 +508,7 @@ class WhatItNeeds(Agents):
         message = str(stopped.exception)
         self.assertTrue(message.startswith("The agent 'Desk copilot': this platform has no application for an agent of the "
                                            "catalog (/catalog/agents/{id}/application)"), message)
-        for words in ("identity and access", "amp-demo build", "4.13.1", "client_id"):
+        for words in ("identity and access", "amp-demo build", "a release of API Management", "client_id"):
             self.assertIn(words, message)
         self.assertNotIn("\n", message)
         self.assertEqual(self.records(), [])
