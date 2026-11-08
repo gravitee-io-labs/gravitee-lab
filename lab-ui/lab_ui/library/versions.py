@@ -11,7 +11,7 @@ BUILD = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]*\d))?")
 
 
 def bare(tag):
-    """(the tag without its system, the system or ""): "4.13.0-alpha.8-debian" gives ("4.13.0-alpha.8", "debian"). Every
+    """(the tag without its system, the system or ""): "4.14.0-alpha.8-debian" gives ("4.14.0-alpha.8", "debian"). Every
     version of an image is compared so."""
     tag = str(tag or "")
     for variant in VARIANTS:
@@ -22,7 +22,7 @@ def bare(tag):
 
 def split(text):
     """A version as it orders, its system left out (bare): (its numbers, its pre-release identifiers or None).
-    "4.13.0-alpha.3-debian" is ((4, 13, 0), ["alpha", "3"]), "4.13.1-chainguard" ((4, 13, 1), None); None for a tag
+    "4.14.0-alpha.3-debian" is ((4, 14, 0), ["alpha", "3"]), "4.13.1-chainguard" ((4, 13, 1), None); None for a tag
     without numbers."""
     found = re.match(r"(\d+(?:\.\d+)*)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?", bare(text)[0])
     if not found:
@@ -32,9 +32,9 @@ def split(text):
 
 def at_least(tag, wanted):
     """Whether an image tag is that version or a later one, as semantic versioning orders them: a pre-release comes before
-    its release, so 4.13.0-alpha.5 is not a 4.13 (nor a 4.13.0), and a version asked in release form is met by a release.
-    A wanted pre-release orders the previews of its version too: 4.13.0-alpha.2 is before 4.13.0-alpha.3, itself before
-    4.13.0-beta.1 and 4.13.0; a later version, a preview included, is after them all (4.14.0-alpha.1 is a 4.13). A tag
+    its release, so 4.14.0-alpha.5 is not a 4.14 (nor a 4.14.0), and a version asked in release form is met by a release.
+    A wanted pre-release orders the previews of its version too: 4.14.0-alpha.2 is before 4.14.0-alpha.3, itself before
+    4.14.0-beta.1 and 4.14.0; a later version, a preview included, is after them all (4.15.0-alpha.1 is a 4.14). A tag
     without numbers (latest) says nothing of its version: it is taken as fine. A version asked that has no numbers
     (amp-demo-latest, a build and not a release) is not ordered: it is that build or it is not."""
     have, want = split(tag), split(wanted)
@@ -54,8 +54,8 @@ def at_least(tag, wanted):
 
 
 def parse(tag):
-    """(numbers, pre-release or None) of a tag that names a build, its system ignored ("4.13.0-alpha.8-debian" gives
-    ((4, 13, 0), "alpha.8")); None for a tag that moves (latest, 4.12, 4.13.0-alpha)."""
+    """(numbers, pre-release or None) of a tag that names a build, its system ignored ("4.14.0-alpha.8-debian" gives
+    ((4, 14, 0), "alpha.8")); None for a tag that moves (latest, 4.12, 4.14.0-alpha)."""
     found = BUILD.fullmatch(bare(tag)[0])
     return (tuple(int(number) for number in found.groups()[:3]), found.group(4)) if found else None
 
@@ -84,7 +84,7 @@ def older(saved, running):
 
 def latest(tags):
     """(the latest stable, the latest pre-release) among tag names, each as a version without its system; None for
-    none. A pre-release is listed only above the stable one: once 4.13.0 is out, 4.13.0-alpha.8 is not news."""
+    none. A pre-release is listed only above the stable one: once 4.14.0 is out, 4.14.0-alpha.8 is not news."""
     found = [version for version in map(parse, tags) if version]
     stable = max((version for version in found if version[1] is None), key=order, default=None)
     pre = max((version for version in found if version[1] is not None), key=order, default=None)
@@ -94,7 +94,7 @@ def latest(tags):
 
 
 def channel(deployed):
-    """The channel a version is of: 'pre-release' for a build with a pre-release part (4.13.0-alpha.8), else 'stable',
+    """The channel a version is of: 'pre-release' for a build with a pre-release part (4.14.0-alpha.8), else 'stable',
     also for a tag that names no version."""
     found = parse(deployed or "")
     return "pre-release" if found and found[1] is not None else "stable"

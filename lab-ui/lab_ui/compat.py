@@ -51,7 +51,7 @@ def _versions(found, follow=None):
 
 
 def _numbered(asked):
-    """Whether what `requires.images` asks is a version (4.12, 4.13.0-alpha.3), and not a build of its own (amp-demo-latest)."""
+    """Whether what `requires.images` asks is a version (4.12, 4.14.0-alpha.3), and not a build of its own (amp-demo-latest)."""
     return bool(re.match(r"\d+(?:\.\d+)*(?:-|$)", str(asked)))
 
 

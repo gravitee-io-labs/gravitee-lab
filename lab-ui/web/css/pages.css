@@ -657,7 +657,7 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .table.images { table-layout: fixed; min-width: 768px; }
 .table.images th:nth-child(2) { width: 256px; }   /* a registry, then the component it follows */
 .table.images th:nth-child(3) { width: 256px; }   /* "Apply needed" and "Not pulled", "Running" and "Started by hand", on one line */
-/* A version, then the component it follows: a tag with its variant ("4.13.0-alpha.3-debian") shows whole next to it.
+/* A version, then the component it follows: a tag with its variant ("4.14.0-alpha.3-debian") shows whole next to it.
    A field takes its whole cell, the registry under the version as wide as it. */
 .table.images th:nth-child(4) { width: 358px; }
 .table.images .combo-btn { max-width: none; }

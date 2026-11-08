@@ -1366,7 +1366,7 @@ def _uses_the_core(playground, project, raw):
 
 
 def _minor(version):
-    """(major, minor) of a version: 4.13.0-alpha.3 is (4, 13); None for text without them."""
+    """(major, minor) of a version: 4.14.0-alpha.3 is (4, 14); None for text without them."""
     found = re.match(r"(\d+)\.(\d+)", version or "")
     return tuple(map(int, found.groups())) if found else None
 
