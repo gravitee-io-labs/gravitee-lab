@@ -334,7 +334,7 @@ body.nav-collapsed .nav-dot { position: absolute; top: 5px; left: calc(50% + 3px
    nothing pops in, glides or fades */
 @media (prefers-reduced-motion: reduce) {
   .spinner, .activity.running .activity-icon, .job-state:not(.ok, .failed, .warn, .idle) { animation-duration: 2.4s; }
-  .dot-status:is(.starting, .stopping), .state.busy::before, .plat-skel > span, .menu-pop, .combo-pop, .drawer, .toast { animation: none; }
+  .dot-status:is(.starting, .stopping), .state.busy::before, .plat-skel > span, .menu-pop, .combo-pop, .drawer, .toast, dialog.catalog-sheet { animation: none; }
   .sidebar, .progress > span, .pbtn-fill, .tip-text, .tip-card, .s-toggle svg, .link svg, .more-options > summary svg, .connect-toggle svg, .choice-summary svg { transition: none; }
 }
 
@@ -397,6 +397,8 @@ body.nav-collapsed .nav-dot { position: absolute; top: 5px; left: calc(50% + 3px
   transition: opacity var(--swap) var(--ease), background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
 }
 .pbtn-side { position: relative; overflow: hidden; padding: 0 8px; opacity: 0; }
+/* A button that opens what it does first (Update): its chevron after the word, pointing on */
+.opens .pbtn-face > svg { order: 1; width: 14px; height: 14px; margin-right: -4px; transform: rotate(-90deg); }
 /* What changes is amber: the frame of the side and its fill */
 .btn.pbtn:not(.primary, .danger) .pbtn-side {
   --btn-line: color-mix(in srgb, var(--warn) 45%, var(--border-strong));
@@ -973,6 +975,29 @@ dialog::backdrop { background: var(--backdrop, rgb(10 12 16 / .45)); backdrop-fi
 /* A new add-on, setup or playground: its fields and what it includes, or the prompt that has an AI agent write it */
 .create-dialog { width: min(880px, 94vw); }
 .catalog-dialog { width: min(720px, 94vw); }   /* a catalog's Add, Update and Go back: a label, then names that read across with their kind */
+/* Update and Go back: a sheet along the right edge, the page beside it. Its title and its buttons stay; the list between them scrolls */
+dialog.catalog-sheet {
+  width: min(600px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0 0 0 auto; padding: 0; border-width: 0 0 0 1px; border-radius: 0;
+  animation: sheet-side var(--dur-2) var(--ease);
+}
+dialog.catalog-sheet::backdrop { backdrop-filter: none; }
+dialog.catalog-sheet > form { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; height: 100%; }
+dialog.catalog-sheet #catalog-title { margin: 0; padding: var(--sp-4) var(--sp-5); border-bottom: 1px solid var(--border); }
+dialog.catalog-sheet #catalog-effects { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 var(--sp-5) var(--sp-4); }
+dialog.catalog-sheet .create-problem { margin: 0; padding: var(--sp-2) var(--sp-5) 0; }
+dialog.catalog-sheet .dialog-actions { flex-wrap: wrap; align-items: center; margin: 0; padding: var(--sp-3) var(--sp-5); border-top: 1px solid var(--border); }
+dialog.catalog-sheet .choice-items > .plan-items { max-height: none; overflow: visible; }
+dialog.catalog-sheet .choice-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }   /* in a narrow sheet each label heads its part */
+dialog.catalog-sheet .choice-list { gap: 16px; }
+/* What a person can do afterwards, beside the buttons: the version Go back returns to */
+.dialog-note { margin-right: auto; color: var(--muted); font-size: var(--fs-1); }
+.dialog-note:empty { display: none; }
+/* On a phone the note has a line of its own, Cancel and Show changes share one, and the button that acts takes the last, whole */
+@media (max-width: 480px) {
+  dialog.catalog-sheet .dialog-note, dialog.catalog-sheet #catalog-primary { flex: 1 1 100%; }
+  dialog.catalog-sheet :is(.dialog-actions > .btn, #catalog-secondary) { flex: 1 1 0; }
+  dialog.catalog-sheet :is(#catalog-primary, #catalog-secondary) .btn { width: 100%; }
+}
 .agent-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 /* The three that create an item are large: the form and the prompt have the same height, the buttons at the foot of both. The checklist
    takes the height the fields leave and is the one thing that scrolls */

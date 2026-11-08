@@ -24,7 +24,7 @@ from lab_ui.docker import compose, envfiles, jobs
 from lab_ui.library import layers, project
 from lab_ui.gravitee import license
 from lab_ui import paths
-from lab_ui.catalogs import defaults, firstrun, gitx, install, manifest, registry, service, standard
+from lab_ui.catalogs import defaults, facts, firstrun, gitx, install, manifest, registry, service, standard
 from lab_ui.catalogs import store as bare
 from lab_ui.catalogs.registry import CatalogError
 
@@ -256,7 +256,7 @@ class Rows(Seam):
         row = next(row for row in service.describe(*project.loaded()) if row["id"] == "partner")
         self.assertEqual(sorted(row), sorted([
             "id", "kind", "listed", "name", "imported", "description", "address", "url", "web_url", "version", "commit", "updated",
-            "checked", "audience", "counts", "state", "progress", "attention", "auto", "has_previous", "host",
+            "checked", "audience", "counts", "state", "progress", "offered", "impact", "attention", "auto", "has_previous", "host",
             "held", "blocked", "uses_machine", "ignored", "problems"]))
         self.assertEqual((row["name"], row["version"], row["commit"], row["counts"], row["audience"]),
                          ("Partner fixture", "2.0.0", self.remotes["partner"].head()[:7],
@@ -992,7 +992,8 @@ class Understanding(Real):
         readable = remote.head()
         remote.commit({LEDGER: self.ledger()}, "Uses a key of a newer Lab")
         service.check_now("partner")
-        self.assertEqual(registry.lock_of("partner")["seen"], {"target": readable, "update": True, "tip": "new", "version": "2.1.0"})
+        self.assertEqual(registry.lock_of("partner")["seen"], {"target": readable, "update": True, "tip": "new", "version": "2.1.0",
+                                                               "impact": {"removed": [], "renamed": [], "new": [], "changed": [{"kind": "addon", "name": "Ledger"}]}})
         self.assertEqual(self.state("partner"), "update")
         plan = service.update("partner", check=True)
         self.assertEqual(plan["version"], "2.1.0")
@@ -1436,7 +1437,8 @@ class Checking(Partner):
         self.assertEqual((row["state"]["key"], row["state"]["reason"], row["attention"]), ("update", "Version 2.1.0", "update"))
         held = registry.lock_of("partner")
         self.assertEqual((held["tip"], held["pin"]), (self.remote.head(), self.done.commit))
-        self.assertEqual(held["seen"], {"target": self.remote.head(), "update": True, "tip": "ok", "version": "2.1.0"})
+        self.assertEqual(held["seen"], {"target": self.remote.head(), "update": True, "tip": "ok", "version": "2.1.0",
+                                        "impact": {"removed": [], "renamed": [], "new": [], "changed": [{"kind": "addon", "name": "Ledger"}]}}, "what the version on offer does, for the row")
 
     def test_a_commit_that_changes_nothing_installable_is_no_update(self):
         self.remote.commit({"README.md": "# Hub\n", ".github/workflows/ci.yml": "name: ci\n"}, "Edit the readme")
@@ -1524,7 +1526,7 @@ class Checking(Partner):
         self.remote.commit({"catalog.yml": meta_text(version="3.0.0", lab=99)}, "Needs a newer Gravitee Lab")
         service.check_now("partner")
         self.assertEqual(registry.lock_of("partner")["seen"], {"target": readable, "update": True, "tip": "new",
-                                                               "version": "2.1.0"})
+                                                               "version": "2.1.0", "impact": {"removed": [], "renamed": [], "new": [], "changed": [{"kind": "addon", "name": "Ledger"}]}})
         self.assertEqual(self.state("partner"), "update", "an update to what this Lab reads comes before the word about the tip")
 
     def test_the_audience_is_measured_again_at_every_check(self):
@@ -1700,6 +1702,21 @@ class Updating(Partner):
         self.assertRegex(plan["ticket"], r"^[0-9a-f]{16}$")
         self.assertIn(plan["ticket"], service.TICKETS)
 
+    def test_the_commit_the_versions_workflow_records_with_is_not_said_again_as_a_note_of_the_items(self):
+        self.news(message=facts.RECORDED)
+        plan = self.plan()
+        self.assertEqual([(one["name"], one["notes"]) for one in plan["updates"] + plan["adds"]], [("Ledger", []), ("Audit", [])],
+                         "the facts say what the sets are: the subject would say it twice")
+
+    def test_a_check_says_in_the_row_the_version_on_offer_and_what_it_does_to_the_items(self):
+        self.news()
+        row = self.row("partner")
+        self.assertEqual((row["state"]["key"], row["offered"]), ("update", "2.1.0"))
+        self.assertEqual(row["impact"], {"removed": [], "renamed": [], "new": [{"kind": "addon", "name": "Audit"}],
+                                         "changed": [{"kind": "addon", "name": "Ledger"}]},
+                         "read from the two commits: the names their files give, nothing judged")
+        self.assertEqual(service.update("partner", check=True)["version"], row["offered"], "the review is of the version the row said")
+
     def test_a_plan_changes_nothing_on_disk_but_the_staged_candidate(self):
         self.news()
         before = (self.digest(), registry.lock_of("partner"))
@@ -1811,7 +1828,7 @@ class Updating(Partner):
         held = registry.lock_of("partner")
         self.assertEqual((held["pin"], held["roots"]), (self.remote.head(), self.remote.git(
             "rev-list", "--max-parents=0", self.remote.head()).split()), "the history confirmed is the history now")
-        self.assertEqual(held["seen"], {"target": self.remote.head(), "update": False, "tip": "ok", "version": "9.0.0"},
+        self.assertEqual(held["seen"], {"target": self.remote.head(), "update": False, "tip": "ok", "version": "9.0.0", "impact": None},
                          "the newest is the version just installed, not the commit of the history that was replaced")
         self.assertEqual((row["state"]["key"], row["attention"], row["version"]), ("uptodate", None, "9.0.0"))
 
@@ -2036,8 +2053,12 @@ class GoingBack(Partner):
         self.assertEqual((row["state"]["key"], row["has_previous"], row["attention"]), ("update", True, None),
                          "Update available again, and the dot is not lit by the version just left")
         self.assertEqual(row["state"]["reason"], "Version 2.1.0")
+        self.assertEqual((row["offered"], row["impact"]), ("2.1.0", {"removed": [], "renamed": [], "new": [{"kind": "addon", "name": "Audit"}],
+                                                                      "changed": [{"kind": "addon", "name": "Ledger"}]}),
+                         "the row says again what the version it left does")
         again = service.update("partner", ticket=service.update("partner", check=True)["ticket"])["catalog"]
         self.assertEqual((again["version"], again["state"]["key"]), ("2.1.0", "uptodate"))
+        self.assertEqual((again["offered"], again["impact"]), (None, None), "nothing on offer: nothing to say")
         self.assertEqual(registry.lock_of("partner")["previous"], self.first, "and Go back toggles")
 
     def test_going_back_to_a_version_written_for_a_level_this_lab_no_longer_reads_is_refused_as_an_update_is(self):

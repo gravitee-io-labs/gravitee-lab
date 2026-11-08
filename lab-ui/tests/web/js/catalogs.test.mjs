@@ -1328,17 +1328,19 @@ test("Update says what changes before it does: the version, who changes, what co
   await updating(PLAN());
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { check: true }]]);
   assert.deepEqual([adding().hasAttribute("open"), heading(), onScreen()], [true, "Update Acme Hub", "effects"]);
-  assert.deepEqual(rowsOf().map(([label]) => label), ["Version", "Items", "Changes", "Cannot run", "Go back to"]);
+  assert.deepEqual(rowsOf().map(([label]) => label), ["Version", "Items", "Changes", "Cannot run"]);
+  assert.ok(adding().classList.contains("catalog-sheet"), "a list to read: a sheet along the edge");
   assert.deepEqual(itemsOf(), [
     ["Old", "Removed", "Add-on", [], []],
     ["Demo", "Breaks", "Playground", ["Loses Old"], []],
     ["Ledger", "New", "Add-on", [], []],
     ["Acme Bakery", "Updated", "Playground", [], []],
   ], "what goes and what breaks first, then what comes, then what changes");
-  assert.deepEqual(rowsOf().slice(2), [["Changes", "Acme Bakery now publishes port 8141"], ["Cannot run", "X Publishes a port to the network Add-on"], ["Go back to", "9f1c2ab"]]);
-  assert.deepEqual(buttons(), ["Cancel", "Show changes", "Update"]);
+  assert.deepEqual(rowsOf().slice(2), [["Changes", "Acme Bakery now publishes port 8141"], ["Cannot run", "X Publishes a port to the network Add-on"]]);
+  assert.deepEqual([buttons(), text(adding().querySelector("#catalog-note"))], [["Cancel", "Show changes", "Update to 1.5.0"], "Go back to 9f1c2ab anytime"],
+    "the one button that acts names what it leads to; beside it, what Go back returns to");
   const update = primary();
-  assert.deepEqual([update.classList.contains("primary"), update.classList.contains("danger"), isOff(update)], [false, false, false]);
+  assert.deepEqual([update.classList.contains("primary"), update.classList.contains("danger"), isOff(update)], [true, false, false]);
   assert.equal(secondary().classList.contains("primary"), false, "Show changes is a plain button");
   assert.equal(page.doc.activeElement, update, "Enter confirms what is harmless");
   shut();
@@ -1353,7 +1355,7 @@ test("Update names an item it renames under its new name with the one it had, or
     ["Tide pools", "Renamed", "Playground", ["Was Tides", "Your settings follow"]],
     ["Kiosk", "Renamed", "Add-on", ["Your settings follow"]],
   ], "a name that stays the same is no news: its folder is; one that is on says so, and stays on");
-  assert.deepEqual(buttons(), ["Cancel", "Show changes", "Update"], "a rename holds nothing back");
+  assert.deepEqual(buttons(), ["Cancel", "Show changes", "Update to 1.5.0"], "a rename holds nothing back");
   shut();
 });
 
@@ -1383,14 +1385,14 @@ test("an item that is updated says the parts of its folder that changed, every o
 
 test("a row is left out when it has nothing: a plan that only adds says only that", async () => {
   await updating(PLAN({ updates: [], removes: [], breaks: [], changes: [], whatsnew: [], blocked: [] }));
-  assert.deepEqual(rowsOf().map(([label]) => label), ["Version", "Items", "Go back to"]);
+  assert.deepEqual(rowsOf().map(([label]) => label), ["Version", "Items"]);
   assert.deepEqual(itemsOf(), [["Ledger", "New", "Add-on", [], []]]);
   shut();
 });
 
 test("a plan held says why on the button and sends nothing", async () => {
   await updating(PLAN({ held: "Turn off Acme Bakery first" }));
-  assert.deepEqual([isOff(primary()), offWhy(primary()), face(primary())], [true, "Turn off Acme Bakery first", "Update"]);
+  assert.deepEqual([isOff(primary()), offWhy(primary()), face(primary())], [true, "Turn off Acme Bakery first", "Update to 1.5.0"]);
   server.calls.length = 0;
   await next(primary());
   assert.equal(server.calls.length, 0);
@@ -1425,6 +1427,30 @@ test("a catalog rewritten or moved says so in the error tone, and its button is 
   assert.deepEqual(server.calls[0].body, { ticket: "b1c2d3e4f5a60718", confirm_history: true });
 });
 
+test("a row says an update before it is opened: the version it goes to from the one installed, then what it does to the items, the riskiest first, each naming them", () => {
+  const impact = { removed: [{ kind: "addon", name: "Old" }], renamed: [{ kind: "addon", name: "Trace viewer", was: "Viewer" }],
+    new: [{ kind: "addon", name: "Ledger" }], changed: [{ kind: "playground", name: "Acme Bakery" }, { kind: "playground", name: "Acme Hotels" }] };
+  show([GIT("update", { id: hub(), version: "1.4.0", offered: "1.5.0", impact })]);
+  const state = row("Acme Hub").querySelector(".list-state");
+  assert.equal(cells(row("Acme Hub")).state, "1.4.0 → 1.5.0");
+  assert.deepEqual(state.querySelectorAll(".pill").map((pill) => [text(pill), pill.getAttribute("data-tip"), pill.classList.contains("err"), pill.classList.contains("ok")]), [
+    ["1 removed", "Old", true, false], ["1 renamed", "Viewer → Trace viewer", false, false], ["1 new", "Ledger", false, true],
+    ["2 changed", "Acme Bakery, Acme Hotels", false, false]]);
+  const update = row("Acme Hub").querySelector("[data-update]");
+  assert.deepEqual([face(update), !!update.querySelector(".pbtn-face svg"), update.classList.contains("opens"), update.getAttribute("aria-haspopup")],
+    ["Update", true, true, "dialog"], "its chevron says it opens what it changes first");
+  // A row that knows no version on offer yet says the word of its state, as before
+  show([GIT("update", { id: hub() })]);
+  assert.deepEqual([cells(row("Acme Hub")).state, row("Acme Hub").querySelectorAll(".list-state .pill").length], ["Update available", 0]);
+});
+
+test("the sheet is the update's: closed, the dialog opens Add in the middle again, with no note", async () => {
+  await updating(PLAIN({ version_from: "1.4.0" }));
+  assert.ok(adding().classList.contains("catalog-sheet"));
+  shut();
+  assert.deepEqual([adding().classList.contains("catalog-sheet"), text(adding().querySelector("#catalog-note"))], [false, ""]);
+});
+
 test("every update is said before it is made: a listed catalog whose plan has nothing to decide opens what it changes, and the click sends only the check", async () => {
   show([FIRST({ id: hub(), state: STATES.update })]);
   server.answers[at("/update")] = (body) => (body.check ? PLAIN() : { catalog: FIRST() });
@@ -1451,11 +1477,11 @@ test("the version has the page of its release beside it where the forge has one,
   const link = version.querySelector("a");
   assert.deepEqual([text(link), link.getAttribute("href"), link.getAttribute("target"), link.getAttribute("rel")],
     ["Release notes", "https://forge.example/acme/hub/releases/tag/v1.5.0", "_blank", "noopener noreferrer"]);
-  assert.deepEqual(rowsOf().pop(), ["Go back to", "1.4.0"]);
+  assert.equal(text(adding().querySelector("#catalog-note")), "Go back to 1.4.0 anytime");
   shut();
   await updating(PLAIN({ version_from: "1.4.0" }), { has_previous: true, held: { update: "", remove: "", undo: "" } }, "undo");
   assert.equal(heading(), "Go back to previous version");
-  assert.ok(!rowsOf().some(([label]) => label === "Go back to"), "going back says no way back of its own");
+  assert.equal(text(adding().querySelector("#catalog-note")), "", "going back says no way back of its own");
   shut();
 });
 
@@ -1561,7 +1587,7 @@ test("Go back opens the same dialog under its own title, with the same rows, and
   choose("Acme Hub", "Go back to previous version");
   await settle();
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/undo"), { check: true }]]);
-  assert.deepEqual([heading(), buttons()], ["Go back to previous version", ["Cancel", "Show changes", "Go back"]]);
+  assert.deepEqual([heading(), buttons()], ["Go back to previous version", ["Cancel", "Show changes", "Go back to 1.5.0"]]);
   assert.equal(rowsOf()[0][0], "Version");
   server.answers[at("/undo")] = { catalog: GIT("update") };
   server.calls.length = 0;
@@ -1578,7 +1604,7 @@ test("Go back to a history that was rewritten says so without the tone that asks
   assert.equal(line.classList.contains("danger"), false, "the row is not in the error tone");
   assert.equal(line.querySelector(".pill").classList.contains("err"), false);
   const button = primary();
-  assert.deepEqual([face(button), button.classList.contains("danger"), isOff(button)], ["Go back", false, false]);
+  assert.deepEqual([face(button), button.classList.contains("danger"), isOff(button)], ["Go back to 1.5.0", false, false]);
   assert.equal(page.doc.activeElement, button, "Enter confirms what is the person's own choice");
   // Enter on a field is not taken away
   const enter = new Ev("keydown", { key: "Enter" });
