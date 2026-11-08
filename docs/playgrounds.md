@@ -956,20 +956,40 @@ in `.env`, then run `make all`.
 - Gamma has no upsert and keeps no name unique. A module looks each object up by name, slug or id, writes it only when it
   differs, records only what it created, and stops, naming it, when it finds one it did not create.
 
+### Versions of Gravitee
+
+The seed reads the versions of API Management and Access Management at its start, with its own credentials: API Management
+says it for the gateways that report to it, Access Management for the plugins it ships with. Its first line says each, and
+how the seed treats it:
+
+- **A release** (`4.13.3`) is seeded by its version: what changed from one release to the next is in the table below, and
+  the seeder fills **4.12 and later** releases. Below 4.12 the seed stops before it changes anything.
+- **A build that is no release** (`4.13.0-amp-demo-SNAPSHOT`, a master build), or a platform that says no version (a Cloud
+  environment with no gateway yet, a platform whose gateway is not started), is seeded by what it answers: [What differs from one build to
+  another](#what-differs-from-one-build-to-another). Nothing is promised for it.
+
+| What changed | Product | First release |
+|---|---|---|
+| The Gamma modules: AI Management, Authorization Management | API Management | 4.13.0 |
+
+A change between releases is a row here and an entry of `CHANGES` in `seeder/lab_seeder/versions.py`, which the modules ask
+by its name, and a test keeps the two equal. Which release a playground was tested on is its `x-gravitee.tested`, which
+the catalogs' *Gravitee versions* workflow moves forward each night.
+
 ### What differs from one build to another
 
-The seeder reads no version. It does what the platform answers, and a seed file writes what its build takes: the
-playground says which build that is (`requires.images`). This table is what the seeder knows of them, and a row goes with
-the code it names once no build that the Lab runs needs it.
+For a build that is no release, the seeder does what the platform answers, and a seed file writes what its build takes:
+the playground says which build that is (`requires.images`). This table is what the seeder knows of them, and a row goes
+with the code it names once no build that the Lab runs needs it.
 
 | What differs | Builds | What the seed file writes | What the seeder does |
 |---|---|---|---|
-| A studio's protocol versions | A list on API Management 4.13.1, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends the key the file gives (`aim_proxies.protocol_versions`) |
+| A studio's protocol versions | A list on every release, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends a release the list, from either key, and a build the key the file gives (`aim_proxies.protocol_versions`) |
 | A studio's keyless plan | The amp-demo build makes it from `KEYLESS`, the name of Agent Management, and its plans read it back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`) |
 | The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | `module`, when it is not the default | Asks again with the module when the answer holds that code (`aim_dashboards`) |
 | An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again (`apim.UNSUPPORTED`), or makes the studio again (`aim_proxies.UNSUPPORTED`) |
 | Models of an AI workspace with an endpoint of their own | The only kind the amp-demo build takes | A component with `target` and a price on each model | Makes the component the file describes (`aim_workspaces`) |
-| The application of an agent of the catalog | Served by the amp-demo build, not by 4.13.1 | `identity` and `access` in `seed/aim/agents/` on amp-demo; on 4.13.1, an application of `seed/apim/applications` whose `client_id` is the agent's | Stops with a line that says what to write instead (`aim_agents`) |
+| The application of an agent of the catalog | Served by the amp-demo build, not by a release (4.13.0 to 4.13.3) | `identity` and `access` in `seed/aim/agents/` on amp-demo; on a release, an application of `seed/apim/applications` whose `client_id` is the agent's | Stops with a line that says what to write instead (`aim_agents`) |
 | Where a Gamma list starts | Page 0 or page 1, depending on the list and the build | Nothing | Reads from the other start when page 0 is refused, or when the pages from 1 hold fewer rows than the list announces (`gamma.ManagementApi.rows`) |
 | The shape of a Gamma list | `content`, `data`, `items`, with a total or a `pagination` | Nothing | Reads all of them (`gamma.page_of`) |
 | Saving a tool imported from an API | Refused by 4.13.1 | On 4.13.1, no references in a tool's `tailoring` | Puts the tool's words in the import (`aim_catalog.import_entry`), and saves only its references after it (`aim_catalog.tailor`) |

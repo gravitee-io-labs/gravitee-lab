@@ -38,6 +38,7 @@ from . import controls
 from . import k8s
 from . import openfga
 from . import refills
+from . import versions
 from . import common
 from .common import KEYS, SeedError, created, forget, has_seed, log, owned
 from .gamma import require_modules
@@ -85,6 +86,7 @@ def main():
         refills.begin()
         if found:
             log("seed", f"Protections {controls.mode()}: {controls.named(found)}")
+        versions.read()
         require_modules(gamma_modules())
         am.seed(openfga.seed() or {})
         for module in AFTER_AM:

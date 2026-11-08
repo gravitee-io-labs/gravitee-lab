@@ -146,6 +146,14 @@ def apply(cluster, doc):
     if namespaced and not namespace:
         raise SeedError(f"{label(doc)}: a {kind} needs metadata.namespace")
     path = cluster.path(api_version, kind, namespace, name)
+    held = cluster.call("GET", path, expect=(200, 404))
+    deleting = held.status_code == 200 and bool((held.json().get("metadata") or {}).get("deletionTimestamp"))
+    if deleting:   # by a removal just before: a namespace then refuses what goes in it, so the seed waits until it is gone
+        def gone():
+            if cluster.call("GET", path, expect=(200, 404)).status_code == 200:
+                raise SeedError("still being deleted")
+
+        wait_until(SECTION, f"{label(doc)} to be deleted", gone)
 
     def attempt():
         try:

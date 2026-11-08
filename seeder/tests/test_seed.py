@@ -78,6 +78,7 @@ class Files(Seed):
     def test_a_file_that_is_not_yaml_stops_the_seed_with_its_line_and_never_its_text(self):
         self.seed_files({"am/domain.yaml": 'name: bank\nusers: [{username: ann,\n  password: "${PW}" ]]\n'})
         self.env(PW="S3cr3t-Pw")
+        self.answer({("POST", "/management/auth/token"): (200, {"access_token": "am-session"})})   # the version read signs in first
         self.assertEqual(self.main(), 1)
         self.assertRegex(self.output().splitlines()[-1],
                          r"^\[seed\] ✗ .*am/domain\.yaml: it is not valid YAML once its variables are replaced \(line \d+\)$")

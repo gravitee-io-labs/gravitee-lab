@@ -16,8 +16,9 @@ An MCP proxy is set up in three steps, each writing only what differs from its f
 A studio is only seeded when a file of seed/aim/studios says so: it needs the tools of the catalog (MCP servers and APIs
 imported before it) and a gateway whose MCP libraries can serve a studio. Its file has one of two shapes, told apart by
 its keys. A file with `plan` and `fga` is created with its plan and has its authorization check switched. Either shape gives
-its protocol versions as the platform takes them: the list `supportedProtocolVersions` on API Management 4.13.1, one
-`protocolVersion` on the amp-demo build. A file with `access` is built in steps, each writing only what differs:
+its protocol versions with the key its build takes: one `protocolVersion` on the amp-demo build, the list
+`supportedProtocolVersions` on a release, which gets the list from either key. A file with `access` is built in steps, each
+writing only what differs:
 
     1. It is created with the registration plan (the platform registers the studio in Access Management with it), the
        protocol versions, the tools with their aliases and the key each API expects from the studio.
@@ -50,6 +51,7 @@ import requests
 
 from . import controls
 from . import gamma
+from . import versions
 from .aim_workspaces import subset
 from .apim import ENDED, accept, find_application, held_subscription, merge, subscribe
 from .common import (OK, Api, SeedError, adopted, created, files, forget, has_seed, load, log, making, owned, record, recorded,
@@ -80,7 +82,8 @@ PEP, ASSIGN, APPROVAL = "authz-pep", "policy-assign-attributes", "human-approval
 KINDS = {"subscription": "subscription to an MCP studio", "mcp-proxy": "MCP proxy", "studio": "MCP studio"}
 # What a platform answers for a write of a studio's tools it does not offer: the studio is made again instead
 UNSUPPORTED = (404, 405, 501)
-# The keys of a studio's file that give its protocol versions, one of the two: which one depends on the build
+# The keys of a studio's file that give its protocol versions, one of the two: which one depends on the build, and a release
+# takes the first
 VERSION_KEYS = ("supportedProtocolVersions", "protocolVersion")
 # What a subscription of a studio's file may say
 SUBSCRIPTION_KEYS = ("application", "plan", "apiKey")
@@ -105,14 +108,16 @@ def public(spec):
 
 
 def protocol_versions(spec):
-    """A studio's protocol versions as its file gives them: a list for API Management 4.13.1, one for the amp-demo build."""
+    """A studio's protocol versions, as a release takes them (a list) or else as its file gives them: one for the amp-demo
+    build, which refuses the list."""
     given = {key: spec[key] for key in VERSION_KEYS if key in spec}
     if len(given) != 1:
         raise SeedError(f"MCP studio {spec['name']}: it gives {' or '.join(VERSION_KEYS)}, one of the two")
-    versions = next(iter(given.values()))
-    if not all(isinstance(version, str) for version in (versions if isinstance(versions, list) else [versions])):
+    values = next(iter(given.values()))
+    values = values if isinstance(values, list) else [values]
+    if not all(isinstance(value, str) for value in values):
         raise SeedError(f"MCP studio {spec['name']}: a protocol version is text: quote it")
-    return given
+    return {VERSION_KEYS[0]: values} if versions.released(versions.APIM) else given
 
 
 def server_name(server):
