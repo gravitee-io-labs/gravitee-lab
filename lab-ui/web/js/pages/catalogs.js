@@ -63,7 +63,19 @@ function stateHtml(row) {
   const dot = key === "uptodate" || key === "linked" ? "done" : key === "suggested" ? "off" : DOT[state.tone] || "";
   const lines = [state.label, state.reason, state.next].filter(Boolean);
   const bar = row.id && (downloading(row) || key === "updating") ? progressBar(`catalog:${row.id}`) : "";
-  return statusHtml(dot, state.label || key, { tip: lines.length > 1 ? lines : [], quiet: state.tone === "muted", extra: bar });
+  // An update says itself before anyone asks: the version it goes to from the one installed, and what it does to the items
+  const offer = key === "update" && row.offered ? (row.version && row.version !== row.offered ? `${row.version} → ${row.offered}` : row.offered) : "";
+  return statusHtml(dot, offer || state.label || key, { tip: offer || lines.length > 1 ? lines : [], quiet: state.tone === "muted",
+    extra: offer ? impactHtml(row.impact) + bar : bar });
+}
+
+// What an update does to the items, one pill for each way, the riskiest first, each naming its items in its tooltip: "3 changed"
+const IMPACT = [["removed", "removed", "err"], ["renamed", "renamed", ""], ["new", "new", "ok"], ["changed", "changed", ""]];
+function impactHtml(impact) {
+  return IMPACT.filter(([key]) => (impact?.[key] || []).length).map(([key, word, tone]) => {
+    const items = impact[key], names = items.map((it) => (it.was ? `${it.was} → ${it.name}` : it.name)).join(", ");
+    return `<span class="pill${tone === "err" ? " err" : tone === "ok" ? " ok" : ""}" data-tip="${esc(names)}">${items.length} ${word}</span>`;
+  }).join("");
 }
 
 // --- Rows ---------------------------------------------------------------------------------------------------------------------
@@ -79,7 +91,8 @@ function actions(row) {
   const at = `catalog-op:${row.id}`;
   let button = "";
   if (row.kind === "suggested") button = actionButton({ key: `catalog-op:${row.id ?? row.url}`, verb: "add", label: "Add", cls: "act", attrs: `data-add aria-label="${esc(`Add ${row.name}`)}"${off(git)}` });
-  else if (updates(row)) button = actionButton({ key: at, verb: ["update", "check"], label: "Update", cls: "act", attrs: `data-update aria-label="${esc(`Update ${row.name}`)}"${off(other)}` });
+  // Update opens what it changes first: the chevron after the word says it opens something
+  else if (updates(row)) button = actionButton({ key: at, verb: ["update", "check"], label: "Update", icon: "chevron", cls: "act opens", attrs: `data-update aria-haspopup="dialog" aria-label="${esc(`Update ${row.name}`)}"${off(other)}` });
   else if (retries(row)) button = `<button type="button" class="btn act" data-retry aria-label="${esc(`Try again, ${row.name}`)}"${off(git || working(row))}>Try again</button>`;
   const more = menu(row).length
     ? `<button class="icon-btn" data-more data-tip="More" aria-label="${esc(`More for ${row.name}`)}" aria-haspopup="true">${icon("more")}</button>` : GAP;

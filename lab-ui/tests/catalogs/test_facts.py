@@ -2,6 +2,7 @@
 
 import unittest
 
+from lab_ui import paths
 from lab_ui.catalogs import facts
 
 BANK = {"requires": {"images": {"APIM_VERSION": "4.13.1"}, "license": {"apim-mcp-tool-server": "Lesson 6"},
@@ -46,6 +47,10 @@ class Facts(unittest.TestCase):
         said = facts.facts(BANK, after)
         self.assertEqual(len(said), facts.LIMIT)
         self.assertEqual((said[0], said[-1]), ("Needs APIM_VERSION 4.13.0, was 4.13.1", "And 8 more"))
+
+    def test_the_subject_the_versions_workflow_commits_with_is_the_one_an_update_leaves_out(self):
+        workflow = (paths.ROOT / "lab-ui/templates/catalog/managed/.github/workflows/versions.yml").read_text(encoding="utf-8")
+        self.assertIn(f'git commit -q -a -m "{facts.RECORDED}"', workflow)
 
     def test_an_item_that_says_nothing_of_a_part_reads_as_none(self):
         self.assertEqual(facts.facts({}, {"requires": None, "tested": None, "settings": None}), [])

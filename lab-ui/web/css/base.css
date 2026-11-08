@@ -142,6 +142,7 @@ main:focus { outline: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(.99); } }
 @keyframes sheet-in { from { transform: translateY(16px); opacity: 0; } }
+@keyframes sheet-side { from { transform: translateX(24px); opacity: 0; } }
 
 /* --- Layout -------------------------------------------------------------------------- */
 

@@ -6,6 +6,9 @@ said alike, whatever its files hold. Pure: no file, no Git."""
 from typing import Iterable, List
 
 LIMIT = 8   # the lines said of one item: past them, how many more
+# The subject of the commit the catalogs' Gravitee versions workflow makes when it records what works (versions.yml): the sets it
+# names are said precisely by `facts` ("Tested on APIM_VERSION 4.13.3"), so an update does not say them a second time as its notes
+RECORDED = "Tested on the newest Gravitee releases"
 
 
 def _versions(one) -> str:

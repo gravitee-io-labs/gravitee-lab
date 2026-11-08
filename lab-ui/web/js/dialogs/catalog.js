@@ -212,12 +212,11 @@ function versionRow(p) {
 // What an update, or going back, says it does: its version, the items it touches, each with what changes in it, then what asks for care.
 // What's new stands alone only for an update that touches no item (what its commits of catalog.yml say). A history that changed is an error
 // for an update, which goes on only after the person said so (`confirm_history`); going back is the person's own choice of an older version,
-// which the server takes as confirmed, so the line is said without the tone that asks for care. An update says the version Go back returns to.
+// which the server takes as confirmed, so the line is said without the tone that asks for care.
 function planRows(p, allow, kind) {
   const uses = p.uses_machine || [], blocked = cannot(p.blocked, uses, allow);
   const names = (list = [], hint = () => "") => list.map((x) => ({ text: x.name, kind: x.kind, hint: hint(x) }));
   const tone = kind === "update" ? "danger" : undefined, items = planItems(p);
-  const back = p.version_from || p.from;
   return [
     { label: "Rewritten", tone, items: p.rewritten ? [{ text: "This catalog was rewritten or moved", tone }] : [] },
     versionRow(p),
@@ -226,7 +225,6 @@ function planRows(p, allow, kind) {
     usesRow(uses),
     { label: "Changes", html: (p.changes || []).length ? sentences(p.changes.map(changeLine)) : "" },
     { label: "Cannot run", tone: "danger", names: true, items: names(blocked, (b) => (b.reasons || [])[0] ?? "") },
-    { label: "Go back to", items: kind === "update" && back ? [{ text: back, code: true }] : [] },
   ];
 }
 
@@ -256,6 +254,7 @@ dialog.innerHTML = `
     </div>
     <p class="create-problem" role="alert" hidden></p>
     <div class="dialog-actions">
+      <span class="dialog-note" id="catalog-note"></span>
       <button class="btn" type="button" data-cancel>Cancel</button>
       <span class="act-slot" id="catalog-secondary"></span>
       <span class="act-slot" id="catalog-primary"></span>
@@ -571,9 +570,14 @@ async function ask(row, route, title, word) {
   rowsEl.removeAttribute("aria-busy");
   const danger = careful(route, p), why = p.held || "";
   slot("secondary", '<button class="btn" type="button" data-changes>Show changes</button>');
+  // The one button that acts names what it leads to ("Update to 1.3.3"); beside it, the version Go back returns to afterwards
+  const back = route === "update" ? p.version_from || p.from : "";
+  $("#catalog-note", dialog).textContent = back ? `Go back to ${back} anytime` : "";
+  const label = danger ? `${word} anyway` : p.version ? `${word} to ${p.version}` : word;
   // The dialog's button has a key of its own: a dialog opened while the check still holds the row's key at work does not open at work too
-  slot("primary", actionButton({ key: `catalog-dialog:${row.id}`, verb: "update", label: danger ? `${word} anyway` : word, cls: danger ? "danger" : "",
+  slot("primary", actionButton({ key: `catalog-dialog:${row.id}`, verb: "update", label, cls: danger ? "danger" : "primary",
     attrs: why ? `aria-disabled="true" data-why="${esc(why)}"` : "" }));
+  dialog.classList.add("catalog-sheet");   // a list to read: a sheet along the edge, the page beside it
   if (!dialog.open) dialog.showModal();
   // Enter confirms what is harmless: with the history changed the keyboard starts on Cancel
   ($$("input", choiceEl).find((el) => el.checked) || (danger ? $("[data-cancel]", dialog) : $("#catalog-primary button", dialog)))?.focus();
@@ -705,6 +709,8 @@ dialog.addEventListener("close", () => {
   seq += 1;   // an answer on its way is dropped; what the server fetched stays in its cache for the next try
   shown = null;
   asking = sending = false;
+  dialog.classList.remove("catalog-sheet");   // Add opens in the middle again
+  $("#catalog-note", dialog).textContent = "";
 });
 $("form", dialog).addEventListener("submit", (e) => {
   e.preventDefault();

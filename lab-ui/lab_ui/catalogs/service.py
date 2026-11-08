@@ -28,7 +28,7 @@ from pathlib import Path
 from ..docker import compose, jobs
 from ..library import layers, model, project
 from .. import paths
-from . import defaults, facts, gitx, install, manifest, registry, renames, resolve, trust, understood
+from . import defaults, facts, gitx, install, manifest, meta, registry, renames, resolve, trust, understood
 from . import store as bare
 from .registry import CatalogError
 
@@ -253,7 +253,7 @@ def _state(key, **fields):
 
 
 def _seen(held):
-    """What the last check learned and the lock does not hold: {target, update, tip, version, searched}, defensively.
+    """What the last check learned and the lock does not hold: {target, update, tip, version, searched, impact}, defensively.
     `searched`: the versions the check read when its budget ran out with none this Lab reads, else 0."""
     found = held.get("seen")
     found = found if isinstance(found, dict) else {}
@@ -261,7 +261,8 @@ def _seen(held):
             "update": found.get("update") is True,
             "tip": found.get("tip") if found.get("tip") in ("ok", "new", "old") else "ok",
             "version": found.get("version") if isinstance(found.get("version"), str) else None,
-            "searched": found["searched"] if type(found.get("searched")) is int and found["searched"] > 0 else 0}
+            "searched": found["searched"] if type(found.get("searched")) is int and found["searched"] > 0 else 0,
+            "impact": found.get("impact") if isinstance(found.get("impact"), dict) else None}
 
 
 def _update_available(held):
@@ -495,6 +496,9 @@ def _git_row(ns, found, summary, project_, entry, contract, on=frozenset()):
         "version": found.get("version"), "commit": _short(pin), "updated": held.get("installed"),
         "checked": held.get("checked"), "audience": found.get("audience") or "private",
         "counts": _counts(found.get("units") or {}), "state": state, "progress": progress,
+        # The version on offer and what it does to the items, for a row that says an update before anyone asks (`_impact`)
+        "offered": _seen(held)["version"] if state["key"] in UPDATES else None,
+        "impact": _seen(held)["impact"] if state["key"] in UPDATES else None,
         "attention": _attention(found, held, entry, state["key"]), "auto": (entry or {}).get("auto") is not False,
         "has_previous": bool(held.get("previous")),
         "host": found.get("host") or "no", "held": _held_of(ns, project_, held, on),
@@ -975,9 +979,42 @@ def _ask(ns, entry):
         return
     mine = held.get("release") or manifest.release_of(store_path, pin, held.get("version"))   # a copy installed before releases
     seen = {"target": target, "update": update, "tip": tip_state, "version": version}
+    if update:
+        seen["impact"] = _impact(store_path, pin, target)
     if target is None and found.searched:   # the budget ran out: the line says what was read, and no more
         seen["searched"] = found.searched
     registry.set_lock(ns, tip=tip, checked=_utc(), error=_failed_with(ns, None), audience=audience, release=mine, seen=seen)
+
+
+UPDATES = ("update", "rewritten")   # the states whose row offers Update: they say the version on offer and its impact
+IMPACT = ("removed", "renamed", "new", "changed")   # what an update does to the items, in the order the row says it
+
+
+def _impact(store_path, pin, target):
+    """What the version on offer does to the items, read from the two commits alone, so that a row says it before anyone asks:
+    {removed, renamed, new, changed}, each [{kind, name}] (a renamed one with the name it had, `was`). Cheap enough for every
+    check: the listings and the names in the x-gravitee blocks, nothing judged (what an update breaks or blocks is the review's).
+    A renaming that cannot be read now counts as one item removed and one new."""
+    def units(commit):
+        return {key: value for key, value in bare.unit_digests(bare.selected(bare.listing(store_path, commit))[0]).items()
+                if key != "@catalog"}
+
+    def name(commit, key):
+        kind = key.partition(":")[0]
+        path = bare.folder_of(key) if kind == "setup" else f"{bare.folder_of(key)}/compose.yml"
+        text = (bare.read(store_path, commit, path) or b"").decode("utf-8", "replace")
+        return {"kind": kind, "name": resolve.shown(meta.value(text, "name") or key.partition(":")[2], NAME_CUT)}
+
+    before, after = units(pin), units(target)
+    try:
+        moved = renames.resolve(renames.declared_at(store_path, pin), renames.declared_at(store_path, target))["items"]
+    except CatalogError:
+        moved = {}
+    renamed = {old: new for old, new in moved.items() if old in before and old not in after and new in after and new not in before}
+    return {"removed": [name(pin, key) for key in sorted(set(before) - set(after) - set(renamed))],
+            "renamed": [{**name(target, new), "was": name(pin, old)["name"]} for old, new in sorted(renamed.items())],
+            "new": [name(target, key) for key in sorted(set(after) - set(before) - set(renamed.values()))],
+            "changed": [name(target, key) for key in sorted(key for key in set(before) & set(after) if before[key] != after[key])]}
 
 
 def _unstick(ns):
@@ -1236,7 +1273,9 @@ def _plan(ns, op):
         uses = [] if host in ("listed", "allowed") else _uses_of(judged, verdicts, mine)
         ticket = secrets.token_hex(8)
         _keep(ticket, op, ns=ns, plan=plan)
-    notes, lit = plan.get("notes") or {}, on | running
+    lit = on | running
+    # The notes of each unit, as a release says them, less the subject the versions workflow commits with: the facts say what it did
+    notes = {key: [line for line in subjects if line != facts.RECORDED] for key, subjects in (plan.get("notes") or {}).items()}
 
     def said(key, was=None):
         """What the dialog says of one item: the notes of its commits, what changes in it that a person decides on, and whether it
@@ -1412,7 +1451,7 @@ def _settled(ns, plan, before):
     so the row says "Update available" again and the action toggles, and going forward again leaves nothing newer."""
     seen = {key: value for key, value in _seen(registry.lock_of(ns)).items() if key != "searched"}   # the next check reads again
     if plan["op"] == "update":
-        seen.update(target=plan["to"], update=False, version=plan["version"])
+        seen.update(target=plan["to"], update=False, version=plan["version"], impact=None)
         registry.set_lock(ns, seen=seen)
         return
     newest = seen["target"]
@@ -1420,9 +1459,10 @@ def _settled(ns, plan, before):
         forward = bare.is_ancestor(registry.store_dir(ns), plan["from"], plan["to"])
         newest = plan["to"] if forward else plan["from"]
     if plan["to"] == newest:
-        seen.update(target=newest, update=False)
-    else:
-        seen.update(target=newest, update=True, version=before.get("version") if newest == plan["from"] else seen["version"])
+        seen.update(target=newest, update=False, impact=None)
+    else:   # the row says again what the version it left does
+        seen.update(target=newest, update=True, version=before.get("version") if newest == plan["from"] else seen["version"],
+                    impact=_impact(registry.store_dir(ns), plan["to"], newest))
     registry.set_lock(ns, seen=seen)
 
 

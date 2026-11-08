@@ -39,11 +39,15 @@ publishes, what it changes of the Lab's core and what it needs from other catalo
 Lab refuses to start and says why ([What blocked means](#what-blocked-means)). Adding is your consent to what the preview
 shows. A catalog that needs another one says which; add that one first.
 
-**Update.** Catalogs are checked in the background, five seconds after the Lab UI starts and then every six hours. The row says
-*Update available* when a newer version exists ([Versions](#versions)), with a dot on the Catalogs entry of the menu. A version
+**Update.** Catalogs are checked in the background, five seconds after the Lab UI starts and then every six hours. When a newer
+version exists ([Versions](#versions)), the row says it before you open anything: the version it goes to from yours
+(*1.3.1 → 1.3.3*), then what it does to the items, the riskiest first (*1 removed*, *1 renamed*, *1 new*, *3 changed*), each
+naming them in its tooltip, with a dot on the Catalogs entry of the menu. The check reads this from the catalog's history alone;
+what an update breaks or cannot run is said when you open it. A version
 that uses what your Lab does not read yet is never installed: the row says it needs a newer Gravitee Lab, and you keep the newest version
 your Lab reads. **Update**
-is the only way a copy is replaced, and it always says what changes first, in a dialog, before anything is done:
+is the only way a copy is replaced. Its chevron says it opens something first: a sheet along the edge of the page, which says
+what changes before anything is done:
 
 - **Version**: from the one you have to the new one (*Unreleased* when the catalog makes no releases, *Unchanged* when a release
   was moved), with **Release notes**, the page of that release on GitHub, for a catalog read from GitHub.
@@ -51,17 +55,18 @@ is the only way a copy is replaced, and it always says what changes first, in a 
   updates, in that order, with its kind and *On* for one that is on now. Each block says what changes in it that you decide on:
   the versions of Gravitee it needs (*Needs APIM_VERSION 4.13.0, was 4.13.1*), the features of the license and what this machine
   must run, the versions it was tested on, the settings it adds (and whether one is required) or no longer reads. Then the words of
-  its authors, the subjects of its commits, and the parts of its folder that changed (`README.md`, `compose.yml`, `seed/`).
+  its authors, the subjects of its commits (not the one *Gravitee versions* records with: the versions it tested are said already),
+  and the parts of its folder that changed (`README.md`, `compose.yml`, `seed/`).
 - **Uses this machine**, **Changes** (what an item now does more: a port, a build, a privilege) and **Cannot run**, when the new
   version has some.
-- **Go back to**: the version **Go back** restores afterwards.
 
-**Show changes** opens the files with their diff. An item that is on holds the update (turn it off first, and the button says
+Its button names what it leads to, **Update to 1.3.3**, and beside it the version **Go back** restores afterwards. **Show
+changes** opens the files with their diff. An item that is on holds the update (turn it off first, and the button says
 so). A history that was rewritten or a release that was moved asks for one more confirmation (**Update anyway**), because the
-new version is not a continuation of the one you have. **Go back** restores the previous copy, with the same dialog. From a
+new version is not a continuation of the one you have. **Go back** restores the previous copy, with the same sheet. From a
 terminal: `python3 lab-ui/catalog.py update ID`.
 
-**Renamed items.** A catalog can rename an item. The Update dialog shows it as *Renamed*, by its new name, with the name it had
+**Renamed items.** A catalog can rename an item. The Update sheet shows it as *Renamed*, by its new name, with the name it had
 (nothing more when only its folder changes) and *Your settings follow*: it is one item, not one removed and one added. Your settings, secrets and what
 its seed created move with it, its settings take their new names with their values, and your star, what is on, the items of yours
 that include it (and their copies for a Cloud platform) and your copy of it follow. A file of yours whose place is taken in the
