@@ -106,7 +106,10 @@ class Install(unittest.TestCase):
         import pty
         import struct
         import termios
-        pid, fd = pty.fork()
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)   # the fork of a process with threads: the child only runs execve
+            pid, fd = pty.fork()
         if pid == 0:
             os.execve("/bin/sh", ["sh", str(INSTALL)], {**self.env, **env})
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, columns, 0, 0))

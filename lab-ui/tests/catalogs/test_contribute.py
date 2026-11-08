@@ -591,6 +591,7 @@ class Judged(Seam):
         self.assertEqual(self.share("local/ledgered", "fixture", check_only=True)["problems"], [])
         self.assertEqual(self.share("local/ledgered", "partner", check_only=True)["problems"], [])
 
+    @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
     def test_an_include_the_screen_cannot_follow_or_that_is_no_item_is_a_problem(self):
         self.item("addon", "odd", "Odd", "include:\n  - path: ../../../fixture/addons/echo/compose.yml\n    required: false\nservices: {}\n")
         problems = self.share("local/odd", check_only=True)["problems"]
@@ -712,6 +713,7 @@ class Judged(Seam):
                 self.assertNotIn("codec", said)
                 self.assertNotIn("\ufffd", said)
 
+    @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
     def test_what_the_lab_writes_in_an_item_whose_include_is_not_text_or_cannot_be_opened_is_refused_in_clean_words(self):
         base = self.root / ".lab/catalogs/local/addons"
         inner, outer = base / "inner/compose.yml", "x-gravitee: {kind: addon, name: Outer}\ninclude:\n  - ../inner/compose.yml\nservices: {}\n"
@@ -2192,10 +2194,6 @@ class Real(Base):
         self.assertEqual(lines_of(raised.exception), ("held", 409, "Turn off Plain first."))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class LegacyLab(unittest.TestCase):
     """A share keeps the `lab` that older Gravitee Labs read true: it raises one the shared item needs more than, in the
     same commit or copy, writes the lines where they are missing, and never lowers them. What it writes is read back as
@@ -2222,3 +2220,7 @@ class LegacyLab(unittest.TestCase):
             contribute._raised(self.TEXT.replace("  lab: 1   # older Labs\n", "  lab:\n    1\n"), 2)
         with self.assertRaises(contribute.NotRaised):
             contribute._raised("x-gravitee-catalog: [not, a, block]\n", 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1131,20 +1131,15 @@ class Managed(Tool):
                         self.assertIn(option, catalog.HELP[words[0]][1])
 
     def test_every_stage_is_one_the_dispatcher_of_ci_has(self):
-        try:
-            stages = importlib.import_module("lab_ui.catalogs.ci").STAGES
-        except ImportError:
-            self.skipTest("lab_ui.catalogs.ci is not in this checkout yet")
+        from lab_ui.catalogs import ci
+        stages = ci.STAGES
         for file, number, words in managed_calls():
             if words[0] == "ci":
                 with self.subTest(file=file, line=number):
                     self.assertIn(words[1], stages, f"{file}:{number}")
 
     def test_every_call_to_repo_settings_is_one_its_parser_reads(self):
-        try:
-            settings = importlib.import_module("lab_ui.catalogs.settings")
-        except ImportError:
-            self.skipTest("lab_ui.catalogs.settings is not in this checkout yet")
+        from lab_ui.catalogs import settings
         for file, number, words in managed_calls():
             if words[0] == "repo-settings":
                 with self.subTest(file=file, line=number):
@@ -1153,10 +1148,7 @@ class Managed(Tool):
     def test_every_module_a_call_is_for_has_the_function_the_dispatcher_runs(self):
         for command, (name, function) in catalog.DELEGATED.items():
             if any(words[0] == command for _, _, words in managed_calls()):
-                try:
-                    module_ = importlib.import_module(f"lab_ui.catalogs.{name}")
-                except ModuleNotFoundError:
-                    continue   # written by another package, not in this checkout yet: the dispatcher says so
+                module_ = importlib.import_module(f"lab_ui.catalogs.{name}")
                 with self.subTest(command=command):
                     self.assertTrue(callable(getattr(module_, function, None)), f"lab_ui.catalogs.{name}.{function}")
 
@@ -1556,11 +1548,13 @@ class Spelling(Tool):
 class Other(Tool):
     """images, matrix and the way the tool is run."""
 
+    @COMPOSE
     def test_the_end_to_end_matrix_of_a_catalog_that_is_not_there_is_a_usage_error(self):
         code, out, err = self.run_tool("matrix", "hub", "--changed", "main", "HEAD")
         self.assertEqual((code, out), (2, ""))
         self.assertIn("neither installed nor linked", err)
 
+    @COMPOSE
     def test_the_end_to_end_matrix_is_the_plan_of_the_package_as_json(self):
         from lab_ui import e2e
         asked = []

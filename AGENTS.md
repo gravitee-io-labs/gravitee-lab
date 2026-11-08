@@ -65,6 +65,9 @@ the default catalog, `@<catalog>/<id>` for another.
   running `docker compose` gets what the Lab UI gets. The Lab UI knows no product: no list of products, add-ons or
   images in its code.
 - **One way for each thing.** Before you add a piece, find the one that does it already.
+- **Tests grow by cases.** A fix adds its case to the test or the table that already holds the behavior; a new test is for
+  a behavior no test holds, and a new test module says in its docstring what no other covers. A test checks what the code
+  decides (a value, a refusal, the name or key a message gives), and a whole sentence only when the test is about its wording.
 - **Comments say why.** A comment describes a setting or a non-obvious reason, never history or authorship. The comment
   at the end of the line that uses a variable, or heading its block, is the help the Lab UI shows next to that setting.
 - **No secrets in git.** `.env` files, `.lab/` (the catalogs, with the machine files of each item) and `plugins/` are ignored. A

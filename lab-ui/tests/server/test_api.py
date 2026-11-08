@@ -314,6 +314,7 @@ class State(LabUI):
     def setUp(self):
         super().setUp()
         self.layers = {"playground": None, "explicit": [], "effective": [], "problems": [], "locked": None}
+        self.patch(api, "requirement", return_value="")
         self.patch(api.project, "load", return_value=PROJECT)
         self.read = {"raw": {}}   # what the project was read from
         self.patch(api.project, "loaded", return_value=(PROJECT, self.read))
@@ -1475,6 +1476,8 @@ class GatewayCase(LabUI):
 
     def setUp(self):
         super().setUp()
+        self.patch(api, "requirement", return_value="")
+        self.patch(api.compose, "project_name", return_value="gravitee")
         self.project = test_layers.lab()
         test_layers.cloud(self.project)
         self.state = test_layers.on(self.project)
@@ -1641,7 +1644,6 @@ class GatewayRoutes(GatewayCase):
     def test_only_the_page_starts_a_gateway(self):
         self.assertEqual(self.request("POST", f"{self.GATEWAY}/start", {}, headers={"X-Gravitee-Lab-UI": None})[0], 403)
         self.jobs.start.assert_not_called()
-
 
 
 class GatewayOnFile(GatewayCase):
@@ -2287,7 +2289,6 @@ class Port(Case):
         self.serve.assert_not_called()
 
 
-
 class CatalogRoutes(LabUI):
     """Every route of the catalogs calls one function of the service with what the body says, and answers what it
     answered; the logic is the service's (test_catalog_service)."""
@@ -2435,7 +2436,6 @@ class CatalogBodies(LabUI):
         self.assertEqual(self.request("POST", "/api/catalogs/nowhere/check", {})[0], 404)
 
 
-
 class JunkBodies(LabUI):
     """A body that is not what a route reads is a 400 with a reason, never a 500."""
 
@@ -2548,7 +2548,6 @@ class StateOfCatalogs(LabUI):
         self.assertTrue(found[0]["message"].startswith("The file that lists your catalogs could not be read ("), found)
         self.assertIs(found[0]["editable"], False)
         self.assertEqual(state["catalogs"], [], "and nothing is shown of catalogs, as before")
-
 
 
 WARM_UP = api.warm_up   # the real one: the cases of Startup replace it
@@ -2726,10 +2725,6 @@ class Startup(Case):
             api.main(["--no-open", "--port", "9123"])
         served.assert_called_once()
         self.assertEqual(said.getvalue(), "")
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 # A Lab UI of its own, for Signals: argv[1] is the file the fake git writes its process id to, argv[2] the port, argv[3] when
@@ -2952,3 +2947,7 @@ class Browser(Case):
             api.open_browser("http://localhost:9000")
         self.assertEqual(opened.call_count, 2)
         self.assertEqual(popen.call_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
