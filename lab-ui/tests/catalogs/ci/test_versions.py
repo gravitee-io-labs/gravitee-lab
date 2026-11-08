@@ -137,8 +137,10 @@ class Steps(unittest.TestCase):
 
     def test_a_set_that_failed_is_tried_again_once_the_playground_or_the_lab_changed(self):
         tags = {"APIM_VERSION": ["4.13.1", "4.12.25"]}
-        plan = lambda lab: self.run_step(versions.plan_main, str(self.catalog), project=BUILT, lab=lab,
-                                         tags=lambda built, key, registry: tags[key])[1]
+        def plan(lab):
+            return self.run_step(versions.plan_main, str(self.catalog), project=BUILT, lab=lab,
+                                 tags=lambda built, key, registry: tags[key])[1]
+
         self.outputs([(SET, 1)])
         self.assertEqual(plan("abc"), "Every playground is tested on the newest versions\n")
         self.compose.write_text(self.compose.read_text(encoding="utf-8").replace('"4.13.1"', '"4.13.0"'), encoding="utf-8")
