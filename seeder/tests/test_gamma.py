@@ -282,7 +282,7 @@ class Connecting(Seed):
         g.connect("aim-catalog", lambda: g.aim.get("/providers"), "AI Management")
         self.assertIn("✓ AI Management ready", self.output())
 
-    def test_credentials_or_ids_the_platform_refuses_end_the_wait_at_once(self):
+    def test_credentials_or_ids_the_platform_refuses_end_the_wait_once_the_grace_has_passed(self):
         for status in common.REFUSED:
             with self.subTest(status=status):
                 self.platform.calls.clear()
@@ -290,7 +290,7 @@ class Connecting(Seed):
                 self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): (status, {"message": "no"})})
                 with self.assertRaisesRegex(common.SeedError, f"^AI Management: GET /providers: HTTP {status} "):
                     g.connect("aim-catalog", lambda: g.aim.get("/providers"), "AI Management")
-                self.assertEqual(len(self.platform.calls), 1)
+                self.assertGreater(len(self.platform.calls), 1)
 
 
 class Modules(Seed):
@@ -336,11 +336,11 @@ class Modules(Seed):
             gamma.require_modules({"aim"})
         self.assertLess(self.clock.elapsed, gamma.UNSERVED + 5)
 
-    def test_credentials_the_platform_refuses_stop_the_seed_at_once(self):
+    def test_credentials_the_platform_refuses_stop_the_seed_once_the_grace_has_passed(self):
         self.serve((401, {"message": "Full authentication is required"}))
         with self.assertRaisesRegex(common.SeedError, "^the list of Gamma modules: GET /modules: HTTP 401"):
             gamma.require_modules({"aim"})
-        self.assertEqual(len(self.platform.calls), 1)
+        self.assertGreaterEqual(sum(self.clock.sleeps), common.GRACE)
 
     def test_a_playground_that_fills_no_module_asks_nothing(self):
         gamma.require_modules(set())

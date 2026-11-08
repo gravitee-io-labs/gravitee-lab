@@ -455,19 +455,20 @@ class Session(Case):
         access.connect()
         self.assertEqual(access.api.session.headers["Authorization"], "Bearer ok")
 
-    def test_a_login_with_a_wrong_password_ends_the_wait_at_once(self):
+    def test_a_login_with_a_wrong_password_ends_the_wait_once_the_grace_has_passed(self):
         """A password changed in the console is not fixed by waiting five minutes, and the reason says what was refused."""
         self.platform.add({LOGIN: (401, {"message": "Bad credentials"})})
         with self.assertRaisesRegex(common.SeedError, "^Access Management: POST /management/auth/token: HTTP 401 .*Bad credentials"):
             am.AccessManagement().connect()
-        self.assertEqual((len(self.platform.sent(*LOGIN)), self.clock.sleeps), (1, []))
+        self.assertGreaterEqual(sum(self.clock.sleeps), common.GRACE, "not five minutes: the moment a platform just started may refuse")
+        self.assertGreater(len(self.platform.sent(*LOGIN)), 1)
 
-    def test_a_token_that_is_refused_ends_the_wait_at_once(self):
+    def test_a_token_that_is_refused_ends_the_wait_once_the_grace_has_passed(self):
         self.env(AM_TOKEN="revoked", AM_USERNAME=None, AM_PASSWORD=None)
         self.platform.add({("GET", DOMAINS): (401, {"message": "Unauthorized"})})
         with self.assertRaisesRegex(common.SeedError, "^Access Management: GET .*: HTTP 401"):
             am.AccessManagement().connect()
-        self.assertEqual((self.clock.sleeps, self.platform.sent(*LOGIN)), ([], []))
+        self.assertEqual((sum(self.clock.sleeps) >= common.GRACE, self.platform.sent(*LOGIN)), (True, []))
 
 
 class Gateway(Case):

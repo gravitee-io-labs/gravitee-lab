@@ -509,14 +509,19 @@ class Api:
 
 POLLS = (0.5, 1, 2, 3)   # seconds before each look again at what is not ready: the first looks are close, then every 3 s
 REFUSED = (400, 401, 403)   # what a management API answers to credentials or ids it will never take: `final` of its first wait
+# How long a refusal of `final` is asked again before it is taken as final: a platform that has just started may refuse for a moment
+# what it takes right after (Access Management answers 401 to its admin's sign-in for a moment after it says it is healthy)
+GRACE = 30
 
 
 def wait_until(section, what, probe, timeout=READY_TIMEOUT, final=()):
     """Retries probe() until it returns without an error: management APIs answer before they are fully started. A probe
-    that raises Gone, or an HttpError of a status in `final` (REFUSED for the first call to a platform: a wrong password,
-    token or environment id is not fixed by waiting), ends the wait at once. A request of the probe is sent once: the wait
-    is what asks again."""
-    deadline = time.time() + timeout
+    that raises Gone ends the wait at once; an HttpError of a status in `final` (REFUSED for the first call to a platform: a
+    wrong password, token or environment id is not fixed by waiting) ends it once GRACE seconds have passed, since a platform
+    that has just started may refuse for a moment what it takes right after. A request of the probe is sent once: the wait is
+    what asks again."""
+    started = time.time()
+    deadline = started + timeout
     last, looks = None, 0
     log(section, f"Waiting for {what}")
     while time.time() < deadline:
@@ -528,7 +533,7 @@ def wait_until(section, what, probe, timeout=READY_TIMEOUT, final=()):
         except Gone:
             raise
         except HttpError as e:
-            if e.status in final:
+            if e.status in final and time.time() - started >= GRACE:
                 raise SeedError(f"{what}: {e}") from None
             last = e
         except requests.RequestException as e:

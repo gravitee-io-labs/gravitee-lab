@@ -440,7 +440,7 @@ class LostAnswers(Playground):
 
 class Connecting(Seed):
 
-    def test_credentials_or_an_environment_the_platform_refuses_end_the_wait_at_once(self):
+    def test_credentials_or_an_environment_the_platform_refuses_end_the_wait_once_the_grace_has_passed(self):
         """A password changed in the console, a revoked token or an hrid where an id is expected: not a platform that starts."""
         for status, body in ((401, {"message": "Unauthorized"}), (403, {"message": "Forbidden"}),
                              (400, {"message": "Invalid organization or environment"})):
@@ -449,7 +449,7 @@ class Connecting(Seed):
                 self.answer({("GET", V2 + "/apis"): (status, body)})
                 with self.assertRaisesRegex(common.SeedError, f"^API Management: GET {V2}/apis: HTTP {status} "):
                     apim.ApiManagement().connect()
-                self.assertEqual((len(self.platform.calls), self.clock.sleeps), (1, []))
+                self.assertTrue(common.GRACE <= sum(self.clock.sleeps) < common.GRACE + max(common.POLLS))
 
 
 class ChangedDefinition(Converged):
