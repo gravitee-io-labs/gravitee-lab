@@ -1,19 +1,19 @@
 {
-  "level": 10,
+  "level": 11,
   "managed": {
-    ".catalog/standard.mk": "a7649d182424063b8a53cbc7d28113ee484c8e66668d20ea72452cb85248bb7e",
-    ".github/actions/lab/action.yml": "d62bf669a2d42d337774cd7124028289496c423ac00b127826dc19f17d7e880b",
-    ".github/dependabot.yml": "ebfcefbc2e1e92ab62547452824e5db8dbca6e121fa3327b6f10c8e908a3b4e5",
-    ".github/rulesets/default-branch.json": "f8b2f47a92247770eb11135ebc0cda61711398bb6acbcc3f898f85c8931bb8a2",
-    ".github/rulesets/history.json": "6acd1e3936bf646e6ba95131b16edac272d2353c408b90af195957ba3f49d765",
-    ".github/rulesets/protected-paths.json": "ac68ff18f089af1f2aca49c9a5eaf1a9905114967e4dc2426b3c5923081d98b8",
-    ".github/rulesets/push.json": "87dfd360c8b148980706e957b63851f43db0315852a8a3459bf68ad064095acc",
-    ".github/rulesets/tag-history.json": "9d7b78265d32f214ee5b4345e35d26f58f11ea108f6148a34b80f267655783a8",
-    ".github/rulesets/tags.json": "bcc1eec39cfc0309e9bb7a8a70e57cb4a8c28509aa67b29ef700f50ab2533c1b",
-    ".github/workflows/ci.yml": "47c70ce6b094d210d40c6bd48f777011efeb0a00fa58e5b56b93bb441c6ce0b7",
-    ".github/workflows/e2e.yml": "48d72b263b1d5d35ed0401fe1bedbd0dc9c47932fb71f88e373b634f449874f9",
-    ".github/workflows/nightly.yml": "832b3ea98668d7d6da12db5341681c6dc99ef25204dcf9f0ee278a2da5d304f1",
-    ".github/workflows/publish.yml": "bdbed132a3d12f026d102cdc0b9e7ebdc292e126ac13b427ddbf80d39dfd8e98",
-    ".github/workflows/versions.yml": "e8e12ef32d1df460a283b0fbe05d819608a4033f36ad4705b5cfd45e5d7929e0"
+    ".catalog/standard.mk": "f6a37421f2a214839a72134690161cd63eab639d38c8606576a922c61221c47c",
+    ".github/actions/lab/action.yml": "21202e69589a2e309a5bd9ffd7d2606c217d6755c186bafd3ca9c40608b5c43c",
+    ".github/dependabot.yml": "50b8516f3e2df40bfc074a709cbf35d8274ac7ce45c91ee35cd31e6dcd228ae8",
+    ".github/rulesets/default-branch.json": "ce54f5e889d1b363745f48fa2f60bf6d19fbe7f8291294eee053d2d97a63979c",
+    ".github/rulesets/history.json": "b20cffc059eb9399701b834fbb6e9d41be735937b0a9b93e2ce48b2c48936159",
+    ".github/rulesets/protected-paths.json": "04dd14cfd57cc8fcb646367f5f0a92fd8655bd4e69c58dd94a314a62936be6d4",
+    ".github/rulesets/push.json": "8d6c157cfc71e6d741e22a5d1ca2a41e5c0046b0fd10a16b54c1badd2bd98cae",
+    ".github/rulesets/tag-history.json": "23b99d882cf192d0c0110ad7cea3c4617e0255557a66d4edc2b465496241b5c0",
+    ".github/rulesets/tags.json": "0de6bdf01b273dc38e1eb3fc009aab8b2b0851b2d46cda4deb3c889ee31c4abe",
+    ".github/workflows/ci.yml": "99ebf22893d07a811a651d2d1f80d57dfd07130d8c0fd12acd6b74b53a5760ed",
+    ".github/workflows/e2e.yml": "bedc5a1868677f261d09a8c295762767a4ca5d6d6beae1b4fe29764b37b4b374",
+    ".github/workflows/nightly.yml": "8ddb483dd3b4cce71a5e546b2828ace650126bc408489e225ed10e2011283975",
+    ".github/workflows/publish.yml": "cbd1c000a445f625bb8956cdd73875c6c289c8714e861b242d2c8cbfcc05f9df",
+    ".github/workflows/versions.yml": "56d479446e01002fd428909cc7c08966653a035e096df3909651861f9d2e9882"
   }
 }
