@@ -5,13 +5,17 @@ of what is tried and what is kept are the Lab's (`lab_ui/compat.py`). Each step 
 
     versions-plan PATH [--github-output]
         The matrix of the night: one job for each playground of the catalog and each set of versions it is to be tried on, which
-        writes two outputs, `matrix` (`{"include": [{item, versions, name}]}`) and `count`.
+        writes two outputs, `matrix` (`{"include": [{item, versions, name}]}`) and `count`. A set that failed is not tried again
+        while the playground's files and the Lab are the ones it failed on (the matrix, below).
     versions-record PATH --plan FILE --results DIR
         Writes in the catalog at PATH the sets that passed: each file of DIR is `{item, versions, code}`, which a run wrote, and only
         a job of the plan (FILE, the matrix the plan wrote) whose code is 0 counts. Prints a line for each playground it wrote,
         with the sets it kept. A file it does not write the way a person writes it is left out and said (with `$GITHUB_OUTPUT`,
         `left_out`, how many): the others are recorded. Each file is read again by the Lab once written: a `tested` that is not
         the sets it meant, or any other change, puts every file back and fails (exit 1), so that nothing is pushed.
+        Every job that ran, passed or failed, is written in the matrix of the catalog, docs/compatibility.json, and in its page,
+        docs/compatibility.md. With `$GITHUB_OUTPUT`: `tested` (true when a `tested` was written: the catalog has news for the
+        Labs), `failing` and `fixed`, the issues to open and to close, one for each playground and minor version of Gravitee.
     versions-release PATH
         Raises the patch number of `version` in catalog.yml past the newest tag, and prints the new version. Prints nothing, and
         changes nothing, for a catalog that has no release (it is followed commit by commit) or whose catalog.yml already says a
@@ -24,12 +28,14 @@ error, a catalog that cannot be read here).
 Python 3.9 and later, standard library only."""
 
 import datetime
+import hashlib
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 
-from ... import compat, e2e
+from ... import compat, e2e, paths
 from .. import release as releases
 from . import Parser, Unavailable, Usage, entry, json_line, parsed, write_outputs
 
@@ -49,6 +55,74 @@ def _project():
         raise Unavailable(f"The Lab cannot read its project: {' '.join(str(error).split())[:200]}") from None
 
 
+# The matrix: every set of versions a playground was tried on, and how it went, which the record writes and the plan reads
+MATRIX = Path("docs") / "compatibility.json"
+PAGE = Path("docs") / "compatibility.md"
+LEFT = (".state", "secrets", ".env")   # what a run leaves in a playground's folder: no file of the catalog
+
+
+def _local(uid):
+    return uid.split("/", 1)[1] if uid.startswith("@") else uid
+
+
+def fingerprint(folder):
+    """What a result was had on, of the playground: the files of its folder, its `tested` left out, which the record writes."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in Path(folder).rglob("*") if p.is_file()):
+        name = path.relative_to(folder).as_posix()
+        if name.split("/", 1)[0] in LEFT:
+            continue
+        data = path.read_bytes()
+        if name == "compose.yml":
+            data = compat.TESTED.sub("", data.decode("utf-8")).encode("utf-8")
+        digest.update(name.encode("utf-8") + b"\0" + data + b"\0")
+    return digest.hexdigest()[:16]
+
+
+def lab_commit():
+    """What a result was had on, of the Lab: its commit, since a seeder that changed may make a set work."""
+    try:
+        return subprocess.run(["git", "-C", str(paths.ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def read_matrix(folder):
+    try:
+        found = json.loads((Path(folder) / MATRIX).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"schema": 1, "playgrounds": {}}
+    if not isinstance(found, dict) or not isinstance(found.get("playgrounds"), dict):
+        return {"schema": 1, "playgrounds": {}}
+    return found
+
+
+def page(matrix):
+    """The matrix as people read it: a table for each playground, the newest versions first."""
+    lines = ["# Compatibility", "",
+             "What each playground was tried on, as the workflow *Gravitee versions* wrote it: a start from nothing, on a machine with",
+             "no lab, with the license, as `make e2e` does. A set that fails opens an issue labeled `versions`.", ""]
+    for local, entry in sorted(matrix["playgrounds"].items(), key=lambda item: item[1].get("name", item[0]).lower()):
+        lines += [f"## {entry.get('name', local)}", "", "| Versions | Result | Date |", "|---|---|---|"]
+        rows = sorted(entry.get("results", {}).items(), reverse=True,
+                      key=lambda item: [compat.order(found) for found in map(compat.parse, item[0].replace(",", " ").split()) if found])
+        for label, result in rows:
+            run = f" ([run]({result['run']}))" if result.get("run") else ""
+            lines.append(f"| {label} | {'Works' if result.get('passed') else 'Fails' + run} | {result.get('date', '')} |")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _line(label):
+    """The minor version of Gravitee a set is of, from the first version it says: "4.13"."""
+    for word in label.replace(",", " ").split():
+        found = compat.parse(word)
+        if found:
+            return ".".join(map(str, found[0][:2]))
+    return label
+
+
 @entry
 def plan_main(argv, out, err, **seams) -> int:
     """`ci versions-plan`."""
@@ -56,9 +130,16 @@ def plan_main(argv, out, err, **seams) -> int:
     found.add_argument("path", nargs="?", default=".", help="the catalog folder, linked into this Lab (default: the current folder)")
     found.add_argument("--github-output", action="store_true", help="write matrix and count to $GITHUB_OUTPUT")
     args = parsed(found, argv)
-    _, ns = _catalog(args.path)
+    folder, ns = _catalog(args.path)
     night = seams.get("night", datetime.date.today().toordinal())
-    jobs = compat.plan(seams.get("project") or _project(), ns, seams.get("tags"), warn=lambda said: err.write(f"{said}\n"), night=night)
+    matrix, lab = read_matrix(folder), seams.get("lab", lab_commit())
+
+    def failed(uid, label):
+        result = matrix["playgrounds"].get(_local(uid), {}).get("results", {}).get(label)
+        return bool(result) and not result.get("passed") and result.get("lab") == lab \
+            and result.get("files") == fingerprint(folder / "playgrounds" / _local(uid))
+    jobs = compat.plan(seams.get("project") or _project(), ns, seams.get("tags"), warn=lambda said: err.write(f"{said}\n"), night=night,
+                       failed=failed)
     out.write("".join(f"{job['name']}\n" for job in jobs) or "Every playground is tested on the newest versions\n")
     if args.github_output:
         write_outputs({"matrix": json_line({"include": jobs}), "count": str(len(jobs))})
@@ -67,8 +148,17 @@ def plan_main(argv, out, err, **seams) -> int:
 
 def passed(planned, results, err):
     """{item: [set]} of the results that are a job of the plan and ended well; any other file is said on `err` and left out."""
-    asked = {(job["item"], job["versions"]) for job in planned}
     found = {}
+    for job, code in outcomes(planned, results, err):
+        if code == 0:
+            found.setdefault(job["item"], []).append(json.loads(job["versions"]))
+    return found
+
+
+def outcomes(planned, results, err):
+    """[(job of the plan, exit code)] of the results that are a job of the plan; any other file is said on `err` and left out."""
+    asked = {(job["item"], json.dumps(json.loads(job["versions"]), sort_keys=True)): job for job in planned}
+    found = []
     for path in results:
         try:
             result = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -79,8 +169,8 @@ def passed(planned, results, err):
             continue
         if key not in asked:
             err.write(f"Not a job of the plan: {key[0][:120]}\n")
-        elif code == 0:
-            found.setdefault(key[0], []).append(json.loads(key[1]))
+        else:
+            found.append((asked[key], code))
     return found
 
 
@@ -91,6 +181,39 @@ def _follow(built):
     from ...docker import images
     return {component["id"] for component in images.components(built)
             if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")}
+
+
+def record_matrix(folder, built, planned, results, err, lab):
+    """Writes each job that ran in the matrix and its page; (lines said, the issues to open, the issues to close). An exit code of
+    2 is a run that was not tried (a login or a setting only a person can give): it says nothing of the versions."""
+    matrix = read_matrix(folder)
+    server, repository, run_id = (os.environ.get(name, "") for name in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"))
+    run = f"{server}/{repository}/actions/runs/{run_id}" if server and repository and run_id else ""
+    today = datetime.date.today().isoformat()
+    said, failing, fixed = [], {}, {}
+    for job, code in outcomes(planned, results, err):
+        kind, uid = e2e.parse(job["item"])
+        unit = built["playgrounds"].get(uid)
+        if kind != "playground" or unit is None or code == 2:
+            continue
+        local = _local(uid)
+        label = job["name"][len(unit["name"]) + len(" on "):]
+        entry = matrix["playgrounds"].setdefault(local, {"name": unit["name"], "results": {}})
+        entry["name"] = unit["name"]
+        entry["results"][label] = {"passed": code == 0, "date": today, "files": fingerprint(folder / "playgrounds" / local),
+                                   "lab": lab, **({"run": run} if run and code else {})}
+        title = f"{unit['name']} does not work on Gravitee {_line(label)}"
+        if code:
+            said.append(f"{unit['name']}: does not work on {label}")
+            failing[title] = {"title": title, "body": f"{unit['name']} does not work on {label}" + (f": {run}" if run else "")}
+        else:
+            fixed.setdefault(title, {"title": title, "body": f"{unit['name']} works on {label}" + (f": {run}" if run else "")})
+    fixed = {title: issue for title, issue in fixed.items() if title not in failing}
+    if said or fixed:
+        (folder / MATRIX).parent.mkdir(exist_ok=True)
+        (folder / MATRIX).write_text(json.dumps(matrix, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        (folder / PAGE).write_text(page(matrix), encoding="utf-8")
+    return said, list(failing.values()), list(fixed.values())
 
 
 def _plain(sets):
@@ -148,9 +271,11 @@ def record_main(argv, out, err, **seams) -> int:
             path.write_bytes(text.encode("utf-8"))
         err.write(f"{error}\n")
         return 1
-    out.write("".join(f"{line}\n" for line in said))
-    if left_out and os.environ.get("GITHUB_OUTPUT"):
-        write_outputs({"left_out": str(left_out)})
+    lines, failing, fixed = record_matrix(folder, built, planned, results, err, seams.get("lab", lab_commit()))
+    out.write("".join(f"{line}\n" for line in [*said, *lines]))
+    if os.environ.get("GITHUB_OUTPUT"):
+        write_outputs({**({"left_out": str(left_out)} if left_out else {}), **({"tested": "true"} if said else {}),
+                       **({"failing": json_line(failing)} if failing else {}), **({"fixed": json_line(fixed)} if fixed else {})})
     return 0
 
 

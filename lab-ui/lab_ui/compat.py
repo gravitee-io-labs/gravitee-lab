@@ -159,12 +159,19 @@ def candidates(unit, tags, follow=None):
     return sets
 
 
-def plan(built, ns=None, tags=None, warn=None, night=0):
+def said(unit, versions, follow=None):
+    """The versions of a set a playground is judged on, as a person reads them: "APIM_VERSION 4.13.3, AM_VERSION 4.13.3"."""
+    keys = variables(unit, follow)
+    return ", ".join(f"{key} {value}" for key, value in versions.items() if VERSION_KEY.fullmatch(key) and key in keys)
+
+
+def plan(built, ns=None, tags=None, warn=None, night=0, failed=None):
     """The jobs of a night: [{item, versions (a JSON object as text), name}] for each shared playground of the catalog `ns`
     (every catalog when None) and each set it is to be tried on, MAX_JOBS at most: the playgrounds are taken in turn from the
     one `night` (a day's number) points at, so that one whose sets keep failing never takes the place of the others for good.
     `tags(built, variable, registry)` lists the tags of an image. A playground whose tags cannot be read is said to
-    `warn(sentence)` and left for the next night."""
+    `warn(sentence)` and left for the next night. `failed(uid, said)` is true of a set that failed on the files the playground
+    has now: it is not tried again until they change."""
     import json
     from .docker import images
     tags = tags or (lambda project, key, registry: [tag["name"] for tag in images.tags(project, key, registry)])
@@ -187,10 +194,11 @@ def plan(built, ns=None, tags=None, warn=None, night=0):
                 warn(f"{unit['name']}: its versions could not be read ({' '.join(str(error).split())[:120]}): next night")
             continue
         for versions in found:
-            said = ", ".join(f"{key} {value}" for key, value in versions.items() if VERSION_KEY.fullmatch(key) and key in
-                             variables(unit, follow))
+            label = said(unit, versions, follow)
+            if failed and failed(uid, label):
+                continue
             jobs.append({"item": f"playground:{uid}", "versions": json.dumps(versions, sort_keys=True),
-                         "name": f"{unit['name']} on {said}"})
+                         "name": f"{unit['name']} on {label}"})
     if len(jobs) > MAX_JOBS and warn:
         warn(f"{len(jobs)} sets to try: {MAX_JOBS} tonight, the rest the next nights")
     return jobs[:MAX_JOBS]

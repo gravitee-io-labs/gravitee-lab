@@ -215,8 +215,13 @@ a registry other than Docker Hub's). Each one starts on a machine with no lab, w
 
 What works is written in the playground's `tested`: a newer release replaces the set of its minor version, a minor version that
 falls out of the five newest goes, and a pre-release goes once a release of its minor version is there. The workflow commits that to
-`main` and tags it as the next patch version, so that every Lab sees it at its next check. What does not work opens an issue,
-labeled `versions`, or adds to the one that is open.
+`main` and tags it as the next patch version, so that every Lab sees it at its next check.
+
+Every set it tries, working or not, goes in the catalog's matrix, `docs/compatibility.md` (its data is `docs/compatibility.json`), with
+the date and, for a set that fails, its run. A set that fails opens an issue labeled `versions` for its playground and minor version of
+Gravitee (*ACME Bank does not work on Gravitee 4.14*), or comments on the one that is open, and a set of that minor version that works
+closes it. A set that failed is not tried again while the playground's folder and the Lab are the ones it failed on: change the
+playground, or move the catalog to a newer Lab, and the next run tries it again.
 
 The commit and the tag go past the rules of `main` and of the tags with a deploy key: the rulesets of the standard let a deploy key
 through, and two more, `history.json` and `tag-history.json`, which no deploy key passes, keep it from deleting or rewriting `main`
