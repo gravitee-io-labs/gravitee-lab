@@ -258,11 +258,12 @@ class Golden(Case):
 
     def test_a_change_of_the_level_without_a_refresh_fails_and_a_refresh_passes(self):
         template = support.copy_template(self)
+        real = standard.LEVEL
         support.set_level(template, 2)
         self.patch(standard, "LEVEL", 2)
         problems = standard.golden_problems()
         self.assertEqual(problems[0], standard.GOLDEN_MESSAGE)
-        self.assertIn("  golden.json is for level 9, the template says 2", problems)
+        self.assertIn(f"  golden.json is for level {real}, the template says 2", problems)
         standard.write_golden()
         self.assertEqual(standard.golden_problems(), [])
 
@@ -945,7 +946,7 @@ class Drift(Case):
         self.assertEqual([(each.code, each.severity, each.path) for each in self.check(at(8))],
                          [("SD03", "warning", ".github/workflows/e2e.yml"), ("SD03", "warning", ".github/workflows/versions.yml")],
                          "the runs log in to Gravitee's private registry at level 9")
-        same = edited(at(9), ".github/workflows/ci.yml", lambda text: text.replace("    name: Checks\n", ""))
+        same = edited(at(standard.LEVEL), ".github/workflows/ci.yml", lambda text: text.replace("    name: Checks\n", ""))
         self.assertEqual([(each.code, each.severity) for each in self.check(same)], [("SD02", "error")])
 
     def test_a_level_above_the_labs_is_sd05_once_and_no_file_is_compared(self):
@@ -955,8 +956,8 @@ class Drift(Case):
         files = edited(files, ".github/workflows/ci.yml", lambda text: text + "# changed\n")
         found = self.check(files)
         self.assertEqual([(each.code, each.severity, each.path, each.message) for each in found],
-                         [("SD05", "warning", ".github/standard.json", ".github/standard.json says standard 10; this Lab knows 9. Fix: "
-                                                                        "update the Lab with git pull, then run again.")])
+                         [("SD05", "warning", ".github/standard.json", f".github/standard.json says standard {standard.LEVEL + 1}; this Lab "
+                                                                        f"knows {standard.LEVEL}. Fix: update the Lab with git pull, then run again.")])
 
     def test_the_level_going_down_since_the_base_is_sd06(self):
         base = at(2)
@@ -1303,7 +1304,7 @@ class Commands(Case):
         self.assertEqual((code, err), (0, ""))
         document = json.loads(out)
         written = sorted(str(path.relative_to(self.work / "hub")) for path in (self.work / "hub").rglob("*") if path.is_file())
-        self.assertEqual((document["files"], document["standard"], document["id"], document["local"]), (written, 9, "acme-hub", False))
+        self.assertEqual((document["files"], document["standard"], document["id"], document["local"]), (written, standard.LEVEL, "acme-hub", False))
         self.assertEqual(document["directory"], str(self.work / "hub"))
         self.assertEqual(document["warnings"], [f"The Lab checkout has no release, so CI refuses its commit "
                                                 f"{lab.git('rev-parse', 'HEAD').strip()[:7]} (SD11). Fetch its tags (git fetch --tags), "
@@ -1522,7 +1523,7 @@ class Upgrading(Case):
                                               ".github/workflows/nightly.yml": "add", ".github/actions/lab/action.yml": "update",
                                               ".github/rulesets/default-branch.json": "update", ".github/rulesets/tags.json": "update",
                                               ".github/rulesets/history.json": "add", ".github/rulesets/tag-history.json": "add"})
-        self.assertEqual([each["level"] for each in plan["notes"]], [2, 3, 4, 5, 6, 7, 8, 9])
+        self.assertEqual([each["level"] for each in plan["notes"]], list(range(2, standard.LEVEL + 1)))
         written = standard.upgrade_apply(repo.root, plan)
         self.assertNotIn(".github/workflows/publish.yml", written)
         self.assertFalse((repo.root / ".github/workflows/publish.yml").exists())
@@ -1540,7 +1541,7 @@ class Upgrading(Case):
                                               ".github/rulesets/tags.json": "update", ".github/rulesets/history.json": "add",
                                               ".github/rulesets/tag-history.json": "add"})
         standard.upgrade_apply(repo.root, plan)
-        self.assertEqual(standard.drift(FolderTree(repo.root), 9), [])
+        self.assertEqual(standard.drift(FolderTree(repo.root), standard.LEVEL), [])
         self.assertNotIn(".github/workflows/e2e.yml", [each["path"] for each in plan["files"]])
 
     def test_a_catalog_of_level_three_that_sets_a_registry_later_is_asked_for_publish(self):
@@ -1549,7 +1550,7 @@ class Upgrading(Case):
         files = {**render(), "catalog.yml": render(images="ghcr.io/acme/lab-hub")["catalog.yml"]}
         repo = self.repo(files=files)
         self.assertEqual(self.actions(self.plan(repo)), {".github/workflows/publish.yml": "add"})
-        self.assertEqual(where(standard.drift(tree_of(files), 9), "SD01"), [".github/workflows/publish.yml"])
+        self.assertEqual(where(standard.drift(tree_of(files), standard.LEVEL), "SD01"), [".github/workflows/publish.yml"])
 
     def test_the_plan_is_printed_as_section_7_4_shows_it(self):
         repo = self.repo(files=at(1))
@@ -1790,7 +1791,7 @@ class Upgrading(Case):
         code, out, err = self.upgrade(repo, "--commit", "--format", "json")
         document = json.loads(out)
         self.assertEqual((code, err, document["written"]), (0, "", [".github/workflows/ci.yml"]))
-        self.assertRegex(document["branch"], r"^standard/9-\d{8}$")
+        self.assertRegex(document["branch"], rf"^standard/{standard.LEVEL}-\d{{8}}$")
 
     def test_json_stays_empty_on_standard_output_when_the_upgrade_cannot_be_done(self):
         repo = self.repo()
@@ -1948,10 +1949,11 @@ class Upgrading(Case):
 
     def test_a_repository_above_the_labs_level_is_refused(self):
         files = render()
-        files[".github/standard.json"] = files[".github/standard.json"].replace(b'"standard": 9', b'"standard": 10')
+        files[".github/standard.json"] = files[".github/standard.json"].replace(f'"standard": {standard.LEVEL}'.encode(),
+                                                                                f'"standard": {standard.LEVEL + 1}'.encode())
         plan = standard.upgrade_plan(tree_of(files), {})
-        self.assertEqual(plan["refused"], ".github/standard.json says standard 10; this Lab knows 9. Fix: update the Lab with git pull, then "
-                                          "run again.")
+        self.assertEqual(plan["refused"], f".github/standard.json says standard {standard.LEVEL + 1}; this Lab knows {standard.LEVEL}. Fix: "
+                                          "update the Lab with git pull, then run again.")
 
     def test_a_catalog_that_is_not_one_is_refused(self):
         plan = standard.upgrade_plan(tree_of({"README.md": b"x"}), {})
