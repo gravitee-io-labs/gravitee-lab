@@ -208,7 +208,7 @@ falls out of the five newest goes, and a pre-release goes once a release of its 
 
 Every set it tries, working or not, goes in the catalog's matrix, `docs/compatibility.md` (its data is `docs/compatibility.json`), with
 the date and, for a set that fails, its run. A set that fails opens an issue labeled `versions` for its playground and minor version of
-Gravitee (*ACME Bank does not work on Gravitee 4.14*), or comments on the one that is open, and a set of that minor version that works
+Gravitee (*Northwind Travel does not work on Gravitee 4.14*), or comments on the one that is open, and a set of that minor version that works
 closes it. A set that failed is not tried again while the playground's folder and the Lab are the ones it failed on: change the
 playground, or move the catalog to a newer Lab, and the next run tries it again.
 
