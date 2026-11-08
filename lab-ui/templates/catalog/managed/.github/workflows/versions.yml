@@ -1,8 +1,10 @@
-# Managed by the Lab catalog standard 9: change it with catalog.py upgrade, in a pull request a maintainer reads.
-# Every night, on the main branch: each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest
+# Managed by the Lab catalog standard 10: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Every 30 minutes, on the main branch: each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest
 # release of each of the five newest minor versions, and a pre-release above them), on a machine with no lab and with the license, as
 # `make e2e` does. What works is written in its x-gravitee.tested, committed to main and released as the next patch version, so that
-# every Lab sees it at its next check. What does not work opens an issue, or adds to the one that is open.
+# every Lab sees it at its next check. Every set tried, working or not, goes in the matrix, docs/compatibility.md. A set that does not
+# work opens an issue for its playground and minor version of Gravitee, closed when one works, and is not tried again until the
+# playground or the Lab changes.
 #   plan     what each playground is tried on: no secret
 #   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license. What is on main was
 #            reviewed: its items may use this machine, each for the reason its x-gravitee.host_access gives
@@ -14,7 +16,7 @@ name: Gravitee versions
 
 on:
   schedule:
-    - cron: "13 5 * * *"
+    - cron: "13,43 * * * *"   # the plan alone runs when no release is new: it reads Docker Hub and starts nothing
   workflow_dispatch:
 
 permissions:
@@ -124,6 +126,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: versions
+    outputs:
+      failing: ${{ steps.record.outputs.failing }}
+      fixed: ${{ steps.record.outputs.fixed }}
     steps:
       - name: Check out the catalog
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -154,11 +159,16 @@ jobs:
         id: release
         if: ${{ steps.record.outputs.changed == 'true' }}
         working-directory: catalog
+        env:
+          TESTED: ${{ steps.record.outputs.tested }}
         run: |
           set -o pipefail
-          version=$(python3 -I ../lab/lab-ui/catalog.py ci versions-release .)
+          version=
+          # A release only when a playground's tested changed: the matrix alone is news for people, not for the Labs
+          [ "$TESTED" != true ] || version=$(python3 -I ../lab/lab-ui/catalog.py ci versions-release .)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for file in docs/compatibility.json docs/compatibility.md; do [ ! -f "$file" ] || git add "$file"; done
           git commit -q -a -m "Tested on the newest Gravitee releases" -m "$(cat ../recorded.txt)"
           if [ -n "$version" ]; then git tag -a "v$version" -m "v$version"; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -193,22 +203,33 @@ jobs:
   report:
     name: Report what does not work
     needs: [plan, try, record]
-    if: ${{ always() && (contains(fromJSON('["failure","cancelled"]'), needs.plan.result) || contains(fromJSON('["failure","cancelled"]'), needs.try.result) || contains(fromJSON('["failure","cancelled"]'), needs.record.result)) }}
+    if: ${{ always() && (contains(fromJSON('["failure","cancelled"]'), needs.plan.result) || contains(fromJSON('["failure","cancelled"]'), needs.record.result) || (needs.record.result == 'skipped' && needs.try.result == 'failure') || needs.record.outputs.failing != '' || needs.record.outputs.fixed != '') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       issues: write
     steps:
-      - name: Open or update the issue
+      # One issue for each playground and minor version of Gravitee that does not work, found by its title; one that works again closes it
+      - name: Open, update or close the issues
         env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FAILING: ${{ needs.record.outputs.failing }}
+          FIXED: ${{ needs.record.outputs.fixed }}
+          BROKEN: ${{ contains(fromJSON('["failure","cancelled"]'), needs.plan.result) || contains(fromJSON('["failure","cancelled"]'), needs.record.result) || (needs.record.result == 'skipped' && needs.try.result == 'failure') }}
         run: |
+          set -o pipefail
           gh label create versions --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "A playground does not work on a new Gravitee release" 2>/dev/null || true
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label versions --state open --json number --jq '.[0].number // empty')
-          body="A playground does not work on a newer Gravitee release, or its record failed, on $(date -u +%F): $RUN"
-          if [ -n "$open" ]; then
-            gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "$body"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --label versions --title "A playground does not work on a new Gravitee release" --body "$body"
-          fi
+          opened() { gh issue list --repo "$GITHUB_REPOSITORY" --label versions --state open --limit 200 --json number,title \
+            | jq -r --arg title "$1" 'map(select(.title == $title)) | .[0].number // empty'; }
+          [ "$BROKEN" != true ] || FAILING=$(jq -cn --arg run "$RUN" '[{title: "The workflow Gravitee versions did not finish", body: "Its plan or its record failed: \($run)"}]')
+          printf '%s' "${FAILING:-[]}" | jq -c '.[]' | while read -r issue; do
+            title=$(jq -r .title <<< "$issue") body=$(jq -r .body <<< "$issue")
+            number=$(opened "$title")
+            if [ -n "$number" ]; then gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+            else gh issue create --repo "$GITHUB_REPOSITORY" --label versions --title "$title" --body "$body"; fi
+          done
+          printf '%s' "${FIXED:-[]}" | jq -c '.[]' | while read -r issue; do
+            number=$(opened "$(jq -r .title <<< "$issue")")
+            [ -z "$number" ] || gh issue close "$number" --repo "$GITHUB_REPOSITORY" --comment "$(jq -r .body <<< "$issue")"
+          done

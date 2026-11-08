@@ -93,7 +93,61 @@ class Steps(unittest.TestCase):
             code, out, err = self.record(lambda: BUILT)
         self.assertEqual((code, out), (0, ""))
         self.assertIn("playgrounds/shop/compose.yml is left out: its line ends are not LF", err)
-        self.assertEqual("left_out=1\n", target.read_text(encoding="utf-8"))
+        self.assertIn("left_out=1\n", target.read_text(encoding="utf-8"))
+
+    def outputs(self, results, reload=None):
+        """Records `results` [(set, code)] of a plan of those sets, with the GitHub run around it: (code, out, {output: value})."""
+        jobs = [{"item": JOB["item"], "versions": json.dumps(found, sort_keys=True),
+                 "name": f"Shop on APIM_VERSION {found['APIM_VERSION']}"} for found, _ in results]
+        plan = self.folder / "plan.json"
+        plan.write_text(json.dumps({"include": jobs}), encoding="utf-8")
+        folder = self.folder / "results"
+        folder.mkdir(exist_ok=True)
+        for index, (found, code) in enumerate(results):
+            self.result(f"results/{index}.json", found=found, code=code)
+        target = self.folder / "output"
+        target.write_text("", encoding="utf-8")
+        run = {"GITHUB_OUTPUT": str(target), "GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "acme/catalog",
+               "GITHUB_RUN_ID": "7"}
+        with mock.patch.dict("os.environ", run):
+            code, out, _ = self.run_step(versions.record_main, str(self.catalog), "--plan", str(plan), "--results", str(folder),
+                                         project=BUILT, reload=reload or (lambda: BUILT), lab="abc")
+        said = dict(line.split("=", 1) for line in target.read_text(encoding="utf-8").splitlines())
+        return code, out, said
+
+    def test_a_set_that_fails_goes_in_the_matrix_and_its_page_and_opens_an_issue_of_its_minor_version(self):
+        failing = {"APIM_VERSION": "4.14.0", "APIM_REGISTRY": "graviteeio"}
+        code, out, said = self.outputs([(failing, 1), ({**SET, "APIM_VERSION": "4.12.26"}, 2)])
+        self.assertEqual((code, out), (0, "Shop: does not work on APIM_VERSION 4.14.0\n"))
+        self.assertEqual(json.loads(said["failing"]), [{"title": "Shop does not work on Gravitee 4.14",
+                                                       "body": "Shop does not work on APIM_VERSION 4.14.0: https://github.com/acme/catalog/actions/runs/7"}])
+        self.assertNotIn("tested", said, "no release of the catalog: nothing changed for the Labs")
+        matrix = json.loads((self.catalog / "docs" / "compatibility.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(matrix["playgrounds"]["shop"]["results"]), ["APIM_VERSION 4.14.0"], "a run not tried says nothing")
+        self.assertEqual(matrix["playgrounds"]["shop"]["results"]["APIM_VERSION 4.14.0"]["lab"], "abc")
+        self.assertIn("| APIM_VERSION 4.14.0 | Fails ([run](https://github.com/acme/catalog/actions/runs/7)) |",
+                      (self.catalog / "docs" / "compatibility.md").read_text(encoding="utf-8"))
+
+    def test_a_set_that_works_closes_the_issue_of_its_minor_version_and_releases_the_catalog(self):
+        after = {"playgrounds": {"shop": {**BUILT["playgrounds"]["shop"], "tested": [SET, BUILT["playgrounds"]["shop"]["tested"][0]]}}}
+        code, out, said = self.outputs([(SET, 0)], reload=lambda: after)
+        self.assertEqual((code, out), (0, "Shop: tested on APIM_VERSION 4.12.25\n"))
+        self.assertEqual((said["tested"], json.loads(said["fixed"])[0]["title"]), ("true", "Shop does not work on Gravitee 4.12"))
+        self.assertIn("| APIM_VERSION 4.12.25 | Works |", (self.catalog / "docs" / "compatibility.md").read_text(encoding="utf-8"))
+
+    def test_a_set_that_failed_is_tried_again_once_the_playground_or_the_lab_changed(self):
+        tags = {"APIM_VERSION": ["4.13.1", "4.12.25"]}
+        def plan(lab):
+            return self.run_step(versions.plan_main, str(self.catalog), project=BUILT, lab=lab,
+                                 tags=lambda built, key, registry: tags[key])[1]
+
+        self.outputs([(SET, 1)])
+        self.assertEqual(plan("abc"), "Every playground is tested on the newest versions\n")
+        self.compose.write_text(self.compose.read_text(encoding="utf-8").replace('"4.13.1"', '"4.13.0"'), encoding="utf-8")
+        self.assertEqual(plan("abc"), "Every playground is tested on the newest versions\n", "its tested is the record's own")
+        self.assertEqual(plan("def"), "Shop on APIM_VERSION 4.12.25\n", "another Lab")
+        (self.compose.parent / "seed.yaml").write_text("fixed: true\n", encoding="utf-8")
+        self.assertEqual(plan("abc"), "Shop on APIM_VERSION 4.12.25\n", "a file of the playground changed")
 
     def git(self, *command):
         subprocess.run(["git", "-C", str(self.catalog), *command], check=True, capture_output=True)
