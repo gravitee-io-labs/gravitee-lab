@@ -299,12 +299,18 @@ class Studios(Made):
 
     def test_what_the_platform_or_the_seed_would_refuse_is_named(self):
         for text, studio, message in (
+                ("", STUDIO.replace("supportedProtocolVersions: ['2025-11-25']\n", ""), "one of the two"),
+                ("protocolVersion: '2025-11-25'\n", STUDIO, "one of the two"),
+                ("", STUDIO.replace("['2025-11-25']", "[2025-11-25]"), "a protocol version is text: quote it"),
+                ("", AGENTS_STUDIO.replace("'2025-11-25'", "2025-11-25"), "a protocol version is text: quote it"),
                 ("subscriptions: [{application: Copilot, apiKey: ${NUMBER}}]\n", STUDIO,
                  "the apiKey of Copilot is read as int, not as text: quote the variable in the file, '${NAME}'"),
                 ("subscriptions: [{application: Copilot, plan: Others}]\n", STUDIO, "'Others' is no plan of the studio"),
                 ("subscriptions: [{application: Copilot, apiKey: abc}]\n", STUDIO.replace("API_KEY", "JWT"),
                  "an apiKey needs a plan with API keys"),
                 ("subscriptions: [{application: Copilot}]\n", STUDIO.replace("API_KEY", "KEY_LESS"),
+                 "a keyless plan takes no subscription"),
+                ("subscriptions: [{application: Copilot}]\n", STUDIO.replace("API_KEY", "KEYLESS"),
                  "a keyless plan takes no subscription"),
                 ("subscriptions: [{application: Copilot, apiKey: abc}]\n", AGENTS_STUDIO, "an apiKey needs a plan with API keys"),
                 ("subscriptions: [{application: Copilot, plan: Registration}]\n", AGENTS_STUDIO, "'Registration' is no plan"),
@@ -320,6 +326,7 @@ class Studios(Made):
 
     def test_the_lint_and_the_seed_take_the_same_keys(self):
         self.assertEqual(seedlint.STUDIO_SUBSCRIPTION, aim_proxies.SUBSCRIPTION_KEYS)
+        self.assertEqual(seedlint.STUDIO_VERSIONS, aim_proxies.VERSION_KEYS)
 
     def test_a_file_of_another_folder_is_not_read_as_a_studio(self):
         folder = self.playground({**GOOD, "seed/aim/mcp-proxies/desk.yaml": STUDIO + "subscriptions: [{plan: 3}]\n"})

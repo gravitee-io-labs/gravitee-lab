@@ -15,12 +15,12 @@ An MCP proxy is set up in three steps, each writing only what differs from its f
 
 A studio is only seeded when a file of seed/aim/studios says so: it needs the tools of the catalog (MCP servers and APIs
 imported before it) and a gateway whose MCP libraries can serve a studio. Its file has one of two shapes, told apart by
-its keys. A file with `plan`, `supportedProtocolVersions` and `fga` is created with its plan and has its authorization
-check switched. A file with `access` is built in steps, each writing only what differs:
+its keys. A file with `plan` and `fga` is created with its plan and has its authorization check switched. Either shape gives
+its protocol versions as the platform takes them: the list `supportedProtocolVersions` on API Management 4.13.1, one
+`protocolVersion` on the amp-demo build. A file with `access` is built in steps, each writing only what differs:
 
     1. It is created with the registration plan (the platform registers the studio in Access Management with it), the
-       protocol versions, the tools with their aliases and the key each API expects from the studio. API Management 4.13.1
-       takes the list `supportedProtocolVersions`, as a studio made in one go; the amp-demo build took one `protocolVersion`.
+       protocol versions, the tools with their aliases and the key each API expects from the studio.
     2. The plan of the agents (JWT) is published, then the registration plan is closed: it lets in any token and
        attributes the call to no one, while the plan of the agents keeps the subscription required.
     3. The authorization check is switched on, then its flow is given the arguments of the call, the attributes of the
@@ -80,6 +80,8 @@ PEP, ASSIGN, APPROVAL = "authz-pep", "policy-assign-attributes", "human-approval
 KINDS = {"subscription": "subscription to an MCP studio", "mcp-proxy": "MCP proxy", "studio": "MCP studio"}
 # What a platform answers for a write of a studio's tools it does not offer: the studio is made again instead
 UNSUPPORTED = (404, 405, 501)
+# The keys of a studio's file that give its protocol versions, one of the two: which one depends on the build
+VERSION_KEYS = ("supportedProtocolVersions", "protocolVersion")
 # What a subscription of a studio's file may say
 SUBSCRIPTION_KEYS = ("application", "plan", "apiKey")
 
@@ -100,6 +102,17 @@ def public(spec):
     if "identityProviders" not in spec:
         return spec
     return {**spec, "identityProviders": [{k: v for k, v in p.items() if k != "clientSecret"} for p in spec["identityProviders"]]}
+
+
+def protocol_versions(spec):
+    """A studio's protocol versions as its file gives them: a list for API Management 4.13.1, one for the amp-demo build."""
+    given = {key: spec[key] for key in VERSION_KEYS if key in spec}
+    if len(given) != 1:
+        raise SeedError(f"MCP studio {spec['name']}: it gives {' or '.join(VERSION_KEYS)}, one of the two")
+    versions = next(iter(given.values()))
+    if not all(isinstance(version, str) for version in (versions if isinstance(versions, list) else [versions])):
+        raise SeedError(f"MCP studio {spec['name']}: a protocol version is text: quote it")
+    return given
 
 
 def server_name(server):
@@ -498,8 +511,8 @@ class McpProxies:
             raise SeedError(f"MCP studio {name}: authorization is read for a studio built in steps (access); this one switches "
                             "its check with fga")
         subscriptions = read_subscriptions(spec, name)
-        body = {"name": name, "description": spec.get("description"), "contextPath": path,
-                "supportedProtocolVersions": spec["supportedProtocolVersions"], "plans": [spec["plan"]],
+        body = {"name": name, "description": spec.get("description"), "contextPath": path, **protocol_versions(spec),
+                "plans": [spec["plan"]],
                 "specification": {"tools": self.tools(spec["tools"]), "promptIds": [], "resourceIds": []}}
         wanted = digest(body)
         found, recomposed = self.kept(name, path, wanted, body)
@@ -617,9 +630,7 @@ class McpProxies:
         needs(access["agents"], name, "access.agents", "name", "type", "jwksUrl", "clientIdClaim")
         if access["agents"]["type"] != "JWT":
             raise SeedError(f"MCP studio {name}: access.agents.type is {access['agents']['type']}, only JWT keeps the subscription required")
-        versions = {"supportedProtocolVersions": spec["supportedProtocolVersions"]} if "supportedProtocolVersions" in spec \
-            else {"protocolVersion": spec["protocolVersion"]}
-        body = {"name": name, "contextPath": path, **versions,
+        body = {"name": name, "contextPath": path, **protocol_versions(spec),
                 "specification": {"tools": self.tools(spec["tools"])},
                 "plans": [{"name": access["registration"]["name"], "security": {
                     "type": access["registration"]["type"], "configuration": access["registration"].get("configuration", {"scopes": []})}}],
