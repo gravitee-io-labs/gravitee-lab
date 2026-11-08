@@ -589,7 +589,7 @@ def walk(folder: str) -> list:
 
 # ---------------------------------------------------------------- reading an install: content or machine
 
-def _machine_pattern(rel) -> bool:
+def machine_name(rel) -> bool:
     """Whether a path is a machine file by its name, for a folder that has no manifest to say: `.env`, `.env.*`
     but `.env.example`, a folder `.state` or `secrets` and what is in one, a key or a certificate."""
     parts = rel.lower().split("/")
@@ -629,7 +629,7 @@ def _scan(root, listed: Optional[Set[str]]) -> Tuple[int, List[str], bool]:
                 content += inner
                 tops += [path] if inner == 0 and any_machine else below
                 machine = machine or any_machine
-            elif (path not in listed) if listed is not None else _machine_pattern(path):
+            elif (path not in listed) if listed is not None else machine_name(path):
                 tops.append(path)
                 machine = True
             else:
@@ -670,7 +670,7 @@ def _machine(ns, root) -> List[str]:
 
 def _mark(root) -> None:
     """Writes the marker `.kept` into the folder `root`: from then on every entry of it is the machine's, whatever its
-    name. A folder that holds neither a manifest nor the marker is judged by names (`_machine_pattern`), and a name the
+    name. A folder that holds neither a manifest nor the marker is judged by names (`machine_name`), and a name the
     patterns do not know (`data/`, `certs/ca.txt`) reads as content that is nobody's to keep: so the marker is written
     before the manifest that vouched for the folder goes, and a folder that no manifest vouches for gets it before it is
     moved or emptied. Idempotent."""
