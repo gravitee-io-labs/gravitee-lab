@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 
 from ..docker import compose, jobs
-from ..library import layers, model, moves, project
+from ..library import layers, model, project
 from .. import paths
 from . import defaults, gitx, install, manifest, registry, renames, resolve, trust, understood
 from . import store as bare
@@ -36,7 +36,6 @@ TICKETS = {}   # ticket -> what a check showed, for the change it is for: {kind,
 TTL = 600.0   # seconds a ticket lives: ten minutes
 GIT_AGE = 30.0   # seconds the version of git is kept: it is one more process for every poll
 CHECK_CAP = 60.0   # seconds a check of an installed catalog may take
-LONG_DOWNLOAD = 10.0   # seconds after which a download lights the dot of the menu
 PATIENCE = 1.5   # seconds a change waits for the lock before it is `busy`: a write of the lock lasts milliseconds, a change seconds
 WAIT_STAGE = 30.0   # seconds a second Add waits for the first to finish staging and judging its tree
 MAX_TICKETS = 8   # checks that are kept at once: a tree of up to 100 MB is staged for each, so an eager script fills no disk
@@ -51,10 +50,8 @@ UP_TO_DATE = "Already up to date."
 _lock = threading.Lock()   # TICKETS and the memory below
 _staging = threading.Lock()   # one tree is staged and judged at a time: the folder of a stage is named by the catalog
 _checking = {}   # ticket -> how far the fetch of an Add check is (0..1 or None): state.catalogs[] says it
-_started = {}   # catalog -> when a download was first seen under way (monotonic): the menu dot lights after a while
 _known = {"at": None, "version": None}   # the version of git and when it was asked
 _creating = threading.Lock()   # one new catalog at a time: its id is chosen from the ones that are there, and a folder that fails is taken away
-_asking = threading.Lock()   # one question to git at a time, and not under the lock of the tickets: git may be slow
 
 
 def _now():
@@ -87,10 +84,9 @@ def _text(value, field):
 def git_version(fresh=False):
     """The version of git as gitx.version() finds it, kept for GIT_AGE seconds: the state asks at every poll and it is one
     process. A click that may have changed it (Try again, Add, Check again) asks `fresh`."""
-    with _asking:
-        if fresh or _known["at"] is None or _now() - _known["at"] > GIT_AGE:
-            _known.update(at=_now(), version=gitx.version())
-        return _known["version"]
+    if fresh or _known["at"] is None or _now() - _known["at"] > GIT_AGE:
+        _known.update(at=_now(), version=gitx.version())
+    return _known["version"]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -99,7 +95,7 @@ def git_version(fresh=False):
 
 def _remove_stage(ns):
     """The staged tree of a catalog (a folder, or the link a folder catalog is staged as), removed. Nothing here raises: a
-    leftover is the sweeper's (rule 12 of)."""
+    leftover is the sweeper's."""
     with contextlib.suppress(OSError, ValueError):
         where = registry.stage_dir(ns)
         if where.is_symlink():
@@ -202,7 +198,6 @@ WORDS = {
     "damaged": ("Damaged", "error"), "linked": ("Linked", "muted"), "missing_folder": ("Folder not found", "error"),
     "suggested": ("Not added", "muted"), "failed": ("Failed", "error"),
 }
-MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def _instant(text):
@@ -226,15 +221,6 @@ def ago(text):
     return "just now"
 
 
-def _day(text):
-    """"12 Oct" for a stamp: the date of the copy that is shown while the address does not answer."""
-    then = _instant(text)
-    if then is None:
-        return ""
-    when = time.gmtime(then)
-    return f"{when.tm_mday} {MONTHS[when.tm_mon - 1]}"
-
-
 def _address_of(url):
     """The address as the lines of the catalogue of errors name it, or None for one the grammar refuses."""
     try:
@@ -243,7 +229,7 @@ def _address_of(url):
         return None
 
 
-def _failure(code, url, installed):
+def _failure(code, url):
     """(reason, next) of a failure code for the popover of a row: the line of the catalogue of errors, cut where its sentence ends."""
     address = _address_of(url)
     host = (address.host or address.display) if address else "the host"
@@ -253,8 +239,7 @@ def _failure(code, url, installed):
     if code == "docker_missing":
         return ("Docker is not ready.", "Start Docker: the catalog is read again by itself.")
     if code == "unreachable":
-        return (f"Cannot reach {host}." + (f" Showing the copy from {installed}." if installed else ""),
-                "Check your connection, then check again." if installed else "Check your connection, then try again.")
+        return f"Cannot reach {host}.", "Check your connection, then try again."
     if code in gitx.MESSAGES:
         line = gitx.fail(code, address).message
         first, _, rest = line.partition(". ")
@@ -264,8 +249,7 @@ def _failure(code, url, installed):
 
 def _state(key, **fields):
     label, tone = WORDS[key]
-    return {"key": key, "label": label, "tone": tone, "reason": fields.get("reason", ""), "next": fields.get("next", ""),
-            "whatsnew": []}
+    return {"key": key, "label": label, "tone": tone, "reason": fields.get("reason", ""), "next": fields.get("next", "")}
 
 
 def _seen(held):
@@ -292,7 +276,6 @@ def _kind_state(ns, found, held, entry, contract):
     key = found["state"]
     listed = bool(found.get("listed"))
     url = defaults.effective(entry)[0] if entry and entry.get("kind") == "git" else None
-    installed = _day(held.get("installed"))
     seen = _seen(held)
     level = manifest.compat(found.get("lab"), contract.get("contract", 1), contract.get("contract_min", 1)) \
         if isinstance(found.get("lab"), int) else "ok"
@@ -307,7 +290,7 @@ def _kind_state(ns, found, held, entry, contract):
         elif not held.get("checked"):
             key = "checking"
     if key in ("unreachable", "noaccess", "needs_git", "needs_docker", "failed") and held.get("error"):
-        reason, after = _failure(held["error"], url, installed if held.get("pin") else "")
+        reason, after = _failure(held["error"], url)
         return _state(key, reason=reason, next=after)
     if key == "uptodate":   # a copy that is no release (a catalog that makes none, commits made after the last one) says so
         said = [f"Version {found['version']}"] if found.get("version") else []
@@ -376,10 +359,10 @@ def _folder_state(key):
     return _state(key, reason="The folder is gone.", next="Put it back or remove the catalog.")
 
 
-def _attention(ns, found, held, entry, state_key):
+def _attention(found, held, entry, state_key):
     """What the dot of the menu is for: "update", "repair", "lab", "download" or None. The version the person just
     left with Go back does not light it again, a catalog that is not checked automatically never lights it for an update, and
-    a download that lasts a few seconds lights nothing."""
+    a download lights it once it has failed."""
     if state_key == "damaged":
         return "repair"
     if _update_available(held) and entry and entry.get("auto") is not False \
@@ -387,11 +370,7 @@ def _attention(ns, found, held, entry, state_key):
         return "update"
     if state_key == "lab_new":
         return "lab"
-    if found.get("kind") == "git" and not held.get("pin"):
-        since = _started.get(ns)
-        if held.get("error") or (state_key == "downloading" and since is not None and _now() - since > LONG_DOWNLOAD):
-            return "download"
-    return None
+    return "download" if found.get("kind") == "git" and not held.get("pin") and held.get("error") else None
 
 
 def _progress_of(ns, state_key):
@@ -399,9 +378,7 @@ def _progress_of(ns, state_key):
     if state_key != "downloading":
         return None
     from . import firstrun   # here and not above: the worker calls this module
-    found = (getattr(firstrun, "PROGRESS", None) or {}).get(ns)
-    fraction = found.get("fraction") if isinstance(found, dict) else None
-    return float(fraction) if isinstance(fraction, (int, float)) and not isinstance(fraction, bool) else None
+    return (firstrun.PROGRESS.get(ns) or {}).get("fraction")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -435,14 +412,14 @@ def _waiting():
     return f"Wait for {last.title}" if last and not last.done else _elsewhere()
 
 
-def _unit_id(ns, kind, name):
+def _unit_id(ns, name):
     return name if ns == paths.default_ns() else f"@{ns}/{name}"
 
 
 def _unit_name(found, ns, key):
     """What a unit of a catalog is called, by its `kind:name` key, for a line about it."""
     kind, _, name = key.partition(":")
-    unit = ((found or {}).get(f"{kind}s") or {}).get(_unit_id(ns, kind, name)) or {}
+    unit = ((found or {}).get(f"{kind}s") or {}).get(_unit_id(ns, name)) or {}
     return resolve.shown(unit.get("name") or name, NAME_CUT)
 
 
@@ -459,9 +436,8 @@ def _running(found, ns):
             if unit.get("catalog") == ns}
 
 
-def _used(ns, found=None):
+def _used(ns, found):
     """({kind:name that the on file turns on}, {kind:name that run}) among the units of catalog `ns`."""
-    found = found if found is not None else project.loaded()[0]
     return install.on_units(ns), _running(found, ns)
 
 
@@ -475,16 +451,13 @@ def _turn_off_line(found, ns, keys, running=()):
     return f"{'Stop' if keys[0] in running else 'Turn off'} {name} first"
 
 
-def _hold(ns, keys=None, found=None):
-    """Why the units of catalog `ns` (all of them, or `keys`) cannot be changed now: a job runs, or one is on or up. None
-    when nothing holds."""
-    found = found if found is not None else project.loaded()[0]
+def _hold(ns, found):
+    """Why the units of catalog `ns` cannot be changed now: a job runs, or one is on or up. None when nothing holds."""
     why = _waiting()
     if why:
         return why
     on, running = _used(ns, found)
-    busy = (on | running) if keys is None else (on | running) & set(keys)
-    return _turn_off_line(found, ns, busy, running)
+    return _turn_off_line(found, ns, on | running, running)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -508,43 +481,12 @@ def _held_of(ns, project_, held, on):
     return {"update": why or "", "remove": why or turn or "", "undo": previous or why or turn or ""}
 
 
-def _with_access(needs, asked):
-    """The needs of a catalog or of a preview with `host_access: true` on the ones whose address the suggestions file lists with
-    `host_access`: what the Add dialog preselects as the allowance when the person arrives at it from that address. A
-    suggestion can preselect, never imply. `asked` is the display form of those addresses."""
-    return [dict(one, host_access=True) if one.get("url") and registry.display_address(one["url"]) in asked else dict(one)
-            for one in needs]
-
-
-def _remembered(ns, found, held):
-    """The code of the failure this process remembers for a catalog that is in the commit of a download, else None. The disk
-    says Downloading for the milliseconds of a commit (`pending`, with the `error` the commit cleared), but when the attempt
-    is a silent retry (one a person cannot see: it has no mark in `firstrun.PROGRESS`) of a download that failed, the page
-    already says it failed, and must go on saying it until the copy is there. A click on Try again clears the failure and
-    marks the catalog before the attempt starts, so that one is a download, as the page was told. The rule is
-    `firstrun._failure`'s, the single one: this module asks it, and reaches the module here and not above (the worker calls
-    this one)."""
-    if found.get("state") != "downloading" or held.get("pin") or held.get("error") or not held.get("pending"):
-        return None
-    from . import firstrun
-    if ns in firstrun.PROGRESS:
-        return None
-    return (getattr(firstrun, "failure", None) or firstrun._failure)(ns, {ns: held})
-
-
-def _git_row(ns, found, summary, project_, entry, contract, asked=frozenset(), on=frozenset()):
+def _git_row(ns, found, summary, project_, entry, contract, on=frozenset()):
     held = registry.lock_of(ns)
-    code = _remembered(ns, found, held)
-    if code:   # the failure the page says, through the milliseconds of a silent retry's commit
-        found, held = {**found, "state": registry.FAILURES.get(code, "failed")}, {**held, "error": code, "pending": None}
     url = defaults.effective(entry)[0] if entry and entry["kind"] == "git" else None
     address = registry.display_address(url or (entry or {}).get("path") or "")
     state = _folder_state(found["state"]) if found["kind"] == "folder" else _kind_state(ns, found, held, entry, contract)
     progress = _progress_of(ns, state["key"])
-    if state["key"] == "downloading" and ns not in _started:
-        _started[ns] = _now()
-    elif state["key"] != "downloading":
-        _started.pop(ns, None)
     pin = held.get("pin")
     return {
         "id": ns, "kind": found["kind"], "listed": bool(found.get("listed")), "name": found["name"], "imported": registry.imported(ns),
@@ -553,22 +495,21 @@ def _git_row(ns, found, summary, project_, entry, contract, asked=frozenset(), o
         "version": found.get("version"), "commit": _short(pin), "updated": held.get("installed"),
         "checked": held.get("checked"), "audience": found.get("audience") or "private",
         "counts": _counts(found.get("units") or {}), "state": state, "progress": progress,
-        "attention": _attention(ns, found, held, entry, state["key"]), "auto": (entry or {}).get("auto") is not False,
-        "has_previous": bool(held.get("previous")), "writable": found["kind"] == "folder",
+        "attention": _attention(found, held, entry, state["key"]), "auto": (entry or {}).get("auto") is not False,
+        "has_previous": bool(held.get("previous")),
         "host": found.get("host") or "no", "held": _held_of(ns, project_, held, on),
         "blocked": [dict(one) for one in summary.get("blocked") or []],
         "uses_machine": [_unit_text(one) for one in summary.get("uses_machine") or []],
         "ignored": found.get("ignored") or 0,
         "problems": [f"{one.get('display') or one.get('file')}: {one.get('message')}"
                      for one in summary.get("problems") or [] if isinstance(one, dict)],
-        "needs": _with_access(summary.get("needs") or [], asked),
     }
 
 
 def _machine_row(found, summary):
     return {"id": paths.LOCAL, "kind": "machine", "listed": False, "name": found.get("name") or "Personal",
             "description": "", "counts": _counts(found.get("units") or {}), "state": _state("machine"),
-            "progress": None, "attention": None, "writable": True, "blocked": [], "uses_machine": [], "problems": [
+            "progress": None, "attention": None, "blocked": [], "uses_machine": [], "problems": [
                 f"{one.get('display') or one.get('file')}: {one.get('message')}"
                 for one in summary.get("problems") or [] if isinstance(one, dict)]}
 
@@ -578,38 +519,30 @@ def _suggested_row(one):
     row = {"id": one.get("id"), "kind": "suggested", "listed": bool(one.get("listed")), "name": one["name"],
            "description": one.get("description") or "", "address": address, "url": one["url"],
            "state": _state("suggested", reason=one.get("description") or ""), "progress": None, "attention": None}
-    if one.get("branch"):
-        row["branch"] = one["branch"]
     if one.get("host_access"):
         row["host_access"] = True
     return row
 
 
 def describe(project, inputs):
-    """The rows of `state.catalogs`, in the order the page shows them: the first listed catalog, Personal when it holds something,
+    """The rows of `state.catalogs`, in the order the page shows them: the first listed catalog, Personal,
     the others as they were added, then the ones that are not added, and last, while an Add is fetching, the entry
     {id: "check", kind: "progress", progress} that carries how far the fetch is (`check` is a reserved name, so no catalog is
     ever called so). `project` is what project.build made, `inputs` what project.gather read: the rows read the registry's
     reading of the disk (`inputs["catalogs"]`), the lock, the summary the project made of each catalog, and the memory of the
     worker. Nothing here reads git, the network or Docker."""
-    project = project if isinstance(project, dict) else {}
-    inputs = inputs if isinstance(inputs, dict) else {}
     found = inputs["catalogs"] if isinstance(inputs.get("catalogs"), dict) else registry.inputs()
     summaries = project.get("catalogs") if isinstance(project.get("catalogs"), dict) else {}
     contract = inputs.get("contract") if isinstance(inputs.get("contract"), dict) else {}
     entries = {one["id"]: one for one in registry.entries()}
-    suggestions = registry.suggestions()
-    asked = {registry.display_address(one["url"]) for one in suggestions if one.get("host_access")}
     on = install.on_by_catalog()
     rows = []
     for ns, one in found.items():
         if one.get("kind") == "machine":
-            if sum(_counts(one.get("units") or {}).values()):
-                rows.append(_machine_row(one, summaries.get(ns) or {}))
+            rows.append(_machine_row(one, summaries.get(ns) or {}))
         else:
-            rows.append(_git_row(ns, one, summaries.get(ns) or {}, project, entries.get(ns), contract, asked,
-                                 on.get(ns, frozenset())))
-    rows += [_suggested_row(one) for one in suggestions]
+            rows.append(_git_row(ns, one, summaries.get(ns) or {}, project, entries.get(ns), contract, on.get(ns, frozenset())))
+    rows += [_suggested_row(one) for one in registry.suggestions()]
     with _lock:
         fetching = list(_checking.values())
     if fetching:
@@ -630,11 +563,8 @@ def problems():
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _contract():
-    """The level of this Lab, its lock's (understood.levels) else the core file's, and the seeder image the core file names:
-    {contract, contract_min, seeder_image}."""
-    found = project.loaded()[1].get("contract")
-    return {"contract": 1, "contract_min": 1, "seeder_image": "", **(found if isinstance(found, dict) else {}),
-            **(understood.levels() or {})}
+    """The level this Lab reads: its lock's (understood.levels); 1 and 1 without a lock."""
+    return understood.levels() or {"contract": 1, "contract_min": 1}
 
 
 def _row_of_candidate(meta, kind, audience, listed, host, ignored, units):
@@ -691,32 +621,15 @@ def _needs_of(judged, mine, meta):
     return [found[name] for name in sorted(found)]
 
 
-def _found_of(ns, meta, judged, mine):
-    """The items whose held settings the catalog takes over: [{id, name}]. The first listed catalog
-    qualifies for any unit, another only for the units it declares in `moved_from`."""
-    default, declared = paths.default_ns(), set(meta.get("moved_from") or ())
-    found = []
-    for k, uid in mine:
-        name = uid.rsplit("/", 1)[-1]
-        if (ns == default or f"{k}:{name}" in declared) and moves.has_held(k, name):
-            found.append({"id": uid, "name": resolve.shown(judged[k][uid]["name"], NAME_CUT)})
-    return found
-
-
-def _preview_rows(ns, meta, judged, verdicts, mine, listed):
+def _preview_rows(meta, judged, verdicts, mine, listed):
     surface = _surface(judged, verdicts, mine)
     builds = surface["builds"]
-    rows = {"builds": {"local": sum(1 for one in builds if one["source"] == "local"),
+    return {"builds": {"local": sum(1 for one in builds if one["source"] == "local"),
                        "remote": sorted({one["source"] for one in builds if one["source"] != "local"})},
             "ports": list(surface["ports"]), "core": sorted({one["label"] for one in surface["core"]}),
             "reads": list(surface["reads"]),
             "uses_machine": [] if listed else _uses_of(judged, verdicts, mine),
-            "needs": _with_access(_needs_of(judged, mine, meta),
-                                  {registry.display_address(one["url"]) for one in registry.suggestions() if one.get("host_access")})}
-    found = _found_of(ns, meta, judged, mine)
-    if found:
-        rows["found"] = found
-    return rows
+            "needs": _needs_of(judged, mine, meta)}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -780,21 +693,6 @@ def _listed_ids_at(display):
     return [one["id"] for one in defaults.read() if registry.display_address(one["url"]) == display]
 
 
-def _already(address):
-    """`already_added` when a catalog the person has is at this address, in any spelling (asked first so that the
-    fetch is not made for nothing)."""
-    shown = address.display
-    for entry in registry.entries():
-        there = defaults.effective(entry)[0] if entry["kind"] == "git" else entry.get("path")
-        if shown and registry.display_address(there or "") == shown:
-            raise CatalogError("already_added", f"Already added as {_called(entry['id'])}.", 409, id=entry["id"])
-
-
-def _shorthand(text):
-    """Whether the text is the short form owner/repo, which means GitHub and may be tried over ssh."""
-    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}", text))
-
-
 def _reached(text, address, branch):
     """(the address that answered, what the remote has): ls-remote with the 20 s limit. The short form owner/repo that
     https refuses (`no_access`, `not_found`) is tried again as git@github.com:owner/repo.git, and the address that answered
@@ -802,7 +700,7 @@ def _reached(text, address, branch):
     try:
         return address, gitx.ls_remote(address, branch)
     except CatalogError as first:
-        again = gitx.ssh_form(address) if first.code in ("no_access", "not_found") and _shorthand(text) else None
+        again = gitx.ssh_form(address) if first.code in ("no_access", "not_found") and gitx.SHORTHAND.fullmatch(text) else None
         if again is None:
             raise
         try:
@@ -846,7 +744,7 @@ def check_address(address, branch=None):
     the fetch reports how far it is in the state (`catalogs[]`, the entry `check`)."""
     text, branch = _address_text(address, branch)
     asked = gitx.parse_address(text)
-    _already(asked)
+    install.already(asked)
     if asked.kind == "folder":
         return _check_folder(asked)
     gitx.require()
@@ -883,10 +781,9 @@ def check_address(address, branch=None):
             judged, verdicts, mine = _review(meta["id"], meta, "git", audience, bool(listed_at),
                                              "listed" if listed_at else "allowed", ignored)
             _understood(meta, judged, mine)
-        preview = _preview(ticket, meta, "git", found_at, audience, bool(listed_at), ignored, judged, verdicts, mine,
-                           newer=offered.tip != "ok")
+        preview = _preview(ticket, meta, "git", found_at, audience, bool(listed_at), judged, verdicts, mine, newer=offered.tip != "ok")
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=found_at, branch=remote["branch"], audience=audience,
-              roots=roots, meta=meta, store=store_path, listed=bool(listed_at))
+              roots=roots, meta=meta, store=store_path)
         return preview
     except BaseException:
         _clean_up(ticket, staged, store_path)
@@ -908,9 +805,9 @@ def _check_folder(asked):
             meta = _read_meta(staged, asked, contract, [])
             staged = install.rename_stage(staged, meta["id"])
             judged, verdicts, mine = _review(meta["id"], meta, "folder", "private", False, "allowed", ignored)
-        preview = _preview(ticket, meta, "folder", asked, "private", False, ignored, judged, verdicts, mine)
+        preview = _preview(ticket, meta, "folder", asked, "private", False, judged, verdicts, mine)
         _keep(ticket, "add", ns=meta["id"], staged=staged, address=asked, branch=None, audience="private", roots=[],
-              meta=meta, store=None, listed=False, judged=sorted(uid for _, uid in mine))
+              meta=meta, store=None, judged=sorted(uid for _, uid in mine))
         return preview
     except BaseException:
         _clean_up(ticket, staged, None)
@@ -919,7 +816,7 @@ def _check_folder(asked):
 
 def _understood(meta, judged=None, mine=()):
     """Refuses a version of a published catalog that uses what this Lab does not read (`lab_new`: it needs a newer Gravitee
-    Lab): a key of its catalog.yml, or what a unit uses, as the judgement found it (`unknown`). `pick` passes such a version
+    Lab): a key of its catalog.yml, or what a unit uses, as the judgement found it (`unknown`). `searched` passes such a version
     over when it reads it first, so this is the gate for one it could not read: a Lab never runs a file it half understands."""
     found = manifest.unread(meta)
     for kind, uid in mine:
@@ -945,15 +842,12 @@ def _read_meta(staged, address, contract, listed_at, published=False):
     return meta
 
 
-def _preview(ticket, meta, kind, address, audience, listed, ignored, judged, verdicts, mine, newer=False):
+def _preview(ticket, meta, kind, address, audience, listed, judged, verdicts, mine, newer=False):
     units = project.staged_units(meta["id"])   # what the tree holds, a unit that does not read included: the manifest counts the same
     counts = {k: sum(1 for knd, _, _ in units if knd == k) for k in ("playground", "setup", "addon")}
-    shown = {"ticket": ticket, "expires": int(TTL),
-             "catalog": {"id": meta["id"], "name": meta["name"], "description": meta.get("description") or "",
-                         "version": meta["version"], "lab": meta["lab"], "kind": kind},
-             "address": address.display, "url": address.url if kind == "git" else address.display, "audience": audience,
-             "counts": counts, "rows": _preview_rows(meta["id"], meta, judged, verdicts, mine, listed),
-             "blocked": _blocked_of(judged, mine), "ignored": ignored}
+    shown = {"ticket": ticket, "catalog": {"id": meta["id"], "name": meta["name"], "version": meta["version"], "kind": kind},
+             "address": address.display, "audience": audience, "counts": counts,
+             "rows": _preview_rows(meta, judged, verdicts, mine, listed), "blocked": _blocked_of(judged, mine)}
     if newer:
         shown["newer"] = True
     # What Compose could not read for want of a catalog was not judged: an import says it cannot run until that catalog comes
@@ -965,21 +859,18 @@ def _preview(ticket, meta, kind, address, audience, listed, ignored, judged, ver
     return shown
 
 
-def add(ticket, host=False):
-    """Puts the catalog the check showed in place. `host` is the allowance the person chose with the
-    dialog (the page sends it as a request of its own after the Add, and may send it here). Answers {"catalog": Row}."""
+def add(ticket):
+    """Puts the catalog the check showed in place. Answers {"catalog": Row}."""
     data = _held(ticket, "add")
     staged, ns = data["staged"], data["ns"]
     with _changing():
-        install.commit_add(staged, data["address"], data["branch"], data["audience"], data["roots"], meta=data["meta"],
-                           host=bool(host) and not data["listed"], auto=True)
+        install.commit_add(staged, data["address"], data["branch"], data["audience"], data["roots"], meta=data["meta"])
         if data.get("imported"):   # an imported playground: what its file held is recorded, and settings kept for it go back
             from . import exports   # here and not above: exports reads this module
             exports.added(ns, data)
     _spend(ticket)
     with contextlib.suppress(OSError):   # the .env is for a docker compose typed by hand: the catalog is added all the same
         layers.prepare_catalogs()
-    git_version(fresh=True)
     return {"catalog": _row_of(ns)}
 
 
@@ -1016,36 +907,12 @@ def _wake():
 # Check again, and the pass of the background checker
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _vouched(entry):
-    """The root commits the tracked file pins for a listed catalog, lower case, or []: a rewrite that lands on them is
-    the engine's own and is not flagged."""
-    tracked = next((one for one in defaults.read() if one["id"] == entry["id"]), None) if entry["kind"] == "git" else None
-    return sorted(root.lower() for root in (tracked or {}).get("roots") or ())
-
-
-def _fetch_tip(ns, entry, held):
-    """The branch is fetched into the catalog's store (`refs/lab/tip`), 60 s at most. A
-    listed catalog whose https address answers `no_access` or `not_found` is asked once over ssh, and the form that answered is
-    remembered (`via`) for the next runs. Answers (the tip, the address that answered)."""
+def _fetch_tip(ns, entry):
+    """The branch is fetched into the catalog's store (`refs/lab/tip`), 60 s at most. Answers (the tip, the address)."""
     gitx.require()
     url, branch = defaults.effective(entry)
     address = gitx.parse_address(url)
-    tries = [address]
-    if defaults.listed(entry):
-        again = gitx.ssh_form(address)
-        if again is not None:
-            tries = [again, address] if held.get("via") == "ssh" else [address, again]
-    for number, one in enumerate(tries):
-        try:
-            tip = bare.fetch(one, branch, registry.store_dir(ns), stall=30, cap=CHECK_CAP)
-        except CatalogError as error:
-            if number + 1 == len(tries) or error.code not in ("no_access", "not_found"):
-                raise
-            continue
-        if len(tries) > 1 and held.get("via") != ("ssh" if gitx.is_ssh(one) else "https"):
-            registry.set_lock(ns, via="ssh" if gitx.is_ssh(one) else "https")
-        return tip, one
-    raise AssertionError("unreachable")
+    return bare.fetch(address, branch, registry.store_dir(ns), stall=30, cap=CHECK_CAP), address
 
 
 def _mark_damaged(ns):
@@ -1083,14 +950,12 @@ def _ask(ns, entry):
     """Fetch, identity, audience, the compatible version, whether it changes anything, and the result in the
     lock. The network steps hold no lock; the lock is written at the end. A refusal is the caller's (`check_now` keeps it).
     A release the owners moved is a history that changed: it is said as one, and Update asks to confirm it."""
-    held = registry.lock_of(ns)
-    tip, answered = _fetch_tip(ns, entry, held)
+    tip, answered = _fetch_tip(ns, entry)
     store_path, contract = registry.store_dir(ns), _contract()
     held = registry.lock_of(ns)   # it may have changed during the fetch
     pin = held.get("pin")
     roots = bare.roots(store_path, tip)
-    same = roots == sorted(held.get("roots") or []) and bare.is_ancestor(store_path, pin, tip)
-    if not same and not (_vouched(entry) and roots == _vouched(entry)):
+    if roots != sorted(held.get("roots") or []) or not bare.is_ancestor(store_path, pin, tip):
         registry.set_lock(ns, tip=tip, error=_failed_with(ns, "history_changed"))   # nothing else proceeds
         return
     audience = _audience(answered)
@@ -1155,9 +1020,9 @@ def check_now(ns):
 
 def check_all():
     """One pass of the background checker: Check again for every git catalog that has a copy, is checked
-    automatically and is not linked to a working copy, with the 60 s of a check for each; and, for a listed catalog this Lab
-    can no longer read, the one automatic update of 9.3b. Nothing is asked without Git. The module starts no thread: the
-    worker of `firstrun` calls this on its schedule. A failure of one catalog is its row's state and never stops the pass."""
+    automatically and is not linked to a working copy, with the 60 s of a check for each. Nothing is asked without Git. The module
+    starts no thread: the worker of `firstrun` calls this on its schedule. A failure of one catalog is its row's state and never
+    stops the pass."""
     if git_version(fresh=True) is None:
         return
     for entry in registry.entries():
@@ -1167,27 +1032,8 @@ def check_all():
             continue
         try:
             check_now(ns)
-            _bring_forward(ns, entry)
         except Exception as error:  # noqa: BLE001 - one catalog's trouble is not the pass's
             print(f"Gravitee Lab UI: could not check {ns} ({type(error).__name__})", file=sys.stderr)
-
-
-def _bring_forward(ns, entry):
-    """A listed catalog whose installed version this Lab can no longer read, and that has a newer one it can, is brought
-    to it with no dialog when nothing of it is on or up and nothing needs deciding. `previous` is kept, so Go back exists."""
-    held = registry.lock_of(ns)
-    found = registry.inputs().get(ns) or {}
-    old = isinstance(found.get("lab"), int) and manifest.compat(
-        found["lab"], _contract()["contract"], _contract()["contract_min"]) == "old"
-    if not (defaults.listed(entry) and old and _update_available(held)) or _hold(ns) is not None:
-        return
-    try:
-        plan = update(ns, check=True)
-        if plan.get("upToDate") or plan.get("held") or plan.get("rewritten"):
-            return
-        update(ns, ticket=plan["ticket"])
-    except CatalogError:   # a change under way, an item that came on meanwhile: what it says is the row's, and the next pass tries
-        return
 
 
 def set_auto(ns, enabled):
@@ -1226,7 +1072,6 @@ def allow_host(ns, enabled):
         config["catalogs"] = [({**one, "host": True} if enabled else {k: v for k, v in one.items() if k != "host"})
                               if one["id"] == ns else one for one in config["catalogs"]]
         registry.write_config(config)
-    project.forget()
     return {"catalog": _row_of(ns)}
 
 
@@ -1234,16 +1079,7 @@ def allow_host(ns, enabled):
 # Update and Go back
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _refetch(ns, entry):
-    """The store of a catalog lacks an object (the cache is disposable): the branch is fetched again, with no lock held, from
-    the address the entry has (the tracked one for a listed catalog), and the step that needed it is made again."""
-    url, branch = (entry["shadows"].get("url"), entry["shadows"].get("branch")) if entry["kind"] == "folder" \
-        else defaults.effective(entry)
-    gitx.require()
-    bare.fetch(gitx.parse_address(url), branch, registry.store_dir(ns), stall=30, cap=CHECK_CAP)
-
-
-def _targeted(ns, op, held, entry):
+def _targeted(ns, op, held):
     """(the commit an Update or a Go back moves to, moved): the one `_offered` gives from the tip the store holds, or
     `lock.previous`. None when there is nothing to move to. `moved`: the release installed was moved to it."""
     if op == "undo":
@@ -1251,10 +1087,6 @@ def _targeted(ns, op, held, entry):
             raise CatalogError("no_previous", NO_PREVIOUS, 409)
         return held["previous"], False
     store_path, contract = registry.store_dir(ns), _contract()
-    if store_path.is_dir() and not bare.releases_read(store_path):
-        # A store fetched before this Lab read releases does not say whether the catalog makes some: an Update reads them first,
-        # rather than move to the newest commit of a catalog that offers releases
-        _refetch(ns, entry)
     tip = bare.resolve(store_path, "tip") if store_path.is_dir() else None
     if tip is None:
         tip = held.get("tip")
@@ -1274,7 +1106,7 @@ def _on_keys(ns):
 
 
 def _names_of(found, ns, keys):
-    return [{"kind": key.partition(":")[0], "id": _unit_id(ns, *key.split(":", 1)),
+    return [{"kind": key.partition(":")[0], "id": _unit_id(ns, key.partition(":")[2]),
              "name": _unit_name(found, ns, key)} for key in sorted(keys)]
 
 
@@ -1303,8 +1135,8 @@ def _after(found, ns, plan, judged):
     that the plan drops left out and those it rewrites replaced by the new version's. An item of the catalog that the same
     release rewrites, or removes, is not broken by what it no longer includes."""
     going = list(plan["removes"]) + sorted(plan.get("renamed") or {})   # an item renamed is not there under its old id
-    changed = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["updates"] + going}
-    dropped = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in going}
+    changed = {(key.partition(":")[0], _unit_id(ns, key.partition(":")[2])) for key in plan["updates"] + going}
+    dropped = {(key.partition(":")[0], _unit_id(ns, key.partition(":")[2])) for key in going}
     world = {}
     for kind in paths.KINDS:
         world[kind] = {uid: unit for uid, unit in (found.get(f"{kind}s") or {}).items() if (kind, uid) not in changed}
@@ -1336,7 +1168,7 @@ def _changes_of(plan, ns, judged, verdicts, old_verdicts):
     changes = []
     for key in plan["updates"]:
         kind, name = key.split(":", 1)
-        uid = _unit_id(ns, kind, name)
+        uid = _unit_id(ns, name)
         new, old = (verdicts.get((kind, uid)) or {}).get("surface"), (old_verdicts.get((kind, uid)) or {}).get("surface")
         if new is None or old is None:
             continue
@@ -1346,7 +1178,7 @@ def _changes_of(plan, ns, judged, verdicts, old_verdicts):
 
 
 def _plan(ns, op):
-    """The plan of moving a catalog to the commit `pick` chose, or back to the
+    """The plan of moving a catalog to the commit `searched` chose, or back to the
     previous one. Under the catalogs lock it stages the candidate, judges it against everything installed and tells what
     changes, what that breaks, what grows in power, and what holds it back. Answers the Plan of 13.2 with a ticket, or
     {"upToDate": true}."""
@@ -1354,13 +1186,13 @@ def _plan(ns, op):
     if not held.get("pin"):
         raise ValueError(f"{_called(ns)} has nothing installed yet")
     try:
-        target, moved = _targeted(ns, op, held, entry)
-    except bare.MissingObject:
-        _refetch(ns, entry)
-        target, moved = _targeted(ns, op, held, entry)
+        target, moved = _targeted(ns, op, held)
+    except bare.MissingObject:   # the cache is disposable: fetched again, with no lock held, and the step is made again
+        _fetch_tip(ns, entry)
+        target, moved = _targeted(ns, op, held)
     if target is None:
         return {"upToDate": True}
-    context = {"on": _on_keys(ns), "vouched": _vouched(entry), "contract": _contract(), "moved": moved}
+    context = {"on": _on_keys(ns), "contract": _contract(), "moved": moved}
     with _changing():
         try:
             plan = install.plan_update(ns, target, context)
@@ -1380,8 +1212,8 @@ def _plan(ns, op):
             _remove_stage(ns)   # what was refused is not left to be installed
             raise
         old_verdicts = project.judge_inputs(live[1])[1]
-        gone = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan["removes"]}
-        renamed = {(key.partition(":")[0], _unit_id(ns, *key.split(":", 1))) for key in plan.get("renamed") or {}}
+        gone = {(key.partition(":")[0], _unit_id(ns, key.partition(":")[2])) for key in plan["removes"]}
+        renamed = {(key.partition(":")[0], _unit_id(ns, key.partition(":")[2])) for key in plan.get("renamed") or {}}
         after = _after(found, ns, plan, judged)
         moved = renames.files(ns, plan.get("renamed") or {})
         lost = [one for one in _items_that_include(found, renamed, after) if not _follows(found, one, moved)]
@@ -1394,7 +1226,7 @@ def _plan(ns, op):
         emptied = _movable_line(ns, plan["from"], plan["to"], plan["op"])
         def cannot_run(key):
             kind, _, name = key.partition(":")
-            return layers.why_not((judged.get(kind) or {}).get(_unit_id(ns, kind, name)) or {}) is not None
+            return layers.why_not((judged.get(kind) or {}).get(_unit_id(ns, name)) or {}) is not None
         including = _on_includers(found, ns, plan.get("renamed") or {}, after, moved)
         # What includes a renamed item is asked again when the update is applied, as it is then
         plan["context"]["including"] = lambda: _on_includers(project.loaded()[0], ns, plan.get("renamed") or {}, after, moved)
@@ -1406,7 +1238,7 @@ def _plan(ns, op):
         _keep(ticket, op, ns=ns, plan=plan)
     updates = [{**one, "what": plan["touched"].get(key, [])}
                for key, one in zip(sorted(plan["updates"]), _names_of_new(plan["updates"], ns, judged))]
-    return {"ticket": ticket, "expires": int(TTL), "from": _short(plan["from"]), "to": _short(plan["to"]),
+    return {"ticket": ticket, "from": _short(plan["from"]), "to": _short(plan["to"]),
             "version": plan["version"], "version_from": held.get("version"), "release": plan["release"],
             "rewritten": bool(plan["rewritten"]),
             "updates": updates, "adds": _names_of_new(plan["adds"], ns, judged),
@@ -1431,7 +1263,7 @@ def _on_includers(found, ns, renamed, after, moved):
     held = {}
     for old in sorted(renamed):
         kind, _, name = old.partition(":")
-        for one in _items_that_include(found, {(kind, _unit_id(ns, kind, name))}, after):
+        for one in _items_that_include(found, {(kind, _unit_id(ns, name))}, after):
             if is_on(one) and not _follows(found, one, moved):
                 held.setdefault(old, one["name"])
     return held
@@ -1445,12 +1277,12 @@ def _follows(found, item, moved):
     return bool(file) and renames.follows(file, moved)
 
 
-def _contained(found, ns, services):
-    """The units of catalog `ns` among `services` ({kind:name: their services}) that have a container in the project, running
-    or not. A container whose service an item of another origin that is on defines too (the person's copy, under the names of
-    the original) is that item's. Docker not answering is `docker_unknown`: nothing of a renamed item is moved on a guess."""
-    if not services:
-        return set()
+def _containers(ns, services):
+    """`install.CONTAINERS`: the units of catalog `ns` among `services` ({kind:name: their services}) that have a container in the
+    project, running or not. A container whose service an item of another origin that is on defines too (the person's copy, under
+    the names of the original) is that item's. Docker not answering is `docker_unknown`: nothing of a renamed item is moved on a
+    guess."""
+    found = project.loaded()[0]
     made = set(_ps())
     state = layers.current(found)
     on = [("addons", uid) for uid in state["effective"]] + ([("playgrounds", state["playground"])] if state["playground"] else [])
@@ -1467,11 +1299,6 @@ def _ps():
         raise CatalogError("docker_unknown", DOCKER_UNKNOWN, 503) from None
 
 
-def _containers(ns, services):
-    """`install.CONTAINERS`: `_contained`, in the project as it is now."""
-    return _contained(project.loaded()[0], ns, services)
-
-
 install.CONTAINERS = _containers
 DOCKER_UNKNOWN = ("Docker is not answering, and an item this renames must have no container first. "
                   "Fix: start Docker, then try again.")
@@ -1481,23 +1308,9 @@ def _emptying_line(found, ns, key, on, running, name=None):
     """The line of a hold for a unit that has containers: turning it off removes them, and so does stopping one that runs
     without being on; the stopped containers of one that is off go with Remove containers. `name`: what the version it is
     moved from calls it, when the project no longer shows it."""
-    name = resolve.shown(name, NAME_CUT) if name else _item_name(found, ns, key)
+    name = resolve.shown(name, NAME_CUT) if name else _unit_name(found, ns, key)
     return f"Turn off {name} first" if key in on else f"Stop {name} first" if key in running \
         else f"Remove the containers of {name} first"
-
-
-def _item_name(found, ns, key):
-    """`_unit_name`, and for a unit the project does not show (a catalog that is damaged) the name its file gives it."""
-    kind, _, name = key.partition(":")
-    if (found.get(f"{kind}s") or {}).get(_unit_id(ns, kind, name)) is None:
-        file = paths.ROOT / paths.CATALOG_FILES[kind].format(ns=ns, name=name)
-        try:
-            said = compose.x_gravitee(file.read_text(encoding="utf-8"), file.parent, name=file.name) or {}
-        except (OSError, ValueError, compose.ComposeError):
-            said = {}
-        if isinstance(said.get("name"), str):
-            return resolve.shown(said["name"], NAME_CUT)
-    return _unit_name(found, ns, key)
 
 
 def _named(ns, error):
@@ -1507,7 +1320,7 @@ def _named(ns, error):
         return error
     found = project.loaded()[0]
     if error.code == "rename_stuck":
-        return CatalogError("rename_stuck", renames.STUCK.format(name=_item_name(found, ns, units[0])), 409, units=units)
+        return CatalogError("rename_stuck", renames.STUCK.format(name=_unit_name(found, ns, units[0])), 409, units=units)
     on, running = _used(ns, found)
     if error.detail.get("containers"):   # what runs is asked of the containers: a damaged catalog shows no unit
         with contextlib.suppress(CatalogError):
@@ -1532,8 +1345,8 @@ def _renames_of(found, ns, plan, judged, on):
 
 def _names_of_new(keys, ns, judged):
     """The same as `_names_of` for units of the new version, named as the new catalog.yml and compose files name them."""
-    return [{"kind": key.partition(":")[0], "id": _unit_id(ns, *key.split(":", 1)),
-             "name": resolve.shown((judged[key.partition(":")[0]].get(_unit_id(ns, *key.split(":", 1))) or {}).get("name")
+    return [{"kind": key.partition(":")[0], "id": _unit_id(ns, key.partition(":")[2]),
+             "name": resolve.shown((judged[key.partition(":")[0]].get(_unit_id(ns, key.partition(":")[2])) or {}).get("name")
                                    or key.partition(":")[2], NAME_CUT)} for key in sorted(keys)]
 
 
@@ -1564,13 +1377,12 @@ def _apply(ns, ticket, confirm_history, op):
     _spend(ticket)
     with contextlib.suppress(OSError):
         layers.prepare_catalogs()
-    project.forget()
     return {"catalog": _row_of(ns)}
 
 
 def _settled(ns, plan, before):
     """What the lock remembers of the last check after the pin moved. An Update moved to the newest version the store holds
-    (the plan's target is what `pick` chose from the tip it has), so nothing newer is on offer, whatever the last check said
+    (the plan's target is what `searched` chose from the tip it has), so nothing newer is on offer, whatever the last check said
     (it may have named a commit of the history that was just replaced). A Go back leaves the version it left as the newer one,
     so the row says "Update available" again and the action toggles, and going forward again leaves nothing newer."""
     seen = {key: value for key, value in _seen(registry.lock_of(ns)).items() if key != "searched"}   # the next check reads again
@@ -1644,8 +1456,8 @@ def _removal(ns, entry):
         raise CatalogError("linked", install.LINKED, 409)
     found = project.loaded()[0]
     units = registry.units_of(ns)
-    going = {(kind, _unit_id(ns, kind, name)) for kind, names in units.items() for name in names}
-    return {"held": _hold(ns, None, found) or _under_way_hold(ns, held), "items": sum(len(names) for names in units.values()),
+    going = {(kind, _unit_id(ns, name)) for kind, names in units.items() for name in names}
+    return {"held": _hold(ns, found) or _under_way_hold(ns, held), "items": sum(len(names) for names in units.values()),
             "folder": entry["kind"] == "folder", "breaks": [{k: one[k] for k in ("kind", "id", "name")}
                                                             for one in _items_that_include(found, going)],
             "stays": _stays(found, ns)}
@@ -1682,7 +1494,7 @@ def remove(ns, check=False, keep_settings=True):
 
 def repair(ns):
     """Repair: the install is made again at the pin from the local store. A store that lacks an object is fetched again
-    with no lock held () and the repair is made again. Answers {"catalog": Row}."""
+    with no lock held and the repair is made again. Answers {"catalog": Row}."""
     entry, _ = _git(ns)
     _no_job()
     try:
@@ -1690,7 +1502,7 @@ def repair(ns):
             with _changing():
                 install.repair(ns)
         except bare.MissingObject:
-            _refetch(ns, entry)
+            _fetch_tip(ns, entry)
             with _changing():
                 install.repair(ns)
     except CatalogError as error:
@@ -1699,26 +1511,7 @@ def repair(ns):
     except Exception:
         _unstick(ns)
         raise
-    project.forget()
     return {"catalog": _row_of(ns)}
-
-
-def unshadow(ns):
-    """Stops a working copy standing in for a git catalog: the install is made again from the store, which is fetched
-    again first when the cache was cleared meanwhile (), from the address the entry remembers. Answers what
-    `install.unshadow` does."""
-    entry = _entry(ns)
-    if entry["kind"] != "folder" or not entry.get("shadows"):
-        raise ValueError(f"{_called(ns)} is not a catalog that a working copy stands in for")
-    try:
-        with _changing():
-            done = install.unshadow(ns)
-    except bare.MissingObject:
-        _refetch(ns, entry)
-        with _changing():
-            done = install.unshadow(ns)
-    project.forget()
-    return done
 
 
 # ---------------------------------------------------------------------------------------------------------------------

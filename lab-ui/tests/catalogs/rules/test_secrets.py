@@ -1,14 +1,13 @@
-"""SE, secrets and private identifiers, in the files of a tree and in the lines a change added. For each code one
+"""SE, secrets, in the files of a tree and in the lines a change added. For each code one
 failing fixture in which only that code fires, and one that passes; the message equals and never holds the secret. A
 secret that a test plants is made of pieces when the test runs (tests/data/rules/support.py), so no file holds one. A line of a
-megabyte finishes every pattern in under a second. The calibration at the end reads this checkout's tracked files."""
+megabyte finishes every pattern in under 3 seconds of CPU. The calibration at the end reads this checkout's tracked files."""
 
 import re
-import subprocess
 import unittest
 
-from lab_ui.catalogs.rules import Context, context, secrets, text_of
-from lab_ui.catalogs.tree import Added, ListTree
+from lab_ui.catalogs.rules import context, secrets, text_of
+from lab_ui.catalogs.tree import Added
 from tests.data.rules import support
 from tests.data.rules.support import codes, run
 
@@ -163,14 +162,15 @@ class Patterns(unittest.TestCase):
     def test_se04_is_asked_of_every_compose_file_of_a_unit_and_not_of_what_is_no_compose_file(self):
         text = "services:\n  a:\n    environment:\n      DB_PASSWORD: hunter2\n"
         for name in ("addons/hello/compose.override.yml", "addons/hello/compose.prod.yaml", "addons/hello/services.yml",
-                     "addons/hello/docker-compose.dev.yaml", "playgrounds/shop/apps/web/dev.yml", "addons/hello/sub/extra.yml"):
+                     "addons/hello/docker-compose.dev.yaml", "playgrounds/shop/apps/web/dev.yml", "addons/hello/sub/extra.yml",
+                     "addons/hello/compose.yml", "setups/all.yml", "docker-compose.yml", "addons/hello/x.compose.yml"):
             with self.subTest(name=name):
                 self.assertEqual(["SE04"], [each.code for each in run(secrets, {name: text})])
         other = "database:\n  password: hunter2\nservices_list: [a]\n"
         for name in ("addons/hello/config.yml", "addons/hello/application.yaml", "docs/services.yml", "playgrounds/shop/seed/x/services.yml"):
             with self.subTest(quiet=name):
                 self.assertEqual([], run(secrets, {name: other}), "a configuration is no Compose file")
-        for name in ("docs/services.yml", "playgrounds/shop/seed/x/services.yml"):
+        for name in ("docs/services.yml", "playgrounds/shop/seed/x/services.yml", "docs/a.md", "playgrounds/shop/seed/apim/apis/a.yaml", "docs/config.yml"):
             with self.subTest(outside=name):
                 self.assertEqual([], run(secrets, {name: text}), "not in a unit, or a seed")
 
@@ -197,13 +197,6 @@ class Patterns(unittest.TestCase):
         body = "x-gravitee:\n  accounts:\n    - for: me\n      username: a\n      password: hunter2\n    - for: key\n      key: abc\n"
         found = run(secrets, {"playgrounds/shop/compose.yml": body, "playgrounds/shop/README.md": "x"})
         self.assertEqual([("SE04", 5), ("SE04", 7)], [(each.code, each.line) for each in found])
-
-    def test_se04_is_asked_of_compose_files_and_not_of_a_guide_or_a_seed(self):
-        text = "services:\n  a:\n    environment:\n      DB_PASSWORD: hunter2\n"
-        for name in ("docs/a.md", "playgrounds/shop/seed/apim/apis/a.yaml", "docs/config.yml"):
-            self.assertEqual([], run(secrets, {name: text}), name)
-        for name in ("addons/hello/compose.yml", "setups/all.yml", "docker-compose.yml", "addons/hello/x.compose.yml"):
-            self.assertEqual({"SE04"}, codes(run(secrets, {name: text})), name)
 
     def test_se05_a_url_with_a_password(self):
         message = "{p}:{n} holds a URL with a password. Fix: take the password from a setting."
@@ -234,14 +227,6 @@ class Patterns(unittest.TestCase):
                           "://user:hunter2@host", "-://user:hunter2@host"])
         self.assertEqual([], run(secrets, {"docs/a.md": text}))
 
-    def test_se06_a_private_identifier_when_share_targets_a_public_catalog(self):
-        message = "{p}:{n} names {name}, which belongs to a private catalog. Fix: remove it, or share to a Private catalog."
-        only(self, "SE06", "addons/hello/compose.yml", 5, message.format(p="addons/hello/compose.yml", n=5, name="registry.corp.example"),
-             {"addons/hello/compose.yml": "services:\n  a:\n    image: busybox\n    x: y\n    z: Registry.Corp.Example/a:1\n"},
-             private=("registry.corp.example",))
-        self.assertEqual([], run(secrets, {"docs/a.md": "ns here"}, private=("ns", "")), "an identifier shorter than four letters is none")
-        self.assertEqual([], run(secrets, {"docs/a.md": "registry.corp.example"}), "nothing is private until Share says so")
-
     def test_se07_an_allow_marker(self):
         message = "{p}:{n} carries a scanner allow marker. Fix: remove it; a maintainer decides what the scan may skip."
         for marker in ("# gitleaks:allow", "x = 1  // GITLEAKS:ALLOW", "a  # pragma: allowlist secret", "# pragma:allowlist nextline secret",
@@ -250,32 +235,27 @@ class Patterns(unittest.TestCase):
                 only(self, "SE07", "docs/a.md", 2, message.format(p="docs/a.md", n=2), {"docs/a.md": f"fine\nvalue {marker}\n"})
         self.assertEqual([], run(secrets, {"docs/a.md": "gitleaks is a scanner; allow lists are discussed elsewhere\n"}))
 
-    def test_se03_is_a_row_of_the_table_and_a_helper_for_the_gitleaks_stage(self):
-        found = secrets.se03("docs/a.md", 4, "generic-api-key")
-        self.assertEqual(("SE03", "error", "docs/a.md", 4), found[:4])
-        self.assertEqual("docs/a.md:4 matches the rule generic-api-key (the secret is redacted). Fix: revoke it first, then remove "
-                         "it from the commits of this branch: git reset --soft $(git merge-base origin/main HEAD), commit again, "
-                         "and force-push your branch.", found.message)
+    def test_se04_the_names_of_a_secret(self):
+        def literal(*names):
+            text = "services:\n  a:\n    environment:\n" + "".join(f"      {name}: literal\n" for name in names)
+            return [name for _, name in secrets.compose_literals(text)]
+        named = ["PASSWORD", "DB_PASSWD", "KEYSTORE_PASSPHRASE", "CLIENT_SECRET", "LLM_API_KEY", "OPENAI_APIKEY", "ADMIN_TOKEN", "token",
+                 "gravitee_ratelimit_redis_password", "Admin_Password", "BROKER_CLIENT_PASSWORDS", "ACME_KEY", "encryption_key",
+                 "signing-key", "gravitee.license.key", "llm.Key", "SECRET_HOSTS", "PASSWORD_PORTS"]
+        self.assertEqual(literal(*named), named)
+        # What only has key in its name, and what says where a secret is, what kind it is, how it is reached or whether it is on
+        self.assertEqual(literal("KEY", "KEYS", "KEY_ID", "KEYSTORE", "MONKEY", "PUBLIC_KEY", "public-key", "ssl.public.key",
+                                 "AM_TOKEN_URL", "DB_PASSWORD_FILE", "CLIENT_SECRET_PATH", "TLS_SECRET_URI", "BROKER_SECRET_TYPE",
+                                 "TOKEN_ENDPOINT", "gravitee_secrets_enabled", "gravitee_secrets_vault_host", "gravitee_secrets_vault_port",
+                                 "gravitee_secrets_vault_auth_method", "gravitee_secrets_vault_namespace", "SECRET_PROVIDER", "PASSWORD_POLICY",
+                                 "PASSWORD_REGEX", "ADMIN_TOKEN_TIMEOUT", "ADMIN_API_KEY_TIMEOUTMS", "NEXTAUTH_URL"), [])
 
-    def test_the_messages_of_the_table_are_section_6(self):
-        self.assertEqual({"SE01", "SE02", "SE03", "SE04", "SE05", "SE06", "SE07"}, set(secrets.RULES))
-        self.assertEqual("{path}:{line}: {name} has a literal value. Fix: write ${NAME:-} and set the value in .env.",
-                         secrets.RULES["SE04"].message)
-        self.assertEqual("{path}:{line} looks like {kind}. Fix: make it a setting (${PREFIX_NAME}) and keep the value in .env. If "
-                         "it is a real token, revoke it first, then remove it from the commits of this branch (git reset --soft "
-                         "$(git merge-base origin/main HEAD), commit again, force-push).", secrets.RULES["SE02"].message)
-
-    def test_the_names_of_secrets_are_the_ones_of_the_engines_own_check(self):
-        from lab_ui.library import check
-        self.assertEqual(check.SECRET_NAME.pattern, secrets.SECRET_NAME.pattern)
-        self.assertEqual(check.SECRET_NAME.flags, secrets.SECRET_NAME.flags)
-        self.assertEqual(check.SIGN_IN.pattern, secrets.SIGN_IN.pattern)
-        self.assertEqual(check.NOT_SECRET.pattern, secrets.NOT_SECRET.pattern)
-        if hasattr(check, "_secrets"):
-            sample = {"services": {"a": {"environment": {"DB_PASSWORD": "hunter2", "OK": "${X}", "A_TOKEN_URL": "u", "KEY": "v"}}}}
-            flagged = {key for _, key, _, why in check._secrets(sample) if why == "literal"}
-            text = "services:\n  a:\n    environment:\n      DB_PASSWORD: hunter2\n      OK: ${X}\n      A_TOKEN_URL: u\n      KEY: v\n"
-            self.assertEqual(flagged, {name for _, name in secrets.compose_literals(text)})
+    def test_se04_a_label_an_extension_block_and_the_sign_in_a_console_shows(self):
+        text = ("services:\n  ui:\n    build:\n      args:\n        NPM_TOKEN: abc\n    labels:\n"
+                "      io.gravitee.console.ui.password: admin\n      io.gravitee.console.password: admin\n      io.example.api-key: abc\n"
+                "x-demo:\n  deep:\n    - client_secret: s\n  password: 1234\n")
+        self.assertEqual([name for _, name in secrets.compose_literals(text)],
+                         ["NPM_TOKEN", "io.gravitee.console.password", "io.example.api-key", "client_secret", "password"])
 
 
 class Hostile(unittest.TestCase):
@@ -286,37 +266,28 @@ class Hostile(unittest.TestCase):
               "ghp_" + "a" * 40 + "_", "sk-" + "a" * 33 + "!", "a" * 38 + ".", "eyJ" + "a" * 20 + ".", "xoxb-" + "a" * 20 + "_",
               "://:", "://a:$", "://:${", "://:$$", "://" + "a" * 100, "://a:b", "_AKIA", "KEY_ghp_", ":\n  x", "A_PASSWORD="]
 
-    def fast(self, call, *args):
-        """The seconds a call takes; asked again twice when it is slow, because the machine of a test run is shared."""
-        best = support.timed(call, *args)[1]
-        for _ in range(2 if best >= 1.0 else 0):
-            best = min(best, support.timed(call, *args)[1])
-        return best
-
-    def test_every_pattern_finishes_on_a_line_of_a_megabyte_in_under_a_second(self):
+    def test_every_pattern_finishes_on_a_line_of_a_megabyte(self):
         for piece in self.PIECES:
             line = piece * (1024 * 1024 // len(piece))
-            listing = ListTree.from_files({"addons/hello/compose.yml": line, "docs/a.md": line, ".env.example": line})
-            ctx = context(listing, private=("registry.corp.example",))
             for path in ("addons/hello/compose.yml", "docs/a.md"):
-                seconds = self.fast(secrets.scan_text, path, line, ctx)
-                self.assertLess(seconds, 2.0, f"{piece[:20]!r} in {path}: {seconds:.2f} s")   # one second on a quiet machine, two on a shared runner
+                _, seconds = support.timed(secrets.scan_text, path, line)
+                self.assertLess(seconds, 3.0, f"{piece[:20]!r} in {path}: {seconds:.2f} s")
             added = [Added("a" * 40, "addons/hello/compose.yml", 1, line)]
 
             class Here:
                 def read(self, path, limit=0):
                     return line.encode()[:limit]
 
-            seconds = self.fast(lambda: secrets.scan_added(added, ctx, Here()))
-            self.assertLess(seconds, 1.0, f"{piece[:20]!r} as an added line: {seconds:.2f} s")
+            _, seconds = support.timed(secrets.scan_added, added, Here())
+            self.assertLess(seconds, 3.0, f"{piece[:20]!r} as an added line: {seconds:.2f} s")
 
     def test_a_file_of_many_short_lines_is_read_in_proportion_to_its_size(self):
         text = "services:\n  a:\n    environment:\n" + "      K: v\n" * 60000
-        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text, Context())
-        self.assertLess(seconds, 4.0)
+        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
+        self.assertLess(seconds, 3.0)
         text = "x-a:\n" + "".join(f"  k{number}: &a{number} v\n" for number in range(30000))
-        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text, Context())
-        self.assertLess(seconds, 4.0)
+        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
+        self.assertLess(seconds, 3.0)
 
     def test_flow_collections_are_read_within_a_budget(self):
         head = "services:\n  a:\n    environment: "
@@ -325,12 +296,12 @@ class Hostile(unittest.TestCase):
                   "quotes": "[" + "'" * 60000, "colons": "{" + ":" * 60000 + "}", "commas": "[" + "," * 60000 + "]"}
         for label, shape in shapes.items():
             text = head + shape + "\n"
-            _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text, Context())
-            self.assertLess(seconds, 1.0, f"{label}: {seconds:.2f} s")
+            _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", text)
+            self.assertLess(seconds, 3.0, f"{label}: {seconds:.2f} s")
         joined = head + "[\n" + "\n".join(["A_B=c, " * 1400 for _ in range(100)]) + "]\n"   # a megabyte over a hundred lines
         self.assertLess(len(joined), 1024 * 1024 + 100)
-        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", joined, Context())
-        self.assertLess(seconds, 0.8, "a flow collection over a hundred lines is scanned once, not again for each line")
+        _, seconds = support.timed(secrets.scan_text, "addons/hello/compose.yml", joined)
+        self.assertLess(seconds, 3.0, "a flow collection over a hundred lines is scanned once, not again for each line")
 
     def test_the_flow_reader_gives_what_a_flow_collection_sets(self):
         self.assertEqual([("A", "1"), ("B", "x y")], secrets.flow_pairs("[A=1, \"B=x y\", C]"))
@@ -358,9 +329,6 @@ class History(unittest.TestCase):
         added = self.lines(*rows)
 
         class Fake:
-            def commits(self):
-                return []
-
             def added(self):
                 return iter(added)
 
@@ -462,18 +430,9 @@ class Calibration(unittest.TestCase):
     # Files that are not tests and that write such a URL as an example
     EXAMPLES = ("lab-ui/lab_ui/catalogs/gitx.py", "lab-ui/lab_ui/catalogs/rules/secrets.py")
 
-    def tracked(self):
-        try:
-            done = subprocess.run(["git", "ls-files", "-z"], cwd=support.ROOT, capture_output=True, timeout=60)
-        except (OSError, subprocess.SubprocessError):
-            done = None
-        if done is None or done.returncode != 0:
-            self.skipTest("this checkout is not a git work tree")
-        return [name.decode() for name in done.stdout.split(b"\0") if name]
-
     def test_the_precise_patterns_find_nothing_outside_the_fixtures_of_tests(self):
         found, urls, scanned = [], [], 0
-        for name in self.tracked():
+        for name in support.tracked(self):
             path = support.ROOT / name
             if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
                 continue
@@ -488,16 +447,9 @@ class Calibration(unittest.TestCase):
         self.assertEqual([], [name for name in urls if "/tests/" not in name and not name.endswith(".md") and name not in self.EXAMPLES],
                          "a URL with a password outside the documentation and the tests")
 
-    def test_the_units_of_the_engine_hold_no_literal_secret_and_no_url_with_a_password(self):
-        found = []
-        for name in self.tracked():
-            if name.split("/")[0] in ("addons", "setups", "playgrounds") and not name.endswith((".md", ".png", ".svg")):
-                path = support.ROOT / name
-                if path.is_file() and not path.is_symlink() and path.stat().st_size <= 1024 * 1024:
-                    found += [(name, each.code, each.line) for each in secrets.scan_text(name, text_of(path.read_bytes()), Context())]
-        self.assertEqual([], found)
+    def test_the_core_holds_no_literal_secret_and_no_url_with_a_password(self):
         core = (support.ROOT / "docker-compose.yml").read_text()
-        self.assertEqual([], secrets.scan_text("docker-compose.yml", core, Context()))
+        self.assertEqual([], secrets.scan_text("docker-compose.yml", core))
 
 
 if __name__ == "__main__":

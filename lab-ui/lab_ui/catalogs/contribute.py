@@ -9,7 +9,7 @@ unit are at one depth, so only an include of the catalog itself changes).
 Before anything leaves it is judged the way a consumer and the catalog's CI will judge it: its includes are in the target
 or in a catalog the target declares, no secret is in it and, for a Public target, no name of a private catalog; the text
 screen is clean, Compose loads it alone with the core, the trust policy lets it run, the rules every item of a catalog keeps
-(`check.problems(sharing=...)`: a category, a README, `unless-stopped`, a description on each service, ports on the loopback)
+(`check.problems(sharing=...)`: a category, a README, `unless-stopped`, a description on each service)
 are kept, and the rules of the catalog standard (ST, SE, DF, GD, IM) find nothing in the files that would be copied. The copy
 is judged in a hidden folder beside the installs, `.lab/catalogs/.stage-share~<token>`, at the depth of a unit so that its
 relative paths resolve as they will; an include of the target's own units is written there as the include of another catalog,
@@ -19,7 +19,7 @@ inside an install.
 A catalog that is a repository gets a branch: the files go in a commit built with plumbing in the catalog's bare store (no
 working tree, no hook) on top of the tip just fetched, as the person (their `user.name` and `user.email`, no trailer, no
 tool), and pushed to `lab/<name>-<yyyymmdd>`, never forced, never to the default branch. A refused push leaves the item where
-it was. A folder catalog gets a plain copy of the same files (`sweep` removes the half copy a stop leaves). `moved` and
+it was. A folder catalog gets a plain copy of the same files (the next share of the item clears the half copy a stop leaves). `moved` and
 `use_catalog_version` are the other half: once the catalog has the item and the person has updated, the item of this machine
 and the catalog's are the same item, and this replaces the first by the second, taking its settings along; what else
 its folder holds is set aside in `.lab/migration/kept/`, and nothing is deleted while anything could not be moved.
@@ -43,7 +43,7 @@ from urllib.parse import quote
 from ..library import check, layers, moves, personal, project as projects, tested
 from ..docker import compose
 from .. import paths
-from . import defaults, gitx, install, manifest, meta as block, registry, resolve, store as bare, trust, understood
+from . import defaults, gitx, install, manifest, meta as block, registry, renames, resolve, store as bare, trust, understood
 from .registry import CatalogError
 
 LOCAL = paths.LOCAL
@@ -53,7 +53,6 @@ LOAD_WAIT = 20   # seconds Compose has to load a copy alone with the core
 # minutes), the fetch of the tip, the question of the names of the branches, the push
 FETCH_CAP, LIST_WAIT, PUSH_WAIT = 40, 15, 40
 NAME_LIMIT = 60   # characters of an item's name that go into a subject or a line
-SWEEP_AGE = 24 * 3600.0   # seconds after which a half copy in a person's folder is a leftover
 # Registries everyone pulls from: the host of one of them says nothing of a private catalog, and its images are in public items
 PUBLIC_REGISTRIES = frozenset({"docker.io", "index.docker.io", "registry-1.docker.io", "ghcr.io", "quay.io", "gcr.io",
                                "registry.k8s.io", "k8s.gcr.io", "mcr.microsoft.com", "public.ecr.aws", "registry.gitlab.com"})
@@ -124,25 +123,12 @@ def _catalog(ns, rows):
     return entry, row
 
 
-_CATALOG_YML = {}   # ns -> (the stamp of its catalog.yml, what the Lab reads in it)
-
-
 def _yml(ns) -> dict:
-    """The validated catalog.yml of an added catalog ({} when it cannot be read: its own review is the real gate), read again
-    when the file changes."""
-    relative = f"{paths.CATALOGS_DIR}/{ns}/{registry.CATALOG_FILE}"
+    """The validated catalog.yml of an added catalog ({} when it cannot be read: its own review is the real gate)."""
     try:
-        info = os.stat(paths.ROOT / relative)
-    except OSError:
+        return manifest.read_catalog(f"{paths.CATALOGS_DIR}/{ns}/{registry.CATALOG_FILE}")
+    except CatalogError:
         return {}
-    held = _CATALOG_YML.get(ns)
-    if not held or held[0] != (info.st_mtime_ns, info.st_size):
-        try:
-            found = manifest.read_catalog(relative)
-        except CatalogError:
-            found = {}
-        held = _CATALOG_YML[ns] = ((info.st_mtime_ns, info.st_size), found)
-    return held[1]
 
 
 def _takes(ns, row) -> bool:
@@ -151,14 +137,11 @@ def _takes(ns, row) -> bool:
     return row["kind"] != "git" or _yml(ns).get("contribute") != "none"
 
 
-def _address(entry, held):
+def _address(entry):
     """(the Address a repository catalog is pushed to, its branch): the tracked address for a listed catalog, the stored one
-    for any other, in the form (https or ssh) that answered the last time."""
+    for any other."""
     url, branch = defaults.effective(entry)
-    address = gitx.parse_address(url or "")
-    if held.get("via") == "ssh":
-        address = gitx.ssh_form(address) or address
-    return address, branch
+    return gitx.parse_address(url or ""), branch
 
 
 _PROBES = {}   # (url, branch) -> (when, "yes" | "no")
@@ -261,7 +244,7 @@ def destinations(project: dict, kind: str, uid: str) -> list:
                 else UNDECLARED.format(item=outside[0], owner=outside[1], catalog=row["name"])
         elif row["kind"] == "git":
             try:
-                address, branch = _address(entry, registry.lock_of(ns))
+                address, branch = _address(entry)
             except CatalogError:
                 address = None
             if address is not None and _believed(address, branch) == "no":
@@ -372,21 +355,6 @@ def _named(text) -> List[str]:
     return sorted(found)
 
 
-def _read(file, limit=bare.OTHER_FILE + 1) -> Optional[bytes]:
-    """The bytes of a regular file without following a link, at most `limit` of them; None when it cannot be read."""
-    try:
-        descriptor = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
-    except OSError:
-        return None
-    try:
-        with os.fdopen(descriptor, "rb", closefd=False) as handle:
-            return handle.read(limit)
-    except OSError:
-        return None
-    finally:
-        os.close(descriptor)
-
-
 def _place(kind, slug, ns, source=LOCAL):
     """(the folder the compose file is in now, the folder it will be in, its path in the catalog). `source`: the catalog
     it is in now, this machine's own by default."""
@@ -418,12 +386,10 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
     compose file names."""
     before, after, head = _place(kind, slug, ns, source)
     uid = _uid(source, slug)
-    data, problems = _read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE + 1), []
+    data, why = registry._read(paths.ROOT / paths.unit_file(kind, uid), bare.TEXT_FILE, follow=False)
+    problems = []
     if data is None:
-        problems.append("compose.yml cannot be read.")
-    elif len(data) > bare.TEXT_FILE:
-        data = None
-        problems.append(REFUSED["ST09"].format(rel="compose.yml"))
+        problems.append(REFUSED["ST09"].format(rel="compose.yml") if "larger" in str(why) else "compose.yml cannot be read.")
     try:
         kept = (data or b"").decode("utf-8")
     except ValueError:
@@ -450,7 +416,7 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
         elif code:
             problems.append(REFUSED.get(code, "{rel} is not kept by a catalog.").format(rel=rel))
         elif rel != "compose.yml":
-            content = _read(os.path.join(base, rel))
+            content = registry._read(os.path.join(base, rel), bare.OTHER_FILE, follow=False)[0]
             if content is None:
                 problems.append(f"{rel} cannot be read.")
             else:
@@ -464,7 +430,7 @@ def collect(kind, slug, ns, source=LOCAL, moved=()) -> Copy:
 # The pre-flight
 # ---------------------------------------------------------------------------------------------------------------------
 
-# The rules of the standard whose finding is a secret in the copy (SE06 is `_named_private`)
+# The rules of the standard whose finding is a secret in the copy
 SECRETS = ("SE01", "SE02", "SE04", "SE05")
 LEAKS = (("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
          ("a token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16}"
@@ -498,7 +464,7 @@ def _leaked(copy, kind, slug):
 def _identifiers(ns, rows) -> Dict[str, str]:
     """{identifier: the name of the catalog it belongs to} for every other catalog of this machine that is not Public: its name,
     the address and the `owner/repo` of a repository, the prefix of the images its CI publishes and the host of that prefix
-    (a registry of its own: not one everyone pulls from). Each is looked for as a whole word. SE06."""
+    (a registry of its own: not one everyone pulls from). Each is looked for as a whole word."""
     found = {}
     for other, row in rows.items():
         if other in (ns, LOCAL) or row["audience"] == "public":
@@ -546,7 +512,7 @@ def _named_private(copy, ns, kind, slug, rows):
     return None
 
 
-def _rules(copy, kind, slug, ns, row):
+def _rules(copy, ns, row):
     """The errors of the rules of the catalog standard (ST, SE, DF, GD, IM) over the files that would be copied, as the
     catalog's CI reads them (`ListTree`): [Problem]. A part of a catalog: the files a whole one has are not asked for."""
     from . import audit, rules, tree   # here and not above: the rules are read only for a share
@@ -621,7 +587,8 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None
     units = {"addon": project["addons"], "setup": project["setups"], "playground": project["playgrounds"]}
     closure = list(dict.fromkeys(node for target in direct if paths.unit_of(target)
                                  for node in resolve.closure(units, *paths.unit_of(target))))
-    same = [paths.ROOT / paths.unit_folder(*node) for node in closure if node[0] != "setup" and paths.origin(node[1]) == ns]
+    same = [paths.ROOT / paths.unit_folder(*node) for node in closure
+            if node[0] != "setup" and paths.origin(node[1]) in (ns, paths.default_ns())]
     contract, listed, meta = inputs.get("contract") or {}, bool(row.get("listed")), raw.get("x-gravitee") or {}
     asked = (meta.get("requires") or {}).get("lab")
     context = {"ns": ns, "host_ok": bool(trust.host_ok(listed, {"host": row.get("host") == "allowed"})), "listed": listed,
@@ -642,7 +609,7 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None
     seeds = [data.decode("utf-8", "replace") for path, (_, data) in sorted(copy.files.items())
              if path.startswith(f"{kind}s/{slug}/seed/") and not any(part.startswith(".") for part in path.split("/"))]
     view = {"kind": kind, "id": uid, "name": meta.get("name") or slug, "meta": meta,
-            "includes": [(aliases or {}).get(one, one) for one in direct], "seed": None,
+            "includes": [(aliases or {}).get(one, one) for one in direct],
             "references": trust.reads([(paths.ROOT / stage).read_text(encoding="utf-8")], raw, []),
             "seed_references": trust.seed_reads(seeds)}
     verdict = trust.judge(view, config, core_config, own, trust.overlays(raw, names, others), roots,
@@ -664,8 +631,8 @@ def _judged(project, kind, uid, slug, ns, row, copy, stage, folder, aliases=None
 @contextlib.contextmanager
 def _staged_all(items, ns):
     """The files of several copies in one hidden folder beside the installs, laid out as the target holds them, so that what one of
-    them includes of the others is found there: yields ({(kind, slug): (the project path of its compose file, its folder)}, the
-    project path of the hidden folder). Removed when the block ends, whatever happens."""
+    them includes of the others is found there: yields ({(kind, slug): (the project path of its compose file, its folder)},
+    {its stage path: its path in the catalog}). Removed when the block ends, whatever happens."""
     name = f".stage-share~{os.urandom(4).hex()}"
     top, stage = paths.ROOT / paths.CATALOGS_DIR / name, f"{paths.CATALOGS_DIR}/{name}"
     table, places = [], {}
@@ -683,7 +650,7 @@ def _staged_all(items, ns):
             for path, (mode, data) in copy.files.items():
                 install.safe_write(top, path, text.encode("utf-8") if path == head else data, int(mode[-3:], 8))
         yield ({key: (f"{stage}/{head}", None if key[0] == "setup" else paths.ROOT / there)
-                for key, (_, there, head) in places.items()}, stage,
+                for key, (_, there, head) in places.items()},
                {f"{stage}/{head}": f"{paths.CATALOGS_DIR}/{ns}/{head}" for _, there, head in places.values()})
     finally:
         shutil.rmtree(top, ignore_errors=True)
@@ -712,8 +679,7 @@ def _unwritten(copy, file, kind, slug, ns, row, skip=frozenset()) -> List[str]:
 
 def _own_rules(file) -> List[str]:
     """What the rules of an item of a catalog find in the personal compose file `file` (`check.problems(sharing=...)`: a
-    category, a README, `unless-stopped`, a description on each service, ports on the loopback, no literal secret, its ports
-    among the project's, a playground that loads alone), the lines the catalog's own check gives the copy."""
+    category, a README, `unless-stopped`, a description on each service, its ports among the project's, a playground that loads alone), the lines the catalog's own check gives the copy."""
     return [message for where, message in check.problems(sharing=file) if where == file]
 
 
@@ -758,27 +724,24 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
     catalog on a Public target; answers the other problems, [str] ("Blocked: ..." for what the policy gives a reason for). `along`:
     [(kind, id, slug, copy)] of what goes with the item, each checked the same way, and judged with it in one stage; `allowed`: the
     ids of what goes with it or the target has, which its includes may name."""
-    problems = []
-    if along:   # the rules of the standard read the files together, as the catalog will hold them: a link of one to another resolves
-        merged = dict(copy.files)
-        for _, _, _, other in along:
-            merged.update(other.files)
-        found = _rules(copy._replace(files=merged), kind, slug, ns, row)
-        for each in found:
-            if each.code in SECRETS:
-                raise _refusal("share_secret", file=each.path)
-        problems += [each.message for each in found]
-    rules = None if not along else []
+    merged = dict(copy.files)   # the rules of the standard read the files together, as the catalog will hold them: a link of one to another resolves
+    for _, _, _, other in along:
+        merged.update(other.files)
+    found = _rules(copy._replace(files=merged), ns, row)
+    for each in found:
+        if each.code in SECRETS:
+            raise _refusal("share_secret", file=_shown(each.path, kind, slug))
+    problems = [each.message for each in found]
     for k, one, s, other in along:
         problems += [f"{one.rsplit('/', 1)[-1]}: {line}" for line in _checked(project, k, one, paths.unit_file(k, one), s, ns, row,
-                                                                              rows, other, allowed, rules)]
-    problems += _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed, rules)
+                                                                              rows, other, allowed)]
+    problems += _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed)
     every = [(kind, uid, slug, copy), *along]
     # What the screen refuses is not given to Compose, nor what includes in a form the check cannot follow
     if any(trust.prescreen(c.text, f"{paths.CATALOGS_DIR}/{ns}/{_place(k, s, ns)[2]}") for k, _, s, c in every) \
             or any(_includes(project, paths.unit_file(k, one)) is None for k, one, _, _ in every):
         return list(dict.fromkeys(problems))
-    with _staged_all([(k, s, c) for k, _, s, c in every], ns) as (stages, top, aliases):
+    with _staged_all([(k, s, c) for k, _, s, c in every], ns) as (stages, aliases):
         for k, one, s, c in every:
             stage, folder = stages[(k, s)]
             others = [there for key, (_, there) in stages.items() if key != (k, s) and there is not None]
@@ -797,9 +760,9 @@ def _preflight(project, kind, uid, file, slug, ns, row, rows, copy, along=(), al
     return list(dict.fromkeys(problems))
 
 
-def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozenset(), found=None):
+def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozenset()):
     """The checks of one item of a share that need no Compose: its includes, a secret, a private catalog named on a Public target,
-    the rules of a catalog's item (`found`: given when they were read of all the files together), what the screen refuses."""
+    the rules of a catalog's item, what the screen refuses."""
     included = _includes(project, file)
     problems = list(copy.problems)
     if included is None:
@@ -815,15 +778,10 @@ def _checked(project, kind, uid, file, slug, ns, row, rows, copy, allowed=frozen
     leak = _leaked(copy, kind, slug)
     if leak:
         raise leak
-    found = _rules(copy, kind, slug, ns, row) if found is None else found
-    for each in found:
-        if each.code in SECRETS:
-            raise _refusal("share_secret", file=_shown(each.path, kind, slug))
     if row["audience"] == "public":
         private = _named_private(copy, ns, kind, slug, rows)
         if private:
             raise private
-    problems += [each.message for each in found]
     # An include of what goes with it, or the target has, is no part of this machine left behind
     going = {_here(*paths.unit_of(target)) for target in (trust.include_targets(copy.kept, file) or ())
              if paths.unit_of(target) and paths.unit_of(target)[1] in allowed}
@@ -974,7 +932,7 @@ def _publish(ns, catalog, name, kind, slug, address, branch, who, copy, also=(),
     pushed. The tip may have the item by now, or one of what goes with it (`also`): `share_exists`. The legacy `lab` of the
     catalog is raised in the same commit when the item needs more (`needed`), so that an older Lab refuses it cleanly."""
     store = registry.store_dir(ns)
-    base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP, releases=False)
+    base = bare.fetch(address, branch, store, stall=30, cap=FETCH_CAP)
     for k, s in [(kind, slug), *also]:
         if bare.read(store, base, _place(k, s, ns)[2]) is not None:
             raise _refusal("share_exists", name=name if (k, s) == (kind, slug) else s, catalog=catalog)
@@ -1032,35 +990,6 @@ def _clear(path):
         os.unlink(path)
     elif os.path.isdir(path):
         shutil.rmtree(path, ignore_errors=True)
-
-
-def sweep() -> List[str]:
-    """Swept at start, for the folder catalogs: the half copies `_copy_into` leaves in a person's folder when the
-    Lab is stopped between writing and renaming (`<folder>/<kind>s/.share-<name>`, hidden, never an item) that are older than a
-    day are removed, without following a link. `install.sweep` looks inside the installs of the Lab, which a folder is not.
-    Answers the places removed, `<catalog id>/<kind>s/<name>`."""
-    done = []
-    for ns, row in registry.inputs().items():
-        if ns == LOCAL or row["kind"] != "folder" or row["state"] != "linked":
-            continue
-        root = os.path.realpath(registry.install_dir(ns))
-        for kind in paths.KINDS:
-            base = os.path.join(root, f"{kind}s")
-            if os.path.islink(base):
-                continue
-            try:
-                names = sorted(os.listdir(base))
-            except OSError:
-                continue
-            for name in names:
-                try:
-                    old = time.time() - os.lstat(os.path.join(base, name)).st_mtime > SWEEP_AGE
-                except OSError:
-                    continue
-                if old and name.startswith(".share-"):
-                    _clear(os.path.join(base, name))
-                    done.append(f"{ns}/{kind}s/{name}")
-    return done
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1201,12 +1130,6 @@ def _catalog_name(ns):
     return (registry.inputs().get(ns) or {}).get("name") or registry.lock_of(ns).get("name") or ns
 
 
-def carries_label(files):
-    """Whether any compose file of `files` ({path in the catalog: (mode, bytes)}) says a private label (`private_from`)."""
-    return any(block.value(content.decode("utf-8", "replace"), "private_from")
-               for path, (_, content) in files.items() if path.endswith((".yml", ".yaml")) and path != registry.CATALOG_FILE)
-
-
 LABEL_KEYS = {"private_from", "private_id"}   # the keys of the private label, which no Lab of the first level reads
 
 
@@ -1261,7 +1184,7 @@ def _unmarked(copy, kind, slug, found=(), name=None):
     return copy._replace(files=files, text=text)
 
 
-def _origins_or_said(copy, kind, slug, uid, name):
+def _origins_or_said(copy, uid, name):
     """origins() for a share: a file Compose cannot read is a problem of the copy, said with the others, which stops the share as
     they do; None then, what it holds taken for private content meanwhile."""
     try:
@@ -1288,7 +1211,7 @@ def _audience_now(address):
     try:
         gitx.ls_remote(asked, None, anonymous=True)
     except CatalogError as error:
-        return "private" if error.code in ("no_access", "not_found", "auth_failed") else "unknown"
+        return "private" if error.code in ("no_access", "not_found") else "unknown"
     except OSError:
         return "unknown"
     return "public"
@@ -1299,16 +1222,12 @@ FIXES = {"public": "make sure its repository is private, then share again.",
          "unknown": "check the network, then share again."}   # what the person does, by what the stranger's question got
 
 
-def _maybe_public(row, audience):
-    return _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
-
-
-def _holds_private(units, items):
+def _holds_private(items):
     """Whether any of the items of Personal (or of a catalog) `items` ([(kind, id)]) holds private content, as origins() says of its
     file where it is; one Compose cannot read is taken to."""
     for kind, uid in items:
         file = paths.ROOT / paths.unit_file(kind, uid)
-        data = _read(file, bare.TEXT_FILE + 1)
+        data = registry._read(file, bare.TEXT_FILE, follow=False)[0]
         try:
             if data is None or origins(data.decode("utf-8", "replace"), uid, file.parent):
                 return True
@@ -1341,13 +1260,6 @@ def _relative(error):
     return text
 
 
-def _mode(file):
-    try:
-        return os.lstat(file).st_mode
-    except OSError:
-        return 0
-
-
 def _unread(name, error, known=()):
     """The refusal of an item whose file, or a file it includes, Compose cannot read: named by the item whose file Compose names
     among the files the Lab knows it reads (`known`: an add-on it includes, say), else by `name`."""
@@ -1355,8 +1267,7 @@ def _unread(name, error, known=()):
     said = _relative(error)
     for rel in sorted((one for one in known if paths.unit_of(one) and one in said), key=said.find):
         unit = paths.unit_of(rel)   # its name as its own block says it, else its folder's
-        file = paths.ROOT / rel
-        data = (_read(file, bare.TEXT_FILE + 1) if stat.S_ISREG(_mode(file)) else None) or b""
+        data = registry._read(paths.ROOT / rel, bare.TEXT_FILE, follow=False)[0] or b""
         try:
             said_name = block.value(data.decode("utf-8"), "name")
         except ValueError:   # not text: its folder names it
@@ -1371,8 +1282,7 @@ def rewritten(before, after, changed, name, what="its private label and whose co
     the file is: its x-gravitee is the one of `before` with the keys of `changed` set to their values (None: gone, or empty) and
     nothing else, and it still loads. Else the refusal that names the item and says why, decided on what is true now: a file
     Compose cannot read as it is (`label_unread`, _unread), or a label or a copy_of the Lab could not write, or whose writing broke
-    a file that reads (`label_failed`, NOT_WRITTEN). A reading remembered (compose.x_gravitee) says a text was readable, not that
-    it is: when what the Lab wrote cannot be read, the file as it is is read again before the Lab takes the fault."""
+    a file that reads (`label_failed`, NOT_WRITTEN)."""
     where = folder or compose.scratch()
     known = compose.named_by(before, where, file)
     try:
@@ -1382,10 +1292,6 @@ def rewritten(before, after, changed, name, what="its private label and whose co
     try:
         new = old if after == before else compose.x_gravitee(after, where, name=file)
     except compose.ComposeError:
-        try:
-            compose.x_gravitee(before, where, fresh=True, name=file)
-        except compose.ComposeError as error:   # the file itself cannot be read now: not what the Lab wrote
-            raise _unread(name, error, known) from None
         raise CatalogError("label_failed", NOT_WRITTEN.format(name=name, what=what), 409) from None   # what the Lab wrote broke it
     old, new = (old if isinstance(old, dict) else {}), ({} if new is None else new)   # no block: nothing it says
     wanted = {**{key: value for key, value in old.items() if key not in changed},
@@ -1413,8 +1319,8 @@ def _reads(kind, slug, copy):
 def _renames(items, to) -> Dict[str, str]:
     """{old: new} of the settings the items of a share read ([(kind, slug, copy)]) that are their own and not named for `to`: an item of a catalog reads
     the settings named for its catalog (T20), and one that was the person's, or came from another catalog, is named for where it
-    was (GRAVITEE_INTERNAL_GKO_LOG_LEVEL). A setting is an item's own when the name of one of the items is in it (GKO): it then
-    starts there, after the prefix of `to` (TEAM_DEMOS_GKO_LOG_LEVEL). The platform's settings, the shared ones, the image's
+    was (ACME_HUB_KIOSK_LOG_LEVEL). A setting is an item's own when the name of one of the items is in it (KIOSK): it then
+    starts there, after the prefix of `to` (TEAM_DEMOS_KIOSK_LOG_LEVEL). The platform's settings, the shared ones, the image's
     (*_VERSION, *_REGISTRY, *_PULL_POLICY) and a name that holds no item's are left as they are: the check says it if it is wrong."""
     inputs = projects.loaded()[1]
     core = {one["key"] for one in (inputs.get("variables") or {}).get(paths.CORE_FILE, [])}
@@ -1496,10 +1402,7 @@ def _rename_settings(kind, uid):
     env = paths.unit_env(kind, uid)
     if isinstance(mapping, dict) and mapping and env and (paths.ROOT / env).is_file():
         file = paths.ROOT / env
-        text = file.read_text(encoding="utf-8")
-        for old, new in mapping.items():
-            text = re.sub(rf"(?m)^(\s*(?:export\s+)?){re.escape(old)}(?==)", lambda hit, new=new: hit.group(1) + new, text)
-        paths.write_atomic(file, text, mode=stat.S_IMODE(file.stat().st_mode))
+        paths.write_atomic(file, renames.rename_settings(file.read_text(encoding="utf-8"), mapping), mode=stat.S_IMODE(file.stat().st_mode))
     paths.write_atomic(path, json.dumps(kept, indent=2, sort_keys=True) + "\n")
 
 
@@ -1537,7 +1440,7 @@ def _raise_lab(ns, needed) -> Optional[str]:
 
 def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False) -> dict:
     """Shares the personal item `uid` to catalog `to`. With `check_only`, what it would do and what keeps it: ShareCheck
-    {destinations, to, audience, problems, changes, identity}, nothing written. Else the share: a repository gets a branch,
+    {audience, problems, changes, identity, carries, reuses, renames}, nothing written. Else the share: a repository gets a branch,
     ShareDone {branch, commit, repository, pull_request}; a folder gets a copy, {copied}. The item stays as it is, and runs.
     Refused with a CatalogError (the catalogue of errors): `contribute_none`, `no_write_access`, `share_exists`, `share_includes`,
     `share_secret`, `share_private`, `no_identity`, `push_rejected`; the other problems of the copy answer in `problems` and,
@@ -1551,7 +1454,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         raise _refusal("share_exists", name=name, catalog=row["name"])
     address = branch = who = None
     if row["kind"] == "git":
-        address, branch = _address(entry, registry.lock_of(to))
+        address, branch = _address(entry)
         if _probe(to, address, branch) == "no":
             raise _refusal("no_write_access", name=row["name"])
         who = _identity()
@@ -1564,24 +1467,22 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
     # is taken off a label (a Public fork has the history of the private catalog it was forked from)
     # A Public catalog is not asked: what it would refuse it refuses below, naming the item and its origin
     audience, probed = None, None
-    if address is not None and row["audience"] != "public" and _holds_private(units, [(kind, uid), *[(k, one) for k, one, _, _ in members]]):
+    if address is not None and row["audience"] != "public" and _holds_private([(kind, uid), *[(k, one) for k, one, _, _ in members]]):
         audience, probed = _audience_now(address), (dict(entry), _history(to))
         if audience != "private":
-            raise _maybe_public(row, audience)
+            raise _refusal("share_maybe_public", catalog=row["name"], fix=FIXES.get(audience, FIXES["unknown"]))
     with registry.flock():
         copy = collect(kind, slug, to, moved=moved)
         along = [(k, one, s, collect(k, s, to, source, moved=moved)) for k, one, s, source in members]
         # What is private content says so in the catalog it goes to, which takes away only its own origin (without); a Public one
         # takes none, so it takes no private content
-        found = {(k, s): _origins_or_said(other, k, s, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
+        found = {(k, s): _origins_or_said(other, one, named(k, one)) for k, one, s, other in [(kind, uid, slug, copy), *along]}
         found = {key: [("", UNKNOWN)] if said is None and row["audience"] != "public" else said or [] for key, said in found.items()}
         # What was asked out of the lock holds for what is shared now, to the catalog it was asked of; else nothing goes
         if address is not None and any(found.values()) and row["audience"] != "public":
             if audience is None:   # private content where there was none when it was asked: the item changed meanwhile
                 changed = next((k, one) for k, one, s, _ in [(kind, uid, slug, copy), *along] if found[(k, s)])
                 raise _refusal("share_item_changed", name=named(*changed))
-            if audience != "private":
-                raise _maybe_public(row, audience)
             if (registry.entry(to), _history(to)) != probed:   # removed, added again, linked: another catalog than the one asked
                 raise _refusal("share_changed", catalog=row["name"])
         confirmed = audience == "private"
@@ -1600,7 +1501,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
         if kind == "playground":
             copy = _vouched(project, uid, copy)
         problems = _preflight(project, kind, uid, file, slug, to, row, rows, copy, along, allowed)
-    answer = {"destinations": destinations(project, kind, uid), "to": to, "audience": row["audience"], "problems": problems,
+    answer = {"audience": row["audience"], "problems": problems,
               "changes": [_shown(_place(kind, slug, to)[2], kind, slug)] if copy.text != copy.kept else [],
               "identity": who["email"] if who and row["audience"] == "public" else None,
               "carries": [named(k, one) for k, one, _, _ in members], "reuses": [named(k, one) for k, one, _ in reused],
@@ -1637,7 +1538,7 @@ def share(project: dict, kind: str, uid: str, to: str, check_only: bool = False)
 def _machine(folder) -> List[str]:
     """The machine's entries of a folder with no manifest (`install._scan`): `.env` and `.env.*` but `.env.example`, a
     `.state` or `secrets` folder, a key, as the top-most paths that hold nothing else."""
-    return install._scan(folder, None)[1]
+    return install._scan(folder, None)
 
 
 def _kept(kind, slug, rel) -> str:
@@ -1660,13 +1561,12 @@ def _meet(kind, old, top, here, there) -> str:
     kept = _kept(kind, old.split("/", 1)[1], top)
     if os.path.basename(top) in moves.WHOLE or not (os.path.isdir(here) and os.path.isdir(there) and not os.path.islink(here)
                                                     and not os.path.islink(there)):
-        return moves.relocate(here, kept, "use-catalog-conflict")
+        return moves.relocate(here, kept)
     stayed = False
-    for found in moves.merge(here, there, "use-catalog", everywhere=True):
+    for found in moves.merge(here, there, everywhere=True):
         answer = found["result"]
         if answer == "conflict":
-            answer = moves.relocate(os.path.join(here, found["path"]), os.path.join(kept, found["path"]),
-                                    "use-catalog-conflict")
+            answer = moves.relocate(os.path.join(here, found["path"]), os.path.join(kept, found["path"]))
         stayed = stayed or answer not in ("moved", "copied", "gone")
     return "stayed" if stayed else "moved"
 
@@ -1686,17 +1586,11 @@ def moved(kind: str, old: str, new: str) -> None:
     are not touched but for those. An entry that stays where it is (a folder on another filesystem, one that is busy, a place
     in `kept/` that is taken too) is a ValueError that names it, raised before the star and the places that include the item
     follow: the item is as it was and the move is run again once it is done by hand."""
-    if kind not in paths.KINDS or not (isinstance(old, str) and personal.OWN.fullmatch(old)):
-        raise ValueError(f"Only your own {paths.NOUNS.get(kind, 'item')}s can be moved here")
-    if not (isinstance(new, str) and paths.is_id(new)) or paths.personal(new):
-        raise ValueError(f"{new} is not the id of an item of a catalog")
-    if not _there(kind, new):
-        raise ValueError(f"{new} is not an item of a catalog you have")
     stuck = []
     if kind != "setup":
         source, target = (str(paths.ROOT / paths.unit_folder(kind, one)) for one in (old, new))
         for top in _machine(source) if os.path.isdir(source) else ():
-            answer = moves.relocate(os.path.join(source, top), os.path.join(target, top), "use-catalog")
+            answer = moves.relocate(os.path.join(source, top), os.path.join(target, top))
             if answer == "conflict":
                 answer = _meet(kind, old, top, os.path.join(source, top), os.path.join(target, top))
             if answer not in ("moved", "copied", "gone"):   # "stayed", or the place in kept/ is taken as well
@@ -1751,10 +1645,10 @@ def _set_aside(kind, uid, slug) -> None:
     folder = str(paths.ROOT / paths.unit_folder(kind, uid))
     if not os.path.isdir(folder):
         return
-    text = _read(os.path.join(folder, "compose.yml"), bare.TEXT_FILE + 1)
+    text = registry._read(os.path.join(folder, "compose.yml"), bare.TEXT_FILE, follow=False)[0]
     stuck = []
     for rel in _unshared(folder, (text or b"").decode("utf-8", "replace"), set(_machine(folder))):
-        if moves.relocate(os.path.join(folder, rel), _kept(kind, slug, rel), "use-catalog-leftover") not in ("moved", "copied", "gone"):
+        if moves.relocate(os.path.join(folder, rel), _kept(kind, slug, rel)) not in ("moved", "copied", "gone"):
             stuck.append(rel)
     if stuck:
         raise ValueError(f"{', '.join(f'{paths.unit_folder(kind, uid)}/{one}' for one in stuck)} could not be set aside in "

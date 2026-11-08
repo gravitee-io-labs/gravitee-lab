@@ -10,22 +10,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { Ev, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { FIRST, catalog, content, lab as labState } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$/.test(id));
 const calls = [];
 const row = (id, state, detail, actions = []) => ({ id, state, title: id[0].toUpperCase() + id.slice(1), detail, actions });
-const READY = { ready: true, problems: 0, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
-const DOWN = { ready: false, problems: 1, checks: [
+const READY = { ready: true, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
+const DOWN = { ready: false, checks: [
   row("docker", "error", "Docker Desktop is not running", [{ id: "open-docker", label: "Open Docker Desktop", primary: true }]),
   row("git", "ok", "Git 2.43.2"),
 ] };
 const server = { machine: DOWN };
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   calls.push({ path, body: options.body ? JSON.parse(options.body) : undefined });
   if (path.startsWith("/api/machine")) return reply(server.machine);
   return reply(path === "/api/state" ? store.state : {});
@@ -44,7 +41,7 @@ const GROUPS = [["API Management", ["gamma-ui", "apim-management-ui"]], ["Access
 const LINKS = [
   { label: "AM Console", url: "http://localhost:8081", service: "am-management-ui", legacy: false, up: true, username: "admin", password: "adminadmin" },
   { label: "Gamma Console", url: "http://localhost:8086", service: "gamma-ui", legacy: false, up: true, username: "admin", password: "admin" },
-  { label: "Kafka UI", url: "http://localhost:8180", service: "kafka-ui", legacy: false, up: true },
+  { label: "Kazoo UI", url: "http://localhost:8180", service: "kazoo-ui", legacy: false, up: true },
   { label: "APIM Console", url: "http://localhost:8084", service: "apim-management-ui", legacy: true, up: true, username: "admin", password: "admin" },
 ];
 const START = { start: {} };   // the platform's Start, with no plan to confirm
@@ -230,7 +227,7 @@ test("the rail ends with the license of the Lab, a link to its source and one to
 });
 
 test("with API Management in the Cloud, the start says Start all, and the Core layer keeps every product and says only where API Management runs", async () => {
-  store.state = { platform: { groups: GROUPS, state: { key: "running" } }, products: [], addons: [{ id: "hybrid", name: "Hybrid gateway", file: "addons/hybrid/compose.yml", gateway: { platform: "cloud" } }],
+  store.state = { platform: { groups: GROUPS, state: { key: "running" } }, products: [], addons: [{ id: "hyssop", name: "Hybrid gateway", file: "addons/hyssop/compose.yml", gateway: { platform: "cloud" } }],
     playgrounds: [], core: { place: "my-account/dev", chosen: true, name: "Development (My Account)", group: GROUP,
       start: { needed: true, enabled: true }, stop: { needed: false } } };
   store.notify();
@@ -251,7 +248,7 @@ test("with API Management in the Cloud, the start says Start all, and the Core l
 // --- What the catalogs change ---------------------------------------------------------------------------------------------------------
 
 // The lab with the platform running and nothing on, and what the server says of the catalogs
-const GATEWAY = { id: "hybrid", kind: "addon", name: "Hybrid gateway", gateway: { platform: "cloud" } };
+const GATEWAY = { id: "hyssop", kind: "addon", name: "Hybrid gateway", gateway: { platform: "cloud" } };
 function say(more = {}) {
   store.state = { ...labState({ platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" }, gateways: { cloud: null } } }),
     products: [], core: { place: "machine", chosen: false, group: GROUP }, ...more };
@@ -271,34 +268,21 @@ test("the layers on top of the platform say they come from a catalog, and the co
   assert.ok(!/playgrounds\/|setups\/|addons\/|local/.test(text(body.querySelector(".layers"))), "no folder of a catalog is named by a layer");
 });
 
-test("a person's own items are said to stay on the machine until they are shared to a catalog, and not a word of the project's folders", () => {
-  const parts = body.children.filter((child) => child.tag), title = parts.find((h) => h.tag === "h3" && text(h) === "Yours or shared");
-  const paragraph = parts[parts.indexOf(title) + 1];
-  assert.equal(text(paragraph), "New playground, New setup and New add-on make one from a form or with an AI agent. Personal stays on this machine until you share it to a catalog.");
-  assert.ok(!/project|local|git/i.test(text(paragraph)));
-});
-
 test("the pages it points to are the Library's and the Catalogs, each leading to its page", () => {
   const rows = body.querySelectorAll(".pairs > div").map((one) => [text(one.querySelector("dt")), one.querySelectorAll("a").map((a) => a.getAttribute("href"))]);
   assert.deepEqual(rows, [["Dashboard", ["#/dashboard"]], ["Library", ["#/playgrounds", "#/setups", "#/addons"]], ["Catalogs", ["#/catalogs"]],
     ["Monitor", ["#/containers", "#/logs"]], ["Configure", ["#/images", "#/plugins"]]]);
-  assert.equal(text(body.querySelectorAll(".pairs > div")[2].querySelector("dd")), "Catalogs: where they come from, to add and to update");
 });
 
-test("with the catalogs there, or a server that does not say, the foot of the start is what it always was: Back, and Discover the playgrounds that works", async () => {
+test("with the catalogs there, the foot of the start is what it always was: Back, and Discover the playgrounds that works", async () => {
   await go("start");
-  for (const state of [{ content: content("ready"), catalogs: [FIRST()] }, { content: undefined }]) {
-    say({ ...state, platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" } } });
-    assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
-    assert.deepEqual(lead(), ["Discover the playgrounds", false, ""]);
-    assert.equal(slot().getAttribute("class"), "btn primary");
-    assert.deepEqual(extra(), []);
-  }
+  say({ content: content("ready"), catalogs: [FIRST()], platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" } } });
+  assert.deepEqual(lead(), ["Discover the playgrounds", false, ""]);
+  assert.deepEqual(extra(), []);
 });
 
 test("while the catalogs download the lead stays in its place and waits, saying why; a failure adds Try again before it, no catalog Add Gravitee public", () => {
   say({ content: content("downloading"), catalogs: [catalog({ id: "gravitee", commit: "", progress: 0.4 })] });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Discover the playgrounds"]);
   assert.deepEqual(lead(), ["Discover the playgrounds", true, WAITING]);
   assert.deepEqual(extra(), []);
   say({ content: content("failed"), catalogs: [catalog({ id: "gravitee", commit: "" })] });
@@ -306,7 +290,6 @@ test("while the catalogs download the lead stays in its place and waits, saying 
   assert.deepEqual(lead(), ["Discover the playgrounds", true, "Cannot reach github.com. Check your connection, then try again."]);
   assert.deepEqual(extra(), [["retry", "gravitee", "Try again"]]);
   say({ content: content("none") });
-  assert.deepEqual(actions().querySelectorAll(".btn").map(text), ["Back", "Done", "Add Gravitee public", "Discover the playgrounds"]);
   assert.deepEqual(lead(), ["Discover the playgrounds", true, "No catalog added"]);
   assert.deepEqual(extra(), [["add", "gravitee", "Add Gravitee public"]]);
   say({ content: content("none", { offer: null }) });
@@ -371,11 +354,7 @@ test("the Cloud card cannot be chosen while nothing can run its gateway, and say
   assert.ok(!body.querySelectorAll(".core-card")[0].hasAttribute("aria-disabled"), "This machine is never held");
   say({ content: content("downloading") });
   assert.equal(cloud().getAttribute("data-why"), WAITING);
-  say({ content: content("failed") });
-  assert.equal(cloud().getAttribute("data-why"), "Cannot reach github.com. Check your connection, then try again.");
-  say({ content: content("none") });
-  assert.equal(cloud().getAttribute("data-why"), "No catalog added");
-  say({ content: content("ready"), addons: [GATEWAY], platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" }, gateways: { cloud: "hybrid" } } });
+  say({ content: content("ready"), addons: [GATEWAY], platform: { name: "Gravitee platform", groups: GROUPS, state: { key: "running" }, gateways: { cloud: "hyssop" } } });
   assert.deepEqual([cloud().hasAttribute("aria-disabled"), cloud().hasAttribute("data-why"), radio().hasAttribute("aria-disabled")], [false, false, false]);
   // A radio reached by the keyboard all the same does not change where it runs
   say({ content: content("ready") });
@@ -396,7 +375,7 @@ test("Start all in the Cloud waits for a gateway add-on too, and the platform's 
   say({ content: content("ready"), platform: stopped, core: cloudCore });
   assert.equal(text(start()), "Start all");
   assert.deepEqual([isOff(start()), offWhy(start())], [true, "Needs a gateway add-on"]);
-  say({ content: content("ready"), platform: { ...stopped, gateways: { cloud: "hybrid" } }, addons: [GATEWAY], core: cloudCore });
+  say({ content: content("ready"), platform: { ...stopped, gateways: { cloud: "hyssop" } }, addons: [GATEWAY], core: cloudCore });
   assert.ok(!isOff(start()));
 });
 

@@ -15,7 +15,7 @@ Pure: nothing here reads a file, runs a command or writes. Standard library only
 
 import json
 import secrets
-from typing import Dict, Iterable, Iterator, List, NamedTuple, Sequence
+from typing import Dict, Iterable, List, NamedTuple, Sequence
 
 ERROR, WARNING, INFO = "error", "warning", "info"
 FORMATS = ("text", "github", "json")
@@ -98,9 +98,10 @@ def annotation(problem: Problem) -> str:
         properties.append("file=" + escape_property(printable(problem.path, BREAKS)))
         if problem.line and int(problem.line) > 0:
             properties.append(f"line={int(problem.line)}")
-    properties.append(f"title={escape_property(printable(problem.code))}")
+    if problem.code:
+        properties.append(f"title={escape_property(printable(problem.code))}")
     level = LEVELS.get(problem.severity, "notice")
-    return "::" + level + " " + ",".join(properties) + "::" + escape_data(printable(problem.message, BREAKS))
+    return "::" + " ".join(filter(None, (level, ",".join(properties)))) + "::" + escape_data(printable(problem.message, BREAKS))
 
 
 def ordered(problems: Iterable[Problem], verbose: bool = True) -> List[Problem]:
@@ -129,7 +130,7 @@ def _plural(count: int, word: str) -> str:
 
 def verdict(problems: Sequence[Problem], skipped: Sequence[str] = ()) -> str:
     """The last line of a check: `All good` only when nothing was found and nothing was skipped (a run that skipped
-    something never says it is fine), else the counts and the command that explains the first code."""
+    something never says it is fine), else the counts and the command that explains the first code, when one has a code."""
     found = counts(problems)
     parts = []
     if found[ERROR]:
@@ -141,7 +142,7 @@ def verdict(problems: Sequence[Problem], skipped: Sequence[str] = ()) -> str:
     if not parts:
         return "All good"
     line = ", ".join(parts)
-    shown = [p for p in problems if p.severity in (ERROR, WARNING)]
+    shown = [p for p in problems if p.severity in (ERROR, WARNING) and p.code]
     if shown:
         first = sorted(shown, key=lambda p: (p.severity != ERROR, p.path, int(p.line or 0), p.code))[0]
         line += f". Run make explain CODE={printable(first.code)} for more."
@@ -163,25 +164,25 @@ def as_text(problems: Sequence[Problem], checked: Iterable[str] = (), skipped: S
         mine = by_path.get(name, [])
         mark = "✗" if any(p.severity == ERROR for p in mine) else "!" if mine else "✓"
         lines.append(f"{mark} {printable(name) or 'the catalog'}")
-        lines += [f"    {printable(p.code)} {printable(p.message)}" for p in mine]
+        lines += ["    " + " ".join(filter(None, (printable(p.code), printable(p.message)))) for p in mine]
     lines += [f"Not checked: {printable(why)}" for why in skipped]
     lines.append("")
     lines.append(verdict(shown, skipped))
     return "\n".join(lines) + "\n"
 
 
-def as_github(problems: Sequence[Problem], per_level: int = PER_LEVEL, verbose: bool = False) -> str:
-    """At most `per_level` annotations of each level, errors first; one notice says how many were left to the summary."""
+def as_github(problems: Sequence[Problem], verbose: bool = False) -> str:
+    """At most PER_LEVEL annotations of each level, errors first; one notice says how many were left to the summary."""
     shown = ordered(problems, verbose)
     out, given = [], {ERROR: 0, WARNING: 0, INFO: 0}
     for severity in (ERROR, WARNING, INFO):
         for problem in (p for p in shown if p.severity == severity):
-            if given[severity] < per_level:
+            if given[severity] < PER_LEVEL:
                 out.append(annotation(problem))
             given[severity] += 1
     for severity in (ERROR, WARNING, INFO):
-        if given[severity] > per_level:
-            out.append(f"::notice::{given[severity] - per_level} more {LEVELS[severity]}s are in the summary of the run")
+        if given[severity] > PER_LEVEL:
+            out.append(f"::notice::{given[severity] - PER_LEVEL} more {LEVELS[severity]}s are in the summary of the run")
     return "\n".join(out) + ("\n" if out else "")
 
 
@@ -200,9 +201,7 @@ def render(problems: Sequence[Problem], fmt: str = "text", checked: Iterable[str
         return as_json(problems, verbose)
     if fmt == "github":
         return as_github(problems, verbose=verbose)
-    if fmt == "text":
-        return as_text(problems, checked, skipped, verbose, header)
-    raise ValueError(f"not a format: {fmt!r} (text, github or json)")
+    return as_text(problems, checked, skipped, verbose, header)
 
 
 def summary(problems: Sequence[Problem], command: str, skipped: Sequence[str] = (), title: str = "") -> str:
@@ -239,26 +238,10 @@ def summary(problems: Sequence[Problem], command: str, skipped: Sequence[str] = 
 # What a stranger's program printed
 # ---------------------------------------------------------------------------------------------------------------------
 
-def untrusted(lines: Iterable[str]) -> Iterator[str]:
-    """The lines of output that a stranger's code made (a build log, a test run) between `::stop-commands::<token>` and
-    `::<token>::`, with a token that is new for each call and that nothing could have guessed: while it is open the runner
-    obeys no workflow command, so `::add-mask::` or `::error::` printed by a Dockerfile do nothing. Every line ends with a
-    line feed. If the source fails the region is closed before the error goes on."""
-    token = secrets.token_hex(16)
-    closing = f"::{token}::\n"
-    yield f"::stop-commands::{token}\n"
-    try:
-        for line in lines:
-            line = str(line)
-            yield line if line.endswith("\n") else line + "\n"
-    except GeneratorExit:
-        raise
-    except Exception:
-        yield closing
-        raise
-    yield closing
-
-
 def untrusted_text(text: str) -> str:
-    """`untrusted` for a text that is already whole."""
-    return "".join(untrusted(str(text).splitlines(True)))
+    """The output that a stranger's code made (a build log, a test run) between `::stop-commands::<token>` and `::<token>::`, with
+    a token that is new for each call and that nothing could have guessed: while it is open the runner obeys no workflow command,
+    so `::add-mask::` or `::error::` printed by a Dockerfile do nothing. Every line ends with a line feed."""
+    token = secrets.token_hex(16)
+    lines = [line if line.endswith("\n") else line + "\n" for line in str(text).splitlines(True)]
+    return "".join([f"::stop-commands::{token}\n", *lines, f"::{token}::\n"])

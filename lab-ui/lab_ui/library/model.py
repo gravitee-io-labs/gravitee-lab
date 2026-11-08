@@ -5,7 +5,7 @@ given, nothing is read here but the names of the license's packs, as license.nam
 import re
 
 from ..docker import compose, images
-from ..gravitee import frames, license, platforms
+from ..gravitee import frames, license
 from . import layers, machine, personal, reasons, tested
 from .. import paths
 from ..catalogs import resolve
@@ -26,7 +26,7 @@ FINE = ("healthy", "running", "done")
 # `needs_license`: it exits without a usable license
 SERVICE_KEYS = ("label", "description", "container", "image", "tag", "registry", "built", "role", "needs_license")
 PLAYGROUND_KEYS = ("tags", "duration", "first_start", "source", "chapters", "guide", "accounts", "requires", "services",
-                   "apps", "seed")
+                   "apps")
 APPLY = "Apply needed"   # what runs behind what is saved, as a row says it
 NEWER = "Needs newer versions"   # a playground whose images are older than it needs
 UNTESTED = "Not tested with these versions"   # a playground whose images are not those it was tested with
@@ -290,8 +290,8 @@ def _progress(c, key, names, state):
 
 
 def _culprit(c, names):
-    """The service that makes a state, as a note: the one with an issue ("Kafka UI exited (1)"), else the first that
-    does not run ("Developer Portal stopped", "Kafka UI not created")."""
+    """The service that makes a state, as a note: the one with an issue ("Kazoo UI exited (1)"), else the first that
+    does not run ("Developer Portal stopped", "Kazoo UI not created")."""
     services = [c["services"][name] for name in _counted(c, names)]
     culprit = next((s for s in services if s["state"]["key"] == "issue"), None) \
         or next((s for s in services if s["state"]["key"] not in FINE), None)
@@ -413,18 +413,9 @@ def _lacks_gateway(c, unit):
     registered and the token of the gateway is the one setting it lacks: it needs a hybrid gateway, which the Gravitee Cloud
     page creates and writes there. None otherwise: it needs settings."""
     gateway = unit.get("gateway")
-    required = [setting["key"] for setting in unit.get("settings", []) if setting["required"]]
-    if gateway and gateway["platform"] in c["kinds"] and required == [gateway["token"]]:
+    if gateway and gateway["platform"] in c["kinds"] and c["state"].get("unset", {}).get(unit["id"]) == [gateway["token"]]:
         return _said("Needs a hybrid gateway", target={"kind": "platform", "id": None})
     return None
-
-
-def _unusable(unit):
-    """Why a unit cannot start, in one line: the first reason it is blocked, else the first catalog it lacks. None when
-    nothing is against it."""
-    reasons = (unit.get("blocked") or {}).get("reasons") or []
-    needs = unit.get("needs_catalogs") or []
-    return str(reasons[0]) if reasons else layers.need_line(needs[0]) if needs else None
 
 
 def _blocked_note(c, unit):
@@ -494,7 +485,7 @@ def _note(c, unit, state, on, is_up, plan, failure, services, offer=None):
                                            "note_causes": [{"kind": "unset", "settings": unset}] if unset else []}
     # What is on is read from the files: without Docker, it still starts with the platform. Without the core file,
     # what is on is not known either
-    if on and key == "stopped" and (not c["blind"] or c["docker_down"]):
+    if on and key == "stopped" and c["project"]["core_loaded"]:
         return _said("Stopped" if c["up"]["platform"] else "Starts with the platform")
     if unit["kind"] == "setup" and not on:
         names = sorted(c["project"]["addons"][aid]["name"] for aid in unit["members"]
@@ -546,8 +537,7 @@ def _action(c, plan, blocked=None, offer=None):
     Start, Stop, Turn on, Turn off. It asks first (`dialog`: layers.dialog, the rows of its plan) when it does more than
     that (layers.asks). `blocked`: why it cannot run, in the words of the row's own note (the settings an add-on lacks). `warns`: it
     can run, and does or offers what the row's note warns of; `offer`: what it offers (_offer)."""
-    reason = blocked or plan["blocked"] or (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") \
-        or c["wait"] or (c["unread"] if plan["do"] == "start" else None)
+    reason = blocked or plan["blocked"] or c["wait"] or (c["unread"] if plan["do"] == "start" else None)
     return {"do": plan["do"], "label": plan["label"], "enabled": not reason, "reason": reason,
             "dialog": layers.dialog(plan) if layers.asks(plan) else None,
             # Its start does or offers what the row's note warns of (it switches versions): the note stays beside the button
@@ -659,17 +649,16 @@ def _item(c, unit, state, on, is_up, services):
     note = _note(c, unit, state, on, is_up, None if lacking else plan, failure, services, offer)
     unset, gateway = c["state"].get("unset", {}).get(uid, []), lacking and _lacks_gateway(c, unit)
     # Why a start waits, in the order of the note: the policy, a catalog that is not here, the settings, the license
-    blocked = _unusable(unit) if do == "start" else None
+    blocked = layers.why_not(unit) if do == "start" else None
     if blocked is None and lacking and do == "start":
         blocked = gateway["note"] if gateway else f"{SETTINGS}: {', '.join(unset)}" if unset else SETTINGS
     if blocked is None and do == "start":   # what would not work without the license is not started
         blocked = _license_block(c, unit)
     members_on = kind == "setup" and any(aid in c["state"]["effective"] for aid in unit["members"])
     offers = do == "start" and (on or is_up or members_on)
-    # Why what is of this machine cannot be shared or deleted now: its menu says it before the click
-    held = {what: personal.held(c["project"], c["state"], kind, uid, deleting=what == "delete", running=is_up,
-                                deployed=c["deployed"].get(uid, []) if kind == "playground" else ())
-            for what in ("share", "delete")} if unit["personal"] else None
+    # Why what is of this machine cannot be deleted now: its menu says it before the click
+    held = {"delete": personal.held(c["project"], c["state"], kind, uid, running=is_up,
+                                    deployed=c["deployed"].get(uid, []) if kind == "playground" else ())} if unit["personal"] else None
     return {"kind": kind, "id": uid, "name": unit["name"], "personal": unit["personal"], "held": held,
             "category": unit["category"], "description": unit["description"],
             "file": unit["file"], "env_file": unit.get("env_file"),
@@ -819,9 +808,9 @@ def _group_note(c, group, state):
 
 
 def _reason(c):
-    """Why the platform's actions that read the files cannot run now: docker-compose.yml does not load, Docker does not
-    answer, a job runs, an entry of the on file that Compose cannot read; None when they can."""
-    return (None if c["project"]["core_loaded"] else f"{paths.CORE_FILE} does not load") or c["wait"] or c["unread"]
+    """Why the platform's actions that read the files cannot run now: Docker does not answer, docker-compose.yml does not
+    load, a job runs, an entry of the on file that Compose cannot read; None when they can."""
+    return c["wait"] or c["unread"]
 
 
 def _dialog(starts=(), restarts=(), consequences=None):
@@ -878,13 +867,6 @@ def _platform_runs(c, runs):
     return {"needed": runs, "enabled": not reason, "reason": reason}
 
 
-def _platform_update(c, runs):
-    """The Stack's Update, for its head: a pull, then what runs made again with the images pulled (stack.action), as
-    an apply would make it. It starts nothing that was stopped, and what it makes again is not known before the pull:
-    it never asks first."""
-    return {**_platform_runs(c, runs), "dialog": None}
-
-
 def _platform_apply(c, states, behind):
     """The Stack's Apply, for its head, the banner, the editor and Images: whether it makes again anything that runs
     behind what is saved (`needed`: not while nothing of what is on runs, when it does nothing), what it makes again
@@ -938,10 +920,10 @@ def _platform(c):
     states = {name: service["state"] for name, service in c["services"].items()}
     behind = _behind_rows(c)
     playground = project["playgrounds"].get(c["state"]["playground"])
-    found = {"name": project["name"], "state": state, "containers": _containers(c, groups),
+    return {"name": project["name"], "state": state, "containers": _containers(c, groups),
             "progress": _progress(c, "platform", [name for group in groups for name in group["services"]], state),
             "license_var": project["license_var"], "groups": groups, "start": _platform_start(c, behind),
-            "update": _platform_update(c, runs), "restart": _platform_runs(c, runs),
+            "update": _platform_runs(c, runs), "restart": _platform_runs(c, runs),
             # The playground that Reset turns off as it deletes what its seed created; not in an on file with the
             # user's own changes, which is never written
             "reset_turns_off": playground["name"] if playground and not c["state"]["locked"] else None,
@@ -949,10 +931,9 @@ def _platform(c):
             "behind": behind, "apply": _platform_apply(c, states, behind),
             # Its files, like a group's: the core's compose file, and its .env with every setting of the core
             "file": paths.CORE_FILE, "env_file": paths.ENV_FILE,
-            "settings": [variable["key"] for variable in project["core_variables"]]}
-    # The add-on that runs the gateway of each kind of platform here, as the project chose it: the page reads it
-    gateways = (project.get("platform") or {}).get("gateways")
-    return {**found, "gateways": {kind: gateways.get(kind) for kind in platforms.KINDS}} if gateways is not None else found
+            "settings": [variable["key"] for variable in project["core_variables"]],
+            # The add-on that runs the gateway of each kind of platform here, as the project chose it: the page reads it
+            "gateways": (project.get("platform") or {}).get("gateways")}
 
 
 def _problem(problem, readonly=()):
@@ -1048,7 +1029,7 @@ def git_state(version):
 
 
 def build(project, state, containers, job, failures, license_features, docker, created, saved=None,
-          license_status=None, platforms=(), deployed=None, changed=None, git=None, catalogs=None, content=None):
+          license_status=None, platforms=(), deployed=None, changed=None):
     """The body of /api/state. `state` is layers.current(), `containers` compose.ps() ({} when Docker does not
     answer), `job` the summary of the last job or None, `failures(kind, id)` the failed or canceled last job on an
     item ({id, verb, error, login}, jobs.Jobs.failed_job) or None, `license_features` the features the license allows
@@ -1058,20 +1039,16 @@ def build(project, state, containers, job, failures, license_features, docker, c
     reads it, None without one to read; `platforms` the platforms registered here (platforms.read()), of which the
     page gets {id, name, kind, url}; `deployed` what each playground holds in the places besides This machine:
     {id: [{place, environment, created: [{what, count}]}]} (places.deployed); `changed` the settings that differ in
-    what runs behind by configuration ({service: {settings: [name], labels}}, drift.changes). Of the job, the page gets all but
+    what runs behind by configuration ({service: [name]}, drift.changes). Of the job, the page gets all but
     `changes`, `containers` and `settled` (_job): they are in the state and the progress of every item. Of Docker, it gets why
     it does not answer and what to know of its memory; `wait` says why nothing can be started now, and `unread` the entry of
     the on file that Compose cannot read (layers.current), which holds what reads the files besides. `blind`: what runs
     is not known, Docker not answering or docker-compose.yml not loading: no state is said, but, while only Docker
     does not answer, what is on, which the files say. The consoles come in their order, which puts the legacy ones
-    last. The state of the catalogs is read by the caller, who has the disk: `git` (git_state), `catalogs` (the rows of the
-    Catalogs page) and `content` (what the first start says of the content) are put in the body as they are given, and left
-    out when they are not."""
+    last. The state of the catalogs is read by the caller, who has the disk, and put in the body by it."""
     platforms = list(platforms)
     loaded = project["core_loaded"]
     readonly = {ns for ns, found in (project.get("catalogs") or {}).items() if found.get("kind") == "git"}
-    forwarded = {key: value for key, value in (("git", git), ("catalogs", catalogs), ("content", content))
-                 if value is not None}
     containers = containers if loaded else {}   # without the core, Compose reads nothing: what runs is not known
     running_job = job if job and not job["done"] else None
     # The last job, while what it starts or stops is on its way: as it runs, then, once it ended well, until every
@@ -1083,8 +1060,7 @@ def build(project, state, containers, job, failures, license_features, docker, c
     changing = layers.changing(project, running_job["changes"]) if running_job else {}
     # What runs behind what is saved; what the running job starts or stops is on its way, not behind
     causes = {name: cause for name, cause in lateness(project, containers, saved).items() if name not in changing}
-    late = {name: reasons.why(project["services"][name], containers[name], cause,
-                              *[(changed or {}).get(name, {}).get(key, default) for key, default in (("settings", ()), ("labels", False))])
+    late = {name: reasons.why(project["services"][name], containers[name], cause, (changed or {}).get(name, ()))
             for name, cause in causes.items()}
     waiting = {name: _unlicensed(license_status) for name in held(project, containers)}
     services = _services(project, state, containers, running_job, late, waiting)
@@ -1093,14 +1069,12 @@ def build(project, state, containers, job, failures, license_features, docker, c
     stopping = (running_job or {}).get("changes", {}).get("stop", [])
     running["addons"] -= {uid for kind, uid in stopping if kind == "addon"}
     # What the functions above work from, in one dict. `changing`: what the running job starts or stops, which says
-    # so in its state; `moved`: what the last job did, which its progress measures; `blind`: what runs is not known,
-    # `docker_down` because Docker does not answer, what is on being known all the same; `behind`: what runs behind
-    # what is saved; `held`: what the Lab UI does not start for want of a usable license, and `unlicensed` its note;
-    # `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
+    # so in its state; `moved`: what the last job did, which its progress measures; `blind`: what runs is not known;
+    # `behind`: what runs behind what is saved; `held`: what the Lab UI does not start for want of a usable license, and
+    # `unlicensed` its note; `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
     c = {"project": project, "state": state, "up": running, "job": running_job,
          "wait": _wait(docker, running_job, loaded), "unread": state.get("unread"), "failures": failures, "features": license_features,
          "services": services, "created": created, "blind": bool(docker["error"]) or not loaded,
-         "docker_down": bool(docker["error"]) and loaded,
          "changing": changing, "behind": set(late), "why": late, "license": license_status, "held": set(waiting),
          "unlicensed": _unlicensed(license_status), "kinds": {record["kind"] for record in platforms},
          "unlicensing": license.unapplied(project, containers, license_status["digest"])
@@ -1117,9 +1091,9 @@ def build(project, state, containers, job, failures, license_features, docker, c
     return {"docker": _docker(docker), "wait": c["wait"], "unread": c["unread"], "blind": c["blind"], "license": _license(c, containers),
             "job": _job(job),
             "platform": _platform(c),
-            "platforms": [{key: record[key] for key in ("id", "name", "kind", "url")} for record in platforms],
-            "products": [{"id": group["product"], "name": project["products"][group["product"]]["name"]}
-                         for group in project["groups"] if group["product"]],
+            "platforms": [{**{key: record[key] for key in ("id", "name", "kind", "url")}, "account": {"hrid": record["account"]["hrid"]}}
+                          for record in platforms],
+            "products": [{"id": group["product"], "name": group["name"]} for group in project["groups"] if group["product"]],
             "categories": project["categories"],
             "playgrounds": _by_name(_playground(c, p, addons, created) for p in project["playgrounds"].values()),
             "setups": _by_name(_setup(c, setup, addons) for setup in project["setups"].values()),
@@ -1129,4 +1103,4 @@ def build(project, state, containers, job, failures, license_features, docker, c
                                                        "password")}
                       for link in c["links"]],
             "problems": [_problem(problem, readonly) for problem in project["problems"] + state["problems"]],
-            "running": {"explicit": state["explicit"]}, **forwarded}
+            "running": {"explicit": state["explicit"]}}

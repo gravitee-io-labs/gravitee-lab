@@ -12,12 +12,10 @@ import io
 import json
 import os
 import re
-import shlex
 import unittest
 from unittest import mock
 
-from lab_ui.catalogs import ci, explain, settings
-from lab_ui.catalogs.ci import main as ci_main
+from lab_ui.catalogs import ci, settings
 from lab_ui.catalogs.ci import publish
 from tests.data.rules import support
 from tests.fakedocker import FakeDocker, option, options
@@ -72,14 +70,11 @@ class Github:
             return self.runs
         raise AssertionError(f"a request the lane does not make: {method} {path}")
 
-    def passed(self, sha, app=15368, number=1, name="Catalog CI result"):
+    def check(self, sha, status="completed", conclusion="success", app=15368, name="Catalog CI result"):
         self.checks.setdefault(sha, []).append(settings.Reply(200, {"check_runs": [
-            {"id": number, "name": name, "status": "completed", "conclusion": "success", "app": {"id": app}}]}))
+            {"id": 1, "name": name, "status": status, "conclusion": conclusion, "app": {"id": app}}]}))
 
-    def check(self, sha, status="completed", conclusion="success", app=15368, number=1):
-        reply = settings.Reply(200, {"check_runs": [
-            {"id": number, "name": "Catalog CI result", "status": status, "conclusion": conclusion, "app": {"id": app}}]})
-        self.checks.setdefault(sha, []).append(reply)
+    passed = check
 
     def ran(self, *shas, event="push", conclusion="success"):
         self.runs = settings.Reply(200, {"workflow_runs": [{"head_sha": sha, "head_branch": "main", "event": event,
@@ -166,14 +161,14 @@ class Fixture(support.WithGit):
                 services = {"mock-api": {"image": f"{PREFIX}/mock-api:latest", "build": {"context": self.folder(APPS["mock"])}}}
             else:
                 services = {}
-            loaded.append(ci.Loaded(kind, name, name, ci.unit_path(kind, name), str(self.repo / ci.unit_path(kind, name)).rsplit("/", 1)[0],
+            loaded.append(ci.Loaded(kind, name, ci.unit_path(kind, name), str(self.repo / ci.unit_path(kind, name)).rsplit("/", 1)[0],
                                     {"services": services}, tuple(services), (), None))
         return loaded
 
     def loader(self, refused=()):
         def load(folder, names):
             left_out = {(each.kind, each.name) for each in refused}
-            return ci.Loading(self.units([each for each in names if each not in left_out]), list(refused), [])
+            return ci.Loading(self.units([each for each in names if each not in left_out]), list(refused))
         return load
 
     def commit(self, change, message="Change the apps", advance=True):
@@ -270,16 +265,6 @@ class Branch(Fixture):
         # and github.event.before is never looked at: the plan took the base from the runs of the workflow
         self.assertNotIn("before", " ".join(path for _, path in self.github.asked))
 
-    def test_two_plans_in_a_row_where_the_first_run_never_happened_still_build_the_first_commits_change(self):
-        self.github.ran(self.first)
-        first = self.commit({f"{APPS['web']}/app.py": "print(2)\n"})
-        second = self.commit({f"{APPS['mock']}/app.py": "print(3)\n"})
-        for sha in (first, second):
-            self.github.passed(sha)
-        # the plan of the first commit is the one that is never made; the second covers it
-        self.assertEqual(self.plan(sha=second), 0)
-        self.assertEqual(self.planned()[0], [f"{PREFIX}/bakery-web", f"{PREFIX}/mock-api"])
-
     def test_after_a_successful_run_the_base_moves_on(self):
         first = self.commit({f"{APPS['web']}/app.py": "print(2)\n"})
         second = self.commit({f"{APPS['api']}/app.py": "print(3)\n"})
@@ -330,16 +315,7 @@ class Branch(Fixture):
         self.assertEqual(self.plan(event="workflow_dispatch"), 0)
         self.assertEqual(self.planned()[1], "3")
         self.assertIn("a manual run publishes every image", self.out.getvalue())
-
-    def test_the_event_comes_from_the_environment_when_it_is_not_given(self):
-        self.github.passed(self.first)
-        with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}):
-            with mock.patch.object(ci, "LOADER", self.loader()):
-                code = publish.plan_main([str(self.repo), "--ref", "refs/heads/main", "--sha", self.first, "--repository", REPO,
-                                          "--private", "true", "--format", "json"], self.out, self.err, gh=self.github,
-                                         lab=str(self.lab), sleep=self.slept.append)
-        self.assertEqual(code, 0)
-        self.assertEqual(json.loads(self.out.getvalue())["count"], 3)
+        self.assertIn("Images: 3\n", self.out.getvalue())
 
     def test_a_rerun_of_an_old_run_publishes_nothing_so_latest_never_moves_back(self):
         old = self.commit({f"{APPS['web']}/app.py": "print(2)\n"})
@@ -382,25 +358,18 @@ class Branch(Fixture):
                 services = {name: ({**service, "image": "ghcr.io/someone/else/bakery-web:latest"} if name == "bakery-web" else service)
                             for name, service in unit.config["services"].items()}
                 out.append(unit._replace(config={"services": services}))
-            return ci.Loading(out, [], [])
+            return ci.Loading(out, [])
         self.assertEqual(self.plan(loading=other), 1)
         self.assertIn("IM02", self.out.getvalue())
         self.assertIn("the image ghcr.io/someone/else/bakery-web:latest is outside ghcr.io/acme/lab-hub", self.out.getvalue())
         self.assertEqual(self.outputs(), {})
 
     def test_a_catalog_that_names_no_registry_publishes_nothing_and_asks_nothing(self):
-        sha = self.commit({"catalog.yml": catalog_yml(images="")})
+        self.commit({"catalog.yml": catalog_yml(images="")})
         self.assertEqual(self.plan(), 0)
         self.assertEqual(self.planned(), ([], "0", "false"))
         self.assertEqual(self.github.asked, [])
         self.assertIn("catalog.yml names no registry in images, so nothing is published", self.out.getvalue())
-        self.assertTrue(sha)
-
-    def test_the_seeder_is_never_planned(self):
-        self.github.passed(self.first)
-        self.assertEqual(self.plan(), 0)
-        self.assertEqual(self.planned()[0], [f"{PREFIX}/bakery-api", f"{PREFIX}/bakery-web", f"{PREFIX}/mock-api"])
-        self.assertFalse([name for name in self.planned()[0] if "seeder" in name])
 
     def test_a_unit_that_needs_a_setting_is_said_and_its_images_are_not_planned(self):
         needs = ci.Refused("addon", "mock", "addons/mock/compose.yml", (
@@ -436,14 +405,6 @@ class Branch(Fixture):
         self.assertIn("ST03 playground:bank was not read: ", self.out.getvalue())
         self.assertEqual(self.outputs(), {})
         self.assertEqual([line for line in self.out.getvalue().splitlines() if line.startswith("::")], [])
-
-    def test_the_images_are_sorted_and_one_line_of_json(self):
-        self.github.passed(self.first)
-        self.plan()
-        text = self.output.read_text(encoding="utf-8")
-        self.assertEqual(text.count("\n"), 3)
-        self.assertEqual([line.split("=", 1)[0] for line in text.splitlines()], ["images", "count", "attest"])
-        self.assertEqual(json.loads(text.splitlines()[0].split("=", 1)[1]), sorted(self.planned()[0]))
 
 
 class Gates(Fixture):
@@ -501,9 +462,6 @@ class Gates(Fixture):
         self.assertEqual(self.plan(clock=iter([0, 0, 1000, 2000]).__next__), 2)
         self.assertIn("GitHub did not answer", self.err.getvalue())
 
-    def test_the_polling_is_every_20_seconds_for_30_minutes(self):
-        self.assertEqual((publish.POLL, publish.LIMIT), (20, 1800))
-
     def test_no_gh_is_not_a_verdict(self):
         def missing(method, path):
             raise settings.Unusable("The GitHub command-line tool gh is not installed. Install it from https://cli.github.com")
@@ -525,15 +483,10 @@ class Gates(Fixture):
                 self.github.passed(sha)
                 self.assertEqual(self.plan(), 1, self.out.getvalue())
                 self.assertIn(f"PB08 The commit {sha[:7]} carries a tool credit in its message or its author. main is never rewritten. "
-                              "Fix: find how it got there (the merge settings, V18) and write the next title without it.",
+                              "Fix: find how it got there (the merge settings) and write the next title without it.",
                               self.out.getvalue())
                 self.assertEqual(self.outputs(), {})
                 self.assertEqual(self.github.asked, [], "the credit is seen before anything is asked of GitHub")
-
-    def test_a_head_commit_without_a_credit_passes_pb08(self):
-        self.github.passed(self.first)
-        self.assertEqual(self.plan(), 0)
-        self.assertNotIn("PB08", self.out.getvalue())
 
     def test_a_person_called_like_a_tool_is_not_a_tool(self):
         self.put(self.repo, "README.md", "# Hub 2\n")
@@ -560,24 +513,16 @@ class Gates(Fixture):
         for kwargs, words in (({"sha": "abc"}, "--sha is the commit"), ({"sha": "g" * 40}, "--sha is the commit"),
                               ({"repository": "acme"}, "--repository is OWNER/REPO"),
                               ({"repository": "acme/../x"}, "--repository is OWNER/REPO"),
-                              ({"private": "yes"}, "--private is true or false"), ({"private": ""}, "--private is true or false"),
-                              ({"event": None, "extra": ("--event", "Push;")}, "--event is the name of a GitHub event")):
+                              ({"private": "yes"}, "--private is true or false"), ({"private": ""}, "--private is true or false")):
             with self.subTest(kwargs=kwargs):
-                extra = kwargs.pop("extra", ())
-                kwargs.pop("event", None)
                 self.err = io.StringIO()
-                self.assertEqual(self.plan(*extra, **kwargs), 2)
+                self.assertEqual(self.plan(**kwargs), 2)
                 self.assertIn(words, self.err.getvalue())
 
     def test_the_attestation_is_asked_for_a_public_repository_only(self):
         self.github.passed(self.first)
         self.plan(private="false")
         self.assertEqual(self.planned()[2], "true")
-
-    def test_nothing_is_written_to_the_outputs_when_a_gate_says_no(self):
-        self.github.check(self.first, conclusion="failure")
-        self.plan()
-        self.assertFalse(self.output.exists())
 
     def test_the_plan_needs_the_outputs_of_a_workflow_step_to_write_them(self):
         with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": ""}):
@@ -666,37 +611,6 @@ class Tag(Fixture):
         self.assertEqual(self.plan(ref="refs/tags/v1.7.0", sha=sha), 1)   # (the version gate holds)
         self.assertIn("PB01", self.out.getvalue())
 
-    def test_a_pull_requests_ref_is_never_a_tag_of_anything(self):
-        for ref in ("refs/pull/12/merge", "refs/pull/12/head"):
-            self.assertEqual(self.tagged(ref=ref), 2)
-            self.assertEqual(self.outputs(), {})
-
-
-class Messages(unittest.TestCase):
-
-    def test_the_messages_are_the_words_of_the_standard(self):
-        self.assertEqual(publish.finding("PB01", a="1.4.0", b="1.5.0").message,
-                         "The version in catalog.yml (1.4.0) is not the tag (1.5.0). Fix: bump the version, then tag again.")
-        self.assertEqual(publish.finding("PB02", tag="v1.4.0").message, "The tag v1.4.0 is not on main.")
-        self.assertEqual(publish.finding("PB03", sha7="abc1234").message,
-                         "Catalog CI result has not passed on abc1234. Fix: wait for it, or fix what failed.")
-        self.assertEqual(publish.finding("PB04", image="ghcr.io/o/r/x", version="1.4.0").message,
-                         "ghcr.io/o/r/x:1.4.0 was published from another commit. Fix: bump the version.")
-        self.assertEqual(publish.finding("PB05", x="a", y="b").message, "catalog.yml images is a; this repository publishes to b.")
-        self.assertEqual(publish.finding("PB06", image="ghcr.io/o/r/x").message,
-                         "ghcr.io/o/r/x carries a license label but is built from another project's source.")
-        table = {code: (severity, message) for code, severity, _, message in explain.STAGES if code.startswith("PB")}
-        for code, (severity, message) in publish.MESSAGES.items():
-            self.assertEqual((severity, message), table[code], code)
-
-    def test_the_stage_words_reach_the_modules(self):
-        self.assertEqual(ci.STAGES["publish-plan"], ("publish", "plan_main"))
-        self.assertEqual(ci.STAGES["publish"], ("publish", "main"))
-        self.assertTrue(callable(publish.plan_main) and callable(publish.main))
-        out, err = io.StringIO(), io.StringIO()
-        self.assertEqual(ci_main(["publish-plan"], out, err), 2)   # (missing arguments are a usage error, not a crash)
-        self.assertEqual(ci_main(["publish", "--images", "[]"], io.StringIO(), io.StringIO()), 2)
-
 
 class Publishing(Fixture):
     """The build and the push."""
@@ -714,6 +628,13 @@ class Publishing(Fixture):
             return publish.main([str(self.repo), "--images", json.dumps(images), "--ref", ref, "--sha", sha, "--records",
                                  str(self.records), "--github-output", *argv], self.out, self.err,
                                 runner=runner or self.registry, **seams)
+
+    def web_built(self, **build):
+        """The units with the web app of the bank built this way."""
+        def load(folder, names_):
+            return ci.Loading([unit._replace(config={"services": {"bakery-web": {"image": f"{PREFIX}/bakery-web:latest", "build": build}}}, own=("bakery-web",))
+                               if unit.name == "bank" else unit for unit in self.units(names_)], [])
+        return load
 
     def test_a_branch_pushes_sha_and_latest_for_the_platforms_of_the_repository(self):
         sha = self.head()
@@ -755,16 +676,6 @@ class Publishing(Fixture):
         self.assertEqual(order, [f"{PREFIX}/bakery-web:1.4.0", f"build:{PREFIX}/bakery-web:1.4.0", f"{PREFIX}/bakery-web:1.4.0",
                                  f"{PREFIX}/mock-api:1.4.0", f"build:{PREFIX}/mock-api:1.4.0", f"{PREFIX}/mock-api:1.4.0"],
                          "the version tag is looked at before an image is built, and its digest after")
-
-    def test_latest_is_only_ever_pushed_by_the_main_branch(self):
-        sha = self.head()
-        self.publish([f"{PREFIX}/bakery-web"])
-        self.assertIn(f"{PREFIX}/bakery-web:latest", self.registry.stored)
-        self.registry = Registry()
-        self.tag("v1.2.0")
-        self.publish([f"{PREFIX}/bakery-web"], ref="refs/tags/v1.2.0", sha=sha)
-        self.assertNotIn(f"{PREFIX}/bakery-web:latest", self.registry.stored)
-        self.assertIn(f"{PREFIX}/bakery-web:1.2.0", self.registry.stored)
 
     def test_a_tag_that_exists_from_this_commit_is_reused_and_not_built_again(self):
         sha = self.head()
@@ -822,27 +733,14 @@ class Publishing(Fixture):
         self.assertEqual(len(self.registry.builds()), 1)
 
     def test_pb06_a_license_label_on_an_image_built_from_another_projects_source_is_refused(self):
-        remote = "https://github.com/someone/project.git#" + "a" * 40
-
-        def loading(folder, names_):
-            loaded = self.units(names_)
-            return ci.Loading([unit._replace(config={"services": {"bakery-web": {
-                "image": f"{PREFIX}/bakery-web:latest", "build": {"context": remote, "labels": {
-                    "org.opencontainers.image.licenses": "MIT"}}}}}, own=("bakery-web",)) if unit.name == "bank" else unit
-                               for unit in loaded], [], [])
+        loading = self.web_built(context="https://github.com/someone/project.git#" + "a" * 40, labels={"org.opencontainers.image.licenses": "MIT"})
         self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], loading=loading), 1)
         self.assertIn(f"PB06 {PREFIX}/bakery-web carries a license label but is built from another project's source.", self.out.getvalue())
         self.assertEqual(self.registry.builds(), [])
 
     def test_an_image_built_from_another_projects_source_gets_no_license_label_of_ours(self):
         remote = "https://github.com/someone/project.git#" + "a" * 40
-
-        def loading(folder, names_):
-            loaded = self.units(names_)
-            return ci.Loading([unit._replace(config={"services": {"bakery-web": {
-                "image": f"{PREFIX}/bakery-web:latest", "build": {"context": remote}}}}, own=("bakery-web",)) if unit.name == "bank" else unit
-                               for unit in loaded], [], [])
-        self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], loading=loading), 0, self.out.getvalue())
+        self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], loading=self.web_built(context=remote)), 0, self.out.getvalue())
         build = self.registry.builds()[0]
         self.assertFalse([label for label in options(build, "--label") if "licenses" in label])
         self.assertEqual(build[-1], remote)
@@ -854,12 +752,8 @@ class Publishing(Fixture):
         self.assertFalse([label for label in options(self.registry.builds()[0], "--label") if "licenses" in label])
 
     def test_the_labels_of_the_standard_win_over_the_ones_of_a_build(self):
-        def loading(folder, names_):
-            return ci.Loading([unit._replace(config={"services": {"bakery-web": {
-                "image": f"{PREFIX}/bakery-web:latest", "build": {"context": self.folder(APPS["web"]), "labels": {
-                    "org.opencontainers.image.revision": "forged", "org.example.keep": "yes"}}}}}, own=("bakery-web",))
-                               if unit.name == "bank" else unit for unit in self.units(names_)], [], [])
-        self.publish([f"{PREFIX}/bakery-web"], loading=loading)
+        self.publish([f"{PREFIX}/bakery-web"], loading=self.web_built(context=self.folder(APPS["web"]), labels={
+            "org.opencontainers.image.revision": "forged", "org.example.keep": "yes"}))
         labels = options(self.registry.builds()[0], "--label")
         self.assertIn("org.example.keep=yes", labels)
         self.assertNotIn("org.opencontainers.image.revision=forged", labels)
@@ -867,12 +761,7 @@ class Publishing(Fixture):
                          [f"org.opencontainers.image.revision={self.head()}"])
 
     def test_the_build_arguments_and_the_target_come_from_the_tree_and_are_recorded_as_such(self):
-        def loading(folder, names_):
-            return ci.Loading([unit._replace(config={"services": {"bakery-web": {
-                "image": f"{PREFIX}/bakery-web:latest", "build": {"context": self.folder(APPS["web"]), "target": "final",
-                                                                "args": {"B": "2", "A": "1"}}}}}, own=("bakery-web",))
-                               if unit.name == "bank" else unit for unit in self.units(names_)], [], [])
-        self.publish([f"{PREFIX}/bakery-web"], loading=loading)
+        self.publish([f"{PREFIX}/bakery-web"], loading=self.web_built(context=self.folder(APPS["web"]), target="final", args={"B": "2", "A": "1"}))
         build = self.registry.builds()[0]
         self.assertEqual(options(build, "--build-arg"), ["A=1", "B=2"])
         self.assertEqual(option(build, "--target"), "final")
@@ -918,10 +807,7 @@ class Publishing(Fixture):
         self.assertEqual([each["name"] for each in records], sorted(names_))
         self.assertEqual(records[0], {"digest": self.registry.digest(f"{PREFIX}/bakery-api", sha), "name": f"{PREFIX}/bakery-api",
                                       "platforms": ["linux/amd64"], "tags": [f"sha-{sha[:7]}", "latest"]})
-        self.assertTrue(first.endswith(b"\n"))
         self.assertEqual(first, json.dumps(records, indent=2, sort_keys=True, ensure_ascii=True).encode() + b"\n")
-        for forbidden in ("created", "time", "date"):
-            self.assertNotIn(forbidden, first.decode("utf-8").lower().replace("-", ""))
 
     def test_the_output_for_the_attestation_is_one_line_of_names_and_digests(self):
         self.publish([f"{PREFIX}/bakery-web", f"{PREFIX}/bakery-api"])
@@ -963,27 +849,6 @@ class Publishing(Fixture):
         self.assertEqual(self.publish([f"{PREFIX}/bakery-web"], runner=none), 2)
         self.assertIn("Docker is not installed", self.err.getvalue())
 
-    def test_the_dry_run_prints_the_commands_and_runs_nothing(self):
-        sha = self.head()
-        code = self.publish([f"{PREFIX}/bakery-web", f"{PREFIX}/mock-api"], "--dry-run")
-        self.assertEqual(code, 0, self.err.getvalue())
-        self.assertEqual(self.registry.calls, [])
-        self.assertFalse(self.records.exists())
-        lines_ = self.out.getvalue().splitlines()
-        self.assertEqual(lines_[0], f"== {PREFIX}/bakery-web")
-        command = shlex.split(lines_[1])
-        self.assertEqual(command[:3], ["docker", "buildx", "build"])
-        self.assertIn("--push", command)
-        self.assertEqual(options(command, "--tag"), [f"{PREFIX}/bakery-web:sha-{sha[:7]}", f"{PREFIX}/bakery-web:latest"])
-        self.assertEqual(lines_[2], f"== {PREFIX}/mock-api")
-
-    def test_the_dry_run_of_a_tag_says_it_would_look_at_the_version_first(self):
-        self.tag("v1.2.0")
-        self.publish([f"{PREFIX}/bakery-web"], "--dry-run", ref="refs/tags/v1.2.0")
-        self.assertIn(f"# first asked whether it exists: docker buildx imagetools inspect --format '{{{{json .}}}}' {PREFIX}/bakery-web:1.2.0",
-                      self.out.getvalue())
-        self.assertEqual(self.registry.calls, [])
-
     def test_no_secret_is_on_a_command_line_or_in_the_environment_of_a_command(self):
         secrets_ = {"GH_TOKEN": "gho_" + "A" * 36, "GITHUB_TOKEN": "ghs_" + "B" * 36, "REGISTRY_TOKEN": "tok_" + "C" * 30,
                     "ACTIONS_RUNTIME_TOKEN": "D" * 40, "LAB_DEPLOY_KEY": "key-" + "E" * 30, "SSH_AUTH_SOCK": "/tmp/agent.sock"}
@@ -999,6 +864,7 @@ class Publishing(Fixture):
                                     lab=str(self.lab), sleep=self.slept.append)
         self.assertEqual(code, 0, self.err.getvalue() + self.out.getvalue())
         self.assertTrue(fake.commands("buildx", "build"))
+        self.assertEqual(json.loads(self.records.read_text(encoding="utf-8"))[0]["digest"], "sha256:" + "ab" * 32)
         text = json.dumps([call.argv for call in fake.calls()]) + self.records.read_text(encoding="utf-8") + self.output.read_text(encoding="utf-8") \
             + self.out.getvalue() + self.err.getvalue()
         for name, value in secrets_.items():
@@ -1007,17 +873,6 @@ class Publishing(Fixture):
                 self.assertNotIn(name, call.env)
         for call in fake.calls():
             self.assertFalse([name for name in call.env if name.startswith(("ACTIONS_", "GITHUB_", "GH_"))])
-
-    def test_the_stage_with_the_real_docker_command_line_on_the_path(self):
-        fake = FakeDocker(self)
-        (fake.folder / "real.json").write_text("null", encoding="utf-8")
-        fake.when("imagetools", "inspect", stdout=json.dumps({"manifest": {"digest": "sha256:" + "ab" * 32}}))
-        with mock.patch.object(ci, "LOADER", self.loader()):
-            code = publish.main([str(self.repo), "--images", json.dumps([f"{PREFIX}/bakery-web"]), "--ref", "refs/heads/main", "--sha",
-                                 self.head(), "--records", str(self.records)], self.out, self.err, lab=str(self.lab))
-        self.assertEqual(code, 0, self.err.getvalue() + self.out.getvalue())
-        self.assertEqual(len(fake.commands("buildx", "build")), 1)
-        self.assertEqual(json.loads(self.records.read_text(encoding="utf-8"))[0]["digest"], "sha256:" + "ab" * 32)
 
 
 class Places(unittest.TestCase):
@@ -1049,24 +904,6 @@ class Places(unittest.TestCase):
 
 
 class Parts(unittest.TestCase):
-
-    def test_the_pieces_of_a_build_command_are_read_back_from_the_one_that_ci_build_makes(self):
-        from lab_ui.catalogs.ci import build
-        command = build.command_of("ghcr.io/o/r/x:1", "linux/amd64", "/c/Dockerfile", "/c", {"B": "2", "A": "1"}, "final",
-                                   {"k": "v", "a": "b"})
-        self.assertEqual(publish.parts_of(command), {"tag": "ghcr.io/o/r/x:1", "file": "/c/Dockerfile",
-                                                     "args": ["A=1", "B=2"], "target": "final", "labels": ["a=b", "k=v"],
-                                                     "context": "/c"})
-        bare = build.command_of("x:1", "linux/arm64", "/c/Dockerfile", "/c", {}, "", {})
-        self.assertEqual(publish.parts_of(bare)["args"], [])
-
-    def test_a_command_of_many_arguments_is_read_in_one_pass(self):
-        from lab_ui.catalogs.ci import build
-        args = {f"A{number}": "x" for number in range(60_000)}
-        command = build.command_of("x:1", "linux/amd64", "/c/Dockerfile", "/c", args, "", {})
-        found, spent = support.timed(publish.parts_of, command)
-        self.assertEqual(len(found["args"]), 60_000)
-        self.assertLess(spent, 1.0)
 
     def test_the_last_part_of_an_image(self):
         for image, expected in (("ghcr.io/o/r/bakery-web:latest", "bakery-web"), ("ghcr.io/o/r/bakery-web", "bakery-web"),

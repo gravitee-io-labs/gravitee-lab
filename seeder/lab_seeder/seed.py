@@ -8,8 +8,8 @@ against the lab or any other platform it can reach: endpoints, credentials and i
 exception is a refill (below), which is the lab's.
 
 The controls of seed/controls.yaml (controls.py) are the protections a playground's lessons teach: every run brings them to
-the state SEED_PROTECTIONS says (the mode is checked before anything is changed), and the seed ends once the gateway has taken
-what they deployed, or fails on a control whose target no module found. The refills of seed/refills.yaml (refills.py) give a
+the state SEED_PROTECTIONS says (the mode is checked before anything is changed), and the seed fails on a control whose target
+no module found. The refills of seed/refills.yaml (refills.py) give a
 member of an AI workspace their budget back on every run: Re-seed starts what the lessons spend over, as it does the controls.
 A refill deletes counters in the core's Redis (REDIS_URL, REDIS_PASSWORD), which a platform other than the lab does not give: there
 the seed says it could not refill and goes on, and a budget that is spent stays spent until its period ends.
@@ -70,7 +70,6 @@ def main():
     log("seed", "Removing what the playground created" if removing else "Seeding the playground")
     try:
         common.configure()
-        common.defer_waits()
         if removing:
             records = created()
             for module in reversed(MODULES):   # each forgets a record as its object goes; what the platform refused stays
@@ -88,12 +87,11 @@ def main():
             log("seed", f"Protections {controls.mode()}: {controls.named(found)}")
         versions.read()
         require_modules(gamma_modules())
-        am.seed(openfga.seed() or {})
+        am.seed(openfga.seed())
         for module in AFTER_AM:
             module.seed()
         if not common.waits_for_gateway() and os.getenv("GATEWAY_INTERNAL_URL"):
             log("seed", "The gateway takes what was deployed within seconds; SEED_WAIT_GATEWAY=1 waits for it")
-        common.run_later()   # the waits that nothing depended on: the gateway has taken what was deployed
         refills.finish()
         controls.finish()
     except SeedError as e:
@@ -106,7 +104,3 @@ def main():
         return 1
     log("seed", "✓ Playground ready")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

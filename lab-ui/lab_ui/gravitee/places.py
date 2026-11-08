@@ -147,14 +147,12 @@ def _place(record, environment, found, project):
         (NO_GATEWAY[0], NO_GATEWAY[2] if offers else NO_GATEWAY[1])
     return {"id": f"{record['id']}/{environment['id']}", "name": name,
             "platform": {key: record[key] for key in ("id", "name", "kind")},
-            "environment": {"id": environment["id"], "name": environment["name"],
-                            "organization": environment["organizationId"]},
+            "environment": {"id": environment["id"], "name": environment["name"]},
             "state": "missing" if missing else "ready", "missing": missing[0] if missing else None,
             "reason": missing[1].format(name) if missing else "", "token": environment["token"],
             "gateway": None if not gateway else {
                 "id": gateway["id"], "name": gateway["name"], "state": gateway["status"], "here": gateway["here"],
                 "kept": gateway["kept"], "connection": gateway["connection"]},
-            "capabilities": offers,
             "cannot": _cannot(project, offers, record["kind"])}
 
 
@@ -164,27 +162,23 @@ def _places(record, found, project):
         return [{"id": record["id"], "name": record["name"],
                  "platform": {key: record[key] for key in ("id", "name", "kind")}, "environment": None,
                  "state": "unusable", "missing": None, "reason": WORDS.get(found["state"], "Loading"), "token": None,
-                 "gateway": None, "capabilities": None,
-                 "cannot": _cannot(project, None, record["kind"])}]
+                 "gateway": None, "cannot": _cannot(project, None, record["kind"])}]
     return [_place(record, environment, found, project) for environment in found["environments"]]
 
 
 def places(project):
     """The places of every platform, by platform name and the account's order of environments, from what each platform
-    last said (nothing is waited for). [{id, name, platform {id, name, kind}, environment {id, name, organization},
-    state, missing, reason, token {state, expires?}, gateway {id, name, state, here, kept, connection}, capabilities,
-    cannot}]. `state` is ready, missing (`missing` says the first thing, `reason` the sentence for a disabled button) or
+    last said (nothing is waited for). [{id, name, platform {id, name, kind}, environment {id, name}, state, missing,
+    reason, token {state, expires?}, gateway {id, name, state, here, kept, connection}, cannot}]. `state` is ready, missing (`missing` says the first thing, `reason` the sentence for a disabled button) or
     unusable: its platform is loading, refuses the Account Token or does not answer, and `reason` says which. That
-    platform is then one place without environment, token and gateway, and its own id. `capabilities` is what the
-    environment runs (platforms.capabilities), None when that is not known: no gateway there, or a platform that
-    cannot be used. `cannot` is {playground id: the first reason it cannot be deployed there}."""
+    platform is then one place without environment, token and gateway, and its own id. `cannot` is {playground id: the first reason it cannot be deployed there}."""
     return [found for record in sorted(platforms.read(), key=lambda record: (record["name"].casefold(), record["id"]))
             for found in _places(record, _read(record), project)]
 
 
 def place(project, place_id):
     """One place by its id, None when there is none. A platform that cannot be read answers for its places."""
-    uid = place_id.partition("/")[0] if isinstance(place_id, str) else None
+    uid = place_id.partition("/")[0]
     return next((found for found in places(project) if found["id"] in (place_id, uid)), None)
 
 
@@ -337,19 +331,10 @@ def deployed(pid, created):
 # A deploy
 # ---------------------------------------------------------------------------------------------------------------------
 
-def _split(place_id):
-    """The platform and the environment a place id names, '<platform id>/<environment id>'. What a request sends that is no
-    text is no place."""
-    if not isinstance(place_id, str):
-        raise paths.NotFound("No place")
-    uid, _, environment = place_id.partition("/")
-    return uid, environment
-
-
 def verify(project, place_id):
     """The place as the platform says it now, for a deploy to check before any job: the platform is read again and Cloud
     Gate is asked about the Cloud Token. Answers the place, or raises with the reason that a deploy cannot go."""
-    uid, environment = _split(place_id)
+    uid, _, environment = place_id.partition("/")
     invalidate(uid)
     found = place(project, place_id)
     if not found:
@@ -384,7 +369,7 @@ def seed_env(project, place_id, playground):
     why = seed_refused(playground)
     if why:
         raise ValueError(f"{playground.get('name') or 'This playground'} cannot go to a place: {why}")
-    uid, environment = _split(place_id)
+    uid, _, environment = place_id.partition("/")
     record = platforms.find(uid)
     token, claims = platforms.cloud_token(uid, environment)
     addon = platforms.gateway_addon(project, record["kind"])

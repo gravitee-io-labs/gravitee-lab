@@ -3,7 +3,7 @@
 // the on file, its own unit's, those of the setups a playground includes and of the add-ons it brings. A file of an item of a git catalog
 // is there to be read before it runs: it opens read only, by its path in the catalog, and its settings stay the person's to change.
 
-import { $, esc, icon, setHTML, loading, loadScript, api, store, drafts, theme, copyButton } from "../core.js";
+import { $, esc, icon, setHTML, loading, loadScript, api, store, drafts, theme, copyButton, catalogRows } from "../core.js";
 import { toast, confirmDialog, actionButton, paintActions, applyBadge, setOff } from "../components/ui.js";
 import { runJob, runPlatform, busy, confirmApply, savedOnly } from "../activity/jobs.js";
 import { License } from "./license.js";
@@ -55,7 +55,7 @@ let sections = null;                             // the pane: what /api/files an
 let current = null, validateTimer = null, validating = 0;
 const docs = new Map();   // path -> {model or value, saved, version, problems}
 const envs = new Map();   // path -> {form, saved: {key: value}, values: {key: value}}
-// {path, service}: the service a file shared by several groups opens at, once; {path, key}: the field of a form
+// {path, key}: the field of a form a file opens at, once
 let reveal = null;
 let closeAfter = null;   // the .env of an item that is off: once it is saved, the popup is done
 let view = "code";       // a markdown file shows as it is written ("code") or as it reads ("preview")
@@ -93,7 +93,7 @@ function itemOf(path) {
 
 // The catalog an item is part of, by name: its origin's, else the first catalog's, whose items have none
 const partOf = (item) => item.origin?.name
-  || (Array.isArray(store.state?.catalogs) ? store.state.catalogs.find((c) => c.listed && ["git", "folder"].includes(c.kind))?.name : "") || "its catalog";
+  || catalogRows().find((c) => c.listed && ["git", "folder"].includes(c.kind))?.name || "its catalog";
 
 // What keeps a file from being written: it is part of a catalog that is read and not edited (a git catalog's, `readonly`), and says which
 // ({reason}); null for any other file. The path shown for a file is its own except for a file of a catalog.
@@ -306,16 +306,6 @@ async function open(path, forceReload = false) {
   }
   if (current !== path) return;   // another file was asked for meanwhile
   show(doc);
-  // A group of the core shares its file: start at its first service
-  if (editor && path === reveal?.path && reveal.service) {
-    const lines = doc.model.getLinesContent();
-    const line = lines.findIndex((l) => l === `  ${reveal.service}:`) + 1;
-    let top = line;   // from the section's heading comment above it
-    while (top > 1 && /^\s*(#.*)?$/.test(lines[top - 2])) top--;
-    while (top < line && !lines[top - 1].trim()) top++;
-    if (line) { editor.setScrollTop(editor.getTopForLineNumber(top)); editor.setPosition({ lineNumber: line, column: 3 }); }
-    reveal = null;
-  }
   renderState();
   validate();
   showView();
@@ -617,10 +607,10 @@ store.subscribe(() => { if (dialog.open) { renderState(); renderLicense(); } });
 // Leaving the page closes the popup: with unsaved changes it asks first, as closing the window does
 drafts.add(editorDirty, discard);
 
-// Opens the popup on a file, with the ones that go with it in the pane. `service`: the service the file starts at;
-// `key`: the field of a .env it opens at (the license); `off`: the file is the .env of an item that does not run.
+// Opens the popup on a file, with the ones that go with it in the pane. `key`: the field of a .env it opens at (the
+// license); `off`: the file is the .env of an item that does not run.
 export async function openFile(path, options) {
-  reveal = options?.service || options?.key ? { path, service: options.service, key: options.key } : null;
+  reveal = options?.key ? { path, key: options.key } : null;
   closeAfter = options?.off ? path : null;
   sections = null;
   if (!dialog.open) dialog.showModal();

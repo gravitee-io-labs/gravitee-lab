@@ -190,12 +190,6 @@ def registry_label(registry):
     return "Docker Hub" if host is None else "Azure" if AZURE.fullmatch(host) else host
 
 
-def local_images():
-    """The images Docker holds, as repository:tag (compose.image_ids); None when Docker does not answer."""
-    held = compose.image_ids()
-    return None if held is None else set(held)
-
-
 def state(project, is_on, outside):
     """What the Images page shows: every component with the value its .env holds (or its default), the image that
     value gives, what runs and what is pulled (None when Docker does not answer); the registries in use; and
@@ -203,7 +197,7 @@ def state(project, is_on, outside):
     login. What is on is the caller's to say: `is_on(owner)`, whether the owner of a component runs with it, and
     `outside`, the note of a component that runs without its owner being on (layers.is_on, layers.outside)."""
     services, found = project["services"], components(project)
-    local = local_images()
+    local = compose.image_ids()
     containers, _ = compose.containers()   # none when Docker does not answer: the versions still show
     targets = {c["id"]: _env_files(services, c) for c in found}
     envs = {path: envfiles.read(path) for written in targets.values() for path in written}
@@ -215,9 +209,7 @@ def state(project, is_on, outside):
         configured = sorted({services[name]["image"] for name in c["services"]})
         running = {containers[name]["image"] for name in c["services"]
                    if name in containers and containers[name]["state"] == "running"}
-        # docker images lists Docker Hub images without docker.io/ and library/
-        pulled = None if local is None else all(re.sub(r"^docker\.io/(library/)?", "", image) in local
-                                                for image in configured)
+        pulled = None if local is None else all(compose.reference(image) in local for image in configured)
         enabled = is_on(owner)
         listed.append({**c, "version": _bare(env.get(c["version_key"]), unset) or c["version_default"] or "",
                        "registry": _bare(env.get(c["registry_key"]), unset) or c["registry_default"],
@@ -324,9 +316,8 @@ def web_error(error, host):
     return f"Cannot reach {host}"
 
 
-def _json(url, token=None):
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"} if token else {})
-    with urllib.request.urlopen(request, timeout=15) as response:
+def _json(url):
+    with urllib.request.urlopen(urllib.request.Request(url), timeout=15) as response:
         return json.load(response)
 
 
@@ -334,12 +325,7 @@ def _hub_tags(repository):
     """Docker Hub's own API: the latest 300 tags, with their dates."""
     tags, url = [], f"https://hub.docker.com/v2/repositories/{repository}/tags?page_size=100&ordering=last_updated"
     for _ in range(3):
-        try:
-            page = _json(url)
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                raise RuntimeError("Not published on Docker Hub") from error
-            raise
+        page = _json(url)
         tags += [{"name": tag["name"], "updated": tag.get("last_updated")} for tag in page["results"]]
         url = page.get("next")
         if not url:
@@ -500,7 +486,7 @@ def _anonymous(host, repository, reference="latest"):
     manifest of that very image, without a login and then with the token it gives to anyone who asks. A registry may let anyone
     pull and still keep its list of tags to itself: the list is never what is asked."""
     if host is None:
-        code, _ = _status_get(f"https://hub.docker.com/v2/repositories/{repository}/")
+        code, _ = _status(f"https://hub.docker.com/v2/repositories/{repository}/")
         return True if code == 200 else False if code == 404 else None
     url = f"https://{host}/v2/{repository}/manifests/{reference}"
     code, asked = _status(url)
@@ -519,17 +505,6 @@ def _anonymous(host, repository, reference="latest"):
         return None
     code, _ = _status(url, granted.get("token") or granted.get("access_token"))
     return True if code in (200, 404) else False if code in (401, 403) else None
-
-
-def _status_get(url):
-    """The HTTP status of a GET of Docker Hub's API; None when it does not answer."""
-    try:
-        with urllib.request.urlopen(url, timeout=8) as response:
-            return response.status, ""
-    except urllib.error.HTTPError as error:
-        return error.code, ""
-    except (urllib.error.URLError, OSError, ValueError):
-        return None, ""
 
 
 def private_images(images):
@@ -643,17 +618,11 @@ def _github_login(gh):
         if rc == 0:
             rc, token, err = compose.run([gh, "auth", "token", "--hostname", GITHUB], timeout=30)
         if rc != 0:
-            raise JobFailed(_last(err) or "The GitHub CLI has no session")
+            raise JobFailed(compose._last_line(err, "The GitHub CLI has no session"))
         cmd = ["docker", "login", GHCR, "--username", user.strip(), "--password-stdin"]
         job.lines.append(f"$ {' '.join(cmd)}")
         rc, out, err = compose.run(cmd, timeout=60, given=token.strip())
         job.lines.extend(line for line in (out + err).splitlines() if line.strip())
         if rc != 0:
-            raise JobFailed(_last(err) or f"docker login failed with exit code {rc}")
+            raise JobFailed(compose._last_line(err, f"docker login failed with exit code {rc}"))
     return step
-
-
-def _last(text):
-    """The last line a command printed, without its blanks."""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return lines[-1] if lines else ""

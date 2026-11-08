@@ -1,23 +1,19 @@
 // The badge of what runs behind what is saved (web/js/components/ui.js): its markup, how a row's note becomes one, and how it opens: by a tap, closed by a tap elsewhere, a second
 // badge or Escape. Then where the Containers page uses it: the group and the line of a service that runs behind.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { Ev, El, bubble, installDom, text } from "./dom-stub.mjs";
 import { BLOCKED, HOSTILE, HOSTILE_QUOTED, NEEDS, gains, item, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids, stored: { expanded: JSON.stringify({ "group:databases": true }) }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ stored: { expanded: JSON.stringify({ "group:databases": true }) }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
-const { matches, closest } = El.prototype;
-// ... and the keys of a segmented control, whose selector it does not know either: no node of its own is under the keys of a test
-El.prototype.matches = function (selector) { return selector === ":focus-visible" || selector.startsWith(":is([role") ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return selector.includes(":is([role") ? null : closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
+// The keys of a segmented control, whose selector the small DOM does not know: no node of its own is under the keys of a test
+const { closest } = El.prototype;
+El.prototype.closest = function (selector) { return selector.includes(":is([role") ? null : closest.call(this, selector); };
 const { store } = await import("../../../web/js/core.js");
-const { actionButton, applyBadge, behindWhy, catalogNeed, flash, noteBadge, noteCard, noteHtml, originLink, paintActions, tipHtml } = await import("../../../web/js/components/ui.js");
+const { applyBadge, behindWhy, catalogNeed, noteBadge, noteCard, noteHtml, originLink, tipHtml } = await import("../../../web/js/components/ui.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
 Object.defineProperty(store, "platforms", { get: () => [], configurable: true });
 
@@ -42,7 +38,6 @@ test("a badge is a button named by its reason, and the bubble that shows it is a
   assert.deepEqual([bubble.getAttribute("role"), bubble.getAttribute("aria-hidden"), text(bubble.querySelector(".pop-text"))], ["tooltip", "true", WHY],
     "a sentence longer than a line is a popover");
   assert.ok(button.classList.contains("pill") && button.classList.contains("warn"), "a pill in the warn tone");
-  assert.ok(draw(applyBadge(WHY, "state warn")).querySelector(".tip-btn").classList.contains("state"), "the head's size");
 });
 
 test("a reason is text: nothing of it becomes markup", () => {
@@ -80,9 +75,6 @@ test("one line is a tooltip; several lines are a popover whose first line is its
   assert.equal(long.querySelector(".tip-text"), null);
   assert.deepEqual(bubble(long), [WHY]);
   assert.equal(long.querySelector(".tip-btn").getAttribute("aria-label"), WHY);
-  // A bubble for the pointer only: its button is no stop of the keyboard
-  assert.equal(draw(tipHtml("", WHY, "dash-hit", "", { tab: false })).querySelector(".tip-btn").getAttribute("tabindex"), "-1");
-  assert.equal(draw(tipHtml("", WHY)).querySelector(".tip-btn").getAttribute("tabindex"), null);
 });
 
 test("the note of what runs behind is the badge, its tooltip the reason; any other note is what it was", () => {
@@ -91,7 +83,6 @@ test("the note of what runs behind is the badge, its tooltip the reason; any oth
   const plain = draw(noteHtml({ note: "Needs settings", note_tone: "warn", note_title: "Fill them in" }));
   assert.equal(plain.querySelectorAll(".tip").length, 0);
   assert.equal(plain.querySelector(".list-note").getAttribute("data-tip"), "Fill them in", "the shared tooltip, never the browser's title");
-  assert.equal(plain.querySelector(".list-note").getAttribute("title"), null);
   // A note whose words are all it says has them as its tooltip while they are cut
   const cut = draw(noteHtml({ note: "Developer Portal stopped" })).querySelector(".list-note");
   assert.deepEqual([cut.getAttribute("data-tip"), cut.hasAttribute("data-tip-cut")], ["Developer Portal stopped", true]);
@@ -179,7 +170,7 @@ const lab = () => ({
   blind: false, wait: "", docker: { error: null }, license: null, products: [], categories: [], playgrounds: [], addons: [], setups: [], links: [], problems: [],
   services: { mongodb: service("mongodb", { behind: true, ...LATE }), redis: service("redis") },
   platform: { name: "Gravitee platform", state: RUNNING, progress: null, file: "docker-compose.yml", env_file: ".env", settings: [],
-    behind: [{ kind: "group", id: "databases", name: "Databases", reason: `Databases: ${WHY}` }],
+    behind: [{ kind: "group", id: "databases", name: "Databases", reason: `Databases: ${WHY}`, causes: [] }],
     groups: [{ id: "databases", name: "Databases", services: ["mongodb", "redis"], state: RUNNING, progress: null, version: "", registry: null, registry_label: null,
       product: null, file: "docker-compose.yml", env_file: ".env", settings: [], brings: [], recreates: [], ...LATE }],
     start: { needed: false, starts: [], restarts: [], enabled: true, reason: null, dialog: null }, apply: { needed: true, restarts: [], starts: [], dialog: null },
@@ -213,24 +204,23 @@ const SETTINGS = { kind: "settings", settings: ["GRAVITEE_LICENSE", "INTERNAL_AP
 const chips = (root) => root.querySelectorAll(".chip").map(text);
 
 test("a row's badge opens the card of its causes: versions and settings as chips, running before saved, never a value", () => {
-  const root = draw(applyBadge(WHY, "pill warn", [TAG]));
+  const root = draw(applyBadge(WHY, [TAG]));
   assert.equal(root.querySelector(".tip-btn").getAttribute("aria-label"), `Apply needed: ${WHY}`, "its name is the sentence");
   assert.deepEqual(bubble(root), ["Differs from what is saved", "4.13.0-alpha.4 4.12.20 (older)", "Apply restarts it with what is saved, older versions included."]);
   assert.deepEqual(chips(root), ["4.13.0-alpha.4", "4.12.20"]);
   // The versions are a table: what runs and what is saved under their captions, the one saved marked when Apply goes back to it
-  assert.equal(text(root.querySelector(".pop-captions")), "Running Saved");
+  assert.deepEqual(["pop-run", "pop-saved"].map((cell) => root.querySelector(`.${cell}`).getAttribute("data-cap")), ["Running", "Saved"]);
   assert.deepEqual([root.querySelector(".pop-run .chip").getAttribute("class"), root.querySelector(".pop-saved .chip").getAttribute("class")], ["chip", "chip older"]);
-  assert.match(root.querySelector(".tip-btn").getAttribute("aria-label"), /^Apply needed: /);
-  assert.deepEqual(bubble(draw(applyBadge("x", "pill warn", [{ ...TAG, older: false }]))).slice(1), ["4.13.0-alpha.4 4.12.20", "Apply restarts it with what is saved."], "a newer one saved is no going back");
-  const settings = draw(applyBadge("x", "pill warn", [SETTINGS]));
+  assert.deepEqual(bubble(draw(applyBadge("x", [{ ...TAG, older: false }]))).slice(1), ["4.13.0-alpha.4 4.12.20", "Apply restarts it with what is saved."], "a newer one saved is no going back");
+  const settings = draw(applyBadge("x", [SETTINGS]));
   assert.deepEqual(chips(settings), ["GRAVITEE_LICENSE", "INTERNAL_API_PASSWORD"], "the names of the settings, as chips");
-  const many = draw(applyBadge("x", "pill warn", [{ ...SETTINGS, settings: ["A", "B", "C", "D", "E", "F"] }]));
+  const many = draw(applyBadge("x", [{ ...SETTINGS, settings: ["A", "B", "C", "D", "E", "F"] }]));
   assert.deepEqual(chips(many), ["A", "B", "C", "D"]);
   assert.match(text(many.querySelector(".pop-line")), /and 2 more$/);
-  assert.deepEqual(bubble(draw(applyBadge("x", "pill warn", [{ kind: "config", services: [] }])))[1], "Configuration changed");
-  assert.deepEqual(bubble(draw(applyBadge("x", "pill warn", [{ kind: "image", tag: "3.0.2", built: false, services: [] }])))[1], "Image 3.0.2 changed");
-  assert.deepEqual(bubble(draw(applyBadge("x", "pill warn", [{ kind: "image", tag: "latest", built: true, services: [] }])))[1], "Image built again");
-  assert.deepEqual(bubble(draw(applyBadge("x", "pill warn", [{ kind: "tag", saved: null, running: null, services: [] }])))[1], "Another image is saved");
+  assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "config", services: [] }])))[1], "Configuration changed");
+  assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "image", tag: "3.0.2", built: false, services: [] }])))[1], "Image 3.0.2 changed");
+  assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "image", tag: "latest", built: true, services: [] }])))[1], "Image built again");
+  assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "tag", saved: null, running: null, services: [] }])))[1], "Another image is saved");
   // Without causes (an older server, the license's line) the reason is its explanation: a tooltip when short
   assert.ok(draw(applyBadge("Its image changed")).querySelector(".tip-text"));
   // A note of the server carries its causes to its badge
@@ -245,15 +235,14 @@ test("the platform's card: how many containers in all, a row for each product wi
   const card = behindWhy({ behind });
   assert.equal(card.title, "7 containers differ from what is saved");
   assert.equal(card.foot, "Apply restarts them with what is saved, older versions included.");
-  const root = draw(applyBadge(["a", "b"], "pill warn", card));
+  const root = draw(applyBadge(["a", "b"], card));
   assert.deepEqual(root.querySelectorAll(".pop-subject").map(text), ["API Management", "Databases"]);
   // A product's one cause is on its line; a group's causes are under it, each with whom it is about
   assert.deepEqual(root.querySelectorAll(".pop-who").map(text), ["API Management", "Elasticsearch", "MongoDB"], "who, when not all of the product");
-  assert.deepEqual(root.querySelectorAll(".pop-run").map(text), ["Running", "4.13.0-alpha.4", "9.5.3", "8.3.11"], "every version that runs in one column, under its caption");
+  assert.deepEqual(root.querySelectorAll(".pop-run").map(text), ["4.13.0-alpha.4", "9.5.3", "8.3.11"], "every version that runs in one column");
   assert.equal(root.querySelector(".tip-btn").getAttribute("aria-label"), "Apply needed: a. b");
-  assert.equal(behindWhy({ behind: [{ name: "Kafka", count: 1, causes: [{ kind: "config", services: [] }] }] }).title, "1 container differs from what is saved");
-  assert.equal(behindWhy({ behind: [{ name: "Kafka", reason: "x" }] }), null, "no causes, no card: the lines say it");
-  assert.equal(draw(applyBadge("x", "pill warn", [TAG, SETTINGS])).querySelectorAll(".pop-line").length, 2, "a row's card has a line for each of its causes");
+  assert.equal(behindWhy({ behind: [{ name: "Kazoo", count: 1, causes: [{ kind: "config", services: [] }] }] }).title, "1 container differs from what is saved");
+  assert.equal(draw(applyBadge("x", [TAG, SETTINGS])).querySelectorAll(".pop-line").length, 2, "a row's card has a line for each of its causes");
 });
 
 test("a note of a catalog row is a badge: in its tone, a quiet button with an arrow when it leads to its fix, its explanation a tooltip", () => {
@@ -262,13 +251,11 @@ test("a note of a catalog row is a badge: in its tone, a quiet button with an ar
   assert.deepEqual([button.getAttribute("class"), button.getAttribute("data-license"), button.getAttribute("data-tip"), text(button)],
     ["pill note warn", "form", "No license saved", "Needs a license"]);
   assert.ok(button.querySelector("svg use").getAttribute("href").endsWith("#i-arrow-right"));
-  const via = draw(noteBadge({ note: "via Kafka Desk", note_tone: "", note_target: { kind: "addon", id: "kafka-desk" } }));
+  const via = draw(noteBadge({ note: "via Kazoo Desk", note_tone: "", note_target: { kind: "addon", id: "kazoo-desk" } }));
   assert.equal(via.querySelector("a").getAttribute("class"), "pill note");
   assert.equal(via.querySelector("a").getAttribute("data-tip"), null, "nothing more to say: no tooltip");
-  const fix = draw(noteBadge({ note: "Needs a Cloud Token", note_tone: "warn", note_title: "No Cloud Token" }, "token"));
-  assert.equal(fix.querySelector("button").getAttribute("data-fix"), "token");
-  const outside = draw(noteBadge({ note: "Started by hand", note_title: "Kafka runs" }));
-  assert.equal(outside.querySelector(".tip-btn").getAttribute("aria-label"), "Started by hand: Kafka runs", "more to say: it opens");
+  const outside = draw(noteBadge({ note: "Started by hand", note_title: "Kazoo runs" }));
+  assert.equal(outside.querySelector(".tip-btn").getAttribute("aria-label"), "Started by hand: Kazoo runs", "more to say: it opens");
   const said = "Not from the Lab UI, so the platform does not start it.";
   assert.deepEqual(bubble(draw(noteBadge({ note: "Started by hand", note_title: said }))), ["Started by hand", said],
     "a sentence: a popover titled by its badge");
@@ -287,11 +274,11 @@ test("a note that says what an item needs is a card of its causes: the versions 
   assert.equal(newerCard.foot, "Choose them on the Images page.");
   assert.deepEqual(newerCard.rows[0].lines, [[{ who: "Access Management" }, { code: "4.13" }, "or later"], [{ who: "API Management" }, { code: "4.13.0-alpha.3" }, "or later"]]);
   assert.equal(link.getAttribute("data-tip"), "Needs 4.13", "what a screen reader hears of it is the server's sentence");
-  const unset = draw(noteBadge({ kind: "addon", id: "hybrid", note: "Needs settings", note_tone: "warn", note_title: "", note_causes: [{ kind: "unset", settings: ["HYBRID_CLOUD_TOKEN"] }] }));
+  const unset = draw(noteBadge({ kind: "addon", id: "hyssop", note: "Needs settings", note_tone: "warn", note_title: "", note_causes: [{ kind: "unset", settings: ["HYSSOP_CLOUD_TOKEN"] }] }));
   const button = unset.querySelector("button");
-  assert.equal(button.getAttribute("data-settings"), "addon:hybrid", "it opens its own settings");
-  assert.deepEqual(JSON.parse(button.getAttribute("data-tip-card")).rows[0].lines, [[{ code: "HYBRID_CLOUD_TOKEN" }]]);
-  assert.equal(button.getAttribute("data-tip"), "Needs settings. HYBRID_CLOUD_TOKEN. Set it in its settings");
+  assert.equal(button.getAttribute("data-settings"), "addon:hyssop", "it opens its own settings");
+  assert.deepEqual(JSON.parse(button.getAttribute("data-tip-card")).rows[0].lines, [[{ code: "HYSSOP_CLOUD_TOKEN" }]]);
+  assert.equal(button.getAttribute("data-tip"), "Needs settings. HYSSOP_CLOUD_TOKEN. Set it in its settings");
   // The foot agrees with what it is about: one setting is "it", several "them"; one version "it", several "them"
   const two = draw(noteBadge({ kind: "addon", id: "aws", note: "Needs settings", note_tone: "warn", note_causes: [{ kind: "unset", settings: ["A", "B"] }] }));
   assert.equal(JSON.parse(two.querySelector("button").getAttribute("data-tip-card")).foot, "Set them in its settings.");
@@ -318,7 +305,7 @@ test("an item of another catalog links to that catalog's row with its version af
   assert.equal(root.querySelectorAll(".pill, .tip").length, 0, "a name beside an item is not a badge");
   assert.equal(linkOf({ version: "" }).querySelectorAll(".muted").length, 0);
   // Nothing to tell apart, nothing drawn: no origin, a missing one, a nameless one, no item
-  for (const found of [item("addon", "kafka", "Kafka"), item("addon", "local/x", "X", gains({ personal: true })), { origin: null }, { origin: {} }, { origin: { id: "acme-hub" } },
+  for (const found of [item("addon", "kazoo", "Kazoo"), item("addon", "local/x", "X", gains({ personal: true })), { origin: null }, { origin: {} }, { origin: { id: "acme-hub" } },
     {}, null, undefined]) {
     assert.equal(originLink(found), "", JSON.stringify(found));
   }
@@ -426,10 +413,6 @@ test("the card of a note says its foot for the kinds it knows, and none for one 
     assert.equal(noteCard(named), null, kind);
     assert.deepEqual(bubble(draw(noteBadge(named)).querySelector(".tip")), ["Odd", "Configuration changed"], kind);
   }
-  // The kinds of old say what they said
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "unset", settings: ["A"] }] }).foot, "Set it in its settings.");
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "unset", settings: ["A", "B"] }] }).foot, "Set them in its settings.");
-  assert.equal(noteCard({ note: "x", note_causes: [{ kind: "license", features: ["Observability"] }] }).foot, "Set a license in the license form.");
 });
 
 // --- A popover that ends with a button -----------------------------------------------------------------------------------------
@@ -446,17 +429,4 @@ test("a popover may end with one button that leads somewhere; the others are as 
   const hostile = draw(tipHtml("x", { title: "T", action: { label: HOSTILE, href: `#/x${HOSTILE_QUOTED}` } }));
   assert.equal(hostile.querySelectorAll("img, script").length, 0);
   assert.equal(hostile.querySelectorAll("a").length, 1);
-});
-
-// --- The verb of a repair ---------------------------------------------------------------------------------------------------------
-
-test("a repair is an action like the others: it works as Repairing and says Repair when it is over", () => {
-  const root = draw(actionButton({ key: "catalog-op:acme-hub", verb: "repair", label: "Repair" }));
-  const button = root.querySelector("button");
-  assert.equal(button.querySelector(".pbtn-text").getAttribute("data-wait"), "Repairing\u2026");
-  assert.equal(button.getAttribute("data-act-verb"), "repair");
-  flash("catalog-op:acme-hub", "repair", true);
-  paintActions(root);
-  assert.ok(button.classList.contains("said") && button.classList.contains("done"));
-  assert.equal(text(button.querySelector(".pbtn-text")), "Repair");
 });

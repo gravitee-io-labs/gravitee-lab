@@ -3,22 +3,14 @@
 // note, and offers it no Start, on its row or on its group's. And what its Reset says before it runs: what it turns off, and what stays
 // in a platform that playgrounds deployed to.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 const OPEN = JSON.stringify({ "group:alert-engine": true, "group:api-management": true });   // the groups the page remembers open
-const page = installDom({ ids, stored: { expanded: OPEN }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ stored: { expanded: OPEN }, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;   // the menu opens under its button, or above it when the window ends first
-// Two selectors that the page asks and the small DOM does not know: a menu opened with the keyboard focuses its first entry
-// (:focus-visible, which a click never has), and a button at work takes no click (:is)
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
 const { store } = await import("../../../web/js/core.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
 const { paintBusy } = await import("../../../web/js/components/ui.js");
@@ -149,10 +141,10 @@ test("an entry of the on file that Compose cannot read holds what reads the file
 function withItems() {
   const state = lab({ licensed: true });
   state.services.agent = service("agent", RUNNING);
-  state.services.kafka = service("kafka", RUNNING);
+  state.services.kazoo = service("kazoo", RUNNING);
   state.services.app = service("app", RUNNING);
-  state.addons = [{ ...group("kafka", "Kafka", ["kafka"], RUNNING), kind: "addon", category: "Event", on: true, up: true },
-    { ...group("federation", "API Federation", ["agent"], RUNNING), kind: "addon", category: "Gravitee platform", on: true, up: true }];
+  state.addons = [{ ...group("kazoo", "Kazoo", ["kazoo"], RUNNING), kind: "addon", category: "Event", on: true, up: true },
+    { ...group("sorrel", "Sorrel", ["agent"], RUNNING), kind: "addon", category: "Gravitee platform", on: true, up: true }];
   state.playgrounds = [{ ...group("shop", "Shop", ["app"], RUNNING), kind: "playground", on: true, up: true, apps: ["app"], deployed: [], deploys_to: [] }];
   return state;
 }
@@ -160,7 +152,7 @@ const keys = () => section.querySelectorAll(".groups > li").map((li) => li.getAt
 
 test("the platform's groups come under its band, its own add-ons inside it under a band of their own, then the other add-ons and the playground", () => {
   draw(withItems());
-  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "addon:federation", "section:Other add-ons", "addon:kafka",
+  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "addon:sorrel", "section:Other add-ons", "addon:kazoo",
     "section:Playground", "playground:shop"]);
 });
 
@@ -172,9 +164,9 @@ test("a band folds what is under it: the platform's its groups and the add-ons, 
     draw(state);   // the page draws again when the state is told of the change
   };
   click("section:Add-ons");
-  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "section:Other add-ons", "addon:kafka", "section:Playground", "playground:shop"]);
+  assert.deepEqual(keys(), ["core", "group:api-management", "group:alert-engine", "section:Add-ons", "section:Other add-ons", "addon:kazoo", "section:Playground", "playground:shop"]);
   click("core");
-  assert.deepEqual(keys(), ["core", "section:Other add-ons", "addon:kafka", "section:Playground", "playground:shop"], "what is not the platform's stays");
+  assert.deepEqual(keys(), ["core", "section:Other add-ons", "addon:kazoo", "section:Playground", "playground:shop"], "what is not the platform's stays");
   click("core");
   click("section:Add-ons");
   assert.equal(keys().length, 9, "open again");

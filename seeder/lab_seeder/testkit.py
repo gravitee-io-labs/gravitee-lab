@@ -1,7 +1,5 @@
-"""What the seeder's tests share, in the engine and in a catalog: a platform that answers from a table of routes, a seed
-to run against it, and the seed services of playgrounds. A module is tested in its own file, `tests/test_<module>.py`:
-
-    from .testkit import Seed
+"""What the seeder's tests share: a platform that answers from a table of routes, and a seed to run against it. A module is
+tested in its own file, `tests/test_<module>.py`:
 
     class Providers(Seed):
         def test_a_missing_provider_is_created(self):
@@ -14,15 +12,7 @@ The settings are those of SETTINGS, which a seed has by default, the gateway not
 `SEED_WAIT_GATEWAY=1`) but one request at a time (`workers` lets more go at once); the state is a temporary file, the seed
 folder is empty (`self.seed_files` fills it), nothing sleeps and the output is kept (`output`).
 
-A test that needs the files of a playground reads them under PLAYGROUNDS, the frozen sample of the engine. This module lives in `seeder/`, beside the modules it tests, so a catalog puts that folder on `sys.path` and imports it as
-`testkit`.
-
-The checks of the seed files and the reading of a playground's seed service (`unset_variables`, `literal_addresses`,
-`escaped_addresses`, `seed_service`, `seeded_playgrounds` and the rest of the last section) are those of seedlint.py, which a
-catalog's CI runs on the command line: this module names them and holds no copy, so that the tests and the CI never disagree,
-and a compose file is read with the guards of the lint (a link, a large file or a bomb of YAML is refused, not loaded). A test
-of a catalog that looks for the addresses its seed files write out calls both `literal_addresses(text)` and
-`escaped_addresses(path, text)`: the second finds what a YAML or JSON file writes in escapes.
+A test that needs the files of a playground reads them under PLAYGROUNDS, the frozen sample of the engine.
 """
 
 import fnmatch
@@ -40,8 +30,6 @@ from urllib.parse import parse_qsl, urlsplit
 try:
     import requests
     from requests.structures import CaseInsensitiveDict
-
-    from . import seedlint   # reads the seed with pyyaml and the seeder's own `common`, and says so itself when they are missing
 except ImportError as e:
     raise ImportError("The seeder's tests need requests and pyyaml: pip install -r seeder/requirements.txt "
                       "(Python 3.10 or later), or run make setup") from e
@@ -56,10 +44,8 @@ SETTINGS = {"APIM_MANAGEMENT_URL": "http://apim", "APIM_USERNAME": "admin", "API
             "AM_MANAGEMENT_URL": "http://am", "AM_USERNAME": "admin", "AM_PASSWORD": "adminadmin",
             "OPENFGA_API_URL": "http://openfga", "SEED_WORKERS": "1", "SEED_WAIT_GATEWAY": "0"}
 
-# The two playgrounds the engine's tests read: invented samples (a bakery and a hostel chain), so that the engine holds no
-# content of a catalog
-SAMPLES = seedlint.SAMPLES
-PLAYGROUNDS = SAMPLES
+# The playground the engine's tests read: an invented sample (a bakery), so that the engine holds no content of a catalog
+PLAYGROUNDS = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "samples"
 
 # What the platform answers at the start of a seed (versions.read) unless a test says otherwise: it is reachable and says no
 # version, so the seed adapts to what it answers
@@ -90,10 +76,6 @@ class Response:
         if self.body is None or isinstance(self.body, str):
             raise requests.exceptions.JSONDecodeError("not JSON", self.text, 0)
         return self.body
-
-    def raise_for_status(self):
-        if not self.ok:
-            raise requests.HTTPError(f"HTTP {self.status_code}", response=self)
 
 
 # What the platform was asked: `url` whole, `path` without its query, `params` from the URL and the call, `headers` as
@@ -185,41 +167,17 @@ class Session:
                     files, sent, auth or self.auth, timeout)
         return self.platform.handle(call)
 
-    def get(self, url, **kwargs):
-        return self.request("GET", url, **kwargs)
-
-    def post(self, url, **kwargs):
-        return self.request("POST", url, **kwargs)
-
-    def put(self, url, **kwargs):
-        return self.request("PUT", url, **kwargs)
-
-    def patch(self, url, **kwargs):
-        return self.request("PATCH", url, **kwargs)
-
-    def delete(self, url, **kwargs):
-        return self.request("DELETE", url, **kwargs)
-
-    def close(self):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exception):
-        self.close()
-
 
 class FakeRedis:
     """The part of redis-py a refill uses, over the hashes of a dict, {key: {field: value}}: scan_iter with a glob, a
-    pipeline of hget, delete and close. A key whose value is not a dict is not a hash: asking it for a field is an error,
+    pipeline of hget, and delete. A key whose value is not a dict is not a hash: asking it for a field is an error,
     which a pipeline gives in place of the answer when it is told not to raise. `calls` lists what was asked."""
 
     class WrongType(Exception):
         pass
 
     def __init__(self, hashes=None):
-        self.data, self.calls, self.closed = {key: value for key, value in (hashes or {}).items()}, [], False
+        self.data, self.calls = {key: value for key, value in (hashes or {}).items()}, []
 
     def scan_iter(self, match="*", count=None):
         self.calls.append(("scan", match))
@@ -238,9 +196,6 @@ class FakeRedis:
     def delete(self, *keys):
         self.calls.append(("delete", sorted(keys)))
         return sum(self.data.pop(key, None) is not None for key in keys)
-
-    def close(self):
-        self.closed = True
 
 
 class FakeBatch:
@@ -268,18 +223,14 @@ class Clock:
     """Time that moves only when something sleeps: a seed that waits for a platform that never answers ends at once."""
 
     def __init__(self):
-        self.sleeps, self.elapsed = [], 0.0
-        self._time, self._monotonic = time.time, time.monotonic
+        self.sleeps, self.elapsed, self.started = [], 0.0, time.time()
 
     def sleep(self, seconds):
         self.sleeps.append(seconds)
         self.elapsed += seconds
 
     def time(self):
-        return self._time() + self.elapsed
-
-    def monotonic(self):
-        return self._monotonic() + self.elapsed
+        return self.started + self.elapsed
 
 
 class Seed(unittest.TestCase):
@@ -294,9 +245,8 @@ class Seed(unittest.TestCase):
         patches = [mock.patch.object(common, "STATE_FILE", self.state),
                    mock.patch.object(common, "SEED_DIR", Path(folder.name) / "seed"),
                    mock.patch.object(requests, "Session", self.platform.session),
-                   mock.patch.object(requests.sessions, "Session", self.platform.session),
                    mock.patch.dict(os.environ, SETTINGS, clear=True), mock.patch("sys.stdout", self.stdout)]
-        patches += [mock.patch.object(time, name, getattr(self.clock, name)) for name in ("sleep", "time", "monotonic")]
+        patches += [mock.patch.object(time, name, getattr(self.clock, name)) for name in ("sleep", "time")]
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -338,20 +288,3 @@ class Seed(unittest.TestCase):
         """seed.main() as the container runs it, with these arguments ("--remove"); its exit code."""
         with mock.patch("sys.argv", ["seed.py", *arguments]):
             return seed.main()
-
-
-# --- The playgrounds' seed services and the checks of their seed files -----------------------
-# seedlint.py holds them, and what they answer is what the command answers
-
-TEXT, LITERAL_URL, PUBLIC = seedlint.TEXT, seedlint.LITERAL_URL, seedlint.PUBLIC
-as_mapping, compose_value = seedlint.as_mapping, seedlint.compose_value
-seed_service, seed_environment = seedlint.seed_service, seedlint.seed_environment
-seed_paths, provided_to = seedlint.seed_paths, seedlint.provided_to
-unset_variables, literal_addresses = seedlint.unset_variables, seedlint.literal_addresses
-escaped_addresses = seedlint.escaped_addresses
-
-
-def seeded_playgrounds(root=None):
-    """(folder, environment of its seed service) of each shared playground of `root` (PLAYGROUNDS) that has a seed
-    folder and a seed service."""
-    return seedlint.seeded_playgrounds(PLAYGROUNDS if root is None else root)

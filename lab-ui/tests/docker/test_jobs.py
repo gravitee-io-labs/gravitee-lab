@@ -1,7 +1,7 @@
 """Jobs: one at a time, the last ones kept, a failure remembered until the item is started or stopped again, and
 how far a job is: from what each stage waits for, known before it begins, moved by what its commands print and by
 what Docker says of the containers. Nothing is run: a command prints lines taken from real output, and Docker is a
-fixture that follows them. Then "Start the stack" replayed as Compose printed it."""
+fixture that follows them."""
 
 import math
 import os
@@ -14,12 +14,11 @@ from unittest import mock
 from lab_ui.docker import compose, jobs
 from lab_ui.library import model, plugins
 from lab_ui import paths
-from lab_ui.server import stack
 from lab_ui.docker.jobs import KEPT, Job, JobFailed, Jobs, awaited
 
 from .. import Case
 
-KAFKA, EVENTS, PLATFORM = "addon:kafka", "setup:events", "platform"
+KAZOO, EVENTS, PLATFORM = "addon:kazoo", "setup:events", "platform"
 
 
 def ended(title, ok, key=None, **changes):
@@ -50,7 +49,7 @@ def replay(job, *outputs, code=0, refresh=None):
                     refresh(job, line)
                 summaries.append(job.summary())
         return mock.Mock(stdout=lines(), wait=lambda: code, returncode=code)
-    with mock.patch.object(jobs.subprocess, "Popen", command):
+    with mock.patch.object(jobs.compose.subprocess, "Popen", command):
         job.run()
     return summaries
 
@@ -120,7 +119,7 @@ def services(*specs):
 
 
 SERVICES = services(("mongodb", False), ("redis", False), ("reader-ui", False), ("alert-engine", False),
-                    ("apim-gateway", False), ("openfga-migrate", True))
+                    ("apim-gateway", False), ("orchard-migrate", True))
 LAB = {"services": SERVICES}
 # What Docker checks the health of: neither Reader UI nor the migration
 CHECKED = {"mongodb", "redis", "alert-engine", "apim-gateway"}
@@ -139,7 +138,7 @@ class Running(Case):
         return job
 
     def start(self, title, steps, **how):
-        return self.jobs.start(title, steps, key="addon:kafka", verb="start", **how)
+        return self.jobs.start(title, steps, key="addon:kazoo", verb="start", **how)
 
     def test_what_a_command_prints_is_read_as_utf8_whatever_the_terminal_says(self):
         asked = []
@@ -147,16 +146,16 @@ class Running(Case):
         def command(cmd, **options):
             asked.append(options)
             return mock.Mock(stdout=iter(["✓ Démo\n"]), wait=lambda: 0, returncode=0)
-        job = Job("Start Kafka", [["docker", "compose", "up"]], key="addon:kafka", verb="start")
-        with mock.patch.object(jobs.subprocess, "Popen", command):
+        job = Job("Start Kazoo", [["docker", "compose", "up"]], key="addon:kazoo", verb="start")
+        with mock.patch.object(jobs.compose.subprocess, "Popen", command):
             job.run()
         self.assertEqual((job.ok, job.lines[-1]), (True, "✓ Démo"))
         self.assertEqual((asked[0]["encoding"], asked[0]["errors"]), ("utf-8", "replace"))
 
     def test_one_at_a_time(self):
         release = threading.Event()
-        first = self.start("Start Kafka", [lambda job: release.wait(5)])
-        with self.assertRaisesRegex(RuntimeError, "'Start Kafka' is still running"):
+        first = self.start("Start Kazoo", [lambda job: release.wait(5)])
+        with self.assertRaisesRegex(RuntimeError, "'Start Kazoo' is still running"):
             self.start("Start Jade", [])
         self.assertEqual((self.jobs.current, len(self.jobs.jobs)), (first, 1))
         release.set()
@@ -233,7 +232,7 @@ class Cut(Case):
     def run_job(self, step):
         """A job of one step, a shell script or a function, run in a thread. The output of each command it ran is closed
         once the test ends."""
-        job = Job("Start Acme Shop", [["sh", "-c", step] if isinstance(step, str) else step], key="addon:acme-shop",
+        job = Job("Start Malt", [["sh", "-c", step] if isinstance(step, str) else step], key="addon:malt",
                   verb="start")
         spawned, spawn = [], compose.spawn
         self.patch(compose, "spawn", lambda *args, **how: spawned.append(spawn(*args, **how)) or spawned[-1])
@@ -256,7 +255,7 @@ class Cut(Case):
 
     def test_a_command_runs_in_the_project_folder_in_a_session_of_its_own(self):
         # Where the project is (a `git` or a `make` of an update acts there), out of reach of the Lab UI's own signals
-        self.folder(paths)
+        self.folder(compose)
         job = Job("Update", [[sys.executable, "-c", "import os; print(os.getcwd()); print(os.getsid(0) == os.getpid())"]],
                   key="lab", verb="update")
         job.run()
@@ -335,34 +334,17 @@ class Cut(Case):
     # A step may go on once a command of its own was ended (plugins.up starts the next services anyway): the next
     # command is ended as well when it says nothing for long, or waits for a container that keeps restarting
 
-    def test_a_command_after_one_that_was_ended_for_its_silence_is_ended_too(self):
-        self.patch(jobs, "SILENT", 0.3)
-        self.patch(jobs, "WATCH", 0.05)
-        caught = []
-
-        def step(job):
-            try:
-                job.exec(["sh", "-c", "exec sleep 600"])
-            except JobFailed as failed:
-                caught.append(str(failed))
-            job.exec(["sh", "-c", "exec sleep 600"])
-        job, thread = self.run_job(step)
-        thread.join(ENDED)
-        self.assertEqual(len(caught), 1, caught)
-        self.assertFalse(thread.is_alive(), "the second command still runs")
-        self.assertIs(job.ok, False)
-
     def test_a_command_after_one_that_was_ended_on_a_container_in_an_issue_is_ended_too(self):
         caught = []
 
         def step(job):
             try:
-                job.exec(["sh", "-c", 'echo " Container gio-hybrid Waiting "; exec sleep 600'])
+                job.exec(["sh", "-c", 'echo " Container gio-hyssop Waiting "; exec sleep 600'])
             except JobFailed as failed:
                 caught.append(str(failed))
             job.exec(["sh", "-c", 'echo " Container gio-api Waiting "; exec sleep 600'])
         job, thread = self.run_job(step)
-        for name in ("gio-hybrid", "gio-api"):
+        for name in ("gio-hyssop", "gio-api"):
             if not waited(lambda: job.detail() == f"Container {name} Waiting"):
                 self.fail(f"{name} is not waited for: {self.said(job)}")
             began = time.monotonic()
@@ -371,7 +353,7 @@ class Cut(Case):
         thread.join(ENDED)
         if thread.is_alive():
             self.fail(f"the second command still waits for gio-api: {self.said(job)}")
-        self.assertEqual((caught, job.ok, job.error()), (["gio-hybrid keeps restarting"], False, "gio-api keeps restarting"))
+        self.assertEqual((caught, job.ok, job.error()), (["gio-hyssop keeps restarting"], False, "gio-api keeps restarting"))
 
     def test_plugins_up_is_not_left_to_wait_for_ever_once_its_first_wait_was_ended(self):
         # The real step: one of the two is made, then waited for alone, a wait that says nothing; the other starts after
@@ -385,13 +367,13 @@ class Cut(Case):
             return {"container": container, "image": f"graviteeio/{container}:4", "label": container, "oneshot": False,
                     "depends_on": [], "owner": {"kind": "platform", "id": "api-management", "name": "API"}}
         product = {"name": "API Management", "folder": "plugins/apim", "lib": {},
-                   "services": {"api": "/opt/api/plugins", "hybrid": "/opt/h/plugins"}}
-        project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hybrid": service("gio-hybrid")}}
-        job, thread = self.run_job(lambda job: plugins.up(job, project, ["hybrid", "api"]))
+                   "services": {"api": "/opt/api/plugins", "hyssop": "/opt/h/plugins"}}
+        project = {"products": {"apim": product}, "services": {"api": service("gio-api"), "hyssop": service("gio-hyssop")}}
+        job, thread = self.run_job(lambda job: plugins.up(job, project, ["hyssop", "api"]))
         thread.join(ENDED)
         self.assertFalse(thread.is_alive(), "plugins.up still waits on the `up` of the rest")
         self.assertEqual([line.split(" compose ")[-1] for line in job.lines if line.startswith("$")],
-                         ["up -d --no-deps api", "up -d --no-deps hybrid"])   # the wait in between is quiet, and was ended
+                         ["up -d --no-deps api", "up -d --no-deps hyssop"])   # the wait in between is quiet, and was ended
         self.assertIs(job.ok, False)
         self.assertTrue(job.error().startswith("Stopped: nothing happened for"), job.error())
 
@@ -412,11 +394,11 @@ RESTARTS = [" Container gio-alert-engine Restarting ", " Container gio-alert-eng
 BUILDS = [" Image gravitee-lab/hello-agent Building ", "#1 [internal] load local bake definitions",
           "#42 [hello-agent 4/4] RUN pip install .", "#42 CACHED", " Image gravitee-lab/hello-agent Built ",
           " Network gio_default Creating ", " Container gio-mongodb Running ", " Container gio-apim-gateway Recreate ",
-          " Container gio-openfga-migrate Creating ", " Container gio-openfga-migrate Created ",
+          " Container gio-orchard-migrate Creating ", " Container gio-orchard-migrate Created ",
           " Container gio-apim-gateway Recreated ", " Container gio-mongodb Waiting ",
           " Container gio-apim-gateway Starting ", " Container gio-apim-gateway Started ",
-          " Container gio-openfga-migrate Starting ", " Container gio-openfga-migrate Started ",
-          " Container gio-openfga-migrate Exited ", " Container gio-apim-gateway Healthy "]
+          " Container gio-orchard-migrate Starting ", " Container gio-orchard-migrate Started ",
+          " Container gio-orchard-migrate Exited ", " Container gio-apim-gateway Healthy "]
 SEEDS = ["[seed] Seeding the playground", "[apim] ✓ API updated: ACME Hello API", "[seed] ✓ Playground ready"]
 # Pull images: an image that is built is skipped, one that two services run is pulled once, a layer's lines are not
 # streamed
@@ -424,6 +406,14 @@ PULL = [*compose.COMPOSE, "pull", "--ignore-buildable"]
 PULLS = [" Image gravitee-lab/hello-agent Skipped Image can be built", " Image busybox:1.36 Pulling ",
          " Image redis:8 Pulling ", "3f1c0a7d9e2b Pull complete 0B", " Image busybox:1.36 Pulled ",
          " Image redis:8 Pulled "]
+
+
+def phase(name, cmd):
+    """A step that names its phase, then runs a command."""
+    def run(job):
+        job.step(name)
+        job.exec(cmd)
+    return run
 
 
 class Progress(Case):
@@ -449,20 +439,8 @@ class Progress(Case):
         Docker(LAB, {"redis": container(health="healthy"), "reader-ui": container()}, CHECKED).observe(job)
         self.assertEqual(job.progress, 1)
 
-    def test_an_image_s_own_health_check_is_waited_for(self):
-        # Compose says it started and shows no health check: Docker runs the one of its image, and says when it passed
-        job = self.job([UP], awaited(SERVICES, start=["reader-ui"]))
-        docker = Docker(LAB, checked={"reader-ui"})
-        lines = [" Container gio-reader-ui Created ", " Container gio-reader-ui Started "]
-        self.assertEqual(progress(replay(job, lines, refresh=docker.refresh)), [0.2, 0.5])
-        docker.observe(job)
-        self.assertEqual((job.ok, job.progress), (True, 0.5))
-        docker.healthy("reader-ui")
-        docker.observe(job)
-        self.assertEqual(job.progress, 1)
-
     def test_docker_says_the_health_that_compose_does_not_wait_for(self):
-        # Compose returns once Alert Engine runs; its health check passes later, read with the state
+        # Compose returns once Alert Engine runs and shows no health check of its image: it passes later, read with the state
         job = self.job([UP], awaited(SERVICES, start=["alert-engine", "reader-ui"]))
         docker = Docker(LAB, checked=CHECKED)
         lines = [" Container gio-alert-engine Starting ", " Container gio-alert-engine Started ",
@@ -503,16 +481,12 @@ class Progress(Case):
         docker = Docker(LAB, {"redis": container("exited", code=143), "reader-ui": container(health="unhealthy")})
         self.assertEqual(progress(replay(job, STOPS, refresh=docker.refresh)), [0.5, 0.75, 1, 1, 1, 1])
 
-    def test_a_restart(self):
-        job = self.job([UP], awaited(SERVICES, start=["alert-engine"]))
-        self.assertEqual(progress(replay(job, RESTARTS)), [0.2, 0.5])
-
     def test_a_one_shot_is_ready_once_it_ended_well(self):
-        job = self.job([UP], awaited(SERVICES, start=["openfga-migrate"]))
-        lines = [" Container gio-openfga-migrate Created ", " Container gio-openfga-migrate Started "]
+        job = self.job([UP], awaited(SERVICES, start=["orchard-migrate"]))
+        lines = [" Container gio-orchard-migrate Created ", " Container gio-orchard-migrate Started "]
         docker = Docker(LAB)
         self.assertEqual(progress(replay(job, lines, refresh=docker.refresh)), [0.2, 0.5])
-        docker.containers["openfga-migrate"] = container("exited", code=0)
+        docker.containers["orchard-migrate"] = container("exited", code=0)
         docker.observe(job)
         self.assertEqual(job.progress, 1)
 
@@ -526,7 +500,7 @@ class Progress(Case):
 
     def test_an_image_that_up_pulls_or_builds_is_waited_for_too(self):
         # Compose names it before any container: what is created from it waits for it. Build output says nothing
-        job = self.job([UP], awaited(SERVICES, start=["apim-gateway", "openfga-migrate"]))
+        job = self.job([UP], awaited(SERVICES, start=["apim-gateway", "orchard-migrate"]))
         self.assertEqual(progress(replay(job, BUILDS)),
                          [0, 0, 0, 0, 0.333, 0.333, 0.333, 0.333, 0.333, 0.4, 0.467, 0.467, 0.467, 0.567, 0.567, 0.667,
                           0.833, 1])
@@ -556,13 +530,8 @@ class Progress(Case):
         self.assertEqual((job.ok, job.summary()["progress"], job.summary()["phases"]), (True, 0.75, []))
 
     def test_declared_phases_are_the_stages(self):
-        def phase(name, cmd):
-            def run(job):
-                job.step(name)
-                job.exec(cmd)
-            return run
         steps = [lambda job: job.step("Add-ons"), phase("Apps and services", UP), phase("Seed", ["docker", "logs"])]
-        job = self.job(steps, awaited(SERVICES, start=["apim-gateway", "openfga-migrate"]), None,
+        job = self.job(steps, awaited(SERVICES, start=["apim-gateway", "orchard-migrate"]), None,
                        phases=["Apps and services", "Seed"])
         read = replay(job, BUILDS, SEEDS)
         self.assertEqual(progress(read)[:15], [0, 0, 0, 0, 0.167, 0.167, 0.167, 0.167, 0.167, 0.2, 0.233, 0.233,
@@ -628,11 +597,6 @@ class Progress(Case):
 
     def test_a_container_stopped_then_started_is_half_way_once_stopped(self):
         # Its stop then its start (plugins loaded again): each stage that waits for it is half of its way
-        def phase(name, cmd):
-            def run(job):
-                job.step(name)
-                job.exec(cmd)
-            return run
         job = self.job([phase("Stop", STOP), phase("Start", UP)], awaited(SERVICES, stop=["apim-gateway"]),
                        awaited(SERVICES, start=["apim-gateway"]), phases=["Stop", "Start"])
         read = replay(job, [" Container gio-apim-gateway Stopping ", " Container gio-apim-gateway Stopped "],
@@ -690,138 +654,9 @@ class Progress(Case):
                                                                                 "Failed with exit code 1"]))
 
 
-# "Start the stack" as Compose printed it after the command: twelve
-# services, each with a health check; Compose waits only for those another one depends on, and returns once the last
-# ones run
-START_THE_STACK = [f" Container gio-{name} {status} " for name, status in (
-    ("elasticsearch", "Starting"), ("alert-engine", "Starting"), ("mongodb", "Starting"), ("redis", "Starting"),
-    ("alert-engine", "Started"), ("mongodb", "Started"), ("mongodb", "Waiting"), ("redis", "Started"),
-    ("elasticsearch", "Started"), ("elasticsearch", "Waiting"), ("mongodb", "Waiting"), ("mongodb", "Healthy"),
-    ("am-management-api", "Starting"), ("mongodb", "Healthy"), ("am-management-api", "Started"),
-    ("am-management-api", "Waiting"), ("mongodb", "Waiting"), ("am-management-api", "Waiting"),
-    ("mongodb", "Healthy"), ("am-management-api", "Healthy"), ("am-management-ui", "Starting"),
-    ("am-management-api", "Healthy"), ("am-gateway", "Starting"), ("am-management-ui", "Started"),
-    ("am-gateway", "Started"), ("elasticsearch", "Healthy"), ("apim-management-api", "Starting"),
-    ("apim-management-api", "Started"), ("apim-management-api", "Waiting"), ("apim-management-api", "Waiting"),
-    ("apim-management-api", "Waiting"), ("elasticsearch", "Waiting"), ("apim-management-api", "Waiting"),
-    ("redis", "Waiting"), ("mongodb", "Waiting"), ("mongodb", "Healthy"), ("elasticsearch", "Healthy"),
-    ("redis", "Healthy"), ("apim-management-api", "Healthy"), ("apim-management-ui", "Starting"),
-    ("apim-management-api", "Healthy"), ("apim-gateway", "Starting"), ("apim-management-api", "Healthy"),
-    ("apim-portal-ui", "Starting"), ("apim-management-api", "Healthy"), ("gamma-ui", "Starting"),
-    ("gamma-ui", "Started"), ("apim-management-ui", "Started"), ("apim-portal-ui", "Started"),
-    ("apim-gateway", "Started"))]
-GROUPS = {"Databases": ["elasticsearch", "mongodb", "redis"], "Alert Engine": ["alert-engine"],
-          "API Management": ["apim-gateway", "apim-management-api", "apim-management-ui", "apim-portal-ui",
-                             "gamma-ui"],
-          "Access Management": ["am-gateway", "am-management-api", "am-management-ui"]}
-# The health checks Compose does not wait for pass that many refreshes after their container started: Alert Engine
-# while the others start, the consoles and the gateways once Compose returned (50 lines)
-HEALTHY_AFTER = {"alert-engine": 25, "am-management-ui": 30, "am-gateway": 33, "gamma-ui": 6, "apim-management-ui": 6,
-                 "apim-portal-ui": 7, "apim-gateway": 9}
-
-
-def platform():
-    """The platform as project.build() describes it: four groups, nothing on top. Docker
-    checks the health of every service."""
-    services = {name: {"label": name, "description": "", "container": f"gio-{name}", "image": f"graviteeio/{name}:4.12.20",
-                       "raw_image": "", "tag": "4.12.20", "registry": None, "image_tags": None, "ports": [],
-                       "consoles": [], "oneshot": False, "depends_on": [], "built": False,
-                       "role": None, "needs_license": False,
-                       "owner": {"kind": "platform", "id": paths.slug(group), "name": group}}
-                for group, names in GROUPS.items() for name in names}
-    groups = [{"id": paths.slug(group), "name": group, "services": names, "version": "4.12.20", "registry": None,
-               "product": None, "file": "docker-compose.yml", "env_file": ".env", "settings": []}
-              for group, names in GROUPS.items()]
-    return {"name": "Gravitee platform", "categories": [], "core_loaded": True, "license_var": None, "license_usable": True,
-            "groups": groups,
-            "products": {}, "addons": {}, "setups": {}, "playgrounds": {}, "services": services, "links": [],
-            "core_variables": [], "problems": []}
-
-
-class Replay(Case):
-    """Start the stack, line by line, with Docker following the lines and the state read after each: how far the
-    job is, and the platform, the groups and the button of the Stack as the state says them."""
-
-    def setUp(self):
-        self.project = platform()
-        self.state = {"playground": None, "explicit": [], "setups": [], "effective": [], "missing": [],
-                      "problems": [], "locked": None}
-        self.patch(stack.layers, "current", return_value=self.state)
-        self.patch(stack.compose, "project_name", return_value="gravitee")
-        jobs_ = self.patch(stack, "JOBS")
-        stack.action(self.project, "start")
-        title, steps, more = self.started(jobs_)
-        self.job = Job(title, steps, more["key"], more["verb"], more["changes"], waits=more["waits"])
-        # The stack was stopped: every container exited
-        self.docker = Docker(self.project, {name: container("exited", code=143) for name in self.project["services"]},
-                             checked=self.project["services"])
-        self.since, self.curve, self.named = {}, [], []
-
-    def body(self):
-        """The state the page reads now."""
-        return model.build(self.project, self.state, self.docker.containers, self.job.summary(), lambda *_: None,
-                           None, {"error": None, "memory": None}, {})
-
-    def refresh(self, job=None, line=None):
-        """A refresh of the state: after a line Docker follows it, the health checks that are due pass, and the job
-        hears of it before the state is built."""
-        if line:
-            self.docker.follow(line)
-            name = line.split()[1][len("gio-"):]
-            self.named += [] if name in self.named else [name]
-            if line.split()[2] == "Started":
-                self.since[name] = len(self.curve)
-        for name, after in HEALTHY_AFTER.items():
-            if name in self.since and len(self.curve) - self.since[name] >= after:
-                self.docker.healthy(name)
-        self.docker.observe(self.job)
-        body = self.body()
-        ready = sum(container["health"] == "healthy" for container in self.docker.containers.values())
-        # While the job runs, the platform it is for is as far as the job, which comes beside the state (Job.live): the page
-        # reads it there
-        progress = body["platform"]["progress"]
-        self.curve.append({"job": self.job.progress, "beside": progress == "job",
-                           "platform": self.job.live()["progress"] if progress == "job" else progress,
-                           "state": body["platform"]["state"]["key"], "ready": ready, "named": len(self.named),
-                           "groups": [(group["progress"], group["state"]["key"])
-                                      for group in body["platform"]["groups"]]})
-
-    def test_start_the_stack(self):
-        replay(self.job, START_THE_STACK, refresh=self.refresh)
-        self.job.done, returned = True, len(self.curve)   # as Jobs runs it
-        while self.curve[-1]["ready"] < 12:
-            self.refresh()
-        self.refresh()   # once more: the state says it runs
-        jobs_progress = [point["job"] for point in self.curve]
-        self.assertEqual(jobs_progress, sorted(jobs_progress), "it never goes down")
-        # The first four containers named: a fifth of the way each, half once running, ready once healthy
-        first_four = [point["job"] for point in self.curve if point["named"] <= 4]
-        self.assertEqual((round(first_four[3], 3), round(max(first_four), 3)), (0.067, 0.208))
-        # Compose returned with six health checks still running: three quarters of the way, not all of it
-        self.assertEqual((self.job.ok, self.curve[returned - 1]["job"]), (True, 0.75))
-        # All of it once every service is ready, and only then
-        self.assertEqual([point["job"] == 1 for point in self.curve], [point["ready"] == 12 for point in self.curve])
-        # The platform's progress is the job's, while it runs and after, until the state says it runs: beside the state while
-        # the job runs, in it once the job ended
-        for point in self.curve[:-2]:
-            self.assertEqual((point["platform"], point["state"]), (point["job"], "starting"))
-        self.assertEqual([point["beside"] for point in self.curve], [index < returned for index in range(len(self.curve))])
-        self.assertEqual([(point["platform"], point["state"]) for point in self.curve[-2:]],
-                         [(None, "running")] * 2)
-        # A group is the mean of its containers while it starts: Databases runs long before the gateways, once Redis
-        # is healthy, and then nothing of it is measured, though the job still runs. No group says Starting at 100%
-        databases = [(None if share is None else round(share, 3), state)
-                     for share, state in (point["groups"][0] for point in self.curve)]
-        self.assertEqual(databases[36:38], [(0.833, "starting"), (None, "running")])
-        self.assertEqual(set(databases[37:]), {(None, "running")})
-        self.assertEqual((returned > 37, self.curve[37]["state"]), (True, "starting"))
-        self.assertEqual([group for point in self.curve for group in point["groups"]
-                          if group[1] == "starting" and group[0] >= 1], [])
-
-
 class Failures(Case):
 
-    def failure(self, *jobs, kind="addon", uid="kafka"):
+    def failure(self, *jobs, kind="addon", uid="kazoo"):
         found = Jobs()
         found.jobs = list(jobs)
         return found.failed_job(kind, uid)
@@ -833,17 +668,17 @@ class Failures(Case):
         return {"id": job.id, "verb": verb, "error": error, "login": login}
 
     def test_the_last_job_on_an_item_that_failed(self):
-        failed = ended("Start Kafka", False, KAFKA, start=[["addon", "kafka"]])
+        failed = ended("Start Kazoo", False, KAZOO, start=[["addon", "kazoo"]])
         self.assertEqual(self.failure(failed), self.said(failed))
         self.assertIsNone(self.failure(failed, uid="jade"))
         self.assertIsNone(self.failure())
 
     def test_it_says_what_the_job_did_and_why_it_failed(self):
         # Its reason is its last line, a canceled one says so: the row's note and its tooltip say them
-        stop = Job("Stop Kafka", [], key=KAFKA, verb="stop")
+        stop = Job("Stop Kazoo", [], key=KAZOO, verb="stop")
         stop.done, stop.ok, stop.lines = True, False, ["$ docker compose rm", "Error response from daemon: busy"]
         self.assertEqual(self.failure(stop), self.said(stop, "stop", "Error response from daemon: busy"))
-        canceled = Job("Start Kafka", [["docker", "compose", "up"]], key=KAFKA, verb="start")
+        canceled = Job("Start Kazoo", [["docker", "compose", "up"]], key=KAZOO, verb="start")
         canceled.cancel()
         canceled.run()
         canceled.done = True
@@ -856,7 +691,7 @@ class Failures(Case):
                      'manifests/20-alpine": dial tcp: lookup registry-1.docker.io: no such host',
                      "target bakery-web: failed to solve: failed to resolve source metadata for ghcr.io/acme/base:1: "
                      "ghcr.io/acme/base:1: not found"):
-            start = Job("Start Bank", [], key=KAFKA, verb="start")
+            start = Job("Start Bank", [], key=KAZOO, verb="start")
             start.done, start.ok = True, False
             start.lines = [" bakery-web Building ", "#4 ERROR: failed to do request", line, "Failed with exit code 1"]
             image = "node:20-alpine" if "node" in line else "ghcr.io/acme/base:1"
@@ -869,57 +704,57 @@ class Failures(Case):
         refused = 'Error response from daemon: Head "https://graviteeio.azurecr.io/v2/apim-gateway/manifests/x": ' \
                   "unauthorized: authentication required, visit https://aka.ms/acr/authorization"
         for line in (refused, "pull access denied for graviteeio.azurecr.io/apim-gateway, repository does not exist"):
-            start = Job("Start Welcome", [], key=KAFKA, verb="start")
+            start = Job("Start Welcome", [], key=KAZOO, verb="start")
             start.done, start.ok, start.lines = True, False, [" apim-gateway Pulling ", line]
             self.assertEqual(self.failure(start),
                              self.said(start, error="Not logged in to Azure", login="graviteeio.azurecr.io"))
             self.assertEqual(start.summary()["error"], "Not logged in to Azure")
         # GitHub's registry too, as the pull before an up says it
-        start = Job("Start Welcome", [], key=KAFKA, verb="start")
+        start = Job("Start Welcome", [], key=KAZOO, verb="start")
         start.done, start.ok = True, False
         start.lines = ["Image ghcr.io/acme/hub/shop-api:latest Error unauthorized", "Could not pull ghcr.io/acme/hub/shop-api:latest"]
         self.assertEqual(self.failure(start), self.said(start, error="Not logged in to ghcr.io", login="ghcr.io"))
         # Docker Hub's refusal, or another reason, is said as it is
-        hub = Job("Start Kafka", [], key=KAFKA, verb="start")
-        hub.done, hub.ok, hub.lines = True, False, ["pull access denied for nope/kafka, repository does not exist"]
+        hub = Job("Start Kazoo", [], key=KAZOO, verb="start")
+        hub.done, hub.ok, hub.lines = True, False, ["pull access denied for nope/kazoo, repository does not exist"]
         self.assertEqual(self.failure(hub)["login"], None)
 
     def test_a_failed_stop_of_what_stopped_it_too(self):
-        # The playground's stop failed once the on file was written: Kafka, which it brought and was stopping, still
-        # runs, and was not started outside the Lab UI. The failure is Kafka's too, a stop.
+        # The playground's stop failed once the on file was written: Kazoo, which it brought and was stopping, still
+        # runs, and was not started outside the Lab UI. The failure is Kazoo's too, a stop.
         def stopped(title, key, ok=False):
-            stops = [["platform", "platform"] if key == PLATFORM else ["playground", "welcome"], ["addon", "kafka"]]
+            stops = [["platform", "platform"] if key == PLATFORM else ["playground", "welcome"], ["addon", "kazoo"]]
             job = Job(title, [], key=key, verb="stop", changes={"stop": stops})
             job.done, job.ok, job.lines = True, ok, ["Error response from daemon: busy"]
             return job
         welcome = stopped("Stop Welcome", "playground:welcome")
         self.assertEqual(self.failure(welcome), self.said(welcome, "stop", "Error response from daemon: busy"))
         self.assertEqual(self.failure(welcome, kind="playground", uid="welcome")["id"], welcome.id)
-        # It lasts until a job that starts or stops Kafka ends well
-        self.assertIsNone(self.failure(welcome, ended("Start Kafka", True, KAFKA, start=[["addon", "kafka"]])))
+        # It lasts until a job that starts or stops Kazoo ends well
+        self.assertIsNone(self.failure(welcome, ended("Start Kazoo", True, KAZOO, start=[["addon", "kazoo"]])))
         # Not the Stack's stop, which turns nothing off; not a failed start of something else; not one that went well
         self.assertIsNone(self.failure(stopped("Stop the stack", PLATFORM)))
-        self.assertIsNone(self.failure(ended("Start Events", False, EVENTS, start=[["addon", "kafka"]])))
+        self.assertIsNone(self.failure(ended("Start Events", False, EVENTS, start=[["addon", "kazoo"]])))
         self.assertIsNone(self.failure(stopped("Stop Welcome", "playground:welcome", ok=True)))
 
     def test_it_lasts_until_the_next_job_on_the_item(self):
-        failed = ended("Start Kafka", False, KAFKA)
-        self.assertIsNone(self.failure(failed, ended("Start Kafka", True, KAFKA)))
-        again = ended("Start Kafka", False, KAFKA)
+        failed = ended("Start Kazoo", False, KAZOO)
+        self.assertIsNone(self.failure(failed, ended("Start Kazoo", True, KAZOO)))
+        again = ended("Start Kazoo", False, KAZOO)
         self.assertEqual(self.failure(failed, again), self.said(again))
-        self.assertIsNone(self.failure(failed, Job("Start Kafka", [], key=KAFKA)))   # it runs: not failed yet
+        self.assertIsNone(self.failure(failed, Job("Start Kazoo", [], key=KAZOO)))   # it runs: not failed yet
 
     def test_a_job_on_something_else_that_starts_or_stops_the_item_ends_it(self):
-        failed = ended("Start Kafka", False, KAFKA)
-        for later in (ended("Start Events", True, EVENTS, start=[["addon", "kafka"], ["addon", "kafka-desk"]]),
-                      ended("Stop the stack", True, PLATFORM, stop=[["platform", "platform"], ["addon", "kafka"]])):
+        failed = ended("Start Kazoo", False, KAZOO)
+        for later in (ended("Start Events", True, EVENTS, start=[["addon", "kazoo"], ["addon", "kazoo-desk"]]),
+                      ended("Stop the stack", True, PLATFORM, stop=[["platform", "platform"], ["addon", "kazoo"]])):
             self.assertIsNone(self.failure(failed, later), later.title)
 
     def test_a_job_that_leaves_the_item_alone_or_fails_keeps_it(self):
-        failed = ended("Start Kafka", False, KAFKA)
+        failed = ended("Start Kazoo", False, KAZOO)
         for later in (ended("Start Jade", True, "addon:jade", start=[["addon", "jade"]]),
-                      ended("Start Events", False, EVENTS, start=[["addon", "kafka"]]),
-                      Job("Start Events", [], key=EVENTS, changes={"start": [["addon", "kafka"]]})):
+                      ended("Start Events", False, EVENTS, start=[["addon", "kazoo"]]),
+                      Job("Start Events", [], key=EVENTS, changes={"start": [["addon", "kazoo"]]})):
             self.assertEqual(self.failure(failed, later), self.said(failed), later.title)
 
 

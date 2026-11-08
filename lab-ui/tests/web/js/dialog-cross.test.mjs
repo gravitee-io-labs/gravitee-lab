@@ -1,14 +1,11 @@
 // The cross at the top right of every dialog (web/js/components/ui.js): the one of the large dialogs' head, or the one made when a dialog opens.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { Ev, installDom } from "./dom-stub.mjs";
+import { installDom } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 await import("../../../web/js/components/ui.js");
 
 const made = (markup) => {

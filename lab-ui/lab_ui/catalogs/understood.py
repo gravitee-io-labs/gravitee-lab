@@ -1,7 +1,7 @@
 """What this Lab understands of a catalog: the items of the contract (`contract.lock`, at the root of the engine) that the files of
 a catalog use, and those among them that this Lab does not list. A Lab uses what it understands, and says when it needs a newer
 version: a published catalog (a git catalog the person added) that uses anything this Lab does not list is not used, and shown
-as needing a newer Gravitee Lab (`project._judge_units`, `manifest.pick`), while `catalog.py check` names each such item as a
+as needing a newer Gravitee Lab (`project._judge_units`, `manifest.searched`), while `catalog.py check` names each such item as a
 mistake of its author ([the contract](../../../docs/contract.md)).
 
 What the lock lists of each kind is closed, so a name that is not there is something this Lab does not read: a key of
@@ -18,7 +18,6 @@ files read, and the settings of the core are open: neither says anything of the 
 import os
 import posixpath
 import re
-import threading
 from pathlib import Path
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
 
@@ -29,8 +28,6 @@ _TOKEN = re.compile(r'"[^"]*"|\S+')
 _SINCE = re.compile(r"since=(\d+)")
 # A console label, whatever its id and its attribute: the lock lists them with <id> for the id
 CONSOLE = re.compile(r"io\.gravitee\.console\.[a-z0-9-]+\.([A-Za-z0-9_-]+)")
-# The keys that were read once and are not any more, and why: no sign of a newer Lab, and the check tells the file so
-GONE = {"deploys_to": "compatibility with a platform is computed"}
 # The values of a label that the Lab acts on: a service with another value is read by no Lab yet. The lock lists each
 # (`label.value`), as the test of the contract states them from this table
 LABEL_VALUES = {"io.gravitee.role": ("seed",), "io.gravitee.license": ("required",),
@@ -55,8 +52,7 @@ class Lock(NamedTuple):
     rows: Dict[Item, int]
 
 
-_cache = {"key": None, "lock": None}
-_cache_lock = threading.Lock()
+_cache = (None, None)   # (the stamp of the file, its lock): replaced whole, so that a reader never sees half of it
 
 
 def parse(text: str) -> Optional[Lock]:
@@ -79,29 +75,28 @@ def lock(root: Optional[Path] = None) -> Optional[Lock]:
         info = file.stat()
     except OSError:
         return None
+    global _cache
     key = (str(file), info.st_mtime_ns, info.st_size)
-    with _cache_lock:
-        if _cache["key"] == key:
-            return _cache["lock"]
+    if _cache[0] == key:
+        return _cache[1]
     try:
         found = parse(file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         found = None
-    with _cache_lock:
-        _cache.update(key=key, lock=found)
+    _cache = (key, found)
     return found
 
 
-def levels(root: Optional[Path] = None) -> Optional[dict]:
+def levels() -> Optional[dict]:
     """The levels this Lab reads, {contract, contract_min}, from its lock, which says those of the core file (tests/test_contract.py):
     known without Docker, where the core file is read through Compose. None without a lock."""
-    found = lock(root)
+    found = lock()
     return {"contract": found.contract, "contract_min": found.contract_min} if found else None
 
 
-def fingerprint(root: Optional[Path] = None) -> str:
+def fingerprint() -> str:
     """What a memory of a verdict is valid for: the lock as it is now (a Lab that is updated understands more)."""
-    found = lock(root)
+    found = lock()
     return "" if found is None else f"{found.contract}:{found.contract_min}:{len(found.rows)}:{hash(frozenset(found.rows))}"
 
 
@@ -218,8 +213,6 @@ def unknown(found: Iterable[Item], held: Optional[Lock]) -> List[Item]:
     valued = {name.partition("=")[0] for kind, name in rows if kind == "label.value"}   # the labels whose values the lock lists
     for kind, name in found:
         if (kind, name) in rows:
-            continue
-        if kind == "unit.key" and name.split(".")[-1] in GONE and name.count(".") == 1:
             continue
         if kind in ("unit.key", "label", "core.service", "core.network", "core.category", "anchor") \
                 or kind in ("seed.folder", "seed.file") and posixpath.dirname(name) in parents \

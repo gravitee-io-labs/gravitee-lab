@@ -31,12 +31,12 @@ import datetime
 import hashlib
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
 from ... import compat, e2e, paths
 from .. import release as releases
+from ..rules import catalog_meta
 from . import Parser, Unavailable, Usage, entry, json_line, parsed, write_outputs
 
 
@@ -174,15 +174,6 @@ def outcomes(planned, results, err):
     return found
 
 
-def _follow(built):
-    """The version variables of Gravitee's images (compat.plan's `follow`); None for a project that lists no services."""
-    if "services" not in built:
-        return None
-    from ...docker import images
-    return {component["id"] for component in images.components(built)
-            if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")}
-
-
 def record_matrix(folder, built, planned, results, err, lab):
     """Writes each job that ran in the matrix and its page; (lines said, the issues to open, the issues to close). An exit code of
     2 is a run that was not tried (a login or a setting only a person can give): it says nothing of the versions."""
@@ -234,12 +225,12 @@ def record_main(argv, out, err, **seams) -> int:
     except (OSError, ValueError, KeyError, TypeError):
         raise Usage("--plan is the matrix the plan wrote: {\"include\": [...]}") from None
     built = seams.get("project") or _project()
-    follow = _follow(built)
+    follow = compat.followed(built)
     results = sorted(Path(args.results).rglob("*.json")) if Path(args.results).is_dir() else []
     written, said, meant, left_out = {}, [], {}, 0
     try:
         for item, sets in sorted(passed(planned, results, err).items()):
-            kind, uid = e2e.parse(item, built)
+            kind, uid = e2e.parse(item)
             unit = built["playgrounds"].get(uid)
             if kind != "playground" or unit is None or unit.get("catalog") != ns:
                 continue
@@ -312,7 +303,7 @@ def release_main(argv, out, err, **seams) -> int:
         raise Usage(f"{args.path} has no catalog.yml")
     latest = releases.latest_tag(folder)
     text = file.read_text(encoding="utf-8")
-    current = _version_of(text)
+    current = catalog_meta(text).get("version")
     if latest is None or (current and releases.numbers(current) > releases.numbers(latest[1:])):
         return 0   # no release to make: commit by commit, or a release its maintainers prepared
     numbers = releases.numbers(latest[1:])
@@ -321,9 +312,3 @@ def release_main(argv, out, err, **seams) -> int:
     file.write_text(releases.with_legacy(folder, text), encoding="utf-8")
     out.write(f"{version}\n")
     return 0
-
-
-def _version_of(text):
-    """The `version` catalog.yml says, three numbers, or None."""
-    found = re.search(r"^  version:\s*[\"']?(\d+\.\d+\.\d+)[\"']?\s*(?:#.*)?$", text, re.M)
-    return found.group(1) if found else None

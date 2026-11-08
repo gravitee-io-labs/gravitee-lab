@@ -78,11 +78,12 @@ export const bareTag = (tag = "") => {
   return variant ? tag.slice(0, -variant.length - 1) : tag;
 };
 
-// Versions newest first: by their numbers, a release before its pre-releases (4.12.0 before 4.12.0-alpha.1)
+// Versions newest first: by their numbers, a release before its pre-releases (4.12.0 before 4.12.0-alpha.1): where the shorter ends, 2.0 is
+// 2.0.0, and past its three numbers a release is above any pre-release
 export function compareVersions(a, b) {
   const x = (a.match(/\d+/g) || []).map(Number), y = (b.match(/\d+/g) || []).map(Number);
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (y[i] ?? -1) - (x[i] ?? -1);
+    const d = (y[i] ?? (i < 3 ? 0 : Infinity)) - (x[i] ?? (i < 3 ? 0 : Infinity));
     if (d) return d;
   }
   return (a.includes("-") ? 1 : 0) - (b.includes("-") ? 1 : 0);
@@ -99,6 +100,18 @@ export function loadScript(src, integrity) {
 export function loadStyle(href, integrity) {
   return new Promise((resolve, reject) => document.head.append(Object.assign(document.createElement("link"),
     { rel: "stylesheet", href, integrity, crossOrigin: "anonymous", onload: resolve, onerror: () => reject(new Error(`${href} did not load`)) })));
+}
+
+// Libraries give globals. Once the editor has been opened, its loader offers `define` to every script and they would register with it
+// instead: it is put aside while `load` loads them.
+export async function withoutDefine(load) {
+  const define = window.define;
+  if (define) window.define = undefined;
+  try {
+    await load();
+  } finally {
+    if (define) window.define = define;
+  }
 }
 
 // What the browser keeps from one visit to the next; nothing when its storage is unavailable
@@ -270,7 +283,7 @@ export const store = {
     if (kind === "group") return platform?.groups.find((g) => g.id === id);
     if (kind === "service") return store.service(id);
     // A catalog by its namespace, whose download has a progress; "content" is what the lists wait for while one is on its way
-    if (kind === "catalog") return store.state?.catalogs?.find?.((c) => c.id === id);
+    if (kind === "catalog") return store.state?.catalogs.find((c) => c.id === id);
     if (kind === "content") return store.state?.content;
     return ["addon", "setup", "playground"].includes(kind) ? store.item(kind, id) : undefined;
   },
@@ -278,14 +291,33 @@ export const store = {
   // Whether the server measures something on its way: a job runs, or what the last one started or stopped is still
   // going, its health checks running after Compose returned, or a catalog is downloading
   measuring() {
-    const { job, platform, addons = [], setups = [], playgrounds = [], catalogs } = store.state || {};
+    const { job, platform, addons = [], setups = [], playgrounds = [], catalogs = [] } = store.state || {};
     const units = platform ? [platform, ...platform.groups, ...addons, ...setups, ...playgrounds] : [];
-    return (!!job && !job.done) || [...units, ...(Array.isArray(catalogs) ? catalogs : [])].some((unit) => typeof unit.progress === "number");
+    return (!!job && !job.done) || [...units, ...catalogs].some((unit) => typeof unit.progress === "number");
   },
 
   // What each Gravitee Cloud platform's last check answered (`checks`, by platform id) and when (`at`, in milliseconds): one record for the
-  // Dashboard and the Gravitee Cloud page, so that what one read or changed is what the other says
-  cloud: { checks: new Map(), at: new Map() },
+  // Dashboard and the Gravitee Cloud page, so that what one read or changed is what the other says. `read` asks the platform, through the
+  // server, one read at a time: whoever asks meanwhile gets the one on its way. A read that fails is said as the state of the platform, and
+  // an account that does not answer keeps what it said before, with its new state: a moment of trouble does not empty its card.
+  cloud: {
+    checks: new Map(), at: new Map(), reading: new Map(),
+    read(id) {
+      const { checks, at, reading } = store.cloud;
+      const keep = (answer) => {
+        const before = checks.get(id);
+        checks.set(id, answer.state === "unreachable" && before?.environments?.length ? { ...before, state: answer.state, message: answer.message, stale: true } : answer);
+      };
+      if (!reading.has(id)) {
+        reading.set(id, api(`/api/platforms/${id}/check`, {}).then(keep,
+          (err) => keep({ state: "unreachable", message: err.message, environments: [], gateways: [] })).finally(() => {
+          at.set(id, Date.now());
+          reading.delete(id);
+        }));
+      }
+      return reading.get(id);
+    },
+  },
 
   // The platforms registered with this lab, as the state lists them: none until one is added
   get platforms() { return store.state?.platforms || []; },
@@ -303,8 +335,7 @@ export const store = {
     placesSought ||= !!store.platforms.length;
     if (store.platforms.length) {
       try {
-        const answer = await api("/api/places");
-        found = Array.isArray(answer) ? answer : answer.places || [];
+        found = await api("/api/places");
       } catch (err) {
         console.error(err);   // the list read last stands
         return;
@@ -327,7 +358,7 @@ export const store = {
 };
 
 // Whether an add-on is the platform's own: Gravitee's, in the category that the core's `x-gravitee` names after itself, as against the
-// ones of other makers (Kafka, Jade). Containers and Images list it with the platform and the others apart.
+// ones of other makers (Kazoo, Jade). Containers and Images list it with the platform and the others apart.
 export const ofPlatform = (addon) => !!addon && addon.category === store.state?.platform?.name;
 
 // The rows of the catalogs among the entries of `state.catalogs`: a repository, a folder, this machine's and a suggestion. Any other entry is
@@ -335,7 +366,7 @@ export const ofPlatform = (addon) => !!addon && addon.category === store.state?.
 // is never a catalog) for the bar of the Add dialog (`store.unit("catalog:check")`) and for `measuring()`, and nothing else reads it: whoever
 // lists the catalogs asks for the rows.
 const ROW_KINDS = new Set(["git", "folder", "machine", "suggested"]);
-export const catalogRows = (state = store.state) => (Array.isArray(state?.catalogs) ? state.catalogs : []).filter((row) => ROW_KINDS.has(row?.kind));
+export const catalogRows = (state = store.state) => (state?.catalogs || []).filter((row) => ROW_KINDS.has(row.kind));
 
 // --- Drafts ---------------------------------------------------------------------
 
@@ -364,7 +395,6 @@ let at = 0;         // the place of its entry in the history: every entry shown 
 function boot() {
   const waiting = !store.state, el = $("#boot");
   document.body.classList.toggle("booting", waiting);
-  if (!el) return waiting;
   const failed = store.offline || store.error;
   setHTML(el, !waiting ? "" : !failed ? `<p class="empty">${loading("Reading the lab")}</p>`
     : `<div class="card boot-card"><strong>${esc(store.error || "The Lab UI does not answer")}</strong>
@@ -384,13 +414,8 @@ function draw() {
   try { page.render?.(store.state); } catch (err) { console.error(err); }
 }
 
-// A page that was named otherwise: its old address, and every address under it, leads to where it is now, in place of the entry
-const MOVED = { "#/stack": "#/containers", "#/platforms": "#/cloud" };
-
 function route() {
   const hash = location.hash;
-  const old = Object.keys(MOVED).find((from) => hash === from || hash.startsWith(`${from}/`));
-  if (old) return router.replace(MOVED[old] + hash.slice(old.length));
   let match = null;
   const page = pages.find((p) => (match = hash.match(p.pattern)));
   if (!page) return router.replace("#/dashboard");

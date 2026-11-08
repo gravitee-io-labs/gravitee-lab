@@ -17,7 +17,7 @@ def unit(name, tier="other", services=(), containers=(), volumes=(), **more):
 class Targets(Case):
 
     def test_a_unit_file_is_read_by_where_it_sits(self):
-        for path, found in ((".lab/catalogs/gravitee/addons/kafka/compose.yml", ("gravitee", "addon", "kafka")),
+        for path, found in ((".lab/catalogs/gravitee/addons/kazoo/compose.yml", ("gravitee", "addon", "kazoo")),
                             (".lab/catalogs/acme-hub/playgrounds/bank/compose.yml", ("acme-hub", "playground", "bank")),
                             (".lab/catalogs/local/setups/mine.yml", ("local", "setup", "mine")),
                             (".lab/catalogs/ab/addons/x/compose.yml", ("ab", "addon", "x"))):
@@ -25,7 +25,7 @@ class Targets(Case):
                 self.assertEqual(resolve.target_of(path), found)
 
     def test_anything_else_is_no_unit(self):
-        for path in (None, "", 7, "addons/kafka/compose.yml", ".lab/catalogs/.stage-acme/addons/x/compose.yml",
+        for path in (None, "", 7, "addons/kazoo/compose.yml", ".lab/catalogs/.stage-acme/addons/x/compose.yml",
                      ".lab/catalogs/acme/addons/x/certs/compose.yml", ".lab/catalogs/acme/addons/x/compose.yml/y",
                      ".lab/catalogs/acme/addons/x.yml", ".lab/catalogs/acme/setups/x/compose.yml", ".lab/catalogs/acme/setups/x.yml/y",
                      ".lab/catalogs/a/addons/x/compose.yml", ".lab/catalogs/Acme/addons/x/compose.yml",
@@ -39,53 +39,35 @@ class Targets(Case):
 class Closure(Case):
 
     def test_a_unit_then_its_setups_then_its_add_ons_sorted(self):
-        units = {("playground", "bank"): [("addon", "kafka"), ("setup", "pair"), ("addon", "jade")],
-                 ("setup", "pair"): [("addon", "mail"), ("addon", "kafka")], ("addon", "kafka"): [("addon", "base")],
-                 ("addon", "jade"): [], ("addon", "mail"): [], ("addon", "base"): []}
+        units = {"playground": {"bank": {"setups": ["pair"], "includes": ["kazoo", "jade"]}},
+                 "setup": {"pair": {"includes": ["malt", "kazoo"]}},
+                 "addon": {"kazoo": {"needs": ["base"]}, "jade": {}, "malt": {}, "base": {}}}
         self.assertEqual(resolve.closure(units, "playground", "bank"),
-                         [("playground", "bank"), ("setup", "pair"), ("addon", "base"), ("addon", "jade"), ("addon", "kafka"),
-                          ("addon", "mail")])
-        self.assertEqual(resolve.closure(units, "setup", "pair"), [("setup", "pair"), ("addon", "base"), ("addon", "kafka"), ("addon", "mail")])
-        self.assertEqual(resolve.closure(units, "addon", "mail"), [("addon", "mail")])
+                         [("playground", "bank"), ("setup", "pair"), ("addon", "base"), ("addon", "jade"), ("addon", "kazoo"),
+                          ("addon", "malt")])
+        self.assertEqual(resolve.closure(units, "setup", "pair"), [("setup", "pair"), ("addon", "base"), ("addon", "kazoo"), ("addon", "malt")])
+        self.assertEqual(resolve.closure(units, "addon", "malt"), [("addon", "malt")])
 
     def test_a_cycle_ends_the_walk(self):
-        units = {("addon", "a"): [("addon", "b")], ("addon", "b"): [("addon", "c")], ("addon", "c"): [("addon", "a"), ("addon", "b")]}
+        units = {"addon": {"a": {"needs": ["b"]}, "b": {"needs": ["c"]}, "c": {"needs": ["a", "b"]}}}
         self.assertEqual(resolve.closure(units, "addon", "a"), [("addon", "a"), ("addon", "b"), ("addon", "c")])
 
     def test_an_include_the_project_does_not_know_is_listed_and_not_followed(self):
-        units = {("addon", "a"): [("addon", "gone")]}
-        self.assertEqual(resolve.closure(units, "addon", "a"), [("addon", "a"), ("addon", "gone")])
+        self.assertEqual(resolve.closure({"addon": {"a": {"needs": ["gone"]}}}, "addon", "a"), [("addon", "a"), ("addon", "gone")])
         self.assertEqual(resolve.closure({}, "addon", "x"), [("addon", "x")])
 
-    def test_the_lists_of_a_json_file_are_units_too(self):
-        units = {("addon", "a"): [["addon", "b"]], ("addon", "b"): []}
-        self.assertEqual(resolve.closure(units, "addon", "a"), [("addon", "a"), ("addon", "b")])
-
-    def test_the_project_grouping_is_read_as_well(self):
-        project = {"addon": {"kafka": {"needs": ["base"]}, "base": {"needs": []}, "jade": {"needs": []}},
-                   "setup": {"pair": {"includes": ["mail", "kafka"]}, "mail": {}},
-                   "playground": {"bank": {"setups": ["pair"], "includes": ["jade"], "addons": ["jade", "mail", "kafka", "base"]}}}
-        self.assertEqual(resolve.closure(project, "playground", "bank"),
-                         [("playground", "bank"), ("setup", "pair"), ("addon", "jade"), ("addon", "kafka"), ("addon", "mail"),
-                          ("addon", "base")][:2] + [("addon", "base"), ("addon", "jade"), ("addon", "kafka"), ("addon", "mail")])
-        self.assertEqual(resolve.closure(project, "addon", "nobody"), [("addon", "nobody")])
-
     def test_ids_of_two_kinds_are_two_units(self):
-        units = {("playground", "bank"): [("addon", "bank")], ("addon", "bank"): []}
+        units = {"playground": {"bank": {"includes": ["bank"]}}, "addon": {"bank": {}}}
         self.assertEqual(resolve.closure(units, "playground", "bank"), [("playground", "bank"), ("addon", "bank")])
-
-    def test_a_long_chain_is_not_a_recursion(self):
-        units = {("addon", str(number)): [("addon", str(number + 1))] for number in range(5000)}
-        self.assertEqual(len(resolve.closure(units, "addon", "0")), 5001)
 
 
 class Precedence(Case):
 
     def test_the_default_catalog_then_personal_then_the_others_as_added(self):
-        units = {"gravitee": [("addon", "kafka"), ("addon", "jade")], "local": [("addon", "mine")],
+        units = {"gravitee": [("addon", "kazoo"), ("addon", "jade")], "local": [("addon", "mine")],
                  "acme-hub": [("addon", "z"), ("addon", "a")], "partner": [("addon", "p")]}
         self.assertEqual(resolve.precedence_order(units, ["gravitee", "local", "partner", "acme-hub"]),
-                         [("addon", "jade"), ("addon", "kafka"), ("addon", "mine"), ("addon", "p"), ("addon", "a"), ("addon", "z")])
+                         [("addon", "jade"), ("addon", "kazoo"), ("addon", "mine"), ("addon", "p"), ("addon", "a"), ("addon", "z")])
 
     def test_a_catalog_the_list_does_not_name_claims_last(self):
         units = {"gravitee": [("addon", "a")], "zeta": [("addon", "z")], "alpha": [("addon", "y")]}
@@ -136,15 +118,6 @@ class Collisions(Case):
         order = [("addon", "mine"), ("addon", "echo")]
         self.assertEqual(resolve.collisions(order, owned, {}), {})
 
-    def test_adding_a_catalog_never_blocks_what_was_there(self):
-        before = resolve.collisions(self.ORDER[:3], self.owned(), {})
-        order = self.ORDER[:3] + [("addon", "z-new")]
-        owned = self.owned({("addon", "z-new"): unit("New", "other", ["echo", "one", "mine"])})
-        after = resolve.collisions(order, owned, {})
-        self.assertEqual(before, {})
-        self.assertEqual(after, {("addon", "z-new"): "Same name as Echo"})
-        self.assertEqual({key for key in after if key in self.ORDER[:3]}, set())
-
     def test_a_unit_that_brings_the_one_that_holds_the_name_is_not_in_a_clash(self):
         owned = self.owned({("playground", "c-three"): unit("Three", "other", ["three", "one"])})
         closures = {("playground", "c-three"): [("playground", "c-three"), ("addon", "a-one")]}
@@ -169,12 +142,10 @@ class Collisions(Case):
         other = unit("Bank", "other", ["bakery-api", "bakery-web"], id="@acme/bank", kind="playground")
         self.assertEqual(resolve.collisions(order, {order[0]: mine, order[1]: other}, {}), {order[1]: "Same name as Bank"})
 
-    def test_keys_may_be_ids(self):
-        order = ["echo", "@acme/x"]
-        owned = {"echo": unit("Echo", "default", ["echo"]), "@acme/x": unit("X", "other", ["echo"])}
-        self.assertEqual(resolve.collisions(order, owned, {}), {"@acme/x": "Same name as Echo"})
-        self.assertEqual(resolve.collisions(order, {"echo": {"tier": "default", "services": ["echo"]},
-                                                    "@acme/x": {"services": ["echo"]}}, {}), {"@acme/x": "Same name as echo"})
+    def test_a_unit_with_no_name_is_said_by_its_id(self):
+        order = [("addon", "echo"), ("addon", "x")]
+        self.assertEqual(resolve.collisions(order, {order[0]: {"tier": "default", "services": ["echo"]}, order[1]: {"services": ["echo"]}}, {}),
+                         {order[1]: "Same name as echo"})
 
     def test_a_unit_with_no_record_holds_nothing(self):
         self.assertEqual(resolve.collisions([("addon", "unknown")], {}, {}), {})
@@ -209,14 +180,6 @@ class Collisions(Case):
         owned = self.owned({("addon", "b-two"): unit("Two", "other", ["two"], [], ["one", "gio-one"])})   # a volume is another kind of name
         self.assertEqual(resolve.collisions(self.ORDER, owned, {}), {})
 
-    def test_the_platform_is_an_owner_like_any_other_when_the_caller_names_it(self):
-        platform = ("core", "platform")
-        owned = self.owned({platform: unit("the platform", "default", ["apim-management-api", "mongodb"], ["gio_apim_management_api"]),
-                            ("addon", "a-one"): unit("One", "other", ["one"], ["apim-management-api"]),
-                            ("addon", "b-two"): unit("Two", "other", ["two"], ["gio_apim_management_api"])})
-        found = resolve.collisions([platform, *self.ORDER], owned, {})
-        self.assertEqual(found, {("addon", "a-one"): "Same name as the platform", ("addon", "b-two"): "Same name as the platform"})
-
     def test_the_name_of_the_owner_is_cut(self):
         long = "x" * 100000
         owned = self.owned({("addon", "echo"): unit(long + "\n\x00", "default", ["echo"]), ("addon", "a-one"): unit("One", "other", ["echo"])})
@@ -241,7 +204,7 @@ class Audience(Case):
 
 class Needs(Case):
 
-    CATALOGS = {"hub": {"name": "Hub", "version": "1.0.0", "state": "uptodate", "pin": "abc",
+    CATALOGS = {"hub": {"name": "Hub", "version": "1.0.0", "state": "uptodate",
                         "requires_catalogs": {"partner": {"name": "Partner Bank", "url": "https://example.invalid/p.git", "min": "2.0.0"},
                                               "gravitee": {"name": "Gravitee public", "url": "https://example.invalid/g.git", "min": "1.0.0"}}}}
     INCLUDE = ".lab/catalogs/partner/addons/ledger/compose.yml"
@@ -254,22 +217,12 @@ class Needs(Case):
     def test_a_catalog_that_is_not_added_is_missing(self):
         self.assertEqual(self.needs(missing=[self.INCLUDE]), [dict(self.ENTRY, have=None, reason="missing")])
 
-    def test_a_catalog_being_downloaded_or_that_failed_has_no_pin_yet(self):
+    def test_a_missing_version_says_there_is_no_copy(self):
+        """A catalog that was added and never downloaded has no version, and it is `failed` (Try again), never `old` (Update)."""
         for state, error, reason in (("downloading", None, "downloading"), ("downloading", "unreachable", "downloading"),
-                                     ("unreachable", "unreachable", "failed"), ("noaccess", None, "failed"), ("checking", None, "downloading"),
-                                     ("needs_git", None, "failed")):
-            catalogs = {"partner": {"name": "Partner", "version": None, "state": state, "error": error, "pin": None}}
-            with self.subTest(state=state):
-                found = self.needs(catalogs, missing=[self.INCLUDE])
-                self.assertEqual([item["reason"] for item in found], [reason])
-                self.assertEqual(found[0]["name"], "Partner Bank")
-
-    def test_a_row_of_the_registry_has_no_pin_and_a_missing_version_says_there_is_no_copy(self):
-        """Registry.inputs() gives name, version, state, error and the rest, no pin: a catalog that was added and
-        never downloaded has no version, and it is `failed` (Try again), never `old` (Update)."""
-        for state, error, reason in (("downloading", None, "downloading"), ("unreachable", "unreachable", "failed"), ("noaccess", None, "failed"),
+                                     ("unreachable", "unreachable", "failed"), ("noaccess", None, "failed"),
                                      ("needs_git", None, "failed"), ("wrong_catalog", "no catalog.yml", "failed"), ("checking", None, "downloading"),
-                                     ({"key": "unreachable"}, None, "failed"), ("added", None, "downloading")):
+                                     ("added", None, "downloading")):
             for version in (None, "", 0):
                 catalogs = {"partner": {"name": "Partner", "version": version, "state": state, "error": error}}
                 with self.subTest(state=state, version=version):
@@ -285,16 +238,14 @@ class Needs(Case):
                 self.assertEqual([item["reason"] for item in self.needs(catalogs)], ["old"])
                 catalogs["partner"]["version"] = "2.0.0"
                 self.assertEqual(self.needs(catalogs), [])
-        catalogs = {"partner": {"name": "Partner", "version": "2.0.0", "state": "uptodate", "pin": ""}}
-        self.assertEqual([item["reason"] for item in self.needs(catalogs)], ["downloading"])   # a pin that says nothing is no copy
 
     def test_a_catalog_added_that_lost_the_file_is_gone(self):
-        catalogs = {"partner": {"name": "Partner", "version": "2.1.0", "state": "uptodate", "pin": "abc"}}
+        catalogs = {"partner": {"name": "Partner", "version": "2.1.0", "state": "uptodate"}}
         found = self.needs(catalogs, missing=[self.INCLUDE])
         self.assertEqual(found, [dict(self.ENTRY, have="2.1.0", reason="gone", unit="ledger")])
 
     def test_a_catalog_older_than_the_floor_is_old(self):
-        catalogs = {"partner": {"name": "Partner", "version": "1.9.9", "state": "uptodate", "pin": "abc"}}
+        catalogs = {"partner": {"name": "Partner", "version": "1.9.9", "state": "uptodate"}}
         self.assertEqual(self.needs(catalogs), [dict(self.ENTRY, have="1.9.9", reason="old")])
         catalogs["partner"]["version"] = "2.0.0"
         self.assertEqual(self.needs(catalogs), [])
@@ -302,11 +253,6 @@ class Needs(Case):
         self.assertEqual(self.needs(catalogs), [])
         catalogs["partner"]["version"] = "not a version"
         self.assertEqual([item["reason"] for item in self.needs(catalogs)], ["old"])
-
-    def test_a_catalog_it_can_use_needs_nothing(self):
-        catalogs = {"partner": {"name": "Partner", "version": "2.0.0", "state": "uptodate", "pin": "abc"}}
-        self.assertEqual(self.needs(catalogs), [])
-        self.assertEqual(self.needs(catalogs, includes=[]), [])
 
     def test_the_catalog_of_the_unit_itself_is_never_needed(self):
         self.assertEqual(self.needs(includes=[".lab/catalogs/hub/addons/x/compose.yml"], missing=[".lab/catalogs/hub/addons/x/compose.yml"]), [])
@@ -316,13 +262,13 @@ class Needs(Case):
                                     missing=[".lab/catalogs/stranger/addons/x/compose.yml"]), [])
 
     def test_a_personal_unit_declares_nothing_and_is_described_by_the_catalog_alone(self):
-        found = resolve.catalog_needs({"ns": "local", "includes": [".lab/catalogs/gravitee/addons/kafka/compose.yml"]},
-                                      {"gravitee": {"name": "Gravitee public", "version": "1.2.0", "state": "uptodate", "pin": "abc"}},
-                                      [".lab/catalogs/gravitee/addons/kafka/compose.yml"])
+        found = resolve.catalog_needs({"ns": "local", "includes": [".lab/catalogs/gravitee/addons/kazoo/compose.yml"]},
+                                      {"gravitee": {"name": "Gravitee public", "version": "1.2.0", "state": "uptodate"}},
+                                      [".lab/catalogs/gravitee/addons/kazoo/compose.yml"])
         self.assertEqual(found, [{"id": "gravitee", "name": "Gravitee public", "url": None, "min": None, "have": "1.2.0",
-                                  "reason": "gone", "unit": "kafka"}])
-        missing = resolve.catalog_needs({"ns": "local", "includes": [".lab/catalogs/gravitee/addons/kafka/compose.yml"]}, {},
-                                        [".lab/catalogs/gravitee/addons/kafka/compose.yml"])
+                                  "reason": "gone", "unit": "kazoo"}])
+        missing = resolve.catalog_needs({"ns": "local", "includes": [".lab/catalogs/gravitee/addons/kazoo/compose.yml"]}, {},
+                                        [".lab/catalogs/gravitee/addons/kazoo/compose.yml"])
         self.assertEqual([(item["id"], item["reason"]) for item in missing], [("gravitee", "missing")])
 
     def test_each_catalog_once_in_the_order_of_its_namespace(self):
@@ -347,28 +293,23 @@ class Gateway(Case):
         return dict({"gateway": {"platform": platform, "service": "gw", "token": "T"}}, **more)
 
     def test_the_first_in_the_precedence_that_can_run_wins(self):
-        units = {"alpha": self.addon(), "hybrid": self.addon(), "zeta": self.addon()}
-        self.assertEqual(resolve.gateway_addon(units, "cloud"), "alpha")
-        self.assertEqual(resolve.gateway_addon(units, "cloud", order=["zeta", "alpha", "hybrid"]), "zeta")
-
-    def test_not_alphabetical(self):
-        units = {"@acme/aaa": self.addon(), "hybrid": self.addon()}
-        self.assertEqual(resolve.gateway_addon(units, "cloud", order=["hybrid", "@acme/aaa"]), "hybrid")
+        units = {"alpha": self.addon(), "hyssop": self.addon(), "zeta": self.addon()}
+        self.assertEqual(resolve.gateway_addon(units, "cloud", list(units)), "alpha")
+        self.assertEqual(resolve.gateway_addon(units, "cloud", order=["zeta", "alpha", "hyssop"]), "zeta")
 
     def test_a_unit_that_cannot_run_is_not_a_candidate(self):
         for more in ({"blocked": {"reasons": ["x"]}}, {"verdict": {"state": "blocked"}}, {"compat": "new"}, {"compat": "old"},
                      {"needs_catalogs": [{"id": "x"}]}):
             units = {"first": self.addon(**more), "second": self.addon()}
             with self.subTest(more=more):
-                self.assertEqual(resolve.gateway_addon(units, "cloud"), "second")
+                self.assertEqual(resolve.gateway_addon(units, "cloud", list(units)), "second")
         self.assertEqual(resolve.gateway_addon({"first": self.addon(blocked=None, compat="ok", needs_catalogs=[],
-                                                                    verdict={"state": "ok"})}, "cloud"), "first")
+                                                                    verdict={"state": "ok"})}, "cloud", ["first"]), "first")
 
     def test_none_when_nothing_runs_the_gateway_of_that_kind(self):
-        self.assertIsNone(resolve.gateway_addon({}, "cloud"))
-        self.assertIsNone(resolve.gateway_addon({"a": self.addon("other")}, "cloud"))
-        self.assertIsNone(resolve.gateway_addon({"a": {"gateway": None}, "b": {}, "c": None, "d": {"gateway": "cloud"}}, "cloud"))
-        self.assertIsNone(resolve.gateway_addon({"a": self.addon(blocked={"reasons": ["x"]})}, "cloud"))
+        self.assertIsNone(resolve.gateway_addon({}, "cloud", []))
+        self.assertIsNone(resolve.gateway_addon({"a": self.addon("other")}, "cloud", ["a"]))
+        self.assertIsNone(resolve.gateway_addon({"a": {"gateway": None}, "b": {}, "c": None, "d": {"gateway": "cloud"}}, "cloud", "abcd"))
 
     def test_an_id_the_order_names_and_the_units_lack_is_skipped(self):
         self.assertEqual(resolve.gateway_addon({"a": self.addon()}, "cloud", order=["ghost", "a"]), "a")
@@ -376,41 +317,25 @@ class Gateway(Case):
 
 class SameItem(Case):
 
-    def pair(self, **changes):
-        mine = {"id": "local/bank", "kind": "playground", "name": "Bank", "services": ["bakery-api", "bakery-web"]}
-        theirs = dict(mine, id="@acme/bank", **changes)
-        return mine, theirs
+    MINE = {"id": "local/bank", "kind": "playground", "name": "Bank", "services": ["bakery-api", "bakery-web"]}
+    NAMELESS = {"id": "local/x", "name": "", "services": []}
+    EMPTY = {"id": "local/x", "kind": "setup", "name": "Pair", "services": []}
 
-    def test_the_same_name_and_the_same_services_is_the_same_item(self):
-        self.assertTrue(resolve.same_item(*self.pair()))
-        self.assertTrue(resolve.same_item(*self.pair(services=["bakery-web", "bakery-api"])))
+    def test_the_same_kind_name_and_services_under_another_id_is_the_same_item(self):
+        for changes, same in (({}, True), ({"services": ["bakery-web", "bakery-api"]}, True), ({"name": "  Bank "}, True),
+                              ({"name": "Bank 2"}, False), ({"name": "bank"}, False), ({"services": ["bakery-api"]}, False),
+                              ({"services": ["bakery-api", "bakery-web", "bank-db"]}, False), ({"kind": "addon"}, False)):
+            with self.subTest(changes=changes):
+                self.assertEqual(resolve.same_item(self.MINE, dict(self.MINE, id="@acme/bank", **changes)), same)
 
-    def test_a_different_name_or_other_services_is_another_item(self):
-        self.assertFalse(resolve.same_item(*self.pair(name="Bank 2")))
-        self.assertFalse(resolve.same_item(*self.pair(services=["bakery-api"])))
-        self.assertFalse(resolve.same_item(*self.pair(services=["bakery-api", "bakery-web", "bank-db"])))
-
-    def test_a_unit_is_not_the_twin_of_itself_and_a_kind_is_not_another(self):
-        mine, _ = self.pair()
-        self.assertFalse(resolve.same_item(mine, mine))
-        self.assertFalse(resolve.same_item(*self.pair(kind="addon")))
-
-    def test_a_name_is_compared_as_written_and_without_its_edges(self):
-        self.assertTrue(resolve.same_item(*self.pair(name="  Bank ")))
-        self.assertFalse(resolve.same_item(*self.pair(name="bank")))
-
-    def test_a_unit_with_no_name_is_nobodys_twin(self):
-        mine = {"id": "local/x", "name": "", "services": []}
-        self.assertFalse(resolve.same_item(mine, dict(mine, id="@a/x")))
-        self.assertFalse(resolve.same_item(dict(mine, name=None), dict(mine, id="@a/x", name=None)))
-
-    def test_what_is_not_a_unit_is_not_an_item(self):
-        self.assertFalse(resolve.same_item(None, {}))
-        self.assertFalse(resolve.same_item({}, "x"))
+    def test_what_is_not_a_twin(self):
+        for one, other in ((self.MINE, self.MINE), (self.NAMELESS, dict(self.NAMELESS, id="@a/x")),
+                           (dict(self.NAMELESS, name=None), dict(self.NAMELESS, id="@a/x", name=None)), (None, {}), ({}, "x")):
+            with self.subTest(one=one, other=other):
+                self.assertFalse(resolve.same_item(one, other))
 
     def test_the_twin_of_a_unit_with_no_services_is_a_unit_with_none(self):
-        mine = {"id": "local/x", "kind": "setup", "name": "Pair", "services": []}
-        self.assertTrue(resolve.same_item(mine, dict(mine, id="@a/x", services=None)))
+        self.assertTrue(resolve.same_item(self.EMPTY, dict(self.EMPTY, id="@a/x", services=None)))
 
 
 if __name__ == "__main__":

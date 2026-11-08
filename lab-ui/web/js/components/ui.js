@@ -1,7 +1,7 @@
 // Shared pieces of the interface: toasts, the dialogs, the menu, the buttons of a row, console links, a service's
 // cells, progress bars and what waits, the state and the note of a row, the badge of what runs behind what is saved and its
 // tooltip, where a link to the license leads, the button of an action that shows it at work, the keys of a segmented control, rows kept from one refresh to the next, the
-// pager and what an empty list says, the keys of a row that opens and of the search, the focus given back after a
+// pager and what an empty list says, the keys of the search, the focus given back after a
 // redraw, copy buttons, stars, the link to the catalog an item comes from, what the lists say while their content is on its way
 // or missing, and the dot of the Catalogs entry of the menu
 
@@ -10,14 +10,13 @@ import { Popup } from "./popup.js";
 
 // The dialogs in the order they were opened in. The top layer stacks a modal dialog over every one opened before it, wherever it is in the
 // document (a confirmation of index.html opened over a dialog made later sits above it), and the document does not say which is on top. Every
-// modal dialog of the page goes through showModal, so its prototype keeps the order. Where there is no such prototype (a page without
-// dialogs), the last open dialog of the document stands in.
+// modal dialog of the page goes through showModal, so its prototype keeps the order.
 const stacked = [];
 
-// The dialog on top of the page: the last one opened that is still open, else the last open one of the document, else none
+// The dialog on top of the page: the last one opened that is still open, else none
 function topDialog() {
   for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at].open && stacked[at].isConnected) return stacked[at];
-  return $$("dialog[open]").pop() || null;
+  return null;
 }
 
 // An open dialog sits in the browser's top layer, and makes everything outside it inert: the toasts live in the one on top while it is open,
@@ -48,25 +47,22 @@ function cross(dialog) {
   dialog.append(button);   // last in the document, at the corner by its style: a dialog still opens on its own first control
 }
 
-const proto = globalThis.HTMLDialogElement?.prototype;
-if (proto && typeof proto.showModal === "function") {
-  const showModal = proto.showModal, close = proto.close;
-  proto.showModal = function (...args) {
-    const was = this.open;
-    if (!was) cross(this);
-    showModal.apply(this, args);
-    if (was) return;   // one that is open already keeps its place in the top layer (the call throws, or does nothing)
-    for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at] === this || !stacked[at].open || !stacked[at].isConnected) stacked.splice(at, 1);
-    stacked.push(this);
-  };
-  // The toasts and the bubble leave a dialog as it closes, not a task later when the browser says so: a toast made just before the close
-  // (`toast("Updated")`, then `dialog.close()`) is not left in a dialog that no longer shows
-  proto.close = function (...args) {
-    close.apply(this, args);
-    hostToasts();
-    releaseFloat();
-  };
-}
+const proto = HTMLDialogElement.prototype, { showModal, close } = proto;
+proto.showModal = function (...args) {
+  const was = this.open;
+  if (!was) cross(this);
+  showModal.apply(this, args);
+  if (was) return;   // one that is open already keeps its place in the top layer (the call throws, or does nothing)
+  for (let at = stacked.length - 1; at >= 0; at -= 1) if (stacked[at] === this || !stacked[at].open || !stacked[at].isConnected) stacked.splice(at, 1);
+  stacked.push(this);
+};
+// The toasts and the bubble leave a dialog as it closes, not a task later when the browser says so: a toast made just before the close
+// (`toast("Updated")`, then `dialog.close()`) is not left in a dialog that no longer shows
+proto.close = function (...args) {
+  close.apply(this, args);
+  hostToasts();
+  releaseFloat();
+};
 
 // A confirmation goes by itself; an error is an alert, stays while the pointer or the keyboard is on it, and has its close button
 export function toast(message, error = false) {
@@ -154,8 +150,8 @@ const effectRows = (rows = []) => {
 // with the reason of the option, for one that cannot be taken, and with the first one's reason when none can. `action` and `danger` are asked
 // with undefined while none is chosen.
 export function effectsDialog({ title, steps = [], options, action, danger = () => false, unchosen, other = null }) {
-  const dlg = $("#choice"), ok = $("#choice-ok"), list = $("#choice-list"), second = $("#choice-alt");
-  if (second) Object.assign(second, { hidden: !other, textContent: other?.label || "" });
+  const dlg = $("#choice"), ok = $("#choice-ok"), list = $("#choice-list");
+  Object.assign($("#choice-alt"), { hidden: !other, textContent: other?.label || "" });
   const single = options.length === 1, waits = unchosen !== undefined, blank = waits && !single;
   $("#choice-title").textContent = title;
   list.classList.toggle("single", single);
@@ -474,7 +470,7 @@ export const licenseForm = () => 'data-license="form"';
 // - A TOOLTIP is a label or one short line (LINE characters at most): a dark bubble, 12 px, on one line that never wraps.
 // - A POPOVER explains anything longer: several lines, one long line, or a card {title, text, rows, foot}. A card of the surface, 260 to 460
 //   px at most: a title, a sentence (`text`), then rows under a hairline (a row is {subject, lines}, a line a list of parts: a word,
-//   {who} for whom it is about, {code} for a version or a setting's name, ARROW, {pair: parts} for parts that stay on one line,
+//   {who} for whom it is about, {code} for a version or a setting's name,
 //   {versions: {running, saved, older}} for a version that runs and the one saved), then a foot (what the action will do). Of several
 //   lines the first is the title (a term, a state, a part of the disk), unless `title` is false: a list of equals; a title and one
 //   sentence are a title over its sentence.
@@ -482,20 +478,15 @@ export const licenseForm = () => 'data-license="form"';
 //   what (a leading word muted over its chips, which wrap, or the version that runs and the one saved, each after its caption: `columns`,
 //   "Running" and "Saved" by default). A row's subject (a product) is a heading over both columns, between hairlines.
 // `inner` is the button's HTML, `cls` its look (a pill, nothing for a word), `label` what it is called when it is not the
-// explanation's first words. `tab: false`: a bubble for the pointer only, whose words a stop of the keyboard says elsewhere.
+// explanation's first words.
 // Escape closes it while the pointer or the focus stays, until both have left (WCAG 1.4.13); a tap elsewhere, a scroll or a resize
 // closes it.
 const LINE = 40;   // the longest line a tooltip says: what is longer is a popover
-const ARROW = { arrow: true };
 const COLUMNS = ["Running", "Saved"];
 const chipHtml = (code, older = false) => `<code class="chip${older ? " older" : ""}">${esc(code)}</code>${older ? '<span class="sr-only"> (older)</span>' : ""}`;
-const partHtml = (part) => (part?.arrow ? `<span class="pop-arrow" aria-hidden="true">${icon("arrow-right")}</span>`
-  : typeof part === "string" ? `<span>${esc(part)}</span>`
-  : part.pair ? `<span class="pop-pair">${part.pair.map(partHtml).join(" ")}</span>`
-  : chipHtml(part.code, part.older));
-const partSaid = (parts, columns = COLUMNS) => parts.flatMap((part) => part?.pair || [part]).map((part) => (part?.arrow ? ","
-  : typeof part === "string" ? part : part.lead || (part.versions ? `${columns[0]} ${part.versions.running}, ${columns[1].toLowerCase()} ${part.versions.saved}${part.versions.older ? " (older)" : ""}`
-  : part.who || `${part.code}${part.older ? " (older)" : ""}`))).join(" ").replace(/ ,/g, ",");
+const partHtml = (part) => (typeof part === "string" ? `<span>${esc(part)}</span>` : chipHtml(part.code));
+const partSaid = (parts, columns = COLUMNS) => parts.map((part) => (typeof part === "string" ? part : part.lead
+  || (part.versions ? `${columns[0]} ${part.versions.running}, ${columns[1].toLowerCase()} ${part.versions.saved}${part.versions.older ? " (older)" : ""}` : part.who || part.code))).join(" ");
 // A line: whom it is about (or the subject of its row, `subject`), then what it says: two versions in their columns, or its words and
 // chips across them. Words that lead it (`{lead}`: "Settings changed", "Uses") stand muted in a column of their own, and the parts after
 // them wrap under their first one (`.pop-chips`), never under the leading words (under them, after whom the line is about, where the
@@ -516,9 +507,6 @@ const rowHtml = (row, columns = COLUMNS) => {
   if (alone) return `<span class="pop-row">${lineHtml(row.lines[0], row.subject, columns)}</span>`;
   return `<span class="pop-row">${row.subject ? `<span class="pop-subject pop-head">${esc(row.subject)}</span>` : ""}${row.lines.map((line) => lineHtml(line, "", columns)).join("")}</span>`;
 };
-// The captions of the two columns of versions, over the rows of a card that has any
-const hasVersions = (card) => (card.rows || []).some((row) => row.lines.some((line) => line.some((part) => part?.versions)));
-const captions = (card) => `<span class="pop-captions" aria-hidden="true"><span class="pop-run">${esc((card.columns || COLUMNS)[0])}</span> <span class="pop-saved">${esc((card.columns || COLUMNS)[1])}</span></span>`;
 
 // A card from lines of text: the first its title when `title` says so, then its sentence when there is one (no hairline: a term and what
 // it means), else each other one a row; one long line is its sentence
@@ -534,7 +522,7 @@ const cardSaid = (card) => [card.title, card.text, ...(card.rows || []).map((row
 // window allows: the card itself keeps its arrow and the bridge to its button, outside its box. A card may end with one button that leads
 // somewhere (`action`: {label, href}, or {label, attrs} for a button that the page's own handler answers): a link the pointer reaches, and the keyboard after its badge, which keeps the card open meanwhile.
 export const cardHtml = (card) => `<span class="pop-body"><span class="pop-title">${esc(card.title || "")}</span>${card.text ? `<span class="pop-text">${esc(card.text)}</span>` : ""}${
-  card.rows?.length ? `<span class="pop-rows">${hasVersions(card) ? captions(card) : ""}${card.rows.map((row) => rowHtml(row, card.columns || COLUMNS)).join("")}</span>` : ""}${card.foot ? `<span class="pop-foot">${esc(card.foot)}</span>` : ""}${
+  card.rows?.length ? `<span class="pop-rows">${card.rows.map((row) => rowHtml(row, card.columns || COLUMNS)).join("")}</span>` : ""}${card.foot ? `<span class="pop-foot">${esc(card.foot)}</span>` : ""}${
   card.action ? (card.action.attrs ? `<button type="button" class="btn" ${card.action.attrs}>${esc(card.action.label)}</button>`
     : `<a class="btn" href="${esc(card.action.href)}">${esc(card.action.label)}</a>`) : ""}</span>`;
 
@@ -543,7 +531,7 @@ const popover = (lines) => lines.length > 1 || String(lines[0] ?? "").length > L
 
 // `short`: the button is named by its label alone and the explanation is its description (a column's head, which every cell of
 // the column would otherwise repeat).
-export function tipHtml(inner, line, cls = "", label = "", { title = true, tab = true, said = "", short = false } = {}) {
+export function tipHtml(inner, line, cls = "", label = "", { title = true, said = "", short = false } = {}) {
   const lines = typeof line === "object" && !Array.isArray(line) ? null : [].concat(line);
   const card = lines ? (popover(lines) ? cardOf(lines, title) : null) : line;
   // A card titled with the name of its control is said once: the name, then the rest of the card
@@ -553,7 +541,7 @@ export function tipHtml(inner, line, cls = "", label = "", { title = true, tab =
   const bubble = card ? `<span class="tip-card" role="tooltip"${card.action ? "" : ' aria-hidden="true"'}>${cardHtml(card)}</span>`
     : `<span class="tip-text" role="tooltip" aria-hidden="true"><span>${esc(lines[0])}</span></span>`;
   const names = short ? `aria-label="${esc(label)}" aria-description="${esc(words)}"` : `aria-label="${esc(label ? `${label}: ${words}` : words)}"`;
-  return `<span class="tip"><button type="button" class="tip-btn ${cls}"${tab ? "" : ' tabindex="-1"'} ${names}>${inner}</button>${bubble}</span>`;
+  return `<span class="tip"><button type="button" class="tip-btn ${cls}" ${names}>${inner}</button>${bubble}</span>`;
 }
 
 // The attributes of a control that acts on a click and is explained by the one bubble of the page (`data-tip`): a line, or a card
@@ -614,8 +602,7 @@ const several = (causes) => new Set(causes.flatMap((cause) => cause.services || 
 // What Apply does to them: it restarts them as saved, and goes back to a version saved that is older than the one that runs
 const applies = (them, causes) => `Apply restarts ${them} with what is saved${causes.some((cause) => cause.older) ? ", older versions included" : ""}.`;
 
-// The card of what differs from what is saved: for a row, its causes; for the platform, a row for each product, add-on or playground
-// (the state's `platform.behind`), under how many containers it is in all, and what Apply does
+// The card of what differs from what is saved, for a row: its causes
 const rowCard = (causes) => ({ title: "Differs from what is saved", rows: [{ lines: causes.map(causeLine) }],
   foot: applies(several(causes) ? "them" : "it", causes) });
 
@@ -645,28 +632,25 @@ const needCard = (x) => (x.note_causes[0]?.kind === "switch"
 // ... for whoever says that note elsewhere (the gateway of an environment that the add-on runs): null for a note without causes of that
 // kind (what runs behind what is saved has its own card)
 export const noteCard = (x) => (x.note_causes?.length && feetOf(x.note_causes[0]?.kind) ? needCard(x) : null);
-function behindCard(behind) {
+// ... for the platform: a row for each product, add-on or playground (the state's `platform.behind`), under how many containers it is in all,
+// and what Apply does: the popover of the notice
+export function behindWhy({ behind }) {
   const total = behind.reduce((sum, row) => sum + (row.count || 1), 0);
-  return { title: count(total), rows: behind.map((row) => ({ subject: row.name, lines: (row.causes || []).map(causeLine) })),
-    foot: applies(total === 1 ? "it" : "them", behind.flatMap((row) => row.causes || [])) };
+  return { title: count(total), rows: behind.map((row) => ({ subject: row.name, lines: row.causes.map(causeLine) })),
+    foot: applies(total === 1 ? "it" : "them", behind.flatMap((row) => row.causes)) };
 }
 
 // What runs behind what is saved, as a badge: an amber pill, "Apply needed" and an information mark, its explanation the popover of
-// its causes when the server gives them (`causes`, or a card), else its reason as a tooltip. `cls` is its look: a row's pill, or the
-// head's state chip. Its name for a screen reader is the reason, in the words of a sentence. `more`: lines the card says after its
-// causes, of what the badge stands in front of (a newer version of a product, which its Status would say otherwise).
-export function applyBadge(reason, cls = "pill warn", causes = null, more = []) {
+// its causes when the server gives them (`causes`, or a card), else its reason as a tooltip. Its name for a screen reader is the reason,
+// in the words of a sentence. `more`: lines the card says after its causes, of what the badge stands in front of (a newer version of a
+// product, which its Status would say otherwise).
+export function applyBadge(reason, causes = null, more = []) {
   const found = Array.isArray(causes) && causes.length ? rowCard(causes) : causes && !Array.isArray(causes) ? causes : null;
   const card = found && more.length ? { ...found, rows: [...found.rows, { lines: more }] } : found;
   const reasons = [...[].concat(reason).filter(Boolean), ...(card ? more.map((line) => partSaid(line)) : [])];
   const said = reasons.map((one, i, all) => (i < all.length - 1 ? one.replace(/\.$/, "") : one)).join(". ");
-  return tipHtml(`Apply needed${icon("info")}`, card || (reasons.length ? reasons : "Differs from what is saved"), cls, "Apply needed", { said, title: false });
+  return tipHtml(`Apply needed${icon("info")}`, card || (reasons.length ? reasons : "Differs from what is saved"), "pill warn", "Apply needed", { said, title: false });
 }
-
-// What the platform says runs behind what is saved: a line for each product, add-on or playground, as the state gives them
-export const behindTip = (platform) => platform.behind.map((row) => row.reason);
-// ... and as the popover of the head and the notice, when the server gives the causes
-export const behindWhy = (platform) => (platform.behind.length && platform.behind.every((row) => row.causes) ? behindCard(platform.behind) : null);
 
 // Where a bubble goes: under its button, its left edge at the button's, kept 12 px inside the window; above it when there is more room
 // there. A popover taller than the room it has scrolls inside (components.css). Its arrow points at the button's middle.
@@ -816,14 +800,14 @@ router.onLeave(() => {
 });
 
 // What the server says of a row (an item, a group, a container), in its tone, its tooltip the reason when it has one
-// ("Failed": the job's last line). One that names an item links to it ("via Kafka Desk"); one that settings answer
+// ("Failed": the job's last line). One that names an item links to it ("via Kazoo Desk"); one that settings answer
 // opens them: the license's notes are the ones with a file, they open the form that takes a new license. What runs behind
-// what is saved (`note_apply`) is the badge, its tooltip the reason. `cls` adds the classes of where it sits.
-export function noteHtml(x, cls = "") {
+// what is saved (`note_apply`) is the badge, its tooltip the reason.
+export function noteHtml(x) {
   if (!x.note) return "";
-  if (x.note_apply) return applyBadge(x.note_title || x.note, "pill warn", x.note_causes);
+  if (x.note_apply) return applyBadge(x.note_title || x.note, x.note_causes);
   // Its tooltip: the reason when it says more than its words, else its words when they are cut
-  const look = `list-note ${x.note_tone || ""} ${cls}`, title = x.note_title && x.note_title !== x.note
+  const look = `list-note ${x.note_tone || ""}`, title = x.note_title && x.note_title !== x.note
     ? `data-tip="${esc(x.note_title)}"` : `data-tip="${esc(x.note)}" data-tip-cut`;
   if (x.note_target) return `<a class="${esc(look)} text-link" href="${esc(hrefOf(x.note_target))}" ${title}>${esc(x.note)}</a>`;
   if (x.note_file) return `<button class="${esc(look)} text-link" ${licenseForm()} ${title}>${esc(x.note)}</button>`;
@@ -831,12 +815,12 @@ export function noteHtml(x, cls = "") {
 }
 
 // NOTE BADGE: what the server says of a catalog row, as a badge after its name, never in its description. A pill in the note's tone
-// (neutral, warn, err). One that leads to its fix (the item it names, the license form, the form a place lacks: `fix`) is a quiet
+// (neutral, warn, err). One that leads to its fix (the item it names, the license form) is a quiet
 // pill-button with an arrow, its explanation a tooltip; one with more to say opens it with an information mark; Apply needed is its
 // badge, with the popover of its causes.
-export function noteBadge(x, fix = "") {
+export function noteBadge(x) {
   if (!x.note) return "";
-  if (x.note_apply) return applyBadge(x.note_title || x.note, "pill warn", x.note_causes);
+  if (x.note_apply) return applyBadge(x.note_title || x.note, x.note_causes);
   const look = `pill note ${x.note_tone || ""}`.trim(), more = x.note_title && x.note_title !== x.note ? x.note_title : "";
   // What it says beyond its label: a card of its causes (the versions it needs, the settings it lacks), a sentence under its label
   // when it is long, else one line
@@ -846,7 +830,6 @@ export function noteBadge(x, fix = "") {
   if (x.note_file) return `<button type="button" class="${look}" ${licenseForm()}${tip}>${go}</button>`;
   // Settings without a value: its own settings take them
   if (x.note_causes?.[0]?.kind === "unset") return `<button type="button" class="${look}" data-settings="${esc(`${x.kind}:${x.id}`)}"${tip}>${go}</button>`;
-  if (fix) return `<button type="button" class="${look}" data-fix="${esc(fix)}"${tip}>${go}</button>`;
   // A card without a sentence of the server's says its lines, not its title again: the note is the label already
   return more || card ? tipHtml(`${words}${icon("info")}`, card || more, look, x.note, { said: more || cardSaid({ ...card, title: "" }) }) : `<span class="${look}">${words}</span>`;
 }
@@ -883,7 +866,7 @@ export function originLink(item) {
 export const serviceVersion = (service) => (service.built ? "local build" : bareTag(service.running_tag || service.tag || ""));
 
 // How another container of the lab reaches a service: its name and the port inside it, not the one published ("In the
-// lab: smtp4dev:80"), which the endpoint of an API made in a platform's console needs. Said only while a platform is
+// lab: malt-box:80"), which the endpoint of an API made in a platform's console needs. Said only while a platform is
 // registered, for a service that publishes a port (`targets`: the port inside it, by the one published).
 function inLab(service) {
   if (!store.platforms.length) return "";
@@ -905,7 +888,7 @@ export function serviceCells(service) {
 // NOTICE: a fact about the lab as a whole, in a slim callout above the page (the banner): its icon in its tone (warn, err, info, calm),
 // its headline, a short summary (HTML: a popover may explain it), its action at the right. `title` and `text` are HTML the caller
 // escaped.
-const NOTICE_ICON = { warn: "alert", err: "alert", info: "info", calm: "info" };
+const NOTICE_ICON = { warn: "alert", err: "alert", calm: "info" };
 export const noticeHtml = ({ tone = "warn", title, text = "", action = "" }) => `<div class="notice ${tone}">${icon(NOTICE_ICON[tone]).replace("<svg", '<svg class="notice-icon"')}<p class="notice-body"><strong class="notice-title">${title}</strong>${
   text ? `<span class="notice-text">${text}</span>` : ""}</p>${action ? `<span class="notice-actions">${action}</span>` : ""}</div>`;
 
@@ -951,7 +934,7 @@ export function paintProgress(root = document) {
 // one component of the place where the content will be: the Dashboard's card, the three lists (kind "playground", "setup", "addon"), the
 // Catalogs page (kind "catalog") and the foot of the Welcome dialog (contentLead). This is the only place that knows its words. The block
 // is the `.empty` one, a status for a screen reader; with items of this machine to show (`items`) it is one line above them (`data-line`),
-// never in their place. A server without the field draws nothing. The buttons it draws say what the page does with a click:
+// never in their place. The buttons it draws say what the page does with a click:
 // `data-content-act` ("retry": download again, "add": add the listed catalog) and the namespace it is about (`data-catalog`).
 const WAITING = "Downloading playgrounds, setups and add-ons";
 const NO_CATALOG = "No catalog added";
@@ -972,10 +955,9 @@ function offerOf(content, onPage) {
   return onPage ? "" : '<a class="btn" href="#/catalogs">Browse catalogs</a>';
 }
 
-export function contentStatus(state, { kind = "", items = 0, line = items > 0 } = {}) {
-  const content = state?.content, onPage = kind === "catalog";
-  if (!content) return "";
-  const block = (key, inner) => `<div class="empty" role="status" data-content="${key}"${line ? " data-line" : ""}>${inner}</div>`;
+export function contentStatus(state, { kind = "", items = 0 } = {}) {
+  const { content } = state, onPage = kind === "catalog";
+  const block = (key, inner) => `<div class="empty" role="status" data-content="${key}"${items > 0 ? " data-line" : ""}>${inner}</div>`;
   if (content.key === "downloading" && !onPage) {
     // Where a title says what is fetched, the block says only that it is: the address is behind its mark
     const word = content.address ? tipHtml(`<span>Downloading</span>${icon("info")}`, `From ${content.address}`, "", "Downloading", { title: false }) : "Downloading";
@@ -985,7 +967,7 @@ export function contentStatus(state, { kind = "", items = 0, line = items > 0 } 
     return block("failed", `${content.line ? `<span>${esc(content.line)}</span>` : ""}${contentButton("retry", retryOf(state), "Try again")}`);
   }
   if (content.key === "none") return block("none", `<span>${NO_CATALOG}</span>${offerOf(content, onPage)}`);
-  if (content.key === "ready" && !items && !onPage) return block("ready", Object.hasOwn(NOTHING, kind) ? NOTHING[kind] : NOTHING[""]);
+  if (content.key === "ready" && !items && !onPage) return block("ready", NOTHING[kind]);
   return "";
 }
 
@@ -1001,12 +983,11 @@ export function contentLead(state) {
 }
 
 // The dot of the Catalogs entry of the menu: on while a catalog row has a button to press (`attention`: an update, a repair, a Lab to update,
-// a download that failed or is long), saying which, the first that applies, to a screen reader and in its tooltip. Otherwise the entry is
+// a download that failed), saying which, the first that applies, to a screen reader and in its tooltip. Otherwise the entry is
 // as the page wrote it. Called once the state is drawn (main.js).
 const ATTENTION = [["update", "update available"], ["repair", "needs repair"], ["lab", "update the Lab"], ["download", "not downloaded"]];
 export function paintMenuDot(state = store.state) {
-  const entry = $('.nav-item[data-nav="catalogs"]'), dot = entry && $(".nav-dot", entry);
-  if (!dot) return;
+  const entry = $('.nav-item[data-nav="catalogs"]'), dot = $(".nav-dot", entry);
   entry._plain ??= { name: entry.getAttribute("aria-label"), tip: entry.dataset.tip };
   const rows = catalogRows(state);
   const found = ATTENTION.find(([key]) => rows.some((row) => row.attention === key));
@@ -1095,29 +1076,28 @@ export function paintBusy(root = document) {
 
 // What a verb says while its action works: one word for each
 const ING = { start: "Starting", stop: "Stopping", restart: "Restarting", update: "Updating", pull: "Pulling",
-  apply: "Applying", install: "Installing", remove: "Removing", reset: "Resetting", down: "Removing",
+  apply: "Applying", remove: "Removing", reset: "Resetting", down: "Removing",
   reseed: "Seeding", deploy: "Deploying", login: "Logging in", create: "Creating", save: "Saving", share: "Sharing",
   delete: "Deleting", replace: "Replacing", refresh: "Refreshing", cancel: "Canceling", add: "Adding", connect: "Connecting",
-  setup: "Setting up", repair: "Repairing", export: "Exporting", import: "Importing", move: "Moving", copy: "Copying", check: "Checking" };
+  setup: "Setting up", export: "Exporting", import: "Importing", move: "Moving", copy: "Copying", check: "Checking" };
 const ing = (verb) => ING[verb] || "Working";
 // What a verb says once its action is over, with its check or its error mark: the word of the button that started it
 const WORD = { start: "Start", stop: "Stop", restart: "Restart", update: "Update", pull: "Pull", apply: "Apply",
-  install: "Install", remove: "Remove", reset: "Reset", down: "Remove", reseed: "Re-seed", deploy: "Deploy", login: "Log in",
+  remove: "Remove", reset: "Reset", down: "Remove", reseed: "Re-seed", deploy: "Deploy", login: "Log in",
   create: "Create", save: "Save", share: "Share", delete: "Delete", replace: "Replace", refresh: "Refresh", cancel: "Cancel",
-  add: "Add", connect: "Connect", setup: "Set up", repair: "Repair", export: "Export", import: "Import", move: "Move", copy: "Copy", check: "Check" };
+  add: "Add", connect: "Connect", setup: "Set up", export: "Export", import: "Import", move: "Move", copy: "Copy", check: "Check" };
 // What Turn on and Turn off change, as the tooltip of their button wherever it is (a row, a playground's head): what is on, which
 // starts with the platform, and nothing that runs now
 export const TURNS = { "Turn on": "Start it with the platform from now on", "Turn off": "No longer start it with the platform" };
 // The verbs whose job says how far it is: the others ("Saving…", "Canceling…") never show a percentage
-const MEASURED = new Set(["start", "stop", "restart", "update", "pull", "apply", "install", "remove", "reset", "down", "reseed",
+const MEASURED = new Set(["start", "stop", "restart", "update", "pull", "apply", "remove", "reset", "down", "reseed",
   "deploy"]);
 
 const FULL = 500;     // how long a measured action that got there says 100%, before its button gives its face back
 const FLASH = 1600;   // how long the working face says how its action went, before the button gives its face back
 const UNSEEN = 4000;  // how long it waits for a button to say it: one that no button showed by then is dropped
 const MARK = { done: "check", failed: "alert" };   // its icon meanwhile, before the word
-// "<key>|<verbs>" → what its buttons show: {look, from, at}, the look, the one before it and when it changed. A button
-// drawn again goes on from there.
+// "<key>|<verbs>" → the look its buttons show. A button drawn again starts from it.
 const shown = new Map();
 // job id → {key, verb, title, seen}: the jobs a button showed or started, until it is known how they went: once they
 // end, or for one that ended well, once what it started or stopped got there. `seen`: a state said it runs, and none
@@ -1184,7 +1164,7 @@ function acting(key, verbs) {
     title: running?.title || state.label };
 }
 
-// The word of the button that started a job: its title without the name of what it acts on ("Turn off Kafka" → "Turn
+// The word of the button that started a job: its title without the name of what it acts on ("Turn off Kazoo" → "Turn
 // off"), else the verb's own word
 function wordOf(key, verb, title = "") {
   const name = store.unit(key)?.name;
@@ -1293,9 +1273,6 @@ function flashOf(key, verbs) {
   return null;
 }
 
-// Whether a look shows the working face: at work, or saying how it went
-const swapped = (look) => !!(look.act || look.flash);
-
 // One button in its look ({act, flash}): on its working face while it acts, with the verb, how far it is and
 // the fill, then, once it is over, a check or the error mark with the word of the action ("✓ Start"); else on its
 // face. A button on its working face takes no click, without the gray of a disabled one; what it was is given back
@@ -1359,52 +1336,28 @@ function unsay(b) {
 
 // Sets every button of an action under `root` (actionButton): it runs once the state is drawn (main.js), and after a
 // page draws its own buttons. A row written again replaces its button: the new one takes, without moving, the look
-// its key had, and goes on with a fade the old one had begun. So a button fades to its working face at the click and back once its
+// its key had. So a button fades to its working face at the click and back once its
 // action is over (its job ended and what it started or stopped got there), whatever the refreshes draw meanwhile, and
 // a button shown for the first time while its action works does not fade at all.
 export function paintActions(root = document) {
   settle();
-  const now = Date.now();
   const buttons = $$("[data-act-for]", root).map((b) => {
     const key = b.dataset.actFor, verbs = b.dataset.actVerb || "", working = acting(key, verbs);
     // An icon alone says no percentage: rather than 100% for a moment, it says at once how its action went
     const act = working?.full && b.matches(".icon-btn") ? null : working;
     return { b, id: `${key}|${verbs}`, look: { act, flash: act ? null : flashOf(key, verbs) } };
   });
-  // A new button: where its key was, or where its fade began when the replaced one was fading (`gone` ms ago)
-  let swap;
-  const fresh = buttons.filter(({ b }) => !b._painted).map(({ b, id, look }) => {
-    const was = shown.get(id) || { look, from: look, at: 0 }, gone = now - was.at;
-    const fading = swapped(was.from) !== swapped(was.look) && gone < 2000
-      && gone < (swap ??= parseFloat(getComputedStyle(b).getPropertyValue("--swap")) * 1000);
+  const fresh = buttons.filter(({ b }) => !b._painted);
+  for (const { b, id, look } of fresh) {
     b._painted = true;
     b.classList.add("still");
-    paint(b, fading ? was.from : was.look);
-    return { b, was, gone: fading ? gone : null };
-  });
-  if (!fresh.length) return paintAll(buttons, root, now);
-  void document.body.offsetWidth;   // the browser takes these looks as the ones they move from
-  const going = fresh.filter(({ gone }) => gone !== null);
-  for (const { b, was, gone } of fresh) {
-    b.classList.remove("still");
-    if (gone === null) continue;
-    for (const part of b.firstElementChild.children) part.style.transitionDelay = `${-gone}ms`;
-    paint(b, was.look);
+    paint(b, shown.get(id) || look);
   }
-  if (going.length) {
-    void document.body.offsetWidth;   // their fades begin, already `gone` along
-    going.forEach(({ b }) => { for (const part of b.firstElementChild.children) part.style.transitionDelay = ""; });
-  }
-  paintAll(buttons, root, now);
-}
-
-// Every button in its look now, and what its key shows kept
-function paintAll(buttons, root, now) {
+  if (fresh.length) void document.body.offsetWidth;   // the browser takes these looks as the ones they move from
   for (const { b, id, look } of buttons) {
+    b.classList.remove("still");
     paint(b, look);
-    const was = shown.get(id);
-    shown.set(id, !was ? { look, from: look, at: 0 }
-      : swapped(was.look) === swapped(look) ? { ...was, look } : { look, from: was.look, at: now });
+    shown.set(id, look);
   }
   // Painted whole, the page tells which keys are still drawn: one that comes back later starts from what it is then
   if (root === document) for (const id of [...shown.keys()]) if (!buttons.some((x) => x.id === id)) shown.delete(id);
@@ -1522,14 +1475,13 @@ export function Pager(el, size, onChange) {
   };
 }
 
-// Enter and Space open or close a row that opens, as a click does: under `root`, the rows that match `selector`.
-// toggle(row) answers the selector of the row when it drew it again: the focus goes back to it.
-export function onRowKey(root, selector, toggle) {
-  root.addEventListener("keydown", (e) => {
-    if (!e.target.matches(selector) || (e.key !== "Enter" && e.key !== " ")) return;
-    e.preventDefault();
-    const drawn = toggle(e.target);
-    if (drawn) $(drawn, root)?.focus();
+// What an address opened, in view and focused, once it is drawn and the router has set the page's scroll: `focus` is the control inside
+// it that takes the keyboard, else itself. Drawn again meanwhile without it, nothing is left to do.
+export function reveal(selector, root, focus = "") {
+  requestAnimationFrame(() => {
+    const el = $(selector, root);
+    el?.scrollIntoView({ block: "nearest" });
+    (focus && el ? $(focus, el) : el)?.focus({ preventScroll: true });
   });
 }
 
@@ -1551,23 +1503,31 @@ document.addEventListener("keydown", (e) => {
   input.focus();
 });
 
+// Copies text, and says whether it could. Clipboard permission refused: through a selection instead, in `near` (a dialog keeps its
+// selection inside).
+async function copyText(value, near = document.body) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const area = Object.assign(document.createElement("textarea"), { value });
+    near.append(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    return ok;
+  }
+}
+
+// ... for a menu entry, which has no button to say it on
+export const copyAddress = (value) => copyText(value).then((ok) => toast(ok ? "Copied" : "Could not copy", !ok));
+
 // A click on a copy button (core.js), wherever it is drawn, copies its data-copy value: the button turns into a check for a
 // moment.
 
 document.addEventListener("click", async (e) => {
   const button = e.target.closest("[data-copy]");
-  if (!button) return;
-  try {
-    await navigator.clipboard.writeText(button.dataset.copy);
-  } catch {
-    // Clipboard permission refused: copy through a selection instead
-    const area = Object.assign(document.createElement("textarea"), { value: button.dataset.copy });
-    button.after(area);
-    area.select();
-    const ok = document.execCommand("copy");
-    area.remove();
-    if (!ok) return;
-  }
+  if (!button || !(await copyText(button.dataset.copy, button.parentElement))) return;
   const was = button.innerHTML, icon_only = button.classList.contains("icon-btn");   // a button with words says Copied in them
   button.innerHTML = icon_only ? icon("check") : `${icon("check")}Copied`;
   button.classList.add("done");

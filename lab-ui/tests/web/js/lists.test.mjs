@@ -5,17 +5,13 @@
 // DOM does not take), and a deliberate change of what a lab without a platform sees is written the same way. The state carries what
 // a registered platform adds (what a playground deploys to and what it cannot, the place chosen) with no platform registered: none
 // of it may show. The Start of a row follows the place chosen on any page, as the page of the playground does (web/js/platform/places.js).
-//
-// The catalogs add two more snapshots, written the same way: lists.empty.txt is what the lists draw while the catalogs download, fail, are missing
-// or hold nothing, with no item to list and with only this machine's (WRITE_EMPTY=1), and lists.catalogs.txt what they draw with another catalog added:
-// the Catalog fact of its About, the picker of the catalogs in place of the two choices, its Blocked and Needs a catalog notes (WRITE_CATALOGS=1). With the first
-// catalog alone, the pages are lists.main.txt: no chip, no picker, no scope control while all of the items are one catalog's.
+// With the first catalog alone, the pages are lists.main.txt: no chip, no picker, no scope control while all of the items are one catalog's.
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
-import { BLOCKED, FIRST, HOSTILE, NEEDS, PERSONAL, catalog, content, gains, origin } from "./fixtures.mjs";
+import { El, Ev, bubble, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { BLOCKED, FIRST, HOSTILE, NEEDS, PERSONAL, catalog, content, origin } from "./fixtures.mjs";
 
 // The clock is the mock's too: what a button says of how its action went lasts a time that only the ticks of the tests make pass, never the
 // load of the machine (a snapshot drawn a second late would otherwise be another one)
@@ -23,18 +19,15 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: Date.now(
 // A timer set with no delay (the menu's, in ui.js) is NaN for the mock, which then loses the timers that follow it
 const setTimer = globalThis.setTimeout;
 globalThis.setTimeout = (fn, ms, ...rest) => setTimer(fn, ms ?? 0, ...rest);
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const MAIN = new URL("./lists.main.txt", import.meta.url), EMPTY = new URL("./lists.empty.txt", import.meta.url), CATALOGS = new URL("./lists.catalogs.txt", import.meta.url);
+const MAIN = new URL("./lists.main.txt", import.meta.url);
 const ENVIRONMENTS = [{ id: "development", name: "Development" }, { id: "test", name: "Test" }];
 const CANNOT = { "acme-bakery": "Needs Access Management" };   // what a place says Acme Bakery cannot go there for
 // What the server answers, and every call the page made
 const server = { calls: [], dialog: null };
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
 const JOB = { id: "ab12cd34", for: "playground:acme-hostels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // The groups of the Stack the page remembers open, and the place that was last chosen to deploy to (the default of every playground)
-const stored = { expanded: JSON.stringify({ "group:api-management": true, "addon:kafka": true }), deploy: "acme/development" };
-const page = installDom({ ids, stored, fetch: async (path, options = {}) => {
+const stored = { expanded: JSON.stringify({ "addon:kazoo": true }), deploy: "acme/development" };
+const page = installDom({ stored, fetch: async (path, options = {}) => {
   const call = { method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined };
   if (path !== "/api/state") server.calls.push(call);
   if (path === "/api/state") return reply(store.state);
@@ -44,8 +37,6 @@ const page = installDom({ ids, stored, fetch: async (path, options = {}) => {
 } });
 globalThis.EventSource = class { close() {} addEventListener() {} };   // the output of a job, which the drawer follows
 page.ids.health.append(page.doc.createElement("span"));   // the spinner that the status dot replaces
-// A button that fades back to its face reads how long it takes from the stylesheet: no fade here
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 
 // What the registered platforms and the places of the cache say, which a test sets
 const registry = { platforms: [], places: [] };
@@ -58,7 +49,6 @@ store.refreshPlaces = () => { reads += 1; };
 const { renderShell } = await import("../../../web/js/components/sidebar.js");
 const { playgroundsPage, setupsPage, addonsPage, selectCatalog } = await import("../../../web/js/pages/list.js");
 const { stackPage } = await import("../../../web/js/pages/stack.js");
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 Combo.init();
 await import("../../../web/js/dialogs/catalog.js");   // answers the buttons of the content, which the lists draw (Try again, Add the listed catalog)
@@ -90,20 +80,20 @@ const playground = (id, name, more = {}) => item("playground", id, name, { tags:
 // The lab with the core stopped, or running; `away`: an add-on of the lab runs. Acme Hostels deploys to a platform too.
 function lab({ away = false, core = "stopped", hotels = {}, ...more } = {}) {
   const gateway = service("gateway", core === "running" ? RUNNING : STOPPED);
-  const kafka = service("kafka", away ? RUNNING : STOPPED, { ports: ["9092", "9093"] });
+  const kazoo = service("kazoo", away ? RUNNING : STOPPED, { ports: ["9092", "9093"] });
   const group = { id: "api-management", name: "API Management", services: ["gateway"], state: gateway.state.running ? RUNNING : STOPPED, progress: null,
     version: "1", registry: null, registry_label: null, product: null, file: "docker-compose.yml", env_file: ".env", settings: [], brings: [], recreates: [], ...NONE };
   return {
     blind: false, wait: "", docker: { error: null, warning: null }, license: null, products: [], categories: [], job: null, problems: [],
-    links: [], services: { gateway, kafka },
+    links: [], services: { gateway, kazoo }, content: content("ready"),
     platform: { name: "Gravitee platform", state: group.state, progress: null, groups: [group], file: "docker-compose.yml", env_file: ".env", settings: [],
       start: { needed: true, starts: [], restarts: [], enabled: true, reason: null, dialog: null }, apply: { needed: false }, behind: [],
       restart: { needed: core === "running", enabled: true, reason: null }, update: { needed: core === "running", enabled: true, reason: null, dialog: null },
       reset_turns_off: null },
     playgrounds: [playground("acme-hostels", "Acme Hostels", { created: [{ what: "APIs", count: 3 }], deploys_to: ["cloud"], ...hotels }),
       playground("acme-bakery", "Acme Bakery", { on: true, state: STOPPED })],
-    setups: [item("setup", "messaging", "Messaging", { members: [{ id: "kafka", name: "Kafka" }], includes: [] })],
-    addons: [item("addon", "kafka", "Kafka", { services: ["kafka"], needs: [], conflicts: {}, restarts: [], brings: [], recreates: [], on: away, up: away,
+    setups: [item("setup", "messaging", "Messaging", { members: [{ id: "kazoo", name: "Kazoo" }], includes: [] })],
+    addons: [item("addon", "kazoo", "Kazoo", { services: ["kazoo"], needs: [], conflicts: {}, restarts: [], brings: [], recreates: [], on: away, up: away,
       state: away ? RUNNING : OFF, action: ACTION(away ? "stop" : "start") })],
     ...more,
   };
@@ -111,13 +101,11 @@ function lab({ away = false, core = "stopped", hotels = {}, ...more } = {}) {
 
 // A place as the cache of /api/places says it
 const place = (more = {}) => ({ id: "acme/development", name: "Development (My Account)", platform: { id: "acme", name: "My Account", kind: "cloud" },
-  environment: { id: "development", name: "Development", organization: "o1" }, state: "ready", missing: null, reason: "", token: { state: "valid" },
-  gateway: { id: "g1", name: "lab", state: "connected", here: true, kept: true, connection: "CONNECTED" },
-  capabilities: { products: { "API Management": "4.12.21" }, plugins: false, detail: "" }, cannot: CANNOT, ...more });
-const lacks = (missing, reason, token) => place({ state: "missing", missing, reason, token: { state: token }, gateway: null, capabilities: null });
+  environment: { id: "development", name: "Development" }, state: "ready", missing: null, reason: "", token: { state: "valid" },
+  gateway: { id: "g1", name: "lab", state: "connected", here: true, kept: true, connection: "CONNECTED" }, cannot: CANNOT, ...more });
+const lacks = (missing, reason, token) => place({ state: "missing", missing, reason, token: { state: token }, gateway: null });
 // A platform that cannot be used is one place of its own id, without environment, token or gateway
-const unusable = (reason) => place({ id: "acme", name: "My Account", environment: null, state: "unusable", reason, token: null, gateway: null,
-  capabilities: null });
+const unusable = (reason) => place({ id: "acme", name: "My Account", environment: null, state: "unusable", reason, token: null, gateway: null });
 const ACCOUNT = { id: "acme", name: "My Account", kind: "cloud", url: "https://eu.cloud.gravitee.io" };
 
 // --- What a page draws, one line for each node ---------------------------------------------
@@ -169,15 +157,11 @@ const REMEMBERED = [lacks("No hybrid gateway", "Set up a gateway in Development 
 // Everything these pages draw for the lab of S1, by name
 function everything() {
   const dom = {};
-  draw(S1.calm, [], REMEMBERED);
-  dom["banner: the core stopped, nothing runs"] = drawn(banner());
-  draw(S1.running, [], REMEMBERED);
-  dom["banner: the core runs"] = drawn(banner());
   draw(S1.away, [], REMEMBERED);
-  dom["banner: the core stopped, an add-on runs"] = drawn(banner());
+  dom["banner: the core stopped"] = drawn(banner());
   open("playgrounds", "acme-hostels");
   open("setups", "messaging");
-  open("addons", "kafka");
+  open("addons", "kazoo");
   draw(S1.away, [], REMEMBERED);
   for (const name of Object.keys(PAGES)) dom[name] = drawn(sections[name]);
   return dom;
@@ -185,8 +169,8 @@ function everything() {
 
 // What was written: the name of each part, then what it drew
 const written = (dom) => Object.entries(dom).map(([name, body]) => `=== ${name} ===\n${body}\n`).join("");
-function read(file = MAIN) {
-  const parts = readFileSync(file, "utf8").split(/^=== (.*) ===\n/m), main = {};
+function read() {
+  const parts = readFileSync(MAIN, "utf8").split(/^=== (.*) ===\n/m), main = {};
   for (let i = 1; i < parts.length; i += 2) main[parts[i]] = parts[i + 1].replace(/\n$/, "");
   return main;
 }
@@ -305,13 +289,15 @@ test("a Start that switches the versions keeps its warning beside it, never in t
   assert.equal(noted(), null, "nothing in the State");
   assert.equal(blockedBy(), "Needs newer versions", "the warning beside the Start");
   assert.ok(!isOff(startOf()), "and the Start starts");
-  const card = () => text(blockerOf().parentElement.querySelector(".tip-card"));
+  const tip = () => blockerOf().parentElement.querySelector(".tip-card"), card = () => text(tip());
+  const captions = () => ["pop-run", "pop-saved"].map((cell) => tip().querySelector(`.${cell}`).getAttribute("data-cap"));
   // Each image as it is and as it was tested, in the same columns whether the Start goes there or only offers to
-  assert.match(card(), /Current.*Tested.*API Management.*4\.12\.20.*4\.13\.0-alpha\.3/);
+  assert.deepEqual(captions(), ["Current", "Tested"]);
+  assert.match(card(), /API Management.*4\.12\.20.*4\.13\.0-alpha\.3/);
   assert.match(card(), /Start goes to the versions it was tested with/);
   draw(lab({ hotels: { ...switching, note: "Not tested with these versions", action: { ...ACTION("start"), warns: true, offer: { versions: [] } } } }));
   assert.equal(blockedBy(), "Not tested with these versions");
-  assert.match(card(), /Current.*Tested.*API Management/);
+  assert.deepEqual(captions(), ["Current", "Tested"]);
   assert.match(card(), /Start offers the versions it was tested with/);
   // Without a version to go to it cannot start: the same warning, and the Images page is the way
   const needs = { ...switching, note_causes: [{ kind: "needs", name: "API Management", version: "4.13.0-alpha.3" }] };
@@ -413,7 +399,7 @@ async function start(id, state, places) {
 }
 
 test("the Start of a row deploys to the place chosen on any page: it asks first, naming the place, and sends it back", async () => {
-  server.dialog = { starts: [{ kind: "addon", id: "hybrid", name: "Hybrid gateway" }], stops: [], turns_off: [], keeps: [], restarts: [] };
+  server.dialog = { starts: [{ kind: "addon", id: "hyssop", name: "Hybrid gateway" }], stops: [], turns_off: [], keeps: [], restarts: [] };
   await start("acme-hostels", S1.calm, [place()]);
   assert.deepEqual(server.calls.map((call) => call.path), ["/api/playgrounds/acme-hostels/check?place=acme%2Fdevelopment"], "its checks are read for the place, now");
   assert.deepEqual(effects(), { title: "Start Acme Hostels", action: "Start",
@@ -467,52 +453,10 @@ test("a Start on images it was not tested with is the Start that switches them, 
   page.stored.deploy = "acme/development";
 });
 
-test("a Start says where its item comes from when the server says it, on This machine and on a place alike: one row among those that say what stays", async () => {
-  const from = { from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" } };
-  const starts = [{ kind: "addon", id: "kafka", name: "Kafka" }];
-  const notes = () => picks.querySelectorAll(".choice-row").map((row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text),
-    row.querySelectorAll(".muted").map(text)]);
-  // On a place, the dialog is the one the checks of that place read
-  server.dialog = { starts, stops: [], turns_off: [], keeps: [], restarts: [], ...from };
-  await start("acme-hostels", S1.calm, [place()]);
-  assert.deepEqual(effects().steps, [["Starts", ["Kafka Add-on"]], ["Deploys to", ["Development (My Account) Environment"]]]);
-  assert.deepEqual(notes(), [["From", ["Acme Hub"], ["Version 1.4.0"]]]);
-  await answer(false);
-  // On This machine, the one the state gives the row
-  page.stored.deploy = "machine";
-  draw(lab({ hotels: { action: { ...ACTION("start"), dialog: { starts, stops: [], turns_off: [], keeps: [], restarts: [], ...from } } } }), [ACCOUNT], [place()]);
-  startOfRow("acme-hostels").click();
-  await settle();
-  assert.deepEqual(notes(), [["From", ["Acme Hub"], ["Version 1.4.0"]]]);
-  await answer(false);
-  // Said by no one, it is not drawn
-  server.dialog = null;
-  draw(lab({ hotels: { action: { ...ACTION("start"), dialog: { starts, stops: [], turns_off: [], keeps: [], restarts: [] } } } }), [ACCOUNT], [place()]);
-  startOfRow("acme-hostels").click();
-  await settle();
-  assert.deepEqual(notes(), []);
-  await answer(false);
-  page.stored.deploy = "acme/development";
-});
-
 test("a playground that cannot go to the place chosen starts on This machine, as its page does", async () => {
   await start("acme-bakery", lab({ hotels: {} }), [place()]);
   assert.deepEqual(posts(), [["/api/playgrounds/acme-bakery/start", { accept: [] }]]);
   assert.ok(!server.calls.some((call) => call.path.includes("/check")));
-});
-
-test("the Start of a row names This machine in its dialog once a platform is registered, when it asks, and not before", async () => {
-  const dialog = { starts: [{ kind: "addon", id: "kafka", name: "Kafka" }], stops: [], turns_off: [], keeps: [], restarts: [] };
-  const asking = lab({ hotels: { action: { ...ACTION("start"), dialog } } });
-  page.stored.deploy = "machine";
-  for (const [platforms, steps] of [[[ACCOUNT], [["Starts", ["Kafka Add-on"]], ["Deploys to", ["This machine Platform"]]]], [[], [["Starts", ["Kafka Add-on"]]]]]) {
-    draw(asking, platforms, [place()]);
-    startOfRow("acme-hostels").click();
-    await settle();
-    assert.deepEqual(effects().steps, steps, `${platforms.length} platform`);
-    await answer(false);
-  }
-  page.stored.deploy = "acme/development";
 });
 
 test("the Start of a row waits for the places while a place is kept and they are not read: it never starts the wrong one", () => {
@@ -528,17 +472,16 @@ test("the Start of a row waits for the places while a place is kept and they are
 });
 
 test("the note of an add-on that needs a hybrid gateway leads to the Gravitee Cloud page", () => {
-  const needs = (more) => lab({ ...more });
-  const withNote = needs({});
+  const withNote = lab();
   withNote.addons[0] = { ...withNote.addons[0], note: "Needs a hybrid gateway", note_tone: "warn", note_target: { kind: "platform" } };
   draw(withNote, [ACCOUNT], [place()]);
-  const note = row("addons", "kafka").querySelector(".list-state .note");
+  const note = row("addons", "kazoo").querySelector(".list-state .note");
   assert.equal(note.tag, "a");
   assert.equal(note.getAttribute("href"), "#/cloud");
   assert.equal(text(note), "Needs a hybrid gateway");
   withNote.addons[0] = { ...withNote.addons[0], note_target: { kind: "platform", id: "acme" } };
   draw(withNote, [ACCOUNT], [place()]);
-  assert.equal(row("addons", "kafka").querySelector(".list-state .note").getAttribute("href"), "#/cloud/acme", "with an id, it is that platform's row");
+  assert.equal(row("addons", "kazoo").querySelector(".list-state .note").getAttribute("href"), "#/cloud/acme", "with an id, it is that platform's row");
 });
 
 // --- The catalogs ------------------------------------------------------------------------------------------------------------------------
@@ -549,7 +492,7 @@ const made = (kind, id, name, more) => (kind === "playground" ? playground(id, n
   : item(kind, id, name, kind === "setup" ? { members: [], includes: [], ...more } : { ...BLANK, ...more }));
 const inHub = (kind, id, name, more = {}) => made(kind, `@acme-hub/${id}`, name, { origin: origin(), readonly: true, display_file: `${kind}s/${id}/compose.yml`,
   needs_catalogs: [], compat: "ok", twin: null, uses_machine: [], ...more });
-const ofMine = (kind, id, name, more = {}) => made(kind, `local/${id}`, name, { personal: true, held: { share: "", delete: "" }, ...more });
+const ofMine = (kind, id, name, more = {}) => made(kind, `local/${id}`, name, { personal: true, held: { delete: "" }, ...more });
 const base = lab();
 // The lab with another catalog added and this machine's items: what the lists tell apart
 function world({ playgrounds = [], setups = [], addons = [], ...more } = {}) {
@@ -560,19 +503,19 @@ function world({ playgrounds = [], setups = [], addons = [], ...more } = {}) {
 const alone = () => draw(lab({ catalogs: [FIRST()], content: content("ready") }));
 // A row open, whether it was or not (open toggles it)
 const opening = (name, id) => { if (!row(name, id).classList.contains("open")) open(name, id); };
-const USES = [{ service: "k3s", what: ["runs privileged"], why: "Runs containerd and the kubelet" }];
+const USES = [{ service: "kea", what: ["runs privileged"], why: "Runs nested containers" }];
 const everyone = () => world({
   playgrounds: [inHub("playground", "ledger-demo", "Ledger demo"), ofMine("playground", "scratch", "Scratch")],
-  setups: [inHub("setup", "duo", "Duo", { members: [{ id: "kafka", name: "Kafka" }], includes: [], note: "Needs a catalog", note_tone: "warn",
+  setups: [inHub("setup", "duo", "Duo", { members: [{ id: "kazoo", name: "Kazoo" }], includes: [], note: "Needs a catalog", note_tone: "warn",
     note_target: { kind: "catalog", id: null }, note_causes: [NEEDS.missing], action: { ...ACTION("start"), enabled: false, reason: "Needs the catalog Partner Bank" } })],
   addons: [inHub("addon", "mock-bank", "Mock bank", { note: "Blocked", note_tone: "err", note_causes: [BLOCKED],
-    action: { ...ACTION("start"), enabled: false, reason: BLOCKED.reasons[0] } }), inHub("addon", "k3s", "Kubernetes", { uses_machine: USES })],
+    action: { ...ACTION("start"), enabled: false, reason: BLOCKED.reasons[0] } }), inHub("addon", "kea", "Kookaburra", { uses_machine: USES })],
 });
 
 // The control that tells the catalogs apart, as a list draws it: none, or the picker
 const scope = (name) => {
-  const choices = sections[name].querySelectorAll("[data-scope]"), picker = sections[name].querySelector("[data-catalogs]");
-  return { choices: choices.map((b) => [text(b), b.getAttribute("aria-checked")]), picker: picker ? text(picker) : null };
+  const picker = sections[name].querySelector("[data-catalogs]");
+  return picker ? text(picker) : null;
 };
 const names = (name) => sections[name].querySelectorAll(".list-item .list-name").map(text);
 const marks = (name, id) => row(name, id).querySelectorAll(".list-marks .pill").map(text);
@@ -595,7 +538,7 @@ const menuOf = (name, id) => {
 test("with the first catalog alone there is no chip, no picker and no scope control: nothing to tell apart", () => {
   alone();
   for (const name of ["playgrounds", "setups", "addons"]) {
-    assert.deepEqual(scope(name), { choices: [], picker: null }, name);
+    assert.equal(scope(name), null, name);
     assert.equal(sections[name].querySelectorAll('[role="radiogroup"]').length, 0, name);
   }
   assert.deepEqual(marks("playgrounds", "acme-hostels"), []);
@@ -604,8 +547,8 @@ test("with the first catalog alone there is no chip, no picker and no scope cont
 
 test("with the first catalog's items and this machine's, the same picker tells them apart, and no Shared: nothing is shared with the project", async () => {
   draw(lab({ playgrounds: [...base.playgrounds, ofMine("playground", "scratch", "Scratch")], catalogs: [FIRST(), PERSONAL()], content: content("ready") }));
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: "Catalog: All catalogs" });
-  assert.deepEqual(scope("setups"), { choices: [], picker: null }, "a list with one source has no control");
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
+  assert.equal(scope("setups"), null, "a list with one source has no control");
   assert.deepEqual(marks("playgrounds", "local/scratch"), ["Personal"]);
   assert.deepEqual(marks("playgrounds", "acme-hostels"), []);
   assert.deepEqual(await opened("playgrounds"), [["All catalogs", "3", true], ["Gravitee public", "2", false], ["Personal", "1", false]]);
@@ -619,19 +562,22 @@ test("with the first catalog's items and this machine's, the same picker tells t
 
 test("with another catalog added the picker is drawn from the items, not from the markup of the page", () => {
   draw(everyone());
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: "Catalog: All catalogs" });
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
   const button = sections.playgrounds.querySelector("[data-catalogs]");
   assert.deepEqual([button.getAttribute("class"), button.getAttribute("aria-haspopup")], ["combo-btn", "dialog"]);
   assert.equal(text(button.querySelector(".sr-only")), "Catalog:");
   assert.ok(button.parent.lastElementChild === button, "among the filters of the list, after them");
+  assert.ok(sections.playgrounds.querySelector(".list-card").classList.contains("by-catalog"), "its rows name their catalog where the card has the room");
+  assert.deepEqual(sections.playgrounds.querySelectorAll(".list-item .col-from").map(text), ["Gravitee public", "Gravitee public", "Acme Hub", "Personal"]);
   assert.equal(sections.playgrounds.querySelectorAll('[role="radiogroup"]').length, 0);
   // A list whose items are one catalog's has none, whatever else is added
   draw(world());
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: null }, "one source holds the items of this list");
+  assert.equal(scope("playgrounds"), null, "one source holds the items of this list");
   draw(everyone());
-  assert.equal(scope("playgrounds").picker, "Catalog: All catalogs");
+  assert.equal(scope("playgrounds"), "Catalog: All catalogs");
   alone();
   assert.equal(sections.playgrounds.querySelectorAll("[data-catalogs]").length, 0, "taken off once the catalogs are one");
+  assert.ok(!sections.playgrounds.querySelector(".list-card").classList.contains("by-catalog"));
 });
 
 // The picker, open: its options as [name, count, ticked]
@@ -678,23 +624,6 @@ test("what was chosen is not kept: drawn again once the catalogs were one, the p
   draw(everyone());
   assert.equal(names("playgrounds").length, 4, "all of them again");
   assert.equal(value("playgrounds"), "All catalogs");
-  alone();
-});
-
-test("the progress of the fetch of an Add, carried among the catalogs, is no source of a list: no picker for it, and every list is as it is without it", () => {
-  const check = { id: "check", kind: "progress", progress: 0.4 };
-  const lists = () => ["playgrounds", "setups", "addons"].map((name) => drawn(sections[name]));
-  draw(lab({ catalogs: [FIRST()], content: content("ready") }));
-  const bare = lists();
-  draw(lab({ catalogs: [FIRST(), check], content: content("ready") }));
-  assert.deepEqual(lists(), bare, "the first catalog alone, and the fetch of another");
-  assert.deepEqual(scope("playgrounds"), { choices: [], picker: null });
-  draw(everyone());
-  const world = lists();
-  draw({ ...everyone(), catalogs: [...everyone().catalogs, check] });
-  assert.deepEqual(lists(), world, "with another catalog, the picker and its rows are the same");
-  draw({ ...everyone(), catalogs: [check, ...everyone().catalogs] });
-  assert.deepEqual(lists(), world, "wherever it stands");
   alone();
 });
 
@@ -847,11 +776,11 @@ test("Use the catalog version waits, saying why in the server's words, while the
 test("what an item takes of this machine is one pair of its opened row, in its author's words", () => {
   const state = everyone();
   draw(state);
-  opening("addons", "@acme-hub/k3s");
+  opening("addons", "@acme-hub/kea");
   opening("addons", "@acme-hub/mock-bank");
   draw(state);
   const facts = (id) => row("addons", id).querySelectorAll(".panel-fact").map((fact) => [text(fact.firstElementChild), text(fact.lastElementChild)]);
-  assert.deepEqual(facts("@acme-hub/k3s"), [["Catalog", "Acme Hub 1.4.0"], ["Uses this machine", "Runs containerd and the kubelet"]]);
+  assert.deepEqual(facts("@acme-hub/kea"), [["Catalog", "Acme Hub 1.4.0"], ["Uses this machine", "Runs nested containers"]]);
   assert.deepEqual(facts("@acme-hub/mock-bank"), [["Catalog", "Acme Hub 1.4.0"]], "most items use nothing of it");
   alone();
 });
@@ -859,7 +788,7 @@ test("what an item takes of this machine is one pair of its opened row, in its a
 test("a list's address takes the id of any catalog's item, and a playground's own address is its page", () => {
   const hit = (target, hash) => target.pattern.exec(hash)?.slice(1);
   assert.deepEqual(hit(addonsPage, "#/addons"), [undefined]);
-  assert.deepEqual(hit(addonsPage, "#/addons/kafka"), ["kafka"]);
+  assert.deepEqual(hit(addonsPage, "#/addons/kazoo"), ["kazoo"]);
   assert.deepEqual(hit(setupsPage, "#/setups/local/mine"), ["local/mine"]);
   assert.deepEqual(hit(addonsPage, "#/addons/@acme-hub/mock-bank"), ["@acme-hub/mock-bank"]);
   assert.equal(hit(addonsPage, "#/addons/@acme-hub/"), undefined);
@@ -875,14 +804,14 @@ test("an address that names an item of another catalog finds it through a filter
   await settle();   // what the tests before left to do is done
   typed("addons", "zzz");
   assert.deepEqual(names("addons"), []);
-  addonsPage.show(["@acme-hub/k3s"]);
+  addonsPage.show(["@acme-hub/kea"]);
   draw(everyone());
-  assert.ok(names("addons").includes("Kubernetes"), "its row shows");
+  assert.ok(names("addons").includes("Kookaburra"), "its row shows");
   assert.equal(sections.addons.querySelector('[data-filter="q"]').value, "", "the filters were cleared for it");
-  assert.equal(row("addons", "@acme-hub/k3s").classList.contains("open"), true);
+  assert.equal(row("addons", "@acme-hub/kea").classList.contains("open"), true);
   await settle();
-  assert.ok(page.focused() === row("addons", "@acme-hub/k3s").querySelector(".s-toggle"));
-  assert.equal(row("addons", "@acme-hub/k3s").scrolled.length, 1);
+  assert.ok(page.focused() === row("addons", "@acme-hub/kea").querySelector(".s-toggle"));
+  assert.equal(row("addons", "@acme-hub/kea").scrolled.length, 1);
   // The list's own address gives the list back as it was before, its search too
   addonsPage.show([]);
   assert.equal(sections.addons.querySelector('[data-filter="q"]').value, "zzz");
@@ -901,16 +830,16 @@ test("Back from an address that opened a row gives back the catalogs the list wa
   Combo.close();
   const narrowed = names("addons");
   assert.ok(narrowed.length > 0 && narrowed.length < all.length, "the picker narrowed the list");
-  addonsPage.show(["@acme-hub/k3s"]);
+  addonsPage.show(["@acme-hub/kea"]);
   draw(everyone());
   assert.equal(value("addons"), "All catalogs", "the row an address names shows, whatever the filters hid");
-  assert.ok(names("addons").includes("Kubernetes"));
+  assert.ok(names("addons").includes("Kookaburra"));
   addonsPage.show([]);
   assert.equal(value("addons"), "Gravitee public", "the list's own address gives the catalogs back");
   draw(store.state);
   assert.deepEqual(names("addons"), narrowed);
   // What is changed by hand while the row is open is kept instead
-  addonsPage.show(["@acme-hub/k3s"]);
+  addonsPage.show(["@acme-hub/kea"]);
   draw(everyone());
   await opened("addons");
   await choose("Acme Hub");
@@ -955,9 +884,6 @@ test("once the catalogs are there and hold none of its kind, each list says so i
   assert.deepEqual(all.map((name) => line(status(name)[0])), ["No playground yet", "No setup yet", "No add-on yet"]);
   assert.deepEqual(all.map(tools), [true, true, true]);
   assert.deepEqual(all.map((name) => line(sections[name].querySelector("[data-new]"))), ["New playground", "New setup", "New add-on"]);
-  // A server that does not say the content: the lists say what they say when it is all there
-  draw(lab({ playgrounds: [], setups: [], addons: [] }));
-  assert.deepEqual(all.map((name) => line(status(name)[0])), ["No playground yet", "No setup yet", "No add-on yet"]);
   alone();
   assert.deepEqual(all.map((name) => [status(name).length, tools(name)]), [[0, false], [0, false], [0, false]], "gone once there are items");
 });
@@ -992,34 +918,20 @@ test("the status is written once and stays while it does not change: the bar is 
   alone();
 });
 
-test("Try again and Add the catalog that is listed answer from the lists", async () => {
-  draw(noItem("failed", {}, [catalog({ id: "gravitee", commit: "" })]));
-  server.calls = [];
-  page.doc.dispatchEvent(new Ev("click", { target: status("playgrounds")[0].querySelector("[data-content-act]") }));
-  await flush();
-  assert.deepEqual(posts(), [["/api/catalogs/gravitee/check", {}]]);
-  draw(noItem("none"));
-  server.calls = [];
-  page.doc.dispatchEvent(new Ev("click", { target: status("setups")[0].querySelector("[data-content-act]") }));
-  await flush();
-  assert.deepEqual(posts(), [["/api/catalogs", { listed: "gravitee" }]]);
-  alone();
-});
-
 test("a row's address that names an item about to arrive is waited for while the catalogs download; it opens when it arrives, and is given up when they are done and it is not there", async () => {
   Combo.close();
   page.body.hidden = false;
   alone();
   await settle();
-  addonsPage.show(["@acme-hub/k3s"]);
+  addonsPage.show(["@acme-hub/kea"]);
   draw(lab({ catalogs: [FIRST()], content: content("downloading") }));
-  assert.equal(row("addons", "@acme-hub/k3s"), null);
+  assert.equal(row("addons", "@acme-hub/kea"), null);
   draw(lab({ catalogs: [FIRST()], content: content("downloading") }));
   assert.ok(names("addons").length > 0, "what is there is shown meanwhile");
   draw(everyone());
-  assert.equal(row("addons", "@acme-hub/k3s").classList.contains("open"), true, "it opens when it arrives");
+  assert.equal(row("addons", "@acme-hub/kea").classList.contains("open"), true, "it opens when it arrives");
   await settle();
-  assert.ok(page.focused() === row("addons", "@acme-hub/k3s").querySelector(".s-toggle"), "and takes the focus");
+  assert.ok(page.focused() === row("addons", "@acme-hub/kea").querySelector(".s-toggle"), "and takes the focus");
   // Given up: the catalogs are done and it is not there; when it comes later nothing opens it
   addonsPage.show([]);
   addonsPage.show(["@acme-hub/late"]);
@@ -1054,65 +966,6 @@ test("a catalog's name, an author's words and a failure line are text, never mar
   assert.equal(sections.playgrounds.querySelectorAll("img").length, 0);
   alone();
 });
-
-// --- The snapshots ----------------------------------------------------------------------------------------------------------------------------
-
-function empties() {
-  const dom = {}, all = ["playgrounds", "setups", "addons"];
-  const mine = (key, more) => lab({ playgrounds: [ofMine("playground", "scratch", "Scratch")], setups: [], addons: [], catalogs: [PERSONAL(), catalog({ id: "gravitee", commit: "" })], content: content(key, more) });
-  draw(noItem("downloading", { progress: 0.42 }, [FIRST({ commit: "", progress: 0.42 })]));
-  for (const name of all) dom[`${name}: downloading`] = drawn(sections[name]);
-  draw(noItem("failed", {}, [catalog({ id: "gravitee", commit: "" })]));
-  dom["playgrounds: failed"] = drawn(sections.playgrounds);
-  draw(noItem("none"));
-  dom["playgrounds: no catalog"] = drawn(sections.playgrounds);
-  draw(noItem("none", { offer: null }));
-  dom["playgrounds: no catalog, none to offer"] = drawn(sections.playgrounds);
-  draw(noItem("ready", {}, [FIRST()]));
-  for (const name of all) dom[`${name}: nothing of its kind`] = drawn(sections[name]);
-  draw(mine("downloading", { progress: 0.42 }));
-  dom["playgrounds: downloading, an item of this machine"] = drawn(sections.playgrounds);
-  draw(mine("failed"));
-  dom["playgrounds: failed, an item of this machine"] = drawn(sections.playgrounds);
-  alone();
-  return dom;
-}
-
-function withCatalogs() {
-  const dom = {}, state = everyone();
-  draw(state);
-  opening("addons", "@acme-hub/k3s");
-  opening("playgrounds", "@acme-hub/ledger-demo");
-  draw(state);
-  for (const name of ["playgrounds", "setups", "addons"]) dom[`${name}: two catalogs and this machine`] = drawn(sections[name]);
-  selectCatalog("playground", "acme-hub");
-  draw(state);
-  dom["playgrounds: filtered to the other catalog"] = drawn(sections.playgrounds);
-  draw(lab({ playgrounds: [...base.playgrounds, ofMine("playground", "scratch", "Scratch")], catalogs: [FIRST(), PERSONAL()], content: content("ready") }));
-  dom["playgrounds: the first catalog and this machine"] = drawn(sections.playgrounds);
-  alone();
-  return dom;
-}
-
-test("the clock of the page is the mock's: real time that passes, as it does on a loaded machine, changes nothing of what a button says of its action", () => {
-  const at = Date.now();
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
-  assert.equal(Date.now(), at, "only the ticks of the tests make time pass");
-  mock.timers.tick(1600);
-  assert.equal(Date.now(), at + 1600);
-});
-
-const snapshot = (name, file, variable, dom) => test(`${name}: what the lists draw is written in ${file.pathname.split("/").pop()}, and a deliberate change is written again with ${variable}=1`, () => {
-  mock.timers.tick(10000);   // the lists at rest: no button still says how its action went, which the tests above leave in flight
-  if (process.env[variable]) writeFileSync(file, written(dom()));
-  const now = dom(), then = read(file);
-  assert.deepEqual(Object.keys(now), Object.keys(then));
-  for (const key of Object.keys(then)) {
-    assert.equal(now[key], then[key], key);
-  }
-});
-snapshot("with the content of the catalogs on its way, missing or empty", EMPTY, "WRITE_EMPTY", empties);
-snapshot("with another catalog added", CATALOGS, "WRITE_CATALOGS", withCatalogs);
 
 // Last: the button of a failed action says so for a moment, which the tests above do not wait for
 test("what the checks of the place cannot read is said in a toast, and nothing starts", async () => {

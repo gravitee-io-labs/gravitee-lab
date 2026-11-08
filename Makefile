@@ -5,7 +5,6 @@
 # A target that stands for a `docker compose` command shows it, so you can type it yourself; checks and helpers stay
 # quiet.
 
-makefile := $(MAKEFILE_LIST)
 SVC ?=
 
 # The Python that makes .venv, and that runs the lab when there is no .venv: the first of these that is 3.9 or later, as a system
@@ -32,10 +31,10 @@ help:   # what `make` alone prints
 	awk -v color=$$color 'BEGIN {if (color) {bold = "\033[1m"; cyan = "\033[36m"; off = "\033[0m"}} \
 		/^##@/ {printf "\n%s%s%s\n", bold, substr($$0, 5), off} \
 		/^[a-zA-Z0-9_-]+:.*## / {name = $$0; sub(/:.*/, "", name); text = $$0; sub(/^[^#]*## /, "", text); \
-			printf "  %s%-10s%s %s\n", cyan, name, off, text}' $(makefile)
+			printf "  %s%-10s%s %s\n", cyan, name, off, text}' $(MAKEFILE_LIST)
 
 # What the targets need, checked first so that a missing tool is one line and not a stack trace
-readme := (see Prerequisites in README.md)
+readme := (see Prerequisites in docs/installation.md)
 
 docker-cli:
 	@command -v docker >/dev/null 2>&1 || { \
@@ -74,23 +73,13 @@ openssl-ok:
 ui: python-ok init ## Open the Lab UI on http://localhost:9000
 	@PYTHONCOERCECLOCALE=0 $(PYTHON) lab-ui/server.py
 
-# A machine that was updated from the layout before catalogs still names add-ons by their old paths in .lab/on.yml, which Compose
-# cannot open any more: those targets stop and say what to do. The ones that use the project name and no files (stop, down,
-# reset) and the ones that move the settings (ui, init, catalogs, update) never stop here.
-legacy-ok: $(on)
-	@if grep -qE '^[[:space:]]*-[[:space:]]*"?(addons|setups|playgrounds)/' $(on) 2>/dev/null; then \
-		echo "This Lab was updated: run make update to move your settings."; exit 1; fi
-
-all: docker-up legacy-ok init ## Create and start the core and what is on
+all: docker-up init ## Create and start the core and what is on
 	docker compose up -d --remove-orphans
 
 # The plugin folders are made here, writable by all: Docker would make them as root, and the containers unpack plugins
 # there as uid 1001 (.work). Nothing is made for an add-on: what one needs, it makes itself when it starts.
 init: openssl-ok $(on) ## Create what a fresh clone lacks: .env, demo certificates, plugin folders, .lab/on.yml (ui and all run it)
 	@[ -f .env ] || { cp .env.example .env && chmod 600 .env && echo "Created .env from .env.example"; }
-	@grep -q '^COMPOSE_FILE=' .env || printf '\n%s\nCOMPOSE_FILE=%s\n' \
-		'# The files Compose reads: the core, and what is on. Keep it: without it, docker compose runs the core alone' \
-		"$$COMPOSE_FILE" >> .env
 	@[ -f certs/mtls/server.p12 ] || sh certs/mtls/generate.sh
 	@mkdir -p -m 777 plugins/apim plugins/am
 
@@ -98,20 +87,20 @@ $(on):
 	@mkdir -p .lab
 	@touch $@
 
-start: docker-up legacy-ok $(on) ## Start stopped containers
+start: docker-up $(on) ## Start stopped containers
 	docker compose start
 
 stop: docker-up $(on) ## Stop all containers (keeps data)
 	docker compose -p $(project) stop
 
-restart: docker-up legacy-ok $(on) ## Restart containers (SVC=name for one service)
+restart: docker-up $(on) ## Restart containers (SVC=name for one service)
 	docker compose restart $(SVC)
 
 down: docker-up $(on) ## Remove all containers and networks (keeps data volumes)
 	docker compose -p $(project) rm --stop --force -v
 	docker compose -p $(project) down
 
-catalogs: python-ok ## Download the catalogs that have no copy yet, then move what an update left behind
+catalogs: python-ok ## Download the catalogs that have no copy yet
 	@$(PYTHON) lab-ui/catalog.py provision
 
 update: python-ok ## Pull the Lab (fast-forward only), then run make catalogs
@@ -121,25 +110,25 @@ update: python-ok ## Pull the Lab (fast-forward only), then run make catalogs
 reset: docker-up $(on) ## DANGER: remove containers AND data (volumes, what seeds created); asks first
 	@printf "This deletes all the data: the core's and every add-on's. Type 'yes': "; read answer; [ "$$answer" = "yes" ]
 	docker compose -p $(project) down -v
-	@for record in playgrounds/*/.state/created.json .lab/catalogs/*/playgrounds/*/.state/created.json; do \
+	@for record in .lab/catalogs/*/playgrounds/*/.state/created.json; do \
 		[ -f "$$record" ] || continue; \
 		echo '[]' > "$$record" 2>/dev/null || echo "Could not empty $$record: delete it (sudo may be needed)"; \
 	done
 
-ps: docker-up legacy-ok $(on) ## Show container status and health
+ps: docker-up $(on) ## Show container status and health
 	docker compose ps -a --orphans
 
-logs: docker-up legacy-ok $(on) ## Follow logs (SVC=name for one service)
+logs: docker-up $(on) ## Follow logs (SVC=name for one service)
 	docker compose logs -f --tail=100 $(SVC)
 
-config: compose-ok legacy-ok $(on) ## Validate the core and what is on; SVC=name prints that service's final config
+config: compose-ok $(on) ## Validate the core and what is on; SVC=name prints that service's final config
 	@docker compose config -q && echo "compose OK"
 	@if [ -n "$(SVC)" ]; then docker compose config $(SVC); fi
 
-pull: docker-up legacy-ok $(on) ## Pull the images in use (refreshes moving tags like latest)
+pull: docker-up $(on) ## Pull the images in use (refreshes moving tags like latest)
 	docker compose pull
 
-mongo: docker-up legacy-ok $(on) ## Open a mongosh shell
+mongo: docker-up $(on) ## Open a mongosh shell
 	docker compose exec mongodb mongosh
 
 certs: openssl-ok ## Regenerate the TLS / mTLS demo certificates (certs/mtls/)
@@ -150,16 +139,15 @@ urls: python-ok ## Print what is on and the URL of every console
 
 ##@ Work on the lab
 
-# The seeder's dependencies (requests, redis) need Python 3.10; the Lab UI itself runs on 3.9. A .venv made by this run
-# with a Python that is too old is removed, so that the next run starts clean; an existing one is left to its owner.
+# The seeder's dependencies (requests, redis) need Python 3.10; the Lab UI itself runs on 3.9. The Python of a .venv that is
+# there is asked first, else the one that would make it, so that no .venv is made with one too old.
 setup: ## Make .venv for the seeder's tests and make lint (needs Python 3.10 or later)
-	@made=; [ -d .venv ] || { $(PYTHON3) -m venv .venv && made=1; } || { rm -rf .venv; \
+	@python="$(PYTHON3)"; [ ! -d .venv ] || python=.venv/bin/python; \
+	$$python -c 'import sys; sys.exit(sys.version_info < (3, 10))' || { \
+		echo "The seeder needs Python 3.10 or later, $$python is: $$($$python -V 2>&1)"; \
+		echo "Remove .venv if it has that Python, then run make setup with a newer python3 (for example PYTHON3=python3.12 make setup)"; exit 1; }; \
+	[ -d .venv ] || $(PYTHON3) -m venv .venv || { rm -rf .venv; \
 		echo "Cannot make .venv: install Python 3.10 or later with venv (Debian, Ubuntu: apt install python3-venv)"; exit 1; }; \
-	.venv/bin/python -c 'import sys; sys.exit(sys.version_info < (3, 10))' || { \
-		found="$$(.venv/bin/python -V 2>&1)"; \
-		if [ -n "$$made" ]; then rm -rf .venv; echo "The seeder needs Python 3.10 or later, found: $$found"; again=Run; \
-		else echo "The seeder needs Python 3.10 or later, .venv has $$found"; again="Remove .venv, then run"; fi; \
-		echo "$$again make setup again with a newer python3 (for example PYTHON3=python3.12 make setup)"; exit 1; }; \
 	.venv/bin/python -m pip install --quiet --disable-pip-version-check -r seeder/requirements.txt 'ruff~=0.17.0' && \
 	echo "Ready: make test runs the seeder's tests too, and make lint works"
 
@@ -171,7 +159,7 @@ lint: python-ok ## Check the Python code with ruff (needs make setup)
 		echo "ruff not found: run make setup (Python 3.10 or later)"; exit 1; }
 	@$(PYTHON) -m ruff check .
 
-test: python-ok ## Run the unit tests of the Lab UI (in parallel), the seeder and the tooling (no Docker needed)
+test: python-ok ## Run the unit tests of the Lab UI (in parallel), the tooling and the seeder (no Docker needed)
 	@$(PYTHON) lab-ui/tests/run.py
 	@$(PYTHON) -m unittest discover -s .github/tests -t .github/tests
 	@if $(PYTHON) -c 'import requests, yaml, redis' 2>/dev/null; then \
@@ -192,5 +180,5 @@ smoke: python-ok ## Check the Lab UI against the running stack (read-only)
 	@$(PYTHON) lab-ui/tests/smoke.py
 
 .DEFAULT_GOAL := help
-.PHONY: help docker-cli compose-ok docker-running docker-up python-ok openssl-ok init ui all legacy-ok catalogs update start stop restart down \
+.PHONY: help docker-cli compose-ok docker-running docker-up python-ok openssl-ok init ui all catalogs update start stop restart down \
 	reset ps logs config pull mongo certs urls setup check lint test e2e smoke

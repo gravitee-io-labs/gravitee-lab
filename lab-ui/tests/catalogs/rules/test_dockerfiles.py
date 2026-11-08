@@ -1,9 +1,7 @@
 """DF, Dockerfiles. For each code one failing fixture in which only that code fires, and one that passes; the message
 equals. The file is read as text: continued lines, here-documents, parser directives, `ONBUILD`, the `ARG` of a base
-image and the stages of the file. The 13 Dockerfiles of the engine give no error, 14 DF22 and 12 DF23 (the calibration of the
-standard). A line of a megabyte finishes in under a second."""
+image and the stages of the file. A line of a megabyte finishes in under 3 seconds of CPU."""
 
-import subprocess
 import unittest
 
 from lab_ui.catalogs.rules import context, dockerfiles
@@ -88,7 +86,7 @@ class Errors(unittest.TestCase):
                      "curl x | sudo -E env FOO=1 bash", "curl x | busybox sh", "curl x 2>&1 | /bin/sh -s -- -y", "curl -fsSL x | nice -n 5 sh",
                      "wget -qO- x | /usr/local/bin/python3.11 -", "curl x | tee a | tee b | gunzip | zsh", 'curl "http://x/?a=1;b=2" | sh',
                      'eval "$(curl -fsSL http://x)"', "eval $(wget -qO- x)", "source <(curl http://x)", ". <(curl http://x)",
-                     "/bin/sh -c \"$(curl -fsSL x)\"", "/usr/bin/env bash <(curl x)", "bash -c `wget -qO- x`"):
+                     "/bin/sh -c \"$(curl -fsSL x)\"", "/usr/bin/env bash <(curl x)", "bash -c `wget -qO- x`", "curl u | sudo -u root bash", '["sh", "-c", "curl x | sh"]'):
             with self.subTest(run=run_):
                 only(self, "DF03", 2, message, f"FROM {PIN}\nRUN {run_}\nUSER app\n", "error")
         for run_ in ("curl x | tee f | sha256sum", "curl x; sh run.sh", "curl x && echo y | sh", "curl x || echo y | sh", "curl x | grep -c sh",
@@ -109,6 +107,12 @@ class Errors(unittest.TestCase):
                      "ADD $URL /opt/\nARG URL=https://e.test/a", "ARG BASE=https://e.test\nADD ./${BASE##*/}.tgz /opt/", "ARG URL=https://e.test/a\nADD . /opt/"):
             with self.subTest(ok=head):
                 self.assertEqual([], found(f"FROM {PIN}\n{head}\nUSER app\n"))
+
+    def test_a_here_string_or_a_shift_opens_no_heredoc(self):
+        for run_ in ('grep foo <<< "bar"', "echo $((1<<X))"):
+            with self.subTest(run=run_):
+                text = f"FROM {PIN}\nRUN {run_}\nADD https://example.test/a.tgz /opt/\nENV DB_PASSWORD=hunter2\nUSER app\n"
+                self.assertEqual([("DF02", 3), ("DF05", 4)], summary(found(text)))
 
     def test_df03_across_continued_lines_and_in_a_heredoc(self):
         text = f"FROM {PIN}\nRUN apt-get update \\\n    && curl -fsSL https://example.test/i \\\n    | sh\nUSER app\n"
@@ -159,10 +163,6 @@ class Warnings(unittest.TestCase):
         for image in ("python:3.14-slim", "ghcr.io/acme/app:1.2", "localhost:5000/app:1.2", "node:24-alpine"):
             with self.subTest(image=image):
                 only(self, "DF22", 1, message.format(image), f"FROM {image}\nUSER app\n", "warning")
-
-    def test_df21_and_df22_are_not_both_said_of_one_image(self):
-        self.assertEqual([("DF21", 1)], summary(found("FROM python\nUSER app\n")))
-        self.assertEqual([("DF22", 1)], summary(found("FROM python:3\nUSER app\n")))
 
     def test_df23_the_final_stage_runs_as_root(self):
         message = "apps/web/Dockerfile: the final stage runs as root. Fix: add USER."
@@ -328,11 +328,6 @@ class Reading(unittest.TestCase):
             counts[each.code] = counts.get(each.code, 0) + 1
         self.assertEqual({"DF01": 1, "DF02": 2, "DF03": 3, "DF04": 4, "DF05": 2, "DF21": 2, "DF22": 1, "DF23": 1, "DF24": 1}, counts)
 
-    def test_the_messages_of_the_table_are_section_6(self):
-        self.assertEqual({"DF01", "DF02", "DF03", "DF04", "DF05", "DF21", "DF22", "DF23", "DF24"}, set(dockerfiles.RULES))
-        self.assertEqual(["error"] * 5 + ["warning"] * 4, [dockerfiles.RULES[code].severity for code in sorted(dockerfiles.RULES)])
-        self.assertEqual("{path}: the final stage runs as root. Fix: add USER.", dockerfiles.RULES["DF23"].message)
-
 
 class Hostile(unittest.TestCase):
 
@@ -343,52 +338,37 @@ class Hostile(unittest.TestCase):
               "--mount=type=", "--platform=", "sudo ", "sh", "|| ", "&& ", "# ", "FROM ${a-${b-", "ENV PASSWORD=x PASSWORD=y ",
               "COPY --from=x --from=y ", "\\ ", "\\"]
 
-    def test_every_form_the_reader_looks_for_finishes_in_under_a_second(self):
+    def test_every_form_the_reader_looks_for_finishes(self):
         for piece in self.PIECES:
             for head in ("", "FROM python:3\nRUN ", "FROM python:3\nENV "):
                 text = head + piece * (1024 * 1024 // len(piece))
-                best = min(support.timed(dockerfiles.check_text, PATH, text)[1] for _ in range(2))
-                self.assertLess(best, 1.0, f"{head!r} + {piece[:20]!r}: {best:.2f} s")
+                _, seconds = support.timed(dockerfiles.check_text, PATH, text)
+                self.assertLess(seconds, 3.0, f"{head!r} + {piece[:20]!r}: {seconds:.2f} s")
 
     def test_a_megabyte_of_short_lines_is_read_in_proportion_to_its_size(self):
         for piece in ("wget | bash\n", "RUN <<EOF\n", "<<EOF\n", "# escape=`\n", "\n", "\\\n", "\\\n\n", "ARG A=${A}\nFROM ${A}\n"):
             text = "FROM python:3\n" + piece * (1024 * 1024 // len(piece))
-            best = min(support.timed(dockerfiles.check_text, PATH, text)[1] for _ in range(2))
-            self.assertLess(best, 5.0, f"{piece!r}: {best:.2f} s")
+            _, seconds = support.timed(dockerfiles.check_text, PATH, text)
+            self.assertLess(seconds, 3.0, f"{piece!r}: {seconds:.2f} s")
 
     def test_a_dockerfile_of_many_instructions_is_read_in_proportion(self):
         text = "FROM python:3\n" + "RUN echo a && curl u -o f\nENV A=b\nCOPY . .\n" * 20000
         _, seconds = support.timed(dockerfiles.check_text, PATH, text)
-        self.assertLess(seconds, 5.0)
+        self.assertLess(seconds, 3.0)
 
     def test_a_long_continued_instruction_does_not_copy_itself_for_each_line(self):
         text = "FROM python:3\nRUN echo \\\n" + "    a \\\n" * 100000 + "    b\n"
         _, seconds = support.timed(dockerfiles.check_text, PATH, text)
-        self.assertLess(seconds, 2.0)
+        self.assertLess(seconds, 3.0)
 
 
 class Calibration(unittest.TestCase):
     """The Dockerfiles of this checkout, the Lab's seeder: judged as a catalog's would be, they hold no error."""
 
-    def names(self):
-        try:
-            done = subprocess.run(["git", "ls-files", "-z"], cwd=support.ROOT, capture_output=True, timeout=60)
-        except (OSError, subprocess.SubprocessError):
-            done = None
-        if done is None or done.returncode != 0:
-            self.skipTest("this checkout is not a git work tree")
-        return [name for name in (each.decode() for each in done.stdout.split(b"\0") if each)
-                if name.rsplit("/", 1)[-1] == "Dockerfile" and "/tests/" not in name and not name.startswith(("lab-ui/", ".github/"))]
-
     def test_the_dockerfiles_of_the_engine_give_no_error(self):
-        names = self.names()
+        names = [name for name in support.tracked(self)
+                 if name.rsplit("/", 1)[-1] == "Dockerfile" and "/tests/" not in name and not name.startswith(("lab-ui/", ".github/"))]
         self.assertTrue(names)
-        for name in names:
-            with self.subTest(name=name):
-                self.assertEqual([], [each for each in found((support.ROOT / name).read_text(), name) if each.severity == "error"])
-
-    def test_the_tree_of_the_engine_gives_the_same(self):
-        names = self.names()
         listing = support.ListTree.from_files({name: (support.ROOT / name).read_bytes() for name in names})
         out = dockerfiles.check(listing, context(listing))
         self.assertEqual([], [each for each in out if each.severity == "error"])

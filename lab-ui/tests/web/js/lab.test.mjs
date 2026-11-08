@@ -4,14 +4,11 @@
 // the links of their pull requests. An update keeps the dialog open while it runs, and reloads the page once the Lab UI answers again from a
 // new run with the new version; after it, what is new is said once.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { flush, installDom, reply, text, isOff } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const change = (text, number) => ({ text, number, url: number ? `https://github.com/acme/gravitee-lab/pull/${number}` : null });
 const RELEASES = {
@@ -28,9 +25,7 @@ const LAB = (more = {}) => ({ version: "1.0.0", ahead: 0, commit: "abc1234", run
   checked: new Date(Date.now() - 5 * 60000).toISOString(), checking: false, error: null, blocked: null, ...more });
 
 const server = { calls: [], releases: RELEASES };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
-  ids,
   stored: { "lab:version": "1.0.0" },
   fetch: async (path, options = {}) => {
     const method = options.method || "GET";
@@ -45,7 +40,6 @@ const page = installDom({
 let reloads = 0;
 location.reload = () => { reloads += 1; };
 globalThis.EventSource = class { close() {} addEventListener() {} };
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 const { store } = await import("../../../web/js/core.js");
 const { openLab, followLab, paintLab } = await import("../../../web/js/dialogs/lab.js");
 const dialog = page.doc.querySelector(".lab-dialog");

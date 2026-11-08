@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import { installDom } from "./dom-stub.mjs";
 
-installDom({ ids: [] });
+installDom();
 const { totals, pullStatus } = await import("../../../web/js/activity/pulls.js");
 
 test("bytes are said in decimal units, as Docker says them, and a percentage waits for the size", () => {

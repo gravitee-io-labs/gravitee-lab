@@ -19,7 +19,7 @@ function place() {
   for (const [name, value] of [["min", min], ["max", max], ["now", at], ["text", `${at} px`]]) {
     bar.setAttribute(`aria-value${name}`, value);
   }
-  bar.dataset.edge = edge(at, card.clientWidth);
+  bar.dataset.edge = edge(at, { min, max });
 }
 
 // The width the person gave, kept in this browser; null puts it back to its default

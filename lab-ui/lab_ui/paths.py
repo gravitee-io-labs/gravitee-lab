@@ -1,6 +1,7 @@
 """The project's layout: the core file, and the add-ons, setups and playgrounds of its catalogs.
 The folder decides what a file is and gives its id. Also how a file is replaced whole, never read half-written."""
 
+import fcntl
 import json
 import os
 import re
@@ -8,11 +9,6 @@ import stat
 import tempfile
 import time
 from pathlib import Path
-
-try:
-    import fcntl
-except ImportError:   # no advisory locks on this system: a second Lab UI of the folder is not seen
-    fcntl = None
 
 LAB_UI_DIR = Path(__file__).resolve().parent.parent
 ROOT = LAB_UI_DIR.parent
@@ -33,7 +29,7 @@ CATALOGS_DIR = f"{LAB_DIR}/catalogs"
 IMPORTS_DIR = f"{LAB_DIR}/imports"   # where the Lab keeps the playgrounds imported as catalogs of their own, one folder each
 LOCAL = "local"
 # The catalogs this Lab is configured with, tracked at the root. The first owns the bare ids; without the file there is
-# no default catalog (default_ns) and the units are where they were before catalogs (_LEGACY_ID, below)
+# no default catalog (default_ns)
 DEFAULT_FILE = "catalogs.default.json"
 # What the Lab writes in a git install, and so the list of what is content in it: a file is, and only if it is listed
 MANIFEST = ".installed.json"
@@ -58,17 +54,7 @@ _IN_CATALOG = {kind: re.compile(template.replace(".", r"\.").format(ns=f"({NS})"
                for kind, template in CATALOG_FILES.items()}
 _FOLDER = {kind: template.split("/{ns}/")[1].split("/")[0] for kind, template in CATALOG_FILES.items()}
 
-# Before catalogs, which is while no default file exists: the units sit in the project's own folders, the personal ones
-# in the local/ folder of their kind, out of git, with the id local/<name>: that folder is not an add-on or a
-# playground itself. The suites that have not moved to catalogs still write this layout.
-_LEGACY_ID = "(local/[a-z0-9-]+|(?!local/)[a-z0-9-]+)"
-# kind: (the file of an id, the files that are of this kind)
-UNITS = {
-    "addon": ("addons/{}/compose.yml", re.compile(rf"addons/{_LEGACY_ID}/compose\.yml")),
-    "setup": ("setups/{}.yml", re.compile(rf"setups/{_LEGACY_ID}\.yml")),
-    "playground": ("playgrounds/{}/compose.yml", re.compile(rf"playgrounds/{_LEGACY_ID}/compose\.yml")),
-}
-KINDS = tuple(UNITS)
+KINDS = tuple(CATALOG_FILES)
 NOUNS = {"addon": "add-on", "setup": "setup", "playground": "playground"}   # a kind, in a sentence
 SKILL_FILE = ".agents/skills/{}/SKILL.md"   # what tells an AI agent how to do one thing in this project
 # In a playground's folder: the API definitions its seed imports, those of the platform's own environment (seed/apim)
@@ -104,7 +90,7 @@ def _read_default(file):
 
 def default_ns():
     """The id of the first entry of catalogs.default.json, which owns the bare ids; None without a usable file. Read
-    again only when the file changes (path, modified time, size, inode), because every state poll asks. This is the one
+    again only when the file changes (path, modified time, size), because every state poll asks. This is the one
     reader of that id. The rest of the file (the addresses, the other entries) is
     defaults.read()'s, which checks what it uses."""
     global _default
@@ -115,62 +101,52 @@ def default_ns():
         return None
     if not stat.S_ISREG(info.st_mode):   # a pipe would block the read
         return None
-    seen = (str(file), info.st_mtime_ns, info.st_size, info.st_ino)
+    seen = (str(file), info.st_mtime_ns, info.st_size)
     if _default[0] != seen:
         _default = (seen, _read_default(file))
     return _default[1]
 
 
-def _is_id(uid, default):
-    """is_id, for a caller that has read the default namespace and will not read it again."""
+def is_id(uid):
+    """Whether `uid` is the id of a unit: bare, local/<name> or @<namespace>/<name>. Not `@<default namespace>/<name>`,
+    which is the bare id of that item, nor a reserved namespace (@local/x would be a second spelling of local/x). Only
+    the form is judged, never whether the unit exists. A bare `local` is one too, as the grammar has it, though it shares its
+    address with the items of this machine (#/playgrounds/local/x is local/x, never `local` at a step x): the checks of
+    `make check` refuse a shared unit of that name, so that none exists."""
     if not isinstance(uid, str) or not _ID.fullmatch(uid):
         return False
     if uid.startswith("@"):
         ns = uid[1:].split("/", 1)[0]
-        return ns not in RESERVED_NS and ns != default
+        return ns not in RESERVED_NS and ns != default_ns()
     return True
-
-
-def is_id(uid):
-    """Whether `uid` is the id of a unit: bare, local/<name> or @<namespace>/<name>. Not `@<default namespace>/<name>`,
-    which is the bare id of that item, nor a reserved namespace (@local/x would be a second spelling of local/x). Only
-    the form is judged, never whether the unit exists. While no default file exists a bare id is still an id, because
-    the layout before catalogs serves it. A bare `local` is one too, as the grammar has it, though it shares its
-    address with the items of this machine (#/playgrounds/local/x is local/x, never `local` at a step x): the checks of
-    `make check` refuse a shared unit of that name, so that none exists."""
-    return _is_id(uid, default_ns() if isinstance(uid, str) and uid.startswith("@") else None)
-
-
-def _canonical(uid, default):
-    if default and isinstance(uid, str) and uid.startswith(f"@{default}/") and _NAME.fullmatch(uid[len(default) + 2:]):
-        return uid[len(default) + 2:]
-    return uid
 
 
 def canonical(uid):
     """`@<default namespace>/x` as the bare id x it names, anything else as it is. To read input (a key of a conflict, a
     pasted address), never to write: nothing writes the long form."""
-    return _canonical(uid, default_ns())
+    default = default_ns()
+    if default and isinstance(uid, str) and uid.startswith(f"@{default}/") and _NAME.fullmatch(uid[len(default) + 2:]):
+        return uid[len(default) + 2:]
+    return uid
 
 
-def _split(uid, default):
-    """(namespace, name) of an id _is_id accepted; the namespace of a bare id is the default, None without one."""
+def _split(uid):
+    """(namespace, name) of an id is_id accepted; the namespace of a bare id is the default, None without one."""
     if uid.startswith("@"):
         return tuple(uid[1:].split("/"))
     if uid.startswith(f"{LOCAL}/"):
         return LOCAL, uid[len(LOCAL) + 1:]
-    return default, uid
+    return default_ns(), uid
 
 
 def split_ref(uid):
     """(namespace, name) of an id, `@<default namespace>/x` too: "@acme-hub/bank" is ("acme-hub", "bank"), "local/x" is
     ("local", "x"), "bank" is (the default namespace, "bank"), which is None while no default file exists. NotFound
     for what is not an id."""
-    default = default_ns()
-    uid = _canonical(uid, default)
-    if not _is_id(uid, default):
+    uid = canonical(uid)
+    if not is_id(uid):
         raise NotFound("Not an id")
-    return _split(uid, default)
+    return _split(uid)
 
 
 def origin(uid):
@@ -183,32 +159,13 @@ def is_default(uid):
     return isinstance(uid, str) and _NAME.fullmatch(uid) is not None
 
 
-# The only wildcards unit_file turns an id into: every unit of a catalog, and those whose name is no dot file
-_GLOBS = ("*", "[!.]*")
-
-
-def _place(uid, default):
-    """(namespace, name) a path is made of, for an id that is one, under the default namespace `default`. The name may
-    be one of the wildcards of _GLOBS, which is how a caller lists the units of a catalog. NotFound otherwise, for the
-    second spelling of an id, and for a bare id with no default catalog."""
-    glob = next((g for g in _GLOBS if isinstance(uid, str) and (uid == g or uid.endswith(f"/{g}"))), None)
-    probe = uid[:-len(glob)] + "x" if glob else uid
-    if default is None or not _is_id(probe, default):
-        raise NotFound("Not an id")
-    ns, name = _split(probe, default)
-    return ns, (name[:-1] + glob if glob else name)
-
-
 def unit_file(kind, uid):
     """The compose file of an add-on, setup or playground, relative to the project: in the folder of its catalog,
-    .lab/catalogs/<namespace>/. NotFound for what is not an id. While no default file exists, the layout before
-    catalogs: addons/<name>/compose.yml, with no @<namespace>/ id."""
-    default = default_ns()
-    if default is None:   # before catalogs
-        if isinstance(uid, str) and uid.startswith("@"):
-            raise NotFound("Not an id")
-        return UNITS[kind][0].format(uid)
-    ns, name = _place(uid, default)
+    .lab/catalogs/<namespace>/. NotFound for what is not an id, for the second spelling of an id, and for a bare id with no
+    default catalog."""
+    ns, name = _split(uid) if is_id(uid) else (None, None)
+    if ns is None:
+        raise NotFound("Not an id")
     return CATALOG_FILES[kind].format(ns=ns, name=name)
 
 
@@ -216,14 +173,8 @@ def unit_of(path):
     """(kind, id) of a project-relative path, or None when it is not an add-on, setup or playground file: only
     .lab/catalogs/<namespace>/addons/<name>/compose.yml, setups/<name>.yml and playgrounds/<name>/compose.yml, nothing
     deeper, nothing in a staging folder (it starts with a dot, which a namespace cannot), nothing in a folder of the
-    project itself. While no default file exists, the layout before catalogs."""
+    project itself."""
     default = default_ns()
-    if default is None:   # before catalogs
-        for kind, (_, pattern) in UNITS.items():
-            m = pattern.fullmatch(path)
-            if m:
-                return kind, m.group(1)
-        return None
     for kind, pattern in _IN_CATALOG.items():
         m = pattern.fullmatch(path)
         if m:
@@ -288,7 +239,7 @@ def _found(kinds, default):
     """{kind: [ids]} on disk for these kinds: the default catalog's, this machine's, then each other catalog's by
     namespace, each group sorted. One pass, so that the registry is asked once per git install."""
     found = {kind: [] for kind in kinds}
-    for ns in [default, LOCAL, *_catalogs(default)]:
+    for ns in filter(None, [default, LOCAL, *_catalogs(default)]):
         listed = {kind: names(ns, kind) for kind in kinds}
         if not any(listed.values()):
             continue
@@ -302,35 +253,16 @@ def _found(kinds, default):
 def ids(kind):
     """The ids of a kind found on disk, by catalog: the default catalog's (bare), those of this machine (local/), then
     each other catalog's (@<namespace>/) by namespace, each group sorted. It is the set of units, not who wins a name:
-    that is the precedence of registry.sources(), in the order catalogs were added. A git install lists the units its
+    that is the precedence of registry.precedence(), in the order catalogs were added. A git install lists the units its
     manifest vouches for, as registry.units_of says it, and only those; a folder catalog, a link and this machine's own
-    folder are listed as they are. While no default file exists, the layout before catalogs (unit_ids)."""
-    default = default_ns()
-    if default is None:   # before catalogs
-        return unit_ids(kind)
-    return _found((kind,), default)[kind]
+    folder are listed as they are."""
+    return _found((kind,), default_ns())[kind]
 
 
 def files():
     """The file of every add-on, setup and playground found on disk, kind by kind, in the order of ids."""
-    default = default_ns()
-    if default is None:   # before catalogs
-        return unit_files()
-    found = _found(KINDS, default)
-    return [CATALOG_FILES[kind].format(ns=ns, name=name) for kind in KINDS
-            for ns, name in (_place(uid, default) for uid in found[kind])]
-
-
-def unit_ids(kind):
-    """The ids found on disk, sorted. A name outside [a-z0-9-] is not a unit: dot files."""
-    patterns = [unit_file(kind, "*"), unit_file(kind, "local/*")]
-    found = (unit_of(f.relative_to(ROOT).as_posix()) for pattern in patterns for f in ROOT.glob(pattern))
-    return sorted(unit[1] for unit in found if unit)
-
-
-def unit_files():
-    """The file of every add-on, setup and playground found on disk."""
-    return [unit_file(kind, uid) for kind in KINDS for uid in unit_ids(kind)]
+    found = _found(KINDS, default_ns())
+    return [unit_file(kind, uid) for kind in KINDS for uid in found[kind]]
 
 
 def personal(uid):
@@ -375,8 +307,8 @@ def seed_apis(folder):
 
 
 def slug(text):
-    """A name as an id: lower case, every run of characters other than a-z and 0-9 one dash, no dash at either end ("Event
-    Streams Management with Kafka" is event-streams-management-with-kafka). The folder of an item is its name so written: the
+    """A name as an id: lower case, every run of characters other than a-z and 0-9 one dash, no dash at either end ("Tide
+    Pool Survey with Kazoo" is tide-pool-survey-with-kazoo). The folder of an item is its name so written: the
     Lab UI names a new one so, and the check of a catalog asks it of every item (ST23)."""
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
@@ -392,9 +324,9 @@ _serving = []        # the descriptor by which this process holds it
 
 def serve_here(port):
     """Takes the lock that says a Lab UI serves this folder, with its port, until stop_serving() or the end of the process.
-    None once this process holds it, and where nothing locks (no fcntl, a folder that cannot be written): the Lab UI then
-    serves as it always did. Else the port of the Lab UI that holds it, 0 when it has not written it yet."""
-    if fcntl is None or _serving:
+    None once this process holds it, and where nothing locks (a folder that cannot be written): the Lab UI then serves as it
+    always did. Else the port of the Lab UI that holds it, 0 when it has not written it yet."""
+    if _serving:
         return None
     file = ROOT / SERVING_FILE
     try:
@@ -431,7 +363,7 @@ def stop_serving():
 def served_elsewhere():
     """The port of the Lab UI of another process that serves this folder (0 when it has not written it yet); None when none
     does, or this process is the one."""
-    if fcntl is None or _serving:
+    if _serving:
         return None
     try:
         descriptor = os.open(ROOT / SERVING_FILE, os.O_RDONLY)
@@ -461,15 +393,12 @@ def write_atomic(file, text, mode=0o644):
     """Writes a file whole as UTF-8 with Unix line ends, through a copy next to it under a name of its own, so that a
     command running at the same time never reads it half-written and two saves never share the copy. The copy has its
     mode before it holds anything: a .env is 0600 from the start. A copy that fails is removed, and the file stays as
-    it was. The copy is on the disk before it takes the file's place, and the place after: a power cut leaves the file as it
-    was or as it is now, never empty."""
+    it was. The copy is on the disk before it takes the file's place: a power cut leaves the file as it was or as it is now,
+    never empty."""
     handle, tmp = tempfile.mkstemp(dir=file.parent, prefix=f".{file.name}.", suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as f:
-            if hasattr(os, "fchmod"):
-                os.fchmod(f.fileno(), mode)
-            else:
-                os.chmod(tmp, mode)
+            os.fchmod(f.fileno(), mode)
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
@@ -477,21 +406,6 @@ def write_atomic(file, text, mode=0o644):
     except BaseException:
         os.unlink(tmp)
         raise
-    _synced(file.parent)
-
-
-def _synced(folder):
-    """The names of a folder on the disk, as far as its file system lets a folder be synced."""
-    try:
-        descriptor = os.open(folder, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(descriptor)
-    except OSError:   # a file system that cannot sync a folder
-        pass
-    finally:
-        os.close(descriptor)
 
 
 def read_record(file):

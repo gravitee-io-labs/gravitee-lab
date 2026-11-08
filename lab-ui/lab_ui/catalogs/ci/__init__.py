@@ -11,13 +11,12 @@
     versions-plan, versions-record, versions-release
 
 A stage is `main(argv, stdout=None, stderr=None, **seams) -> int` of its module, `argv` being what follows the stage word;
-`STAGES` says which module and which function. A stage whose module is not in this Lab yet answers "not available yet" and
-exits 2, so that the command line does not wait for the packages that write them. Exit 0 it worked, 1 it found
-something to fix, 2 the command or the machine cannot do it (a stage that cannot run is never a green one).
+`STAGES` says which module and which function. Exit 0 it worked, 1 it found something to fix, 2 the command or the machine
+cannot do it (a stage that cannot run is never a green one).
 
 What every stage shares is here:
 
-- **The output.** `--format text|github|json` for the findings (`report`), `--ci` for the Markdown summary in
+- **The output.** The findings as text (`report`); with `--ci` as GitHub annotations, and the Markdown summary in
   `$GITHUB_STEP_SUMMARY`; the outputs of a step in `$GITHUB_OUTPUT` are written by `write_outputs` and by nothing else, one
   line each, a flag or a `json.dumps(..., ensure_ascii=True)`: a name from the tree never reaches a line of its own.
 - **The messages of the stages**: `problem(code, path, **fields)`.
@@ -55,12 +54,11 @@ from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Sequenc
 from ...library import check
 from ...docker import compose
 from ... import paths
-from .. import explain, report, store, tree as trees, trust
-from ..report import ERROR, WARNING, Problem
+from .. import explain, report, standard, store, tree as trees, trust
+from ..report import ERROR, Problem
 from ..rules import say
 
-# The stage word, then the module of this package and the function that answers it. A package that writes a stage names its
-# functions as this table does, or says which line to change
+# The stage word, then the module of this package and the function that answers it
 STAGES = {
     "needs": ("needs", "main"),
     "plan": ("plan", "main"),
@@ -83,32 +81,9 @@ STAGES = {
     "versions-record": ("versions", "record_main"),
     "versions-release": ("versions", "release_main"),
 }
-SUMMARY = {
-    "needs": "fetch and link the catalogs this one requires",
-    "plan": "what a change touches",
-    "gitleaks": "the secrets of every commit, with the Lab's own rules",
-    "manifests": "every image a touched unit pulls exists in its registry",
-    "build": "build the apps of the touched units",
-    "test": "run the tests of each app in its image",
-    "run": "plan, manifests, build and test on this machine, as make ci",
-    "smoke": "start what needs no platform",
-    "scan-built": "scan the images built for a change",
-    "publish-plan": "the gates and the images to publish",
-    "publish": "build and push the images",
-    "release-notes": "the notes of a release",
-    "unreleased": "what changed since the last release",
-    "links": "the links of the guides answer",
-    "scan-published": "scan the published images",
-    "e2e-plan": "the matrix of the end-to-end run",
-    "e2e-gate": "the end-to-end run's last gate",
-    "versions-plan": "the versions of Gravitee the playgrounds are tried on",
-    "versions-record": "write the versions that passed in x-gravitee.tested",
-    "versions-release": "raise the patch number of the catalog",
-}
 
 UNIT = re.compile(r"(addon|playground|setup):([a-z0-9-]{1,100})")
 MAX_UNITS = 1000   # the most --units may name; a catalog is limited to 500 (ST10)
-FORMATS = report.FORMATS
 
 # What an image reference may be made of (a registry host, a path, a tag, a digest): anything else is not given to a registry or to
 # Docker. The first character is a letter or a digit, so that no name is an option
@@ -122,37 +97,19 @@ PLATFORMS = {
 # The Lab's core file names the seeder; a service built from it is the Lab's own code
 SEEDER_DIR = "seeder"
 
-# The messages of the stages word for word: (severity, message). A test keeps them equal to the document and to
-# the table of `explain`
-MESSAGES = {
-    "BD01": (ERROR, "{image}: the build failed at step {n}/{m}, {instruction} (exit {code}). Fix: run make ci to see it on your "
-                    "machine; the last 15 lines are in the summary."),
-    "BD02": (ERROR, "{service}: build.{key} is not accepted. Fix: use context, dockerfile, args, target and labels only."),
-    "BD04": (ERROR, "{image}: the build took over 10 minutes and was stopped."),
-    "BD05": (ERROR, "Docker Hub refused the pull (rate limit). This is not your change: run the job again in a few minutes."),
-    "BD06": (ERROR, "Split this pull request: it changes {n} apps, the limit is 20."),
-    "MF01": (ERROR, "{image}: the registry has no tag {tag}. Fix: use a tag that exists, or an earlier version."),
-    "MF02": (WARNING, "{registry} did not answer: {image} was not checked."),
-    "TS01": (ERROR, "{app}: {n} tests failed. Fix: run make ci APP={app} to see them."),
-    "TS02": (WARNING, "{app} has no tests. Fix: COPY tests ./tests in the Dockerfile and add some."),
-    "SD04": (ERROR, ".github/standard.json: {problem}."),
-    "ND01": (ERROR, "{ids}: this catalog needs these catalogs and the secret NEEDS_DEPLOY_KEY is not set. Fix: give the repository a "
-                    "read-only deploy key of theirs: make settings prints the commands."),
-    "ND02": (ERROR, "{name} ({repository}) could not be fetched or linked: {why}. Fix: NEEDS_DEPLOY_KEY must be a deploy key of that "
-                    "repository, and ref a commit of it."),
-}
+# The messages of the stages word for word: (severity, message), from the table `explain` prints
+MESSAGES = {code: (severity, message) for code, severity, _, message in (*explain.STAGES, *standard.RULES.values())}
 # The one case 6.11 has no sentence for: the build failed and Docker did not say at which step (a failure before the first, a
 # frontend that answered otherwise). The same words, without the step
 BD01_PLAIN = "{image}: the build failed (exit {code}). Fix: run make ci to see it on your machine; the last 15 lines are in the " \
              "summary."
 
 
-# What a stage says when Docker is not here, and what the Lab's gitleaks image says before its digest is written: the words that
-# `make ci` reads to skip the scan on a machine that cannot run it, and to show every other reason a stage could not run
+# What a stage says when Docker is not here: the words that `make ci` reads to skip the scan on a machine that cannot run it, and
+# to show every other reason a stage could not run
 NO_DOCKER = "Docker is not installed or not on the PATH"
 DOCKER_DOWN = "Docker is not running"
-NOT_PINNED_YET = "is not pinned yet"
-SKIPPABLE = (NO_DOCKER, DOCKER_DOWN, NOT_PINNED_YET)
+SKIPPABLE = (NO_DOCKER, DOCKER_DOWN)
 
 # The longest line of a stranger's program that a message or a summary holds (and the most a summary file is given)
 LINE_WIDTH = 500
@@ -168,11 +125,11 @@ class Unavailable(Exception):
     says what to do. Never taken for a verdict on the catalog."""
 
 
-def problem(which: str, path: str = "", line: int = 0, severity: Optional[str] = None, **fields) -> Problem:
+def problem(which: str, path: str = "", line: int = 0, /, **fields) -> Problem:
     """The Problem of a stage code (`which`: BD01...), its message made from the table above with `fields` (a stranger's text in
     a field is never read for places of its own)."""
-    wanted, message = MESSAGES[which]
-    return Problem(which, severity or wanted, path, int(line or 0), say(message, **fields))
+    severity, message = MESSAGES[which]
+    return Problem(which, severity, path, int(line or 0), say(message, **fields))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -196,24 +153,22 @@ class Parser(argparse.ArgumentParser):
         raise Usage((message or "").strip() or "usage")
 
 
-def parser(stage: str, text: str, units: bool = False, fmt: bool = True, ci: bool = True) -> Parser:
-    """The parser of a stage: PATH (the catalog, `.` by default), and `--units`, `--format`, `--ci` when asked."""
+def parser(stage: str, text: str, units: bool = False, ci: bool = True) -> Parser:
+    """The parser of a stage: PATH (the catalog, `.` by default), and `--units`, `--ci` when asked."""
     found = Parser(prog=f"catalog.py ci {stage}", description=text)
     found.add_argument("path", nargs="?", default=".", help="the catalog folder (default: the current folder)")
     if units:
         found.add_argument("--units", required=True, help='the units to work on, a JSON list: ["playground:bank"]')
-    if fmt:
-        found.add_argument("--format", choices=FORMATS, default=None, help="text (default), github or json")
     if ci:
         found.add_argument("--ci", action="store_true", help="the run is CI's: GitHub annotations and the step summary")
     return found
 
 
 def parsed(found: Parser, argv: Sequence[str]) -> argparse.Namespace:
-    """The arguments, with `--ci` meaning `--format github` unless a format was given."""
+    """The arguments. A PATH that is not a folder is a Usage."""
     args = found.parse_args(list(argv))
-    if getattr(args, "format", "x") is None:
-        args.format = "github" if getattr(args, "ci", False) else "text"
+    if not os.path.isdir(args.path):
+        raise Usage(f"{report.printable(args.path)} is not a folder")
     return args
 
 
@@ -260,8 +215,7 @@ def entry(function: Callable) -> Callable:
 
 
 def main(argv=None, stdout=None, stderr=None, **seams) -> int:
-    """`catalog.py ci <stage> ...`: the stage word, then the arguments of that stage. A stage whose module is not in this Lab
-    exits 2 with "not available yet"."""
+    """`catalog.py ci <stage> ...`: the stage word, then the arguments of that stage."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help"):
@@ -272,24 +226,11 @@ def main(argv=None, stdout=None, stderr=None, **seams) -> int:
         print(f"catalog.py ci: {report.printable(stage[:40])} is not a stage.\n{usage()}", file=err)
         return 2
     name, function = STAGES[stage]
-    target = f"{__name__}.{name}"
-    try:
-        module = importlib.import_module(target)
-    except ModuleNotFoundError as error:
-        if error.name != target:   # a module it needs is missing: that is a fault to show
-            raise
-        print(f"catalog.py ci: {stage} is not available yet in this Lab.", file=err)
-        return 2
-    if not hasattr(module, function):
-        print(f"catalog.py ci: {stage} is not available yet in this Lab.", file=err)
-        return 2
-    return getattr(module, function)(rest, out, err, **seams)
+    return getattr(importlib.import_module(f"{__name__}.{name}"), function)(rest, out, err, **seams)
 
 
 def usage() -> str:
-    width = max(len(stage) for stage in STAGES)
-    return "usage: catalog.py ci <stage> [PATH] [options]\n\n" + "\n".join(
-        f"  {stage.ljust(width)}  {SUMMARY[stage]}" for stage in STAGES) + "\n"
+    return "usage: catalog.py ci <stage> [PATH] [options]\n\nStages: " + ", ".join(STAGES) + "\n"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -350,22 +291,20 @@ def cell(text) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "?", str(text))[:80]
 
 
-def tail(text: str, count: int = 15, width: int = LINE_WIDTH) -> List[str]:
-    """The last `count` lines of a log that have anything in them, each cut to `width` characters (a minified bundle or a program
+def tail(text: str, count: int = 15) -> List[str]:
+    """The last `count` lines of a log that have anything in them, each cut to LINE_WIDTH characters (a minified bundle or a program
     that prints without end has lines of megabytes: 15 of them are no summary, and no message)."""
     kept = [line for line in text.splitlines() if line.strip()][-count:]
-    return [line if len(line) <= width else line[:width] + " [...]" for line in kept]
+    return [line if len(line) <= LINE_WIDTH else line[:LINE_WIDTH] + " [...]" for line in kept]
 
 
-def conclude(stage: str, problems: List[Problem], args, out, command: str, skipped: Sequence[str] = (), extra: str = "",
-             title: str = "") -> int:
-    """The end of a stage: the findings in the format asked for, the summary with `--ci`, and the exit code (1 for an error).
+def conclude(problems: List[Problem], args, out, command: str, skipped: Sequence[str] = (), extra: str = "", title: str = "") -> int:
+    """The end of a stage: the findings, as annotations and with the summary under `--ci`, and the exit code (1 for an error).
     `extra` is Markdown that goes before the findings in the summary (a table of images)."""
     ordered = report.ordered(problems)
-    rendered = report.render(ordered, args.format, skipped=list(skipped))
-    out.write(rendered)
-    if getattr(args, "ci", False):
-        write_summary((extra + "\n" if extra else "") + report.summary(ordered, command, list(skipped), title or f"ci {stage}"))
+    out.write(report.render(ordered, "github" if args.ci else "text", skipped=list(skipped)))
+    if args.ci:
+        write_summary((extra + "\n" if extra else "") + report.summary(ordered, command, list(skipped), title))
     return 1 if any(each.severity == ERROR for each in ordered) else 0
 
 
@@ -492,27 +431,27 @@ class Loaded(NamedTuple):
     """A unit the trust policy judged OK, as the stages that run Docker read it.
 
     kind, name   `playground`, `bank`
-    uid          the Lab's id of it (`bank` in the default catalog, `@acme/bank` in another)
     file         its compose file, relative to the catalog: `playgrounds/bank/compose.yml`
     folder       the real path of its folder ("" for a setup, which has none)
     config       `docker compose config` of the Lab's core and the unit, read with the scrubbed environment: the JSON that
                  is judged and built
     own          the services the unit defines itself (neither the core nor an included unit defines them)
     tested       `x-gravitee.tested` of the unit: the sets of versions it was tried with
-    variables    the variables the images of the project are written with (the only ones a set of versions may set), or None
+    variables    the variables the images of the project are written with (the only ones a set of versions may set)
     resolve      `f(variables) -> config`: the same JSON with these variables set for Compose (a set of `x-gravitee.tested`),
-                 read the same way; None when the loader cannot
+                 read the same way
+    needs_credentials   its file says `requires.license` or `gateway`: it works only with a license or a platform's token
     """
     kind: str
     name: str
-    uid: str
     file: str
     folder: str
     config: dict
     own: Tuple[str, ...]
     tested: Tuple[dict, ...]
-    variables: Optional[frozenset]
-    resolve: Optional[Callable] = None
+    variables: frozenset
+    resolve: Callable = None
+    needs_credentials: bool = False
 
     @property
     def key(self) -> str:
@@ -533,7 +472,6 @@ class Refused(NamedTuple):
 class Loading(NamedTuple):
     units: List[Loaded]
     refused: List[Refused]
-    notes: List[str]
 
 
 def unit_path(kind: str, name: str) -> str:
@@ -551,12 +489,11 @@ STRUCTURE = {"ST01": "is a symbolic link", "ST02": "is a submodule", "ST03": "ha
              "ST04": "is too deep or too long"}
 
 
-def structure(root: str, names: Optional[Sequence[Tuple[str, str]]] = None) -> Dict[Tuple[str, str], Tuple[str, str]]:
-    """{(kind, name): (code, path)} for the units among `names` (every unit of the catalog when None) that hold a file the
-    structure rules refuse as unreadable (ST01 to ST04): the first such file of each. Read from the names of the files alone
-    (git's listing, or a walk that never follows a link), nothing is opened."""
+def structure(root: str) -> Dict[Tuple[str, str], Tuple[str, str]]:
+    """{(kind, name): (code, path)} for the units of the catalog that hold a file the structure rules refuse as unreadable (ST01 to
+    ST04): the first such file of each. Read from the names of the files alone (git's listing, or a walk that never follows a link),
+    nothing is opened."""
     from .plan import unit_of
-    wanted = None if names is None else set(names)
     found: Dict[Tuple[str, str], Tuple[str, str]] = {}
     try:
         entries = trees.FolderTree(root).entries()
@@ -565,7 +502,7 @@ def structure(root: str, names: Optional[Sequence[Tuple[str, str]]] = None) -> D
     for each in entries:
         code = store.refusal(each)
         unit = unit_of(each.path) if code in STRUCTURE else None
-        if unit is not None and (wanted is None or (unit.kind, unit.name) in wanted):
+        if unit is not None:
             found.setdefault((unit.kind, unit.name), (code, each.path))
     return found
 
@@ -587,12 +524,12 @@ def load(folder, names: Sequence[Tuple[str, str]]) -> Loading:
             refused.append(Refused(kind, name, unit_path(kind, name), (f"{where} {STRUCTURE[code]}",), code))
     survivors = [each for each in asked if each not in unreadable]
     if not survivors:
-        return Loading([], refused, [])
+        return Loading([], refused)
     loader = LOADER
     found = loader(str(folder), survivors) if loader is not None else lab_loader(str(folder), survivors, hidden=sorted(unreadable))
     refused = list(found.refused) + refused
     kept = [unit for unit in found.units if (unit.kind, unit.name) not in unreadable]
-    return Loading(kept, refused, list(found.notes))
+    return Loading(kept, refused)
 
 
 def blocked_reasons(unit: dict) -> Tuple[str, ...]:
@@ -636,7 +573,7 @@ def gated_refusal(kind: str, name: str, file: str, services: Sequence[str]) -> R
     named. The policy reads the unit without a profile on, so it does not say this itself (the fix says what to do)."""
     named = ", ".join(report.printable(each) for each in services[:5]) + (", ..." if len(services) > 5 else "")
     reason = trust.RULES["T01"]["lines"][0].replace("{key}", "profiles") + f" ({named})"
-    fix = (getattr(trust, "FIXES", None) or explain.T_FIXES).get("T01", "").replace("{key}", "profiles")
+    fix = trust.FIXES["T01"].replace("{key}", "profiles")
     return Refused(kind, name, file, (reason,), "T01", fix)
 
 
@@ -681,8 +618,6 @@ def lab_loader(folder: str, names: List[Tuple[str, str]], hidden: Iterable[Tuple
     project is not to read at all (`hidden_units`)."""
     from ... import e2e
     from .. import defaults, registry
-    if not os.path.isdir(folder):
-        raise Usage(f"{report.printable(folder)} is not a folder")
     summary = check.folder_summary(folder)
     ns = summary.get("id")
     if not isinstance(ns, str) or not re.fullmatch(paths.NS, ns):
@@ -699,7 +634,7 @@ def lab_loader(folder: str, names: List[Tuple[str, str]], hidden: Iterable[Tuple
     real = os.path.realpath(folder)
     try:
         with check.temporary_link(folder, ns, needs) as linked, check.scrubbed(), hidden_units(ns, hidden):
-            built, _ = check.loaded()
+            built, inputs = check.loaded()
             for kind, name in names:
                 file = unit_path(kind, name)
                 item = paths.unit_of(paths.CATALOG_FILES[kind].format(ns=ns, name=name))
@@ -723,17 +658,15 @@ def lab_loader(folder: str, names: List[Tuple[str, str]], hidden: Iterable[Tuple
                     continue
                 where = os.path.realpath(os.path.join(real, *file.split("/")))
                 folder_here = "" if kind == "setup" else os.path.dirname(where)
-                found.append(Loaded(kind, name, item[1], file, folder_here, _realized(config, linked),
+                # (the gateway as the file says it: the project clears one that N04 does not offer, and the unit still wants its token)
+                found.append(Loaded(kind, name, file, folder_here, _realized(config, linked),
                                     tuple(sorted(unit.get("services") or ())), tuple(unit.get("tested") or ()),
-                                    _variables(e2e, built), _resolver(folder, ns, needs, unit["file"], scrubbed)))
+                                    frozenset(e2e.image_variables(built)), _resolver(folder, ns, needs, unit["file"], scrubbed),
+                                    bool((unit.get("requires") or {}).get("license")
+                                         or check._meta(inputs["raw"][unit["file"]]).get("gateway"))))
     except check.ComposeGone:
         raise Unavailable("Docker Compose 5 was not found: " + compose.NO_COMPOSE) from None
-    return Loading(found, refused, [])
-
-
-def _variables(e2e, built) -> Optional[frozenset]:
-    known = e2e.image_variables(built)
-    return None if known is None else frozenset(known)
+    return Loading(found, refused)
 
 
 def _code_of(unit: dict) -> str:
@@ -769,11 +702,3 @@ def seconds(value: float) -> str:
 def megabytes(size: int) -> str:
     """A size in bytes as a person reads it: `41.2 MB`."""
     return f"{size / 1_000_000:.1f} MB" if size >= 100_000 else f"{size / 1000:.1f} kB"
-
-
-__all__ = ["ALL_PROFILES", "BD01_PLAIN", "DOCKER_DOWN", "FORMATS", "Help", "IMAGE_NAME", "LINE_WIDTH", "LOADER", "Loaded", "Loading",
-           "MAX_UNITS", "MESSAGES", "NOT_PINNED_YET", "NO_DOCKER", "PLATFORMS", "Parser", "Refused", "SKIPPABLE", "STAGES",
-           "SUMMARY_LIMIT", "Unavailable", "Usage", "WARNING", "blocked_reasons", "cell", "conclude", "docker_ready", "entry", "fence",
-           "gated", "gated_refusal", "hidden_units", "host_platform", "json_line", "lab_loader", "load", "main", "megabytes",
-           "parse_units", "parsed", "parser", "platform_of", "problem", "refusals", "run_docker", "run_limited", "seconds",
-           "seeder_anchor", "structure", "tail", "unit_path", "usage", "write_outputs", "write_summary"]

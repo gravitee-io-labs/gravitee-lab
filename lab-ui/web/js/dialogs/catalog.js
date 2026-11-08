@@ -7,18 +7,16 @@
 // also where the two actions of the content status live (Try again, Add the listed catalog), for every page that draws it: one click
 // handler, so that none of the four places has a copy of it.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router, copyButton } from "../core.js";
+import { $, $$, esc, icon, setHTML, loading, api, store, router, copyButton, catalogRows } from "../core.js";
 import { toast, tipHtml, actionButton, paintActions, progressBar, effectsDialog } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { field, formDialog } from "./form.js";
+import { base64 } from "./license.js";
 import { agentLinks, agentFolder, forAgent } from "../components/agent.js";
 
 export const NO_GIT = "Git is not installed";
 
-// The line of `ticket_expired`: the page's request throws the server's words alone, and this is the one refusal it acts on
-const EXPIRED = "This took too long. Start again.";
-// The refusal is the code when the request keeps it, else its line
-const expired = (err) => err?.code === "ticket_expired" || err?.message === EXPIRED;
+const expired = (err) => err?.code === "ticket_expired";
 const UP_TO_DATE = "Already up to date.";
 // The two requests of an update and of going back, each its own route: a path is written whole wherever it is used, so that a route that is
 // missing is found by reading the page's files (test_static)
@@ -86,7 +84,7 @@ const mark = (card, label) => tipHtml(icon("info"), card, "plat-info", label);
 // What a catalog's items take of this machine, one row for each: what it takes, then the author's reason, which is the author's claim
 export const usesCard = (uses = []) => ({ rows: uses.map((u) => ({ subject: u.name, lines: [[capital((u.what || []).join(", "))], ...(u.why ? [[u.why]] : [])] })) });
 const blockedCard = (blocked) => ({ rows: blocked.map((b) => ({ subject: b.name, lines: [[(b.reasons || [])[0] ?? ""]] })) });
-// The same item in two lists, by its id or by its name: the lists of a preview do not spell an id alike (`@acme-hub/x`, `kubernetes`)
+// The same item in two lists, by its id or by its name: the lists of a preview do not spell an id alike (`@acme-hub/x`, `kookaburra`)
 const alike = (a, b) => (a.id != null && a.id === b.id) || (a.name != null && a.name === b.name);
 
 // The items of a preview or of a plan that cannot run: the Blocked ones, and, while the person keeps the items that use this machine blocked,
@@ -142,7 +140,6 @@ function previewRows(p, allow, all = false) {
     // The words of the surface start a sentence; the names a catalog gave to its shared settings are shown as they are
     { label: "Reads", items: list((r.reads || []).map((name) => (own(READS, name) ? capital(READS[name]) : name))) },
     { label: "Needs", items: (r.needs || []).map((n) => ({ text: n.name || n.id })), hint: "Not added" },
-    { label: "Settings found", items: list((r.found || []).map((f) => f.name || f.id)), hint: "From before the move" },
     { label: "Cannot run", tone: "danger", items: blocked.length ? [{ text: plural(blocked.length, "item", "items"), tone: "danger", mark: mark(blockedCard(blocked), "Cannot run") }] : [] },
   ];
 }
@@ -277,7 +274,7 @@ const addressTerm = (host) => (host
   : "A Git address you can read, such as owner/repo or a folder on this machine. Private catalogs use the Git sign-in of this machine.");
 
 // The host that the examples of an address are written with is the first catalog's: it comes from the data, never from this page's words
-const exampleHost = () => String(((store.state?.catalogs || []).find((c) => c.kind === "git" && c.address) || {}).address ?? "").split("/")[0];
+const exampleHost = () => String((catalogRows().find((c) => c.kind === "git" && c.address) || {}).address ?? "").split("/")[0];
 
 const address = () => $("#catalog-input", dialog).value.trim();
 const whyNot = () => (!address() ? "Enter an address" : /[\s\u0000-\u001f\u007f]/.test(address()) ? "This is not an address Git can read" : "");
@@ -455,14 +452,6 @@ function fileScreen() {
   slot("secondary", "");
 }
 
-// The bytes of a file as base64, the form the server takes; in pieces, which a long argument list would not take whole
-async function base64Of(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let text = "";
-  for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  return btoa(text);
-}
-
 async function importFile(file) {
   if (!file || asking) return;
   problem();
@@ -473,9 +462,8 @@ async function importFile(file) {
   reading("");
   screen("effects", "Import playground");
   try {
-    const preview = { ...await api("/api/catalogs/import", { data: await base64Of(file) }), file: file.name };
+    const preview = { ...await api("/api/catalogs/import", { data: base64(new Uint8Array(await file.arrayBuffer())) }), file: file.name };
     if (mine !== seq) return;
-    if (preview.warning) toast(preview.warning, true);   // what a change that stopped midway had left, now back
     dest = (preview.blocked || []).length ? "imported" : "personal";
     rowsEl.removeAttribute("aria-busy");
     shown = { kind: "add", preview, host: false };
@@ -753,9 +741,8 @@ export function openAdd({ address: known = "", name = "", host = false } = {}) {
 const announced = new Map();
 
 store.subscribe(() => {
-  const rows = Array.isArray(store.state?.catalogs) ? store.state.catalogs : [];
   for (const [id, one] of [...announced]) {
-    const found = rows.find((c) => c.id === id && c.kind !== "suggested");
+    const found = catalogRows().find((c) => c.id === id && c.kind !== "suggested");
     if (found?.commit && typeof found.progress !== "number") {
       announced.delete(id);
       toast(one.word);
@@ -797,7 +784,7 @@ function reveal(id) {
 // Adds a catalog that is listed, with no dialog, or one that is not, through the preview: `row` is a Not added row of the page, or a catalog
 // an item needs ({id, name, url})
 export function addCatalog(row) {
-  const listed = (store.state?.catalogs || []).some((c) => c.kind === "suggested" && c.listed && c.id === row.id);
+  const listed = catalogRows().some((c) => c.kind === "suggested" && c.listed && c.id === row.id);
   if (listed) return addListed(row.id);
   return openAdd({ address: row.url || row.address || "", name: row.name || "", host: row.host_access === true });
 }
@@ -813,15 +800,12 @@ document.addEventListener("click", (e) => {
 
 // --- Remove, Allow ------------------------------------------------------------------------------------------------------------
 
-// What a removal leaves in Gravitee, as lines like "3 APIs", "1 API", "2 applications": a list of {count, what}, of words, or an object of counts
-// by word. The server says the kind in the plural; one of it is said in the singular, and "API" is the acronym it is.
+// What a removal leaves in Gravitee, as lines like "3 APIs", "1 API", "2 applications", from the counts by word the server gives. It says the
+// kind in the plural; one of it is said in the singular, and "API" is the acronym it is.
 const counted = (n, what) => {
-  const kind = String(what);
-  if (/^apis?$/i.test(kind)) return `${n} ${n === 1 ? "API" : "APIs"}`;
-  return `${n} ${n === 1 ? kind.replace(/ies$/, "y").replace(/s$/, "") : kind}`;
+  if (/^apis?$/i.test(what)) return `${n} ${n === 1 ? "API" : "APIs"}`;
+  return `${n} ${n === 1 ? what.replace(/ies$/, "y").replace(/s$/, "") : what}`;
 };
-const stayed = (stays) => (Array.isArray(stays) ? stays.map((s) => (typeof s === "string" ? s : counted(s.count, s.what)))
-  : Object.entries(stays || {}).map(([what, n]) => counted(n, what)));
 
 export async function openRemove(row) {
   const at = `catalog-op:${row.id}`;
@@ -843,7 +827,7 @@ export async function openRemove(row) {
   const steps = [
     { label: "Removes", items: [plan.folder ? "The link to this folder" : plural(plan.items ?? 0, "item", "items")], hint: plan.folder ? "Your files stay" : "", tone: "danger" },
     { label: "Breaks", items: (plan.breaks || []).map((b) => b.name), hint: `Needs ${row.name}`, note: true },
-    { label: "Stays in Gravitee", items: stayed(plan.stays), note: true },
+    { label: "Stays in Gravitee", items: Object.entries(plan.stays || {}).map(([what, n]) => counted(n, what)), note: true },
   ];
   // A folder catalog has no settings of its own to keep: only the link goes
   const options = plan.folder ? [{ label: "Remove", value: { keep: true } }] : [

@@ -15,10 +15,10 @@ from .. import Case
 
 DATABASES = {"kind": "platform", "id": "databases", "name": "Databases"}
 APIM = {"kind": "platform", "id": "api-management", "name": "API Management"}
-KAFKA = {"kind": "addon", "id": "kafka", "name": "Kafka"}
+KAZOO = {"kind": "addon", "id": "kazoo", "name": "Kazoo"}
 KIOSK = {"kind": "addon", "id": "kiosk", "name": "Kiosk"}
 TOOLS = {"kind": "addon", "id": "tools", "name": "Tools"}
-SHOP = {"kind": "playground", "id": "shop", "name": "Acme Shop"}
+SHOP = {"kind": "playground", "id": "shop", "name": "Malt Shop"}
 
 GATEWAY_IMAGE = ("${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-gateway"
                  ":${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}")
@@ -35,13 +35,13 @@ SERVICES = {
                             "graviteeio.azurecr.io"),
     "apim-gateway": (APIM, "Gateway", GATEWAY_IMAGE, "graviteeio.azurecr.io/apim-gateway:4.13.0-debian",
                      "graviteeio.azurecr.io"),
-    "kafka": (KAFKA, "Kafka broker", "docker.io/bitnamilegacy/kafka:${KAFKA_VERSION:-3.9}",
-              "docker.io/bitnamilegacy/kafka:3.9", None),
-    "kafka-ui": (KAFKA, "Kafka UI", "provectuslabs/kafka-ui:latest", "provectuslabs/kafka-ui:latest", None),
+    "kazoo": (KAZOO, "Kazoo broker", "docker.io/acmecontainer/kazoo:${KAZOO_VERSION:-3.9}",
+              "docker.io/acmecontainer/kazoo:3.9", None),
+    "kazoo-ui": (KAZOO, "Kazoo UI", "acmecontainer/kazoo-ui:latest", "acmecontainer/kazoo-ui:latest", None),
     "kiosk": (KIOSK, "Kiosk", "docker.elastic.co/kiosk/kiosk:${KIOSK_VERSION:-${ELASTICSEARCH_VERSION:-9.5.2}}",
                "docker.elastic.co/kiosk/kiosk:9.5.2", None),
-    "mcp-lens": (TOOLS, "MCP Lens", "ghcr.io/modelcontextprotocol/inspector:${MCP_LENS_VERSION:-2.9.0}",
-                      "ghcr.io/modelcontextprotocol/inspector:2.9.0", None),
+    "malt-lens": (TOOLS, "Malt Lens", "ghcr.io/malt/inspector:${MALT_LENS_VERSION:-2.9.0}",
+                      "ghcr.io/malt/inspector:2.9.0", None),
     "mirror": (TOOLS, "Mirror", "localhost:5000/team/mirror:${MIRROR_VERSION:-1}", "localhost:5000/team/mirror:1",
                None),
     "built": (TOOLS, "Built here", "gravitee-lab/built", "gravitee-lab/built", None),
@@ -86,12 +86,12 @@ class Images(Case):
                                          "registry": "${APIM_REGISTRY}"}])
 
     def test_third_party_images(self):
-        found = [c for c in images.components(self.project) if c["owner"] in (KAFKA, TOOLS) or c["label"] == "MongoDB"]
+        found = [c for c in images.components(self.project) if c["owner"] in (KAZOO, TOOLS) or c["label"] == "MongoDB"]
         where = {c["id"]: (c["kind"], c["host"], c["repository"], c["source"], c["registry_key"]) for c in found}
         self.assertEqual(where, {
             "MONGODB_VERSION": ("third-party", None, "library/mongo", "Docker Hub", None),
-            "KAFKA_VERSION": ("third-party", None, "bitnamilegacy/kafka", "Docker Hub", None),
-            "MCP_LENS_VERSION": ("third-party", "ghcr.io", "modelcontextprotocol/inspector", "ghcr.io", None),
+            "KAZOO_VERSION": ("third-party", None, "acmecontainer/kazoo", "Docker Hub", None),
+            "MALT_LENS_VERSION": ("third-party", "ghcr.io", "malt/inspector", "ghcr.io", None),
             "MIRROR_VERSION": ("third-party", "localhost:5000", "team/mirror", "localhost:5000", None)})
 
     def test_tags_label_says_where_tags_are_listed(self):
@@ -110,51 +110,50 @@ class Images(Case):
 
     def test_an_image_without_a_version_variable_is_no_component(self):
         listed = {name for c in images.components(self.project) for name in c["services"]}
-        self.assertEqual(set(SERVICES) - listed, {"kafka-ui", "built"})
+        self.assertEqual(set(SERVICES) - listed, {"kazoo-ui", "built"})
 
     def test_platform_first_in_group_order_then_by_owner(self):
         # Under one owner, what most services share first: API Management before its gateway
         self.assertEqual([c["id"] for c in images.components(self.project)],
                          ["ELASTICSEARCH_VERSION", "MONGODB_VERSION", "APIM_VERSION", "APIM_GATEWAY_VERSION",
-                          "KAFKA_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION", "MIRROR_VERSION"])
+                          "KAZOO_VERSION", "KIOSK_VERSION", "MALT_LENS_VERSION", "MIRROR_VERSION"])
+        # The groups in the order they are declared, the add-ons by name
+        self.project["groups"].reverse()
+        self.project["services"]["kazoo"]["owner"] = {"kind": "addon", "id": "kazoo", "name": "zookeeper and Kazoo"}
+        self.assertEqual([c["id"] for c in images.components(self.project)],
+                         ["APIM_VERSION", "APIM_GATEWAY_VERSION", "ELASTICSEARCH_VERSION", "MONGODB_VERSION",
+                          "KIOSK_VERSION", "MALT_LENS_VERSION", "MIRROR_VERSION", "KAZOO_VERSION"])
 
     def test_the_gateway_of_an_add_on_follows_the_group_that_runs_its_image(self):
         # The hybrid gateway runs API Management's gateway image (project._gateway_groups): its component comes after
         # the group's own, says the group under its name, and stays the add-on's (its owner, its .env, its state)
-        hybrid = {"kind": "addon", "id": "hybrid", "name": "Hybrid gateway"}
-        self.project["services"]["apim-hybrid-gateway"] = {
-            "label": "Hybrid gateway", "owner": hybrid, "image": "graviteeio/apim-gateway:4.12.21-debian",
-            "raw_image": "${HYBRID_REGISTRY:-graviteeio}/apim-gateway:${HYBRID_GATEWAY_VERSION:-4.12.21-debian}",
+        hyssop = {"kind": "addon", "id": "hyssop", "name": "Hybrid gateway"}
+        self.project["services"]["apim-hyssop-gateway"] = {
+            "label": "Hybrid gateway", "owner": hyssop, "image": "graviteeio/apim-gateway:4.12.21-debian",
+            "raw_image": "${HYSSOP_REGISTRY:-graviteeio}/apim-gateway:${HYSSOP_GATEWAY_VERSION:-4.12.21-debian}",
             "tag": "4.12.21-debian", "registry": "graviteeio", "image_tags": None}
-        self.project["addons"]["hybrid"] = {"gateway": {"service": "apim-hybrid-gateway", "group": "api-management"}}
+        self.project["addons"]["hyssop"] = {"gateway": {"service": "apim-hyssop-gateway", "group": "api-management"}}
         self.project["groups"] = [{"id": "databases", "name": "Databases"},
                                   {"id": "api-management", "name": "API Management"}]
         found = images.components(self.project)
         self.assertEqual([c["id"] for c in found],
                          ["ELASTICSEARCH_VERSION", "MONGODB_VERSION", "APIM_VERSION", "APIM_GATEWAY_VERSION",
-                          "HYBRID_GATEWAY_VERSION", "KAFKA_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION",
+                          "HYSSOP_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MALT_LENS_VERSION",
                           "MIRROR_VERSION"])
-        gateway = self.component("HYBRID_GATEWAY_VERSION")
+        gateway = self.component("HYSSOP_GATEWAY_VERSION")
         self.assertEqual((gateway["label"], gateway["detail"], gateway["owner"], gateway["group"]),
-                         ("Hybrid gateway", "API Management", hybrid, "api-management"))
+                         ("Hybrid gateway", "API Management", hyssop, "api-management"))
         self.assertEqual([c["group"] for c in found if c["owner"]["kind"] == "addon"],
                          ["api-management", None, None, None, None])
         # A gateway whose image no group runs stays with the add-ons, by name
-        self.project["addons"]["hybrid"]["gateway"]["group"] = None
+        self.project["addons"]["hyssop"]["gateway"]["group"] = None
         self.assertEqual([c["id"] for c in images.components(self.project)][4:],
-                         ["HYBRID_GATEWAY_VERSION", "KAFKA_VERSION", "KIOSK_VERSION", "MCP_LENS_VERSION",
+                         ["HYSSOP_GATEWAY_VERSION", "KAZOO_VERSION", "KIOSK_VERSION", "MALT_LENS_VERSION",
                           "MIRROR_VERSION"])
-        self.assertEqual(self.component("HYBRID_GATEWAY_VERSION")["detail"], "Hybrid gateway")
-
-    def test_groups_in_declared_order_and_add_ons_by_name(self):
-        self.project["groups"].reverse()
-        self.project["services"]["kafka"]["owner"] = {"kind": "addon", "id": "kafka", "name": "zookeeper and Kafka"}
-        self.assertEqual([c["id"] for c in images.components(self.project)],
-                         ["APIM_VERSION", "APIM_GATEWAY_VERSION", "ELASTICSEARCH_VERSION", "MONGODB_VERSION",
-                          "KIOSK_VERSION", "MCP_LENS_VERSION", "MIRROR_VERSION", "KAFKA_VERSION"])
+        self.assertEqual(self.component("HYSSOP_GATEWAY_VERSION")["detail"], "Hybrid gateway")
 
     def test_host_rule(self):
-        for name, where in {"redis": (None, "library/redis"), "openfga/openfga": (None, "openfga/openfga"),
+        for name, where in {"redis": (None, "library/redis"), "orchard/orchard": (None, "orchard/orchard"),
                             "docker.io/redis": (None, "library/redis"), "graviteeio/apim-gateway":
                             (None, "graviteeio/apim-gateway"), "localhost/a/b": ("localhost", "a/b"),
                             "graviteeio.azurecr.io/apim-gateway": ("graviteeio.azurecr.io", "apim-gateway"),
@@ -167,10 +166,10 @@ class Images(Case):
                             layers.outside())
 
     def test_state(self):
-        self.patch(images, "local_images", return_value={"mongo:8.0.29", "bitnamilegacy/kafka:3.9"})
+        self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "a", "acmecontainer/kazoo:3.9": "b"})
         self.patch(compose, "project_name", return_value="lab")
         self.patch(compose, "ps", return_value={"mongodb": {"state": "running", "image": "mongo:7"},
-                                                "kafka": {"state": "exited", "image": "x"}})
+                                                "kazoo": {"state": "exited", "image": "x"}})
         env = {".env": {"APIM_REGISTRY": "graviteeio.azurecr.io", "APIM_VERSION": "4.13.0"}}
         self.patch(envfiles, "read", side_effect=lambda path: env.get(path, {}))
         state = self.state(["kiosk"])
@@ -182,21 +181,21 @@ class Images(Case):
         self.assertEqual((gateway["version"], gateway["registry"]), ("${APIM_VERSION}-debian", "${APIM_REGISTRY}"))
         self.assertEqual((gateway["version_resolved"], gateway["registry_resolved"]),
                          ("4.13.0-debian", "graviteeio.azurecr.io"))
-        mongo, kafka = by_id["MONGODB_VERSION"], by_id["KAFKA_VERSION"]
+        mongo, kazoo = by_id["MONGODB_VERSION"], by_id["KAZOO_VERSION"]
         self.assertEqual((mongo["configured"], mongo["running"], mongo["pulled"], mongo["enabled"]),
                          (["mongo:8.0.29"], ["mongo:7"], True, True))
-        self.assertEqual((kafka["running"], kafka["pulled"], kafka["enabled"]), ([], True, False))
+        self.assertEqual((kazoo["running"], kazoo["pulled"], kazoo["enabled"]), ([], True, False))
         self.assertEqual((by_id["KIOSK_VERSION"]["enabled"], by_id["KIOSK_VERSION"]["pulled"]), (True, False))
         # What runs with its owner on, and what is off and does not run, say nothing of it
-        self.assertEqual((mongo["outside"], kafka["outside"]), (None, None))
-        # Kafka runs while its add-on is off: started by a command, in the words of its row
-        self.patch(compose, "ps", return_value={"kafka": {"state": "running", "image": "bitnamilegacy/kafka:3.9"}})
-        kafka = {c["id"]: c for c in self.state(["kiosk"])["components"]}["KAFKA_VERSION"]
-        self.assertEqual(kafka["outside"], {"note": "Started by hand",
+        self.assertEqual((mongo["outside"], kazoo["outside"]), (None, None))
+        # Kazoo runs while its add-on is off: started by a command, in the words of its row
+        self.patch(compose, "ps", return_value={"kazoo": {"state": "running", "image": "acmecontainer/kazoo:3.9"}})
+        kazoo = {c["id"]: c for c in self.state(["kiosk"])["components"]}["KAZOO_VERSION"]
+        self.assertEqual(kazoo["outside"], {"note": "Started by hand",
                                             "note_title": "Not from the Lab UI, so the platform does not start it."})
 
     def test_whether_a_component_that_is_on_takes_its_images_from_azure(self):
-        self.patch(images, "local_images", return_value=set())
+        self.patch(compose, "image_ids", return_value={})
         self.patch(compose, "containers", return_value=({}, None))
         self.patch(envfiles, "read", return_value={})
         # The platform is always on: its images come from the Azure registry its .env names (resolved here)
@@ -210,11 +209,18 @@ class Images(Case):
         self.assertFalse(self.state()["azure_in_use"])
         self.assertTrue(self.state(["tools"])["azure_in_use"])
 
+    def test_an_image_written_with_docker_hubs_own_prefixes_is_pulled_as_docker_lists_it(self):
+        self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "a"})
+        self.patch(compose, "containers", return_value=({}, None))
+        self.patch(envfiles, "read", return_value={})
+        for written in ("library/mongo:8.0.29", "docker.io/library/mongo:8.0.29"):
+            self.project["services"]["mongodb"]["image"] = written
+            self.assertTrue({c["id"]: c for c in self.state()["components"]}["MONGODB_VERSION"]["pulled"], written)
+
     def test_with_docker_not_answering_what_is_pulled_is_not_known(self):
         compose.CACHE.drop("local:image-ids")
         self.addCleanup(compose.CACHE.drop, "local:image-ids")
         self.patch(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon"))
-        self.assertIsNone(images.local_images())
         self.patch(compose, "containers", return_value=({}, "Cannot connect to the Docker daemon"))
         self.patch(envfiles, "read", return_value={})
         self.assertEqual({c["pulled"] for c in self.state()["components"]}, {None})
@@ -224,11 +230,11 @@ class Images(Case):
         self.patch(envfiles, "read", return_value={})
         images.save(self.project, {"APIM_VERSION": "4.13.0", "APIM_REGISTRY": "graviteeio",
                                    "APIM_GATEWAY_VERSION": "${APIM_VERSION}-debian",
-                                   "KIOSK_VERSION": "9.5.0", "KAFKA_VERSION": "3.9"})
+                                   "KIOSK_VERSION": "9.5.0", "KAZOO_VERSION": "3.9"})
         self.assertEqual({call.args[0]: call.args[1] for call in write.call_args_list}, {
             ".env": {"APIM_VERSION": "4.13.0", "APIM_REGISTRY": None, "APIM_GATEWAY_VERSION": None},
             paths.unit_env("addon", "kiosk"): {"KIOSK_VERSION": "9.5.0"},
-            paths.unit_env("addon", "kafka"): {"KAFKA_VERSION": None}})
+            paths.unit_env("addon", "kazoo"): {"KAZOO_VERSION": None}})
 
     def test_save_drops_a_line_that_follows_as_the_default_does(self):
         # The gateway's registry written as its default follows the API Management's: once that one goes back to its
@@ -243,15 +249,15 @@ class Images(Case):
         # The core's values in its .env as a save writes them, an add-on's given to Compose as they are (files.drafted)
         self.patch(envfiles, "read", return_value={})
         values = {"APIM_VERSION": "4.13.0", "APIM_REGISTRY": "graviteeio", "KIOSK_VERSION": "9.5.0",
-                  "KAFKA_VERSION": "3.9"}
+                  "KAZOO_VERSION": "3.9"}
         # Each add-on's by its .env: Compose reads them for every file, which those of another add-on must not reach
         self.assertEqual(images.as_saved(self.project, values),
                          ({"APIM_VERSION": "4.13.0", "APIM_REGISTRY": None},
                           {paths.unit_env("addon", "kiosk"): {"KIOSK_VERSION": "9.5.0"},
-                           paths.unit_env("addon", "kafka"): {"KAFKA_VERSION": "3.9"}}))
+                           paths.unit_env("addon", "kazoo"): {"KAZOO_VERSION": "3.9"}}))
         # What they may make again, when that cannot be known: the services of the components they set
-        self.assertEqual(images.changing(self.project, {"APIM_VERSION": "4.13.0", "KAFKA_VERSION": "3.9"}),
-                         ["apim-gateway", "apim-management-api", "gamma-ui", "kafka"])
+        self.assertEqual(images.changing(self.project, {"APIM_VERSION": "4.13.0", "KAZOO_VERSION": "3.9"}),
+                         ["apim-gateway", "apim-management-api", "gamma-ui", "kazoo"])
         with self.assertRaisesRegex(ValueError, "Invalid tag"):
             images.as_saved(self.project, {"APIM_VERSION": "not a tag!"})
 
@@ -271,14 +277,14 @@ class Images(Case):
             self.patch(images, name, side_effect=lambda *where, name=name: [name, *where])
         asked = {(cid, registry): images.tags(self.project, cid, registry) for cid, registry in (
             ("APIM_VERSION", None), ("APIM_VERSION", "graviteeio"), ("APIM_VERSION", "registry.example.com/team"),
-            ("ELASTICSEARCH_VERSION", None), ("MCP_LENS_VERSION", "ignored"))}
+            ("ELASTICSEARCH_VERSION", None), ("MALT_LENS_VERSION", "ignored"))}
         self.assertEqual(asked, {
             ("APIM_VERSION", None): ["_azure_tags", "graviteeio.azurecr.io", "apim-management-api"],
             ("APIM_VERSION", "graviteeio"): ["_hub_tags", "graviteeio/apim-management-api"],
             ("APIM_VERSION", "registry.example.com/team"): ["_oci_tags", "registry.example.com",
                                                             "team/apim-management-api"],
             ("ELASTICSEARCH_VERSION", None): ["_hub_tags", "library/elasticsearch"],
-            ("MCP_LENS_VERSION", "ignored"): ["_oci_tags", "ghcr.io", "modelcontextprotocol/inspector"]})
+            ("MALT_LENS_VERSION", "ignored"): ["_oci_tags", "ghcr.io", "malt/inspector"]})
         with self.assertRaises(ValueError):
             images.tags(self.project, "APIM_VERSION", "bad registry")
         with self.assertRaises(paths.NotFound):
@@ -338,17 +344,18 @@ class Images(Case):
         # From a row's menu, it is the job of that item: its button shows it
         images.login("graviteeio.azurecr.io", "playground:local/sandbox")
         self.assertEqual(self.started(jobs)[2], {"key": "playground:local/sandbox", "verb": "login"})
-        for key in ("platform", "registry:x.azurecr.io", "addon:Kafka", "group:databases", ""):
+        for key in ("platform", "registry:x.azurecr.io", "addon:Kazoo", "group:databases", ""):
             with self.assertRaises(ValueError, msg=key):
                 images.login("graviteeio.azurecr.io", key)
 
-    def test_without_the_azure_cli_its_registries_say_to_install_it(self):
+    def test_without_the_cli_of_a_registry_it_says_to_install_it(self):
         # Not the error of running a program that is not there: what to do
         self.patch(images.shutil, "which", return_value=None)
         jobs, run = self.patch(images, "JOBS"), self.patch(compose, "run")
-        for call in (lambda: images.login("graviteeio.azurecr.io"),
-                     lambda: images._azure_tags("graviteeio.azurecr.io", "apim-management-api")):
-            with self.assertRaisesRegex(RuntimeError, r"^Install the Azure CLI \(az\)$"):
+        for call, words in ((lambda: images.login("graviteeio.azurecr.io"), r"^Install the Azure CLI \(az\)$"),
+                            (lambda: images._azure_tags("graviteeio.azurecr.io", "apim-management-api"), r"^Install the Azure CLI \(az\)$"),
+                            (lambda: images.login("ghcr.io"), r"^Install the GitHub CLI \(gh\)$")):
+            with self.assertRaisesRegex(RuntimeError, words, msg=words):
                 call()
         jobs.start.assert_not_called()
         run.assert_not_called()
@@ -387,13 +394,6 @@ class Images(Case):
         answers["login"] = (1, "", "Error response from daemon: Get https://ghcr.io/v2/: denied")
         with self.assertRaisesRegex(images.JobFailed, "denied$"):
             steps[0](mock.Mock(lines=[]))
-
-    def test_without_the_github_cli_ghcr_io_says_to_install_it(self):
-        self.patch(images.shutil, "which", return_value=None)
-        jobs = self.patch(images, "JOBS")
-        with self.assertRaisesRegex(RuntimeError, r"^Install the GitHub CLI \(gh\)$"):
-            images.login("ghcr.io")
-        jobs.start.assert_not_called()
 
     def test_an_expired_azure_session_says_to_log_in_with_the_azure_cli(self):
         # Tags are listed with the Azure CLI's own session, which the page's Log in (Docker's) cannot renew; and a
@@ -446,27 +446,18 @@ class Images(Case):
     def test_a_registry_that_does_not_answer_says_why_in_plain_words(self):
         compose.CACHE.drop("tags:")
         self.addCleanup(compose.CACHE.drop, "tags:")
-        reasons = {"offline": images.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")),
-                   "limited": images.urllib.error.HTTPError("https://hub.docker.com", 429, "Too Many Requests", {}, None),
-                   "refused": images.urllib.error.HTTPError("https://ghcr.io", 403, "Forbidden", {}, None),
-                   "slow": images.urllib.error.URLError(TimeoutError("timed out"))}
-        said = {}
-        for name, error in reasons.items():
+        for error, words in ((images.urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")), "Cannot reach {}"),
+                             (images.urllib.error.HTTPError("https://hub.docker.com", 429, "Too Many Requests", {}, None),
+                              "Too many requests to {}: try again later"),
+                             (images.urllib.error.HTTPError("https://ghcr.io", 403, "Forbidden", {}, None), "{} refuses the request"),
+                             (images.urllib.error.HTTPError("https://hub.docker.com", 404, "Not Found", {}, None), "Not found on {}"),
+                             (images.urllib.error.URLError(TimeoutError("timed out")), "{} does not answer in time")):
             compose.CACHE.drop("tags:")
             self.patch(images.urllib.request, "urlopen", side_effect=error)
-            for cid in ("ELASTICSEARCH_VERSION", "MCP_LENS_VERSION"):
-                with self.assertRaises(RuntimeError) as failed:
+            for cid, where in (("ELASTICSEARCH_VERSION", "Docker Hub"), ("MALT_LENS_VERSION", "ghcr.io")):
+                with self.subTest(words=words, where=where), self.assertRaises(RuntimeError) as failed:
                     images.tags(self.project, cid)
-                said[name, cid] = str(failed.exception)
-        self.assertEqual(said, {
-            ("offline", "ELASTICSEARCH_VERSION"): "Cannot reach Docker Hub",
-            ("offline", "MCP_LENS_VERSION"): "Cannot reach ghcr.io",
-            ("limited", "ELASTICSEARCH_VERSION"): "Too many requests to Docker Hub: try again later",
-            ("limited", "MCP_LENS_VERSION"): "Too many requests to ghcr.io: try again later",
-            ("refused", "ELASTICSEARCH_VERSION"): "Docker Hub refuses the request",
-            ("refused", "MCP_LENS_VERSION"): "ghcr.io refuses the request",
-            ("slow", "ELASTICSEARCH_VERSION"): "Docker Hub does not answer in time",
-            ("slow", "MCP_LENS_VERSION"): "ghcr.io does not answer in time"})
+                self.assertEqual(str(failed.exception), words.format(where))
 
     def test_a_long_list_of_tags_is_read_page_by_page(self):
         # The registry API lists a thousand at most, by name, and says where the next ones are (Link): the newest
@@ -518,11 +509,11 @@ class Shared(Case):
     def setUp(self):
         self.project = project()
         services = self.project["services"]
-        # The Kafka add-on and a playground make certificates; the playground's follows the add-on's version in its
+        # The Kazoo add-on and a playground make certificates; the playground's follows the add-on's version in its
         # default, which its file does not see. Both the add-on Tools and the playground run kubectl at one version
         for name, owner, raw, image in (
-                ("kafka-certs", KAFKA, "alpine/openssl:${KAFKA_CERTS_VERSION:-3.5.9}", "alpine/openssl:3.6.0"),
-                ("shop-certs", SHOP, "alpine/openssl:${SHOP_OPENSSL_VERSION:-${KAFKA_CERTS_VERSION:-3.5.9}}",
+                ("kazoo-certs", KAZOO, "alpine/openssl:${KAZOO_CERTS_VERSION:-3.5.9}", "alpine/openssl:3.6.0"),
+                ("shop-certs", SHOP, "alpine/openssl:${SHOP_OPENSSL_VERSION:-${KAZOO_CERTS_VERSION:-3.5.9}}",
                  "alpine/openssl:3.5.9"),
                 ("kubectl", TOOLS, "alpine/k8s:${KUBECTL_VERSION:-1.36.5}", "alpine/k8s:1.36.5"),
                 ("shop-kubectl", SHOP, "alpine/k8s:${KUBECTL_VERSION:-1.36.5}", "alpine/k8s:1.36.5"),
@@ -530,14 +521,14 @@ class Shared(Case):
                  "kiosk/search:9.5.2")):
             services[name] = {"label": name, "owner": owner, "raw_image": raw, "image": image,
                               "tag": image.split(":")[-1], "registry": None, "image_tags": None}
-        self.env = {paths.unit_env("addon", "kafka"): {"KAFKA_CERTS_VERSION": "3.6.0"}}
+        self.env = {paths.unit_env("addon", "kazoo"): {"KAZOO_CERTS_VERSION": "3.6.0"}}
         self.patch(envfiles, "read", side_effect=lambda path: dict(self.env.get(path, {})))
 
     def component(self, cid):
         return next(c for c in images.components(self.project) if c["id"] == cid)
 
     def test_a_variable_another_unit_holds_is_not_followed(self):
-        # The playground's file reads ${KAFKA_CERTS_VERSION} from its own .env, which has none: its own default
+        # The playground's file reads ${KAZOO_CERTS_VERSION} from its own .env, which has none: its own default
         certs = self.component("SHOP_OPENSSL_VERSION")
         self.assertEqual((certs["version_default"], certs["follows"]), ("3.5.9", []))
         # The core's variables reach every file: followed
@@ -545,13 +536,13 @@ class Shared(Case):
         self.assertEqual((search["version_default"], [f["id"] for f in search["follows"]]),
                          ("${ELASTICSEARCH_VERSION}", ["ELASTICSEARCH_VERSION"]))
         # What changing the add-on's version makes again: not the playground's, which it does not reach
-        self.assertEqual(images.changing(self.project, {"KAFKA_CERTS_VERSION": "3.7.0"}), ["kafka-certs"])
+        self.assertEqual(images.changing(self.project, {"KAZOO_CERTS_VERSION": "3.7.0"}), ["kazoo-certs"])
 
     def test_a_link_saved_to_a_variable_that_does_not_reach_reads_as_compose_reads_it(self):
         # Saved by an earlier Lab: Compose reads it empty, so the image is the default's. The page says what runs
-        self.patch(images, "local_images", return_value=set())
+        self.patch(compose, "image_ids", return_value={})
         self.patch(compose, "containers", return_value=({}, None))
-        self.env[paths.unit_env("playground", "shop")] = {"SHOP_OPENSSL_VERSION": "${KAFKA_CERTS_VERSION}"}
+        self.env[paths.unit_env("playground", "shop")] = {"SHOP_OPENSSL_VERSION": "${KAZOO_CERTS_VERSION}"}
         listed = {c["id"]: c for c in images.state(self.project, lambda owner: True, None)["components"]}
         self.assertEqual((listed["SHOP_OPENSSL_VERSION"]["version"], listed["SHOP_OPENSSL_VERSION"]["version_resolved"]),
                          ("3.5.9", "3.5.9"))
@@ -582,7 +573,6 @@ class Anonymous(Case):
     def setUp(self):
         self.answers = {}
         self.patch(images, "_status", side_effect=lambda url, token=None: self.answers.get((url, bool(token)), (None, "")))
-        self.patch(images, "_status_get", side_effect=lambda url: self.answers.get((url, False), (None, "")))
         self.patch(images, "_json", side_effect=lambda url, token=None: self.answers[("token", url)])
         self.patch(compose, "CACHE", compose.Cache())   # each test asks afresh
 

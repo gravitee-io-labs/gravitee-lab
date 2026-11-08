@@ -2,7 +2,7 @@
 PowerShell 5.1, the one every Windows has, needs of it: ASCII (it reads no other encoding without a byte order mark), LF line
 ends as every file of the project has, and no syntax of PowerShell 7 alone. What keeps its look right: a program whose error
 output it drops runs inside Silently, as 5.1 shows that output as its own red error otherwise. And what it tells a person: the
-pages it links to have the heading it names, and the command it gives is the one the documentation gives."""
+pages it links to have the heading it names."""
 
 import json
 import os
@@ -12,22 +12,17 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from test_docs_links import headings
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "install.ps1"
 # The tokens of PowerShell 7 alone, by the names of its parser: Windows PowerShell 5.1 refuses a script that holds one
 SEVEN = {"AndAnd", "OrOr", "QuestionQuestion", "QuestionQuestionEquals", "QuestionDot", "QuestionLBracket", "QuestionMark"}
-# The command a person runs, as install.ps1 builds it for main
-COMMAND = "irm https://raw.githubusercontent.com/gravitee-io-labs/gravitee-lab/main/install.ps1 | iex"
 
 
 def powershell():
     """Windows PowerShell where it is, the one the script is for; else PowerShell 7, which the runners of the CI have"""
     return shutil.which("powershell") or shutil.which("pwsh")
-
-
-def slug(heading):
-    """The anchor GitHub gives a heading"""
-    return re.sub(r"[^a-z0-9 -]", "", heading.strip().lower()).replace(" ", "-")
 
 
 class InstallPs1(unittest.TestCase):
@@ -67,14 +62,7 @@ class InstallPs1(unittest.TestCase):
         links = set(re.findall(r"docs/([\w-]+\.md)#([\w-]+)", self.text))
         self.assertTrue(links)
         for page, anchor in sorted(links):
-            headings = {slug(line.lstrip("#")) for line in (ROOT / "docs" / page).read_text().splitlines() if line.startswith("#")}
-            self.assertIn(anchor, headings, f"docs/{page} has no heading for #{anchor}")
-
-    def test_the_command_it_gives_is_the_one_of_the_documentation(self):
-        self.assertIn('$command = "irm $raw/install.ps1 | iex"', self.text)
-        self.assertIn('/gravitee-lab/$branch"', self.text)
-        for page in ("README.md", "docs/installation.md"):
-            self.assertIn(COMMAND, (ROOT / page).read_text(), page)
+            self.assertIn(anchor, headings(ROOT / "docs" / page), f"docs/{page} has no heading for #{anchor}")
 
 
 if __name__ == "__main__":

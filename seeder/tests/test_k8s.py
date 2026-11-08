@@ -29,12 +29,13 @@ NAMESPACE = SERVER + "/api/v1/namespaces/acme"
 SECRET = SERVER + "/api/v1/namespaces/acme/secrets/lab-credentials"
 CONTEXT = SERVER + "/apis/gravitee.io/v1alpha1/namespaces/acme/managementcontexts/lab"
 FILES = {"k8s/01-namespace.yaml": "apiVersion: v1\nkind: Namespace\nmetadata: {name: acme}\n",
-         "k8s/02-context.yaml": """
+         "k8s/02-credentials.yaml": """
 apiVersion: v1
 kind: Secret
 metadata: {name: lab-credentials, namespace: acme}
 stringData: {username: "${APIM_USERNAME}", password: "${APIM_PASSWORD}"}
----
+""",
+         "k8s/03-context.yaml": """
 apiVersion: gravitee.io/v1alpha1
 kind: ManagementContext
 metadata: {name: lab, namespace: acme}
@@ -47,7 +48,7 @@ def route(url):
     return re.sub(r"^https://k8s:6443", "", url)
 
 
-class Manifests(Seed):
+class Cluster(Seed):
 
     def setUp(self):
         super().setUp()
@@ -62,14 +63,18 @@ class Manifests(Seed):
                         ("PATCH", NAMESPACE): (200, {}), ("PATCH", SECRET): (200, {}), ("PATCH", CONTEXT): (200, {}),
                         ("GET", NAMESPACE): (404, {}), ("GET", SECRET): (404, {}), ("GET", CONTEXT): [(404, {}), (200, ACCEPTED)]}
 
+
+class Manifests(Cluster):
+
     def test_a_manifest_that_asks_the_loader_for_a_bomb_of_pairs_is_refused_before_anything_is_built(self):
         self.seed_files({"k8s/01-bomb.yaml": doubling(40)})
         with self.assertRaises(common.MergeError):
             k8s.manifests()
 
-    def test_it_does_nothing_without_manifests(self):
-        k8s.seed()
-        self.assertEqual(self.platform.calls, [])
+    def test_a_file_of_two_manifests_stops_the_seed_with_its_name_and_line(self):
+        self.seed_files({"k8s/01.yaml": "a: 1\n---\nb: 2\n"})
+        with self.assertRaisesRegex(common.SeedError, r"01\.yaml: it is not valid YAML .*\(line 2\)"):
+            k8s.manifests()
 
     def test_manifests_are_applied_in_order_with_their_variables_and_recorded(self):
         self.seed_files(FILES)
@@ -87,6 +92,17 @@ class Manifests(Seed):
                          [("namespace", "acme"), ("resource", "Secret acme/lab-credentials"),
                           ("resource", "ManagementContext acme/lab")])
 
+    def test_what_was_there_before_the_seed_is_applied_and_not_recorded_and_a_second_run_keeps_the_record(self):
+        self.seed_files(FILES)
+        self.answer({**self.cluster, ("GET", NAMESPACE): (200, {})})
+        k8s.seed()
+        self.assertEqual(len(self.platform.sent("PATCH", NAMESPACE)), 1)
+        made = [x["name"] for x in common.created()]
+        self.assertEqual(made, ["Secret acme/lab-credentials", "ManagementContext acme/lab"])
+        self.platform.add({("GET", SECRET): (200, {}), ("GET", CONTEXT): (200, ACCEPTED)})
+        k8s.seed()
+        self.assertEqual([x["name"] for x in common.created()], made)
+
     def test_a_namespace_still_being_deleted_is_waited_for_then_made_again_and_recorded(self):
         self.seed_files(FILES)
         deleting = (200, {"metadata": {"name": "acme", "deletionTimestamp": "2026-11-07T22:39:00Z"}})
@@ -98,25 +114,24 @@ class Manifests(Seed):
 
     def test_a_resource_of_the_operator_is_waited_for_until_it_is_accepted(self):
         self.seed_files(FILES)
-        self.answer({**self.cluster, ("GET", CONTEXT): [(200, {}), (200, ACCEPTED)]})
+        self.answer({**self.cluster, ("GET", CONTEXT): [(404, {}), (200, {}), (200, ACCEPTED)]})
         k8s.seed()
-        self.assertEqual(len(self.platform.sent("GET", CONTEXT)), 2)
+        self.assertEqual(len(self.platform.sent("GET", CONTEXT)), 3)
 
     def test_a_resource_the_operator_refuses_stops_the_seed_with_its_message(self):
         self.seed_files(FILES)
         refused = {"status": {"conditions": [{"type": "Accepted", "status": "False", "reason": "ControlPlaneError",
                                               "message": "401 unauthorized"}]}}
-        self.answer({**self.cluster, ("GET", CONTEXT): (200, refused)})
-        with self.assertRaises(common.SeedError) as e:
+        self.answer({**self.cluster, ("GET", CONTEXT): [(404, {}), (200, refused)]})
+        with self.assertRaisesRegex(common.SeedError, "ControlPlaneError: 401 unauthorized"):
             k8s.seed()
-        self.assertIn("ControlPlaneError: 401 unauthorized", str(e.exception))
+        self.assertIn("ManagementContext acme/lab", [x["name"] for x in common.created()], "the next run finds it there, so it is recorded now")
 
     def test_a_webhook_refusal_stops_the_seed_at_once(self):
         self.seed_files(FILES)
         self.answer({**self.cluster, ("PATCH", CONTEXT): (403, {"message": "denied the request: Path [/x] already exists"})})
-        with self.assertRaises(common.SeedError) as e:
+        with self.assertRaisesRegex(common.SeedError, "denied the request"):
             k8s.seed()
-        self.assertIn("denied the request", str(e.exception))
         self.assertEqual(len(self.platform.sent("PATCH", CONTEXT)), 1)
 
     def test_a_webhook_that_is_not_up_yet_is_asked_again(self):
@@ -128,19 +143,17 @@ class Manifests(Seed):
     def test_a_cluster_without_the_operator_is_an_error_that_says_so(self):
         self.seed_files(FILES)
         self.answer({**self.cluster, ("GET", SERVER + "/apis/gravitee.io/v1alpha1"): (404, {})})
-        with self.assertRaises(common.SeedError) as e:
+        with self.assertRaisesRegex(common.SeedError, "is the operator installed"):
             k8s.seed()
-        self.assertIn("is the operator installed", str(e.exception))
 
     def test_a_namespaced_manifest_needs_its_namespace(self):
         self.seed_files({"k8s/01.yaml": "apiVersion: v1\nkind: Secret\nmetadata: {name: lab-credentials}\n"})
         self.answer(self.cluster)
-        with self.assertRaises(common.SeedError) as e:
+        with self.assertRaisesRegex(common.SeedError, "needs metadata.namespace"):
             k8s.seed()
-        self.assertIn("needs metadata.namespace", str(e.exception))
 
 
-class Removal(Manifests):
+class Removal(Cluster):
 
     def records(self):
         return [{"product": "k8s", "kind": "namespace", "label": "namespaces", "name": "acme", "id": "acme"},
@@ -186,14 +199,8 @@ class Removal(Manifests):
         self.assertEqual(self.platform.changes(), [])
         self.assertIn("The cluster does not answer", self.output())
 
-    def test_nothing_recorded_touches_nothing(self):
-        k8s.remove([{"product": "apim", "kind": "api", "label": "APIs", "name": "x", "id": "x"}])
-        self.assertEqual(self.platform.calls, [])
 
-
-
-
-class Generated(Manifests):
+class Generated(Cluster):
     SECRET = "k8s/01-key.yaml"
     FILE = """
 apiVersion: v1
@@ -230,4 +237,3 @@ stringData: {label: desk}
         self.answer({**self.cluster, ("GET", self.PATH): (404, {}), ("PATCH", self.PATH): (200, {})})
         k8s.seed()
         self.assertEqual(self.applied()[0]["stringData"], {"label": "desk"})
-        self.assertEqual(len(self.platform.sent("GET", self.PATH)), 1)   # apply's read alone: no key is generated

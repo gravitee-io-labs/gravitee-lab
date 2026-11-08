@@ -2,17 +2,14 @@
 // body keeps its tag while a pull brings bytes, and the page draws only the bars and the buttons at work as the measures move.
 // A measure that comes or goes draws every page, as a state does.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { flush, installDom } from "./dom-stub.mjs";
 
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids });
-const JOB = { id: "j1", for: "addon:kafka", verb: "start", title: "Start Kafka", done: false, ok: null, phases: [{ name: "Pull", started: 0 }], started: 0 };
-const KAFKA = { kind: "addon", id: "kafka", name: "Kafka", state: { key: "starting", label: "Starting" }, progress: "job" };
-const STATE = { job: JOB, addons: [KAFKA], setups: [], playgrounds: [], platform: null, services: {} };
+const page = installDom();
+const JOB = { id: "j1", for: "addon:kazoo", verb: "start", title: "Start Kazoo", done: false, ok: null, phases: [{ name: "Pull", started: 0 }], started: 0 };
+const KAZOO = { kind: "addon", id: "kazoo", name: "Kazoo", state: { key: "starting", label: "Starting" }, progress: "job" };
+const STATE = { job: JOB, addons: [KAZOO], setups: [], playgrounds: [], platform: null, services: {} };
 let answer = { status: 200, live: null };
 const header = (live) => (live ? JSON.stringify(live) : "");
 globalThis.fetch = async () => ({
@@ -31,7 +28,7 @@ const live = (progress, phase = progress, detail = `Pulling ${Math.round(progres
 test("the job, its phase and the item it is for are as far as the measures beside the state say", async () => {
   answer = { status: 200, live: live(0.25, 0.5) };
   await store.refresh();
-  assert.deepEqual([store.progress("job"), store.progress("phase"), store.progress("addon:kafka")], [0.25, 0.5, 0.25]);
+  assert.deepEqual([store.progress("job"), store.progress("phase"), store.progress("addon:kazoo")], [0.25, 0.5, 0.25]);
   assert.equal(store.running().detail, "Pulling 25%");
   answer = { status: 200, live: { ...live(0.3), id: "another" } };   // the measures of another job are not this one's
   await store.refresh();
@@ -61,7 +58,7 @@ test("a measure that comes or goes draws every page, as a state does", async () 
   assert.deepEqual([drawn.length, measured.length], [1, 0]);
   answer = { status: 304, live: null };
   await store.refresh();
-  assert.deepEqual([drawn.length, store.progress("job"), store.progress("addon:kafka")], [2, null, null]);
+  assert.deepEqual([drawn.length, store.progress("job"), store.progress("addon:kazoo")], [2, null, null]);
 });
 
 test("the bars and the line of the running job are painted from the measures", async () => {

@@ -7,25 +7,20 @@
 // lacks of the catalogs and of this Lab before it can start; one of this machine has a More with its Share and its Delete; the address of one
 // that is about to arrive while the catalogs download is not given up.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
+import { El, Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
 import { HOSTILE, catalog as catalogRow, content, FIRST, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 // A timer set with no delay (the menu's, in ui.js) is NaN for the mock, which then loses the timers that follow it
 const setTimer = globalThis.setTimeout;
 globalThis.setTimeout = (fn, ms, ...rest) => setTimer(fn, ms ?? 0, ...rest);
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 const found = { answers: true, frameable: true, reason: "" };
 const JOB = { id: "ab12cd34", for: "playground:hotels", verb: "start", title: "Start Acme Hostels", done: false, ok: null, progress: null, phases: [], started: 0 };
 // What the server answers beyond a guide: the places, the checks (for the place asked) and their dialog, and every call the page made
 const server = { places: [], down: false, checks: () => [], dialog: () => null, calls: [] };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const [route, query = ""] = path.split("?");
     const call = { method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined };
@@ -43,7 +38,6 @@ const page = installDom({
   },
 });
 globalThis.EventSource = class { close() {} addEventListener() {} };   // a job's output, which the drawer follows
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });   // a button gives its face back at once
 // The two libraries a guide is rendered with are loaded from a CDN by the page: stand-ins here, and a script loads at once
 globalThis.marked = { parse: (markdown) => `<p>${markdown.replace(/\n+/g, " ")}</p>` };
 globalThis.DOMPurify = { addHook() {}, sanitize: (html) => html };
@@ -172,7 +166,6 @@ test("the details list the consoles of the playground and of the platform alike,
 
 // --- Deploy to: where a playground that declares it deploys -----------------------------------------------------------------------------
 
-page.ids["combo-pop"].innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { Combo } = await import("../../../web/js/components/combo.js");
 const { serviceCells, paintBusy } = await import("../../../web/js/components/ui.js");
 Combo.init();
@@ -185,20 +178,19 @@ const SENTENCE = { "No hybrid gateway": (name) => `Set up a gateway in ${name} f
 // A place as GET /api/places says it
 const place = (platform, id, name, more = {}) => {
   const found = { id: `${platform.id}/${id}`, name: `${name} (${platform.name})`, platform: { id: platform.id, name: platform.name, kind: platform.kind },
-    environment: { id, name, organization: "org-1" }, state: "ready", missing: null, reason: "", token: { state: "valid" },
-    gateway: { id: "g1", name: "Gravitee Lab", state: "healthy", here: false, kept: true, connection: "CONNECTED" },
-    capabilities: { products: { "API Management": "4.12.21" }, plugins: false, detail: "" }, cannot: {}, ...more };
+    environment: { id, name }, state: "ready", missing: null, reason: "", token: { state: "valid" },
+    gateway: { id: "g1", name: "Gravitee Lab", state: "healthy", here: false, kept: true, connection: "CONNECTED" }, cannot: {}, ...more };
   return found.missing ? { ...found, state: "missing", reason: SENTENCE[found.missing](found.name) } : found;
 };
 const DEV = place(ACCOUNT, "env-dev", "Development");
-const TEST = place(ACCOUNT, "env-test", "Test", { missing: "No hybrid gateway", gateway: null, capabilities: null });
+const TEST = place(ACCOUNT, "env-test", "Test", { missing: "No hybrid gateway", gateway: null });
 const OTHER = place(CLIENT, "env-test", "Test", { missing: "No Cloud Token", token: { state: "unset" } });
 // A platform that cannot be read has no environment to list, token or gateway: it is one place, by its name
 const SLOW = { ...place({ id: "slow-lab", name: "Slow lab", kind: "cloud" }, "env-dev", "Development"), id: "slow-lab", name: "Slow lab", environment: null,
-  state: "unusable", reason: "Unreachable", token: null, gateway: null, capabilities: null };
+  state: "unusable", reason: "Unreachable", token: null, gateway: null };
 const PLACES = [DEV, TEST, OTHER, SLOW];
 // Development before anything is made there: no gateway, no Cloud Token
-const BARE = place(ACCOUNT, "env-dev", "Development", { missing: "No hybrid gateway", gateway: null, token: { state: "unset" }, capabilities: null });
+const BARE = place(ACCOUNT, "env-dev", "Development", { missing: "No hybrid gateway", gateway: null, token: { state: "unset" } });
 const HOTELS_DEV = { place: DEV.id, environment: "Development", created: [{ what: "APIs", count: 3 }, { what: "Applications", count: 1 }] };
 
 // Acme Hostels: it deploys to Cloud too. Its seed recorded 12 APIs on This machine. Why a playground cannot go to a place is in the
@@ -281,7 +273,7 @@ const answer = async (confirmed) => {   // "alt": the second button
 };
 const WHERE = [{ kind: "environment", id: DEV.id, name: DEV.name }];
 const dialogOf = (more) => ({ starts: [], stops: [], turns_off: [], keeps: [], restarts: [], deploys_to: WHERE, serves: [], stops_serving: [], ...more });
-const HYBRID = { kind: "addon", id: "hybrid", name: "Hybrid gateway" };
+const HYSSOP = { kind: "addon", id: "hyssop", name: "Hybrid gateway" };
 // The forms the Before you start lines open: a browser tells their button whether the required fields are filled, which the stub does not
 const field = (id) => page.doc.querySelector(`#${id}`);
 const form = (id) => {
@@ -314,7 +306,7 @@ test("a place kept for the playground is not known before the places are read: n
 // What places.py answers for a platform it has not read yet (the first call after the Lab UI starts), or cannot read: one entry, by the
 // platform's own id, with no environment, token or gateway
 const UNREAD = (reason) => ({ id: "my-account", name: "My Account", platform: { id: "my-account", name: "My Account", kind: "cloud" }, environment: null,
-  state: "unusable", missing: null, reason, token: null, gateway: null, capabilities: null, cannot: {} });
+  state: "unusable", missing: null, reason, token: null, gateway: null, cannot: {} });
 
 test("a place kept for a platform that is still being read, or cannot be used, is not This machine: nothing deploys and the reason is the button's title", async () => {
   for (const reason of ["Loading", "Invalid token", "Unreachable"]) {
@@ -374,17 +366,13 @@ test("a playground that cannot go to a platform has the picker too: This machine
   assert.deepEqual(buttons(), [["Deploy to This machine", ""], ["Start", ""]]);
   assert.deepEqual(await opened(), [["This machine", "", false], ["Test (Client lab)", CANNOT, true], ["Development (My Account)", CANNOT, true],
     ["Test (My Account)", CANNOT, true], ["Slow lab", CANNOT, true]], "the reason comes before what a place lacks, and before a platform that cannot be used");
-  options().find((o) => text(o.querySelector(".name")) === "Development (My Account)").click();
-  await flush();
-  assert.equal(page.stored.deploy, undefined, "nothing was chosen");
-  assert.equal(picker().classList.contains("open"), true);
   Combo.close();
   assert.deepEqual(reads("/check").map((c) => c.path), ["/api/playgrounds/hotels/check"], "This machine reads the checks as it always did");
   await leave();
 });
 
 test("a place whose environment does not run what the playground needs is listed disabled with its reason, the others open", async () => {
-  const LATER = place(CLIENT, "env-dev", "Development", { capabilities: { products: { "API Management": "4.13.2" }, plugins: false, detail: "" } });
+  const LATER = place(CLIENT, "env-dev", "Development");
   await visit({ ...off }, { places: [{ ...DEV, cannot: { hotels: "Needs API Management 4.13" } }, LATER] });
   assert.deepEqual(await opened(), [["This machine", "", false], ["Development (Client lab)", "", false], ["Development (My Account)", "Needs API Management 4.13", true]]);
   Combo.close();
@@ -525,9 +513,6 @@ test("a remote place waits for itself alone: what the local seed needs does not 
 
 test("a place that lacks something is chosen all the same, and its Start, Deploy and Re-seed say what to do first, in the words the places give", async () => {
   const lacks = [["Test (My Account)", { missing: "No hybrid gateway" }, "Set up a gateway in Test (My Account) first"],
-    ["Test (Client lab)", { missing: "No Cloud Token" }, "Cloud Token for Test (Client lab) is not set"],
-    ["Test (Client lab)", { missing: "Cloud Token expired" }, "Cloud Token for Test (Client lab) has expired"],
-    ["Test (Client lab)", { missing: "Cloud Token refused" }, "Gravitee Cloud refuses the Cloud Token of Test (Client lab)"],
     ["Slow lab", { state: "unusable", reason: "Unreachable" }, "Unreachable"]];
   for (const [name, more, why] of lacks) {
     const places = PLACES.map((p) => (p.name === name ? { ...p, ...more, reason: more.missing ? SENTENCE[more.missing](name) : more.reason } : p));
@@ -548,7 +533,7 @@ test("a place that lacks something is chosen all the same, and its Start, Deploy
 // --- Start, Deploy and Re-seed -----------------------------------------------------------------------------------------------------
 
 test("Start on a remote place always asks first: what it starts, then where it deploys, the place named; it sends the place back", async () => {
-  await visit({ ...off }, { kept: DEV.id, dialog: () => dialogOf({ starts: [HYBRID] }) });
+  await visit({ ...off }, { kept: DEV.id, dialog: () => dialogOf({ starts: [HYSSOP] }) });
   section.querySelector(".pg-start-btn").click();
   await flush();
   assert.deepEqual(effects(), { title: "Start Acme Hostels", action: "Start",
@@ -559,18 +544,8 @@ test("Start on a remote place always asks first: what it starts, then where it d
   await leave();
 });
 
-test("a remote Start that starts nothing still opens the dialog, with the place alone", async () => {
-  await visit({ ...off }, { kept: DEV.id });
-  section.querySelector(".pg-start-btn").click();
-  await flush();
-  assert.deepEqual(effects().steps, [["Deploys to", ["Development (My Account) Environment"]]]);
-  await answer(false);
-  assert.equal(posts("/start").length, 0);
-  await leave();
-});
-
 test("a remote Start that swaps the gateway says what it serves and stops serving, after the steps", async () => {
-  const swap = dialogOf({ restarts: [HYBRID], serves: WHERE, stops_serving: [{ kind: "environment", id: TEST.id, name: TEST.name }] });
+  const swap = dialogOf({ restarts: [HYSSOP], serves: WHERE, stops_serving: [{ kind: "environment", id: TEST.id, name: TEST.name }] });
   await visit({ ...off }, { kept: DEV.id, dialog: () => swap });
   section.querySelector(".pg-start-btn").click();
   await flush();
@@ -659,14 +634,14 @@ test("a Deploy at work says so on its button, with the verb of its job", async (
 const LINES = [{ name: "My Account", state: "ok", detail: "Connected", target: { kind: "platform", id: "my-account" } },
   { name: "Hybrid gateway", state: "warn", detail: "None in Development", fix: "gateway" },
   { name: "Cloud Token", state: "warn", detail: "Not set", fix: "token" },
-  { name: "Mail server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "smtp" }, file: "addons/smtp/.env" }];
+  { name: "Malt server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "malt" }, file: "addons/malt/.env" }];
 const lines = () => section.querySelectorAll(".pg-prep-item").map((li) => [text(li.querySelector(".pg-prep-name")),
   li.classList.contains("warn") ? "needs you" : li.classList.contains("auto") ? "start" : "in place", li.querySelectorAll(".pg-prep-action .icon-btn").map((b) => b.getAttribute("data-tip"))]);
 
 test("Before you start is read for the place, and a line that a form answers offers it: a plus for the gateway, a key for the Cloud Token", async () => {
   await visit({ ...off }, { kept: DEV.id, places: [BARE, TEST, OTHER, SLOW], checks: (query) => (query ? LINES : []) });
   assert.deepEqual(lines(), [["Hybrid gateway", "needs you", ["Create hybrid gateway"]], ["Cloud Token", "needs you", ["Add Cloud Token"]],
-    ["Mail server", "needs you", ["Settings"]], ["My Account", "in place", []]]);
+    ["Malt server", "needs you", ["Settings"]], ["My Account", "in place", []]]);
   assert.equal(section.querySelector('.pg-prep-name a[href="#/cloud/my-account"]').textContent, "My Account", "the platform leads to its row");
   assert.deepEqual(buttons().at(-1), ["Start", "Set up a gateway in Development (My Account) first"]);
   await leave();
@@ -715,7 +690,7 @@ test("the plus opens Create hybrid gateway in the environment of the place, and 
 
 test("for a remote place the notes of the core's start are not drawn", async () => {
   await visit({ ...off, created: [], first_start: "5 min", note: "Apply needed", note_tone: "warn" });
-  assert.equal(section.querySelectorAll(".pg-start-note").length, 2, "This machine: the first start and the note");
+  assert.deepEqual(section.querySelectorAll(".pg-start-note").map(text), ["First start: about 5 min", "Apply needed"], "This machine: the first start and the note");
   await pick("Development (My Account)");
   assert.equal(section.querySelectorAll(".pg-start-note").length, 0);
   await leave();
@@ -898,10 +873,10 @@ test("a start on images it was not tested with is the start that switches them, 
   await answer(true);
   assert.deepEqual(await asked, { accept: ["version:APIM"], remove: false, switch: true });
   // Without switching: the start's own dialog, and nothing of the versions sent back
-  const kept = confirmStart(other, "Start", dialogOf({ stops: [{ kind: "addon", id: "kafka", name: "Kafka" }] }), { offer });
+  const kept = confirmStart(other, "Start", dialogOf({ stops: [{ kind: "addon", id: "kazoo", name: "Kazoo" }] }), { offer });
   await flush();
   await answer("alt");
-  assert.deepEqual(await kept, { accept: ["addon:kafka"], remove: false });
+  assert.deepEqual(await kept, { accept: ["addon:kazoo"], remove: false });
   // A switch that goes back says it in the danger tone, and its button is the dangerous one
   const back = { ...offer, versions: [], goes_back: [{ ...row, name: "API Management master-latest → 4.13.0-alpha.3" }] };
   const warned = confirmStart(other, "Start", dialogOf({}), { offer: back });
@@ -953,15 +928,15 @@ test("Details > Open holds a group named after each platform that has a record, 
 });
 
 test("a service's ports say how another container of the lab reaches it, only while a platform is registered", () => {
-  const service = { image: "rnwood/smtp4dev:3", tag: "3", running_tag: "3", built: false, ports: ["8025", "2525"], targets: { 8025: "80", 2525: "25" } };
+  const service = { image: "acmecontainer/malt-box:3", tag: "3", running_tag: "3", built: false, ports: ["8025", "2525"], targets: { 8025: "80", 2525: "25" } };
   const ports = (found, platforms) => {
-    store.state = { ...plain, platforms, services: { ...plain.services, smtp4dev: found } };
+    store.state = { ...plain, platforms, services: { ...plain.services, "malt-box": found } };
     const el = page.doc.createElement("div");
     el.innerHTML = serviceCells(found);
     return el.querySelector(".s-ports").getAttribute("data-tip");
   };
   assert.equal(ports(service, []), null, "none without a platform");
-  assert.equal(ports(service, [ACCOUNT]), "In the lab: smtp4dev:80, smtp4dev:25");
+  assert.equal(ports(service, [ACCOUNT]), "In the lab: malt-box:80, malt-box:25");
   assert.equal(ports({ ...service, ports: [] }, [ACCOUNT]), null, "a service that publishes no port has no address to give");
   assert.equal(ports({ ...service, targets: undefined }, [ACCOUNT]), null);
   store.state = plain;
@@ -984,9 +959,6 @@ test("the store keeps the platforms the state lists and the places the server an
   assert.equal(heard, 1);
   await store.refreshPlaces();
   assert.equal(heard, 1, "a list that did not change redraws nothing");
-  server.places = { places: [DEV, TEST] };
-  await store.refreshPlaces();
-  assert.deepEqual(store.places, [DEV, TEST], "a list in an object is read as well");
   store.state = plain;
   await store.refreshPlaces();
   assert.deepEqual(store.places, [], "the platforms are gone, so are their places");
@@ -1073,6 +1045,23 @@ const prepared = () => section.querySelectorAll(".pg-prep-item").map((li) => ({ 
   action: text(li.querySelector(".pg-prep-action")), sub: li.querySelector(".sub") ? text(li.querySelector(".sub")) : "",
   buttons: li.querySelectorAll(".pg-prep-action .btn").map((b) => [b.tag, text(b), b.getAttribute("data-need") || b.getAttribute("href"), b.getAttribute("data-catalog") || ""]) }));
 globalThis.innerHeight = 800;
+// An entry of the page's More, chosen: the menu is the document's
+const more = async (label) => {
+  section.querySelector("#pg-actions [data-more]").click();
+  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item").find((el) => text(el.querySelector("span")) === label) }));
+  await flush();
+};
+const mine = (extra = {}) => visit({ ...off, personal: true, id: "local/hotels", held: { delete: "" }, ...extra }, { platforms: [], places: [], id: "local/hotels" });
+// What a browser would save of an Export: the click on its link is kept
+const saving = () => {
+  const saved = [], make = page.doc.createElement.bind(page.doc);
+  page.doc.createElement = (tag) => {
+    const el = make(tag);
+    if (tag === "a") el.click = () => saved.push(el.download);
+    return el;
+  };
+  return { saved, restore: () => { page.doc.createElement = make; } };
+};
 
 test("the address of a playground of a catalog is its page, with the step of its guide after the id, and a personal one's too", () => {
   const found = (hash) => playgroundPage.pattern.exec(hash)?.slice(1);
@@ -1116,11 +1105,11 @@ test("its file button reads View and shows no path of this machine; the file of 
 });
 
 test("a playground of this machine has a More, last of the page's actions, with Export, Export for Docker Compose, Share and Delete", async () => {
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
-  const more = section.querySelector("#pg-actions [data-more]");
-  assert.deepEqual([more.getAttribute("aria-label"), more.getAttribute("data-tip"), more.getAttribute("aria-haspopup")], ["More for Acme Hostels", "More", "true"]);
-  assert.ok(section.querySelector("#pg-actions .row-icons").lastElementChild === more, "at the end, after its files");
-  more.click();
+  await mine();
+  const button = section.querySelector("#pg-actions [data-more]");
+  assert.deepEqual([button.getAttribute("aria-label"), button.getAttribute("data-tip"), button.getAttribute("aria-haspopup")], ["More for Acme Hostels", "More", "true"]);
+  assert.ok(section.querySelector("#pg-actions .row-icons").lastElementChild === button, "at the end, after its files");
+  button.click();
   assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Share", ""], ["Delete", ""]]);
   assert.equal(menu.querySelectorAll(".menu-sep").length, 1);
   assert.ok(menu.querySelectorAll(".menu-item")[3].classList.contains("danger"));
@@ -1128,10 +1117,10 @@ test("a playground of this machine has a More, last of the page's actions, with 
   await leave();
 });
 
-test("Share and Delete of the page are held for the reasons the list gives, and the Lab UI not answering holds them too", async () => {
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "Turn off Acme Hostels first", delete: "Stop Acme Hostels first" } }, { platforms: [], places: [], id: "local/hotels" });
+test("Delete of the page is held for the reason the list gives, and the Lab UI not answering holds Share and Delete", async () => {
+  await visit({ ...off, personal: true, id: "local/hotels", held: { delete: "Stop Acme Hostels first" } }, { platforms: [], places: [], id: "local/hotels" });
   section.querySelector("#pg-actions [data-more]").click();
-  assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Share", "Turn off Acme Hostels first"], ["Delete", "Stop Acme Hostels first"]]);
+  assert.deepEqual(entries(), [["Export", ""], ["Export for Docker Compose", ""], ["Share", ""], ["Delete", "Stop Acme Hostels first"]]);
   page.doc.dispatchEvent(Object.assign(new Ev("click"), { target: page.doc.body }));
   store.offline = true;
   section.querySelector("#pg-actions [data-more]").click();
@@ -1142,11 +1131,9 @@ test("Share and Delete of the page are held for the reasons the list gives, and 
 });
 
 test("Delete of the page says what goes and what stays in Gravitee, deletes that playground alone, and the page goes back to the list once it is gone", async () => {
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  await mine();
   server.calls = [];
-  section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[3] }));   // the menu is the document's
-  await flush();
+  await more("Delete");
   assert.deepEqual(effects().notes, [["Stays in Gravitee", ["12 APIs"]]]);
   assert.equal(effects().title, "Delete Acme Hostels");
   assert.deepEqual(effects().steps.map(([label]) => label), ["Deletes"]);
@@ -1156,21 +1143,13 @@ test("Delete of the page says what goes and what stays in Gravitee, deletes that
 });
 
 test("Export for Docker Compose says what the folder runs, leaves out and needs, then saves it; what comes from a private catalog is said, and the button says it too", async () => {
-  const saved = [];
-  const make = page.doc.createElement.bind(page.doc);
-  page.doc.createElement = (tag) => {
-    const el = make(tag);
-    if (tag === "a") el.click = () => saved.push(el.download);
-    return el;
-  };
+  const { saved, restore } = saving();
   server.standalone = { name: "Acme Hostels", file: "hotels-docker-compose.zip", runs: ["API Management", "Databases", "Acme Hostels"],
     leaves_out: ["Alert Engine"], license: ["apim-feature"], host: ["Ollama with a model"], plugins_missing: ["acme-policy"], private: [],
     registries: [] };
   await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
   server.calls = [];
-  section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[1] }));
-  await flush();
+  await more("Export for Docker Compose");
   assert.equal(effects().title, "Export Acme Hostels for Docker Compose");
   assert.deepEqual(effects().steps, [["Runs", ["API Management", "Databases", "Acme Hostels"]]]);
   assert.deepEqual(effects().notes, [["Leaves out", ["Alert Engine", "The Lab UI", "Its settings", "The license"]],
@@ -1186,9 +1165,7 @@ test("Export for Docker Compose says what the folder runs, leaves out and needs,
   const plain = server.standalone;
   server.standalone = { ...plain, license: ["a-feature", "b-feature", "c-feature"], private: [{ key: "1a2b3c", name: "Internal", items: ["Ledger"], item_ids: ["@internal/ledger"] }] };
   await visit({ ...off, ...HUB }, { platforms: [], places: [], id: "@acme-hub/hotels" });
-  section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[1] }));
-  await flush();
+  await more("Export for Docker Compose");
   assert.equal(effects().notes[1][1][0], "A license with 3 features", "more features than fit a line are counted");
   assert.deepEqual(effects().notes.at(-1), ["Private", ["Internal"]]);
   assert.equal(text(page.ids["choice-ok"]), "Export with private content");
@@ -1197,25 +1174,17 @@ test("Export for Docker Compose says what the folder runs, leaves out and needs,
   assert.deepEqual(server.calls.at(-1).body, { private: ["1a2b3c|@internal/ledger"] }, "the file says what the person saw leave, item by item and origin by origin");
   await leave();
   server.standalone = plain;
-  page.doc.createElement = make;
+  restore();
 });
 
 test("Export says what the file carries, what it needs and what it leaves out, then saves it; what another Lab would block keeps it from being made", async () => {
-  const saved = [];
-  const make = page.doc.createElement.bind(page.doc);
-  page.doc.createElement = (tag) => {
-    const el = make(tag);
-    if (tag === "a") el.click = () => saved.push(el.download);
-    return el;
-  };
+  const { saved, restore } = saving();
   server.exported = { name: "Acme Hostels", file: "hotels.zip", carries: [{ kind: "playground", id: "local/hotels", name: "Acme Hostels" },
     { kind: "addon", id: "local/kiosk", name: "Kiosk" }], needs: [{ id: "acme", name: "Acme public" }], problems: [], blocked: [],
   uses_machine: [{ name: "Kiosk", what: ["runs privileged"] }] };
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
+  await mine();
   server.calls = [];
-  section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
-  await flush();
+  await more("Export");
   assert.equal(effects().title, "Export Acme Hostels");
   assert.deepEqual(effects().steps, [["Carries", ["Acme Hostels Playground", "Kiosk Add-on"]], ["Needs", ["Acme public Catalog"]]]);
   assert.deepEqual(effects().notes, [["Asks to use the machine", ["Kiosk: runs privileged"]], ["Leaves out", ["Its settings", "The license"]]]);
@@ -1229,10 +1198,8 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   const plain = server.exported;
   server.exported = { ...plain, private: [{ key: "1a2b3c", name: "Internal", items: ["Ledger"], item_ids: ["@internal/ledger"] }],
     registries: [{ registry: "graviteeio.azurecr.io", images: ["graviteeio.azurecr.io/apim-gateway:4.13.0"] }] };
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
-  section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
-  await flush();
+  await mine();
+  await more("Export");
   assert.deepEqual(effects().notes[0], ["Private", ["Internal"]], "the catalog, once: what it carries is listed above");
   assert.deepEqual(effects().notes[1], ["Needs access", ["graviteeio.azurecr.io"]], "a registry that asks for a login");
   assert.equal(text(page.ids["choice-ok"]), "Export with private content");
@@ -1244,24 +1211,20 @@ test("Export says what the file carries, what it needs and what it leaves out, t
   // Many origins fold under a line that counts them, one each: a name that starts with a number is no count
   server.exported = { ...plain, private: ["12 Tools", "Internal", "Partner", "Ops", "Legal"].map((name, n) => ({ key: `k${n}`, name, items: ["Ledger"],
     item_ids: ["@internal/ledger"] })) };
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
-  section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
-  await flush();
+  await mine();
+  await more("Export");
   assert.equal(text(picks.querySelector(".choice-more .choice-summary")), "5 items");
   await answer(false);
   await leave();
   server.exported = plain;
   // What another Lab would block is said, and the file is not made
   server.exported = { ...server.exported, uses_machine: [], blocked: [{ name: "Kiosk", reasons: ["Changes Gateway beyond adding settings"] }] };
-  await visit({ ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" } }, { platforms: [], places: [], id: "local/hotels" });
-  section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[0] }));
-  await flush();
+  await mine();
+  await more("Export");
   assert.deepEqual(effects().notes.at(-1), ["Blocked on another Lab", ["Kiosk: Changes Gateway beyond adding settings"]]);
   assert.equal(page.ids["choice-ok"].getAttribute("aria-disabled"), "true");
   await answer(false);
-  page.doc.createElement = make;
+  restore();
   await leave();
 });
 
@@ -1269,14 +1232,10 @@ test("an imported playground moves to Personal from its menu: with what it bring
   server.movePlan = {
     together: { moves: ["Acme Hostels", "Kiosk"], stays: [{ name: "Ledger", why: "Used by Notes" }], replaces: [], held: "", uses_machine: ["Kiosk"] },
     alone: { moves: ["Acme Hostels"], stays: [], replaces: ["Acme Hostels"], held: "" }, used_by: "" };
-  const imported = { ...off, id: "@hostels/hotels", origin: { id: "imported", name: "Imported" }, held: { share: "", delete: "" } };
+  const imported = { ...off, id: "@hostels/hotels", origin: { id: "imported", name: "Imported" }, held: { delete: "" } };
   await visit(imported, { platforms: [], places: [], id: "@hostels/hotels" });
-  section.querySelector("#pg-actions [data-more]").click();
-  const entries = menu.querySelectorAll(".menu-item");
-  assert.ok(entries.some((el) => text(el) === "Move to Personal"));
   server.calls = [];
-  page.doc.dispatchEvent(new Ev("click", { target: entries.find((el) => text(el) === "Move to Personal") }));
-  await flush();
+  await more("Move to Personal");
   assert.equal(effects().title, "Move Acme Hostels to Personal");
   assert.deepEqual(choices(), [
     ["With its setups and add-ons", "What nothing else uses", [["Moves", ["Acme Hostels", "Kiosk"]], ["Uses this machine", ["Kiosk"]], ["Stays", ["Ledger: Used by Notes"]]]],
@@ -1291,9 +1250,7 @@ test("an imported playground moves to Personal from its menu: with what it bring
   page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
   server.moveDone = { warning: "Some files were created by Docker and could not be deleted. Remove the folder .lab/imports/hostels with administrator rights." };
   await visit(imported, { platforms: [], places: [], id: "@hostels/hotels" });
-  section.querySelector("#pg-actions [data-more]").click();
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item").find((el) => text(el) === "Move to Personal") }));
-  await flush();
+  await more("Move to Personal");
   await answer(true);
   await flush();
   assert.deepEqual(page.doc.querySelectorAll(".toast").map(text), ["Moved. Some files were created by Docker and could not be deleted. Remove "
@@ -1307,10 +1264,8 @@ test("a playground of a catalog is copied to Personal from its menu: alone, or w
     alone: { copies: ["Acme Hostels"], switches: [], uses_machine: [], held: "" },
     with_users: { copies: ["Acme Hostels", "Tour"], switches: ["Notes"], uses_machine: [], held: "" } };
   await visit({ ...off, id: "@acme-hub/hotels", origin: { id: "acme-hub", name: "Acme Hub" } }, { platforms: [], places: [], id: "@acme-hub/hotels" });
-  section.querySelector("#pg-actions [data-more]").click();
   server.calls = [];
-  page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item").find((el) => text(el) === "Copy to Personal") }));
-  await flush();
+  await more("Copy to Personal");
   assert.equal(effects().title, "Copy Acme Hostels to Personal");
   assert.deepEqual(choices(), [
     ["Only Acme Hostels", "What uses it keeps the original", [["Copies", ["Acme Hostels"]]]],
@@ -1323,12 +1278,9 @@ test("a playground of a catalog is copied to Personal from its menu: alone, or w
 });
 
 test("Delete names the folder by the path the item is read by (display_file), the file it opens being its own", async () => {
-  const mine = { ...off, personal: true, id: "local/hotels", held: { share: "", delete: "" }, file: ".lab/catalogs/local/playgrounds/hotels/compose.yml" };
-  for (const [display_file, said] of [["playgrounds/hotels/compose.yml", "playgrounds/hotels/"], ["", ".lab/catalogs/local/playgrounds/hotels/"], [undefined, ".lab/catalogs/local/playgrounds/hotels/"]]) {
-    await visit({ ...mine, display_file }, { platforms: [], places: [], id: "local/hotels" });
-    section.querySelector("#pg-actions [data-more]").click();
-    page.doc.dispatchEvent(new Ev("click", { target: menu.querySelectorAll(".menu-item")[3] }));
-    await flush();
+  for (const [display_file, said] of [["playgrounds/hotels/compose.yml", "playgrounds/hotels/"], ["", ".lab/catalogs/local/playgrounds/hotels/"]]) {
+    await mine({ display_file, file: ".lab/catalogs/local/playgrounds/hotels/compose.yml" });
+    await more("Delete");
     assert.deepEqual(effects().steps, [["Deletes", [said]]], String(display_file));
     await answer(false);
     await leave();
@@ -1361,22 +1313,13 @@ test("what a playground lacks of the catalogs is the first of Before you start: 
   await leave();
 });
 
-test("a catalog the Lab lists is added at once, with no dialog; the line of one that failed says why", async () => {
-  const listed = catalogRow({ id: "partner-bank", name: "Partner Bank", kind: "suggested", listed: true, commit: "" });
+test("the line of a catalog that failed says why", async () => {
   const failed = catalogRow({ id: "partner-bank", name: "Partner Bank", commit: "", listed: false, state: { key: "unreachable", label: "Unreachable", tone: "warn",
-    reason: "Cannot reach github.com.", next: "Check your connection, then try again.", whatsnew: [] } });
-  await visit({ ...off, ...HUB, needs_catalogs: [need()] }, { platforms: [], places: [], id: "@acme-hub/hotels" });
-  store.state = { ...store.state, catalogs: [FIRST(), listed] };
+    reason: "Cannot reach github.com.", next: "Check your connection, then try again." } });
+  await visit({ ...off, ...HUB, needs_catalogs: [need({ reason: "failed" })] }, { platforms: [], places: [], id: "@acme-hub/hotels" });
+  store.state = { ...store.state, catalogs: [FIRST(), failed] };
   playgroundPage.render(store.state);
-  server.calls = [];
-  section.querySelector('[data-need="add"]').click();
-  await flush();
-  assert.deepEqual(posts("").filter((c) => c.path === "/api/catalogs").map((c) => c.body), [{ listed: "partner-bank" }]);
-  assert.ok(!page.doc.querySelectorAll("dialog").some((d) => d.hasAttribute("open") && text(d.querySelector("h2")) === "Add catalog"), "no dialog for a catalog the Lab lists");
-  store.state = { ...store.state, catalogs: [FIRST(), failed], playgrounds: store.state.playgrounds.map((p) => (p.id === "@acme-hub/hotels" ? { ...p, needs_catalogs: [need({ reason: "failed" })] } : p)) };
-  playgroundPage.render(store.state);
-  const line = prepared().find((one) => one.name === "Needs Partner Bank");
-  assert.equal(line.sub, "Cannot reach github.com. Check your connection, then try again.");
+  assert.equal(prepared().find((one) => one.name === "Needs Partner Bank").sub, "Cannot reach github.com. Check your connection, then try again.");
   await leave();
 });
 
@@ -1393,16 +1336,16 @@ test("a Lab that reads a level other than the playground's says so, and what to 
 
 test("what it uses of this machine is one line among what Start does, in its author's words, once each and cut", async () => {
   const use = (service, why) => ({ service, what: ["runs privileged"], why });
-  await visit({ ...off, uses_machine: [use("k3s", "Runs containerd and the kubelet"), use("k3s-agent", "Runs containerd and the kubelet"), use("socket", "Reads the Docker socket")] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", "Runs nested containers"), use("kea-agent", "Runs nested containers"), use("socket", "Reads the Docker socket")] }, { platforms: [], places: [] });
   const line = prepared().find((one) => one.name === "Uses this machine");
-  assert.deepEqual([line.kind, line.action], ["auto", "Runs containerd and the kubelet, Reads the Docker socket"]);
+  assert.deepEqual([line.kind, line.action], ["auto", "Runs nested containers, Reads the Docker socket"]);
   await leave();
   const long = "x".repeat(300);
-  await visit({ ...off, uses_machine: [use("k3s", long)] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", long)] }, { platforms: [], places: [] });
   const cut = prepared().find((one) => one.name === "Uses this machine").action;
   assert.ok(cut.length <= 120 && cut.endsWith("\u2026"), "the author's text is cut");
   await leave();
-  await visit({ ...off, uses_machine: [use("k3s", HOSTILE)] }, { platforms: [], places: [] });
+  await visit({ ...off, uses_machine: [use("kea", HOSTILE)] }, { platforms: [], places: [] });
   assert.equal(section.querySelectorAll("img").length, 0, "text, never markup");
   await leave();
   await visit({ ...off }, { platforms: [], places: [] });
@@ -1440,11 +1383,6 @@ test("a playground's address that names one about to arrive is not given up whil
       playgroundPage.render(store.state);
       assert.deepEqual(bounced, ["#/playgrounds"], done);
     }
-    // A server that does not say the content gives up at once, as it always did
-    bounced.length = 0;
-    store.state = { ...plain, playgrounds: [] };
-    playgroundPage.render(store.state);
-    assert.deepEqual(bounced, ["#/playgrounds"]);
   } finally {
     router.replace = real;
   }

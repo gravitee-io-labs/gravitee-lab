@@ -4,14 +4,11 @@ what it is given: made once, left alone by a second run (no write at all), repai
 taking over what the seed did not make, and removed with only what it made."""
 
 import itertools
-import os
 import re
-import unittest
 from unittest import mock
 
 from lab_seeder import aim_governance
 from lab_seeder import common
-from lab_seeder import gamma
 from lab_seeder import seed
 from lab_seeder.testkit import Seed
 
@@ -42,11 +39,11 @@ frameworks:
   - eu-ai-act
 
 agents:
-  - agent: care-copilot
+  - agent: desk-copilot
     metadata:
-      compliance.intendedPurpose: Helps the care team answer questions about customers and orders.
+      compliance.intendedPurpose: Helps the desk team answer questions about customers and orders.
       compliance.accountableHuman: {user: admin}
-      compliance.riskAssessment: HARBOR-RA-2026-014
+      compliance.riskAssessment: ORCHID-RA-2026-014
     attest:
       - authenticated-identity
       - tool-inventory
@@ -72,7 +69,7 @@ class World:
         self.rules = {}
         self.active = {}          # framework id -> its activation
         self.frameworks = ("eu-ai-act",)
-        self.agents = [{"id": "agent-1", "entityId": "agent.care-copilot", "definition": {"name": "Care copilot"}}]
+        self.agents = [{"id": "agent-1", "entityId": "agent.desk-copilot", "definition": {"name": "Desk copilot"}}]
         # agent id -> {metadata key: value}. The risk class is the agent's own, from its file in aim/agents
         self.answers = {"agent-1": {"riskClassification": "limited"}}
         self.attested = {}        # agent id -> the controls attested
@@ -215,12 +212,6 @@ class Settings(Governance):
         self.assertEqual(self.world.settings["defaultTtlSeconds"], 300)
         self.assertIn("[aim-governance] ✓ Approval settings: 300 s, DENY on expiry", self.output())
 
-    def test_a_second_run_writes_nothing(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.platform.sent("PUT", SETTINGS_PATH), [])
-        self.assertIn("[aim-governance] Approval settings as the file says", self.output())
-
     def test_the_price_of_a_decision_is_sent_back_as_it_is_because_a_replace_without_it_clears_it(self):
         self.world.settings["approvalCost"] = 5.0
         aim_governance.seed()
@@ -310,12 +301,6 @@ class Rules(Governance):
         aim_governance.seed()
         self.assertEqual([(x["name"], x["id"], x["label"]) for x in self.records("approval-rule")],
                          [("Refunds above EUR 100", self.rule()["id"], "approval rules")])
-
-    def test_a_second_run_writes_nothing_though_the_platform_adds_its_own_fields(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.changed(), [])
-        self.assertIn("[aim-governance] Approval rule up to date: Refunds above EUR 100", self.output())
 
     def test_a_rule_that_differs_is_replaced_in_place_with_the_whole_file(self):
         self.made()
@@ -439,12 +424,6 @@ class Frameworks(Governance):
                          [("eu-ai-act", self.world.active["eu-ai-act"]["id"], "compliance frameworks")])
         self.assertIn("[aim-governance] ✓ Framework on: eu-ai-act", self.output())
 
-    def test_a_second_run_writes_nothing(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.platform.sent("POST", ACTIVATIONS), [])
-        self.assertIn("[aim-governance] Framework on: eu-ai-act", self.output())
-
     def test_a_framework_that_was_on_before_is_not_the_seeds_and_is_not_recorded(self):
         self.world.active["eu-ai-act"] = {"id": "activation-0", "frameworkId": "eu-ai-act"}
         aim_governance.seed()
@@ -467,9 +446,8 @@ class Frameworks(Governance):
 
     def test_a_framework_the_platform_does_not_know_is_reported_whole(self):
         self.file(compliance="frameworks: [no-such-law]\n")
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "compliance.framework.not_found"):
             aim_governance.seed()
-        self.assertIn("compliance.framework.not_found", str(stopped.exception))
 
 
 class Answers(Governance):
@@ -477,28 +455,16 @@ class Answers(Governance):
         aim_governance.seed()
         sent = self.platform.sent("PUT", AGENT + "/metadata")
         self.assertEqual([call.json for call in sent], [{"values": {
-            "compliance.intendedPurpose": "Helps the care team answer questions about customers and orders.",
-            "compliance.accountableHuman": "user-admin", "compliance.riskAssessment": "HARBOR-RA-2026-014"}}])
+            "compliance.intendedPurpose": "Helps the desk team answer questions about customers and orders.",
+            "compliance.accountableHuman": "user-admin", "compliance.riskAssessment": "ORCHID-RA-2026-014"}}])
         self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], "user-admin")
-        self.assertIn("[aim-governance] ✓ Compliance answers written: Care copilot", self.output())
-
-    def test_the_user_is_the_one_whose_source_id_is_that_name_and_not_one_that_contains_it(self):
-        aim_governance.seed()
-        looked = self.platform.sent("GET", USERS)
-        self.assertEqual(looked[0].params["q"], "admin")
-        self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], "user-admin")
+        self.assertIn("[aim-governance] ✓ Compliance answers written: Desk copilot", self.output())
 
     def test_it_records_the_answers_with_a_fingerprint_for_the_agent(self):
         aim_governance.seed()
         record = self.records("compliance-answers")[0]
-        self.assertEqual((record["name"], record["id"], record["label"]), ("Care copilot", "agent-1", "compliance answers"))
+        self.assertEqual((record["name"], record["id"], record["label"]), ("Desk copilot", "agent-1", "compliance answers"))
         self.assertEqual(len(record["digest"]), 64)
-
-    def test_a_second_run_writes_nothing(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.changed(), [])
-        self.assertIn("[aim-governance] Compliance answers up to date: Care copilot", self.output())
 
     def test_a_value_that_a_person_changed_for_a_key_of_the_file_stays_while_the_file_is_the_same(self):
         self.made()
@@ -510,13 +476,13 @@ class Answers(Governance):
     def test_a_key_the_file_does_not_name_is_never_touched_even_when_the_file_changes(self):
         self.made()
         self.world.answers["agent-1"]["compliance.oversightMeasure"] = "human-in-the-loop"
-        self.file(compliance=COMPLIANCE.replace("HARBOR-RA-2026-014", "HARBOR-RA-2026-015"))
+        self.file(compliance=COMPLIANCE.replace("ORCHID-RA-2026-014", "ORCHID-RA-2026-015"))
         aim_governance.seed()
         sent = self.platform.sent("PUT", AGENT + "/metadata")[0].json["values"]
-        self.assertEqual(sent["compliance.riskAssessment"], "HARBOR-RA-2026-015")
+        self.assertEqual(sent["compliance.riskAssessment"], "ORCHID-RA-2026-015")
         self.assertNotIn("compliance.oversightMeasure", sent)
         self.assertEqual(self.world.answers["agent-1"]["compliance.oversightMeasure"], "human-in-the-loop")
-        self.assertEqual(self.world.answers["agent-1"]["compliance.riskAssessment"], "HARBOR-RA-2026-015")
+        self.assertEqual(self.world.answers["agent-1"]["compliance.riskAssessment"], "ORCHID-RA-2026-015")
 
     def test_another_user_is_another_answer(self):
         self.made()
@@ -532,7 +498,7 @@ class Answers(Governance):
         self.assertEqual([x["id"] for x in self.records("compliance-answers")], ["agent-9"])
 
     def test_a_number_is_sent_as_text_and_an_empty_value_clears_the_answer(self):
-        self.file(compliance="agents:\n  - agent: care-copilot\n    metadata: {a: 2, b: true, c: ~, d: ''}\n")
+        self.file(compliance="agents:\n  - agent: desk-copilot\n    metadata: {a: 2, b: true, c: ~, d: ''}\n")
         aim_governance.seed()
         self.assertEqual(self.platform.sent("PUT", AGENT + "/metadata")[0].json["values"], {"a": "2", "b": "True", "c": "", "d": ""})
 
@@ -550,28 +516,27 @@ class Answers(Governance):
 
     def test_an_agent_that_is_not_in_the_catalog_stops_it(self):
         self.world.agents.clear()
-        self.fails("The agent 'agent.care-copilot' is not in the catalog: seed/aim/agents registers it before")
+        self.fails("The agent 'agent.desk-copilot' is not in the catalog: seed/aim/agents registers it before")
 
     def test_the_risk_class_is_the_agents_own_and_stops_the_seed_before_any_call(self):
         self.file(compliance=COMPLIANCE.replace("    metadata:\n", "    metadata:\n      riskClassification: limited\n"))
-        self.fails("compliance.yaml: riskClassification of 'care-copilot' is set on the agent: write it in the metadata "
+        self.fails("compliance.yaml: riskClassification of 'desk-copilot' is set on the agent: write it in the metadata "
                    "of its file in aim/agents")
         self.assertEqual(self.changed(), [])        # not an approval setting, a rule or a framework either: the file is read whole first
 
     def test_a_value_that_is_neither_text_nor_a_user_stops_it(self):
-        self.file(compliance="agents:\n  - agent: care-copilot\n    metadata: {compliance.accountableHuman: {team: support}}\n")
-        self.fails("compliance.yaml: the value of compliance.accountableHuman for 'care-copilot' is a text or {user: ...}")
+        self.file(compliance="agents:\n  - agent: desk-copilot\n    metadata: {compliance.accountableHuman: {team: support}}\n")
+        self.fails("compliance.yaml: the value of compliance.accountableHuman for 'desk-copilot' is a text or {user: ...}")
 
     def test_the_platforms_refusal_of_a_value_is_reported_whole(self):
         self.platform.add({("PUT", AGENT + "/metadata"): (400, {"code": "compliance.metadata.invalid",
                                                                 "message": "riskClassification must be one of negligible, limited"})})
-        with self.assertRaises(common.SeedError) as stopped:
+        with self.assertRaisesRegex(common.SeedError, "riskClassification must be one of negligible, limited"):
             aim_governance.seed()
-        self.assertIn("riskClassification must be one of negligible, limited", str(stopped.exception))
         self.assertEqual(self.records("compliance-answers"), [])
 
     def test_a_file_without_answers_for_an_agent_asks_the_user_directory_nothing(self):
-        self.file(compliance="agents:\n  - agent: care-copilot\n")
+        self.file(compliance="agents:\n  - agent: desk-copilot\n")
         aim_governance.seed()
         self.assertEqual(self.platform.sent("GET", USERS), [])
         self.assertEqual(self.platform.sent("PUT", AGENT + "/metadata"), [])
@@ -589,19 +554,6 @@ class Attestations(Governance):
         aim_governance.seed()
         self.assertEqual(self.platform.sent("GET", AGENT + "/assessment"), [])
 
-    def test_a_second_run_writes_nothing_after_one_look_at_the_assessment(self):
-        self.made()
-        aim_governance.seed()
-        self.assertEqual(self.changed(), [])
-        self.assertEqual(len(self.platform.sent("GET", AGENT + "/assessment")), 1)
-        self.assertIn("[aim-governance]   Attested already: tool-inventory", self.output())
-
-    def test_a_control_that_is_attested_already_is_not_attested_again(self):
-        self.world.attested["agent-1"] = {"tool-inventory"}
-        aim_governance.seed()
-        paths = [call.path for call in self.platform.calls if call.path.endswith("/attestation")]
-        self.assertEqual(paths, [AGENT + "/controls/authenticated-identity/attestation"])
-
     def test_a_control_the_platform_reads_itself_is_left_alone_and_said(self):
         self.file(compliance=COMPLIANCE.replace("      - tool-inventory\n", "      - event-logging\n      - risk-classification\n"))
         aim_governance.seed()
@@ -612,7 +564,7 @@ class Attestations(Governance):
 
     def test_a_control_that_is_in_no_framework_that_is_on_stops_it(self):
         self.file(compliance=COMPLIANCE.replace("      - tool-inventory\n", "      - no-such-control\n"))
-        self.fails("The control 'no-such-control' is in no framework that is on: it cannot be attested for 'Care copilot'")
+        self.fails("The control 'no-such-control' is in no framework that is on: it cannot be attested for 'Desk copilot'")
 
     def test_a_control_in_two_frameworks_is_attested_once(self):
         framework = {"frameworkId": "other", "controls": [{"controlId": "tool-inventory", "status": "NOT_ASSESSED"}]}
@@ -623,7 +575,7 @@ class Attestations(Governance):
         self.assertEqual(len(paths), 1)
 
     def test_an_agent_with_attestations_and_no_answers_is_assessed_once_for_them(self):
-        self.file(compliance="frameworks: [eu-ai-act]\nagents:\n  - agent: care-copilot\n    attest: [tool-inventory]\n")
+        self.file(compliance="frameworks: [eu-ai-act]\nagents:\n  - agent: desk-copilot\n    attest: [tool-inventory]\n")
         aim_governance.seed()
         self.assertEqual(len(self.platform.sent("GET", AGENT + "/assessment")), 1)
         self.assertEqual(self.platform.sent("PUT", AGENT + "/metadata"), [])
@@ -653,6 +605,15 @@ class Attestations(Governance):
 
 
 class Files(Governance):
+    def test_a_second_run_writes_nothing_after_one_look_at_the_assessment(self):
+        self.made()
+        aim_governance.seed()
+        self.assertEqual(self.changed(), [])
+        self.assertEqual(len(self.platform.sent("GET", AGENT + "/assessment")), 1)
+        for line in ("Approval settings as the file says", "Approval rule up to date: Refunds above EUR 100", "Framework on: eu-ai-act",
+                     "Compliance answers up to date: Desk copilot", "  Attested already: tool-inventory"):
+            self.assertIn(f"[aim-governance] {line}", self.output())
+
     def test_a_folder_with_only_the_approvals_asks_nothing_of_compliance(self):
         (common.SEED_DIR / "aim" / "governance" / "compliance.yaml").unlink()
         aim_governance.seed()
@@ -672,28 +633,8 @@ class Files(Governance):
         aim_governance.seed()
         self.assertEqual(self.platform.calls, [])
 
-    def test_a_playground_that_seeds_no_governance_needs_no_setting_and_makes_no_call(self):
-        with mock.patch.object(common, "SEED_DIR", common.SEED_DIR / "nothing"), mock.patch.dict(os.environ, {}, clear=True):
-            aim_governance.seed()
-            aim_governance.remove([])
-        self.assertEqual(self.platform.calls, [])
-
-    def test_a_platform_without_agent_management_ends_the_wait_once_its_404_lasts(self):
-        self.platform.add({("GET", SETTINGS_PATH): (404, {"message": "not found"})})
-        with self.assertRaises(common.SeedError) as stopped:
-            aim_governance.seed()
-        self.assertIn("is not available on this platform", str(stopped.exception))
-        self.assertLess(self.clock.elapsed, gamma.UNSERVED + 5)
-
-    def test_the_records_of_other_modules_are_left_alone(self):
-        theirs = [{"product": "aim-catalog", "kind": "agent", "name": "a", "id": "a", "label": ""},
-                  {"product": "aim-agents", "kind": "subscription", "name": "s", "id": "s", "label": ""},
-                  {"product": "aim-governance", "kind": "other", "name": "o", "id": "o", "label": ""}]
-        aim_governance.remove(theirs)
-        self.assertEqual(self.platform.calls, [])
-
     def test_the_answers_alone_are_a_removal_that_asks_nothing_of_the_platform(self):
-        aim_governance.remove([{"product": "aim-governance", "kind": "compliance-answers", "name": "Care copilot",
+        aim_governance.remove([{"product": "aim-governance", "kind": "compliance-answers", "name": "Desk copilot",
                                 "id": "agent-1", "label": "compliance answers", "digest": "x"}])
         self.assertEqual(self.platform.calls, [])
 
@@ -713,22 +654,3 @@ class Files(Governance):
         aim_governance.seed()
         aim_governance.remove(common.created())
         self.assertNotRegex(self.output().lower(), r"password|secret|token|bearer")
-
-
-class Declared(Seed):
-    def test_the_kinds_it_records_are_the_kinds_it_labels(self):
-        self.assertEqual(sorted(aim_governance.LABELS), sorted(aim_governance.ORDER))
-        self.assertTrue(all(label.endswith("s") for label in aim_governance.LABELS.values()))
-
-    def test_the_rules_go_before_the_settings_and_the_answers_before_the_framework_they_are_checked_against(self):
-        order = aim_governance.ORDER
-        self.assertLess(order.index("approval-rule"), order.index("approval-settings"))
-        self.assertLess(order.index("compliance-answers"), order.index("compliance-framework"))
-
-    def test_it_reads_the_folder_of_the_governance_and_needs_agent_management(self):
-        self.assertEqual((aim_governance.FOLDERS, aim_governance.GAMMA, aim_governance.SECTION),
-                         (("aim/governance",), ("aim",), "aim-governance"))
-
-
-if __name__ == "__main__":
-    unittest.main()

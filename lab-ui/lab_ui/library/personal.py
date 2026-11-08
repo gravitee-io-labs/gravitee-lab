@@ -8,12 +8,11 @@ import os
 import posixpath
 import re
 import shutil
-import stat
 
 from . import check, files, layers, moves, starred, tested
 from ..docker import compose, images
 from .. import paths
-from ..catalogs import registry, resolve
+from ..catalogs import registry, renames, resolve
 from ..catalogs.registry import CatalogError
 from ..paths import NOUNS
 from .project import brought
@@ -298,7 +297,7 @@ def create_playground(project, name, description, category=None, setups=None, ad
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Sharing and deleting what is of this machine
+# Deleting what is of this machine
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _own(kind, uid, done):
@@ -331,16 +330,13 @@ def _on(on, kind, uid, running):
     return ""
 
 
-def held(project, on, kind, uid, deleting=False, running=False, deployed=()):
+def held(project, on, kind, uid, running=False, deployed=()):
     """Why an item of this machine cannot be deleted now; "" when it can. `on` is layers.current(). It goes only while
     it is off: the on file would name a file that is not there; and, an add-on or a playground, while nothing of it
     runs, on or off (`running`): its containers would run on with no file, which no page shows. What another item
     includes is not deleted: that one would not load. Nor is a playground that holds a record of what it created in a
     place besides This machine (`deployed`, as places.deployed says it): the record goes with its folder, and what it
-    created there could not be deleted any more. Sharing it is never held: a share is a copy, the item stays, runs and
-    keeps its settings. Pure: the state gives it to the item's menu, delete() refuses with it."""
-    if not deleting:
-        return ""
+    created there could not be deleted any more. Pure: the state gives it to the item's menu, delete() refuses with it."""
     if running and kind != "setup":   # a setup owns no container: its add-ons do
         return "Stop it first"
     users = [] if _turned_on(on, kind, uid) else _users(project, kind, uid)
@@ -373,7 +369,7 @@ def _not_held(project, kind, uid, deleting=False, deployed=()):
     if not deleting:
         reason = _on(on, kind, uid, running)
     else:
-        reason = held(project, on, kind, uid, deleting, running=running, deployed=deployed)
+        reason = held(project, on, kind, uid, running=running, deployed=deployed)
     if reason:
         raise RuntimeError(reason)
 
@@ -394,48 +390,18 @@ def delete(project, kind, uid, deployed=()):
     return {}
 
 
-def _personal_files():
-    """The compose files of the items of this machine, relative to the project."""
-    return [file for file in paths.files() if (paths.unit_of(file) or ("", ""))[1].startswith("local/")]
-
-
 def _including(path):
     """The files of this machine that include a file themselves."""
-    return [file for file in _personal_files() if path in compose.includes(file)]
+    return [file for file in moves._personal_files() if path in compose.includes(file)]
 
 
 def follow(old, new):
     """Writes again, in the files of this machine that name the file or folder `old` (relative to the project, as an include or
-    a path), the place `new` it has now (`moves.repoint`: only the paths that lead to what moved change). Each file is
-    replaced whole and the change is journaled. A file that is a link or is not text is left. Idempotent."""
-    for file in _personal_files():
-        path = paths.ROOT / file
-        if path.is_symlink() or not path.is_file():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, ValueError):
-            continue
-        folder = posixpath.dirname(file)
-        written = moves.repoint(text, folder, folder, [(old, new)])
-        if written != text:
-            paths.write_atomic(path, written, mode=stat.S_IMODE(path.stat().st_mode))
-            moves.journal("repoint", path=file, old=old, new=new)
+    a path), the place `new` it has now (`renames._includes`)."""
+    renames._includes(old, new, renames._quiet)
 
 
 def _move(path, target):
     """Moves the file of a setup of this machine, then writes again the includes of it in the files that name it."""
     (paths.ROOT / path).rename(paths.ROOT / target)
     follow(path, target)
-
-
-def share(kind, uid, check_only=False):
-    """An item of this machine shared without a destination (one to a catalog is catalogs/contribute.py's share: a copy, the
-    item stays). There is no share to make, since nothing is shared into the Lab: a check answers the item's file in its own
-    catalog, the problems that keep it from being shared anywhere (none) and the other files that would change (none), for
-    the page to ask for the destinations; asked to share, it is refused."""
-    path = _own(kind, uid, "shared")
-    if not check_only:
-        raise ValueError("Choose where to share")
-    return {"file": path.split("/", 3)[3] if path.startswith(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/") else path,
-            "problems": [], "changes": []}

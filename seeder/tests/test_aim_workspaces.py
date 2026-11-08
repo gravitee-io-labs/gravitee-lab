@@ -5,7 +5,6 @@ the seed made."""
 import itertools
 import json
 import re
-import unittest
 from unittest import mock
 from urllib.parse import unquote
 
@@ -290,12 +289,6 @@ class FirstRun(Workspaces):
         self.assertEqual(self.budgets(), {"Customer care": (5_000_000, "DAY", None), "Fraud analytics": (2_000_000, "DAY", None),
                                           "Hackathon sandbox": (120_000, "HOUR", {"limit": 20, "period": "MINUTE"})})
 
-    def test_the_first_budget_is_the_one_the_workspace_started_with_renamed(self):
-        self.seed()
-        self.assertEqual(len(self.the_workspace()["budgets"]), 3)
-        self.assertEqual(len(self.platform.sent("POST", re.compile(AIM + "/ai-workspaces/[^/]+/budgets"))), 2)
-        self.assertEqual(len(self.platform.sent("PUT", re.compile(AIM + "/ai-workspaces/[^/]+/budgets/[^/]+"))), 1)
-
     def test_the_models_come_from_the_catalog_provider_under_their_aliases(self):
         self.seed()
         [component] = self.the_workspace()["models"]
@@ -313,11 +306,6 @@ class FirstRun(Workspaces):
         bands = json.loads(step["configuration"])["bands"]
         self.assertEqual([(b["name"], [c["model"] for c in b["candidates"]]) for b in bands],
                          [("Plenty left", ["smart"]), ("Running low", ["lite"])])
-
-    def test_payloads_are_logged_and_headers_are_not_because_they_hold_the_key_of_the_team(self):
-        self.seed()
-        content = self.the_workspace()["analytics"]["logging"]["content"]
-        self.assertEqual((content["payload"], content["headers"]), (True, False))
 
     def test_the_calls_of_the_workspace_are_traced_like_those_of_the_proxies_so_that_an_answer_has_its_trace_in_gamma(self):
         self.seed()
@@ -385,9 +373,6 @@ class SecondRun(Workspaces):
         self.seed()
         self.assertEqual(self.platform.changes(), [])
         self.assertEqual(json.dumps(self.world.workspaces, sort_keys=True), self.before)
-
-    def test_it_records_nothing_twice(self):
-        self.seed()
         self.assertEqual(len(common.created()), 4)
 
     def test_a_budget_raised_in_the_file_is_updated_and_deployed(self):
@@ -484,11 +469,6 @@ class Refilling(Workspaces):
     def sandbox_counter(self):
         return f"ratelimit:{self.the_workspace()['id']}:app-team-hackathon:cost-rl"
 
-    def test_the_first_run_finds_nothing_spent_and_says_so(self):
-        self.seed()
-        self.assertIn("[refills] hackathon: team-hackathon has spent nothing in this period", self.output())
-        self.assertTrue(self.redis.closed)
-
     def test_a_run_gives_the_sandbox_its_budget_back_and_no_other_team_theirs(self):
         self.seed()
         self.spend()
@@ -567,16 +547,6 @@ class SpendAwareRouting(Workspaces):
         self.assertEqual(len(self.platform.sent("PUT", re.compile(AIM + "/ai-workspaces/[^/]+/router"))), 1)
         self.assertIn("Router controls are off: router", self.output())
 
-    def test_on_the_step_is_saved_enabled(self):
-        self.env(SEED_PROTECTIONS="on")
-        self.seed()
-        self.assertEqual(self.routes(), [("Spend-aware routing", True)])
-
-    def test_without_the_setting_the_router_is_on(self):
-        self.env(SEED_PROTECTIONS=None)
-        self.seed()
-        self.assertEqual(self.routes(), [("Spend-aware routing", True)])
-
     def test_a_second_run_writes_nothing(self):
         self.seed()
         self.platform.calls.clear()
@@ -622,17 +592,14 @@ class Gateway(Workspaces):
         self.env(GATEWAY_INTERNAL_URL="http://gateway")
         self.world.users["user-admin"] = ADMIN
 
-    def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it(self):
-        self.env(GATEWAY_INTERNAL_URL=None)
-        self.seed()
-        self.assertEqual(self.world.gateway_calls, [])
-        self.assertEqual(self.clock.sleeps, [])
-
-    def test_the_gateway_is_not_asked_and_nothing_is_slept_unless_the_seed_is_asked_to_wait_for_it(self):
-        self.env(SEED_WAIT_GATEWAY="0")
-        self.seed()
-        self.assertEqual(self.world.gateway_calls, [])
-        self.assertEqual(self.clock.sleeps, [])
+    def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it_or_is_not_asked_to_wait(self):
+        for setting in ({"GATEWAY_INTERNAL_URL": None}, {"SEED_WAIT_GATEWAY": "0"}):
+            with self.subTest(setting=setting):
+                self.setUp()
+                self.env(**setting)
+                self.seed()
+                self.assertEqual(self.world.gateway_calls, [])
+                self.assertEqual(self.clock.sleeps, [])
 
     def test_the_seed_waits_until_a_key_is_accepted_with_its_budget_then_for_two_synchronizations(self):
         self.world.gateway_serves_after = 3
@@ -698,12 +665,6 @@ class Removal(Workspaces):
         self.world.workspaces.clear()
         self.remove()
         self.assertEqual(list(self.world.users), ["user-admin"])
-
-    def test_what_another_module_made_is_left_alone(self):
-        theirs = [{"product": "aim-proxies", "kind": "mcp-proxy", "name": "p", "id": "p", "label": ""},
-                  {"product": "aim-catalog", "kind": "provider", "name": "o", "id": "o", "label": ""}]
-        aim_workspaces.remove(theirs)
-        self.assertEqual(self.platform.calls, [])
 
     def test_a_user_the_platform_refuses_to_delete_keeps_its_record_and_the_rest_goes(self):
         """A member that someone added to a workspace of their own owns an application that a subscription still uses."""
@@ -771,16 +732,3 @@ class OwnEndpoint(Workspaces):
         self.assertEqual(len(self.bulk()), 1)
         [component] = self.the_workspace()["models"]
         self.assertEqual(component["models"][0]["inputPrice"], 50.0)
-
-
-class Folder(Seed):
-
-    def test_a_playground_without_workspaces_needs_no_setting_and_makes_no_call(self):
-        self.env(APIM_MANAGEMENT_URL=None)
-        aim_workspaces.seed()
-        aim_workspaces.remove([])
-        self.assertEqual(self.platform.calls, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

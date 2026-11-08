@@ -7,7 +7,7 @@
 // says so in its state (a menu entry has no button to show it on) and offers nothing else to press. The dialogs are dialogs/catalog.js's.
 
 import { $, esc, icon, setHTML, api, store, router, ago, copyButton } from "../core.js";
-import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmEffects, GAP } from "../components/ui.js";
+import { toast, openMenu, keyed, statusHtml, progressBar, tipHtml, paintActions, actionButton, holdOff, contentStatus, confirmEffects, GAP, copyAddress, reveal } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 import { selectCatalog } from "./list.js";
 import { NO_GIT, usesCard, openAdd, addCatalog, tryAgain, openUpdate, openGoBack, openRemove, openAllow, openNew } from "../dialogs/catalog.js";
@@ -192,15 +192,6 @@ function holds(row) {
 
 // --- The menu -----------------------------------------------------------------------------------------------------------------
 
-async function copy(value) {
-  try {
-    await navigator.clipboard.writeText(value);
-    toast("Copied");
-  } catch {
-    toast("Could not copy", true);
-  }
-}
-
 // Why stopping the allowance waits: an item that uses this machine is on (the server's `held` is for updating, going back and removing)
 function allowHeld(row) {
   const on = (row.uses_machine || []).map((u) => ["addon", "setup", "playground"].map((kind) => store.item(kind, u.id)).find(Boolean)).find((x) => x?.on || x?.up);
@@ -256,7 +247,7 @@ function menu(row) {
   const web = /^https:\/\//i.test(row.web_url || "") ? row.web_url : "";
   // Where the Lab keeps an imported playground is its own business: no repository to open, no address to copy
   if (web && !row.imported) items.push({ label: "Open repository", href: web });
-  if (!row.imported) items.push({ label: "Copy address", onSelect: () => copy(row.url || row.address) });
+  if (!row.imported) items.push({ label: "Copy address", onSelect: () => copyAddress(row.url || row.address) });
   if (git) items.push({ label: "Go back to previous version", ...hold(!row.has_previous ? "No previous version" : held.undo === "No previous version" ? "" : held.undo), onSelect: () => openGoBack(row) });
   if (row.state?.key === "damaged") items.push({ label: "Repair", ...hold(""), onSelect: () => repair(row) });
   items.push({ separator: true }, { label: "Remove", danger: true, ...hold(held.remove), onSelect: () => openRemove(row) });
@@ -305,32 +296,21 @@ function controlOf(el) {
 }
 
 function draw(state) {
-  if (!section) return;
   const at = document.activeElement, again = at && section.contains(at) ? controlOf(at) : "";
-  const readable = Array.isArray(state?.catalogs), rows = readable ? grouped(state.catalogs.filter(shown)) : [];
+  const rows = grouped(state.catalogs.filter(shown));
   holdOff($("[data-add-catalog]", section), noGit(), NO_GIT);
   const status = $("[data-status]", section), list = $(".list-rows", section);
   $(".list-head", section).hidden = !rows.length;
   list.hidden = !rows.length;
-  // Nothing to list: the content says there is no catalog (and offers the one the server names); a state that cannot be read says so, with Try again
-  setHTML(status, !readable ? '<div class="empty"><span>Catalogs cannot be read</span><button type="button" class="btn" data-reload>Try again</button></div>'
-    : rows.length ? "" : contentStatus(state, { kind: "catalog" }) || contentStatus({ ...state, content: { ...state.content, key: "none" } }, { kind: "catalog" }));
+  // Nothing to list: the content says there is no catalog (and offers the one the server names)
+  setHTML(status, rows.length ? "" : contentStatus(state, { kind: "catalog" }) || contentStatus({ ...state, content: { ...state.content, key: "none" } }, { kind: "catalog" }));
   drawRows(list, rows);
   paintActions(section);
   if (again && !at.isConnected) $(again, section)?.focus({ preventScroll: true });
   if (target && rows.some((row) => keyOf(row) === target)) {
-    reveal(target);
+    reveal(`.list-item[data-key="${CSS.escape(target)}"]`, section, ".s-toggle");
     target = null;
   }
-}
-
-// The row an address opened, in view and its toggle focused, once it is drawn and the router has set the page's scroll
-function reveal(id) {
-  requestAnimationFrame(() => {
-    const li = $(`.list-item[data-key="${CSS.escape(id)}"]`, section);
-    li?.scrollIntoView({ block: "nearest" });
-    $(".s-toggle", li)?.focus({ preventScroll: true });
-  });
 }
 
 function toggle(id) {
@@ -368,7 +348,6 @@ function init(el) {
     const member = row?.members?.find((m) => m.id === button.closest("[data-member]")?.dataset.member);
     if ("new" in data) openNew();
     else if ("addCatalog" in data) openAdd();
-    else if ("reload" in data) store.refresh();
     else if (!row) return;
     else if ("update" in data) openUpdate(row);
     else if ("retry" in data) tryAgain(row.id);

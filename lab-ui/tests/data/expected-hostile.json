@@ -12,17 +12,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [
-        "partner"
-      ],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -40,17 +33,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [
-        "partner"
-      ],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -67,15 +53,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-cluster",
@@ -100,15 +81,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -124,15 +100,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -150,15 +121,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -173,15 +139,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -203,13 +164,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": "custom",
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -231,13 +189,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": "custom",
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -259,13 +214,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": "custom",
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -287,13 +239,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": "custom",
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -317,13 +266,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": "official",
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -345,13 +291,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": "official",
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -370,17 +313,12 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [
         8395
       ],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -397,15 +335,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -422,15 +355,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -452,15 +380,12 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [
         8397
       ],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -482,17 +407,12 @@
         }
       ],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [
         8396
       ],
       "reads": [],
       "seed": "official",
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -520,13 +440,10 @@
           "service": "apim-gateway"
         }
       ],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -549,13 +466,10 @@
           "service": "apim-gateway"
         }
       ],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -579,17 +493,12 @@
         }
       ],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [
         8397
       ],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -604,15 +513,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": "hostile-terminal-shell",
       "uses_machine": []
     },
     "verdict": "ok"
@@ -629,13 +533,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -652,15 +553,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -677,15 +573,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-privileged",
@@ -714,15 +605,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-api-socket",
@@ -751,13 +637,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-provider",
@@ -786,15 +669,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-host",
@@ -824,15 +702,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-capability",
@@ -861,15 +734,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-device",
@@ -898,15 +766,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-isolation",
@@ -935,15 +798,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-socket",
@@ -972,15 +830,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -998,15 +851,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": [
         {
           "label": "hostile-outside",
@@ -1036,15 +884,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1062,15 +905,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1087,15 +925,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1112,15 +945,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1137,15 +965,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1162,15 +985,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1187,15 +1005,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1212,15 +1025,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1239,17 +1047,12 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [
         8199
       ],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1271,13 +1074,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1299,13 +1099,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1327,13 +1124,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1355,13 +1149,10 @@
         }
       ],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1378,13 +1169,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1401,13 +1189,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1422,17 +1207,12 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [
         "FIXTURE_SHARED_TOKEN"
       ],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "ok"
@@ -1449,15 +1229,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1474,15 +1249,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1499,15 +1269,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1532,13 +1297,10 @@
           "service": "apim-gateway"
         }
       ],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1564,13 +1326,10 @@
           "service": "apim-gateway"
         }
       ],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1588,13 +1347,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1621,17 +1377,12 @@
         }
       ],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [
         8397
       ],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1648,15 +1399,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [],
-      "needs": [
-        "partner"
-      ],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1674,15 +1420,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1699,15 +1440,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1724,13 +1460,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"
@@ -1747,15 +1480,10 @@
     "surface": {
       "builds": [],
       "core": [],
-      "images": [
-        "busybox"
-      ],
-      "needs": [],
       "plugins": [],
       "ports": [],
       "reads": [],
       "seed": null,
-      "shell": null,
       "uses_machine": []
     },
     "verdict": "blocked"

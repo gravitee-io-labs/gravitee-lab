@@ -3,20 +3,13 @@
 // `gateway.group`, which the server tells from the images): the Hybrid gateway and its Redis are listed in API Management, after its
 // own services, the gateway first, and in no section of their own; another add-on keeps its own.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
 import { flush, installDom, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids });
-page.el("combo-pop").innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
+const page = installDom();
 globalThis.EventSource = class { close() {} addEventListener() {} };
-// The stub's selectors do not know :checked, which the page asks of its levels
-const all = page.doc.querySelectorAll;
-page.doc.querySelectorAll = (selector) => all(selector.replace(":checked", ""));
 
 const { store } = await import("../../../web/js/core.js");
 const { Combo } = await import("../../../web/js/components/combo.js");
@@ -28,8 +21,8 @@ const OFF = { key: "absent", label: "Not created", running: false };
 const service = (label, state = RUNNING, registry = "graviteeio") => ({ label, name: label, state, registry });
 const group = (id, name, services) => ({ id, name, services });
 const addon = (id, name, services, more = {}) => ({ kind: "addon", id, name, services, on: false, up: true, gateway: null, ...more });
-const HYBRID = addon("hybrid", "Hybrid gateway", ["hybrid-redis", "apim-hybrid-gateway"], {
-  gateway: { platform: "cloud", service: "apim-hybrid-gateway", token: "HYBRID_CLOUD_TOKEN", domains: [], group: "api-management" } });
+const HYSSOP = addon("hyssop", "Hybrid gateway", ["hyssop-redis", "apim-hyssop-gateway"], {
+  gateway: { platform: "cloud", service: "apim-hyssop-gateway", token: "HYSSOP_CLOUD_TOKEN", domains: [], group: "api-management" } });
 
 function state(addons) {
   store.state = {
@@ -42,7 +35,7 @@ function state(addons) {
       "apim-gateway": service("Gateway"), "apim-management-api": service("Management API"),
       mongodb: service("MongoDB", RUNNING, null), redis: service("Redis", RUNNING, null),
       "acme-hostels-api": service("Acme Hostel API", RUNNING, null),
-      "apim-hybrid-gateway": service("Hybrid gateway"), "hybrid-redis": service("Hybrid gateway Redis", RUNNING, null),
+      "apim-hyssop-gateway": service("Hybrid gateway"), "hyssop-redis": service("Hybrid gateway Redis", RUNNING, null),
       jade: service("Jade", RUNNING, null), "jade-off": service("Jade agent", OFF, null),
     },
   };
@@ -67,10 +60,10 @@ async function sections() {
 }
 
 test("the Hybrid gateway and its Redis are a part of the one API Management section, under a title of their own, its gateway first, and in no section of their own", async () => {
-  state([HYBRID, addon("jade", "Jade", ["jade", "jade-off"])]);
+  state([HYSSOP, addon("jade", "Jade", ["jade", "jade-off"])]);
   logsPage.render(store.state);
   assert.deepEqual(await sections(), [
-    ["API Management", ["apim-gateway", "apim-management-api", "# Hybrid gateway", "apim-hybrid-gateway", "hybrid-redis"]],
+    ["API Management", ["apim-gateway", "apim-management-api", "# Hybrid gateway", "apim-hyssop-gateway", "hyssop-redis"]],
     ["Databases", ["mongodb", "redis"]],   // the Redis of the hybrid gateway follows its gateway, not the image it runs
     ["Acme Hostels API", ["acme-hostels-api"]],
     ["Jade", ["jade"]],   // an add-on of no group keeps its section; a service with no container is not offered
@@ -78,7 +71,7 @@ test("the Hybrid gateway and its Redis are a part of the one API Management sect
 });
 
 test("its names are the services' own, so that the two gateways of API Management are told apart", async () => {
-  state([HYBRID]);
+  state([HYSSOP]);
   section.querySelector("#log-services").click();
   await flush();
   const names = page.doc.querySelectorAll("#combo-list .combo-option .name").map(text);
@@ -87,21 +80,21 @@ test("its names are the services' own, so that the two gateways of API Managemen
 });
 
 test("an add-on that is off and runs nothing is not listed, in its group or anywhere; one whose service was chosen still is", async () => {
-  const off = { ...HYBRID, up: false };
+  const off = { ...HYSSOP, up: false };
   state([off]);
   assert.deepEqual((await sections())[0], ["API Management", ["apim-gateway", "apim-management-api"]]);
   assert.ok(!(await sections()).flat(2).some((one) => /Hybrid gateway/.test(one)));
-  selectLogs(["hybrid-redis"]);   // chosen before it stopped: it stays, to be unticked, where it belongs
-  assert.deepEqual((await sections())[0], ["API Management", ["apim-gateway", "apim-management-api", "# Hybrid gateway", "apim-hybrid-gateway", "hybrid-redis"]]);
+  selectLogs(["hyssop-redis"]);   // chosen before it stopped: it stays, to be unticked, where it belongs
+  assert.deepEqual((await sections())[0], ["API Management", ["apim-gateway", "apim-management-api", "# Hybrid gateway", "apim-hyssop-gateway", "hyssop-redis"]]);
   selectLogs([]);
 });
 
 test("the section of the gateway says whom it serves, the account and the environment, when a gateway runs for one", async () => {
-  state([HYBRID]);
+  state([HYSSOP]);
   store.state.platforms = [{ id: "cloud-eu", name: "Acme Cloud", kind: "cloud", url: "https://eu.cloud.gravitee.io" }];
   store.cloud.checks.set("cloud-eu", { state: "ok", environments: [{ id: "e1", name: "Development" }, { id: "e2", name: "Test" }],
     gateways: [{ id: "g0", name: "other", environmentId: "e2", here: false }, { id: "g1", name: "lab", environmentId: "e1", here: true }] });
-  assert.deepEqual((await sections())[0], ["API Management", ["apim-gateway", "apim-management-api", "# Hybrid gateway (Acme Cloud, Development)", "apim-hybrid-gateway", "hybrid-redis"]]);
+  assert.deepEqual((await sections())[0], ["API Management", ["apim-gateway", "apim-management-api", "# Hybrid gateway (Acme Cloud, Development)", "apim-hyssop-gateway", "hyssop-redis"]]);
   // No gateway runs here: the section names the add-on alone
   store.cloud.checks.set("cloud-eu", { state: "ok", environments: [], gateways: [{ id: "g1", name: "lab", environmentId: "e1", here: false }] });
   assert.equal((await sections())[0][1][2], "# Hybrid gateway");
@@ -109,8 +102,8 @@ test("the section of the gateway says whom it serves, the account and the enviro
 });
 
 test("a gateway whose image no group runs keeps the add-on's own section", async () => {
-  state([{ ...HYBRID, gateway: { ...HYBRID.gateway, group: null } }]);
+  state([{ ...HYSSOP, gateway: { ...HYSSOP.gateway, group: null } }]);
   const listed = await sections();
   assert.deepEqual(listed[0], ["API Management", ["apim-gateway", "apim-management-api"]]);
-  assert.deepEqual(listed.at(-1), ["Hybrid gateway", ["hybrid-redis", "apim-hybrid-gateway"]]);
+  assert.deepEqual(listed.at(-1), ["Hybrid gateway", ["hyssop-redis", "apim-hyssop-gateway"]]);
 });

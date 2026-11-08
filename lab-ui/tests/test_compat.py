@@ -57,6 +57,7 @@ class Candidates(unittest.TestCase):
         self.assertEqual(compat.candidates(unit([], {"APIM_VERSION": "amp-demo-latest"}), self.tags), [])
         private = {"APIM_VERSION": "4.13.1", "APIM_REGISTRY": "graviteeio.azurecr.io"}
         self.assertEqual(compat.candidates(unit([private]), self.tags), [], "a registry of its own says a build of its own")
+        self.assertEqual(compat.candidates(unit([private], {"APIM_VERSION": "4.12"}), self.tags), [], "with a minimum too")
 
     def test_a_playground_that_says_nothing_of_its_versions_is_followed_from_what_it_requires(self):
         found = compat.candidates(unit([], {"APIM_VERSION": "4.12"}), self.tags)
@@ -77,10 +78,6 @@ class Review(unittest.TestCase):
         found = compat.candidates(unit([both("4.12.26", "4.12.11"), both("4.13.1", "4.13.1")], {"APIM_VERSION": "4.12"}), self.tags)
         self.assertEqual(found, [], "Docker Hub's window shows 4.12.25, older than what it has")
 
-    def test_a_playground_of_private_builds_with_a_minimum_is_not_followed_on_docker_hub(self):
-        private = {"APIM_VERSION": "4.13.1", "APIM_REGISTRY": "graviteeio.azurecr.io"}
-        self.assertEqual(compat.candidates(unit([private], {"APIM_VERSION": "4.12"}), self.tags), [])
-
     def test_a_version_of_another_image_is_carried_over(self):
         sets = [{"APIM_VERSION": "4.12.25", "APIM_REGISTRY": "graviteeio", "SHOP_VERSION": "2.1.0"}]
         found = compat.candidates(unit(sets, {"APIM_VERSION": "4.12"}), self.tags, follow={"APIM_VERSION"})
@@ -100,7 +97,7 @@ class Review(unittest.TestCase):
         def tags(project, key, registry):
             if not said:
                 said.append("asked")
-                raise RuntimeError("Not published on Docker Hub")
+                raise RuntimeError("Not found on Docker Hub")
             return TAGS[key]
         jobs = compat.plan(built, "acme", tags, warn=said.append)
         self.assertEqual([job["item"] for job in jobs], ["playground:shop"])

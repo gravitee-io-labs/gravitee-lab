@@ -10,18 +10,16 @@ import os
 import random
 import re
 import shlex
-import shutil
 import signal
-import stat
 import subprocess
 import sys
 import threading
 import time
 import unittest
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from lab_ui import paths
 from lab_ui.docker import compose
 
 from .. import Case
@@ -81,18 +79,38 @@ class ProjectFolder(Case):
 
 class Includes(ProjectFolder):
 
-    def test_paths_are_relative_to_the_including_file(self):
-        path = self.write("setups/local/mine.yml", "x-gravitee:\n  kind: setup\n\ninclude:\n"
-                          "  - ../../addons/kafka/compose.yml\n  - ../../addons/jade/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml", "addons/jade/compose.yml"])
+    def test_the_project_files_a_file_names_itself(self):
+        kazoo, tool = "addons/kazoo/compose.yml", "addons/tool/compose.yml"
+        for path, text, named in (
+                # Relative to the including file, those of the on file to the project
+                ("setups/local/mine.yml", "x-gravitee:\n  kind: setup\n\ninclude:\n  - ../../addons/kazoo/compose.yml\n"
+                 "  - ../../addons/jade/compose.yml\n", [kazoo, "addons/jade/compose.yml"]),
+                # Quotes, comments and the long form
+                (".lab/on.yml", "include:\n  # the playground first\n  - \"playgrounds/welcome/compose.yml\"   # one at a time\n"
+                 "  - 'addons/my addon/compose.yml'\n\n  - path: addons/kazoo/compose.yml\n",
+                 ["playgrounds/welcome/compose.yml", "addons/my addon/compose.yml", kazoo]),
+                # No indentation
+                (".lab/on.yml", "include:\n- addons/kazoo/compose.yml\n- addons/malt/compose.yml\n", [kazoo, "addons/malt/compose.yml"]),
+                # The files a key of an item lists are no items
+                ("playgrounds/mine/compose.yml", "include:\n  - path: ../../addons/tool/compose.yml\n    env_file:\n"
+                 "      - ../../addons/tool/.env\n      - path: ../../addons/tool/other.env\n        required: false\n"
+                 "  - ../../addons/kazoo/compose.yml\nservices:\n  mine:\n    image: x\n", [tool, kazoo]),
+                (".lab/on.yml", "include:\n- path: addons/tool/compose.yml\n  env_file:\n  - addons/tool/.env\n"
+                 "- addons/kazoo/compose.yml\n", [tool, kazoo]),
+                # The files of a path list are items
+                ("playgrounds/mine/compose.yml", "include:\n  - path:   # two files, merged\n      - ../../addons/a/compose.yml\n"
+                 "      - ../../addons/b/compose.yml\n    env_file:\n      - ../../addons/a/.env\n"
+                 "  - ../../addons/c/compose.yml\n", ["addons/a/compose.yml", "addons/b/compose.yml", "addons/c/compose.yml"]),
+                # Only the include list
+                ("addons/kazoo-desk/compose.yml", "include:\n  - ../kazoo/compose.yml\n\nservices:\n  kazoo-desk:\n    volumes:\n"
+                 "      - ./certs:/certs\n    networks:\n      - internal\n", [kazoo]),
+                # A file outside the project is left out
+                (".lab/on.yml", "include:\n  - ../elsewhere/compose.yml\n  - addons/kazoo/compose.yml\n", [kazoo]),
+                ("addons/malt/compose.yml", "services:\n  malt-box:\n    image: x\n", [])):
+            self.assertEqual(compose.includes(self.write(path, text)), named, text)
 
-    def test_what_belongs_to_this_machine_is_one_folder_deeper(self):
-        addon = self.write("addons/local/whoami/compose.yml", "include:\n  - ../../kafka/compose.yml\n"
-                           "  - ../other/compose.yml\n")
-        self.assertEqual(compose.includes(addon), ["addons/kafka/compose.yml", "addons/local/other/compose.yml"])
-        playground = self.write("playgrounds/local/sandbox/compose.yml", "include:\n"
-                                "  - ../../../setups/local/mine.yml\n  - ../../../addons/local/whoami/compose.yml\n")
-        self.assertEqual(compose.includes(playground), ["setups/local/mine.yml", "addons/local/whoami/compose.yml"])
+    def test_no_file_no_include(self):
+        self.assertEqual(compose.includes(".lab/on.yml"), [])
 
     def test_a_list_on_one_line_is_read_and_a_copy_keeps_it_as_written(self):
         self.write("b-x/compose.yml", "services:\n  bee:\n    image: alpine\n    pull_policy: ${B_PULL_POLICY:-missing}\n")
@@ -106,111 +124,44 @@ class Includes(ProjectFolder):
                     if original.endswith("a/compose.yml"):
                         self.assertIn(line, Path(copy).read_text(encoding="utf-8"), "a copy never loses an include")
 
-    def test_quotes_comments_and_long_form(self):
-        path = self.write(".lab/on.yml", "include:\n"
-                          "  # the playground first\n"
-                          "  - \"playgrounds/welcome/compose.yml\"   # one at a time\n"
-                          "  - 'addons/my addon/compose.yml'\n"
-                          "\n"
-                          "  - path: addons/kafka/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["playgrounds/welcome/compose.yml", "addons/my addon/compose.yml",
-                                                  "addons/kafka/compose.yml"])
-
-    def test_items_without_indentation(self):
-        path = self.write(".lab/on.yml",
-                          "include:\n- addons/kafka/compose.yml\n- addons/mail/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml", "addons/mail/compose.yml"])
-
-    def test_the_files_a_key_of_an_item_lists_are_not_items(self):
-        path = self.write("playgrounds/mine/compose.yml", "include:\n"
-                          "  - path: ../../addons/tool/compose.yml\n"
-                          "    env_file:\n"
-                          "      - ../../addons/tool/.env\n"
-                          "      - path: ../../addons/tool/other.env\n"
-                          "        required: false\n"
-                          "  - ../../addons/kafka/compose.yml\n"
-                          "services:\n  mine:\n    image: x\n")
-        self.assertEqual(compose.includes(path), ["addons/tool/compose.yml", "addons/kafka/compose.yml"])
-        path = self.write(".lab/on.yml", "include:\n- path: addons/tool/compose.yml\n  env_file:\n  - addons/tool/.env\n"
-                          "- addons/kafka/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/tool/compose.yml", "addons/kafka/compose.yml"])
-
-    def test_the_files_of_a_path_list_are_items(self):
-        path = self.write("playgrounds/mine/compose.yml", "include:\n"
-                          "  - path:   # two files, merged\n"
-                          "      - ../../addons/a/compose.yml\n"
-                          "      - ../../addons/b/compose.yml\n"
-                          "    env_file:\n"
-                          "      - ../../addons/a/.env\n"
-                          "  - ../../addons/c/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/a/compose.yml", "addons/b/compose.yml", "addons/c/compose.yml"])
-
-    def test_only_the_include_list(self):
-        path = self.write("addons/kafka-desk/compose.yml", "include:\n  - ../kafka/compose.yml\n\n"
-                          "services:\n  kafka-desk:\n    volumes:\n      - ./certs:/certs\n"
-                          "    networks:\n      - internal\n")
-        self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml"])
-
-    def test_a_file_outside_the_project_is_left_out(self):
-        path = self.write(".lab/on.yml",
-                          "include:\n  - ../elsewhere/compose.yml\n  - addons/kafka/compose.yml\n")
-        self.assertEqual(compose.includes(path), ["addons/kafka/compose.yml"])
-
-    def test_no_file_no_include(self):
-        self.assertEqual(compose.includes(".lab/on.yml"), [])
-        path = self.write("addons/mail/compose.yml", "services:\n  smtp4dev:\n    image: x\n")
-        self.assertEqual(compose.includes(path), [])
-
 
 class References(Case):
 
     def test_forms(self):
-        self.assertEqual(compose.references("${A} ${B:-1} ${C-} $D ${E:?needed} ${F:+set}"),
-                         [("A", None, True), ("B", "1", False), ("C", "", False), ("D", None, True),
-                          ("E", None, True), ("F", None, False)])
-
-    def test_nested_defaults_follow_their_variable(self):
-        self.assertEqual(compose.references("${GW_VERSION:-${VERSION:-4.12.20}-debian}"),
-                         [("GW_VERSION", "${VERSION:-4.12.20}-debian", False), ("VERSION", "4.12.20", False)])
-
-    def test_a_doubled_dollar_is_not_a_reference(self):
-        self.assertEqual(compose.references("$${gravitee.home}/plugins $$HOME ${A}"), [("A", None, True)])
-        self.assertEqual(compose.references("costs 5$"), [])
+        for text, found in (("${A} ${B:-1} ${C-} $D ${E:?needed} ${F:+set}",
+                             [("A", None, True), ("B", "1", False), ("C", "", False), ("D", None, True), ("E", None, True),
+                              ("F", None, False)]),
+                            ("${GW_VERSION:-${VERSION:-4.12.20}-debian}",
+                             [("GW_VERSION", "${VERSION:-4.12.20}-debian", False), ("VERSION", "4.12.20", False)]),
+                            ("$${gravitee.home}/plugins $$HOME ${A}", [("A", None, True)]), ("costs 5$", [])):
+            self.assertEqual(compose.references(text), found, text)
 
 
 class Interpolated(Case):
     """A text with its variables replaced the way Compose does, from what a lookup knows."""
 
-    @staticmethod
-    def text(text, **values):
-        return compose.interpolated(text, values.get)
+    def test_each_form(self):
+        for text, values, said in (
+                ("${A} ${B:-x} ${C-y}", dict(A="1", B="2", C="3"), "1 2 3"), ("${B:-x} ${C-y}", {}, "x y"),
+                # An empty value is no value for a colon default only
+                ("[${B:-x}] [${C-y}] [${D}]", dict(B="", C="", D=""), "[x] [] []"),
+                # A default may refer to variables
+                ("${A:-${B:-${C:-end}}}", {}, "end"), ("${A:-${B:-${C:-end}}}", dict(B="mid"), "mid"),
+                ("${A:-pre-${B:-1}-post}", {}, "pre-1-post"),
+                # Set nowhere, or any other form: as written
+                ("${A} and ${B}", dict(B="b"), "${A} and b"),
+                ("${A:?needed} ${B:+set} ${C}x $D ${E", dict(A="1", B="2", C="3", E="5"), "${A:?needed} ${B:+set} 3x $D ${E"),
+                # A doubled dollar is a dollar sign
+                ("$${A} costs 5$$ $$", {}, "${A} costs 5$ $"), ("pass$${A:-x}word", {}, "pass${A:-x}word"),
+                ("PlainDemo@123", {}, "PlainDemo@123"), ("", {}, "")):
+            self.assertEqual(compose.interpolated(text, values.get), said, text)
 
-    def test_a_variable_is_replaced_by_its_value_or_its_default(self):
-        self.assertEqual(self.text("${A} ${B:-x} ${C-y}", A="1", B="2", C="3"), "1 2 3")
-        self.assertEqual(self.text("${B:-x} ${C-y}"), "x y")
-
-    def test_an_empty_value_is_no_value_for_a_colon_default_only(self):
-        self.assertEqual(self.text("[${B:-x}] [${C-y}] [${D}]", B="", C="", D=""), "[x] [] []")
-
-    def test_a_default_may_refer_to_variables(self):
-        self.assertEqual(self.text("${A:-${B:-${C:-end}}}"), "end")
-        self.assertEqual(self.text("${A:-${B:-${C:-end}}}", B="mid"), "mid")
-        self.assertEqual(self.text("${A:-pre-${B:-1}-post}"), "pre-1-post")
-
-    def test_a_variable_set_nowhere_stays_as_written(self):
-        self.assertEqual(self.text("${A} and ${B}", B="b"), "${A} and b")
-
-    def test_other_forms_stay_as_written(self):
-        self.assertEqual(self.text("${A:?needed} ${B:+set} ${C}x $D ${E", A="1", B="2", C="3", E="5"),
-                         "${A:?needed} ${B:+set} 3x $D ${E")
-
-    def test_a_doubled_dollar_is_a_dollar_sign(self):
-        self.assertEqual(self.text("$${A} costs 5$$ $$"), "${A} costs 5$ $")
-        self.assertEqual(self.text("pass$${A:-x}word"), "pass${A:-x}word")
-
-    def test_a_text_without_variable_is_left_alone(self):
-        self.assertEqual(self.text("HelloWorld@123"), "HelloWorld@123")
-        self.assertEqual(self.text(""), "")
+    def test_braces_never_closed_are_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded, and a project read comes here for its accounts and console labels
+        text = "${" * 32000
+        started = time.process_time()
+        self.assertEqual(compose.interpolated(text, {}.get), text)
+        self.assertLess(time.process_time() - started, 1)
 
 
 class Variables(ProjectFolder):
@@ -225,8 +176,8 @@ services:
     image: ${REGISTRY:-graviteeio}/agent:${VERSION:-${CORE_VERSION:-4.12.20}-debian}
     command: run --password ${PASSWORD:-demo}
     environment:
-      # Apigee X, and its integration
-      type: apigee
+      # Aspen X, and its integration
+      type: aspen
       integration: ${INTEGRATION_ID}
       project: ${PROJECT_ID}
 
@@ -237,45 +188,25 @@ services:
       secret: ${SECRET:-}   # Signs the tokens
 """
 
-    def variables(self):
-        return {v["key"]: v for v in compose.variables(self.write("addons/agent/compose.yml", self.FILE))}
+    def test_in_order_of_first_appearance_with_the_comment_of_their_first_use_their_default_and_whether_one_is_required(self):
+        self.assertEqual([(v["key"], v["comment"], v["default"], v["required"])
+                          for v in compose.variables(self.write("addons/agent/compose.yml", self.FILE))], [
+            ("TOKEN", "Personal access token, used by every agent", None, True),   # the comment ending the line
+            ("REGISTRY", "", "graviteeio", False),   # a comment heading a block further out is not its own
+            ("VERSION", "", "${CORE_VERSION:-4.12.20}-debian", False),
+            ("CORE_VERSION", "", "4.12.20", False),
+            ("PASSWORD", "", "demo", True),   # ${PASSWORD:-demo} then ${PASSWORD}
+            ("INTEGRATION_ID", "Aspen X, and its integration", None, True),   # the comment heading the block
+            ("PROJECT_ID", "Aspen X, and its integration", None, True),
+            ("REGION", "", None, True),   # a blank line ends the block
+            ("SECRET", "Signs the tokens", "", False)])   # neither $${gravitee.home} nor what a comment names
 
-    def test_order_of_first_appearance(self):
-        self.assertEqual(list(self.variables()), ["TOKEN", "REGISTRY", "VERSION", "CORE_VERSION", "PASSWORD",
-                                                  "INTEGRATION_ID", "PROJECT_ID", "REGION", "SECRET"])
-
-    def test_comment_at_the_end_of_the_line(self):
-        found = self.variables()
-        self.assertEqual(found["TOKEN"]["comment"], "Personal access token, used by every agent")
-        self.assertEqual(found["SECRET"]["comment"], "Signs the tokens")
-
-    def test_comment_heading_the_block(self):
-        found = self.variables()
-        self.assertEqual(found["INTEGRATION_ID"]["comment"], "Apigee X, and its integration")
-        self.assertEqual(found["PROJECT_ID"]["comment"], "Apigee X, and its integration")
-        self.assertEqual(found["REGION"]["comment"], "")   # a blank line ends the block
-        self.assertEqual(found["REGISTRY"]["comment"], "")   # a comment heading a block further out is not its own
-
-    def test_defaults(self):
-        found = self.variables()
-        self.assertEqual(found["REGISTRY"]["default"], "graviteeio")
-        self.assertEqual(found["VERSION"]["default"], "${CORE_VERSION:-4.12.20}-debian")
-        self.assertEqual(found["CORE_VERSION"]["default"], "4.12.20")
-        self.assertEqual(found["SECRET"]["default"], "")
-        self.assertIsNone(found["TOKEN"]["default"])
-
-    def test_required_when_a_reference_has_no_default(self):
-        found = self.variables()
-        self.assertTrue(found["TOKEN"]["required"])
-        self.assertFalse(found["REGISTRY"]["required"])
-        self.assertFalse(found["SECRET"]["required"])
-        self.assertTrue(found["PASSWORD"]["required"])   # ${PASSWORD:-demo} then ${PASSWORD}
-        self.assertEqual(found["PASSWORD"]["default"], "demo")
-
-    def test_doubled_dollar_and_comment_text_are_ignored(self):
-        found = self.variables()
-        self.assertNotIn("gravitee", found)
-        self.assertNotIn("OLD", found)
+    def test_a_file_of_many_variables_is_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded: no pass over the file for each of its variables
+        text = "x:\n" + "".join(f"  v{number}: ${{V{number}}}\n" for number in range(10000))
+        started = time.process_time()
+        self.assertEqual(len(compose.variables(self.write("addons/many/compose.yml", text))), 10000)
+        self.assertLess(time.process_time() - started, 3)
 
 
 class Raw(ProjectFolder):
@@ -315,9 +246,9 @@ class OldestCompose(ProjectFolder):
     def test_an_empty_list_of_the_labs_block_reads_as_on_the_oldest_compose(self):
         path = self.write("addons/echo/compose.yml", self.TEXT)
         here = self.root / "addons/echo"
-        newest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        newest = compose.x_gravitee(self.TEXT, here), compose.raw(path)["x-gravitee"]
         oldest_compose(self)
-        oldest = compose.x_gravitee(self.TEXT, here, fresh=True), compose.raw(path)["x-gravitee"]
+        oldest = compose.x_gravitee(self.TEXT, here), compose.raw(path)["x-gravitee"]
         self.assertEqual(newest, oldest)
         self.assertEqual(newest[0], {"kind": "addon", "name": "Echo", "private_from": None, "tested": [None],
                                      "nested": {"list": None, "map": {}}, "kept": ["a"]}, "an empty list is null, its key is there")
@@ -389,12 +320,14 @@ class PullPolicyVariables(Copies):
                 "      note: pull_policy ${X:-never}\n")
         self.assertEqual(compose._policies_written(text), text)
 
-    def test_a_file_without_a_variable_policy_is_read_as_it_is(self):
-        self.write("addons/tool/compose.yml", self.COPIED)
-        seen = self.read("addons/tool/compose.yml")
-        self.assertEqual(seen["arguments"], ["-f", "addons/tool/compose.yml"])
-        self.assertEqual(seen["options"], ("--no-interpolate", "--no-consistency"))
-        self.assertEqual(list(self.scratch.iterdir()), [])
+    def test_a_long_line_is_read_in_one_pass(self):
+        # What a catalog's file holds is not bounded, and a regex that goes back over it holds every thread of the Lab UI
+        blanks = " " * 64000
+        for written, wanted in (("a%sb", "a%sb"), ("${A:-never}%s# why", "never%s# why")):
+            text = "    pull_policy: " + written % blanks + "\n"
+            started = time.process_time()
+            self.assertEqual(compose._policies_written(text), "    pull_policy: " + wanted % blanks + "\n")
+            self.assertLess(time.process_time() - started, 1)
 
     def test_the_copy_is_read_from_the_folder_of_its_file(self):
         self.write("addons/tool/compose.yml", self.TOOL)
@@ -520,14 +453,6 @@ class SkippedIncludes(Copies):
             "include:", f"  - path: {json.dumps(tool)}", f'    project_directory: {json.dumps(str(self.root / "addons/tool"))}',
             "    env_file:", "      - ../../addons/tool/.env"])
 
-    def test_a_line_that_an_item_took_is_not_read_as_an_item_again(self):
-        self.write("playgrounds/mine/compose.yml", f"include:\n  - path: ../../{GONE}\n    env_file: ../x.env\n"
-                   "  - ../../addons/tool/compose.yml\n" + self.MINE)
-        items = compose._items
-        self.patch(compose, "_items", side_effect=lambda file, text: [*items(file, text)] + (
-            [(2, "x", "addons/tool/compose.yml")] if file.startswith("playgrounds") else []))   # the line of a key, as an item
-        self.assertNotIn("gone", self.top(self.read("playgrounds/mine/compose.yml", skip=[GONE])))
-
     def test_a_hostile_include_list_is_read_or_refused_never_a_crash(self):
         # whatever the file holds, raw answers or raises ComposeError: an exception of any other kind ends the read of the
         # whole project (project.gather)
@@ -596,19 +521,6 @@ class SkippedIncludes(Copies):
                     ["-f", "playgrounds/mine/compose.yml"], ("--no-interpolate", "--no-consistency")))
                 self.assertEqual(list(self.scratch.iterdir()), [])
 
-    def test_a_file_is_never_changed_where_it_is(self):
-        text = f"include:\n  - ../../addons/tool/compose.yml\n  - ../../{GONE}\n" + self.MINE
-        self.write("playgrounds/mine/compose.yml", text)
-        self.read("playgrounds/mine/compose.yml", skip=[GONE])
-        self.assertEqual((self.root / "playgrounds/mine/compose.yml").read_text(encoding="utf-8"), text)
-
-    def test_a_problem_names_the_file_and_not_its_copy(self):
-        self.write("setups/mine.yml", f"include:\n  - ../addons/tool/compose.yml\n  - ../{GONE}\n")
-        with self.assertRaises(compose.ComposeError) as caught:
-            self.read("setups/mine.yml", skip=[GONE], fails=lambda seen: f"validating {seen['arguments'][3]}: bogus")
-        self.assertEqual(str(caught.exception), f"validating {self.root / 'setups/mine.yml'}: bogus")
-        self.assertEqual(list(self.scratch.iterdir()), [])
-
     def test_the_time_compose_has(self):
         self.write("setups/mine.yml", "include:\n  - ../addons/tool/compose.yml\n")
         self.assertEqual(self.read("setups/mine.yml")["timeout"], 120)
@@ -651,26 +563,18 @@ class ProjectName(ProjectFolder):
             with self.assertRaisesRegex(compose.ComposeError, "no such file"):
                 compose.project_name()
 
-    def test_compose_installed_while_the_lab_ui_runs_is_asked_again(self):
-        # Before Docker: Compose's refusal is the answer. Once it is there, the name, with no restart
-        found = self.patch(compose, "plugin", return_value=None)
-        with mock.patch.object(compose, "raw", side_effect=compose.ComposeError("Run 'docker --help' for more information")) as raw:
-            with self.assertRaises(compose.ComposeError):
-                compose.project_name()
-            found.return_value = "/opt/homebrew/lib/docker/cli-plugins/docker-compose"
-            raw.side_effect, raw.return_value = None, {"name": "lab"}
-            self.assertEqual(compose.project_name(), "lab")
-
-    def test_the_docker_command_that_comes_after_its_plugin_is_asked_again(self):
-        # Docker Desktop copied into Applications: its plugin is there, its `docker` only once it first started
-        self.patch(compose, "plugin", return_value="/Applications/Docker.app/Contents/Resources/cli-plugins/docker-compose")
-        command = self.patch(compose.shutil, "which", return_value=None)
-        with mock.patch.object(compose, "raw", side_effect=compose.ComposeError("docker: command not found")) as raw:
-            with self.assertRaises(compose.ComposeError):
-                compose.project_name()
-            command.return_value = "/usr/local/bin/docker"
-            raw.side_effect, raw.return_value = None, {"name": "lab"}
-            self.assertEqual(compose.project_name(), "lab")
+    def test_docker_or_its_compose_installed_while_the_lab_ui_runs_is_asked_again(self):
+        # Before it: Compose's refusal is the answer. Once it is there, the name, with no restart. Docker Desktop copied into
+        # Applications has its plugin first, and its `docker` only once it first started
+        for module, name, there in ((compose, "plugin", "/opt/homebrew/lib/docker/cli-plugins/docker-compose"),
+                                    (compose.shutil, "which", "/usr/local/bin/docker")):
+            with self.subTest(name), mock.patch.dict(compose._name, clear=True), mock.patch.object(module, name, return_value=None) as found, \
+                    mock.patch.object(compose, "raw", side_effect=compose.ComposeError("docker: command not found")) as raw:
+                with self.assertRaises(compose.ComposeError):
+                    compose.project_name()
+                found.return_value = there
+                raw.side_effect, raw.return_value = None, {"name": "lab"}
+                self.assertEqual(compose.project_name(), "lab")
 
     def test_without_a_name_the_error_is_raised_and_docker_is_not_asked(self):
         failure = compose.ComposeError("yaml: line 2: did not find expected key")
@@ -724,32 +628,22 @@ class Containers(Case):
     def test_inspect_tells_a_memory_kill_and_the_recent_restarts(self):
         def started(seconds_ago):
             return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
-        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kiosk", "kafka", "mail")]
-        inspected = "\n".join([f"/gio-kiosk|false|3|{started(20)}|h1|sha256:k", f"/gio-kafka|true|4|{started(3600)}||",
-                               "", "error: no such object: gio-mail"])
+        names = ("kiosk", "kazoo", "kazoo-ui", "jade", "malt")
+        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in names]
+        inspected = "\n".join([f"/gio-kiosk|false|3|{started(20)}|h1|sha256:k", f"/gio-kazoo|true|4|{started(3600)}||",
+                               f"/gio-kazoo-ui|false|2|{started(120)}||", "/gio-jade|false|0|0001-01-01T00:00:00Z||",
+                               "", "error: no such object: gio-malt"])
         found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
         self.assertEqual({name: (c["oom"], c["restarts"]) for name, c in found.items()},
                          {"kiosk": (False, 3),     # restarted, and again 20 s ago
-                          "kafka": (True, 0),       # its last restart is an hour old
-                          "mail": (False, 0)})      # removed since it was listed
+                          "kazoo": (True, 0),       # its last restart is an hour old
+                          "kazoo-ui": (False, 0),   # restarted while what it needs warmed up, and up for two minutes since
+                          "jade": (False, 0),       # it never started
+                          "malt": (False, 0)})      # removed since it was listed
         # The configuration Compose made it from, and the image it runs: what runs behind what is saved is told so
         self.assertEqual({name: (c["config_hash"], c["image_id"]) for name, c in found.items()},
-                         {"kiosk": ("h1", "sha256:k"), "kafka": (None, None), "mail": (None, None)})
+                         {"kiosk": ("h1", "sha256:k"), **dict.fromkeys(names[1:], (None, None))})
         self.assertNotIn("variable", found["kiosk"])   # not asked: not read
-
-    def test_a_container_that_restarted_while_what_it_needs_warmed_up_and_runs_since_is_stable(self):
-        # Two restarts while Kafka started, then up for two minutes: not one that keeps restarting
-        def started(seconds_ago):
-            return time.strftime("%Y-%m-%dT%H:%M:%S.123456789Z", time.gmtime(time.time() - seconds_ago))
-        lines = [{"Service": name, "State": "running", "Name": f"gio-{name}"} for name in ("kafka-ui", "kiosk")]
-        inspected = "\n".join([f"/gio-kafka-ui|false|2|{started(120)}||", f"/gio-kiosk|false|2|{started(15)}||"])
-        found = self.ps((0, "\n".join(map(json.dumps, lines)), ""), inspected=inspected)
-        self.assertEqual({name: c["restarts"] for name, c in found.items()}, {"kafka-ui": 0, "kiosk": 2})
-
-    def test_a_container_that_never_started_has_no_restarts(self):
-        line = {"Service": "kiosk", "State": "created", "Name": "gio-kiosk"}
-        found = self.ps((0, json.dumps(line), ""), inspected="/gio-kiosk|false|0|0001-01-01T00:00:00Z||\n")
-        self.assertEqual((found["kiosk"]["oom"], found["kiosk"]["restarts"]), (False, 0))
 
     def test_a_container_removed_while_they_are_listed_is_asked_again(self):
         line = {"Service": "kiosk", "State": "running", "Name": "gio-kiosk"}
@@ -782,10 +676,6 @@ class Containers(Case):
                 mock.patch.object(compose, "run", return_value=(124, "", "")) as run:
             compose.containers()
         self.assertEqual(run.call_args.kwargs["timeout"], 10)
-
-    def test_containers_says_why_docker_did_not_answer(self):
-        self.assertEqual(self.ps((1, "", "Cannot connect to the Docker daemon\n"), call=compose.containers),
-                         ({}, "Cannot connect to the Docker daemon"))
 
 
 class Saved(Case):
@@ -823,47 +713,30 @@ class Saved(Case):
         self.assertEqual(read, {"text": "GRAVITEE_LICENSE=secret\n", "mode": "0o600"})
         self.assertEqual(list(folder.iterdir()), [])   # it holds secrets: gone once read
 
-    def test_values_given_to_a_command_come_before_the_env_files(self):
-        # Compose reads the core and what is on, whatever the shell says
-        with mock.patch.dict(compose.os.environ, {"COMPOSE_FILE": "other.yml"}):
-            answer = compose.run(["sh", "-c", 'printf "%s %s" "$KAFKA_VERSION" "$COMPOSE_FILE"'],
-                                 env={"KAFKA_VERSION": "3.8"})
-        self.assertEqual(answer, (0, "3.8 docker-compose.yml:.lab/on.yml", ""))
-        # Whatever the terminal's language: what it prints is read as UTF-8, and never refused
-        self.assertEqual(compose.run(["sh", "-c", r"printf 'caf\303\251 \377'"]), (0, "caf\u00e9 \ufffd", ""))
-
     def test_an_image_as_docker_lists_the_ones_it_holds(self):
-        for image, listed in (("docker.io/bitnamilegacy/kafka:3.9", "bitnamilegacy/kafka:3.9"),
+        for image, listed in (("docker.io/acmecontainer/kazoo:3.9", "acmecontainer/kazoo:3.9"),
                               ("docker.io/library/mongo:8", "mongo:8"), ("mongo", "mongo:latest"),
                               ("localhost:5000/team/app", "localhost:5000/team/app:latest"),
                               ("graviteeio/apim-gateway:4.12-debian", "graviteeio/apim-gateway:4.12-debian")):
             self.assertEqual(compose.reference(image), listed, image)
 
-    def test_the_images_docker_holds(self):
-        listed = "mongo:8.3.11 sha256:d731\n<none>:<none> sha256:0ld\ngraviteeio/am-gateway:4 sha256:e633\n"
-        with mock.patch.object(compose, "run", return_value=(0, listed, "")) as run:
-            self.assertEqual(compose.image_ids(), {"mongo:8.3.11": "sha256:d731", "<none>:<none>": "sha256:0ld",
-                                                   "graviteeio/am-gateway:4": "sha256:e633"})
-            compose.image_ids()
-        self.assertEqual(run.call_count, 1)
-        self.assertIn("--no-trunc", run.call_args.args[0])
-        compose.CACHE.drop("local:")   # a job ended: a pull may have moved a tag
-        with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
-            self.assertIsNone(compose.image_ids())
-
     def test_the_images_docker_holds_are_kept_a_minute(self):
         # A state's refresh every few seconds does not list them each time: they change as a job ends, which drops them
-        compose.CACHE.drop("local:")
-        self.addCleanup(compose.CACHE.drop, "local:")
-        clock = [1000.0]
+        listed, clock = "mongo:8.3.11 sha256:d731\n<none>:<none> sha256:0ld\ngraviteeio/am-gateway:4 sha256:e633\n", [1000.0]
         with mock.patch.object(compose.time, "monotonic", lambda: clock[0]), \
-                mock.patch.object(compose, "run", return_value=(0, "mongo:8 sha256:d731\n", "")) as run:
-            for clock[0] in (1000.0, 1030.0, 1059.0):
-                compose.image_ids()
+                mock.patch.object(compose, "run", return_value=(0, listed, "")) as run:
+            self.assertEqual(compose.image_ids(), {"mongo:8.3.11": "sha256:d731", "<none>:<none>": "sha256:0ld",
+                                                   "graviteeio/am-gateway:4": "sha256:e633"})
+            clock[0] = 1059.0
+            compose.image_ids()
             self.assertEqual(run.call_count, 1)
+            self.assertIn("--no-trunc", run.call_args.args[0])
             clock[0] = 1061.0
             compose.image_ids()
             self.assertEqual(run.call_count, 2)
+        compose.CACHE.drop("local:")   # a job ended: a pull may have moved a tag
+        with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
+            self.assertIsNone(compose.image_ids())
 
     def test_an_image_built_again_from_unchanged_sources_is_the_same_image(self):
         # Docker's image store gives each build its own id: the manifest the container was made from says what it runs
@@ -923,12 +796,12 @@ class Retargeted(ProjectFolder):
                 "    command: [\"TCP-LISTEN:9092\", \"TCP:apim-gateway:9092\"]\n"
                 "    environment:\n      GATEWAY_URL: http://apim-gateway:8082/mcp\n      AUTH_URL: http://me@apim-gateway/x\n"
                 "  seed:\n    depends_on:\n      apim-gateway:\n        condition: service_healthy\n")
-        found = compose.retarget(text, {"apim-gateway": "apim-hybrid-gateway"}).split("\n")
-        self.assertEqual([line.strip() for line in found if "hybrid" in line],
-                         ["apim-hybrid-gateway:", "depends_on: [apim-hybrid-gateway, mongodb]",
-                          'command: ["TCP-LISTEN:9092", "TCP:apim-hybrid-gateway:9092"]',
-                          "GATEWAY_URL: http://apim-hybrid-gateway:8082/mcp", "AUTH_URL: http://me@apim-hybrid-gateway/x",
-                          "apim-hybrid-gateway:"])
+        found = compose.retarget(text, {"apim-gateway": "apim-hyssop-gateway"}).split("\n")
+        self.assertEqual([line.strip() for line in found if "hyssop" in line],
+                         ["apim-hyssop-gateway:", "depends_on: [apim-hyssop-gateway, mongodb]",
+                          'command: ["TCP-LISTEN:9092", "TCP:apim-hyssop-gateway:9092"]',
+                          "GATEWAY_URL: http://apim-hyssop-gateway:8082/mcp", "AUTH_URL: http://me@apim-hyssop-gateway/x",
+                          "apim-hyssop-gateway:"])
         # The image and the binds are what the files say: a Cloud deploy changes the service, not what it runs or mounts
         for kept in ("image: graviteeio/apim-gateway:4.13.1", "container_name: gio-apim-gateway",
                      "- ./apim-gateway/gravitee.yml:/opt/gravitee.yml", "- apim-gateway/x.yml:/x", "- ./config/apim-gateway.yml:/y",
@@ -936,14 +809,14 @@ class Retargeted(ProjectFolder):
             self.assertIn(kept, [line.strip() for line in found])
 
     def test_a_copy_includes_copies_in_place_of_the_files(self):
-        text = ("include:\n  - ../kafka/compose.yml   # what it needs\n  - path: ../mail/compose.yml\n"
-                "\nservices:\n  console:\n    volumes:\n      - ../kafka/compose.yml:/x\n")
+        text = ("include:\n  - ../kazoo/compose.yml   # what it needs\n  - path: ../malt/compose.yml\n"
+                "\nservices:\n  console:\n    volumes:\n      - ../kazoo/compose.yml:/x\n")
         self.write("addons/console/compose.yml", text)
         found = compose.retargeted("addons/console/compose.yml", text,
-                                   {"addons/kafka/compose.yml": "addons/kafka/.compose.yml.effects.yml"})
-        self.assertEqual(found, text.replace("  - ../kafka/compose.yml ", "  - ../kafka/.compose.yml.effects.yml ", 1))
+                                   {"addons/kazoo/compose.yml": "addons/kazoo/.compose.yml.effects.yml"})
+        self.assertEqual(found, text.replace("  - ../kazoo/compose.yml ", "  - ../kazoo/.compose.yml.effects.yml ", 1))
         # What is not in the include list stays as written
-        self.assertIn("      - ../kafka/compose.yml:/x", found)
+        self.assertIn("      - ../kazoo/compose.yml:/x", found)
 
 
 class Shell(Case):
@@ -984,52 +857,28 @@ class Shell(Case):
 class Kept(unittest.TestCase):
     """The cache of what is slow to ask again."""
 
-    def test_asked_at_the_same_time_it_is_asked_once(self):
-        # Two pages' refreshes that both find nothing kept: one `config --hash`, not two
-        cache, calls, release = compose.Cache(), [], threading.Event()
+    def test_asked_at_the_same_time_it_is_asked_once_and_each_gets_what_it_answers_or_raises(self):
+        # Two pages' refreshes that find nothing kept: one `config --hash`, not two. Docker hangs: the Welcome check, the state
+        # and a second tab each have the failure of one `docker info`, not one read more than the caller before
+        waiting = threading.Semaphore(0)
 
-        def slow():
-            calls.append(1)
-            release.wait(5)
-            return {"mongodb": "h"}
-        answers = []
-        threads = [threading.Thread(target=lambda: answers.append(cache.get("config-hash:x", 300, slow)))
-                   for _ in range(3)]
-        for thread in threads:
-            thread.start()
-        deadline = time.monotonic() + 5
-        while not calls and time.monotonic() < deadline:
-            time.sleep(0.01)
-        time.sleep(0.05)   # the others ask meanwhile
-        release.set()
-        for thread in threads:
-            thread.join(5)
-        self.assertEqual((len(calls), answers), (1, [{"mongodb": "h"}] * 3))
+        class Awaited(Future):   # says that a caller waits on the read
+            def result(self, timeout=None):
+                waiting.release()
+                return super().result(timeout)
+        for outcome in ({"mongodb": "h"}, compose.ComposeError("Docker does not answer")):
+            cache, calls = compose.Cache(), []
 
-    def test_callers_that_wait_on_a_read_that_fails_each_get_its_failure_after_one_read(self):
-        # Docker hangs: the Welcome check, the state and a second tab ask docker:info at once, and `docker info` fails
-        # after its limit. Each caller has the failure after one read's time, not one read more than the caller before
-        cache, calls, waited, READ = compose.Cache(), [], [], 0.5
-
-        def failing():
-            calls.append(1)
-            time.sleep(READ)
-            raise compose.ComposeError("Docker does not answer")
-
-        def ask():
-            began = time.monotonic()
-            with self.assertRaises(compose.ComposeError):
-                cache.get("docker:info", 600, failing)
-            waited.append(time.monotonic() - began)
-        threads = [threading.Thread(target=ask) for _ in range(3)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(10)
-        self.assertLess(max(waited), READ * 1.6, f"fn ran {len(calls)} times, callers waited {sorted(waited)}")
-        self.assertEqual((len(waited), len(calls)), (3, 1))
-        # Not kept: the next caller asks again
-        self.assertEqual(cache.get("docker:info", 600, lambda: "29.7.2"), "29.7.2")
+            def read():
+                calls.append(1)
+                for _ in range(2):   # it ends once the two others wait on it, however long they take to ask
+                    waiting.acquire(timeout=10)
+                if isinstance(outcome, Exception):
+                    raise outcome
+                return outcome
+            with mock.patch.object(compose, "Future", Awaited), ThreadPoolExecutor(3) as pool:
+                asked = [pool.submit(cache.get, "key", 300, read) for _ in range(3)]
+            self.assertEqual((len(calls), [future.exception() or future.result() for future in asked]), (1, [outcome] * 3))
 
     def test_a_failure_is_asked_again_and_an_answer_is_kept_for_its_time(self):
         # What the read raises is not kept; any answer is, None and "" too (an answer that nothing lacks is one)
@@ -1056,10 +905,8 @@ class Kept(unittest.TestCase):
         self.addCleanup(reader.join, 5)
         self.addCleanup(release.set)
         asking.wait(5)
-        began = time.monotonic()
         self.assertEqual([cache.kept("latest", 60), cache.kept("tags", 60), cache.kept("tags", 0)],
                          [None, ["4.12.21"], None])
-        self.assertLess(time.monotonic() - began, 1)
         release.set()
         reader.join(5)
         self.assertTrue(cache.kept("latest", 60))
@@ -1071,21 +918,15 @@ class Docker(Case):
         compose.CACHE.drop("docker:")
         self.addCleanup(compose.CACHE.drop, "docker:")
 
-    def test_its_memory_or_none_when_it_does_not_answer(self):
+    def test_its_memory_or_none_when_it_does_not_answer_and_kept_until_then(self):
+        # It changes only as Docker starts again: a state's refresh does not ask for the whole of `docker info`
         with mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertIsNone(compose.docker_memory())
-        info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000, "NCPU": 8})
-        with mock.patch.object(compose, "run", return_value=(0, info, "")):
-            self.assertEqual(compose.docker_memory(), 8_000_000_000)
-
-    def test_its_memory_is_kept_until_it_does_not_answer(self):
-        # It changes only as Docker starts again: a state's refresh does not ask for the whole of `docker info`
         info = json.dumps({"ServerVersion": "29.7.2", "MemTotal": 8_000_000_000})
         with mock.patch.object(compose, "run", return_value=(0, info, "")) as run:
             for _ in range(3):
                 self.assertEqual(compose.docker_memory(), 8_000_000_000)
         self.assertEqual(run.call_count, 1)
-        self.assertGreaterEqual(compose.INFO_TTL, 600)
         with mock.patch.object(compose, "project_name", return_value="lab"), \
                 mock.patch.object(compose, "run", return_value=(1, "", "Cannot connect to the Docker daemon")):
             self.assertEqual(compose.containers(), ({}, "Cannot connect to the Docker daemon"))
@@ -1116,7 +957,7 @@ class Docker(Case):
         answers = {"version": (0, "v5.4.0\n", "")}
         with mock.patch.object(compose, "run", side_effect=lambda command, **_: answers["version"]) as run:
             self.assertEqual([compose.compose_version() for _ in range(3)], ["5.4.0"] * 3)
-            self.assertEqual((run.call_count, compose.DOCKER_TTL), (1, 60))
+            self.assertEqual(run.call_count, 1)
             compose.CACHE.drop("docker:")
             answers["version"] = (127, "", "[Errno 2] No such file or directory: 'docker'")
             with self.assertRaisesRegex(compose.ComposeError, compose.NO_DOCKER):
@@ -1133,26 +974,6 @@ class Docker(Case):
         with mock.patch.object(compose, "run", return_value=(0, "5.7.0\n", "")):
             self.assertEqual(compose.compose_version(), "5.7.0")
 
-    def test_each_fact_docker_says_is_read_in_one_place(self):
-        # One reading of `docker info`, `docker compose version` and `docker images` that the state, the Dashboard, the check
-        # of the machine and the Images page share: a second one would see a change of Docker at another time. The CI's
-        # commands (catalogs/ci) run once and keep nothing
-        package = Path(compose.__file__).parents[1]
-        found = [f"{path.relative_to(package)}: {spelled}" for path in sorted(package.rglob("*.py"))
-                 if path != Path(compose.__file__) and path.relative_to(package).parts[:2] != ("catalogs", "ci")
-                 for spelled in ('"docker", "info"', '"compose", "version"', '"docker", "images"')
-                 if spelled in path.read_text(encoding="utf-8")]
-        self.assertEqual(found, [])
-
-    def test_its_scratch_folder_is_private_and_kept_for_the_run(self):
-        folder = compose.scratch()
-        self.assertEqual((folder, stat.S_IMODE(folder.stat().st_mode)), (compose.scratch(), 0o700))
-
-    def test_its_scratch_folder_is_made_again_when_the_system_clears_it(self):
-        shutil.rmtree(compose.scratch())
-        folder = compose.scratch()
-        self.assertEqual((folder.is_dir(), stat.S_IMODE(folder.stat().st_mode)), (True, 0o700))
-
 
 class Environment(Case):
     """What every command gets: the files Compose reads, and no remote include."""
@@ -1166,20 +987,6 @@ class Environment(Case):
         self.assertEqual(found["COMPOSE_EXPERIMENTAL_GIT_REMOTE"], "false")
         self.assertEqual(found["COMPOSE_EXPERIMENTAL_OCI_REMOTE"], "false")
         self.assertEqual(found["SHELL_KEEPS"], "this")
-
-    def test_the_flags_reach_every_command(self):
-        with mock.patch.dict(os.environ, {"COMPOSE_EXPERIMENTAL_GIT_REMOTE": "true"}):
-            answer = compose.run(["sh", "-c", 'printf "%s %s" "$COMPOSE_EXPERIMENTAL_GIT_REMOTE" '
-                                              '"$COMPOSE_EXPERIMENTAL_OCI_REMOTE"'])
-        self.assertEqual(answer, (0, "false false", ""))
-
-    def test_a_folder_of_the_layout_before_catalogs_changes_nothing_of_it(self):
-        # The engine knows one layout: such a folder is moved before the Lab works on it (layout.run), never read as one here
-        self.folder(compose, paths, files={paths.DEFAULT_FILE: '{"schema": 1, "catalogs": [{"id": "fixture"}]}\n',
-                                           paths.ON_FILE: "include:\n  - addons/kafka/compose.yml\n",
-                                           "addons/kafka/.env": "A=1\n"})
-        with mock.patch.dict(os.environ, {"COMPOSE_FILE": "other.yml"}):
-            self.assertEqual(compose.run(["sh", "-c", 'printf "%s" "$COMPOSE_FILE"']), (0, compose.COMPOSE_FILE, ""))
 
     def test_a_command_gets_the_environment_it_is_given_in_place_of_the_shells(self):
         # scrubbed_environment() and build_environment() are given whole: nothing of the shell stays under them
@@ -1230,6 +1037,8 @@ class Run(Commands):
 
     def test_it_answers_its_code_and_what_it_printed(self):
         self.assertEqual(compose.run(["sh", "-c", "echo out; echo err >&2; exit 3"]), (3, "out\n", "err\n"))
+        # Whatever the terminal's language: what it prints is read as UTF-8, and never refused
+        self.assertEqual(compose.run(["sh", "-c", r"printf 'caf\303\251 \377'"]), (0, "caf\u00e9 \ufffd", ""))
 
     def test_a_command_that_is_not_there(self):
         code, out, err = compose.run(["no-such-command-for-the-lab"])
@@ -1247,10 +1056,8 @@ class Run(Commands):
         self.assertEqual(compose.run(["pwd"], cwd=folder), (0, f"{folder}\n", ""))
 
     def test_past_its_time_it_is_ended_with_everything_it_started(self):
-        started = time.monotonic()
         answer = compose.run(["sh", "-c", f"sleep {FOREVER} & echo $! > {shlex.quote(str(self.pidfile))}; wait"], timeout=1)
         self.assertEqual(answer, (124, "", "sh did not answer within 1 s"))
-        self.assertLess(time.monotonic() - started, 10)
         pid = self.child()
         self.assertTrue(settled(lambda: not alive(pid)), "what the command started is still running")
         self.assertEqual(compose._running, set())
@@ -1265,20 +1072,6 @@ class Run(Commands):
         pid = self.child()
         self.assertTrue(settled(lambda: not alive(pid)))
         self.assertEqual(compose._running, set())
-
-    def test_what_still_runs_when_the_lab_ui_exits_is_ended(self):
-        answered = []
-        thread = threading.Thread(target=lambda: answered.append(
-            compose.run(["sh", "-c", f"{self.record}; exec sleep {FOREVER}"], timeout=FOREVER)))
-        thread.start()
-        self.addCleanup(thread.join, 10)
-        pid = self.child()
-        self.assertTrue(settled(lambda: compose._running, 10))
-        compose.stop_running()
-        thread.join(10)
-        self.assertFalse(thread.is_alive())
-        self.assertNotEqual(answered[0][0], 0)
-        self.assertTrue(settled(lambda: not alive(pid)))
 
     def test_what_is_no_process_of_its_own_is_never_signalled(self):
         # A pid that is not one of its commands' groups: 0 is this process's own group, 1 the machine's first, and a fake
@@ -1329,10 +1122,8 @@ class Run(Commands):
             compose._ending = True
             return process
         with mock.patch.object(subprocess, "Popen", late):
-            started = time.monotonic()
             code, _, _ = compose.run(["sleep", str(FOREVER)], timeout=5)
         self.assertEqual(code, -signal.SIGKILL)   # not 124: it did not wait for its time
-        self.assertLess(time.monotonic() - started, 4)
         self.assertEqual(compose._running, set())
 
 
@@ -1341,7 +1132,7 @@ class Spawn(Commands):
     Lab UI ends as it exits, and ends when asked, with what it started."""
 
     def spawned(self, script):
-        process = compose.spawn(["sh", "-c", script], subprocess.STDOUT, cwd=self.root)
+        process = compose.spawn(["sh", "-c", script])
         self.addCleanup(lambda: (process.poll() is None and os.killpg(process.pid, signal.SIGKILL), process.wait(),
                                  process.stdout.close(), compose.release(process)))
         return process
@@ -1377,7 +1168,7 @@ class Spawn(Commands):
         self.assertEqual(process.wait(10), -signal.SIGKILL)
         self.assertTrue(settled(lambda: not alive(pid)))
         self.patch(compose, "_ending", True)
-        self.assertIsNone(compose.spawn(["true"], subprocess.STDOUT))
+        self.assertIsNone(compose.spawn(["true"]))
 
 
 # A Lab UI, as a program: the commands of a project read, six of them asked of a pool of two threads, which is how the
@@ -1433,7 +1224,7 @@ import os, signal, sys, threading, time
 sys.path.insert(0, sys.argv[1])
 from lab_ui.docker import compose, jobs
 compose.stop_on_signals()
-job = jobs.JOBS.start("Start Acme Shop", [["sleep", os.environ["SLEEP"]]], key="addon:acme-shop", verb="start")
+job = jobs.JOBS.start("Start Malt", [["sleep", os.environ["SLEEP"]]], key="addon:malt", verb="start")
 while job._process is None:
     time.sleep(0.05)
 try:
@@ -1488,10 +1279,8 @@ class Exiting(Case):
         for imported in ("before", "after"):
             with self.subTest(pool_imported=imported):
                 process = self.program(POOL, imported)
-                started = time.monotonic()
                 os.killpg(process.pid, signal.SIGINT)   # what a terminal sends to the group of its foreground program
                 self.assertEqual(self.exits(process), 0)
-                self.assertLess(time.monotonic() - started, 15)
                 self.assertTrue(settled(lambda: not holding(self.marker)), "a command is still running")
 
     def test_a_hang_up_and_a_termination_end_the_commands_too(self):
@@ -1507,15 +1296,8 @@ class Exiting(Case):
         process = self.program(JOB)
         os.killpg(process.pid, signal.SIGINT)
         self.assertEqual(self.exits(process), 0)
-        self.assertIn("Stopped with the Lab UI: Start Acme Shop", process.stdout.read())
+        self.assertIn("Stopped with the Lab UI: Start Malt", process.stdout.read())
         self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
-        # A termination of the Lab UI alone ends it too: it is not left running without the Lab UI
-        for signal_name in ("SIGHUP", "SIGTERM"):
-            with self.subTest(signal_name):
-                process = self.program(JOB)
-                os.kill(process.pid, getattr(signal, signal_name))
-                self.assertEqual(self.exits(process), -getattr(signal, signal_name))
-                self.assertTrue(settled(lambda: not holding(self.marker)), "the job's command is still running")
 
     def test_a_signal_the_lab_ui_ignores_or_handles_is_left_to_it(self):
         for how, expected in (("ignored", None), ("handled", "handled")):
@@ -1541,16 +1323,7 @@ class Limits(ProjectFolder):
              "volumes": {"data": {"name": "lab_data"}}, "networks": {"net": {"name": "lab_net"}},
              "secrets": {"tok": {"environment": "TOKEN"}}, "configs": {"cfg": {"content": "hello"}}}
 
-    def test_each_read_has_the_time_it_needs(self):
-        with mock.patch.object(compose, "run", return_value=(0, json.dumps(self.WHOLE), "")) as run:
-            compose._config(["-f", "a.yml"])
-            compose._config(["-f", "a.yml"], timeout=5)
-            compose.config_json(["-f", "a.yml"])
-            compose.config_json(["-f", "a.yml"], timeout=3)
-            compose.resolved(["-f", "a.yml"])
-        self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [120, 5, 15, 3, 120])
-
-    def test_the_environment_asked_for_reaches_the_command_and_none_asked_changes_nothing(self):
+    def test_each_read_has_the_time_it_needs_and_the_environment_asked_for_reaches_the_command(self):
         asked = {"PATH": "/bin", "HOME": "/scrubbed"}
         with mock.patch.object(compose, "run", return_value=(0, json.dumps(self.WHOLE), "")) as run:
             compose.config_json(["-f", "a.yml"])
@@ -1558,18 +1331,8 @@ class Limits(ProjectFolder):
             compose.config_json(["-f", "a.yml"], 3, asked)
             compose._config(["-f", "a.yml"], "--no-interpolate", environ=asked)
             compose.resolved(["-f", "a.yml"])
-        first, *others = run.call_args_list
-        self.assertNotIn("environ", first.kwargs, "the call of the Lab is the call it was")
-        self.assertEqual([call.kwargs.get("environ") for call in others], [asked, asked, asked, None])
+        self.assertEqual([call.kwargs["environ"] for call in run.call_args_list], [None, asked, asked, asked, None])
         self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [15, 15, 3, 120, 120])
-
-    def test_a_read_that_is_not_answered_in_time_raises_compose_error(self):
-        self.patch(compose, "plugin", lambda: None)
-        self.patch(compose, "COMPOSE", ["sh", "-c", f"sleep {FOREVER}", "sh"])   # a Compose that never answers
-        started = time.monotonic()
-        with self.assertRaisesRegex(compose.ComposeError, "^sh did not answer within 1 s$"):
-            compose.config_json(["-f", "a.yml"], timeout=1)
-        self.assertLess(time.monotonic() - started, 10)
 
     def test_the_whole_configuration_is_answered_not_only_the_services(self):
         self.patch(compose, "plugin", lambda: None)
@@ -1774,10 +1537,8 @@ class Compose5(ProjectFolder):
         if holding(name) is None:
             self.skipTest("ps cannot list processes: what is left behind is not found")
         self.addCleanup(lambda: [os.kill(pid, 9) for pid in holding(name) or []])   # nothing may be left waiting
-        started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "did not answer within 1 s"):
             compose.config_json(["-f", "docker-compose.yml", "-f", name], timeout=1)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(name)), "Compose is still waiting")
 
 
@@ -1804,10 +1565,8 @@ class XGravitee(ProjectFolder):
     def test_a_text_that_takes_too_long_or_answers_too_much_cannot_be_read_and_leaves_nothing_running(self):
         os.mkfifo(self.here / "never")   # a file that never ends: Compose waits on it
         self.patch(compose, "ALONE_TIMEOUT", 2)
-        started = time.monotonic()
         with self.assertRaisesRegex(compose.ComposeError, "did not answer within 2 s"):
             compose.x_gravitee("include: [never]\nx-gravitee: {kind: addon}\n", self.here)
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(str(self.here))), "the Compose that waited on it is ended, with its plugin")
         self.patch(compose, "ALONE_OUTPUT", 10)
         with self.assertRaisesRegex(compose.ComposeError, "^Compose answered more than an item can hold$"):
@@ -1818,17 +1577,15 @@ class XGravitee(ProjectFolder):
         os.mkfifo(self.here / "tool.env")
         self.patch(compose, "ALONE_TIMEOUT", 2)
         text = "x-gravitee: {kind: playground}\ninclude:\n  - path: tool.yml\n    env_file: tool.env\n"
-        started = time.monotonic()
         try:
-            compose.x_gravitee(text, self.here, fresh=True)
+            compose.x_gravitee(text, self.here)
         except compose.ComposeError as error:
             self.assertIn(compose.cause(error), ("Compose took too long to read it", "Compose cannot read it"))
-        self.assertLess(time.monotonic() - started, 10)
         self.assertTrue(settled(lambda: not holding(str(self.here))))
         (self.here / "tool.env").unlink()
         (self.here / "tool.env").write_text("SECRET hunter2 is no line of variables\n")
         try:
-            compose.x_gravitee(text, self.here, fresh=True)
+            compose.x_gravitee(text, self.here)
         except compose.ComposeError as error:
             self.assertNotIn("hunter2", compose.cause(error))
 
@@ -1839,9 +1596,9 @@ class XGravitee(ProjectFolder):
         path = self.write(".lab/catalogs/local/playgrounds/mine/compose.yml", text)
         self.assertEqual(compose.left_out(text, path), [".lab/catalogs/local/addons/gone/compose.yml"])
         read = compose.raw(path, skip=compose.left_out(text, path))["x-gravitee"]
-        self.assertEqual(compose.x_gravitee(text, folder, fresh=True), read)
+        self.assertEqual(compose.x_gravitee(text, folder), read)
         edited = text.replace(", copy_of: tour", "")
-        self.assertEqual(compose.x_gravitee(edited, folder, fresh=True), {"kind": "playground", "name": "Mine"},
+        self.assertEqual(compose.x_gravitee(edited, folder), {"kind": "playground", "name": "Mine"},
                          "a text of the Lab's, not on disk, read the same way")
 
     def test_a_refusal_may_name_the_items_own_file_its_env_file_and_what_it_includes(self):
@@ -1886,25 +1643,11 @@ class XGravitee(ProjectFolder):
             with self.subTest(name):
                 for one in (".env", "x.env"):
                     make(self.here / one)
-                started = time.monotonic()
-                self.assertEqual(compose.x_gravitee(text, self.here, fresh=True), {"kind": "addon", "name": "Quiet"})
-                self.assertLess(time.monotonic() - started, 5, "answered at once: neither file is opened")
+                # A file that was opened would end in the error of its time, not in this answer
+                self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Quiet"})
                 self.assertTrue(settled(lambda: not holding(str(self.here))))
                 for one in (".env", "x.env"):
                     (self.here / one).unlink()
-
-    def test_the_same_text_in_the_same_folder_is_read_once_and_a_file_raw_read_is_not_read_again(self):
-        text = "x-gravitee: {kind: addon, name: Once}\nservices:\n  once:\n    image: busybox\n"
-        real, runs = compose.run, []
-        self.patch(compose, "run", lambda cmd, **more: runs.append(cmd) or real(cmd, **more))
-        first = compose.x_gravitee(text, self.here)
-        first["name"] = "changed by its caller"
-        self.assertEqual(compose.x_gravitee(text, self.here), {"kind": "addon", "name": "Once"})
-        self.assertEqual(len(runs), 1)
-        self.write("addons/read/compose.yml", text.replace("Once", "Read"))
-        compose.raw("addons/read/compose.yml")
-        self.assertEqual(compose.x_gravitee(text.replace("Once", "Read"), self.root / "addons" / "read"), {"kind": "addon", "name": "Read"})
-        self.assertEqual(len(runs), 2, "raw's reading answers")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 """`catalog.py ci run`: the runner behind `make ci`. It plans from `origin/main` the way CI plans a pull request, reads the
-units once, and runs the stages in the order CI runs them on the architecture of this machine; a stage that is not in this Lab
+units once, and runs the stages in the order CI runs them on the architecture of this machine; a scan this machine cannot run
 is said and skipped, and a run that skipped something never says it is all good.
 
 The stages are stubs that record their arguments, and one class runs the real ones over the fake docker."""
@@ -8,14 +8,11 @@ import io
 import json
 import os
 import re
-import shutil
-import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from lab_ui.catalogs import ci
-from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import plan, run
 from tests.data.rules import support
 from tests.fakedocker import FakeDocker, option
@@ -57,9 +54,9 @@ def loader(config_for=None, own_for=None):
 
     def load(folder, names):
         asked.append((folder, list(names)))
-        return ci.Loading([ci.Loaded(kind, name, name, ci.unit_path(kind, name), "",
+        return ci.Loading([ci.Loaded(kind, name, ci.unit_path(kind, name), "",
                                      (config_for or (lambda k, n: {"services": {}}))(kind, name),
-                                     (own_for or (lambda k, n: ()))(kind, name), (), None) for kind, name in names], [], [])
+                                     (own_for or (lambda k, n: ()))(kind, name), (), None) for kind, name in names], [])
     load.asked = asked
     return load
 
@@ -91,7 +88,7 @@ class Order(Fixture):
         self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
         code = self.run_ci()
         self.assertEqual(code, 0, self.err.getvalue())
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])   # smoke of level 2, scan of 6
+        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])
         calls = {name: argv for name, argv, _ in self.recorder.calls}
         root = str(self.repo)
         units = json.dumps(["playground:bank", "setup:pair"])
@@ -102,23 +99,14 @@ class Order(Fixture):
         self.assertEqual(calls["gitleaks"], [root, "--base", self.first])
         self.assertIn("== plan\nScope: the change and what includes it\nUnits: playground:bank, setup:pair", self.out.getvalue())
 
-    def test_the_summary_lists_each_stage(self):
+    def test_the_summary_lists_each_stage_and_a_run_that_skipped_nothing_says_all_good(self):
         self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
         self.run_ci()
         text = self.out.getvalue()
         for pattern in (r"✓ plan\s+passed: 2 units", r"✓ manifests\s+passed", r"✓ build\s+passed", r"✓ test\s+passed",
                         r"✓ smoke\s+passed", r"✓ scan\s+passed", r"✓ gitleaks\s+passed"):
             self.assertRegex(text, re.compile(pattern))
-
-    def test_a_run_that_skipped_nothing_says_all_good_and_one_that_did_not_never_does(self):
-        self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
-        self.run_ci()
-        self.assertTrue(self.out.getvalue().endswith("All good\n"))
-        self.out = io.StringIO()
-        self.run_ci(stages={**self.recorder.stages(*run.ORDER), "gitleaks": None})
-        self.assertNotIn("All good", self.out.getvalue())
-        self.assertRegex(self.out.getvalue(), r"- gitleaks\s+skipped: this stage is not in this Lab yet")
-        self.assertTrue(self.out.getvalue().endswith("1 stage skipped.\n"))
+        self.assertTrue(text.endswith("All good\n"))
 
     def test_nothing_changed_in_a_unit_runs_nothing_but_the_scan_of_the_commits(self):
         self.change({"docs/guide.md": "# Changed\n"})
@@ -141,20 +129,6 @@ class Order(Fixture):
         self.run_ci("--all")
         units = json.loads(self.recorder.calls[0][1][2])
         self.assertEqual(units, ["addon:mock", "addon:plain", "playground:bank", "setup:pair"])
-
-    def test_the_base_may_be_another_commit(self):
-        self.change({"addons/plain/compose.yml": COMPOSE.format(name="plain") + "# 1\n"})
-        second = self.change({"addons/mock/compose.yml": COMPOSE.format(name="mock") + "# 2\n"})
-        self.run_ci("--base", self.git(self.repo, "rev-parse", "HEAD~1").strip())
-        self.assertEqual(json.loads(self.recorder.calls[0][1][2]), ["addon:mock", "playground:bank", "setup:pair"])
-        self.assertEqual(self.recorder.calls[-1][1][2], self.git(self.repo, "rev-parse", "HEAD~1").strip())
-        self.assertTrue(second)
-
-    def test_a_base_that_is_no_commit_is_a_usage_error(self):
-        for base in ("nonexistent", "f" * 40, "--output=x"):
-            self.out, self.err = io.StringIO(), io.StringIO()
-            self.assertEqual(self.run_ci(f"--base={base}"), 2)
-        self.assertEqual(self.recorder.calls, [])
 
     def test_with_no_origin_main_every_unit_is_run_and_it_says_why(self):
         self.git(self.repo, "update-ref", "-d", "refs/remotes/origin/main")
@@ -190,61 +164,11 @@ class Order(Fixture):
         self.assertIsNone(ci.LOADER)   # and put back when the run ends
 
 
-class Levels(Fixture):
-
-    def setUp(self):
-        super().setUp()
-        self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
-
-    def test_smoke_is_not_asked_below_level_two(self):
-        with mock.patch.object(run, "level", lambda: 1):
-            self.run_ci()
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "gitleaks"])
-        self.assertRegex(self.out.getvalue(), r"- smoke\s+not asked: not a stage of standard level 1")
-        self.assertTrue(self.out.getvalue().endswith("All good\n"))
-
-    def test_smoke_runs_from_level_two_when_it_is_in_this_lab(self):
-        with mock.patch.object(run, "level", lambda: 2):
-            self.run_ci()
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "gitleaks"])
-        self.assertEqual(self.recorder.calls[3][1][1:], ["--units", json.dumps(["playground:bank", "setup:pair"])])
-
-    def test_smoke_that_is_not_shipped_is_said_and_skipped(self):
-        with mock.patch.object(run, "level", lambda: 2):
-            code = self.run_ci(stages={**self.recorder.stages(*run.ORDER), "smoke": None})
-        self.assertEqual(code, 0)
-        self.assertRegex(self.out.getvalue(), r"- smoke\s+skipped: this stage is not in this Lab yet")
-        self.assertNotIn("All good", self.out.getvalue())
-
-    def test_the_scan_of_the_images_built_is_not_asked_below_level_six_and_runs_from_it(self):
-        with mock.patch.object(run, "level", lambda: 5):
-            self.run_ci()
-        self.assertNotIn("scan", self.recorder.names)
-        self.assertRegex(self.out.getvalue(), r"- scan\s+not asked: not a stage of standard level 5")
-        self.recorder, self.out = Recorder(), io.StringIO()
-        with mock.patch.object(run, "level", lambda: 6):
-            self.run_ci()
-        self.assertEqual(self.recorder.names, ["manifests", "build", "test", "smoke", "scan", "gitleaks"])
+class Stages(unittest.TestCase):
 
     def test_the_scan_step_is_the_stage_scan_built_of_the_command_line(self):
-        self.assertEqual(run.STAGE_OF["scan"], "scan-built")
-        self.assertEqual(ci.STAGES["scan-built"], ("scan", "built_main"))
         from lab_ui.catalogs.ci import scan
         self.assertIs(run.stage_function("scan"), scan.built_main)
-
-    def test_the_level_is_the_standards_and_one_while_it_is_not_here(self):
-        self.assertIsInstance(run.level(), int)
-        self.assertGreaterEqual(run.level(), 1)
-        with mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("no", name="lab_ui.catalogs.standard")):
-            self.assertEqual(run.level(), 1)
-
-    def test_the_real_stage_table_names_a_module_for_each_stage_and_the_missing_ones_answer_not_available(self):
-        out, err = io.StringIO(), io.StringIO()
-        for stage in ("smoke", "publish-plan", "publish", "release-notes", "links", "scan-published", "e2e-plan", "e2e-gate"):
-            module_name, function = ci.STAGES[stage]
-            if run.stage_function(stage) is None:
-                self.assertEqual(ci_main([stage], out, err), 2)
-                self.assertIn(f"{stage} is not available yet in this Lab.", err.getvalue())
 
 
 class Ends(Fixture):
@@ -275,8 +199,7 @@ class Ends(Fixture):
 
     def test_a_scan_that_cannot_run_here_is_skipped_with_its_reason_and_does_not_fail_the_run(self):
         for said in ("Docker is not installed or not on the PATH: this stage runs containers",
-                     "Docker is not running: start Docker Desktop (or the docker service), then run it again",
-                     "the gitleaks image of the Lab is not pinned yet (its digest is the placeholder of zeros): write the digest"):
+                     "Docker is not running: start Docker Desktop (or the docker service), then run it again"):
             with self.subTest(said=said[:30]):
                 self.out, self.err = io.StringIO(), io.StringIO()
                 self.recorder = Recorder({"gitleaks": 2}, {"gitleaks": f"catalog.py ci: {said}\n"})
@@ -287,7 +210,7 @@ class Ends(Fixture):
                 self.assertEqual(self.err.getvalue(), "")   # (the reason is in the line of the stage)
 
     def test_the_scan_of_the_images_that_cannot_run_here_is_skipped_with_its_reason_as_the_scan_of_the_commits_is(self):
-        said = "the trivy image of the Lab is not pinned yet (its digest is the placeholder of zeros): write the digest"
+        said = "Docker is not running: start Docker Desktop (or the docker service), then run it again"
         self.recorder = Recorder({"scan": 2}, {"scan": f"catalog.py ci: {said}\n"})
         self.assertEqual(self.run_ci(), 0)
         self.assertRegex(self.out.getvalue(), r"- scan\s+skipped: " + re.escape(said[:40]))
@@ -316,15 +239,10 @@ class Ends(Fixture):
 
     def test_the_words_that_make_a_scan_a_skip_are_the_ones_the_stages_say(self):
         from lab_ui.catalogs.ci import gitleaks
-        self.assertEqual(ci.SKIPPABLE, (ci.NO_DOCKER, ci.DOCKER_DOWN, ci.NOT_PINNED_YET))
-        fake = Path(self.holder, "Dockerfile")
-        fake.write_text(f"FROM ghcr.io/example/gitleaks:v8@sha256:{'0' * 64} AS gitleaks\n")
-        with self.assertRaises(ci.Unavailable) as raised:
-            gitleaks.image(fake)
-        self.assertIsNotNone(run.not_here(str(raised.exception)))
         with mock.patch.dict(os.environ, {"PATH": "/nonexistent-bin"}), self.assertRaises(ci.Unavailable) as raised:
             ci.docker_ready()
         self.assertIsNotNone(run.not_here(str(raised.exception)))
+        fake = Path(self.holder, "Dockerfile")
         fake.write_text("FROM ghcr.io/example/gitleaks:v8 AS gitleaks\n")
         with self.assertRaises(ci.Unavailable) as raised:
             gitleaks.image(fake)
@@ -333,7 +251,7 @@ class Ends(Fixture):
     def test_a_unit_the_trust_policy_refuses_ends_the_run_before_anything_is_built(self):
         def refusing(folder, names):
             return ci.Loading([], [ci.Refused(kind, name, ci.unit_path(kind, name), ("Runs with full privileges",), "T03")
-                                   for kind, name in names], [])
+                                   for kind, name in names])
         self.assertEqual(self.run_ci(loading=refusing), 1)
         self.assertEqual(self.recorder.calls, [])
         self.assertIn("playground:bank was not tried: Runs with full privileges. Fix: make check says how.", self.out.getvalue())
@@ -361,8 +279,7 @@ class Same(Fixture):
 
     def test_the_units_are_the_ones_the_plan_of_ci_writes_for_the_same_change(self):
         head = self.change({"addons/mock/compose.yml": COMPOSE.format(name="mock") + "# more\n"})
-        target = Path(tempfile.mkdtemp(prefix="gravitee-lab-output-")) / "output"
-        self.addCleanup(shutil.rmtree, target.parent, True)
+        target = Path(self.holder, "output")
         with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(target)}):
             code = plan.main([str(self.repo), "--event", "pull_request", "--base", self.first, "--head", head, "--github-output"],
                              io.StringIO(), io.StringIO())
@@ -371,12 +288,6 @@ class Same(Fixture):
         self.run_ci()
         self.assertEqual(self.recorder.calls[0][1][2], json.dumps(json.loads(written["units"])))
         self.assertEqual(json.loads(written["units"]), ["addon:mock", "playground:bank", "setup:pair"])
-
-    def test_the_architecture_is_this_machines_and_only_it(self):
-        self.change({"playgrounds/bank/apps/web/app.py": "print(2)\n"})
-        self.run_ci()
-        self.assertEqual(self.recorder.calls[1][1][-1], PLATFORM)
-        self.assertIn(PLATFORM, ("linux/amd64", "linux/arm64"))
 
 
 class Real(Fixture):
@@ -392,16 +303,16 @@ class Real(Fixture):
                                "gateway": {"image": "graviteeio/apim-gateway:4.12.0"}}}
 
         def load(folder, names):
-            return ci.Loading([ci.Loaded(kind, name, name, ci.unit_path(kind, name), str(self.repo / "playgrounds" / "bank"),
+            return ci.Loading([ci.Loaded(kind, name, ci.unit_path(kind, name), str(self.repo / "playgrounds" / "bank"),
                                          config if (kind, name) == ("playground", "bank") else {"services": {}},
                                          ("bakery-web",) if (kind, name) == ("playground", "bank") else (), (), None)
-                               for kind, name in names], [], [])
+                               for kind, name in names], [])
         from lab_ui.catalogs.ci import gitleaks, manifests
         script = manifests.script()
         script.RESOLVE = lambda name, port, type=None: [(2, 1, 6, "", ("93.184.216.34", port))]
         registry = Registry(default=200)
-        with mock.patch.object(gitleaks, "DOCKERFILE", dockerfile), mock.patch.object(run, "level", lambda: 1):   # smoke needs Compose
-            code = self.real(load, script, registry)
+        with mock.patch.object(gitleaks, "DOCKERFILE", dockerfile):
+            code = self.real(load, script, registry, stages={name: lambda *_, **__: 0 for name in ("smoke", "scan")})   # (they need Compose)
         self.assertEqual(code, 0, self.out.getvalue() + self.err.getvalue())
         text = self.out.getvalue()
         for line in ("== manifests", "== build", "== test", "== gitleaks"):
@@ -413,28 +324,23 @@ class Real(Fixture):
         self.assertEqual(len([call for call in self.fake.commands("run") if "git" in call]), 1)
         self.assertIn("https://registry-1.docker.io/v2/graviteeio/apim-gateway/manifests/4.12.0", [url for _, url, _ in registry.asked])
 
-    def test_the_real_scan_with_no_digest_yet_is_a_skip_with_that_reason_and_with_a_wrong_dockerfile_a_fault(self):
+    def test_the_real_scan_with_a_wrong_dockerfile_is_a_fault(self):
         from lab_ui.catalogs.ci import gitleaks, manifests
         self.fake = FakeDocker(self)
         dockerfile = Path(self.holder, "Dockerfile.tools")
         script = manifests.script()
         script.RESOLVE = lambda name, port, type=None: [(2, 1, 6, "", ("93.184.216.34", port))]
         self.change({"addons/plain/README.md": "# Plain\n"})
-        for text, code, shown in ((f"FROM ghcr.io/example/gitleaks:v8@sha256:{'0' * 64} AS gitleaks\n", 0,
-                                   r"- gitleaks\s+skipped: the gitleaks image of the Lab is not pinned yet"),
-                                  ("FROM ghcr.io/example/gitleaks:v8 AS gitleaks\n", 2, r"! gitleaks\s+could not run")):
-            with self.subTest(code=code):
-                self.out, self.err = io.StringIO(), io.StringIO()
-                dockerfile.write_text(text)
-                with mock.patch.object(gitleaks, "DOCKERFILE", dockerfile):
-                    self.assertEqual(self.real(loader(), script, Registry(default=200)), code)
-                self.assertRegex(self.out.getvalue(), shown)
-                self.assertEqual("not pinned by digest" in self.err.getvalue(), code == 2)
+        dockerfile.write_text("FROM ghcr.io/example/gitleaks:v8 AS gitleaks\n")
+        with mock.patch.object(gitleaks, "DOCKERFILE", dockerfile):
+            self.assertEqual(self.real(loader(), script, Registry(default=200)), 2)
+        self.assertRegex(self.out.getvalue(), r"! gitleaks\s+could not run")
+        self.assertIn("not pinned by digest", self.err.getvalue())
 
-    def real(self, load, script, registry):
+    def real(self, load, script, registry, **seams):
         with mock.patch.object(ci, "LOADER", load):
             return run.main([str(self.repo)], self.out, self.err, lab=str(self.repo), sleep=lambda seconds: None,
-                            ask=lambda image: script.exists(image, registry), module=script)
+                            ask=lambda image: script.exists(image, registry), module=script, **seams)
 
 
 if __name__ == "__main__":

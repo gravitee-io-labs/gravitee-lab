@@ -48,9 +48,9 @@ stopped from the Containers page stays stopped.
 **Symptom:** `make all`, every other target that uses Docker, and `python3 lab-ui/server.py --check` stop with one line.
 `make ui` opens the Lab UI all the same, and its first step, *Your machine*, says what to install:
 
-- `Docker Compose 5.0 or later is needed, found: 2.40.3 (see Prerequisites in README.md)`, with `found: none` when the
+- `Docker Compose 5.0 or later is needed, found: 2.40.3 (see Prerequisites in docs/installation.md)`, with `found: none` when the
   Compose plugin is missing.
-- `docker not found: install Docker with Compose 5.0 or later (see Prerequisites in README.md)` when there is no
+- `docker not found: install Docker with Compose 5.0 or later (see Prerequisites in docs/installation.md)` when there is no
   `docker` program at all.
 
 Or Compose says an add-on `conflicts with imported resource`.
@@ -76,21 +76,18 @@ GB, more when macOS has an update waiting) or Apple's servers did not answer: fr
 
 **Symptom:** a `make` target stops with one line:
 
-- `python3 not found: install Python 3.9 or later (see Prerequisites in README.md)`
-- `Python 3.9 or later is needed, found: Python 3.8.10 (see Prerequisites in README.md)`
-- `openssl not found: install it (see Prerequisites in README.md)`
+- `python3 not found: install Python 3.9 or later (see Prerequisites in docs/installation.md)`
+- `Python 3.9 or later is needed, found: Python 3.8.10 (see Prerequisites in docs/installation.md)`
+- `openssl not found: install it (see Prerequisites in docs/installation.md)`
 
-`make setup` has two more. `The seeder needs Python 3.10 or later, found: Python 3.9.6` is followed by `Run make setup
-again with a newer python3 (for example PYTHON3=python3.12 make setup)`. And `Cannot make .venv: install Python 3.10 or
-later with venv (Debian, Ubuntu: apt install python3-venv)`.
+`make setup` has two more: `The seeder needs Python 3.10 or later, python3 is: Python 3.9.6`, and `Cannot make .venv:
+install Python 3.10 or later with venv (Debian, Ubuntu: apt install python3-venv)`.
 
 **Cause:** the Lab UI runs on Python 3.9 or later. The seeder's tests and `make lint` need Python 3.10 or later, in a
 `.venv` that `make setup` makes. `make init` and `make certs` need `openssl`.
 
 **Fix:** install the missing tool, then run the target again. To pick the Python for `.venv`, name it:
-`PYTHON3=python3.12 make setup`. `make setup` removes the `.venv` it made when that Python is too old. When a `.venv`
-was there before, the message says `.venv has Python 3.9.6` and starts with `Remove .venv`: remove it yourself, then run
-`make setup` again.
+`PYTHON3=python3.12 make setup`. When the message names `.venv/bin/python`, remove `.venv` first.
 
 ### Permission denied on /var/run/docker.sock
 
@@ -221,15 +218,14 @@ ahead of time. If the seed of a playground ends with a timeout while waiting for
 ### Start is disabled
 
 **Symptom:** the Start button of a playground is grey, and its row says *Needs newer versions* or *Needs settings*. The
-reason reads `Needs Access Management 4.13.0-alpha.9 or later and API Management 4.13.0-alpha.5 or later: choose them on the Images
+reason reads `Needs Access Management 4.14 or later and API Management 4.14 or later: choose them on the Images
 page`, or `<name> needs settings`; the badge leads to the Images page or to that add-on.
 
 **Cause:** the playground needs later or pre-release builds of API Management or Access Management, and the core's
 default versions are older. Or an add-on that the playground brings lacks a setting that has no default.
 
-**Fix:** for the images, open the Images page and choose a 4.13 pre-release (alpha) tag: `4.13.0-alpha.5` or later for
-API Management, `4.13.0-alpha.9` or later for Access Management. One visit is enough: the reason names every image that is too old. For a
-setting, open the key button of the add-on and fill in the field marked *Required*.
+**Fix:** for the images, open the Images page and choose the versions the reason names, or later ones. One visit is enough: it names
+every image that is too old. For a setting, open the key button of the add-on and fill in the field marked *Required*.
 
 ### A start fails right after a version change
 
@@ -305,16 +301,6 @@ make restart SVC=apim-gateway
 If an added plugin does not load, check the Plugins page. A plugin found twice, bundled in the image and added in the
 folder, loads from the most recent file, not the highest version. The page says `Added, ignored` when the bundled one is
 newer.
-
-### Gamma's Tracing pages list nothing
-
-**Symptom:** Agent Management, Observability, Tracing shows no call.
-
-**Cause:** tracing must be enabled on the API (a playground's LLM, MCP and A2A proxies can have it), and the Gamma Spans
-add-on must be on and running. A page lists the last 5 minutes at first.
-
-**Fix:** turn Gamma Spans on, pick a longer range, and wait a few seconds after the call. Jade and the AI Agent
-Inspector cannot run with Gamma Spans: all three take the gateway's OpenTelemetry exporter.
 
 ### Ollama is not reachable from the containers
 
@@ -451,23 +437,9 @@ Without internet, once the images are pulled and the apps are built, the platfor
 
 - the Images page cannot list tags, the Dashboard shows no update for the Gravitee versions, and the Plugins
   page cannot load its catalog or install a plugin;
-- a guide shows as plain text and the file editor as a plain text area, because the browser cannot load their libraries;
+- a guide shows as plain text, the file editor as a plain text area and a playground's terminal says it needs the internet, because
+  the browser cannot load their libraries;
 - the gateway cannot download the AI models of an item that uses them the first time;
 - a new image build cannot download its packages.
 
 [What needs the internet](configuration.md#what-needs-the-internet) lists every case.
-
-## Report a bug
-
-Check this page first, then open an issue at https://github.com/gravitee-io-labs/gravitee-lab/issues. The bug form asks for:
-
-- what you did, what you expected, and what happened;
-- your operating system: macOS, Linux or Windows (WSL 2);
-- the output of `docker --version` and `docker compose version`;
-- the lab revision, from `git rev-parse --short HEAD`;
-- the output of `make ps`;
-- the lines that matter from `make logs SVC=<service>`, or from the Logs page.
-
-Remove secrets before you paste anything: your license, tokens and passwords. For a security problem, follow
-[SECURITY.md](../SECURITY.md) instead of opening an issue. Questions about Gravitee products belong at
-https://documentation.gravitee.io and https://community.gravitee.io.

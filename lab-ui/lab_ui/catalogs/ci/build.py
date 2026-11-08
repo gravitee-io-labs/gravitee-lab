@@ -14,7 +14,7 @@ build needs the credentials of their own private base images; the untrusted lane
 - Only the build keys of the T18 allow-list are accepted: `context`, `dockerfile`, `args`, `target`, `labels`. Any other key is
   BD02, the service is not built, and the others still are (one run lists everything to fix). The allow-list is default-deny,
   which a deny list is not: `dockerfile_inline`, `extra_hosts`, `cache_from`, `ulimits` and `pull` pass a list of `ssh`, `secrets`
-  and `network`. `additional_contexts` is for the Lab's seeder, which is not built here.
+  and `network`.
 - A service built from the Lab's seeder is the Lab's own code, tested in the Lab's CI: it is left out.
 - A service with a `build:` and no `image:` is built too, under a name of this stage's own (`lab-ci/<kind>-<unit>-<service>:ci`,
   `local_tag`), and tested under it: the Lab builds such a service when it runs it, and a Dockerfile that is never built in CI
@@ -40,20 +40,17 @@ import time
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from ...docker import compose
-from .. import explain, report, trust
+from .. import report, trust
 from ..report import ERROR, Problem
 from ..rules.images import repository
 from . import (BD01_PLAIN, DOCKER_DOWN, IMAGE_NAME, Loaded, Unavailable, cell, conclude, docker_ready, entry, fence, load, megabytes,
                parse_units, parsed, parser, platform_of, problem, refusals, run_docker, seeder_anchor, seconds, tail)
+from .apptests import INFRA, PULL_RETRIES as RETRIES
 
-# The five keys a build may carry (T18, default-deny). trust names its own list when it has one; this one is the most it may be
-KEYS = ("context", "dockerfile", "args", "target", "labels")
-KEY_NAMES = ("BUILD_KEYS", "BUILD_ALLOWED", "T18_KEYS", "ALLOWED_BUILD")
 TARGET = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 ARG_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,127}")
 LABEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,255}")
 REMOTE = re.compile(r"(?:https://|git@|git://|ssh://|github\.com/)")
-RETRIES = (20, 60)   # seconds before the first and the second new try of a build that Docker Hub or the network refused
 IMAGE_TIMEOUT = 600   # seconds for one image (BD04)
 TAIL = 15   # lines of a failed build that the summary shows
 
@@ -62,11 +59,6 @@ STEP_ERROR = re.compile(r"^#(\d+) ERROR: (.*)$")
 FINAL_ERROR = re.compile(r"^ERROR: (.*)$")
 STEP_HEADER = re.compile(r"^#(\d+) \[(?:[^\]]*?\s)?(\d+)/(\d+)\] (.*)$")
 PROCESS = re.compile(r"did not complete successfully: exit code: (\d+)")
-INFRA = re.compile(
-    r"toomanyrequests|too many requests|rate limit|TLS handshake timeout|tls: |i/o timeout|dial tcp|no such host|"
-    r"server misbehaving|temporary failure in name resolution|connection reset by peer|unexpected EOF|context deadline exceeded|"
-    r"net/http: request canceled|(?:unexpected|received unexpected HTTP) status[^\n]*\b5\d\d\b|\b5\d\d (?:Internal Server Error|"
-    r"Bad Gateway|Service Unavailable|Gateway Time-?out)", re.I)
 NO_BUILDX = re.compile(r"^(?:docker: unknown command: docker buildx|docker: 'buildx' is not a docker command)", re.M)
 
 SEEDER = "the Lab's own seeder, which the Lab's CI builds"
@@ -80,6 +72,10 @@ class Spec(NamedTuple):
     command: List[str]
     path: str   # the compose file of the unit, relative to the catalog (where a finding is placed)
     context: str
+    dockerfile: str = ""
+    args: Dict[str, str] = {}
+    target: str = ""
+    labels: Dict[str, str] = {}
 
 
 class Row(NamedTuple):
@@ -93,43 +89,14 @@ class Row(NamedTuple):
     note: str = ""
 
 
-def allowed() -> frozenset:
-    """The build keys that are accepted: the T18 list of the trust policy when it names one, and never more than the five of the
-    standard. A list that cannot be read is the five."""
-    named = next((getattr(trust, name) for name in KEY_NAMES if getattr(trust, name, None)), None)
-    try:
-        listed = frozenset(str(each) for each in named) if named else frozenset(KEYS)
-    except TypeError:
-        listed = frozenset(KEYS)
-    return listed & frozenset(KEYS)
-
-
 def t18(path: str, service: str, variant: int = 0) -> Problem:
     """The trust policy's own T18 finding for a build that leaves the catalog or the pin: its reason and its fix, in the Lab's words."""
     reason = trust.RULES["T18"]["lines"][variant]
-    fix = (getattr(trust, "FIXES", None) or explain.T_FIXES).get("T18", "")
-    return Problem("T18", ERROR, path, 0, f"{service}: {reason}. Fix: {fix}".rstrip())
-
-
-def pinned(context: str) -> bool:
-    """Whether a remote build context is a git repository at a commit: a git address, then # and 40 hexadecimal characters (T18)."""
-    address, _, ref = context.partition("#")
-    git = address.endswith(".git") or address.startswith(("git@", "git://", "ssh://", "github.com/"))
-    return bool(git and trust.PINNED.fullmatch(ref))
+    return Problem("T18", ERROR, path, 0, f"{service}: {reason}. Fix: {trust.FIXES['T18']}")
 
 
 def inside(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
-
-
-def text_of(value) -> Optional[str]:
-    """A build argument or a label as the text Docker is given, or None for what is not one (a null is an argument that is not
-    set; a number is its digits)."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return value if isinstance(value, str) and "\x00" not in value else None   # (a NUL cannot be an argument of a program)
 
 
 def command_of(image: str, platform: str, dockerfile: str, context: str, args: Dict[str, str], target: str,
@@ -156,16 +123,12 @@ def local_tag(unit: str, service: str) -> str:
 
 
 def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeders: Tuple[Tuple[str, ...], str],
-        keys: frozenset, known: Dict[str, str], local: bool = False) -> Tuple[Optional[Spec], List[Problem], Optional[Row]]:
+        known: Dict[str, str], local: bool = False) -> Tuple[Optional[Spec], List[Problem], Optional[Row]]:
     """(the spec, the findings, the row of what was left out) of a service of a unit that has a `build`. `local`: a service with no
     image is built under `local_tag`."""
     where = unit.file
     build = service.get("build")
     image = service.get("image")
-    if isinstance(build, str):
-        build = {"context": build}
-    if not isinstance(build, dict):
-        return None, [problem("BD02", where, 0, service=name, key="build")], None
     context, remote = build.get("context") or "", False
     seeder_images, seeder_dir = seeders
     if not isinstance(context, str) or "\x00" in context or "\x00" in str(build.get("dockerfile") or ""):
@@ -174,7 +137,7 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
     if os.path.isabs(context) and os.path.realpath(context) == seeder_dir \
             and ((isinstance(image, str) and repository(image) in seeder_images) or (local and nameless)):
         return None, [], Row(unit.key, name, image if isinstance(image, str) else "", "skipped", note=SEEDER)   # the Lab's own code
-    found: List[Problem] = [problem("BD02", where, 0, service=name, key=key) for key in sorted(build) if key not in keys]
+    found: List[Problem] = [problem("BD02", where, 0, service=name, key=key) for key in sorted(build) if key not in trust.BUILD_KEYS]
     if found:
         return None, found, Row(unit.key, name, str(image or ""), "refused", note="a build key that is not accepted")
     if local and nameless:
@@ -183,7 +146,7 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
         return None, [], Row(unit.key, name, "", "skipped", note="no image name to give the build")
     if REMOTE.match(context):
         remote = True
-        if not pinned(context):   # a git repository at a commit, or not at all (T18)
+        if not trust.pinned(context):   # a git repository at a commit, or not at all (T18)
             return None, [t18(where, name, 1)], Row(unit.key, name, image, "refused", note="its context is not pinned")
     elif os.path.isabs(context):
         real = os.path.realpath(context)
@@ -207,18 +170,18 @@ def one(unit: Loaded, name: str, service: dict, platform: str, root: str, seeder
         if not isinstance(given, dict):
             return None, [problem("BD02", where, 0, service=name, key=kind)], Row(unit.key, name, image, "refused")
         for key, value in given.items():
-            shown = text_of(value)
-            if not isinstance(key, str) or not pattern.fullmatch(key) or (shown is None and value is not None):
+            # (a NUL cannot be an argument of a program)
+            if not isinstance(key, str) or not pattern.fullmatch(key) or not isinstance(value, str) or "\x00" in value:
                 return None, [problem("BD02", where, 0, service=name, key=kind)], Row(unit.key, name, image, "refused")
-            if shown is not None:
-                into[key] = shown
+            into[key] = value
     target = build.get("target") or ""
     if target and (not isinstance(target, str) or not TARGET.fullmatch(target)):
         return None, [problem("BD02", where, 0, service=name, key="target")], Row(unit.key, name, image, "refused")
     if image in known:
         return None, [], Row(unit.key, name, image, "skipped", note="it is built once, for another service")
     known[image] = context
-    return Spec(unit.key, name, image, command_of(image, platform, dockerfile, context, args, target, labels), where, context), [], None
+    command = command_of(image, platform, dockerfile, context, args, target, labels)
+    return Spec(unit.key, name, image, command, where, context, dockerfile, args, target, labels), [], None
 
 
 def specs_of(units: Sequence[Loaded], platform: str, root: str, lab=None, only: Optional[str] = None,
@@ -227,7 +190,7 @@ def specs_of(units: Sequence[Loaded], platform: str, root: str, lab=None, only: 
     Pure: it reads the resolved JSON and the disk to find the context, and runs nothing. `only` is the name of an app (the
     folder of its context): the others are not built. `local`: a service that builds and has no image is built under a name
     of the stage's own (`ci build` and `ci test` say so; `publish` has no image to push for it)."""
-    keys, seeders, real = allowed(), seeder_anchor(lab), os.path.realpath(root)
+    seeders, real = seeder_anchor(lab), os.path.realpath(root)
     found: List[Spec] = []
     problems: List[Problem] = []
     rows: List[Row] = []
@@ -238,7 +201,7 @@ def specs_of(units: Sequence[Loaded], platform: str, root: str, lab=None, only: 
             service = (services or {}).get(name)
             if not isinstance(service, dict) or not service.get("build"):
                 continue
-            spec, more, row = one(unit, name, service, platform, real, seeders, keys, known, local)
+            spec, more, row = one(unit, name, service, platform, real, seeders, known, local)
             problems += more
             if row is not None:
                 rows.append(row)
@@ -408,8 +371,6 @@ def main(argv, out, err, **seams) -> int:
     args = parsed(found, argv)
     platform = platform_of(args.platform)
     names = parse_units(args.units)
-    if not os.path.isdir(args.path):
-        raise Unavailable(f"{report.printable(args.path)} is not a folder")
     root = os.path.abspath(args.path)
     loading = load(root, names)
     problems = refusals(loading.refused, "built")
@@ -423,14 +384,13 @@ def main(argv, out, err, **seams) -> int:
         built, failed, logs = build_all(specs, runner, seams.get("sleep") or time.sleep, root)
         rows = built + rows
         problems += failed
-    if args.format != "json":
-        out.write("\n".join(lines_of(rows, platform)) + "\n")
-        for image, lines in logs.items():
-            out.write(f"The last {len(lines)} lines of the build of {report.printable(image)}:\n")
-            out.write(report.untrusted_text("\n".join(lines) + "\n"))
+    out.write("\n".join(lines_of(rows, platform)) + "\n")
+    for image, lines in logs.items():
+        out.write(f"The last {len(lines)} lines of the build of {report.printable(image)}:\n")
+        out.write(report.untrusted_text("\n".join(lines) + "\n"))
     extra = ""
     if args.ci:
         extra = f"### Images built for {platform}\n\n" + (table(rows) if rows else "No image to build.\n")
         for image, lines in logs.items():
             extra += f"\nThe last {len(lines)} lines of the build of `{cell(image)}`:\n\n" + fence(lines)
-    return conclude("build", problems, args, out, "make ci", title="Build the apps", extra=extra)
+    return conclude(problems, args, out, "make ci", title="Build the apps", extra=extra)

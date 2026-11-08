@@ -46,10 +46,10 @@ row by adding the user to a group from the search of the identity provider, whic
 environment name `${ENV_ID}` and `${ENV_NAME}`, which the engine gives them.
 
 With GATEWAY_INTERNAL_URL set, a replaced API waits until the gateway has dropped the old one before it is imported
-again, and the seed ends once the gateway serves every API, within GATEWAY_READY_TIMEOUT seconds in all: the AI models of
-an LLM proxy are downloaded at its first deployment. With LLM_PROBE_KEY too, an API key of the plan of the LLM proxies
-that has their semantic cache, it chats through every LLM proxy of the seed with that key, then asks the same generic
-question again: the proxy must answer it from its cache (the id of its answer says so). Set it only for a playground
+again. With SEED_WAIT_GATEWAY=1 too, the seed ends once the gateway serves every API, within GATEWAY_READY_TIMEOUT seconds in
+all: the AI models of an LLM proxy are downloaded at its first deployment. With LLM_PROBE_KEY as well, an API key of the plan
+of the LLM proxies that has their semantic cache, it chats through every LLM proxy of the seed with that key, then asks the
+same generic question again: the proxy must answer it from its cache (the id of its answer says so). Set it only for a playground
 whose LLM proxies all cache that plan's questions: the seed fails on one that does not.
 """
 
@@ -65,7 +65,7 @@ import requests
 
 from . import controls
 from . import common
-from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, created, excerpt, files, folders, forget, later, load, log, making,
+from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, contains, created, excerpt, files, folders, forget, load, log, making,
                      owned, parallel, pause, together, record, recorded, seed_file, setting, unmade, wait_until)
 
 SECTION = "apim"
@@ -106,15 +106,8 @@ def merge(base, extra):
     return base
 
 
-def covers(live, wanted):
-    """Whether `live` holds everything `wanted` says: APIM adds what it defaults."""
-    if isinstance(wanted, dict):
-        return isinstance(live, dict) and all(covers(live.get(key), value) for key, value in wanted.items())
-    return live == wanted
-
-
 def digest_of(definition):
-    """What identifies a definition once its variables are replaced: the plans, flows and resources are part of it."""
+    """What identifies what the seed sends once its variables are replaced: of an API, the plans, flows and resources too."""
     return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
 
 
@@ -189,7 +182,7 @@ def lacking(state, members):
     adds roles of its own, which does not matter."""
     live = {(m.get("source"), m.get("sourceId")): m.get("roles") or {} for m in state.get("members") or []}
     return [m for m in members
-            if (m["source"], m["sourceId"]) not in live or not covers(live[(m["source"], m["sourceId"])], m.get("roles") or {})]
+            if (m["source"], m["sourceId"]) not in live or not contains(live[(m["source"], m["sourceId"])], m.get("roles") or {})]
 
 
 def choose(found, source_id, spec):
@@ -202,13 +195,13 @@ def choose(found, source_id, spec):
 
 
 class ApiManagement:
-    """API Management as one environment sees it: the platform's own (APIM_ENV) unless `env` names another."""
+    """API Management as one environment sees it: the platform's own (APIM_ENV), or another (`at`)."""
 
-    def __init__(self, env=None):
+    def __init__(self):
         self.api = Api(setting("APIM_MANAGEMENT_URL"), SECTION)
         self.org = setting("APIM_ORG", "DEFAULT")
         self.path = setting("APIM_MANAGEMENT_PATH", "/management")   # /apim/rest on the Cloud Gate of Gravitee Cloud
-        self.own, self.env = env is None, env or setting("APIM_ENV", "DEFAULT")
+        self.own, self.env = True, setting("APIM_ENV", "DEFAULT")
         # What the organization holds, the seed's roles and its users, is changed by one environment at a time: made at the same
         # time, users were found without an identity provider or not found after they were made
         self.organization = threading.RLock()
@@ -226,8 +219,6 @@ class ApiManagement:
         root = setting("AIM_AUTOMATION_URL", setting("APIM_MANAGEMENT_URL"))
         self.automation = Api(f"{root}/automation/organizations/{self.org}/environments/{self.env}", SECTION)
         self.automation.session = self.api.session   # one login for every address
-        self.known = None   # the APIs of the environment, listed once and kept up to date as this seed makes them (apis())
-        self.listing = threading.Lock()   # held while `known` is read or changed
         self.groups_by_hrid = {}   # hrid -> {"id", "name"} of the groups of this environment, as groups() finds or makes them
         self.waiting = {}   # (source, sourceId) -> the entry of users.yaml of a user the platform has no row for yet
 
@@ -308,11 +299,11 @@ class ApiManagement:
                 return None
             page += 1
 
-    def appears(self, source, source_id, looks=APPEARS):
+    def appears(self, source, source_id):
         """The user the platform has just made from a group, which its search may list a moment later; None when it never does."""
-        for look in range(looks):
+        for look in range(APPEARS):
             user = self.find_user(source, source_id)
-            if user or look == looks - 1:
+            if user or look == APPEARS - 1:
                 return user
             pause(LOOK_AGAIN / 2)
 
@@ -346,9 +337,6 @@ class ApiManagement:
             record(SECTION, "user", "users", name, answer.json()["id"], sourceId=source_id, **self.scope())
         log(SECTION, f"✓ User registered: {source_id}")
 
-    def groups(self, specs):
-        parallel(self.group, specs)
-
     def group(self, spec):
         """A group of the Automation API: written when it is absent or lacks what its file says (a member, a role), found again
         by its hrid. What the platform adds (roles of its own, members someone added) is left. A member the platform does not
@@ -361,7 +349,7 @@ class ApiManagement:
         state = live.json() if live.status_code == 200 else None
         if state and not recorded(SECTION, "group", state["id"]) and not adopted(SECTION, "group", label, state["id"], hrid=hrid, **self.scope()):
             raise SeedError(f"Group {label}: the hrid is taken by a group the seed did not create")
-        if not state or not covers(state, {key: body[key] for key in ("name", "notifyMembers") if key in body}) or lacking(state, members):
+        if not state or not contains(state, {key: body[key] for key in ("name", "notifyMembers") if key in body}) or lacking(state, members):
             with making(SECTION, "group", "groups", label, missing=not state, hrid=hrid, **self.scope()):
                 written = self.automation.put("/groups", json=body, what=f"Group {label}").json()
                 severe = (written.get("errors") or {}).get("severe")
@@ -376,7 +364,8 @@ class ApiManagement:
         missing = lacking(state, members)
         for member in missing:
             if not self.find_user(member["source"], member["sourceId"]):
-                self.enroll(state["id"], label, member)
+                with self.organization:   # another environment may be making users
+                    self.enroll(state["id"], label, member)
         if missing:
             state = self.automation.get(f"/groups/{hrid}").json()
             for member in lacking(state, members):
@@ -390,10 +379,6 @@ class ApiManagement:
         """Gets the row of a user that has none, by adding it to the group from the search of its identity provider, as the
         Console adds a member: the answer carries a reference that only the platform reads. The user gets the roles its provider
         gives it, in this environment only."""
-        with self.organization:   # another environment may be making users
-            self.make_user(group_id, label, member)
-
-    def make_user(self, group_id, label, member):
         source_id = member["sourceId"]
         spec = self.waiting.get((member["source"], source_id)) or {}
         found = self.find_user(member["source"], source_id)
@@ -425,7 +410,7 @@ class ApiManagement:
         if "event_rules" in fields:
             fields["event_rules"] = [{"event": event} for event in fields["event_rules"]]
         entity = self.api.get(f"{self.v1}/configuration/groups/{group_id}").json()
-        if covers(entity, fields):
+        if contains(entity, fields):
             return
         body = {key: entity[key] for key in GROUP_UPDATE if key in entity}
         self.api.put(f"{self.v1}/configuration/groups/{group_id}", json={**body, **fields})
@@ -441,21 +426,6 @@ class ApiManagement:
         log(SECTION, f"✓ Environment settings: {', '.join(extra)}")
 
     # --- APIs -----------------------------------------------------------------------------
-
-    def apis(self):
-        """The APIs of the environment: listed the first time they are asked for, then as this seed leaves them. The steps that
-        import at the same time wait for the one list, which no other step of the seed waits for."""
-        with self.listing:
-            if self.known is None:
-                self.known = self.all_apis()
-            return list(self.known)
-
-    def remember(self, api_id, definition, name, gone=None):
-        """What the list of the environment holds after an API was made (and `gone` was dropped)."""
-        with self.listing:
-            if self.known is not None:
-                self.known = [a for a in self.known if a.get("id") not in (api_id, gone)]
-                self.known.append({"id": api_id, "name": name, "listeners": definition.get("api", definition).get("listeners", [])})
 
     def all_apis(self):
         out, page = [], 1
@@ -491,7 +461,7 @@ class ApiManagement:
             if r.status_code == 200:
                 return r.json()
         address = self.address(api)
-        return next((a for a in self.apis() if address and self.address(a) == address), None)
+        return next((a for a in self.all_apis() if address and self.address(a) == address), None)
 
     def import_api(self, definition, file_name):
         api = definition.get("api", {})
@@ -499,7 +469,7 @@ class ApiManagement:
         name, digest = self.scoped(plain), digest_of(definition)   # the file's: the mode is not part of it
         found = controls.of("api", plain) if self.own else None   # the controls name an API of seed/apim/
         wanted = self.as_mode_says(definition, found)
-        groups = self.groups_of(api.get("groups"), f"API {name}")   # the ids, or None when the file names none
+        groups = self.groups_of(api.get("groups"))   # the ids, or None when the file names none
         imported = self.named_groups(wanted, groups)
         live = self.live_api(api)
         mine = live and made_by_seed(live["id"])
@@ -527,14 +497,11 @@ class ApiManagement:
         self.restrict(api_id, groups, name)
         self.start(api_id)
 
-    def groups_of(self, hrids, what):
+    def groups_of(self, hrids):
         """The live ids of the groups an API or an application of an environment names by hrid, in the order it names them.
         None when it names none, or in the platform's own environment, whose files hold the groups as the platform knows them."""
         if self.own or not hrids:
             return None
-        missing = [hrid for hrid in hrids if hrid not in self.groups_by_hrid]
-        if missing:
-            raise SeedError(f"{what}: {', '.join(missing)} is no group of the environment {self.env}")
         return [self.groups_by_hrid[hrid]["id"] for hrid in hrids]
 
     def named_groups(self, definition, ids):
@@ -640,7 +607,6 @@ class ApiManagement:
     def create(self, definition, name, digest):
         api_id = self.imported(definition, name)
         record(SECTION, "api", "APIs", name, api_id, digest=digest, **self.scope())
-        self.remember(api_id, definition, name)
         log(SECTION, f"✓ API imported: {name}")
         return api_id
 
@@ -665,7 +631,6 @@ class ApiManagement:
         with common.held():   # read, changed and written back by this step alone
             forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "api", live["id"])])
             record(SECTION, "api", "APIs", name, api_id, digest=digest, **self.scope())
-        self.remember(api_id, definition, name, gone=live["id"])
         return api_id
 
     def until_dropped(self, name, path):
@@ -704,19 +669,15 @@ class ApiManagement:
 
     # --- Applications ---------------------------------------------------------------------
 
-    def find_application(self, name):
-        """The application of that exact name in this environment (see find_application)."""
-        return find_application(self.api, self.v1, name)
-
     def application(self, spec):
         name = spec["name"]
         label = self.scoped(name)
         payload = {"name": name, "description": spec.get("description", ""),
                    "settings": spec.get("settings", {"app": {"type": "SIMPLE"}})}
-        groups = self.groups_of(spec.get("groups"), f"Application {label}")
+        groups = self.groups_of(spec.get("groups"))
         if groups is not None:
             payload["groups"] = groups
-        found = self.find_application(name)
+        found = find_application(self.api, self.v1, name)
         if not found:
             with making(SECTION, "application", "applications", label, missing=True, **self.scope()):
                 app = self.api.post(f"{self.v1}/applications", json=payload).json()
@@ -724,7 +685,7 @@ class ApiManagement:
             log(SECTION, f"✓ Application created: {label}")
         elif not recorded(SECTION, "application", found["id"]) and not adopted(SECTION, "application", label, found["id"], **self.scope()):
             raise SeedError(f"Application {label}: the name is taken by an application the seed did not create")
-        elif (covers({"description": found.get("description") or "", "settings": found.get("settings")},
+        elif (contains({"description": found.get("description") or "", "settings": found.get("settings")},
                      {"description": payload["description"], "settings": payload["settings"]})
               and (groups is None or set(found.get("groups") or []) == set(groups))):
             log(SECTION, f"Application exists: {label}")
@@ -739,7 +700,7 @@ class ApiManagement:
         key, comment, pending = spec.get("apiKey"), spec.get("comment"), spec.get("pending")
         if pending and key:
             raise SeedError(f"Subscription {label}: a subscription that stays pending takes no apiKey, the one who accepts it chooses")
-        app, api = self.find_application(spec["application"]), made_under(self.scoped(spec["api"]))
+        app, api = find_application(self.api, self.v1, spec["application"]), made_under(self.scoped(spec["api"]))
         if not app:
             raise SeedError(f"Subscription {label}: application not found")
         if not api:
@@ -786,7 +747,7 @@ class ApiManagement:
         if not wanted:
             return False
         live = self.api.get(f"{self.v2}/apis/{api_id}/subscriptions/{found['id']}").json()
-        if covers(live.get("consumerConfiguration"), wanted):
+        if contains(live.get("consumerConfiguration"), wanted):
             return False
         if not recorded(SECTION, "subscription", found["id"]):
             log(SECTION, f"! Subscription {label} is not one the seed made: its callback is left as it is")
@@ -982,7 +943,7 @@ def seed_environment(apim, wanted):
     apim.users(wanted["users"])
     if wanted["settings"]:
         apim.settings(wanted["settings"])
-    apim.groups(wanted["groups"])
+    parallel(apim.group, wanted["groups"])
     imports = [lambda each=each: apim.import_api(*each) for each in wanted["apis"]]
     together(imports + [lambda spec=spec: apim.application(spec) for spec in wanted["applications"]])
     parallel(apim.subscription, wanted["subscriptions"])
@@ -1010,7 +971,7 @@ def seed():
     together([lambda: seed_own(apim, settings, loaded, applications, subscriptions)]
              + [lambda each=each: seed_environment(*each) for each in zip(scopes, environments)])
     if common.waits_for_gateway():
-        later("the gateway", lambda: wait_for_gateway(apim, definitions))
+        wait_for_gateway(apim, definitions)
 
 
 def remove(records):

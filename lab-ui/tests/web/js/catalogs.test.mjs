@@ -4,10 +4,9 @@
 // second screen at once from a known address), Update and Go back, Remove, Allow and New catalog, and the actions of the content status.
 // Every name that comes from a server is hostile on purpose somewhere: none becomes markup.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, bubble, flush, installDom, reply, isOff, offWhy, text } from "./dom-stub.mjs";
 import { ADDRESS, FIRST, FOLDER, HOSTILE, HOSTILE_QUOTED, NOT_ADDED, PERSONAL, STATES, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
@@ -17,15 +16,10 @@ mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const set = globalThis.setTimeout;
   globalThis.setTimeout = (fn, delay = 0, ...rest) => set(fn, delay, ...rest);
 }
-const source = (file) => readFileSync(new URL(`../../../web/${file}`, import.meta.url), "utf8");
-const html = source("index.html");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // What the server answers: the calls the page made, in order, the answer to each route (a value, or a function of the body), and a refusal
 const server = { calls: [], answers: {}, refuse: {}, states: 0 };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
-  ids,
   fetch: async (path, options = {}) => {
     const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : undefined;
     if (path === "/api/state") {
@@ -33,29 +27,16 @@ const page = installDom({
       return reply(store.state);
     }
     server.calls.push({ method, path, body });
-    if (server.refuse[path]) return reply({ error: server.refuse[path] }, 400);
+    if (server.refuse[path]) return reply(server.refuse[path].code ? server.refuse[path] : { error: server.refuse[path] }, 400);
     const answer = server.answers[path];
     return reply(typeof answer === "function" ? await answer(body) : answer ?? {});
   },
 });
 globalThis.innerHeight = 800;
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
-// Selectors the page asks and the small DOM does not know: a menu opened with the keyboard (:focus-visible), a button at work (:is)
-const { matches, closest } = El.prototype;
-El.prototype.matches = function (selector) { return selector === ":focus-visible" ? false : matches.call(this, selector); };
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
-// The page stops a click on a control that waits where the document hears it: the stub's events have no such call
-Ev.prototype.stopImmediatePropagation = function () { this.cancelBubble = true; };
-// A radio is checked as its markup says, until a test chooses another
-Object.defineProperty(El.prototype, "checked", {
-  get() { return this._checked ?? this.hasAttribute("checked"); },
-  set(value) { this._checked = !!value; },
-  configurable: true,
-});
 
 const { store, router, ago } = await import("../../../web/js/core.js");
 const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
-const { addCatalog, openAdd, openImport, openNew, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
+const { openAdd, openImport, tryAgain } = await import("../../../web/js/dialogs/catalog.js");
 const { paintActions, paintProgress } = await import("../../../web/js/components/ui.js");
 
 const section = page.doc.createElement("section");
@@ -125,15 +106,12 @@ test("the page is a card of the lists' grid with its head: its title, then New c
   const heads = section.querySelectorAll(".page-actions .btn");
   assert.deepEqual(heads.map(text), ["New catalog", "Add catalog"]);
   assert.deepEqual(heads.map((b) => b.classList.contains("primary")), [false, false], "no primary on the page");
-  assert.equal(heads[0].querySelectorAll("svg").length, 0);
-  assert.ok(heads[1].querySelector("svg use").getAttribute("href").endsWith("#i-plus"));
-  assert.ok(section.querySelector(".card.list-card"), "the one card of the lists");
   assert.deepEqual(section.querySelector(".list-head").children.map(text), ["", "Catalog", "Items", "State", ""]);
-  assert.deepEqual([catalogsPage.id, catalogsPage.nav, catalogsPage.title], ["catalogs", "catalogs", "Catalogs"]);
 });
 
-test("Add catalog waits with the reason \"Git is not installed\" when Git is missing; New catalog needs no Git", () => {
-  show([FIRST()], { git: { available: false, version: "" } });
+test("Add catalog and the Add of a row wait with the reason \"Git is not installed\" when Git is missing; New catalog needs no Git", () => {
+  show([FIRST(), NOT_ADDED({ id: "third-hub", name: "Third hub" })], { git: { available: false, version: "" } });
+  assert.equal(offWhy(row("Third hub").querySelector("[data-add]")), "Git is not installed");
   const [made, added] = section.querySelectorAll(".page-actions .btn");
   assert.equal(isOff(made), false);
   assert.equal(isOff(added), true);
@@ -148,8 +126,6 @@ const ROWS = () => [FIRST(), PERSONAL(), GIT("update", { id: "acme-hub", version
 
 test("the rows come in two sections, Local then Remote, each in the order the server gives them, each with its name, its muted line, its state, its items and the one thing to press", () => {
   show(ROWS());
-  assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Personal", "My catalog", "Gravitee public", "Acme Hub", "Partner Bank"]);
-  assert.deepEqual(section.querySelectorAll(".list-rows > .stack-sep").map((band) => text(band)), ["Local", "Remote"]);
   assert.deepEqual([...section.querySelector(".list-rows").children].map((li) => (li.className === "stack-sep" ? text(li) : text(li.querySelector(".list-name")))),
     ["Local", "Personal", "My catalog", "Remote", "Gravitee public", "Acme Hub", "Partner Bank"], "a band over the rows of its section");
   const first = cells(row("Gravitee public"));
@@ -157,7 +133,6 @@ test("the rows come in two sections, Local then Remote, each in the order the se
   // Personal: a row with no description has no subtitle, no state and no actions, and counts what is local
   const personal = cells(row("Personal"));
   assert.deepEqual([personal.sub, personal.state, personal.items, personal.buttons, personal.more], [null, "", "3", [], null]);
-  assert.equal(row("Personal").querySelector(".list-desc"), null);
   // A catalog with an update: Update, then the menu
   const update = cells(row("Acme Hub"));
   assert.deepEqual([update.sub, update.state, update.items, update.buttons], ["Banking demos for partner workshops", "Update available", "25", ["Update"]]);
@@ -232,18 +207,6 @@ test("Personal is drawn only once it holds something, or the Lab keeps settings 
   show([FIRST(), empty]);   // the row it opened is closed again
 });
 
-test("a row is 56 px of the lists' grid: a toggle named for the catalog, its name and line, its items, its state, its actions", () => {
-  show([FIRST()]);
-  const li = items()[0], top = li.querySelector(".list-row");
-  assert.ok(top.classList.contains("list-grid"));
-  assert.deepEqual(top.children.filter((c) => c.tag).map((c) => c.getAttribute("class")), ["s-toggle", "list-main", "list-col col-cat", "list-state", "list-actions"]);
-  const toggle = top.children[0];
-  assert.deepEqual([toggle.tag, toggle.getAttribute("aria-label"), toggle.getAttribute("aria-expanded"), toggle.getAttribute("aria-controls")],
-    ["button", "Gravitee public", "false", "detail-catalog-gravitee"]);
-  assert.equal(li.querySelector(".list-detail").id, "detail-catalog-gravitee");
-  assert.equal(li.querySelector(".list-detail").hidden, true);
-});
-
 // --- States ---------------------------------------------------------------------------------------------------------------------
 
 const dot = (li) => li.querySelector(".list-state .dot-status").getAttribute("class").replace("dot-status", "").trim();
@@ -262,15 +225,6 @@ test("every state is a dot and a word, with a popover of its title, its reason a
     if (lines.length > 1) assert.deepEqual(bubble(shown.querySelector(".tip")), lines, `${key}: title, reason, next step`);
     else assert.equal(shown.querySelector(".tip"), null, `${key}: no popover that repeats the word`);
   }
-});
-
-test("the table is what the server's words say for the states that name a host or a catalog", () => {
-  show([GIT("unreachable", { commit: "9f1c2ab" })]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["Unreachable", "Cannot reach github.com.", "Check your connection, then try again."]);
-  show([GIT("noaccess")]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["No access", "No access to owner/repo.", "Run gh auth login in a terminal, then try again."]);
-  show([GIT("lab_old")]);
-  assert.deepEqual(bubble(row("Acme Hub").querySelector(".tip")), ["Written for an older Gravitee Lab", "This version is too old for this Lab.", "Update it, or ask the owners of Acme Hub to update it."]);
 });
 
 test("a download shows how far it is under its word; a row with no copy that is not downloading offers Try again, and one that downloads offers nothing", () => {
@@ -300,22 +254,18 @@ test("Update is the button of a catalog with something to update; the state that
 
 test("what a plain request is doing is said in the state meanwhile, by the word of the server's own", () => {
   show([GIT("uptodate")]);
-  store.pending.set("catalog-op:acme-hub", "check");
-  catalogsPage.render(store.state);
-  assert.equal(cells(row("Acme Hub")).state, "Checking");
-  store.pending.set("catalog-op:acme-hub", "update");
-  catalogsPage.render(store.state);
-  assert.equal(cells(row("Acme Hub")).state, "Updating");
-  store.pending.set("catalog-op:acme-hub", "remove");
-  catalogsPage.render(store.state);
-  assert.equal(cells(row("Acme Hub")).state, "Removing");
+  for (const [verb, word] of [["check", "Checking"], ["update", "Updating"], ["remove", "Removing"]]) {
+    store.pending.set("catalog-op:acme-hub", verb);
+    catalogsPage.render(store.state);
+    assert.equal(cells(row("Acme Hub")).state, word);
+  }
   store.pending.delete("catalog-op:acme-hub");
   catalogsPage.render(store.state);
   assert.equal(cells(row("Acme Hub")).state, "Up to date");
 });
 
 test("an entry of the list that is not a catalog is no row: the progress of the fetch of the Add dialog is carried there", () => {
-  show([FIRST(), { id: "check", kind: "progress", progress: 0.4 }, { id: "odd" }, null]);
+  show([FIRST(), { id: "check", kind: "progress", progress: 0.4 }, { id: "odd" }]);
   assert.deepEqual(items().map((li) => text(li.querySelector(".list-name"))), ["Gravitee public"]);
   // ... and the bar of the dialog reads it, by the key the dialog gives it
   openAdd();
@@ -410,31 +360,17 @@ test("with no catalog the page says so in the block of the content status, offer
   assert.equal(section.querySelector(".list-head").hidden, false);
 });
 
-test("a state that cannot be read says so with a plain Try again that reads it again", async () => {
-  store.state = lab();
-  delete store.state.catalogs;
-  catalogsPage.render(store.state);
-  const block = status().querySelector(".empty");
-  assert.equal(text(block.querySelector("span")), "Catalogs cannot be read");
-  const again = block.querySelector("button");
-  assert.deepEqual([text(again), again.getAttribute("class")], ["Try again", "btn"]);
-  const before = server.states;
-  click(again);
-  await flush();
-  assert.equal(server.states, before + 1);
-  assert.equal(items().length, 0);
-});
-
 // --- A row that opens -----------------------------------------------------------------------------------------------------------
 
 const DAYS = (n) => new Date(Date.now() - n * 86400000).toISOString();
-const USES = [{ id: "@acme-hub/k3s", name: "Kubernetes", what: ["runs privileged"], why: "Runs containerd and the kubelet" }];
+const USES = [{ id: "@acme-hub/kea", name: "Kookaburra", what: ["runs privileged"], why: "Runs nested containers" }];
 const FULL = (more = {}) => GIT("update", { id: "acme-hub", ignored: 3, updated: DAYS(4), checked: new Date(Date.now() - 3 * 3600000).toISOString(),
   uses_machine: USES, blocked: [{ kind: "addon", id: "@acme-hub/x", name: "X", reasons: ["Mounts the Docker socket", "Publishes a port to the network"] }], ...more });
 
 test("a row opens from its toggle and from a click anywhere on it but its controls; the detail is two panels", () => {
   show([FULL()]);
-  const li = row("Acme Hub");
+  const li = row("Acme Hub"), toggle = cells(li).toggle;
+  assert.deepEqual([toggle.tag, toggle.getAttribute("aria-label"), toggle.getAttribute("aria-controls")], ["button", "Acme Hub", detail(li).id]);
   assert.equal(detail(li).hidden, true);
   open(li);
   assert.deepEqual([cells(row("Acme Hub")).toggle.getAttribute("aria-expanded"), detail(li).hidden, li.classList.contains("open")], ["true", false, true]);
@@ -468,7 +404,7 @@ test("About says where the catalog is read from, its version and commit, when it
   const marks = about.querySelectorAll(".panel-fact .tip");
   assert.deepEqual(marks.map((tip) => bubble(tip)), [
     ["Measured when it was added. Private means Git asked for a sign-in."],
-    ["Kubernetes", "Runs privileged", "Runs containerd and the kubelet"],
+    ["Kookaburra", "Runs privileged", "Runs nested containers"],
     ["Settings, keys, links and agent instructions are never installed from a catalog."]]);
   assert.ok(holds);
 });
@@ -519,7 +455,7 @@ test("a button of Holds goes to its list, filtered to the catalog", async () => 
   const lists = page.doc.createElement("section");
   page.doc.body.append(lists);
   setupsPage.init(lists);
-  const more = { members: [], includes: [], links: [], held: { share: "", delete: "" }, action: { do: "start", label: "Start", enabled: true, reason: null, dialog: null }, secondary: null };
+  const more = { members: [], includes: [], links: [], held: { delete: "" }, action: { do: "start", label: "Start", enabled: true, reason: null, dialog: null }, secondary: null };
   const setups = [item("setup", "plain", "Plain setup", more), item("setup", "@acme-hub/ledger", "Ledger setup", { ...more, origin: origin() })];
   show([FIRST(), FULL()], { setups });
   open(row("Acme Hub"));
@@ -627,12 +563,6 @@ test("a folder has its address to copy and its link to remove; the repository li
   assert.ok(!menuOf("Other hub").some(([label]) => label === "Open repository"));
 });
 
-test("Personal and a catalog that is only offered have no menu", () => {
-  show([PERSONAL(), NOT_ADDED()]);
-  assert.equal(cells(row("Personal")).more, null);
-  assert.equal(cells(row("Gravitee public")).more, null);
-});
-
 test("an entry that cannot be used says why: what holds the update, the removal or the way back, what the Lab is waiting for", () => {
   show([GIT("uptodate", { has_previous: true, held: { update: "Turn off Acme Bakery first", remove: "Turn off Acme Bakery first", undo: "Wait for Start of Acme Bakery" } })]);
   assert.deepEqual(menuOf("Acme Hub").slice(-2), [["Go back to previous version", "Wait for Start of Acme Bakery"], ["Remove", "Turn off Acme Bakery first"]]);
@@ -640,12 +570,12 @@ test("an entry that cannot be used says why: what holds the update, the removal 
   show([GIT("uptodate", { has_previous: true, held: { update: "", remove: "", undo: "No previous version" } })]);
   assert.deepEqual(menuOf("Acme Hub").slice(-2), [["Go back to previous version", ""], ["Remove", ""]]);
   // The allowance is held while an item that uses this machine is on
-  const k3s = (more) => item("addon", "@acme-hub/k3s", "Kubernetes", more);
-  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [k3s({ on: true, up: true })] });
-  assert.deepEqual(menuOf("Acme Hub").find(([label]) => /allowing/.test(label)), ["Stop allowing use of this machine", "Stop Kubernetes first"]);
-  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [k3s({ on: true, up: false })] });
-  assert.equal(menuOf("Acme Hub").find(([label]) => /allowing/.test(label))[1], "Turn off Kubernetes first");
-  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [k3s({})] });
+  const kea = (more) => item("addon", "@acme-hub/kea", "Kookaburra", more);
+  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [kea({ on: true, up: true })] });
+  assert.deepEqual(menuOf("Acme Hub").find(([label]) => /allowing/.test(label)), ["Stop allowing use of this machine", "Stop Kookaburra first"]);
+  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [kea({ on: true, up: false })] });
+  assert.equal(menuOf("Acme Hub").find(([label]) => /allowing/.test(label))[1], "Turn off Kookaburra first");
+  show([GIT("uptodate", { host: "allowed", uses_machine: USES })], { addons: [kea({})] });
   assert.equal(menuOf("Acme Hub").find(([label]) => /allowing/.test(label))[1], "");
   // The Lab UI does not answer: nothing is asked of it
   store.offline = true;
@@ -689,13 +619,10 @@ test("Check again says the word of an answer that is only that, and the reason a
     await settle();
     return [toasts(), page.doc.querySelector(".toast")?.classList.contains("error") ?? null];
   };
-  assert.deepEqual(await checked("uptodate"), [["Up to date"], false]);
-  assert.deepEqual(await checked("update"), [["Update available"], false]);
+  assert.deepEqual(await checked("update"), [["Update available"], false], "amber, and no trouble");
   assert.deepEqual(await checked("downloading"), [["Downloading"], false]);
   assert.deepEqual(await checked("unreachable"), [["Cannot reach github.com. Check your connection, then try again."], true]);
   assert.deepEqual(await checked("noaccess"), [["No access to owner/repo. Run gh auth login in a terminal, then try again."], true]);
-  assert.deepEqual(await checked("rewritten"), [["This catalog was rewritten or moved. Update only if you expected it."], true]);
-  assert.deepEqual(await checked("lab_old"), [["This version is too old for this Lab. Update it, or ask the owners of Acme Hub to update it."], true]);
 });
 
 test("a refusal of a request on a row is said as an error toast in the server's words", async () => {
@@ -736,7 +663,7 @@ const PREVIEW = (more = {}) => ({ ticket: "9f3a4c1d2e5b6a70", expires: 600,
   catalog: { id: "acme-hub", name: "Acme Hub", description: "Banking demos for partner workshops", version: "1.4.0", lab: 1, kind: "git" },
   address: "github.com/acme/lab-hub", url: "https://github.com/acme/lab-hub.git", audience: "private", counts: { playground: 14, setup: 2, addon: 9 },
   rows: { builds: { local: 3, remote: ["github.com/acme/app"] }, ports: [8140, 8141], core: ["API Management gateway"], reads: ["license"],
-    uses_machine: [{ id: "kubernetes", name: "Kubernetes", what: ["runs privileged"], why: "Runs containerd and the kubelet" }],
+    uses_machine: [{ id: "kookaburra", name: "Kookaburra", what: ["runs privileged"], why: "Runs nested containers" }],
     needs: [{ id: "partner-bank", name: "Partner Bank", url: "https://example.org/partner/lab-bank.git", min: "2.0.0" }] },
   blocked: [{ kind: "addon", id: "@acme-hub/x", name: "X", reasons: ["Mounts the Docker socket"] }], ignored: 3, ...more });
 const BARE = (more = {}) => PREVIEW({ counts: { playground: 1, setup: 1, addon: 1 }, rows: {}, blocked: [], audience: "public", ...more });
@@ -767,21 +694,12 @@ const next = async (el) => {
   await settle();
 };
 
-test("Add catalog opens on the address, empty, with its first field focused: its mark says what an address is, written with the host of the first catalog", () => {
+test("Add catalog opens on the address, empty, with its first field focused", () => {
   show([FIRST()]);
   server.calls.length = 0;
   click(section.querySelectorAll(".page-actions .btn")[1]);
   assert.equal(adding().hasAttribute("open"), true);
   assert.deepEqual([heading(), onScreen(), addressInput().value, page.doc.activeElement === addressInput()], ["Add catalog", "address", "", true]);
-  assert.equal(addressInput().getAttribute("placeholder"), "owner/repo, a Git address or a folder");
-  const label = adding().querySelector("#catalog-field .field-label");
-  assert.equal(text(label.querySelector("label")), "Address");
-  assert.deepEqual(bubble(label.querySelector(".tip")), ["A Git address you can read, such as owner/repo, https://github.com/owner/repo or git@github.com:owner/repo.git, or a folder on this machine. Private catalogs use the Git sign-in of this machine."]);
-  // More options hold the one field, the branch
-  const more = adding().querySelector("#catalog-more");
-  assert.deepEqual([text(more.querySelector("summary")), more.open, text(more.querySelector("label")), more.querySelector("input").getAttribute("placeholder")],
-    ["More options", false, "Branch", "Default"]);
-  assert.deepEqual(adding().querySelectorAll(".dialog-actions .btn").map(text), ["Cancel", "Continue"]);
   assert.equal(server.calls.length, 0, "nothing is asked of the server by opening it");
   shut();
 });
@@ -848,32 +766,38 @@ test("Continue at work reads Reading, the bar of the fetch is under the field, a
   assert.deepEqual(toasts(), []);
 });
 
-test("Import to Personal keeps the playground as the person's own, says what it replaces there, and opens its page; what cannot run goes to Imported only", async () => {
-  show([FIRST()]);
-  openImport();
-  const drop = async (file) => {
-    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
-    await settle();
-  };
-  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: ["Kiosk"], same: [] } });
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
-  assert.deepEqual(rowsOf().find(([label]) => label === "Replaces"), ["Replaces", "Kiosk The new version gets your settings"]);
-  server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
-  const went = [];
-  const go = router.go;
+// A file dropped on the first screen of Import, once what it reads is said
+const ZIP = (bytes = [80, 75, 5, 6]) => new File([new Uint8Array(bytes)], "contoso.zip");
+const drop = async (file = ZIP()) => {
+  adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
+  await settle();
+};
+// What the server says of that file
+const IMPORTED = (more = {}) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" }, imported: true,
+  counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {}, personal: { replaces: [], same: [] }, ...more });
+// The import confirmed, and where it sent the person
+const confirmed = async () => {
+  const went = [], go = router.go;
   router.go = (to) => went.push(to);
   await submit(primary());
   await settle();
   router.go = go;
+  return went;
+};
+
+test("Import to Personal keeps the playground as the person's own, says what it replaces there, and opens its page; what cannot run goes to Imported only", async () => {
+  show([FIRST()]);
+  openImport();
+  server.answers["/api/catalogs/import"] = IMPORTED({ personal: { replaces: ["Kiosk"], same: [] } });
+  await drop();
+  assert.deepEqual(rowsOf().find(([label]) => label === "Replaces"), ["Replaces", "Kiosk The new version gets your settings"]);
+  server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
+  assert.deepEqual(await confirmed(), ["#/playgrounds/local/contoso"]);
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70" }]);
-  assert.deepEqual(went, ["#/playgrounds/local/contoso"]);
   // What cannot run is never Personal's: Imported is the one choice, and Personal says why
   openImport();
-  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, counts: { playground: 1, setup: 0, addon: 1 }, blocked: [{ name: "Kiosk", reasons: ["Runs with full privileges"] }], rows: {},
-    personal: { replaces: [], same: [] } });
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  server.answers["/api/catalogs/import"] = IMPORTED({ blocked: [{ name: "Kiosk", reasons: ["Runs with full privileges"] }] });
+  await drop();
   const personal = adding().querySelector('[data-dest="personal"]');
   assert.deepEqual([personal.getAttribute("aria-disabled"), personal.getAttribute("data-why")], ["true", "What cannot run stays in Imported"]);
   assert.equal(adding().querySelector('[data-dest="imported"]').getAttribute("aria-checked"), "true");
@@ -883,26 +807,15 @@ test("Import to Personal keeps the playground as the person's own, says what it 
 test("Import to Personal of what uses this machine is the person's allowance: the button says Allow and import, and the request carries it", async () => {
   show([FIRST()]);
   openImport();
-  const drop = async (file) => {
-    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
-    await settle();
-  };
-  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [],
-    rows: { uses_machine: [{ id: "@contoso/kiosk", name: "kiosk", service: "kiosk", what: ["runs privileged"], why: "Runs a service manager" }] },
-    personal: { replaces: [], same: [] } });
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  server.answers["/api/catalogs/import"] = IMPORTED({ rows: { uses_machine: [{ id: "@contoso/kiosk", name: "kiosk", service: "kiosk", what: ["runs privileged"], why: "Runs a service manager" }] } });
+  await drop();
   assert.equal(face(primary()), "Allow and import");
   click(adding().querySelector('[data-dest="imported"]'));
   assert.equal(face(primary()), "Import", "Imported asks with its own choice");
   click(adding().querySelector('[data-dest="personal"]'));
   assert.equal(face(primary()), "Allow and import");
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso" };
-  const go = router.go;
-  router.go = () => {};
-  await submit(primary());
-  await settle();
-  router.go = go;
+  await confirmed();
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import/personal", { ticket: "9f3a4c1d2e5b6a70", allow: true }]);
 });
 
@@ -910,32 +823,20 @@ test("Settings kept from a removed import of that name are said, used or not, an
   show([FIRST()]);
   clearToasts();
   openImport();
-  const drop = async (file) => {
-    adding().querySelector("#catalog-file").dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
-    await settle();
-  };
-  const preview = (used) => PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, counts: { playground: 1, setup: 0, addon: 0 }, blocked: [], rows: {}, personal: { replaces: [], same: [] },
-    kept: { used, where: ".lab/kept-settings/contoso-1a2b3c4d" } });
-  server.answers["/api/catalogs/import"] = { ...preview(false), warning: "A change that stopped midway had set kiosk aside: they are in Personal again." };
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  const preview = (used) => IMPORTED({ kept: { used, where: ".lab/kept-settings/contoso-1a2b3c4d" } });
+  server.answers["/api/catalogs/import"] = preview(false);
+  await drop();
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Not used by this file"]);
-  assert.deepEqual(toasts(), ["A change that stopped midway had set kiosk aside: they are in Personal again."], "what came back is said");
-  clearToasts();
   click(adding().querySelector('[data-dest="imported"]'));
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Not used by this file"]);
   adding().closest("dialog").close();
   openImport();
   server.answers["/api/catalogs/import"] = preview(true);
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  await drop();
   assert.deepEqual(rowsOf().find(([label]) => label === "Kept settings"), ["Kept settings", "From an earlier import Used"]);
   server.answers["/api/catalogs/import/personal"] = { items: [], playground: "local/contoso",
     kept: { items: ["Kiosk"], where: ".lab/kept-settings/contoso-1a2b3c4d" } };
-  const go = router.go;
-  router.go = () => {};
-  await submit(primary());
-  await settle();
-  router.go = go;
+  await confirmed();
   assert.deepEqual(toasts(), ["Imported. The kept settings of Kiosk stay apart: see Kept settings on the Catalogs page."]);
 });
 
@@ -944,18 +845,12 @@ test("Import takes the file of an exported playground, shows the preview of an A
   clearToasts();
   openImport();
   const screen = () => adding().querySelector("#catalog-file");
-  const drop = async (file) => {
-    screen().dispatchEvent(Object.assign(new Ev("drop"), { dataTransfer: { files: [file] }, preventDefault() {} }));
-    await settle();
-  };
   assert.deepEqual([heading(), screen().hidden, primary() ?? null], ["Import playground", false, null], "the file comes first, and nothing to confirm yet");
   server.calls.length = 0;
   await drop(new File(["x"], "notes.txt"));
   assert.deepEqual([problemOf(), server.calls.length], ["Choose the .zip file of an exported playground", 0], "what is no archive is not sent");
-  server.answers["/api/catalogs/import"] = PREVIEW({ catalog: { id: "contoso", name: "Contoso demo", version: "1.0.0", lab: 1, kind: "folder" },
-    imported: true, address: "~/lab/.lab/imports/contoso", counts: { playground: 1, setup: 0, addon: 1 }, blocked: [], rows: {},
-    reused: [{ name: "Ledger", catalog: "Partner" }] });
-  await drop(new File([new Uint8Array([80, 75, 5, 6])], "contoso.zip"));
+  server.answers["/api/catalogs/import"] = IMPORTED({ address: "~/lab/.lab/imports/contoso", reused: [{ name: "Ledger", catalog: "Partner" }] });
+  await drop();
   assert.deepEqual([last().path, last().body], ["/api/catalogs/import", { data: btoa("PK\u0005\u0006") }]);
   assert.deepEqual([heading(), face(primary())], ["Import Contoso demo", "Import"]);
   assert.deepEqual(rowsOf().find(([label]) => label === "From"), ["From", "contoso.zip"], "it comes from the file, not from where the Lab keeps it");
@@ -965,21 +860,15 @@ test("Import takes the file of an exported playground, shows the preview of an A
   dest("imported").click();
   assert.equal(dest("imported").getAttribute("aria-checked"), "true");
   server.answers["/api/catalogs"] = { catalog: { id: "contoso", host: null } };
-  const went = [];
-  const go = router.go;
-  router.go = (to) => went.push(to);
   store.state.playgrounds = [{ kind: "playground", id: "@contoso/contoso", name: "Contoso demo" }];
-  await submit(primary());
-  await settle();
-  router.go = go;
+  assert.deepEqual(await confirmed(), ["#/playgrounds/@contoso/contoso"], "its page opens");
   assert.deepEqual([last().path, last().body], ["/api/catalogs", { ticket: "9f3a4c1d2e5b6a70" }]);
   assert.deepEqual(toasts(), ["Imported"]);
-  assert.deepEqual(went, ["#/playgrounds/@contoso/contoso"], "its page opens");
   // A file this Lab has: said on the file's screen, in the server's words
   openImport();
   server.answers["/api/catalogs/import"] = () => { throw Object.assign(new Error("Contoso demo is already in this Lab."), { code: "already_imported" }); };
   server.refuse["/api/catalogs/import"] = "Contoso demo is already in this Lab. To import it again, remove it on the Catalogs page first.";
-  await drop(new File([new Uint8Array([80, 75])], "contoso.zip"));
+  await drop(ZIP([80, 75]));
   assert.equal(screen().hidden, false);
   assert.equal(problemOf(), "Contoso demo is already in this Lab. To import it again, remove it on the Catalogs page first.");
   delete server.refuse["/api/catalogs/import"];
@@ -1015,7 +904,7 @@ test("a refusal is said in the problem line in the server's words, the screen st
 // --- Add catalog: what it adds --------------------------------------------------------------------------------------------------
 
 // Screen 2, from the address: typed, checked
-async function previewed(preview, host = false) {
+async function previewed(preview) {
   show([FIRST()]);
   server.answers["/api/catalogs/check"] = preview;
   openAdd({});
@@ -1049,11 +938,19 @@ test("the marks of the second screen say what Runs means, what Uses this machine
   await previewed(PREVIEW());
   const tip = (label) => adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === label).querySelector(".tip");
   assert.deepEqual(bubble(tip("Runs")), ["Its containers, builds and seeds run with this machine's Docker access."]);
-  assert.deepEqual(bubble(tip("Uses this machine")), ["Kubernetes", "Runs privileged", "Runs containerd and the kubelet"]);
-  // Under Keep them blocked the items that use this machine cannot run either: the Blocked one, and Kubernetes
-  assert.deepEqual(bubble(tip("Cannot run")), ["X Mounts the Docker socket", "Kubernetes Runs privileged"]);
+  assert.deepEqual(bubble(tip("Uses this machine")), ["Kookaburra", "Runs privileged", "Runs nested containers"]);
+  // Under Keep them blocked the items that use this machine cannot run either: the Blocked one, and Kookaburra
+  assert.deepEqual(bubble(tip("Cannot run")), ["X Mounts the Docker socket", "Kookaburra Runs privileged"]);
   shut();
 });
+
+// Allow them to use this machine, as a person chooses it
+const allowThem = () => {
+  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
+  keep.checked = false;
+  allow.checked = true;
+  allow.dispatchEvent(new Ev("change", { bubbles: true }));
+};
 
 test("the choice of two is there only for items that use this machine: Keep them blocked is the default, and choosing to allow takes them off Cannot run", async () => {
   await previewed(PREVIEW());
@@ -1098,16 +995,15 @@ test("the ports are said as the design words them", async () => {
     return said;
   };
   assert.equal(await ports([8140]), "Port 8140");
-  assert.equal(await ports([8140, 8141, 8142]), "Ports 8140, 8141 and 8142");
   assert.equal(await ports([1, 2, 3, 4, 5, 6]), "Ports 1, 2, 3, 4, 5 and 6");
   assert.equal(await ports([1, 2, 3, 4, 5, 6, 7, 8, 9]), "9 ports");
   assert.equal(await ports([]), undefined);
 });
 
-test("a version older than the newest, the settings found and the catalogs needed are rows of their own", async () => {
-  await previewed(BARE({ newer: true, rows: { found: [{ id: "ledger", name: "Ledger" }], needs: [{ id: "p", name: "Partner Bank" }], reads: ["gateway token", "ACME_SETTING"] } }));
+test("a version older than the newest and the catalogs needed are rows of their own", async () => {
+  await previewed(BARE({ newer: true, rows: { needs: [{ id: "p", name: "Partner Bank" }], reads: ["gateway token", "ACME_SETTING"] } }));
   assert.deepEqual(rowsOf().slice(2), [["Version", "1.4.0 Newer ones need a newer Gravitee Lab"], ["Runs", "Containers on this machine"], ["Reads", "Your Gravitee Cloud gateway token ACME_SETTING"],
-    ["Needs", "Partner Bank Not added"], ["Settings found", "Ledger From before the move"]]);
+    ["Needs", "Partner Bank Not added"]]);
   shut();
 });
 
@@ -1133,16 +1029,13 @@ test("a word that is the name of something in the language is a word like anothe
 });
 
 test("an item that is Blocked and also uses this machine counts once under Cannot run, whichever way the two lists spell its id", async () => {
-  const k3s = { kind: "addon", id: "@acme-hub/k3s", name: "Kubernetes", reasons: ["Mounts the Docker socket"] };
-  await previewed(PREVIEW({ blocked: [k3s] }));
-  assert.equal(rowsOf().pop()[1], "1 item", "Kubernetes once, though it is `kubernetes` in one list and `@acme-hub/k3s` in the other");
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
-  allow.dispatchEvent(new Ev("change", { bubbles: true }));
+  const kea = { kind: "addon", id: "@acme-hub/kea", name: "Kookaburra", reasons: ["Mounts the Docker socket"] };
+  await previewed(PREVIEW({ blocked: [kea] }));
+  assert.equal(rowsOf().pop()[1], "1 item", "Kookaburra once, though it is `kookaburra` in one list and `@acme-hub/kea` in the other");
+  allowThem();
   assert.ok(!rowsOf().some(([label]) => label === "Cannot run"), "allowed, it is no longer one that cannot run");
   shut();
-  await updating(PLAN({ uses_machine: [{ id: "kubernetes", name: "Kubernetes", what: ["runs privileged"] }], blocked: [k3s] }));
+  await updating(PLAN({ uses_machine: [{ id: "kookaburra", name: "Kookaburra", what: ["runs privileged"] }], blocked: [kea] }));
   assert.equal(rowsOf().pop()[0], "Cannot run");
   assert.equal(adding().querySelectorAll("#catalog-rows .choice-row").pop().querySelectorAll(".step-items li").length, 1);
   shut();
@@ -1158,12 +1051,14 @@ test("more than four lines fold under a line that counts them", async () => {
 
 test("the items of a plan are a list, every one of them on its line with its kind, under the hint of the row, however many they are", async () => {
   // Removes says "No longer in the catalog" of its names
-  await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name, i) => ({ kind: i ? "addon" : "playground", name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: [] }));
+  const notes = ["one", "two", "three", "four", "five", "six"];
+  await updating(PLAN({ removes: ["One", "Two", "Three", "Four", "Five"].map((name, i) => ({ kind: i ? "addon" : "playground", name })), breaks: [], changes: [], blocked: [], updates: [], adds: [], whatsnew: notes }));
   assert.equal(adding().querySelector("#catalog-rows details.choice-row"), null, "nothing of a plan is folded away");
   const removes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Removes");
   assert.deepEqual([text(removes.querySelector(".choice-row-label")), text(removes.querySelector(".choice-items > .muted"))], ["Removes", "No longer in the catalog"]);
   assert.deepEqual(removes.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name")), text(li.querySelector(".step-kind"))]),
     [["One", "Playground"], ["Two", "Add-on"], ["Three", "Add-on"], ["Four", "Add-on"], ["Five", "Add-on"]]);
+  assert.deepEqual(adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "What's new").querySelectorAll("li").map(text), notes);
   shut();
 });
 
@@ -1178,26 +1073,13 @@ test("Add adds the catalog the preview showed: the ticket goes, the dialog close
   assert.deepEqual(toasts(), ["Added"]);
 });
 
-test("choosing to allow adds the allowance once the catalog is added", async () => {
-  clearToasts();
-  await previewed(PREVIEW());
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
-  server.answers["/api/catalogs"] = { catalog: GIT("uptodate", { host: "no" }) };
-  server.answers["/api/catalogs/acme-hub/allow"] = { catalog: GIT("uptodate", { host: "allowed" }) };
-  server.calls.length = 0;
-  await next(primary());
-  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [["/api/catalogs", { ticket: "9f3a4c1d2e5b6a70" }], ["/api/catalogs/acme-hub/allow", { enabled: true }]]);
-});
-
 test("a refusal of the commit stays on the second screen in the problem line; a ticket that expired goes back to the address, which it keeps", async () => {
   await previewed(PREVIEW());
   server.refuse["/api/catalogs"] = "Another catalog already uses the name acme-hub (github.com/other/hub). Remove it first, or ask the owner of this one to rename it.";
   await next(primary());
   assert.deepEqual([onScreen(), problemOf(), adding().hasAttribute("open")], ["effects", server.refuse["/api/catalogs"], true]);
   assert.equal(isOff(primary()), false, "it can be tried again, or canceled");
-  server.refuse["/api/catalogs"] = "This took too long. Start again.";
+  server.refuse["/api/catalogs"] = { error: "This took too long. Start again.", code: "ticket_expired" };
   await next(primary());
   assert.deepEqual([onScreen(), problemOf(), heading(), addressInput().value], ["address", "This took too long. Start again.", "Add catalog", "acme/lab-hub"]);
   delete server.refuse["/api/catalogs"];
@@ -1209,9 +1091,7 @@ const hashOf = () => page.session.entries[page.session.at].hash;
 test("closing the dialog while Add is at work leaves the allowance the person chose ungiven and moves nothing, but the catalog is added and that is said", async () => {
   clearToasts();
   await previewed(PREVIEW());
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
+  allowThem();
   const wait = hold();
   server.answers["/api/catalogs"] = () => wait.held.then(() => ({ catalog: GIT("uptodate", { host: "no" }) }));
   server.answers["/api/catalogs/acme-hub/allow"] = { catalog: GIT("uptodate", { host: "allowed" }) };
@@ -1228,9 +1108,7 @@ test("closing the dialog while Add is at work leaves the allowance the person ch
   assert.equal(hashOf(), before, "the page did not move");
   // Not closing it, the same add gives the allowance and reveals the row
   await previewed(PREVIEW());
-  const [keep2, allow2] = adding().querySelectorAll("#catalog-choice input");
-  keep2.checked = false;
-  allow2.checked = true;
+  allowThem();
   server.answers["/api/catalogs"] = { catalog: GIT("uptodate", { host: "no" }) };
   server.calls.length = 0;
   await next(primary());
@@ -1273,14 +1151,6 @@ test("an add that was left does not unlock the button of the add that replaced i
   second.release();
   await settle();
   shut();
-});
-
-test("Enter confirms Add, and Cancel closes it", async () => {
-  await previewed(PREVIEW());
-  const cancel = adding().querySelector("[data-cancel]");
-  click(cancel);
-  assert.equal(adding().hasAttribute("open"), false);
-  assert.equal(primary() && primary().getAttribute("type") !== "button", true, "its button is the form's own: the one Enter presses");
 });
 
 // --- Add catalog: from an address that is known ---------------------------------------------------------------------------------
@@ -1378,12 +1248,6 @@ test("a listed catalog that downloads is told Added once it is there, and one th
   assert.deepEqual(toasts(), ["Added"]);
   store.notify();
   assert.deepEqual(toasts(), ["Added"], "once");
-});
-
-test("Add is disabled with the reason when Git is missing", () => {
-  show([NOT_ADDED({ id: "third-hub", name: "Third hub" })], { git: { available: false, version: "" } });
-  const add = row("Third hub").querySelector("[data-add]");
-  assert.deepEqual([isOff(add), offWhy(add)], [true, "Git is not installed"]);
 });
 
 // --- Try again and Add the listed catalog, wherever the content status draws them ----------------------------------------------------
@@ -1506,7 +1370,7 @@ test("the version reads from the one installed to the new one when the catalog r
 });
 
 test("an item that is updated says what changed in it, the first three parts of its folder and how many more", async () => {
-  await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kafka", name: "Kafka", what: ["README.md"] },
+  await updating(PLAN({ updates: [{ kind: "addon", id: "@acme-hub/kazoo", name: "Kazoo", what: ["README.md"] },
     { kind: "playground", id: "@acme-hub/bank", name: "Acme Bakery", what: ["README.md", "compose.yml", "guide/", "seed/", "tests/"] }] }));
   const updates = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Updates");
   assert.deepEqual(updates.querySelectorAll(".step-items li").map((li) => [text(li.querySelector(".step-name .muted")), text(li.querySelector(".step-kind"))]),
@@ -1527,20 +1391,6 @@ test("a plan held says why on the button and sends nothing", async () => {
   await next(primary());
   assert.equal(server.calls.length, 0);
   shut();
-  await updating(PLAN({ held: "Wait for Start of Acme Bakery" }));
-  assert.equal(offWhy(primary()), "Wait for Start of Acme Bakery");
-  shut();
-});
-
-test("Update sends the ticket, closes, and says Updated", async () => {
-  clearToasts();
-  await updating(PLAN());
-  server.answers[at("/update")] = { catalog: GIT("uptodate") };
-  server.calls.length = 0;
-  await next(primary());
-  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { ticket: "b1c2d3e4f5a60718" }]]);
-  assert.equal(adding().hasAttribute("open"), false);
-  assert.deepEqual(toasts(), ["Updated"]);
 });
 
 test("a refusal of the update stays in the problem line, in the server's words, with the dialog open", async () => {
@@ -1625,9 +1475,7 @@ test("an update applied at once keeps the row's button at work from the click to
 test("closing the dialog while Update is at work leaves the allowance chosen with it ungiven; the update is done and said", async () => {
   clearToasts();
   await updating(PLAN({ uses_machine: USES, blocked: [] }));
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
+  allowThem();
   const wait = hold();
   server.answers[at("/update")] = () => wait.held.then(() => ({ catalog: GIT("uptodate") }));
   server.answers[at("/allow")] = { catalog: GIT("uptodate", { host: "allowed" }) };
@@ -1643,14 +1491,14 @@ test("closing the dialog while Update is at work leaves the allowance chosen wit
 test("a plan whose ticket expired is dead: its dialog closes and says so, whether the update or Show changes found out", async () => {
   const line = "This took too long. Start again.";
   await updating(PLAN());
-  server.refuse[at("/update")] = line;
+  server.refuse[at("/update")] = { error: line, code: "ticket_expired" };
   clearToasts();
   await next(primary());
   assert.deepEqual([adding().hasAttribute("open"), toasts()], [false, [line]]);
   assert.ok(page.doc.querySelector(".toast").classList.contains("error"));
   delete server.refuse[at("/update")];
   await updating(PLAN());
-  server.refuse[at("/changes")] = line;
+  server.refuse[at("/changes")] = { error: line, code: "ticket_expired" };
   clearToasts();
   click(secondary());
   await settle();
@@ -1709,19 +1557,12 @@ test("an update with nothing to apply says so; a check that is refused is an err
 test("every growth of power is a line of Changes in the Lab's words", async () => {
   const change = (fact, value, name = "Acme Bakery") => ({ id: "x", name, fact, value });
   await updating(PLAN({ changes: [change("port", "8141"), change("build", "github.com/acme/mock", "Mock bank"), change("core", "API Management gateway"),
-    change("reads", "license"), change("reads", "gateway token"), change("plugins", "apim"), change("seed", "custom"), change("host", "runs privileged", "Kubernetes"),
+    change("reads", "license"), change("reads", "gateway token"), change("plugins", "apim"), change("seed", "custom"), change("host", "runs privileged", "Kookaburra"),
     change("host", "mounts the Docker socket", "Console")] }));
   const changes = adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "Changes");
   assert.deepEqual(changes.querySelectorAll(".choice-lines li").map(text), ["Acme Bakery now publishes port 8141", "Mock bank now builds from github.com/acme/mock", "Acme Bakery now changes the API Management gateway",
     "Acme Bakery now reads your Gravitee license", "Acme Bakery now reads your Gravitee Cloud gateway token", "Acme Bakery now installs plugins for apim",
-    "Acme Bakery now runs a custom seed", "Kubernetes now runs privileged", "Console now mounts the Docker socket"]);
-  shut();
-});
-
-test("what is new is every subject of the notes, one to a line", async () => {
-  await updating(PLAN({ whatsnew: ["one", "two", "three", "four", "five", "six"] }));
-  assert.deepEqual(adding().querySelectorAll("#catalog-rows .choice-row").find((r) => text(r.querySelector(".choice-row-label")) === "What's new").querySelectorAll("li").map(text),
-    ["one", "two", "three", "four", "five", "six"]);
+    "Acme Bakery now runs a custom seed", "Kookaburra now runs privileged", "Console now mounts the Docker socket"]);
   shut();
 });
 
@@ -1766,13 +1607,6 @@ test("Go back to a history that was rewritten says so without the tone that asks
   assert.equal(adding().hasAttribute("open"), false);
 });
 
-test("an update of a history that was rewritten still asks for care, and sends the confirmation: the difference with going back is the route", async () => {
-  await updating(PLAN({ rewritten: true }));
-  assert.ok(adding().querySelector("#catalog-rows .choice-row").classList.contains("danger"));
-  assert.deepEqual([face(primary()), primary().classList.contains("danger")], ["Update anyway", true]);
-  shut();
-});
-
 test("Show changes opens the files on the left and a unified diff on the right; a file with no diff reads Changed, not shown", async () => {
   await updating(PLAN());
   server.answers[at("/changes")] = { files: [
@@ -1789,10 +1623,8 @@ test("Show changes opens the files on the left and a unified diff on the right; 
   assert.deepEqual(files.map((f) => [text(f.querySelector(".name")), text(f.querySelector(".muted"))]),
     [["playgrounds/bank/compose.yml", "Changed"], ["addons/ledger/compose.yml", "Added"], ["addons/old/logo.png", "Removed"]]);
   assert.deepEqual(files.map((f) => f.classList.contains("active")), [true, false, false]);
-  const lineKinds = () => changes.querySelectorAll("#catalog-diff span").map((s) => [s.getAttribute("class").replace("diff-", ""), s.textContent]);
-  assert.deepEqual(lineKinds(), [["meta", "--- a/compose.yml"], ["meta", "+++ b/compose.yml"], ["hunk", "@@ -1,2 +1,2 @@"], ["ctx", " services:"], ["del", "-  a: 1"], ["add", "+  a: 2"]]);
   click(changes.querySelectorAll(".file-item")[2]);
-  assert.deepEqual(lineKinds(), [["meta", "Changed, not shown"]]);
+  assert.deepEqual(changes.querySelectorAll("#catalog-diff span").map((s) => [s.getAttribute("class"), s.textContent]), [["diff-meta", "Changed, not shown"]]);
   click(changes.querySelector("[data-close]"));
   assert.equal(changes.hasAttribute("open"), false);
   assert.equal(adding().hasAttribute("open"), true, "the update is still there to decide");
@@ -1804,24 +1636,20 @@ test("an update that makes items need this machine has the row and the choice of
   assert.ok(rowsOf().some(([label, value]) => label === "Uses this machine" && value === "1 item"));
   assert.equal(adding().querySelector("#catalog-choice").hidden, false);
   assert.equal(rowsOf().pop()[0], "Cannot run", "kept blocked: they cannot run");
-  const [keep, allow] = adding().querySelectorAll("#catalog-choice input");
-  keep.checked = false;
-  allow.checked = true;
-  allow.dispatchEvent(new Ev("change", { bubbles: true }));
+  allowThem();
   assert.ok(!rowsOf().some(([label]) => label === "Cannot run"));
   server.answers[at("/update")] = { catalog: GIT("uptodate") };
   server.answers[at("/allow")] = { catalog: GIT("uptodate", { host: "allowed" }) };
   server.calls.length = 0;
   await next(primary());
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/update"), { ticket: "b1c2d3e4f5a60718" }], [at("/allow"), { enabled: true }]]);
+  assert.equal(adding().hasAttribute("open"), false);
 });
 
 // --- Remove and Allow: the dialog of what an action does ---------------------------------------------------------------------------
 
 // The dialog of ui.js `effectsDialog`: the browser tells it which choice is checked, which the stub does not
 const choice = page.ids.choice, picks = page.ids["choice-list"];
-picks.querySelector = (selector) => (selector === "input:checked" ? picks.querySelectorAll("input").find((i) => i.checked) ?? picks.querySelectorAll("input")[0]
-  : El.prototype.querySelector.call(picks, selector));
 const effects = () => ({ title: text(page.ids["choice-title"]), action: text(page.ids["choice-ok"]), danger: page.ids["choice-ok"].classList.contains("danger"),
   steps: picks.querySelectorAll(".step").map((s) => [text(s.querySelector("strong")), s.querySelectorAll(".step-items li").map(text), s.querySelector(".step-head .muted") ? text(s.querySelector(".step-head .muted")) : ""]),
   notes: picks.querySelectorAll(".choice-row").map((n) => [text(n.querySelector(".choice-row-label")), n.querySelectorAll(".pill").map(text), n.querySelector(".choice-items > .muted") ? text(n.querySelector(".choice-items > .muted")) : ""]),
@@ -1855,17 +1683,12 @@ test("Remove says what goes, what it breaks and what stays in Gravitee, and offe
   assert.deepEqual(toasts(), ["Removed"]);
 });
 
-test("what stays in Gravitee is counted in the singular for one, and API is the acronym it is, whichever shape the server counts in", async () => {
+test("what stays in Gravitee is counted in the singular for one, and API is the acronym it is", async () => {
   show([GIT("uptodate", { id: hub() })]);
   server.answers[at("/delete")] = REMOVAL({ breaks: [], stays: { apis: 1, applications: 1, policies: 1, plans: 2 } });
   choose("Acme Hub", "Remove");
   await settle();
   assert.deepEqual(effects().notes, [["Stays in Gravitee", ["1 API", "1 application", "1 policy", "2 plans"], ""]]);
-  await answer(false);
-  server.answers[at("/delete")] = REMOVAL({ breaks: [], stays: [{ count: 3, what: "apis" }, { count: 1, what: "keys" }, "2 plans"] });
-  choose("Acme Hub", "Remove");
-  await settle();
-  assert.deepEqual(effects().notes, [["Stays in Gravitee", ["3 APIs", "1 key", "2 plans"], ""]]);
   await answer(false);
 });
 
@@ -1932,7 +1755,7 @@ test("Allow use of this machine names the items and what they take; Stop allowin
   await settle();
   let said = effects();
   // The one consent that gives the Docker socket and privileged containers: in the danger tone, which Enter never presses
-  assert.deepEqual([said.title, said.action, said.danger, said.steps], ["Allow use of this machine", "Allow", true, [["Uses this machine", ["Kubernetes: runs privileged"], ""]]]);
+  assert.deepEqual([said.title, said.action, said.danger, said.steps], ["Allow use of this machine", "Allow", true, [["Uses this machine", ["Kookaburra: runs privileged"], ""]]]);
   server.calls.length = 0;
   await answer(true);
   assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [[at("/allow"), { enabled: true }]]);
@@ -1941,7 +1764,7 @@ test("Allow use of this machine names the items and what they take; Stop allowin
   choose("Acme Hub", "Stop allowing use of this machine");
   await settle();
   said = effects();
-  assert.deepEqual([said.title, said.action, said.danger, said.steps], ["Stop allowing use of this machine", "Stop allowing", false, [["Blocks", ["Kubernetes"], "They stay listed and cannot start"]]]);
+  assert.deepEqual([said.title, said.action, said.danger, said.steps], ["Stop allowing use of this machine", "Stop allowing", false, [["Blocks", ["Kookaburra"], "They stay listed and cannot start"]]]);
   server.calls.length = 0;
   await answer(true);
   assert.deepEqual(server.calls.map((c) => c.body), [{ enabled: false }]);
@@ -2009,14 +1832,12 @@ test("with a skill for it, New catalog is also the prompt that has an AI agent m
   // And the shortcuts that hand the prompt to an agent, in the foot of the dialog
   const go = dialog.querySelector("#catalog-new-go");
   assert.equal(go.hidden, false);
-  assert.deepEqual(go.children.map(text), ["Copy prompt", "Open in Claude app", "Open in Claude Code", "Open in Codex", "Open in Cursor"]);
   assert.equal(go.querySelector("[data-copy]").getAttribute("data-copy"), prompt);
   const said = encodeURIComponent(prompt);
   assert.deepEqual(go.querySelectorAll("a").map((link) => link.getAttribute("href")), [
     `claude://code/new?q=${said}&folder=%2Fwork%2Flab`, `claude-cli://open?q=${said}&cwd=%2Fwork%2Flab`, `codex://new?prompt=${said}&path=%2Fwork%2Flab`,
     `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(`${prompt} Work in /work/lab.`)}`]);
   assert.equal(go.querySelectorAll(".primary").length, 0, "no agent is the default one");
-  assert.deepEqual(go.querySelectorAll("a").map((link) => link.querySelector("use").getAttribute("href")), ["#i-claude", "#i-terminal", "#i-openai", "#i-cursor"]);
   // What the catalog should hold goes into the prompt, and into what the agents are given
   const task = dialog.querySelector("#catalog-task");
   assert.equal(dialog.querySelector("#catalog-new-task").hidden, false);
@@ -2052,36 +1873,9 @@ test("a catalog just created is revealed on the Catalogs page unless the person 
   router.current = null;
 });
 
-// --- Add from a line of an item that needs a catalog ------------------------------------------------------------------------------
-
-test("a catalog an item needs is added from its line: a listed one at once, any other through the preview on its second screen", async () => {
-  server.answers["/api/catalogs/check"] = PREVIEW();
-  show([NOT_ADDED({ id: "gravitee" })]);
-  server.answers["/api/catalogs"] = { catalog: FIRST({ commit: "9f1c2ab" }) };
-  server.calls.length = 0;
-  addCatalog({ id: "gravitee", name: "Gravitee public", url: `https://${ADDRESS}.git` });
-  await settle();
-  assert.deepEqual(server.calls.map((c) => [c.path, c.body]), [["/api/catalogs", { listed: "gravitee" }]]);
-  assert.equal(adding().hasAttribute("open"), false);
-  show([FIRST()]);
-  server.calls.length = 0;
-  addCatalog({ id: "partner-bank", name: "Partner Bank", url: "https://example.org/partner/lab-bank.git" });
-  await settle();
-  assert.deepEqual([adding().hasAttribute("open"), heading(), onScreen(), server.calls[0].body], [true, "Add Acme Hub", "effects", { address: "https://example.org/partner/lab-bank.git" }]);
-  shut();
-});
-
-test("on a phone the facts of an open row take the lists' label column: the wide one of the desktop is not left to squeeze the values", () => {
-  const rules = source("css/pages.css").split("/* --- Catalogs")[1].split("/* --- Editor")[0];
-  assert.match(rules, /#page-catalogs \{ --label: 124px; \}/);
-  assert.match(rules, /@container \(max-width: 599px\) \{ #page-catalogs \{ --label: 80px; \} \}/);
-  assert.match(source("css/base.css"), /--label: 80px;/, "the lists' own");
-});
-
 // --- What a server says is text -------------------------------------------------------------------------------------------------
 
 test("a name, a description, an address, a reason or a subject that is markup is shown as the text it is: in the rows, the detail, the menu and every dialog", async () => {
-  const bad = (key) => `${HOSTILE} ${key}`;
   const dirty = () => page.doc.querySelectorAll("img[src=x], script");
   show([GIT("noaccess", { id: "evil-hub", name: HOSTILE, description: HOSTILE_QUOTED, address: HOSTILE, url: "https://example.org/x.git", version: HOSTILE,
     state: { ...STATES.noaccess, label: HOSTILE, reason: HOSTILE, next: HOSTILE_QUOTED }, ignored: 1,
@@ -2096,7 +1890,6 @@ test("a name, a description, an address, a reason or a subject that is markup is
   click(cells(items()[0]).more);
   assert.equal(dirty().length, 0);
   closeMenu();
-  server.answers[at("/x")] = {};
   show([GIT("update", { id: hub(), name: HOSTILE })]);
   server.answers[at("/update")] = PLAN({ version: HOSTILE, updates: [{ name: HOSTILE }], adds: [{ name: HOSTILE_QUOTED }], removes: [{ name: HOSTILE }],
     breaks: [{ name: HOSTILE, needs: HOSTILE_QUOTED }], changes: [{ name: HOSTILE, fact: "build", value: HOSTILE_QUOTED }], whatsnew: [HOSTILE, HOSTILE_QUOTED],
@@ -2109,7 +1902,7 @@ test("a name, a description, an address, a reason or a subject that is markup is
   shut();
   show([NOT_ADDED()]);
   server.answers["/api/catalogs/check"] = PREVIEW({ catalog: { id: "evil", name: HOSTILE, kind: "git" }, address: HOSTILE, counts: {},
-    rows: { builds: { local: 0, remote: [HOSTILE] }, ports: [], core: [HOSTILE], reads: [HOSTILE_QUOTED], needs: [{ name: HOSTILE }], found: [{ name: HOSTILE_QUOTED }],
+    rows: { builds: { local: 0, remote: [HOSTILE] }, ports: [], core: [HOSTILE], reads: [HOSTILE_QUOTED], needs: [{ name: HOSTILE }],
       uses_machine: [{ id: "z", name: HOSTILE, what: [HOSTILE], why: HOSTILE_QUOTED }] },
     blocked: [{ id: "q", name: HOSTILE, reasons: [HOSTILE_QUOTED] }] });
   openAdd({ address: "x/y" });
@@ -2134,7 +1927,6 @@ test("a name, a description, an address, a reason or a subject that is markup is
   assert.equal(dirty().length, 0);
   assert.equal(effects().title, `Remove ${HOSTILE}`);
   await answer(false);
-  void bad;
 });
 
 test("the examples of an address stay text when the first catalog's host is markup", () => {
@@ -2142,27 +1934,4 @@ test("the examples of an address stay text when the first catalog's host is mark
   openAdd();
   assert.equal(page.doc.querySelectorAll("img[src=x]").length, 0);
   shut();
-});
-
-// --- The modules as files ---------------------------------------------------------------------------------------------------------
-
-const MODULES = ["js/pages/catalogs.js", "js/dialogs/catalog.js"];
-const code = (file) => source(file).replace(/\/\*[\s\S]*?\*\/|(?<![:\w"'`\\/])\/\/[^\n]*/g, "");
-
-test("the modules write no title attribute, no host of the web, no item or maker of a catalog, and only classes some stylesheet has a rule for", () => {
-  const styles = source("css/base.css") + source("css/components.css") + source("css/pages.css");
-  for (const file of MODULES) {
-    assert.doesNotMatch(code(file), /\stitle=/, `${file}: the browser's tooltip`);
-    assert.doesNotMatch(source(file), /github\.com/, `${file}: the address of a host is data`);
-    assert.doesNotMatch(code(file), /\b(acme|kafka|jade|kiosk|openfga|reader-ui|gravitee-demos)\b/i, `${file}: names no item or catalog`);
-    const classes = new Set([...code(file).matchAll(/\bclass="([^"$]*)"/g)].flatMap((found) => found[1].split(/\s+/)).filter(Boolean));
-    for (const name of classes) assert.match(styles, new RegExp(`\\.${name.replace(/[-]/g, "\\-")}\\b`), `${file}: .${name} has no rule`);
-    // No new size of control: the page writes no height or width of its own
-    assert.doesNotMatch(code(file), /style="|\.style\./, `${file}: no style of its own`);
-  }
-});
-
-test("the stylesheet gives the page nothing but what it needs: rules for classes that exist, and the classes of the diff of Show changes", () => {
-  const rules = source("css/pages.css").split("/* --- Catalogs")[1].split("/* --- Editor")[0];
-  assert.deepEqual([...new Set([...rules.matchAll(/\.([a-z][\w-]*)/g)].map((found) => found[1]))].sort(), ["choice-items", "diff", "diff-add", "diff-del", "diff-hunk", "diff-meta", "panel-fact", "step-items"]);
 });

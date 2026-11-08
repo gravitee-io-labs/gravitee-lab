@@ -48,7 +48,7 @@ true
 
 
 def _target(project, product):
-    """A product that loads plugins: its name, the folder shared with its services, their bundled plugins folders."""
+    """A product that loads plugins: the folder shared with its services, their bundled plugins folders."""
     if product not in project["products"]:
         raise NotFound(f"No such product: {product}")
     return project["products"][product]

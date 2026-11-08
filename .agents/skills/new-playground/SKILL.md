@@ -18,8 +18,8 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
      (`ACME_SHOP_*`).
    - **The use case**: the add-ons and setups it needs, its apps and where they are built from (their own folder or a
      repository), what it creates in Gravitee (APIs, applications, users) and the lessons of its guide.
-   - **Whether it also deploys to Gravitee Cloud**: nothing to declare, the Lab works it out. A seed of `seed/apim/`
-     only, backend apps, no change to the core.
+   - **Whether it also deploys to Gravitee Cloud**: nothing to declare, the Lab works it out. A seed of `seed/apim/`,
+     `seed/am/` and `seed/openfga/` at most, backend apps, no change to the core.
    - **Whether a lesson teaches a protection** that starts switched off (a
      [control](../../../docs/playgrounds.md#controls-the-protections-a-lesson-switches-on)) or spends a budget that
      Re-seed puts back (a [refill](../../../docs/playgrounds.md#refills-what-a-lesson-spends-put-back)).
@@ -29,19 +29,12 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
      lesson at a time".
    - **Where it is kept**: Personal, on this machine only, or a catalog that is a folder of the person's (a folder
      catalog: the Lab UI's New catalog, or the `new-catalog` skill). Personal unless the person names a catalog.
-3. Write its folder where it belongs. A personal item and a catalog item sit at the same depth, so the same paths work in
-   both:
+3. Write its folder where it belongs:
 
-   | | Personal | In a folder catalog |
-   |---|---|---|
-   | Folder | `.lab/catalogs/local/playgrounds/<id>/` | `<the folder of the catalog>/playgrounds/<id>/` |
-   | It includes an add-on of the same catalog as | `../../addons/kafka/compose.yml` | `../../addons/kafka/compose.yml` |
-   | It includes a setup of the same catalog as | `../../setups/event-streams.yml` | `../../setups/event-streams.yml` |
-   | It includes an add-on of the default catalog, from any other place, as | `../../../<default catalog id>/addons/kafka/compose.yml` | `../../../<default catalog id>/addons/kafka/compose.yml` |
-   | Its seed builds | `../../../../../seeder` | `../../../../../seeder` |
-
-   An item of a catalog includes the add-ons and setups of its own catalog and of the catalogs it declares in
-   `requires.catalogs` of its `catalog.yml`, never one of this machine. A personal item includes what it wants.
+   | Kept | Folder |
+   |---|---|
+   | Personal | `.lab/catalogs/local/playgrounds/<id>/` |
+   | In a folder catalog | `<the folder of the catalog>/playgrounds/<id>/` |
 
    - `compose.yml`: the metadata, what it includes, its apps and its seed. `services: {}` when it has none.
    - Its secrets: every password, secret, token and key is a setting, never a literal, the `password` and `key` of
@@ -55,8 +48,7 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
 5. Check it. For an item of a folder catalog, run `python3 -I lab-ui/catalog.py check <catalog id>` from the project's
    folder and fix what it says until it prints "All good". A personal item is read by Compose when the Lab UI shows
    it: the page says why one does not load. Run the tests of an app it ships, in its image, when Docker runs.
-6. In a catalog, write `README.md` in its folder for what a user needs to know before and after, and add its row to
-   `playgrounds/README.md` when the catalog keeps that table (the check prints the exact row). Ask the person which
+6. In a catalog, write `README.md` in its folder for what a user needs to know before and after. Ask the person which
    versions they built it and checked it on, and write them as `x-gravitee.tested`: CI starts the playground on each set.
    Never write versions nobody ran it on.
 7. Tell the person where the folder is, and that the playground shows on the Playgrounds page of the Lab UI

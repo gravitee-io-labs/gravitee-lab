@@ -19,7 +19,7 @@ page that a catalog uses say which Lab reads it.
 | The person's own: a folder catalog, Personal, a working copy linked in place of an install | Used as it is: an unknown item is a mistake of its author, and `catalog.py check` names each one |
 
 The Lab finds the newest version it reads by reading the files of each version, newest first, as it reads a catalog it adds
-(`manifest.pick`, `understood`): its releases when it makes releases, else the commits before each change of its units, up to 20 versions, none started after about ten seconds, each once. When none of those is one it reads, the Lab says so and how many it read. A catalog's CI checks it with a released Lab: the commit
+(`manifest.offer`, `understood`): its releases when it makes releases, else the commits before each change of its units, up to 20 versions, none started after about ten seconds, each once. When none of those is one it reads, the Lab says so and how many it read. A catalog's CI checks it with a released Lab: the commit
 that `.github/standard.json` pins is the commit of a release `vX.Y.Z`. So a catalog that passes its CI is read by that release
 and every later one, and updating to the latest release is always enough for what a catalog publishes. The release notes of
 the Lab list, under *For catalogs*, what each release adds that a catalog can use (the label `catalog-format`,
@@ -130,7 +130,7 @@ a catalog reports it, and a published catalog that has one needs a newer Gravite
 | `x-gravitee-catalog.images` | The registry prefix of the images it publishes |
 | `x-gravitee-catalog.contribute` | `pull-request` or `none` |
 | `x-gravitee-catalog.shared_settings` | The settings its items share |
-| `x-gravitee-catalog.moved_from` | The items it received from the Lab repository |
+| `x-gravitee-catalog.moved_from` | The items it received from the Lab repository: read, and changes nothing |
 | `x-gravitee-catalog.canary` | The items the end-to-end test always tries |
 | `x-gravitee-catalog.requires` | What it needs |
 | `x-gravitee-catalog.requires.catalogs` | The catalogs it includes from, with their address and minimum version |
@@ -286,7 +286,7 @@ An anchor is a place in the engine that a unit may point to.
 
 | Anchor | What a unit does with it |
 |---|---|
-| `seeder` | Builds the seeder from the engine's `seeder/` folder, and runs the image that `x-gravitee.seeder.image` names in the core file. It is the only image a seed service may have |
+| `seeder` | Builds the seeder from the engine's `seeder/` folder, and runs the image that `x-gravitee.seeder.image` names in the core file. It is the only image a seed service may have. Its entry point is `python seed.py`, in its working folder, which a seed service's own command may run |
 | `plugins/apim` | Mounts the plugins of API Management, to give another service the plugins of the core's gateway |
 | `plugins/am` | Mounts the plugins of Access Management |
 | `lab-ui` | Lets the Lab UI frame it: the Lab UI is served on port 9000, at the two addresses of [Frames](#frames) |

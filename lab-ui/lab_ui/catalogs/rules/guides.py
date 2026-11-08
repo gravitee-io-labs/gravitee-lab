@@ -21,7 +21,7 @@ from urllib.parse import unquote
 
 from ..report import ERROR, Problem
 from ..tree import REGULAR
-from . import OTHER_LIMIT, PER_FILE, TEXT_LIMIT, Context, basename, context, line_of, newlines, problem, read_limit, table, text_of
+from . import OTHER_LIMIT, PER_FILE, TEXT_LIMIT, basename, line_of, newlines, problem, read_limit, table, text_of
 
 RULES = table([
     ("GD01", ERROR, "A relative link that does not resolve inside the catalog",
@@ -133,7 +133,7 @@ def _blank_spans(line: str) -> str:
     while index < len(runs):
         length = runs[index][1] - runs[index][0]
         same = by_length[length]
-        position = same.index(index) if len(same) < 8 else _locate(same, index)
+        position = bisect.bisect_left(same, index)
         if position + 1 < len(same):
             closer = same[position + 1]
             pieces.append(line[done:runs[index][0]])
@@ -144,10 +144,6 @@ def _blank_spans(line: str) -> str:
             index += 1
     pieces.append(line[done:])
     return "".join(pieces)
-
-
-def _locate(sorted_indexes: List[int], index: int) -> int:
-    return bisect.bisect_left(sorted_indexes, index)
 
 
 def _clip(text: str) -> str:
@@ -388,9 +384,8 @@ def check_markdown(path: str, text: str, files: Set[str], folders: Set[str]) -> 
     return sorted(found, key=lambda each: (each.line, each.code, each.message))
 
 
-def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
+def check(tree, ctx=None) -> List[Problem]:
     """GD01 to GD05 over every Markdown file and every SVG file of a tree."""
-    ctx = ctx if ctx is not None else context(tree)
     entries = tree.entries()
     files = {each.path for each in entries}
     folders: Set[str] = set()
@@ -413,6 +408,3 @@ def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
                 if what:
                     found.append(problem(RULES, "GD05", entry.path, what=what))
     return found
-
-
-__all__ = ["RULES", "check", "check_markdown", "is_relative", "mask", "resolves", "scan", "scheme_of", "svg_active"]

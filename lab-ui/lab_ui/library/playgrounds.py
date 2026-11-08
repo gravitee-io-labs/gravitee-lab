@@ -63,14 +63,6 @@ def _segments(place):
     return uid, environment
 
 
-def _record(pid, place=None):
-    """The file where the seed records what it created: This machine's, or the one in the folder of a place, which
-    the seed reaches as its STATE_DIR."""
-    if not _remote(place):
-        return _folder(pid) / CREATED_FILE
-    return _folder(pid) / platforms.STATE / Path(*_segments(place)) / places.RECORD
-
-
 def created(pid, place=None):
     """What the seed recorded as created in Gravitee, and only that: [{what, count}], under the label the seed gives
     each kind of thing. On This machine, or in the place given, each with a record of its own. A record that is no plain
@@ -85,7 +77,7 @@ def created(pid, place=None):
     counts = Counter()
     for item in items if isinstance(items, list) else ():
         label = item.get("label") if isinstance(item, dict) else None
-        count = item.get("count", 1) if isinstance(item, dict) else None   # a record may stand for many: the entities of one type
+        count = item.get("count", 1) if isinstance(item, dict) else None   # a record may stand for many: the entities of a file
         if isinstance(label, str) and type(count) is int and count > 0:
             counts[label] += count
     return [{"what": what, "count": count} for what, count in counts.items()]
@@ -110,7 +102,7 @@ def _remember(pid, place, environment):
     """Makes the folder of a place's record, which Docker would make as root, and writes beside the record the name of
     its environment, which nothing offline holds (places.deployed reads it). Not through a link a container planted:
     the job fails and nothing is written."""
-    folder = _record(pid, place).parent
+    folder = _folder(pid) / platforms.STATE / Path(*_segments(place))
     if not places.inside(pid, folder):
         raise JobFailed("The state folder of the playground leads out of its folder: nothing was written there")
     folder.mkdir(parents=True, exist_ok=True)
@@ -132,7 +124,7 @@ def _line(name, state, detail, target=None, file=None, reason=None):
 def _now(project, variable=None):
     """What runs now, read from Docker: (model.up(), what runs behind what is saved, the containers, with the
     digest of `variable` in their environment when asked)."""
-    containers = compose.ps(variable) if variable else compose.ps()
+    containers = compose.ps(variable)
     return model.up(project, containers), model.behind(project, containers, projects.saved(project)), containers
 
 
@@ -426,9 +418,9 @@ def check(project, pid, place=None):
     `help` that says what to do.
     `dialog` is what its Start says before it runs: what the state's says (its `action`), and what installing its
     plugins restarts, which only these checks read. For a place besides This machine, it is that place's
-    (_place_checks)."""
+    (unit_checks)."""
     if _remote(place):
-        return _place_checks(project, pid, place)
+        return unit_checks(project, "playground", pid, place)
     playground = layers.lookup(project, "playground", pid)
     now = _now(project, projects.LICENSE_KEY)
     plan = _start_plan(project, layers.current(project), pid, now)
@@ -471,15 +463,11 @@ def _arrival(project, found, addon):
             "here": bool(found["gateway"] and found["gateway"]["here"]), "serving": _serving(project)}
 
 
-def _unit_plan(project, kind, uid, found, addon, now, state):
-    """The plan of a start of an add-on or a setup that runs on a place: its job being the plan's."""
-    return layers.plan(project, state, now[0], kind, uid, "start", behind=now[1], place=_arrival(project, found, addon))
-
-
 def unit_checks(project, kind, uid, place):
-    """The checks of a start of an add-on or a setup on a place: its platform, its Cloud Token, its gateway, and what the
-    start stops, turns off and restarts. The core is not part of it. A platform that cannot be used is one line with the
-    reason, and no dialog. Nothing is asked of the platform: it is what places.py last read."""
+    """The checks of a start on a place: its platform, its Cloud Token, its gateway, and what the start stops, turns off and
+    restarts; of a playground also the add-ons it brings, the ports another program uses and the host requirements. The core
+    is not part of it, so none of its lines is here. A platform that cannot be used is one line with the reason, and no
+    dialog. Nothing is asked of the platform: it is what places.py last read."""
     unit = layers.lookup(project, kind, uid)
     found = places.place(project, place)
     if not found:
@@ -488,10 +476,12 @@ def unit_checks(project, kind, uid, place):
     if found["state"] == "unusable":
         return {"checks": [_line(found["platform"]["name"], "warn", found["reason"], target)], "dialog": None}
     addon, state, now = _gateway_addon(project, found), layers.current(project), _now(project)
-    plan = _unit_plan(project, kind, uid, found, addon, now, state)
+    playground = kind == "playground"
+    plan = _place_plan(project, kind, uid, found, addon, now, state, playground and not created(uid, place))
     restarting = [row["name"] for row in plan["restarts"] if row["id"] != addon["id"]]
     checks = [_line(found["platform"]["name"], "ok", "Connected", target), _token_line(found),
-              _gateway_line(found, addon, plan, state), *_effect_lines(plan, restarting)]
+              _gateway_line(found, addon, plan, state), *(_addon_lines(project, unit, state, now[0]) if playground else ()),
+              *_effect_lines(plan, restarting), *(_port_checks(project, plan) + _host_checks(unit) if playground else ())]
     return {"checks": checks, "dialog": layers.dialog(plan), "name": unit["name"]}
 
 
@@ -504,12 +494,9 @@ def deploy_unit(project, kind, uid, accept, place):
     unit = layers.lookup(project, kind, uid)
     state = layers.current(project)
     found = places.verify(project, place)
-    why = found.get("cannot", {}).get(f"{kind}:{uid}")
-    if why or found["platform"]["kind"] not in unit.get("deploys_to", []):
-        why = why or unit.get("cannot", {}).get(found["platform"]["kind"])
-        raise ValueError(f"{unit['name']} cannot go to {found['name']}" + (f": {why}" if why else ""))
+    _cannot(unit, found, f"{kind}:{uid}")
     addon, now = _gateway_addon(project, found), _now(project)
-    plan = _unit_plan(project, kind, uid, found, addon, now, state)
+    plan = _place_plan(project, kind, uid, found, addon, now, state)
     layers.check(project, plan, accept)
     gateway, pid = found["gateway"], found["platform"]["id"]
     title = f"{plan['label']} {unit['name']} in {found['name']}"
@@ -545,9 +532,9 @@ def _on_place(project, plan, uid, gateway, said):
             [awaited(project["services"], start=named)] if named else [])
 
 
-def _place_plan(project, pid, found, addon, now, state, seeds):
-    """The plan of a start that deploys to a place, `seeds` whether its seed runs there, its job being the plan's."""
-    return layers.plan(project, state, now[0], "playground", pid, "start", fresh=seeds, behind=now[1],
+def _place_plan(project, kind, uid, found, addon, now, state, seeds=False):
+    """The plan of a start on a place, `seeds` whether its seed runs there, its job being the plan's."""
+    return layers.plan(project, state, now[0], kind, uid, "start", fresh=seeds, behind=now[1],
                        place=_arrival(project, found, addon))
 
 
@@ -575,27 +562,6 @@ def _gateway_line(found, addon, plan, state):
     if gateway["connection"] != "CONNECTED":
         return _line(addon["name"], "warn", "Not connected", target)
     return _line(addon["name"], "ok", "Running", target)
-
-
-def _place_checks(project, pid, place):
-    """The checks of a start that deploys to a place: its platform, its Cloud Token, its gateway, the add-ons the
-    playground brings and the host requirements, and what the start stops. The core is not part of it, so none of its
-    lines is here. A platform that cannot be used is one line with the reason, and no dialog. Nothing is asked of the
-    platform: it is what places.py last read."""
-    playground = layers.lookup(project, "playground", pid)
-    found = places.place(project, place)
-    if not found:
-        raise paths.NotFound(f"No place {place}")
-    target = {"kind": "platform", "id": found["platform"]["id"]}
-    if found["state"] == "unusable":
-        return {"checks": [_line(found["platform"]["name"], "warn", found["reason"], target)], "dialog": None}
-    addon, state, now = _gateway_addon(project, found), layers.current(project), _now(project)
-    plan = _place_plan(project, pid, found, addon, now, state, not created(pid, place))
-    restarting = [row["name"] for row in plan["restarts"] if row["id"] != addon["id"]]
-    checks = [_line(found["platform"]["name"], "ok", "Connected", target), _token_line(found),
-              _gateway_line(found, addon, plan, state), *_addon_lines(project, playground, state, now[0]),
-              *_effect_lines(plan, restarting), *_port_checks(project, plan), *_host_checks(playground)]
-    return {"checks": checks, "dialog": layers.dialog(plan)}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -882,14 +848,14 @@ def _before(plan, step, steps, phases, waits, undo=None):
         ([None] + waits if step else waits)
 
 
-def stop(project, pid, remove, accept, place=None):
+def stop(project, pid, remove, accept):
     """Stops a playground: its apps, and the add-ons only it uses, removed by name, then the on file written without
     them; the core services it changed restart (layers.steps). A stop that fails before the on file is written leaves it
     on, to be stopped again; off after one that failed later, it stops again what of it still runs. `remove` first
     deletes what its seed created in Gravitee, on This machine and in every place that holds a record, refused while
     what the seed needs does not run, or when a place cannot be reached, with the reason of the first one; when a delete
     fails the job ends there and nothing else changes. Its job is named as its button: "Stop …", "Turn off …". A stop is
-    the same for every place: `place` is the one the page was on, and changes nothing of it."""
+    the same for every place."""
     playground = layers.lookup(project, "playground", pid)
     state, now = layers.current(project), _now(project)
     plan = _plan(project, state, now, pid, "stop", accept)
@@ -960,13 +926,13 @@ def _wait_connected(job, uid, gateway):
         raise JobFailed(NOT_CONNECTED)
 
 
-def _cannot(playground, place):
-    """Refuses a playground that cannot go to a place, with the reason that the picker gives: what the place says of it
-    (judged against what its environment runs), else what its files say of the kind of its platform."""
-    why = place.get("cannot", {}).get(playground["id"])
-    if why or place["platform"]["kind"] not in playground.get("deploys_to", []):
-        why = why or playground.get("cannot", {}).get(place["platform"]["kind"])
-        raise ValueError(f"{playground['name']} cannot go to {place['name']}" + (f": {why}" if why else ""))
+def _cannot(unit, place, key):
+    """Refuses a unit that cannot go to a place, with the reason that the picker gives: what the place says of it, under
+    `key` (judged against what its environment runs), else what its files say of the kind of its platform."""
+    why = place.get("cannot", {}).get(key)
+    if why or place["platform"]["kind"] not in unit.get("deploys_to", []):
+        why = why or unit.get("cannot", {}).get(place["platform"]["kind"])
+        raise ValueError(f"{unit['name']} cannot go to {place['name']}" + (f": {why}" if why else ""))
 
 
 def _deploy(project, pid, accept, place, reseed, remove=False):
@@ -984,10 +950,10 @@ def _deploy(project, pid, accept, place, reseed, remove=False):
     if reseed and state["playground"] != pid:
         raise RuntimeError(f"{playground['name']} is off")
     found = places.verify(project, place)
-    _cannot(playground, found)
+    _cannot(playground, found, pid)
     addon, recorded, now = _gateway_addon(project, found), bool(created(pid, place)), _now(project)
     seeds = reseed or not recorded
-    plan = _place_plan(project, pid, found, addon, now, state, seeds)
+    plan = _place_plan(project, "playground", pid, found, addon, now, state, seeds)
     layers.check(project, plan, accept)
     delete = _leaving(project, state, plan, remove and not reseed)
     gateway, uid = found["gateway"], found["platform"]["id"]

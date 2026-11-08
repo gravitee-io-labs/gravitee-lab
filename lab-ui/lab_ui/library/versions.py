@@ -50,10 +50,7 @@ def at_least(tag, wanted):
         return not have[1]   # a preview comes before its release
     if not have[1]:
         return True   # the release comes after its previews
-    # Identifier by identifier, as semantic versioning orders them: numbers by value, before words
-    def key(part):
-        return (0, int(part), "") if part.isdigit() else (1, 0, part)
-    return [key(part) for part in have[1]] >= [key(part) for part in want[1]]
+    return order((numbers[0], ".".join(have[1]))) >= order((numbers[1], ".".join(want[1])))
 
 
 def parse(tag):

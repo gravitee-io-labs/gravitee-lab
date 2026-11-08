@@ -177,7 +177,7 @@ def _trim(config, core, own, overlaid):
     return found
 
 
-def _capture_core(root, base):
+def _capture_core(root):
     code, out, error = _compose(root, "-f", "docker-compose.yml", "config", "--format", "json")
     if code:
         raise SystemExit(f"the core does not resolve: {error.strip()}")
@@ -228,18 +228,17 @@ def _capture(unit, root, base, core):
     return gold
 
 
-def fresh(only=None):
-    """The goldens as Compose gives them now: {name: golden, "core": the core's}. `only`: the units to capture, else all."""
+def fresh():
+    """The goldens as Compose gives them now: {name: golden, "core": the core's}."""
     found = {}
     with tempfile.TemporaryDirectory() as holder:
         base = Path(holder)
         (base / "project").mkdir()
         root = _scratch(base / "project")
-        core_gold, core = _capture_core(root, base)
+        core_gold, core = _capture_core(root)
         found["core"] = _clean(core_gold, root)
         for unit in _units():
-            if only is None or unit[1] in only:
-                found[unit[1]] = _clean(_capture(unit, root, base, core), root)
+            found[unit[1]] = _clean(_capture(unit, root, base, core), root)
     return found
 
 
@@ -351,12 +350,11 @@ def pipeline(root, listed=False, realpath=_same, **more):
     resolve, trust = _lab()
     core = load("core")
     verdicts = {name: judged(name, root, listed=listed, realpath=realpath, **more) for name in names()}
-    includes = {_key(name): [] for name in names()}
-    for name in names():
-        for target in load(name)["unit"]["includes"]:
-            found = resolve.target_of(target)
-            if found and found[0] == NS:
-                includes[_key(name)].append((found[1], found[2]))
+    keys, units = [_key(name) for name in names()], {}   # the units as the project groups them, which is what resolve.closure reads
+    for kind, name in keys:
+        brought = [found[1:] for found in map(resolve.target_of, load(name)["unit"]["includes"]) if found and found[0] == NS]
+        addons = [other for what, other in brought if what == "addon"]
+        units.setdefault(kind, {})[name] = {"setups": [other for what, other in brought if what == "setup"], "includes": addons, "needs": addons}
     earlier = ("addon", "echo")
     owned = {earlier: {"name": "Echo", "tier": "default", "services": ["fixture-echo"], "containers": [], "volumes": []}}
     for name in names():
@@ -365,8 +363,8 @@ def pipeline(root, listed=False, realpath=_same, **more):
         if config:
             owned[_key(name)] = dict(resolve.owned_names(config, core, own), name=gold["unit"]["name"], tier="other",
                                      kind=gold["unit"]["kind"], id=gold["unit"]["id"])
-    closures = {key: resolve.closure(includes, *key) for key in includes}
-    order = resolve.precedence_order({"fixture": [earlier], NS: list(includes)}, ["fixture", NS])
+    closures = {key: resolve.closure(units, *key) for key in keys}
+    order = resolve.precedence_order({"fixture": [earlier], NS: keys}, ["fixture", NS])
     clashes = resolve.collisions(order, owned, closures, [_key(n) for n in names() if verdicts[n]["state"] == "blocked"])
     found = {}
     for name in names():

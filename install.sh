@@ -38,12 +38,12 @@ looks() {
     fi
     case ${LC_ALL:-${LC_CTYPE:-${LANG:-}}} in
         *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*)
-            frames='⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏' good='✔' warn='▲' bad='✖' halted='■' ask_mark='?' more='…'
+            frames='⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏' good='✔' bad='✖' halted='■' ask_mark='?' more='…'
             if [ -n "$cyan" ]; then full='━' empty='━'; else full='█' empty='░'; fi
             ;;
         *)
             # shellcheck disable=SC2089 # the backslash is a frame
-            frames='- \ | /' good='+' warn='!' bad='x' halted='-' ask_mark='?' more='...' full='#' empty='-'
+            frames='- \ | /' good='+' bad='x' halted='-' ask_mark='?' more='...' full='#' empty='-'
             ;;
     esac
     tick=0.1
@@ -227,7 +227,6 @@ ended() {
     label=''
 }
 passed() { ended "$good" "$green" "$1"; }
-warned() { ended "$warn" "$yellow" "$1"; }
 
 # A paragraph, folded to the terminal and indented
 paragraph() {
@@ -290,15 +289,6 @@ ask() {
     printf '  %s%s%s %s %s(Y/n)%s %s' "$cyan" "$ask_mark" "$off" "$1" "$dim" "$off" "$show"
     read -r answer < /dev/tty || answer=n
     asking=false
-    # A terminal whose erase key is not the one of the tty (the classic Windows console sends ^H) leaves it in the answer
-    answer=$(printf '%s\n' "$answer" | awk '{
-        for (i = 1; i <= length($0); i++) {
-            c = substr($0, i, 1)
-            if (c == "\b" || c == "\177") kept = substr(kept, 1, length(kept) - 1)
-            else if (c !~ /[[:cntrl:]]/) kept = kept c
-        }
-        print kept
-    }')
     printf '%s' "$hide"
     case $answer in
         '' | [yY]*) resume ;;
@@ -521,28 +511,6 @@ command_on_path() {
     passed "gravitee-lab (PATH set in $(shown "$file"))"
 }
 
-# Docker's command: on the PATH, or where Docker Desktop puts it when a terminal opened before it was installed does not
-# find it yet (the Lab UI looks in the same places)
-docker_cli() {
-    for docker in "$(command -v docker 2> /dev/null)" /usr/local/bin/docker "$HOME/.docker/bin/docker" \
-        /Applications/Docker.app/Contents/Resources/bin/docker; do
-        [ -n "$docker" ] && [ -x "$docker" ] && echo "$docker" && return
-    done
-}
-
-# Docker is only looked at: the Lab UI checks it with the rest of the machine, and shows how to install or start it
-docker_state() {
-    step Docker 'Looking for Docker'
-    docker=$(docker_cli)
-    if [ -z "$docker" ]; then
-        warned 'Not installed: the Lab UI shows how to get it'
-    elif version=$("$docker" version --format '{{.Server.Version}}' 2> /dev/null) && [ -n "$version" ]; then
-        passed "Docker $version is running"
-    else
-        warned 'Not running: the Lab UI starts it, or shows how'
-    fi
-}
-
 # The machine, as its owner names it
 machine() {
     if [ "$system" = macOS ]; then
@@ -588,7 +556,6 @@ main() {
     if [ "$system" = macOS ]; then mac_tools; else linux_tools; fi
     clone
     command_on_path
-    docker_state
 
     printf '\n'
     printf '%s\n' "$good Ready in $(took "$begun"). Next time, run gravitee-lab$fresh." | fold -s -w $(($(room) - 4)) \

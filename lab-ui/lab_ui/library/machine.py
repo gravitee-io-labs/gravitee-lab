@@ -283,14 +283,11 @@ def _lab_ports():
 
 
 def _taken(port):
-    """Whether another program listens on this port of 127.0.0.1"""
+    """Whether another program listens on this port of 127.0.0.1, on that address or on every address: it answers. A bind
+    would pass beside one that listens on every address on a Mac, whose SO_REUSEADDR allows that."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError:
-            return True
-    return False
+        probe.settimeout(1)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
 
 
 def _windows_ports():
@@ -380,9 +377,7 @@ def report(fresh=False):
     docker, info = _docker()
     checks = [docker, _memory(info), _disk(info), _ports(info), _git(), _folder()]
     checks = [check for check in checks if check]
-    problems = sum(1 for c in checks if c["state"] in ("error", "warn", "working"))
-    result = {"checks": checks, "ready": all(c["state"] in ("ok", "warn", "idle") for c in checks), "problems": problems,
-              "system": system()}
+    result = {"checks": checks, "ready": all(c["state"] in ("ok", "warn", "idle") for c in checks)}
     with _lock:
         _last.update(at=time.monotonic(), report=result)
     return result
@@ -436,10 +431,3 @@ def agent():
                          "note": f"The lab runs in WSL: run its commands (make, git, python3) in {distro}, as "
                                  f"wsl.exe -d {distro} --cd {root} -- followed by the command."}
     return _agents[root]
-
-
-def summary():
-    """For the state: whether something keeps the platform from starting, and how many lines need a look"""
-    found = report()
-    return {"ready": found["ready"], "problems": found["problems"]}
-

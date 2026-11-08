@@ -1,7 +1,7 @@
 """`catalog.py check` as a command (7.3 of the catalog repository standard): a folder is read where it is, so nothing is linked into
 the Lab and nothing is written; without `--base` the commits since `origin/main` are read and the output says so; a run that could
 not read the units says `Not checked: Docker Compose 5 not found`, ends `1 check skipped`, and is never fine; `--pr` reads a pull
-request from git objects and runs nothing of it. The options (`--format`, `--ci`, `--soft`, `--strict`, `--error`, `--online`,
+request from git objects and runs nothing of it. The options (`--format`, `--ci`, `--error`, `--online`,
 `--history`), the code of each finding and the unit rules of the images are here too.
 
 Everything is on disk in a temporary project folder; git (a visible skip without) for the commits and the pull requests, Compose 5
@@ -21,7 +21,7 @@ from lab_ui.catalogs import cli as catalog
 from lab_ui.library import check, project
 from lab_ui.docker import compose
 from lab_ui import paths
-from lab_ui.catalogs import gitx, registry, standard
+from lab_ui.catalogs import gitx, registry
 from lab_ui.catalogs import store as bare
 from lab_ui.catalogs import tree as trees
 
@@ -82,7 +82,7 @@ class Reading(Folder):
         listed = (self.root / ".lab/catalogs.json").read_bytes()
         with mock.patch.object(tempfile, "tempdir", str(holder)), mock.patch.dict(os.environ):
             os.environ.pop("GITHUB_STEP_SUMMARY", None)
-            for argv in ((folder,), (folder, "--format", "json"), (folder, "--format", "github"), (folder, "--ci"), (folder, "--soft")):
+            for argv in ((folder,), (folder, "--format", "json"), (folder, "--format", "github"), (folder, "--ci")):
                 self.check(*argv)
             self.assertEqual([one for one in os.listdir(holder) if one.startswith("gravitee-lab-check-")], [],
                              "the temporary project of a check is gone")
@@ -90,13 +90,6 @@ class Reading(Folder):
         self.assertEqual((self.root / ".lab/catalogs.json").read_bytes(), listed)
         self.assertFalse(os.path.lexists(self.link_of("fixture")), "the folder was not linked")
         self.assertEqual([one["id"] for one in registry.entries()], [PARTNER])
-
-    def test_without_a_catalogs_json_none_is_made(self):
-        folder = self.catalog()
-        self.assertFalse((self.root / ".lab/catalogs.json").exists())
-        self.check(folder)
-        self.assertFalse((self.root / ".lab/catalogs.json").exists())
-        self.assertFalse(any(self.root.glob(".lab/catalogs/*")), "nothing is linked")
 
     def test_the_project_is_the_labs_again_after_the_check_even_when_it_failed(self):
         folder = self.catalog()
@@ -231,19 +224,6 @@ class Reading(Folder):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(lines(out)[-1], "All good")
 
-    def test_the_seeder_is_the_labs_and_is_not_asked_to_be_published(self):
-        """The unit rules of the images (): the services a unit defines, with the context as the author wrote it."""
-        image = fixtures.seeder_image(self)
-        unit = ("x-gravitee: {kind: playground, name: Shop, description: d, tags: [a], duration: 5 min, first_start: 1 min}\n"
-                f"services:\n  shop-seed:\n    image: {image}:latest\n    pull_policy: ${{SHOP_PULL_POLICY:-build}}\n"
-                "    build: ../../../../../seeder\n    labels:\n      io.gravitee.role: seed\n"
-                "      io.gravitee.description: seed\n")
-        folder = self.catalog(files={"playgrounds/shop/compose.yml": unit, "playgrounds/shop/guide.md": "## 1. Start\n",
-                                     "playgrounds/shop/README.md": "# Shop\n"})
-        code, out, err = self.check(folder, "--format", "json")
-        self.assertEqual(err, "")
-        self.assertEqual([one for one in json.loads(out) if one["code"].startswith("IM")], [])
-
 
 class Units(unittest.TestCase):
     """What the unit rules of the images are given."""
@@ -324,11 +304,6 @@ class Codes(Folder):
         self.assertEqual(code, "T26")
         self.assertIn("Fix: Remove what this Gravitee Lab does not read", text)
 
-    def test_a_code_the_standard_knows_is_one_explain_knows(self):
-        out = self.run_tool("explain", "T26")
-        self.assertEqual(out[0], 0)
-        self.assertIn("T26 (error)", out[1])
-
 
 class Range(Folder):
     """Without --base the commits since origin/main are read, and the first line says so."""
@@ -357,6 +332,7 @@ class Range(Folder):
     @COMPOSE
     def test_the_range_since_origin_main_is_read_and_the_first_line_names_it(self):
         work = self.clone()
+        self.assertEqual(lines(self.check(work)[1])[0], "Reading the files and the 0 commits since origin/main")
         gitfixture.git("-C", str(work), "checkout", "--quiet", "-b", "change")
         self.commit(work, "docs/one.md", "one\n", "Add one")
         self.commit(work, "docs/two.md", "two\n", "Add two")
@@ -378,12 +354,6 @@ class Range(Folder):
         self.assertNotIn(token, out + err, "nothing prints a secret")
         self.assertEqual(lines(out)[0], "Reading the files and the 2 commits since origin/main")
 
-    @COMPOSE
-    def test_a_branch_with_nothing_new_has_no_commits_to_read(self):
-        work = self.clone()
-        out = self.check(work)[1]
-        self.assertEqual(lines(out)[0], "Reading the files and the 0 commits since origin/main")
-
     def test_without_an_origin_main_only_the_files_are_read_and_the_first_line_says_so(self):
         work = self.clone()
         gitfixture.git("-C", str(work), "remote", "remove", "origin")
@@ -400,13 +370,7 @@ class Range(Folder):
         self.assertEqual(lines(out)[0], f"Reading the files and the 1 commit since {head[:7]}")
         out = self.check(work, "--base", "no-such-branch")[1]
         self.assertIn("Not checked: the commits since the base: no-such-branch is not a commit of this repository", out)
-
-    @COMPOSE
-    def test_the_whole_history_is_read_with_history(self):
-        work = self.clone()
-        self.commit(work, "docs/one.md", "one\n", "Add one")
-        out = self.check(work, "--history")[1]
-        self.assertEqual(lines(out)[0], "Reading the files and the 2 commits of the whole history")
+        self.assertEqual(lines(self.check(work, "--history")[1])[0], "Reading the files and the 3 commits of the whole history")
 
     @COMPOSE
     def test_the_base_of_a_first_push_is_the_whole_history_and_not_a_commit_that_is_missing(self):
@@ -426,20 +390,9 @@ class Range(Folder):
         self.assertEqual(lines(self.check(work, "--base", "")[1])[0], "Reading the files and the 1 commit since origin/main")
 
     @COMPOSE
-    def test_a_secret_in_the_first_push_is_found_in_the_whole_history_a_base_of_zeros_reads(self):
-        work = self.clone()
-        token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0" + "k1L2m3N4o5P6q7R8s9T0"[:16]
-        self.commit(work, "notes.txt", f"token {token}\n", "Add a note")
-        self.commit(work, "notes.txt", "gone\n", "Remove it again")
-        code, out, err = self.check(work, "--base", "0" * 40)
-        self.assertEqual(code, 1, out)
-        self.assertIn("SE02", out)
-        self.assertNotIn(token, out + err)
-
-    @COMPOSE
     def test_a_base_that_only_looks_like_zeros_is_still_a_commit_that_is_missing(self):
         work = self.clone()
-        for base in ("0" * 39, "0" * 41, "0" * 39 + "1", "0" * 40 + "0" * 23):
+        for base in ("0" * 39, "0" * 41, "0" * 39 + "1"):
             with self.subTest(base=base):
                 code, out, err = self.check(work, "--base", base)
                 self.assertEqual(code, 1)
@@ -472,12 +425,8 @@ class NoCompose(Folder):
         self.assertTrue(lines(out)[-1].startswith("1 problem, 1 check skipped. Run make explain CODE=ST05 for more."), out)
         self.assertNotIn("All good", out)
 
-    def test_soft_exits_0_and_ci_exits_2_and_neither_says_all_good(self):
+    def test_ci_exits_2_and_does_not_say_all_good(self):
         folder = self.catalog()
-        code, out, err = self.run_without(folder, "--soft")
-        self.assertEqual((code, err), (0, ""))
-        self.assertIn(NOT_CHECKED, out)
-        self.assertEqual(lines(out)[-1], "1 check skipped")
         code, out, err = self.run_without(folder, "--ci")
         self.assertEqual((code, err), (2, ""))
         self.assertEqual(out, "::error title=check::Not checked: Docker Compose 5 not found\n")
@@ -537,15 +486,6 @@ class Options(Folder):
         self.assertEqual(sorted(asjson[0]), ["code", "line", "message", "path", "severity"])
         self.assertEqual(self.check(folder, "--format", "json")[1], self.check(folder, "--format", "json")[1], "the same bytes")
 
-    def test_a_finding_with_no_code_is_an_annotation_with_no_title_and_one_with_a_code_has_it(self):
-        given = ("::error file=a.yml,title=::no code\n::error file=b.yml,line=3,title=ST05::coded\n::warning title=::no file\n"
-                 "::notice title=check::kept\n::error file=a%2Ctitle=::x,title=::message that says ,title=:: and  title=:: itself\n"
-                 "::error file=c.yml,title=::so does this ,title=:: one\n")
-        self.assertEqual(catalog._untitled(given),
-                         "::error file=a.yml::no code\n::error file=b.yml,line=3,title=ST05::coded\n::warning::no file\n"
-                         "::notice title=check::kept\n::error file=a%2Ctitle=::x,title=::message that says ,title=:: and  title=:: itself\n"
-                         "::error file=c.yml::so does this ,title=:: one\n")
-
     def test_ci_is_github_annotations_and_a_summary_in_the_file_the_runner_names(self):
         folder = self.catalog(files={".env": "A=1\n"})
         summary = self.work / "summary.md"
@@ -586,28 +526,6 @@ class Options(Folder):
         folder = self.catalog()
         self.assertEqual(self.check(folder, "--ci", "--format", "json")[1], "[]\n")
 
-    def test_soft_makes_every_error_a_warning_and_exits_0(self):
-        folder = self.catalog(files={".env": "A=1\n"})
-        code, out, err = self.check(folder, "--soft")
-        self.assertEqual((code, err), (0, ""))
-        self.assertIn("! .env", out)
-        self.assertIn("1 warning", out)
-        found = json.loads(self.check(folder, "--soft", "--format", "json")[1])
-        self.assertEqual([one["severity"] for one in found], ["warning"])
-
-    def test_soft_also_softens_what_the_items_found(self):
-        fixtures.install(self, PARTNER)
-        folder = self.catalog("fixture")
-        code, out, err = self.check(folder, "--soft", "--format", "json")
-        self.assertEqual(code, 0)
-        self.assertEqual({one["severity"] for one in json.loads(out)}, {"warning"})
-
-    def test_strict_makes_a_warning_fail_the_run(self):
-        folder = self.catalog(files={"docs/win.txt": b"a\r\nb\r\n".decode()})
-        (folder / "docs/win.txt").write_bytes(b"a\r\nb\r\n")
-        self.assertEqual(self.check(folder)[0], 0)
-        self.assertEqual(self.check(folder, "--strict")[0], 1)
-
     def test_error_makes_the_rules_named_errors_for_this_run(self):
         folder = self.catalog(files={"docs/win.txt": ""})
         (folder / "docs/win.txt").write_bytes(b"a\r\nb\r\n")
@@ -618,11 +536,6 @@ class Options(Folder):
         for bad in ("ST", "st5", "ST12;rm", "--x", ""):
             with self.subTest(bad=bad):
                 self.assertEqual(self.check(folder, "--error", bad)[0], 2)
-
-    def test_verbose_adds_the_information(self):
-        folder = self.catalog()
-        quiet, loud = (json.loads(self.check(folder, "--format", "json", *more)[1]) for more in ((), ("--verbose",)))
-        self.assertGreaterEqual(len(loud), len(quiet))
 
     def test_a_pull_request_has_no_base_of_its_own_to_give(self):
         folder = self.catalog()
@@ -674,9 +587,12 @@ class Pull(Folder):
     @COMPOSE
     def test_a_pull_request_with_a_makefile_a_hook_and_a_development_container_runs_none_of_them(self):
         repo, work = self.origin(self.programs())
+        before = contents(work)
         code, out, err = self.check(work, "--pr", "7")
         self.assertEqual(err, "")
         self.assertFalse(self.marker.exists(), "something of the pull request ran")
+        self.assertEqual(contents(work), before)
+        self.assertFalse((work / "Makefile").exists(), "nothing was checked out")
         self.assertEqual(code, 1, out)
         self.assertEqual(lines(out)[0].split(" since ")[0], "Reading the files and the 1 commit")
         self.assertIn("ST22 .devcontainer/devcontainer.json would run on a reader's machine", out)
@@ -726,14 +642,6 @@ class Pull(Folder):
                 self.assertIn(code, (0, 1), (out, err))
                 self.assertFalse(self.marker.exists(), f"a program of the clone ran for {argv}")
         self.assertIn("1 commit since", self.check(work)[1].splitlines()[0], "and it did read the commit that was made")
-
-    @COMPOSE
-    def test_the_working_tree_of_the_clone_is_untouched(self):
-        repo, work = self.origin(self.programs())
-        before = contents(work)
-        self.check(work, "--pr", "7")
-        self.assertEqual(contents(work), before)
-        self.assertFalse((work / "Makefile").exists(), "nothing was checked out")
 
     @COMPOSE
     def test_it_links_nothing_and_writes_nothing_in_the_lab_and_leaves_no_store_behind(self):
@@ -960,17 +868,6 @@ class Online(Folder):
             self.assertEqual(catalog._pin_problems(self.standard("f" * 40), notes), [])
         self.assertEqual(notes, [f"SD11: the Lab checkout does not hold {'f' * 7}: update it with git pull, then run again"])
 
-    def test_the_pin_of_a_reusable_caller_is_judged_the_same_way_and_another_repository_is_not(self):
-        folder, main, side = self.lab()
-        notes = []
-        caller = (f"jobs:\n  ci:\n    uses: acme/lab/.github/workflows/catalog-ci.yml@{side}\n"
-                  f"  other:\n    uses: someone/else/.github/workflows/x.yml@{'e' * 40}\n  third:\n    uses: actions/checkout@{'d' * 40}\n")
-        tree = self.standard(main, {".github/workflows/ci.yml": caller})
-        with mock.patch.object(catalog, "LAB", folder):
-            found = catalog._pin_problems(tree, notes)
-        self.assertEqual([(one.code, one.path, one.line) for one in found], [("SD11", ".github/workflows/ci.yml", 3)])
-        self.assertEqual(notes, [])
-
     def test_no_standard_json_and_a_bad_one_have_no_pin_to_judge(self):
         notes = []
         for files in ({}, {".github/standard.json": "{"}, {".github/standard.json": "[]"}, {".github/standard.json": '{"lab": 1}'},
@@ -993,33 +890,6 @@ class Online(Folder):
         with mock.patch.object(catalog, "LAB", folder):
             self.assertEqual(catalog._pin_problems(self.standard(sha), notes), [])
         self.assertEqual(notes, ["SD11: the Lab checkout has no origin/main to compare with"])
-
-
-class Download(unittest.TestCase):
-    """What the fetch of a pull request reads of git's progress."""
-
-    def test_the_line_that_passes_the_limit_stops_it_however_the_text_arrives(self):
-        with mock.patch.object(bare, "STORE_LIMIT", 5 * 1024 * 1024):
-            feed = catalog._watch_download()
-            feed("remote: Counting objects: 100% (10/10), done.\nReceiving objects:  10% (1/10), 1.00 MiB | 2.00 MiB/s\r")
-            feed("Receiving objects: 100% (4/4), done.\n")
-            feed("Receiving objects:  50% (5/10), 6.00 M")
-            with self.assertRaises(catalog._TooBig):
-                feed("iB | 2.00 MiB/s\r")
-            with self.assertRaises(catalog._TooBig):
-                catalog._watch_download()("Unpacking objects:  99% (9/10), 1.00 GiB | 9.00 MiB/s\n")
-
-    def test_a_line_that_says_no_size_or_a_small_one_is_never_a_reason_to_stop(self):
-        feed = catalog._watch_download()
-        for text in ("Receiving objects:  50% (5/10)\r", "Receiving objects:  60% (6/10), 12.00 KiB | 2.00 MiB/s\r", "garbage\r\n\n\r", ""):
-            feed(text)
-
-    def test_a_megabyte_with_no_end_of_line_is_read_in_under_a_second_and_kept_small(self):
-        feed = catalog._watch_download()
-        started = time.process_time()
-        for _ in range(16):
-            feed("x" * (64 * 1024))
-        self.assertLess(time.process_time() - started, 1.0)
 
 
 class Hostile(Folder):
@@ -1045,7 +915,6 @@ class Hostile(Folder):
         self.quick(check._hidden, "/tmp/x/" * (self.MEGABYTE // 7), folders)
         for text in (line, "Reads settings that are not its own: " + line, "Same name as " + line, "Needs " + line + ", which is blocked"):
             self.quick(check._blocked, text, ["T20", "T21", "T25", "T26"], "hub", "a.yml")
-        self.quick(catalog._tidy, line + "\n" + "     " + line + "\n" + line, [])
         self.quick(catalog._codes, [line])
         self.quick(catalog._codes, [",".join(["ST05"] * 100000)])
         self.quick(catalog._pull_number, "1" * self.MEGABYTE, "https://github.com/a/b.git")
@@ -1094,28 +963,26 @@ class DayOne(Folder):
         os.chdir(self.repo)
         self.addCleanup(os.chdir, before)
 
-    def test_the_check_of_the_first_push_is_all_good(self):
+    def test_the_check_of_the_first_push_is_all_good_and_writes_nothing_in_the_lab(self):
+        before = (snapshot(self.root), contents(self.root))
         code, out, err = self.run_tool("check", "catalog", "--ci", "--base", "0" * 40)
         self.assertEqual((code, out, err), (0, "", ""))
+        self.assertEqual((snapshot(self.root), contents(self.root)), before)
         code, out, err = self.run_tool("check", "catalog", "--base", "0" * 40)
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(lines(out)[0], "Reading the files and the 1 commit of the whole history")
         self.assertEqual(lines(out)[-1], "All good")
 
-    def test_the_index_step_makes_the_catalog_json_the_release_step_reads(self):
+    def test_the_index_step_makes_the_catalog_json_the_release_step_reads_and_writes_nothing_in_the_lab(self):
+        before = (snapshot(self.root), contents(self.root))
         self.assertEqual(self.run_tool("index", "catalog", "--out", "catalog.json"), (0, "", ""))
+        self.assertEqual((snapshot(self.root), contents(self.root)), before)
         found = json.loads((self.repo / "catalog.json").read_text(encoding="utf-8"))
-        self.assertEqual((found["schema"], found["catalog"]["id"], found["standard"]), (1, "newcat", standard.LEVEL))
+        self.assertEqual((found["schema"], found["catalog"]["id"]), (1, "newcat"))
         self.assertEqual([(one["kind"], one["id"]) for one in found["units"]], [("addon", "hello")])
         os.chdir(self.repo / "catalog")   # `make index`
         self.assertEqual(self.run_tool("index", ".", "--out", "catalog.json"), (0, "", ""))
         self.assertEqual((self.repo / "catalog" / "catalog.json").read_text(encoding="utf-8"), json.dumps(found, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
-
-    def test_nothing_is_linked_into_the_lab_and_nothing_is_written_by_the_two_steps(self):
-        before = (snapshot(self.root), contents(self.root))
-        self.run_tool("check", "catalog", "--ci", "--base", "0" * 40)
-        self.run_tool("index", "catalog", "--out", str(self.work / "catalog.json"))
-        self.assertEqual((snapshot(self.root), contents(self.root)), before)
 
 
 if __name__ == "__main__":

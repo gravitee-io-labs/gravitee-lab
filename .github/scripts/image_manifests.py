@@ -19,7 +19,7 @@ The item is somebody else's text and this runs for a pull request of anyone: Com
 read, and a registry on this machine's own network is not asked: not by how its name is written but by what it resolves to
 (`public`), not by a redirect either (`Redirect`), and not by a name that answers a public address to the look and another to the
 connection: the connection is made to the address that was checked, which it resolved itself (`Pinned`). What it prints is data on
-GitHub: an image or a name is a unit's text. `images`, `check` and `exists` are for other scripts to import."""
+GitHub: an image or a name is a unit's text."""
 
 import concurrent.futures
 import http.client
@@ -79,7 +79,7 @@ class Redirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urlsplit(newurl)
         host = target.netloc.rpartition("@")[2]
-        if target.scheme != "https" or not target.hostname or local(host) or not public(host):
+        if target.scheme != "https" or not target.hostname or not public(host):
             return None
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new is not None and target.netloc != urlsplit(req.full_url).netloc:
@@ -123,100 +123,70 @@ class Pinning(urllib.request.HTTPSHandler):
 OPENER = urllib.request.build_opener(Redirect, Pinning)
 
 
-def guarded(request, timeout=TIMEOUT):
-    """`urlopen` with the redirects of `Redirect`."""
-    return OPENER.open(request, timeout=timeout)
-
-
-def _release(error):
-    """Closes the socket of an answer that is an error, which nobody else will: left to the garbage collector it is a leak that
-    shows. An error made with no body (the tests make them) has nothing to close."""
-    try:
-        error.close()
-    except (AttributeError, KeyError, OSError, ValueError):
-        pass
-
-
-def answer(url, headers, opener=guarded, method="HEAD"):
-    """(status, headers) of a request; 0 and no headers when nothing answers."""
-    request = urllib.request.Request(url, headers=headers, method=method)
+def answer(url, headers, opener):
+    """(status, headers) of a HEAD request; 0 and no headers when nothing answers."""
+    request = urllib.request.Request(url, headers=headers, method="HEAD")
     try:
         with opener(request, timeout=TIMEOUT) as response:
             return response.status, response.headers
     except urllib.error.HTTPError as error:
-        try:
-            return error.code, error.headers
-        finally:
-            _release(error)
+        error.close()   # its socket, which nothing else closes
+        return error.code, error.headers
     except (OSError, ValueError):
         return 0, {}
 
 
-def token(challenge, opener=guarded):
+def token(challenge, opener):
     """The anonymous token a registry's `Bearer realm=...,service=...,scope=...` challenge asks for; None when it gives none,
     and when the realm is not an https address of the public network."""
     found = dict(BEARER.findall(challenge or ""))
     realm = urlsplit(found.get("realm", ""))
     host = realm.netloc.rpartition("@")[2]
-    if realm.scheme != "https" or not realm.hostname or local(host) or not public(host):   # where a registry sends us is its word
+    if realm.scheme != "https" or not realm.hostname or not public(host):   # where a registry sends us is its word
         return None
     query = "&".join(f"{key}={value}" for key, value in found.items() if key in ("service", "scope"))
     request = urllib.request.Request(f"{found['realm']}?{query}")
     try:
         with opener(request, timeout=TIMEOUT) as response:
             body = json.loads(response.read())
-    except urllib.error.HTTPError as error:
-        _release(error)
-        return None
     except (OSError, ValueError):
         return None
     return body.get("token") or body.get("access_token") if isinstance(body, dict) else None
 
 
-def local(host):
-    """Whether a registry host is this machine or its own network: a name with no dot, `localhost`, `.local`, `.internal`, or an
-    address that is not public. An image names it in a file anyone wrote, and the runner that asks is inside that network."""
-    if host.startswith("["):   # [address]:port
-        name = host[1:host.find("]")] if "]" in host else host
-    else:
-        name = host.split(":")[0] if host.count(":") == 1 else host
-    try:
-        address = ipaddress.ip_address(name)
-    except ValueError:
-        return "." not in name or name.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa"))
-    return not address.is_global
-
-
-def _addresses(name, port, resolve=None):
+def _addresses(name, port):
     """The addresses `name` resolves to, as the resolver gives them, when every one is on the public network; None when it does
     not resolve, answers nothing or answers an address that is not public. The one answer is what a connection is made to."""
     try:
-        found = (resolve or RESOLVE)(name, port, type=socket.SOCK_STREAM)
+        found = RESOLVE(name, port, type=socket.SOCK_STREAM)
         ours = [str(info[4][0]).partition("%")[0] for info in found]
         return ours if ours and all(ipaddress.ip_address(one).is_global for one in ours) else None
     except (OSError, UnicodeError, ValueError, IndexError):
         return None
 
 
-def public(host, resolve=None):
+def public(host):
     """Whether every address a registry host names is on the public network, by what the resolver says: `127.1`, `0x7f.1`, `10.1`,
     `localhost.`, `user@127.0.0.1` and a name that resolves to loopback (`127.0.0.1.nip.io`) are not written as an address, and the
     connection reaches this machine or its network all the same. False for a host that does not resolve and for what is no host:
-    there is nothing to ask. `local` is the cheap first look; this is the one that counts, and the connection itself checks again,
-    on the answer it connects to (`Pinned`): the name is not asked twice and believed once."""
+    there is nothing to ask. False for a name of a private network whatever the resolver says, since behind a proxy it is the proxy
+    that resolves it. The connection itself checks again, on the answer it connects to (`Pinned`): the name is not asked twice and
+    believed once."""
     try:
         parts = urlsplit(f"//{host}")
         name, port = parts.hostname, parts.port or 443
     except ValueError:
         return False
-    return bool(name) and _addresses(name, port, resolve) is not None
+    if not name or ("." not in name and ":" not in name) or name.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa")):
+        return False
+    return _addresses(name, port) is not None
 
 
-def exists(image, opener=guarded):
+def exists(image, opener=OPENER.open):
     """Whether the registry has the image: True, False, or None when it cannot be told (no answer, a refusal that is no 404, a
     registry of this machine's own network, which is not asked)."""
     host, name, tag = reference(image)
-    if local(host) or not public(host):
+    if not public(host):
         return None
     url = f"https://{host}/v2/{name}/manifests/{tag}"
     headers = {"Accept": ACCEPT}
@@ -257,9 +227,8 @@ def pulled(services):
                    and not service.get("build")})
 
 
-def check(found, ask=None):
+def check(found, ask):
     """{image: True (there), False (missing) or None (the registry did not say)} for these images, asked in parallel."""
-    ask = ask or exists
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         return dict(zip(found, pool.map(ask, found)))
 
@@ -268,10 +237,6 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     github = os.environ.get("GITHUB_ACTIONS") == "true"
     if not argv or len(argv) > 2 or (len(argv) == 2 and not argv[1].isdigit()):
-        sys.exit(USAGE)
-    try:
-        e2e.parse(argv[0])
-    except ValueError:
         sys.exit(USAGE)
     try:
         found = images(argv[0], int(argv[1]) if len(argv) == 2 else None)
@@ -293,10 +258,6 @@ def main(argv=None):
         else:
             print(f"\n{len(found)} images")
     return 1 if missing else 0
-
-
-__all__ = ["Pinned", "Pinning", "answer", "check", "exists", "guarded", "images", "local", "main", "public", "pulled", "reference",
-           "token"]
 
 
 if __name__ == "__main__":

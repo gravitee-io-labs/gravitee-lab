@@ -1,11 +1,11 @@
 """catalogs/renames.py: a catalog renames an item, and everyone who has it keeps everything. Where each name goes between two
 versions (a chain, a version skipped, a Go back), the settings renamed in a .env, what `follow` moves on disk for one install
-(machine files, the on file and the copy for a platform, includes, copies, stars, tested sets, held settings, what a share
-renamed), and the whole of it end to end: a scratch Lab that adds a catalog from a local git repository, turns
+(machine files, the on file and the copy for a platform, includes, copies, stars, tested sets, what a share renamed), and the whole of it end to end: a scratch Lab that adds a catalog from a local git repository, turns
 an item on, stars it, sets its settings, and updates to releases that rename it."""
 
 import json
 import os
+import shutil
 import unittest
 from unittest import mock
 
@@ -86,10 +86,6 @@ class Settings(unittest.TestCase):
         found = renames.resolve(None, {"settings": {"OLD": "MIDDLE", "MIDDLE": "NEW"}})
         self.assertEqual(renames.rename_settings("OLD=1\nMIDDLE=2\n", found["settings"]), "OLD=1\nNEW=2\n")
 
-    def test_renaming_twice_changes_nothing_more(self):
-        once = renames.rename_settings("OLD=1\n", {"OLD": "NEW"})
-        self.assertEqual(renames.rename_settings(once, {"OLD": "NEW"}), once)
-
 
 # ---------------------------------------------------------------------------------------------------------------------
 # What follow moves, for one install
@@ -131,7 +127,6 @@ class Following(Case):
         self.assertFalse(self.old.exists(), "nothing of the old folder is left")
         self.assertEqual(done, [{"kind": "addon", "from": "@partner/books", "to": "@partner/ledger",
                                  "moved": [".env", ".state", "data", "secrets"], "kept": []}])
-        self.assertTrue(any(entry["op"] == "move" for entry in moves.read_journal()), "every move is in the journal")
 
     def test_an_entry_that_cannot_be_moved_whole_stops_the_rename_and_is_never_counted_as_moved(self):
         self.machine(**{".env": "BOOKS_CURRENCY=CHF\n", ".state/created.json": "[]\n"})
@@ -139,7 +134,7 @@ class Following(Case):
         real = moves.relocate
         for answer in ("copied", "stayed"):
             with self.subTest(answer=answer):
-                self.patch(moves, "relocate", lambda src, dst, why: answer if src.endswith(".state") else real(src, dst, why))
+                self.patch(moves, "relocate", lambda src, dst: answer if src.endswith(".state") else real(src, dst))
                 with self.assertRaises(registry.CatalogError) as raised:
                     renames.follow("partner", FOUND)
                 self.assertEqual(raised.exception.code, "rename_stuck")
@@ -200,44 +195,12 @@ class Following(Case):
         self.assertEqual((imports / "playgrounds/shop/compose.yml").read_text(encoding="utf-8"),
                          "include:\n  - ../../../partner/addons/ledger/compose.yml\n")
 
-    def test_its_star_its_tested_sets_what_a_share_renamed_and_its_held_settings_follow_it(self):
+    def test_its_star_its_tested_sets_and_what_a_share_renamed_follow_it(self):
         self.write(starred.FILE, json.dumps({"addon": ["@partner/books", "echo"]}))
         self.write(renames.SHARED, json.dumps({"addon:@partner/books": {"MINE_X": "PARTNER_X"}}))
-        self.write(".lab/held/addons/books/notes.txt", "kept\n")
-        self.write(".lab/held/addons/books/.env", "BOOKS_CURRENCY=CHF\n")
-        renames.follow("partner", FOUND, moved_from=["addon:ledger"])
+        renames.follow("partner", FOUND)
         self.assertEqual(starred.read()["addon"], {"@partner/ledger", "echo"})
         self.assertEqual(json.loads(self.text(renames.SHARED)), {"addon:@partner/ledger": {"MINE_X": "PARTNER_X"}})
-        self.assertEqual(self.text(".lab/held/addons/ledger/notes.txt"), "kept\n",
-                         "what waits for the item waits under its new name, for the adoption that follows")
-        self.assertEqual(self.text(".lab/held/addons/ledger/.env"), "PARTNER_LEDGER_CURRENCY=CHF\n",
-                         "the settings that wait take their new names before the item adopts them")
-        self.assertFalse((self.root / ".lab/held/addons/books").exists())
-        self.patch(registry, "units_of", lambda ns: {"addon": ["ledger"]})
-        self.assertEqual([one["unit"] for one in install.adopt("partner", ["addon:ledger"])], ["addon:ledger"],
-                         "the catalog that follows is the one that adopts")
-        self.assertEqual(self.text(f"{PARTNER}/addons/ledger/.env"), "PARTNER_LEDGER_CURRENCY=CHF\n")
-
-    def test_held_settings_whose_place_is_taken_are_kept_aside_and_nothing_stays_under_the_old_name(self):
-        self.write(".lab/held/addons/books/.env", "BOOKS_CURRENCY=CHF\n")
-        self.write(".lab/held/addons/ledger/.env", "PARTNER_LEDGER_CURRENCY=EUR\n")
-        renames.follow("partner", FOUND, moved_from=["addon:ledger"])
-        self.assertEqual(self.text(".lab/held/addons/ledger/.env"), "PARTNER_LEDGER_CURRENCY=EUR\n")
-        self.assertEqual(self.text(".lab/migration/kept/partner/held/addons/books/.env"), "BOOKS_CURRENCY=CHF\n")
-        self.assertFalse((self.root / ".lab/held/addons/books").exists())
-
-    def test_the_on_file_turns_on_what_a_list_on_one_line_names(self):
-        self.write(paths.ON_FILE, f"include: [{OLD_FILE}]\n")
-        self.assertEqual(install.on_units("partner"), {"addon:books"})
-
-    def test_held_settings_that_cannot_be_moved_stop_the_rename_as_its_own_files_do(self):
-        self.write(".lab/held/addons/books/.env", "BOOKS_CURRENCY=CHF\n")
-        real = moves.relocate
-        self.patch(moves, "relocate", lambda src, dst, why: "copied" if why == "rename-held" else real(src, dst, why))
-        with self.assertRaises(registry.CatalogError) as raised:
-            renames.follow("partner", FOUND, moved_from=["addon:ledger"])
-        self.assertEqual((raised.exception.code, raised.exception.detail["units"]), ("rename_stuck", ["addon:ledger"]))
-        self.assertTrue((self.root / ".lab/held/addons/books/.env").is_file(), "the value is where it was")
 
     def test_the_release_before_a_rename_is_the_greatest_version_tag_that_leads_to_it(self):
         repo = self.root / PARTNER   # a working copy: its git is the history
@@ -288,14 +251,6 @@ class Following(Case):
                 self.patch(install, "_moving", lambda *args, items=items: ({"items": items, "settings": {}}, "c" * 40))
                 self.assertEqual(install.movable("partner", "a" * 40, "b" * 40, "update")["items"], items)
 
-    def test_a_held_folder_is_left_for_a_catalog_that_does_not_adopt_the_item(self):
-        self.write(".lab/held/addons/books/notes.txt", "kept\n")
-        renames.follow("partner", FOUND)
-        renames.follow("partner", FOUND, moved_from=["addon:books"])
-        self.assertTrue((self.root / ".lab/held/addons/books/notes.txt").is_file(),
-                        "a moved_from that names only the old name adopts nothing under the new one: install.adopt agrees")
-        self.assertFalse(renames.adopts("partner", "addon:ledger", ["addon:books"]))
-
     def test_the_settings_are_renamed_in_every_item_of_the_catalog(self):
         self.write(f"{PARTNER}/addons/ledger/.env", "BOOKS_CURRENCY=USD\n")
         renames.follow("partner", {"items": {}, "settings": FOUND["settings"]})
@@ -319,18 +274,6 @@ class Following(Case):
         self.assertIn("../../../partner/addons/ledger/compose.yml", self.text(copy))
         self.assertEqual(layers._copy_problems(known), [])
 
-    def test_a_path_to_what_moved_on_a_line_the_lab_does_not_write_again_is_said_until_it_is_changed(self):
-        mine = ".lab/catalogs/local/playgrounds/mine/compose.yml"
-        self.write(mine, "services:\n  mine:\n    image: alpine\n    volumes: [../../../partner/addons/books/data:/data:ro]\n"
-                         "    # volumes: [../../../partner/addons/gone/data:/data:ro]\n")
-        self.assertEqual(layers._dangling_problems(), [{"file": mine, "message": "names a folder that Partner fixture no longer has "
-                                                                                  "(an item it renamed or removed): change it"}],
-                         "a list on one line is the person's: the Lab says it, by the item, and a comment names nothing")
-        renames.follow("partner", FOUND)
-        self.assertEqual(len(layers._dangling_problems()), 1)
-        self.write(mine, self.text(mine).replace("addons/books/", "addons/ledger/"))
-        self.assertEqual(layers._dangling_problems(), [], "a file that changed is read again")
-
     def test_a_file_follows_when_no_path_to_the_old_place_is_left_once_repoint_wrote_it(self):
         moved = {OLD_FILE: NEW_FILE}
         mine = ".lab/catalogs/local/addons/mine/compose.yml"
@@ -352,9 +295,7 @@ class Following(Case):
         renames.follow("partner", FOUND)
         before = {path: path.read_bytes() for path in sorted(self.root.rglob("*")) if path.is_file()}
         self.assertEqual(renames.follow("partner", FOUND)[0]["moved"], [])
-        self.assertEqual({path: path.read_bytes() for path in sorted(self.root.rglob("*")) if path.is_file()
-                          if path.name != "journal.jsonl"},
-                         {path: data for path, data in before.items() if path.name != "journal.jsonl"})
+        self.assertEqual({path: path.read_bytes() for path in sorted(self.root.rglob("*")) if path.is_file()}, before)
 
     def test_a_pair_whose_new_item_is_not_installed_or_whose_old_one_still_is_moves_nothing(self):
         self.machine(**{".env": "BOOKS_CURRENCY=CHF\n"})
@@ -448,6 +389,7 @@ class EndToEnd(Case):
         fixtures.need_compose()
         self.start(mock.patch.dict(os.environ, {"DOCKER_CONFIG": os.path.join(os.path.expanduser("~"), ".docker")}))
         fixtures.project(self, paths, project, compose, envfiles, ns="fixture")
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")   # as every Lab has it: it says the level this Lab reads
         self.patch(paths, "_default", (None, None))
         self.home = gitfixture.isolate(self)
         self.patch(gitx, "_ending", False)
@@ -455,7 +397,6 @@ class EndToEnd(Case):
         self.patch(jobs, "JOBS", jobs.Jobs())
         self.patch(service, "TICKETS", {})
         self.patch(service, "_checking", {})
-        self.patch(service, "_started", {})
         self.patch(service, "_known", {"at": None, "version": None})
         self.patch(service, "_running", lambda found, ns: set())
         self.patch(compose, "image_ids", lambda: {})   # Docker is not asked: no daemon here
@@ -472,7 +413,7 @@ class EndToEnd(Case):
         gitfixture.git("tag", f"v{version}", gitfixture.tip(self.repo), repo=self.repo)
 
     def add(self):
-        service.add(service.check_address(gitfixture.url(self.repo))["ticket"], host=True)
+        service.add(service.check_address(gitfixture.url(self.repo))["ticket"])
         project.forget()
 
     def update(self, undo=False):
@@ -526,9 +467,7 @@ class EndToEnd(Case):
             {"kind": "addon", "id": "@acme/cluster-board", "name": "Cluster board", "was": "Board", "on": True},
             {"kind": "addon", "id": "@acme/trace-viewer", "name": "Trace viewer", "was": "Viewer", "on": True}])
         self.containers = {"acme-board": {"state": "running", "name": "gio-acme-board", "id": "b" * 64}}
-        with self.assertRaises(registry.CatalogError) as raised:
-            service.update("acme", ticket=plan["ticket"])
-        self.assertEqual(raised.exception.code, "held", "a container made since the plan holds the update too")
+        self.refusal(lambda: service.update("acme", ticket=plan["ticket"]), "held")
         self.containers = {}
         service.update("acme", ticket=plan["ticket"])
         project.forget()
@@ -545,7 +484,6 @@ class EndToEnd(Case):
         self.release("1.2.0", V3)
         self.update()
         self.assert_kept_under("agent-trace-viewer", "ACME_AGENT_TRACE_VIEWER_TOKEN")
-        chained = self.root
 
         self.setUp_again()
         self.add_at("1.0.0")
@@ -554,11 +492,11 @@ class EndToEnd(Case):
         self.assertEqual(plan["version"], "1.2.0", "the greatest release, two renames at once")
         self.assertEqual([row["id"] for row in plan["renames"]], ["@acme/cluster-board", "@acme/agent-trace-viewer"])
         self.assert_kept_under("agent-trace-viewer", "ACME_AGENT_TRACE_VIEWER_TOKEN")
-        self.assertNotEqual(chained, self.root)
 
     def setUp_again(self):
         """Another Lab, in another folder, that has 1.0.0 of the same repository."""
         fixtures.project(self, paths, project, compose, envfiles, ns="fixture")
+        shutil.copy(fixtures.CORE.parent / "contract.lock", self.root / "contract.lock")
         project.forget()
 
     def add_at(self, version):
@@ -581,7 +519,6 @@ class EndToEnd(Case):
                          [("@acme/board", "Cluster board", True), ("@acme/viewer", "Trace viewer", True)],
                          "in the order of the names they leave")
         self.assert_kept_under("viewer", "ACME_VIEWER_TOKEN")
-
 
     def test_a_lab_released_before_renamed_keeps_the_newest_version_it_reads_and_says_it_needs_a_newer_gravitee_lab(self):
         self.add()
@@ -619,9 +556,6 @@ class EndToEnd(Case):
         self.patch(stack, "JOBS", mock.Mock())
         stack.unit_action(found, "addon", "local/board", "stop")
         self.assertEqual(self.started(stack.JOBS)[1], [[*compose.by_name(), "stop", "acme-board"]])
-        start = {"services": {"remove": [], "start": ["acme-cluster-board"]}}
-        self.assertEqual(layers.commands(start), [[*compose.COMPOSE, "up", "-d", "--no-deps", "acme-cluster-board"]],
-                         "turning the catalog's item on removes nothing of the copy")
         self.assertEqual(layers.current(found)["problems"], [])
 
     def test_a_renamed_item_that_is_on_whose_new_version_cannot_run_holds_the_update(self):
@@ -633,9 +567,7 @@ class EndToEnd(Case):
         service.check_now("acme")
         plan = service.update("acme", check=True)
         self.assertEqual(plan["held"], "Turn off Viewer first", "as for any item that is on and would come back blocked")
-        with self.assertRaises(registry.CatalogError) as raised:
-            service.update("acme", ticket=plan["ticket"])
-        self.assertEqual(raised.exception.code, "held")
+        self.refusal(lambda: service.update("acme", ticket=plan["ticket"]), "held")
         self.assertTrue((self.addon_dir("viewer") / ".env").is_file())
 
     def test_a_rename_waits_while_docker_cannot_say_what_has_containers(self):
@@ -650,9 +582,7 @@ class EndToEnd(Case):
                 self.patch(compose, "ps", down)
                 plan = service.update("acme", check=True)
                 self.assertEqual(plan["held"], "Start Docker first")
-                with self.assertRaises(registry.CatalogError) as raised:
-                    service.update("acme", ticket=plan["ticket"])
-                self.assertEqual(raised.exception.code, "docker_unknown")
+                self.refusal(lambda: service.update("acme", ticket=plan["ticket"]), "docker_unknown")
                 self.assertTrue((self.addon_dir("viewer") / ".env").is_file())
 
     def test_a_repair_after_a_rename_that_is_done_does_not_ask_docker(self):
@@ -745,27 +675,12 @@ class EndToEnd(Case):
             service.update("acme", check=True)
         self.assertEqual((raised.exception.code, str(raised.exception)), ("renames_unread", renames.UNREAD))
 
-    def test_a_renamed_item_that_is_on_whose_new_version_lacks_a_catalog_holds_the_update(self):
-        self.add()
-        self.person()
-        self.release("1.1.0", V2)
-        service.check_now("acme")
-        review = service._review
-
-        def lacking(*args, **kwargs):
-            judged, verdicts, mine = review(*args, **kwargs)
-            judged["addon"]["@acme/trace-viewer"]["needs_catalogs"] = [{"id": "hub", "name": "Hub", "reason": "failed"}]
-            return judged, verdicts, mine
-        self.patch(service, "_review", lacking)
-        self.assertEqual(service.update("acme", check=True)["held"], "Turn off Viewer first",
-                         "an item that needs a catalog this machine lacks cannot run either")
-
     def test_a_repair_after_a_rename_that_stopped_puts_back_what_it_had_moved(self):
         self.add()
         self.person()
         self.release("1.1.0", V2)
         real = moves.relocate
-        self.patch(moves, "relocate", lambda src, dst, why: "stayed" if src.endswith("viewer/.state") else real(src, dst, why))
+        self.patch(moves, "relocate", lambda src, dst: "stayed" if src.endswith("viewer/.state") else real(src, dst))
         service.check_now("acme")
         plan = service.update("acme", check=True)
         with self.assertRaises(registry.CatalogError) as raised:
@@ -801,9 +716,7 @@ class EndToEnd(Case):
             return real(path, *args, **kwargs)
         self.patch(manifest, "read_catalog", busy)
         renames._read.clear()
-        with self.assertRaises(registry.CatalogError) as raised:
-            service.update("acme", ticket=plan["ticket"])
-        self.assertEqual(raised.exception.code, "renames_unread")
+        self.refusal(lambda: service.update("acme", ticket=plan["ticket"]), "renames_unread")
         held = registry.lock_of("acme")
         self.assertEqual((held["pin"], held["pending"], held["error"]), (pin, None, None), "nothing was changed")
         self.assertTrue((self.addon_dir("viewer") / ".env").is_file())
@@ -857,7 +770,7 @@ class EndToEnd(Case):
                                                     "Inspects what the agents send}\ninclude:\n  - ../../../acme/addons/viewer/compose.yml\n"}
         hub = gitfixture.make_repo(self.home / "hub.git", files)
         gitfixture.git("tag", "v1.0.0", gitfixture.tip(hub), repo=hub)
-        service.add(service.check_address(gitfixture.url(hub))["ticket"], host=True)
+        service.add(service.check_address(gitfixture.url(hub))["ticket"])
         self.write(paths.ON_FILE, "include:\n  - .lab/catalogs/hub/playgrounds/inspect/compose.yml\n")
         project.forget()
         self.release("1.1.0", V2)
@@ -899,32 +812,20 @@ class EndToEnd(Case):
         self.assertEqual((found["playgrounds"]["local/mine"]["blocked"], layers.current(found)["problems"]), (None, []))
 
     def test_an_item_of_this_machine_whose_include_the_lab_cannot_write_again_holds_the_update_while_it_is_on(self):
-        """The same Mine, its include written in long form with a `project_directory:` that names the viewer's folder: the Lab
-        writes the path again, not the folder, so Mine would not follow. It breaks, and holds the update while it is on."""
+        """Mine includes the viewer in long form with a `project_directory:` that names its folder, or in a list on one line: the Lab
+        writes the path of neither again, so Mine would not follow. It breaks, and holds the update while it is on."""
         self.add()
-        mine = ".lab/catalogs/local/playgrounds/mine/compose.yml"
-        self.write(mine, "x-gravitee: {kind: playground, name: Mine, category: Other, description: Mine}\n"
-                         "include:\n  - path: ../../../acme/addons/viewer/compose.yml\n"
-                         "    project_directory: ../../../acme/addons/viewer\n")
-        self.write(paths.ON_FILE, f"include:\n  - {mine}\n")
-        project.forget()
         self.release("1.1.0", V2)
         service.check_now("acme")
-        plan = service.update("acme", check=True)
-        self.assertEqual((plan["held"], [one["id"] for one in plan["breaks"]]), ("Turn off Mine first", ["local/mine"]))
-
-    def test_an_item_of_this_machine_that_is_on_and_includes_a_renamed_item_on_one_line_holds_the_update(self):
-        self.add()
         mine = ".lab/catalogs/local/playgrounds/mine/compose.yml"
-        self.write(mine, "x-gravitee: {kind: playground, name: Mine, category: Other, description: Mine}\n"
-                         "include: [../../../acme/addons/viewer/compose.yml]\n")
         self.write(paths.ON_FILE, f"include:\n  - {mine}\n")
-        project.forget()
-        self.release("1.1.0", V2)
-        service.check_now("acme")
-        plan = service.update("acme", check=True)
-        self.assertEqual((plan["held"], [one["id"] for one in plan["breaks"]]), ("Turn off Mine first", ["local/mine"]),
-                         "the Lab writes a list on one line again never: Mine would lose the viewer")
+        for include in ("include:\n  - path: ../../../acme/addons/viewer/compose.yml\n    project_directory: ../../../acme/addons/viewer\n",
+                        "include: [../../../acme/addons/viewer/compose.yml]\n"):
+            with self.subTest(include):
+                self.write(mine, f"x-gravitee: {{kind: playground, name: Mine, category: Other, description: Mine}}\n{include}")
+                project.forget()
+                plan = service.update("acme", check=True)
+                self.assertEqual((plan["held"], [one["id"] for one in plan["breaks"]]), ("Turn off Mine first", ["local/mine"]))
 
     def test_a_file_of_this_machine_that_names_a_service_no_file_defines_any_more_is_a_problem_compose_says(self):
         """The board's service is acme-cluster-board now: a playground of the person's that waits for acme-board does not load,

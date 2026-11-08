@@ -5,17 +5,6 @@ to start, what the Lab reads, how to check it before anyone installs it, and wha
 of the items is in [the format of add-ons, setups and playgrounds](units.md) and what the Lab promises them in
 [the contract](contract.md). For the person who uses catalogs, see [Catalogs](catalogs.md).
 
-1. [Start](#start)
-2. [The structure](#the-structure)
-3. [catalog.yml](#catalogyml)
-4. [Renaming an item](#renaming-an-item)
-5. [Check it before you publish](#check-it-before-you-publish)
-6. [Try it in the Lab](#try-it-in-the-lab)
-7. [The CI of a catalog](#the-ci-of-a-catalog)
-8. [Securing the repository](#securing-the-repository)
-9. [Releases](#releases)
-10. [Keeping in step](#keeping-in-step)
-
 ## Start
 
 ```bash
@@ -44,8 +33,8 @@ Everything the Lab installs is under the three folders. A file the Lab never ins
 leaves your machine in an installed copy. A unit folder is a unit only with its `compose.yml`.
 
 The folder of an add-on or a playground, and the file of a setup, is named after the item's `x-gravitee.name`: in lower case,
-every run of characters other than `a-z` and `0-9` becomes one dash, with no dash at either end. *Event Streams Management with
-Kafka* is `playgrounds/event-streams-management-with-kafka/`, *Kafka streams* is `setups/kafka-streams.yml`. The Lab UI's **New
+every run of characters other than `a-z` and `0-9` becomes one dash, with no dash at either end. *Acme Shop:
+streams* is `playgrounds/acme-shop-streams/`, *Acme streams* is `setups/acme-streams.yml`. The Lab UI's **New
 add-on**, **New setup** and **New playground** name the folder so, and `catalog.py check` refuses an item that is named otherwise
 (`ST23`). The folder is the item's id, so a name you change later is a rename of the folder too: see
 [Renaming an item](#renaming-an-item).
@@ -75,17 +64,17 @@ are for older Gravitee Labs: leave them to `catalog.py`, which keeps them true (
 
 ## Renaming an item
 
-An item's folder is named after its name: lowercase, with each run of other characters as one dash (`Kiosk browser` is
-`addons/kiosk-browser`). To rename an item, rename its folder, its name and its own settings, and say what you renamed in
+An item's folder is named after its name: lowercase, with each run of other characters as one dash (`Acme console` is
+`addons/acme-console`). To rename an item, rename its folder, its name and its own settings, and say what you renamed in
 `catalog.yml`:
 
 ```yaml
 x-gravitee-catalog:
   renamed:
     items:              # kind:old: kind:new
-      addon:kiosk: addon:kiosk-browser
+      addon:acme: addon:acme-console
     settings:           # OLD: NEW, in the .env of the catalog's items
-      KIOSK_TOKEN: KIOSK_BROWSER_TOKEN
+      ACME_TOKEN: ACME_CONSOLE_TOKEN
 ```
 
 A person who updates to that release keeps everything under the new name: the item's `.env`, `secrets/` and `.state/` move to
@@ -174,7 +163,7 @@ The managed workflows run on every pull request and every push to `main`:
 |---|---|
 | Checks | The rules of the standard and the Lab's policy (`catalog.py check`), the secrets in every commit, what the change touches, and that every image it pulls exists. On a push to `main`, it also says what is merged and not released yet ([Releases](#releases)) |
 | Seed files | The seed files of the playgrounds, and the catalog's own tests |
-| Apps | The images a unit builds, built for the architectures listed in `catalog.yml`, the tests of its apps, the units that do not need the platform, which start and answer their health check, and the scan of the images it built ([The scan of the images](#the-scan-of-the-images)) |
+| Apps | The images a unit builds, built for the architectures listed in `.github/standard.json` (`platforms`), the tests of its apps, the units that do not need the platform, which start and answer their health check, and the scan of the images it built ([The scan of the images](#the-scan-of-the-images)) |
 | Catalog CI result | The one check a merge waits for: it fails when any job it needs failed or was skipped |
 
 A pull request runs with no secret and a read-only token, from the contributor's own copy of the workflows being refused if
@@ -288,9 +277,8 @@ python3 ../gravitee-lab/lab-ui/catalog.py ci unreleased .
 ```
 
 says which items changed since the last tag and the command that releases them: `make release VERSION=1.1.0`, or
-`make release VERSION=1.1.0 TAG=1` once the release pull request is merged and only its tag is left. `--format json` gives the
-same for a script (`next`, `tag_only`, and the items). The **Checks** job runs it with `--ci` on every push to `main`: a warning on
-the run, and the notes the next release would have in its summary. It always exits 0, and the step never fails the run: what
+`make release VERSION=1.1.0 TAG=1` once the release pull request is merged and only its tag is left. The **Checks** job runs it
+with `--ci` on every push to `main`: a warning on the run, and the notes the next release would have in its summary. It always exits 0, and the step never fails the run: what
 you release, and when, is your choice.
 
 ## Keeping in step
@@ -301,7 +289,7 @@ The Lab pins the standard's files by commit in `.github/standard.json`; when the
 python3 lab-ui/catalog.py upgrade .
 ```
 
-prints the plan (`--write` applies it on a branch), and `upgrade --fleet OWNER --lab-ref COMMIT` opens one pull request per
+prints the plan (`--write` writes it in place, for you to commit), and `upgrade --fleet OWNER --lab-ref COMMIT` opens one pull request per
 catalog of an owner. A managed file that someone edited by hand is reported (`SD02`) and never overwritten silently.
 
 The pin, `lab.ref`, is the commit of a release of the Lab (a tag `vX.Y.Z` on its `main`), and CI refuses any other (`SD11`): a

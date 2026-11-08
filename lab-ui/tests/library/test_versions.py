@@ -30,7 +30,7 @@ class Builds(unittest.TestCase):
 
     def test_a_tag_that_moves_names_no_version(self):
         for tag in ("latest", "latest-debian", "4", "4.12", "4.12-debian", "4.13.0-alpha", "4.13.0-alpha-debian",
-                    "nightly", "4.9.0-kafka-desk", "sha256-abc", "", "master-latest"):
+                    "nightly", "4.9.0-kazoo-desk", "sha256-abc", "", "master-latest"):
             self.assertIsNone(versions.parse(tag), tag)
 
     def test_versions_are_ordered_as_semver_orders_them(self):
@@ -80,6 +80,24 @@ class Builds(unittest.TestCase):
         self.assertEqual(versions.judge("4.12.20", None, None), ("unknown", None))
         self.assertEqual(versions.judge("4.13.0-alpha.1", None, None), ("unknown", None))
         self.assertEqual(versions.judge("4.13.0-alpha.1", None, "4.13.0-alpha.2"), ("newer", "4.13.0-alpha.2"))
+
+    def test_a_tag_meets_a_version_by_its_numbers_and_a_build_by_its_name(self):
+        # A preview is before its release (semantic versioning): 4.13.0-alpha.5 is not a 4.13, a release of it or a later version is.
+        # requires.images may name a build (amp-demo-latest, master-latest): it has no numbers to order, so the saved tag is that
+        # build or it is not
+        for tag, wanted, enough in (
+                ("4.12.20", "4.13", False), ("4.13.0-alpha.2", "4.13", False), ("4.13.0-alpha.5", "4.13.0", False),
+                ("4.13", "4.13", True), ("4.13.0", "4.13", True), ("4.13.7", "4.13.0", True),
+                ("4.14.0-alpha.1", "4.13", True), ("5.0", "4.13", True), ("4", "4.13", False), ("latest", "4.13", True),
+                ("4.13.0-alpha.2", "4.13.0-alpha.3", False), ("4.13.0-alpha.3", "4.13.0-alpha.3", True),
+                ("4.13.0-alpha.10", "4.13.0-alpha.3", True), ("4.13.0-alpha.3-debian", "4.13.0-alpha.3", True),
+                ("4.13.0-beta.1", "4.13.0-alpha.3", True), ("4.13.0", "4.13.0-alpha.3", True),
+                ("4.13.1-alpha.1", "4.13.0-alpha.3", True), ("4.12.20", "4.13.0-alpha.3", False),
+                ("latest", "4.13.0-alpha.3", True),
+                ("amp-demo-latest", "amp-demo-latest", True), ("amp-demo-latest-debian", "amp-demo-latest", True),
+                ("4.12.20", "amp-demo-latest", False), ("latest", "amp-demo-latest", False),
+                ("master-latest", "amp-demo-latest", False), ("master-latest", "master-latest", True)):
+            self.assertEqual(versions.at_least(tag, wanted), enough, (tag, wanted))
 
 
 if __name__ == "__main__":

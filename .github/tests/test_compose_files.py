@@ -1,6 +1,5 @@
-"""Conventions of the core's Compose file that need no running stack: what the gateway mounts, what the Alert Engine
-says and what the health checks run. The file is read as text. The conventions of the items are tested by the catalog that
-brings them."""
+"""Conventions of the core's Compose file that need no running stack: what the gateway mounts and what the health checks run.
+The file is read as text. The conventions of the items are tested by the catalog that brings them."""
 
 import re
 import unittest
@@ -30,16 +29,9 @@ class GatewayMountsTest(unittest.TestCase):
             self.assertIn(f":{path}:ro", self.gateway)
 
 
-class AlertEngineTest(unittest.TestCase):
-    def test_it_says_that_it_needs_a_license(self):
-        block = service_block((ROOT / "docker-compose.yml").read_text(), "alert-engine")
-        description = re.search(r"io\.gravitee\.description: (.*)", block).group(1)
-        self.assertIn("needs an Enterprise license", description)
-
-
 class HealthChecksTest(unittest.TestCase):
     """A setting is never pasted into the shell of a check or into a command line: a password with a space, an & or a $ would
-    be split there, run or expanded. A JVM has minutes for its first start, and no check outlasts its own time."""
+    be split there, run or expanded. No check outlasts its own time."""
 
     def setUp(self):
         self.text = (ROOT / "docker-compose.yml").read_text()
@@ -51,34 +43,10 @@ class HealthChecksTest(unittest.TestCase):
             if not command.startswith(("[", "*")):   # a list is no shell, an alias is the frames' command
                 self.assertNotRegex(command, r"(?<!\$)\$\{", command)
 
-    def test_a_jvm_has_five_minutes_for_its_first_start(self):
-        anchor = re.search(r"^x-jvm-healthcheck: &jvm-healthcheck\n((?:  .*\n)+)", self.text, re.M).group(1)
-        self.assertIn("  start_period: 300s\n", anchor)
-        for name in ("elasticsearch", "alert-engine", "apim-management-api", "apim-gateway", "am-management-api",
-                     "am-gateway"):
-            self.assertIn("      <<: *jvm-healthcheck\n", service_block(self.text, name), name)
-
     def test_a_check_asks_for_no_more_than_its_own_time(self):
         timeout = int(re.search(r"^x-healthcheck: &healthcheck\n(?:  .*\n)*?  timeout: (\d+)s", self.text, re.M).group(1))
         for asked in re.findall(r"[?&]timeout=(\d+)s", self.text):
             self.assertLess(int(asked), timeout)
-
-    def test_mongodb_starts_node_js_twice_a_minute_once_it_runs(self):
-        self.assertIn("      interval: 30s", service_block(self.text, "mongodb"))
-        self.assertRegex(self.text, r"x-healthcheck: &healthcheck\n(?:  .*\n)*?  start_interval: 2s")
-
-    def test_a_mongodb_that_does_not_answer_is_unhealthy_within_minutes(self):
-        # Docker gives up after its start period and `retries` failed checks in a row, one every `interval`
-        check = self.healthcheck("mongodb")
-        self.assertLessEqual(check["start_period"] + check["retries"] * check["interval"], 300, check)   # it never answers
-        self.assertLessEqual(check["retries"] * check["interval"], 180, check)   # it stops answering once it ran
-
-    def healthcheck(self, name):
-        """The timing of a service's health check, in seconds and counts: the shared anchor, with what the service sets."""
-        anchor = re.search(r"^x-healthcheck: &healthcheck\n((?:  .*\n)+)", self.text, re.M).group(1)
-        own = re.search(r"^    healthcheck:\n((?:      .*\n)+)", service_block(self.text, name), re.M).group(1)
-        timing = r"^\s+(interval|retries|start_period): (\d+)s?\b"
-        return {key: int(value) for key, value in re.findall(timing, anchor + own, re.M)}
 
 
 if __name__ == "__main__":

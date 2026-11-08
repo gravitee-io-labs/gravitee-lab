@@ -13,32 +13,29 @@ What `run` decides, and the rule modules do not:
   is a new error. It is not done for a change that holds nothing (the base is the head): there is nothing to subtract from. The
   base is read from the repository's git directory as git names it, so a linked work tree (`git worktree add`), whose `.git`
   is a file, is read as a clone is; when the files of the base cannot be read that is said, and the errors stay errors.
-- **Severity.** `.github/standard.json "strict"` and `error` make a warning an error; `soft` prints every error as a warning.
-  `status` is the exit code: 1 for an error (and a warning with `strict`), and 1 for a check that was skipped, 2 under `ci`.
+- **Severity.** `error` makes a warning an error.
+  `status` is the exit code: 1 for an error, and 1 for a check that was skipped, 2 under `ci`.
 - **What it does not do.** It never writes (git is asked to leave the index alone), never links, never runs a file of the tree,
   and makes no network call: `online` only asks for the checks that compare with GitHub (IM04), from what git already holds.
 
-The modules of other packages (`standard` for SD, `workflows` for WF, `codeowners` for CO) are used when they exist, and said
-(`skipped`) when they do not. A folder catalog, which has no `.github/`, is judged on the families that need no GitHub, and
-`Result.header` says so in a second line."""
+A folder catalog, which has no `.github/`, is judged on the families that need no GitHub, and `Result.header` says so in a second
+line."""
 
-import importlib
 import os
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Iterable, List, NamedTuple, Optional, Tuple
+from typing import Iterable, List, NamedTuple, Optional, Tuple
 
 from .. import paths
-from . import gitx, tree as trees
+from . import gitx, standard, tree as trees
 from .report import ERROR, WARNING, Problem, printable
-from .rules import HYGIENE, Context, context, outline
+from .rules import FAMILIES, HYGIENE, Context, codeowners, commits, context, dockerfiles, guides, images, outline, secrets, structure, workflows
 from .rules.images import repository
 
-ORDER = ("SD", "ST", "SE", "CR", "WF", "DF", "GD", "CO", "IM")
-# The modules of each family: (module, the function that judges a tree). SD is the standard's own (`standard.drift`)
-MODULES = {"ST": "structure", "SE": "secrets", "CR": "commits", "WF": "workflows", "DF": "dockerfiles", "GD": "guides",
-           "CO": "codeowners", "IM": "images"}
+# The check of each family. SD is the standard's own (`standard.drift`)
+CHECKS = {"ST": structure.check, "SE": secrets.check, "CR": commits.check, "WF": workflows.check, "DF": dockerfiles.check,
+          "GD": guides.check, "CO": codeowners.check, "IM": images.check, "SD": lambda tree, ctx: standard.drift(tree)}
 PREFIX = "Already there before this change: "
 
 
@@ -47,43 +44,27 @@ class Options(NamedTuple):
 
     base           the commit the change is measured from, as git names a commit (`origin/main`, `HEAD~1`, a branch, an id); None
                    takes `git merge-base origin/main HEAD` when there is one
-    soft           every error is a warning and the exit code is 0 (the check of a newer Lab on a catalog written for an older)
     error          codes that are errors for this run whatever they are
-    strict         the exit code is 1 for a warning too
     online         the checks that compare with GitHub are asked for
     history        read every commit of the history, not only those since the base
-    verbose        the information too (a rendering option; `run` always returns it)
     ci             the run is CI's: IM04 is asked for, and a skipped check is exit 2
     tree           a Tree to read instead of the folder (`GitTree`, for `check --pr`)
     base_tree      the tree of the base commit, when `tree` is not a folder of a repository
     commits        a `tree.History` to read instead of the repository's own
-    families       the families to run (None: all); Share asks for ST, SE, DF, GD and IM
-    private        identifiers of private catalogs (SE06, Share into a Public catalog)
     units          the units that the caller loaded with Compose (IM reads their services instead of the files)
-    seeder_images  the repositories of the Lab's seeder; None reads `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the top of a catalog
-    is_seeder      `f(unit_folder, context) -> bool`, for a caller that knows the real folders
-    lab            the Lab checkout (its core file names the seeder); default the one this code is in
     repository     OWNER/REPO of this repository (IM04); default $GITHUB_REPOSITORY, else the `origin` remote
     """
     base: Optional[str] = None
-    soft: bool = False
     error: Tuple[str, ...] = ()
-    strict: bool = False
     online: bool = False
     history: bool = False
-    verbose: bool = False
     ci: bool = False
     tree: Optional[object] = None
     base_tree: Optional[object] = None
     commits: Optional[object] = None
-    families: Optional[Tuple[str, ...]] = None
-    private: Tuple[str, ...] = ()
     units: Optional[list] = None
-    seeder_images: Optional[Tuple[str, ...]] = None
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
-    is_seeder: Optional[Callable] = None
-    lab: Optional[Path] = None
     repository: str = ""
 
 
@@ -132,14 +113,6 @@ def origin_repository(root) -> str:
     return f"{found.group(1)}/{found.group(2)}" if found else ""
 
 
-def _load(family_code: str):
-    """The check function of a family: its module is imported when the family is run."""
-    module = importlib.import_module(f"{__package__}.{'standard' if family_code == 'SD' else 'rules.' + MODULES[family_code]}")
-    if family_code == "SD":
-        return lambda tree, ctx: module.drift(tree, module.LEVEL)
-    return module.check
-
-
 def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     """(tree, history, base, lost) for a run: the tree to read, the commits of the change, the base they were read from (the id
     of a commit, or "") and the base that was asked for and is no commit of the repository ("" if there is none). That one is a
@@ -147,7 +120,7 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     tree = options.tree if options.tree is not None else trees.FolderTree(root)
     history = options.commits
     base, lost = options.base or "", ""
-    if history is None and folder and trees.is_repository(root) and trees.head_of(root):
+    if history is None and folder and trees.is_repository(root) and trees.resolve(root, "HEAD"):
         if options.history:
             history, base = trees.History(root, None), ""
         else:
@@ -166,24 +139,22 @@ def _fresh(root, options: Options, folder: bool, skipped: List[str]):
     return tree, history, base, lost
 
 
-def _context(tree, root, options: Options, history, base: str, notes: List[str]) -> Context:
-    seeders = options.seeder_images if options.seeder_images is not None else lab_seeder_images(options.lab)
+def _context(tree, root, options: Options, history) -> Context:
     repository = options.repository or os.environ.get("GITHUB_REPOSITORY", "")
     if not repository and (options.ci or options.online) and root is not None and trees.is_repository(root):
         repository = origin_repository(root)
-    return context(tree, history=history, units=options.units, seeder_images=tuple(seeders), seeder_paths=options.seeder_paths,
-                   is_seeder=options.is_seeder, private=tuple(options.private), online=options.online, ci=options.ci,
-                   repository=repository, base=base, notes=notes)
+    return context(tree, history=history, units=options.units, seeder_images=lab_seeder_images(), seeder_paths=options.seeder_paths,
+                   online=options.online, ci=options.ci, repository=repository)
 
 
-def _run_families(tree, ctx: Context, wanted: Iterable[str], skipped: List[str]) -> List[Problem]:
+def _run_families(tree, ctx: Context, wanted: Iterable[str]) -> List[Problem]:
     found: List[Problem] = []
-    for code in ORDER:
+    for code in FAMILIES:
         if code not in wanted:
             continue
         if code in ("SD", "WF", "CO") and not ctx.git:
             continue   # a folder catalog has no .github/: only the families that need no GitHub apply
-        found += _load(code)(tree, ctx)
+        found += CHECKS[code](tree, ctx)
     return found
 
 
@@ -206,30 +177,24 @@ def subtract(now: List[Problem], earlier: List[Problem]) -> List[Problem]:
     return out
 
 
-def promote(problems: List[Problem], standard: Optional[dict], error: Iterable[str]) -> List[Problem]:
-    """A warning whose code the catalog (`.github/standard.json "strict"`) or the run (`error`) makes an error is one."""
+def promote(problems: List[Problem], error: Iterable[str]) -> List[Problem]:
+    """A warning whose code the run (`error`) makes an error is one."""
     codes = set(error)
-    listed = standard.get("strict") if isinstance(standard, dict) else None
-    if isinstance(listed, list):
-        codes |= {each for each in listed if isinstance(each, str)}
     return [each._replace(severity=ERROR) if each.severity == WARNING and each.code in codes else each for each in problems]
 
 
 def status(result: Result, options: Optional[Options] = None) -> int:
-    """The exit code of a check: 1 for an error (and for a warning with `strict`), 1 for a skipped check (2 under `ci`: the
-    environment cannot do what the check needs), 0 otherwise. `soft` makes it 0."""
+    """The exit code of a check: 1 for an error, 1 for a skipped check (2 under `ci`: the environment cannot do what the check
+    needs), 0 otherwise."""
     options = options or Options()
-    if options.soft:
-        return 0
-    if any(each.severity == ERROR for each in result.problems) or (options.strict and any(
-            each.severity == WARNING for each in result.problems)):
+    if any(each.severity == ERROR for each in result.problems):
         return 1
     return (2 if options.ci else 1) if result.skipped else 0
 
 
 def _header(base: str, commits: int, options: Options, history, ctx: Optional[Context] = None, lost: str = "") -> str:
     """The first line says what was read; a second says that the families that need GitHub were not asked for (a catalog with no
-    `.github/standard.json`, 3.1) unless the caller chose the families."""
+    `.github/standard.json`)."""
     count = f"{commits} commit{'' if commits == 1 else 's'}"
     if history is None:
         first = (f"Reading the files only: {printable(lost)[:60]} is not a commit of this repository" if lost
@@ -239,8 +204,8 @@ def _header(base: str, commits: int, options: Options, history, ctx: Optional[Co
     else:
         since = base[:7] if options.base or options.commits is not None else "origin/main"
         first = f"Reading the files and the {count} since {since}"
-    if ctx is not None and not ctx.git and options.families is None:
-        left = [code for code in ORDER if code not in ("SD", "WF", "CO")]
+    if ctx is not None and not ctx.git:
+        left = [code for code in FAMILIES if code not in ("SD", "WF", "CO")]
         first += f"\nNo .github/standard.json: judged on the families that need no GitHub ({', '.join(left)})"
     return first
 
@@ -255,10 +220,9 @@ def run(root, options: Optional[Options] = None) -> Result:
         tree.entries()
     except trees.TreeError as error:
         return Result([], [str(error)], base, 0, "")
-    ctx = _context(tree, root, options, history, base, skipped)
-    wanted = options.families or ORDER
-    found = _run_families(tree, ctx, wanted, skipped)
-    if (options.ci or options.online) and not ctx.repository and ctx.meta("images") and "IM" in wanted:
+    ctx = _context(tree, root, options, history)
+    found = _run_families(tree, ctx, FAMILIES)
+    if (options.ci or options.online) and not ctx.repository and ctx.meta("images"):
         skipped.append("IM04: the address of this repository is not known")
     commits = 0
     if history is not None:
@@ -269,16 +233,12 @@ def run(root, options: Optional[Options] = None) -> Result:
         skipped.append("the commits since the base: this folder has no git history")
     if options.history and folder and history is None:
         skipped.append("the history: this folder has no git history")
-    found = promote(found, ctx.standard, options.error)
-    found = _against_base(found, tree, root, options, base, ctx, skipped)
-    if options.soft:
-        found = [each._replace(severity=WARNING) if each.severity == ERROR else each for each in found]
-    found.sort(key=lambda each: (ORDER.index(family(each.code)) if family(each.code) in ORDER else len(ORDER), each.path,
-                                 each.line, each.code, each.message))
+    found = promote(found, options.error)
+    found = _against_base(found, root, options, base, ctx, skipped)
     return Result(found, list(dict.fromkeys(skipped)), base, commits, _header(base, commits, options, history, ctx, lost))
 
 
-def _against_base(found: List[Problem], tree, root, options: Options, base: str, ctx: Context, skipped: List[str]) -> List[Problem]:
+def _against_base(found: List[Problem], root, options: Options, base: str, ctx: Context, skipped: List[str]) -> List[Problem]:
     """`subtract` with the findings of the base commit, run only when there is a change to measure and an error to soften. The base
     is read from the git directory git names (a clone's `.git` folder, a linked work tree's), never guessed from the folder; when it
     cannot be read, that is said and the errors stay errors."""
@@ -287,7 +247,7 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
     before = options.base_tree
     if before is None and options.tree is None and root is not None and trees.is_repository(root):
         sha = base if re.fullmatch(r"[0-9a-f]{40}", base) else trees.resolve(root, base)
-        if sha and trees.head_of(root) == sha:
+        if sha and trees.resolve(root, "HEAD") == sha:
             return found
         git_dir = trees.git_dir_of(root) if sha else None
         if git_dir:
@@ -300,9 +260,6 @@ def _against_base(found: List[Problem], tree, root, options: Options, base: str,
         skipped.append("which errors were already there at the base: the files of the base could not be read, so they stay errors")
         return found
     quiet = context(before, units=None, seeder_images=ctx.seeder_images, seeder_paths=ctx.seeder_paths,
-                    is_seeder=ctx.is_seeder, private=(), repository=ctx.repository, ci=ctx.ci, online=ctx.online)
-    earlier = _run_families(before, quiet, [code for code in ORDER if code in HYGIENE], [])
-    return subtract(found, promote(earlier, ctx.standard, options.error))
-
-
-__all__ = ["Options", "Result", "family", "lab_seeder_images", "origin_repository", "promote", "run", "status", "subtract"]
+                    repository=ctx.repository, ci=ctx.ci, online=ctx.online)
+    earlier = _run_families(before, quiet, [code for code in FAMILIES if code in HYGIENE])
+    return subtract(found, promote(earlier, options.error))

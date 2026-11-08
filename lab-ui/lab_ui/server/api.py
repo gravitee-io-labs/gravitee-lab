@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
-from ..library import check, drift, files, layers, layout, machine, model, personal, playgrounds, plugins, project, starred, updates
+from ..library import check, drift, files, layers, machine, model, personal, playgrounds, plugins, project, starred, updates
 from ..docker import compose, images, terminal
 from ..gravitee import core, license, places, platforms, probe
 from . import dashboard, personas, stack
@@ -44,7 +44,7 @@ ERRORS = [(TooLarge, 413), (ValueError, 400), (paths.NotFound, 404), (RuntimeErr
 TYPES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".png": "image/png"}
 STAMP = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d")   # a log line's timestamp, as `logs --timestamps` writes it
 FOLLOW_AGAIN = 2   # seconds between two looks at a container whose logs ended, until it runs again
-STATS_EVERY = 1    # seconds between two events of the containers' load
+STATS_EVERY = 1    # seconds between an event of the containers' load and the reading of the next
 KEEP_ALIVE = 15    # seconds a stream says nothing before it writes a comment: that is how a closed page is noticed
 # The page is HTML in the origin that holds the keys to Docker, and a guide is third-party HTML in it: it runs only the scripts it
 # loads itself (its own files and the pinned directories of the CDN libraries it loads with their hash, never inline), and nothing
@@ -63,7 +63,7 @@ POLICY = "; ".join([
 # It shows the consoles of a playground in frames and holds the keys to the lab (Stop, Reset, Delete): no page frames it. Every
 # answer says so; an HTML one, which a browser runs as a page, says the whole policy
 UNFRAMED = {"Content-Security-Policy": "frame-ancestors 'none'", "X-Frame-Options": "DENY"}
-README = "(see Prerequisites in README.md)"
+README = "(see Prerequisites in docs/installation.md)"
 MAX_BODY = 1 << 20   # the largest thing the page sends is the text of a compose file
 # ... but for an imported playground, which the page sends as base64: the largest archive an import reads, and a third more
 LARGE_BODIES = {"/api/catalogs/import": (exports.MAX_ARCHIVE * 4) // 3 + 1024}
@@ -125,19 +125,19 @@ def snapshot():
     on = layers.current(p)
     # What is saved is Compose's answer on the files: none while the on file names one it cannot read (the state waits on it)
     saved = project.saved(p) if known and not on.get("unread") else None
-    # The settings and labels that differ in what runs behind by its configuration, for the reason a row gives
-    changed = drift.changes(p, read["raw"], containers, model.lateness(p, containers, saved), saved) if saved else None
+    # The settings that differ in what runs behind by its configuration, for the reason a row gives
+    changed = drift.changes(read["raw"], containers, model.lateness(p, containers, saved), saved) if saved else None
     # What the catalogs say is read from this machine's files and memory: the state never runs git, asks a network or waits for
     # the worker
     body = model.build(p, on, containers, job, JOBS.failed_job, license.features(p, ask=known), docker,
                        created, saved=saved, license_status=license.status(p), platforms=platforms.read(),
-                       deployed=deployed, changed=changed, git=model.git_state(service.git_version()),
-                       catalogs=service.describe(p, read), content=firstrun.content(p, read))
+                       deployed=deployed, changed=changed)
     # What the page gives an AI agent to create an item: where the project is, the folder and the word on its commands
     # for the agent (machine.agent), and the skills to follow. The Lab's own version, from what was read of its repository
     # in the last 30 s (updates.FRESH). Where API Management runs, from this machine's choice and what its platform last said
     body.update(root=str(paths.ROOT), agent=machine.agent(), skills=personal.skills(), lab=updates.describe(),
-                kept_settings=kept.listed(),
+                kept_settings=kept.listed(), git=model.git_state(service.git_version()),
+                catalogs=service.describe(p, read), content=firstrun.content(),
                 core=core.describe(p, on, containers if known else {}, saved, body.get("wait") or on.get("unread")))
     _docker_down(body)
     unread = service.problems()   # the files that record the catalogs cannot be read: nothing would be shown, and no word said
@@ -228,8 +228,8 @@ def terminal_close(req, pid):
 
 def accepted(req):
     """What the page sends back of the rows its dialog showed (`accept`): a list of keys, "<kind>:<id>". Nothing sent is
-    nothing accepted. Anything else is a bad request: a text would be searched by pieces of it ("addon:kafka" is in
-    "addon:kafka-desk"), a mapping by its keys, and the gate that asks for what the page showed would take them for it."""
+    nothing accepted. Anything else is a bad request: a text would be searched by pieces of it ("addon:kazoo" is in
+    "addon:kazoo-desk"), a mapping by its keys, and the gate that asks for what the page showed would take them for it."""
     found = req.body.get("accept")
     if found is None:
         return []
@@ -241,7 +241,7 @@ def accepted(req):
 def switch(req, kind, uid, do):
     """Starts or stops an add-on or a setup. The plan is made again: it must not be blocked, and what it stops or
     turns off besides the item itself must be what the page showed and sent back in `accept`. The job is named as
-    its button: "Turn on Kiosk", "Turn off Kafka". A start that names a `place` runs the item there (it is
+    its button: "Turn on Kiosk", "Turn off Kazoo". A start that names a `place` runs the item there (it is
     playgrounds.deploy_unit's)."""
     p = project.load()
     place = place_of(req.body.get("place")) if do == "start" else None
@@ -332,12 +332,6 @@ def reseed_playground(req, pid):
     return playgrounds.reseed(project.load(), pid, **more, **({"accept": accept} if more else {}))
 
 
-def stop_playground(req, pid):
-    """Stops a playground, and deletes what it created where it is asked to: every place that holds a record."""
-    return playgrounds.stop(project.load(), pid, bool(req.body.get("remove")), accepted(req),
-                            **at(req.body.get("place")))
-
-
 def delete(req, kind, uid):
     """Deletes an item of this machine; a playground that names a `place` is not deleted: what its seed created in that
     place is. A place is never This machine here, whose record is Stop's: asking for it must not delete the folder."""
@@ -357,13 +351,8 @@ def changed(uid, result):
     return result
 
 
-def check_platform(req, pid):
-    found = platforms.check(pid, project.load())
-    return changed(pid, found)
-
-
 def register_platform(req):
-    record = platforms.add(**fields(req, "name", "kind", "url", "token", "account"))
+    record = platforms.add(**fields(req, "url", "token", "account"))
     return changed(record["id"], record)
 
 
@@ -479,12 +468,6 @@ def core_plan(req):
     return {"dialog": found["dialog"], "needed": found["needed"]}
 
 
-def stack_action(req, name):
-    """An action of the platform; the Dashboard's Start all and Stop all say `core`: they follow where API
-    Management runs."""
-    return stack.action(project.load(), name, for_core=bool(req.body.get("core")), accept=accepted(req))
-
-
 def cancel(req, jid):
     job = JOBS.get(jid)
     job.cancel()
@@ -492,11 +475,10 @@ def cancel(req, jid):
 
 
 def add_catalog(req):
-    """Add: the ticket of the check, or a listed catalog by its id, which is added with no check and no dialog. The
-    allowance of the dialog's choice may come with the ticket (`host`); the page sends it as a request of its own."""
+    """Add: the ticket of the check, or a listed catalog by its id, which is added with no check and no dialog."""
     if req.body.get("listed") is not None:
         return service.add_listed(req.body["listed"])
-    return service.add(req.body.get("ticket"), host=req.body.get("host") is True)
+    return service.add(req.body.get("ticket"))
 
 
 def update_catalog(req, ns, change):
@@ -520,33 +502,24 @@ def delete_catalog(req, ns):
     return service.remove(ns, keep_settings=req.body["keep_settings"])
 
 
-def use_catalog(req, kind, uid):
-    """Use the catalog version: the personal copy of an item the catalog now has gives its place to the catalog's."""
-    return contribute.use_catalog_version(project.load(), kind, uid)
-
-
-def destinations(p, kind, uid):
-    """The catalogs a personal item can be shared to, {"destinations": [...]}, for the first check of a share."""
-    return {"destinations": contribute.destinations(p, kind, uid)}
-
-
 def share_item(req, kind, uid):
-    """Share. With no `to` it is today's check and share: {file, problems, changes}, and a check also names the
-    catalogs it can go to (`destinations`); with `to`, a catalog's namespace, the check and the share of that destination."""
+    """Share. With `to`, a catalog's namespace, the check and the share of that destination; with none, a check names the
+    catalogs it can go to (`destinations`), and a share is refused."""
     p, body = project.load(), req.body
     to, check = body.get("to") or "", bool(body.get("check"))
     if not isinstance(to, str):
         raise ValueError("The destination must be text")
     if to:
         return contribute.share(p, kind, uid, to, check)
-    found = personal.share(kind, uid, check_only=check)
-    return {**found, **destinations(p, kind, uid)} if check else found
+    if not check:
+        raise ValueError("Choose where to share")
+    return {"destinations": contribute.destinations(p, kind, uid)}
 
 
 def created(req, make, *names, **given):
     """A new add-on, setup or playground from the form's fields. `catalog` (a catalog's namespace) says where it is kept: not
     given, it is Personal; the namespace of an editable folder catalog writes it there, and any other is `not_editable`
-    (personal.py). `shared`, the destination that was deleted, is ignored."""
+    (personal.py)."""
     asked = req.body.get("catalog")
     if asked is not None and not isinstance(asked, str):
         raise ValueError("The catalog must be text")
@@ -653,7 +626,7 @@ def stream_logs(req):
         with lock:
             if closed.is_set():
                 return None
-            logs = compose.spawn(command, subprocess.STDOUT)
+            logs = compose.spawn(command)
             if logs is not None:
                 followed.append(logs)
             return logs
@@ -672,21 +645,13 @@ def stream_logs(req):
 
 
 def stream_stats(req):
-    """The load of the lab's containers, an event a second: {cpu_percent, memory_used, containers, top, at}. The one
-    `docker stats` that reads it runs while a page follows the stream (dashboard.STATS); a closed page is noticed by the
-    write."""
+    """The load of the lab's containers, an event every few seconds (dashboard.load): {cpu_percent, memory_used, containers,
+    top, at}. Nothing reads it once no page follows the stream: a closed page is noticed by the write."""
     cores = dashboard.cores()
-    dashboard.STATS.join()
-    try:
-        req.sse_start()
-        while True:
-            dashboard.STATS.names = dashboard.lab_names()
-            load = dashboard.STATS.read(cores)
-            if load:   # none while the first sample is on its way
-                req.sse_send(load)
-            time.sleep(STATS_EVERY if load else 0.1)
-    finally:
-        dashboard.STATS.leave()
+    req.sse_start()
+    while True:
+        req.sse_send(dashboard.load(cores))
+        time.sleep(STATS_EVERY)
 
 
 def send_batches(req, lines):
@@ -745,7 +710,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("GET", "/api/images", lambda r: images_state(project.load())),
     ("GET", "/api/tags", lambda r: {"tags": images.tags(project.load(), r.query.get("component"),
                                                         r.query.get("registry")),
-                                    "local": sorted(images.local_images() or [])}),
+                                    "local": sorted(compose.image_ids() or [])}),
     ("GET", "/api/registry", lambda r: images.registry_status(project.load())),
     ("GET", "/api/files", lambda r: {"sections": files.sections(project.load(), r.query.get("path"))}),
     ("GET", "/api/files/content", lambda r: files.read(r.query.get("path"))),
@@ -759,7 +724,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", "/api/machine/act", lambda r: machine.act(r.body.get("id"))),
     ("GET", f"/api/playgrounds/{UNIT}/check",
      lambda r, pid: playgrounds.check(project.load(), pid, **at(r.query.get("place")))),
-    ("GET", f"/api/(addon|setup)s/{UNIT}/check", lambda r, kind, uid: check_unit(r, kind, uid)),
+    ("GET", f"/api/(addon|setup)s/{UNIT}/check", check_unit),
     ("GET", f"/api/playgrounds/{UNIT}/guide", lambda r, pid: {"markdown": playgrounds.guide(pid)}),
     ("GET", f"/api/playgrounds/{UNIT}/frame", frame),
     ("GET", f"/api/playgrounds/{UNIT}/terminal", terminal_stream),
@@ -786,7 +751,8 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", "/api/catalogs/import", lambda r: exports.receive(r.body.get("data"))),
     ("POST", "/api/kept-settings/delete", lambda r: kept_remove(r.body.get("folder"))),
     ("POST", "/api/catalogs/import/personal", lambda r: exports.to_personal(r.body.get("ticket"), allow=r.body.get("allow") is True)),
-    ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", use_catalog),
+    # Use the catalog version: the personal copy of an item the catalog now has gives its place to the catalog's
+    ("POST", f"/api/{KIND}s/{UNIT}/use-catalog", lambda r, kind, uid: contribute.use_catalog_version(project.load(), kind, uid)),
     ("POST", f"/api/{KIND}s/{UNIT}/move", lambda r, kind, uid: moving.plan(kind, uid) if r.body.get("check")
      else moving.move(kind, uid, bool(r.body.get("together")), allow=r.body.get("allow") is True)),
     ("POST", f"/api/{KIND}s/{UNIT}/copy", lambda r, kind, uid: moving.copy_plan(kind, uid) if r.body.get("check")
@@ -813,7 +779,7 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     # Reading a platform sends it the token kept for it: a POST, so that only the page asks (the Lab UI's header). What
     # changes a platform reads it again, for the places
     ("POST", "/api/platforms", register_platform),
-    ("POST", f"/api/platforms/{ID}/check", check_platform),
+    ("POST", f"/api/platforms/{ID}/check", lambda r, pid: changed(pid, platforms.check(pid, project.load()))),
     ("POST", f"/api/platforms/{ID}/delete", delete_platform),
     ("POST", f"/api/platforms/{ID}/name", lambda r, pid: changed(pid, platforms.rename(pid, r.body.get("name")))),
     ("POST", f"/api/platforms/{ID}/token", lambda r, pid: changed(pid, platforms.replace_account_token(
@@ -832,11 +798,13 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("POST", f"/api/(addon|playground)s/{UNIT}/containers/{DO}",
      lambda r, kind, uid, do: stack.unit_action(project.load(), kind, uid, do)),
     ("POST", f"/api/playgrounds/{UNIT}/start", start_playground),
-    ("POST", f"/api/playgrounds/{UNIT}/stop", stop_playground),
+    ("POST", f"/api/playgrounds/{UNIT}/stop", lambda r, pid: playgrounds.stop(project.load(), pid, bool(r.body.get("remove")), accepted(r))),
     ("POST", f"/api/playgrounds/{UNIT}/terminal", terminal_input),
     ("POST", f"/api/playgrounds/{UNIT}/terminal/close", terminal_close),
     ("POST", f"/api/playgrounds/{UNIT}/reseed", reseed_playground),
-    ("POST", "/api/stack/([a-z]+)", stack_action),
+    # An action of the platform; the Dashboard's Start all and Stop all say `core`: they follow where API Management runs
+    ("POST", "/api/stack/([a-z]+)", lambda r, name: stack.action(project.load(), name, for_core=bool(r.body.get("core")),
+                                                                 accept=accepted(r))),
     # Where API Management runs: This machine or a linked environment of a Cloud account. Starts and stops nothing
     ("POST", "/api/core", lambda r: core.choose(project.load(), r.body.get("place"))),
     # What an apply would recreate, of what is saved or with a change not saved yet: read only
@@ -930,7 +898,7 @@ class Handler(BaseHTTPRequestHandler):
                 return handler(self, *found.groups())
         raise paths.NotFound("Not found")
 
-    def read_json(self, limit=MAX_BODY):
+    def read_json(self, limit):
         size = self.headers.get("Content-Length") or "0"
         if not (size.isascii() and size.isdigit()):   # a negative number reads until the connection closes
             raise ValueError("The Content-Length must be a number of bytes")
@@ -1046,31 +1014,16 @@ def is_lab_ui(port):
         return False
 
 
-def warm_up():
-    """The lab read in the background, as the first state reads it: the page that opens a moment later finds it read. What
-    fails is said by the state the page asks for. Answers the thread."""
-    def read():
-        try:
-            snapshot()
-        except Exception:  # noqa: BLE001 - the state the page asks for says what failed
-            pass
-    thread = threading.Thread(target=read, name="lab-warm-up", daemon=True)
-    thread.start()
-    return thread
-
-
 def start_up():
-    """What the Lab does once its port is bound in this order: what a stop left of a change of Personal is put right, the
-    sweeper finishes what a stop left in the installs of the Lab and then in the folders of the catalogs that are linked (the
-    half copies a Share left), the intent of the first run is written and what has no copy is marked as downloading, the
-    background threads of the Lab start, and the lab is read once in the background (warm_up). Each step is local and fast
-    but the last ones, which return at once; a failure of one is said in a line and never keeps the Lab from serving, because
-    its row says what is wrong."""
+    """What the Lab does once its port is bound in this order: the sweeper finishes what a stop left in the installs of the Lab, what a
+    stop left of a change of Personal is put right, the intent of the first run is written and what has no copy is marked as downloading,
+    and the background threads of the Lab start. Each step is local and fast but the last ones, which return at once; a failure of one
+    is said in a line and never keeps the Lab from serving, because its row says what is wrong."""
     for what, step in (("finishing what a stop left", service.recover),
                        ("finishing a change of Personal that a stop left", moving.recover_at_start),
-                       ("sweeping what a share left", contribute.sweep), ("preparing the first run", firstrun.reconcile),
+                       ("preparing the first run", firstrun.reconcile),
                        ("starting the download of catalogs", firstrun.start_worker),
-                       ("starting the check for new versions", updates.start_checking), ("reading the lab", warm_up)):
+                       ("starting the check for new versions", updates.start_checking)):
         try:
             step()
         except Exception as error:  # noqa: BLE001 - the Lab serves whatever these find
@@ -1128,11 +1081,8 @@ def _serve(port, browser):
                      "again. One lab runs at a time")
         sys.exit(f"Port {port} is used by another program. Free it, or use another port: UI_PORT={port + 1} "
                  f"{command()} (the UIs of a playground do not show next to the guide on another port)")
-    # Once, from the main thread, before the move's download and before it serves: a closed terminal ends what runs
+    # Once, from the main thread, before it serves: a closed terminal ends what runs
     compose.stop_on_signals(gitx.stop_running)
-    if not layout.run():   # a folder of the layout before catalogs is moved before anything is served, or said why not
-        server.server_close()
-        sys.exit(1)
     server.daemon_threads = True   # an open log stream does not keep the Lab UI from stopping
     address(url, "Keep this terminal open: Ctrl+C stops the Lab UI, and the containers keep running.")
     start_up()
@@ -1180,7 +1130,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Gravitee Lab UI")
     parser.add_argument("--port", type=port_number, help="9000, or UI_PORT")
     parser.add_argument("--no-open", action="store_true", help="do not open the browser")
-    parser.add_argument("--check", action="store_true", help="check every add-on, setup and playground, then exit")
+    parser.add_argument("--check", action="store_true", help="check the core and the agent wiring, then exit")
     parser.add_argument("--list", action="store_true", help="print what is on and the consoles, then exit")
     parser.add_argument("--e2e", metavar="KIND:ID", help="start an add-on, a setup or a playground on a machine with no lab, "
                         "check that it works, remove what it made, then exit (for CI: see docs/maintaining.md)")
@@ -1188,15 +1138,11 @@ def main(argv=None):
                         "from 0; without it, the defaults of the core")
     parser.add_argument("--versions", metavar="JSON", help="with --e2e: a set of versions to try it on, as a set of "
                         "x-gravitee.tested is written ({\"APIM_VERSION\": \"4.13.1\"})")
-    parser.add_argument("--timeout", type=int, default=1800, metavar="SECONDS", help="with --e2e: how long the start may take")
-    parser.add_argument("--keep", action="store_true", help="with --e2e: leave what was started running, to look at it")
     args = parser.parse_args(argv)
     find_docker()
     missing = requirement()
     if missing and (args.check or args.list or args.e2e):
         sys.exit(missing)
-    if (args.check or args.list) and layout.pending():   # they read the lab and move nothing: the Makefile's words
-        sys.exit(layout.GUARD)
     layers.prepare()
     if args.check:
         sys.exit(check.run())
@@ -1212,6 +1158,6 @@ def main(argv=None):
                 given = json.loads(args.versions)
             except ValueError:
                 sys.exit("--versions is not JSON: write an object, for example {\"APIM_VERSION\": \"4.13.1\"}")
-        sys.exit(e2e.run(args.e2e, args.tested, args.timeout, args.keep, given=given))
+        sys.exit(e2e.run(args.e2e, args.tested, given=given))
     # The Lab UI that an update started again opens no browser: the page that asked for the update is there, and reloads
     return serve(args.port or configured_port(), not args.no_open and not os.environ.get(updates.RESTARTED))

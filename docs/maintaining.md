@@ -32,15 +32,15 @@ Then do these one-time steps on GitHub:
 5. Require full-SHA pinning of actions, and approval of workflow runs from outside collaborators (Settings > Actions >
    General).
 6. Delete the `ghcr.io` packages, Actions runs and caches that the repository does not use.
-7. Decide on a `CODEOWNERS` file and a code of conduct. Both are the owner's choice.
+7. Name your maintainers in `.github/CODEOWNERS`, which the sweep leaves as it is, and decide on a code of conduct.
 8. Check that the `REPOSITORY` constant in `lab-ui/web/js/dialogs/welcome.js` has the new address. The sweep rewrites it.
 
-A fork builds the images only when you run its *Lab images* workflow by hand, from `main`.
+A fork builds the seeder's image only when you run its *Lab images* workflow by hand, from `main`.
 
 ## End-to-end runs
 
-The **E2E** workflow starts the canary of the default catalog on the engine as a pull request leaves it, and every night on `main`; each
-catalog runs the same test (`e2e-run.yml`) for its own changes. It proves what the checks cannot: that the thing works. Its jobs and what they prove are in
+The **E2E** workflow starts the canary of the default catalog on the engine as a pull request leaves it, and every night on `main`. It proves
+what the checks cannot: that the thing works. Its jobs and what they prove are in
 [CONTRIBUTING.md](../CONTRIBUTING.md#what-ci-does). Two things need you, once.
 
 ### What it needs
@@ -54,24 +54,15 @@ catalog runs the same test (`e2e-run.yml`) for its own changes. It proves what t
    - `e2e-nightly`: no reviewer, deployment branches limited to `main`. It runs the nightly job, which is the code of `main` alone.
    - Optionally, in both, `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a read-only access token): Docker Hub counts what an address pulls
      and the runners share theirs, so that a heavy day can hit its limit.
-
-   `e2e.yml` passes these secrets by name to `e2e-run.yml`: GitHub gives a called workflow an environment secret only when its caller
-   names it, and an empty one otherwise, with no error.
 3. **Actions settings** (Settings > Actions > General): *Require approval for all outside collaborators*, and leave *Send write tokens* and
    *Send secrets to workflows from pull requests* off. Keep the default workflow permission at *Read repository contents*.
 4. **Branch protection** on `main`: require two checks, `CI result` and `E2E result`. `CI result` passes when every job of the CI
    workflow ended in success. `E2E result` fails when anything ended wrong, passes when there was nothing to try (documentation, say),
    and waits while a maintainer has not approved.
-5. **A `CODEOWNERS` file** that sends `.github/`, `docker-compose.yml`, `seeder/`, `lab-ui/` and `Makefile` to the maintainers, so that a
-   change to what runs with the license is read by one of them. The names are yours to give:
-
-   ```
-   /.github/             @OWNER/maintainers
-   /docker-compose.yml   @OWNER/maintainers
-   /Makefile             @OWNER/maintainers
-   /seeder/              @OWNER/maintainers
-   /lab-ui/              @OWNER/maintainers
-   ```
+5. **`.github/CODEOWNERS`** sends at least `.github/`, `docker-compose.yml`, `seeder/`, `lab-ui/` and `Makefile` to the maintainers, so
+   that a change to what runs with the license is read by one of them.
+6. **The catalog to try**: the repository variable `CATALOG_REPOSITORY` (`owner/name`), without which nothing is tried, and `CATALOG_REF`
+   for a known-good commit. While that catalog is private, the repository secret `CATALOG_DEPLOY_KEY`, a read-only deploy key of it.
 
 A runner has 4 CPUs and 16 GB of memory in a public repository, enough for the playgrounds that ask for 10 GB. Disk is the tighter limit:
 the job removes what the runner comes with and the lab does not use before it starts. If a job runs out of one or the other, use a larger
@@ -84,17 +75,10 @@ choose `e2e`, approve. **Read what you approve first**: the items, their Dockerf
 the `Makefile`, `seeder/` and `lab-ui/`. The workflow file a run uses is the one of the pull request, so a change to it is a change to
 what runs with the license. Approving all the waiting jobs of a run takes one click.
 
-A fork's pull request gets the jobs that need no secret. For the rest, after you have read it, push its commit to a branch of this
-repository: the same jobs run on that commit, and their checks, `E2E result` included, show on the pull request.
-
-```bash
-git fetch origin pull/<number>/head
-git push origin FETCH_HEAD:refs/heads/e2e/<number>
-```
-
-Delete the branch when the run ends (`git push origin --delete e2e/<number>`), and do it again, after reading them, for any commit the author
-pushes later. To run by hand, for the main branch or another of this repository: Actions > E2E > *Run workflow*, with `canary` or
-items as `kind:id` separated by spaces.
+A fork's pull request gets the jobs that need no secret. For the rest, after you have read it: Actions > E2E > *Run workflow* on `main`,
+with its number and the commit you read, and again, after reading them, for any commit the author pushes later. Never push a fork's commit
+to a branch of this repository: a push runs every workflow in it with the secrets. To try `main` or another branch of this repository, run
+it there and leave the number empty. *Items* is `canary`, or items as `kind:id` separated by spaces.
 
 ### Reading a result
 
@@ -155,5 +139,5 @@ Every morning, the workflow *Gravitee versions* compares the defaults of `docker
 newer one opens an issue with the label `gravitee-versions`, or updates the one that is open; the issue closes by itself once the
 defaults are the latest. To follow a release:
 
-1. Raise the default in `docker-compose.yml` and in the table of [Configuration](configuration.md#images-and-versions).
+1. Raise the default in `docker-compose.yml`.
 2. Start the platform on it, then each playground of the catalogs, and move their `x-gravitee.tested` sets to it.

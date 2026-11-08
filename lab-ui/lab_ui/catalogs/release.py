@@ -16,26 +16,23 @@ and its other lines stay as they are. Nothing else is ever pushed, `main` and th
 git here is the Lab's (`gitx`): no hook runs, and the person's own name and email sign the commit and the tag. Standard library
 only."""
 
-import json
 import os
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
+from .. import paths
 from . import gitx
-from .report import FORMATS, printable
+from .report import printable
 
 CATALOG = "catalog.yml"
 VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
-TAG = re.compile(r"v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
+TAG = re.compile("v" + VERSION.pattern)
 BLOCK = re.compile(r"x-gravitee-catalog:[ \t]*(?:#.*)?\r?")
 LINE = re.compile(r"(?P<head>[ \t]+version:[ \t]*)(?P<quote>[\"']?)(?P<number>[0-9]+\.[0-9]+\.[0-9]+)(?P=quote)(?P<tail>[ \t]*(?:#.*)?\r?)")
 SHOWN = 200
-NO_IDENTITY = ("Please tell me who you are", "Author identity unknown", "unable to auto-detect email address", "auto-detection is disabled",
-               "empty ident name", "no email was given")
 
 
 class ReleaseError(Exception):
@@ -79,13 +76,8 @@ def with_legacy(root: Path, text: str) -> str:
     """The text of catalog.yml with the fields of older Gravitee Labs made true (`manifest.with_legacy`): the `lab` the
     items of the catalog need when this Lab can say it (`check.folder_lab`), else the one the file has. A release is a version
     that older Labs read too, so it carries them."""
-    from . import manifest   # here and not above: the reader of catalog.yml, which the rest of this command does without
-    from ..library import check
-    try:
-        lab = check.folder_lab(root)
-    except (check.Unavailable, OSError, ValueError, gitx.CatalogError):
-        lab = None
-    return manifest.with_legacy(text, lab)
+    from . import manifest, standard   # here and not above: the reader of catalog.yml, which the rest of this command does without
+    return manifest.with_legacy(text, standard.legacy_lab(root))
 
 
 def _run(root, *args, timeout: float = 120):
@@ -121,8 +113,6 @@ def latest_tag(root) -> Optional[str]:
 
 
 def _check_version(root, version: str) -> None:
-    if not VERSION.fullmatch(version or ""):
-        raise ReleaseError("VERSION is three numbers, for example 1.5.0.")
     last = latest_tag(root)
     if last is not None and numbers(version) <= numbers(last[1:]):
         raise ReleaseError(f"VERSION {version} is not greater than the latest tag {last}. Fix: choose a higher version.")
@@ -204,24 +194,14 @@ def _prepare(root: Path, version: str, pr: bool, gh: Callable) -> List[str]:
     if made.code != 0:
         raise _fail(made, "The branch could not be made")
     try:
-        mode = file.stat().st_mode & 0o777
-        handle, tmp = tempfile.mkstemp(dir=str(root), prefix=".catalog.yml.")
-        try:
-            with os.fdopen(handle, "wb") as out:
-                out.write(text.encode("utf-8"))
-            os.chmod(tmp, mode)
-            os.replace(tmp, file)
-        except BaseException:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
+        paths.write_atomic(file, text, file.stat().st_mode & 0o777)
         added = _run(root, "add", "--", CATALOG)
         if added.code != 0:
             raise _fail(added, "git add failed")
         done = _run(root, "commit", "--quiet", "-m", f"Release {version}")
         if done.code != 0:
             text_ = done.err + done.out.decode("utf-8", "replace")
-            if any(each in text_ for each in NO_IDENTITY):
+            if any(each in text_ for each in gitx.NO_IDENTITY):
                 raise ReleaseError("git has no name and email for you. Fix: git config user.name and user.email, then run again.")
             raise ReleaseError("git commit failed: " + printable(text_).strip()[:SHOWN])
     except BaseException:
@@ -271,7 +251,7 @@ def _tag(root: Path, version: str) -> List[str]:
     made = _run(root, "tag", "-a", f"v{version}", "-m", f"Release {version}", tip)
     if made.code != 0:
         text = made.err
-        if any(each in text for each in NO_IDENTITY):
+        if any(each in text for each in gitx.NO_IDENTITY):
             raise ReleaseError("git has no name and email for you. Fix: git config user.name and user.email, then run again.")
         raise _fail(made, "The tag could not be made")
     return [f"Tagged v{version} on origin/main ({tip[:7]}). Nothing was pushed.", "", "Next",
@@ -279,20 +259,18 @@ def _tag(root: Path, version: str) -> List[str]:
 
 
 def main(argv: Optional[List[str]] = None, gh: Optional[Callable] = None) -> int:
-    """`catalog.py release VERSION [--tag] [--pr] [--format text or github or json]`: exit 0 when it worked, 2 when it refuses or
-    cannot be done (the line says why and what to do). `json` is one document, {version, step, lines}; the other two print the
-    lines, for there is nothing in them to annotate."""
+    """`catalog.py release VERSION [--tag] [--pr]`: exit 0 when it worked, 2 when it refuses or cannot be done (the line says why
+    and what to do)."""
     import argparse
 
     class Parser(argparse.ArgumentParser):
         def error(self, message):
             raise ReleaseError(f"catalog.py release: {message}")
-    parser = Parser(prog="catalog.py release", add_help=False)
+    parser = Parser(prog="catalog.py release")
     parser.add_argument("version")
     parser.add_argument("--tag", action="store_true")
     parser.add_argument("--pr", action="store_true")
     parser.add_argument("--dir", default=".")
-    parser.add_argument("--format", choices=FORMATS, default="text")
     try:
         args = parser.parse_args(list(argv if argv is not None else sys.argv[1:]))
         if args.tag and args.pr:
@@ -304,12 +282,5 @@ def main(argv: Optional[List[str]] = None, gh: Optional[Callable] = None) -> int
     except (gitx.CatalogError, OSError) as error:
         print(printable(getattr(error, "message", None) or str(error)), file=sys.stderr)
         return 2
-    if args.format == "json":
-        print(json.dumps({"lines": [printable(line) for line in lines], "step": "tag" if args.tag else "branch", "version": args.version},
-                         indent=2, sort_keys=True))
-        return 0
     print(printable("\n".join(lines), keep=("\n",)))
     return 0
-
-
-__all__ = ["ReleaseError", "edit_version", "latest_tag", "main", "numbers", "release"]

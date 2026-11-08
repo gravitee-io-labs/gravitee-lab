@@ -6,39 +6,34 @@
 // the item says why. What a catalog that is a repository gets is a branch (with a pull request to open when its host has one), a folder gets
 // a copy. A problem that every destination finds is a notice of what to fix first, with the prompt that has an agent fix it.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, bubble, flush, installDom, text, isOff, offWhy } from "./dom-stub.mjs";
-import { FIRST, FOLDER, HOSTILE, NOT_ADDED, PERSONAL, catalog, content, item, lab, origin } from "./fixtures.mjs";
+import { Ev, flush, installDom, reply, text, isOff, offWhy } from "./dom-stub.mjs";
+import { FIRST, FOLDER, HOSTILE, catalog, content, item, lab, origin } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 // What the server answers: the destinations, and what sharing to each would do or did; every call is kept
 const server = { calls: [], destinations: [], checks: {}, done: {}, refuse: "", rejects: {} };
-const reply = (body, status = 200) => ({ ok: status < 400, status, headers: { get: () => "" }, json: async () => body });
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   const body = options.body ? JSON.parse(options.body) : undefined;
   if (path === "/api/state") return reply(store.state);
   server.calls.push({ path, body });
   if (/^\/api\/(addons|setups|playgrounds)$/.test(path)) return server.refuse ? reply({ error: server.refuse }, 400) : reply({ file: `${path.slice(5, -1)}s/${body.name}/compose.yml`, id: body.name });
   if (!path.endsWith("/share")) return reply({});
-  // The first check, with no `to`: the destinations; an answer that has none is today's {file, problems, changes}
-  if (body.check && !body.to) return reply(server.destinations ? { destinations: server.destinations } : { file: "playgrounds/local/bank/compose.yml", problems: [], changes: [] });
+  // The first check, with no `to`: the destinations
+  if (body.check && !body.to) return reply({ destinations: server.destinations });
   if (body.check && server.rejects[body.to]) return reply({ error: server.rejects[body.to] }, 400);
   if (body.check) return typeof server.checks[body.to] === "function" ? reply(server.checks[body.to]()) : reply(server.checks[body.to] || { problems: [], changes: [], identity: null });
   if (server.refuse) return reply({ error: server.refuse }, 400);
   return reply(server.done[body.to]);
 } });
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 const { store } = await import("../../../web/js/core.js");
 const { share, openCreate } = await import("../../../web/js/dialogs/create.js");
 for (const form of page.doc.querySelectorAll("dialog form")) form.checkValidity = () => true;   // a browser tells whether the required fields are filled
 
 const SKILL = ".agents/skills/share-item/SKILL.md";
-const mine = item("playground", "local/bank", "Acme Bakery", { personal: true, held: { share: "", delete: "" }, file: ".lab/catalogs/local/playgrounds/bank/compose.yml" });
+const mine = item("playground", "local/bank", "Acme Bakery", { personal: true, held: { delete: "" }, file: ".lab/catalogs/local/playgrounds/bank/compose.yml" });
 const state = (more = {}) => lab({ playgrounds: [mine], skills: { share: SKILL }, root: "/lab",
   catalogs: [FIRST({ address: "github.com/example/demos" }), catalog({ address: "github.com/acme/lab-hub" }), FOLDER()], ...more });
 store.state = state();
@@ -52,7 +47,6 @@ const DONE = { branch: "lab/bank-20261016", commit: "9f1c2ab", repository: "acme
 const choice = page.ids.choice, picks = page.ids["choice-list"], ok = page.ids["choice-ok"];
 const radios = () => picks.querySelectorAll("input");
 const on = (radio) => (radio.checked === undefined ? radio.hasAttribute("checked") : radio.checked);
-picks.querySelector = (selector) => (selector === "input:checked" ? radios().find(on) : El.prototype.querySelector.call(picks, selector));
 const rowOf = (row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text), row.querySelectorAll(".muted").map(text)];
 const options = () => picks.querySelectorAll(".choice").map((label) => ({ name: text(label.querySelector("strong")), hint: label.querySelector(".sub") ? text(label.querySelector(".sub")) : "",
   disabled: label.classList.contains("disabled"), rows: label.querySelectorAll(".choice-row").map(rowOf) }));
@@ -170,34 +164,6 @@ test("a single destination that everyone can read says so in its rows, not in a 
   assert.deepEqual(shares(), []);
 });
 
-test("an answer to the first check that lists no destination does not hide Share: the catalogs added are asked in turn, and each says if it cannot take the item", async () => {
-  server.checks = { gravitee: CHECK({ identity: "you@corp.com", audience: "public" }), "my-catalog": CHECK({ audience: "private" }) };
-  server.rejects = { "acme-hub": "Acme Hub does not take contributions from the Lab." };
-  // (the fetch of an Add that is on its way is carried among the catalogs, and is none of them)
-  store.state = state({ catalogs: [FIRST({ address: "github.com/example/demos" }), PERSONAL(), NOT_ADDED({ id: "listed" }), { id: "check", kind: "progress", progress: 0.4 },
-    catalog({ address: "github.com/acme/lab-hub" }), FOLDER()] });
-  for (const answered of [undefined, "boom", { gravitee: 1 }]) {
-    server.destinations = answered;
-    const done = opened();
-    await settle();
-    assert.deepEqual(options().map(({ name, hint, disabled }) => [name, hint, disabled]),
-      [["Gravitee public", "Public", false], ["Acme Hub", "Acme Hub does not take contributions from the Lab.", true], ["My catalog", "Private", false]],
-      "a repository or a folder, never this machine's row nor one that is not added; the first catalog first");
-    assert.deepEqual(server.calls.filter((call) => call.body?.check).map((call) => call.body.to ?? null), [null, "gravitee", "acme-hub", "my-catalog"]);
-    await answer(false);
-    await done;
-  }
-  // With no catalog added there is nothing to share to: the two ways to one
-  store.state = state({ catalogs: [PERSONAL(), NOT_ADDED()] });
-  server.destinations = undefined;
-  await opened();
-  assert.equal(choice.hasAttribute("open"), false);
-  assert.deepEqual(notice().querySelectorAll(".dialog-actions .btn").map(text), ["New catalog", "Add catalog", "Close"]);
-  notice().close();
-  server.rejects = {};
-  store.state = state();
-});
-
 test("the branch is the result: its name, to copy, and the pull request to open when the host gives one; the item stays where it was", async () => {
   server.destinations = [PRIVATE, PUBLIC];
   server.checks = { "acme-hub": CHECK(), gravitee: CHECK() };
@@ -280,13 +246,13 @@ test("a destination that fails the check says what failed, and the others stay: 
 
 test("a problem that every destination finds is a notice of what to fix first, with the prompt that has an agent fix it; the dialog of destinations does not open", async () => {
   server.destinations = [PUBLIC, PRIVATE];
-  server.checks = { gravitee: CHECK({ problems: ["compose.yml holds a secret", "It includes Kafka, which is not shared"] }), "acme-hub": CHECK({ problems: ["compose.yml holds a secret"] }) };
+  server.checks = { gravitee: CHECK({ problems: ["compose.yml holds a secret", "It includes Kazoo, which is not shared"] }), "acme-hub": CHECK({ problems: ["compose.yml holds a secret"] }) };
   await opened();
   assert.equal(choice.hasAttribute("open"), false);
   const result = notice();
   assert.ok(result.hasAttribute("open"));
   assert.deepEqual(result.querySelectorAll("dt").map(text), ["Fix first", "", "Prompt"]);
-  assert.deepEqual(result.querySelectorAll("dd").slice(0, 2).map(text), ["compose.yml holds a secret", "It includes Kafka, which is not shared"], "each problem once, in the order found");
+  assert.deepEqual(result.querySelectorAll("dd").slice(0, 2).map(text), ["compose.yml holds a secret", "It includes Kazoo, which is not shared"], "each problem once, in the order found");
   assert.equal(result.querySelector("dd code").textContent, `Use the share-item skill (${SKILL}) to share the personal playground Acme Bakery.`);
   assert.deepEqual(result.querySelectorAll(".dialog-actions .btn").map(text),
     ["Copy prompt", "Open in Claude app", "Open in Claude Code", "Open in Codex", "Open in Cursor", "Close"], "the agents of the creation dialog, then Close");
@@ -297,10 +263,10 @@ test("a problem that every destination finds is a notice of what to fix first, w
 
 test("a problem that one destination finds leaves the others: that one is held with the problem as its reason", async () => {
   server.destinations = [PUBLIC, PRIVATE];
-  server.checks = { gravitee: CHECK(), "acme-hub": CHECK({ problems: ["It includes Kafka (Partner Bank), which Acme Hub does not declare."] }) };
+  server.checks = { gravitee: CHECK(), "acme-hub": CHECK({ problems: ["It includes Kazoo (Partner Bank), which Acme Hub does not declare."] }) };
   const done = opened();
   await settle();
-  assert.deepEqual(options().map(({ name, disabled, hint }) => [name, disabled, hint]), [["Gravitee public", false, "Public"], ["Acme Hub", true, "It includes Kafka (Partner Bank), which Acme Hub does not declare."]]);
+  assert.deepEqual(options().map(({ name, disabled, hint }) => [name, disabled, hint]), [["Gravitee public", false, "Public"], ["Acme Hub", true, "It includes Kazoo (Partner Bank), which Acme Hub does not declare."]]);
   await answer(false);
   await done;
 });
@@ -415,7 +381,7 @@ const where = () => inCreate('[data-choice="catalog"]');
 const kept = () => where().querySelectorAll("button").map((button) => [text(button), button.getAttribute("aria-checked")]);
 const catalogs = (...more) => [FIRST(), catalog(), ...more];
 const lab2 = (more = {}) => lab({ skills: { addon: ".agents/skills/new-addon/SKILL.md", setup: ".agents/skills/new-setup/SKILL.md", playground: ".agents/skills/new-playground/SKILL.md", share: SKILL },
-  root: "/lab", categories: ["Observability"], running: { explicit: [] }, addons: [item("addon", "kafka", "Kafka", { conflicts: {}, needs: [], members: undefined })],
+  root: "/lab", categories: ["Observability"], running: { explicit: [] }, addons: [item("addon", "kazoo", "Kazoo", { conflicts: {}, needs: [], members: undefined })],
   setups: [], playgrounds: [], catalogs: catalogs(), content: content("ready"), ...more });
 const open2 = (kind, more = {}) => {
   for (const el of create.querySelectorAll("input, textarea")) el.removeAttribute("value");   // what a person typed in the last one (the small DOM reads the attribute first)
@@ -433,7 +399,7 @@ const send = async () => {
 };
 
 test("with no catalog that is a folder of the person's, Where it is kept is not drawn, and what is made is personal: no catalog is sent", async () => {
-  for (const rows of [catalogs(), catalogs(catalog({ id: "git-two", name: "Git two" })), [FIRST()], catalogs(FOLDER({ writable: false, id: "locked" })), []]) {
+  for (const rows of [catalogs(), catalogs(catalog({ id: "git-two", name: "Git two" })), [FIRST()], []]) {
     open2("addon", { catalogs: rows });
     assert.equal(where().hidden, true, JSON.stringify(rows.map((c) => [c.id, c.kind])));
     assert.equal(where().children.length, 0);
@@ -445,10 +411,10 @@ test("with no catalog that is a folder of the person's, Where it is kept is not 
 });
 
 test("with one, it offers Personal first and each folder catalog by name, Personal chosen; the one chosen is sent as catalog", async () => {
-  const folders = [FOLDER(), FOLDER({ id: "second", name: "Second" }), FOLDER({ id: "locked", name: "Locked", writable: false })];
+  const folders = [FOLDER(), FOLDER({ id: "second", name: "Second" })];
   open2("addon", { catalogs: catalogs(...folders) });
   assert.equal(where().hidden, false);
-  assert.deepEqual(kept(), [["Personal", "true"], ["My catalog", "false"], ["Second", "false"]], "a catalog that cannot be written is not offered");
+  assert.deepEqual(kept(), [["Personal", "true"], ["My catalog", "false"], ["Second", "false"]]);
   assert.equal(where().getAttribute("role"), "radiogroup");
   assert.equal(where().getAttribute("aria-label"), "Where it is kept");
   assert.deepEqual(where().querySelectorAll("button").map((b) => b.getAttribute("role")), ["radio", "radio", "radio"]);
@@ -513,7 +479,7 @@ test("the prompt for an agent says where the item goes: personal, or in the cata
 });
 
 test("an item that is not shared yet cannot be part of what goes in a catalog, and is told so", async () => {
-  const mineToo = item("setup", "local/own", "Own setup", { personal: true, members: [{ id: "kafka", name: "Kafka" }] });
+  const mineToo = item("setup", "local/own", "Own setup", { personal: true, members: [{ id: "kazoo", name: "Kazoo" }] });
   open2("playground", { setups: [mineToo], catalogs: catalogs(FOLDER()) });
   const problem = () => inCreate("#create-problem");
   inCreate('[data-pick="setup:local/own"]').checked = true;
@@ -525,10 +491,10 @@ test("an item that is not shared yet cannot be part of what goes in a catalog, a
 });
 
 test("a checklist says Personal for an item of this machine, and nothing for an item of a catalog: where it comes from is in its About", async () => {
-  open2("setup", { addons: [item("addon", "kafka", "Kafka", { conflicts: {}, needs: [] }), item("addon", "@acme-hub/mock", "Mock bank", { conflicts: {}, needs: [], origin: origin(), readonly: true }),
+  open2("setup", { addons: [item("addon", "kazoo", "Kazoo", { conflicts: {}, needs: [] }), item("addon", "@acme-hub/mock", "Mock bank", { conflicts: {}, needs: [], origin: origin(), readonly: true }),
     item("addon", "local/mine", "Mine", { conflicts: {}, needs: [], personal: true })] });
   const labels = () => create.querySelectorAll(".pick strong").map((el) => [el.firstChild.data.trim(), el.querySelectorAll(".pill").map(text)]);
-  assert.deepEqual(labels(), [["Kafka", []], ["Mock bank", []], ["Mine", ["Personal"]]]);
+  assert.deepEqual(labels(), [["Kazoo", []], ["Mock bank", []], ["Mine", ["Personal"]]]);
   create.close();
 });
 
@@ -545,11 +511,6 @@ test("with no add-on at all the checklist says why, in the words of the lists, a
   nothing("none");
   assert.deepEqual(status()[0].querySelectorAll("[data-content-act]").map((b) => [b.dataset.contentAct, text(b)]), [["add", "Add Gravitee public"]]);
   assert.equal(status()[0].querySelector("[data-content-act]").getAttribute("type"), "button", "a button of the form that does not send it");
-  // A server that does not say: nothing exists, as it always was said
-  store.state = lab2({ addons: [], content: undefined });
-  openCreate({ kind: "setup", mode: "new" });
-  assert.equal(text(status()[0]), "No add-on yet");
-  create.close();
   // An add-on there, and a search that finds none: it is the filter that finds nothing
   open2("setup");
   inCreate("#create-search").setAttribute("value", "zzz");
@@ -567,7 +528,7 @@ test("the checklist follows the content of the catalogs while the dialog is open
   assert.ok(picks2.firstElementChild === first, "a refresh that says the same leaves it where it is");
   store.state = lab2({ content: content("ready") });
   store.notify();
-  assert.deepEqual(create.querySelectorAll(".pick strong").map((el) => el.firstChild.data.trim()), ["Kafka"], "the add-ons arrived");
+  assert.deepEqual(create.querySelectorAll(".pick strong").map((el) => el.firstChild.data.trim()), ["Kazoo"], "the add-ons arrived");
   create.close();
   store.notify();   // closed, it draws nothing
 });

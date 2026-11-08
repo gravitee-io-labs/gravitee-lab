@@ -87,7 +87,7 @@ def home() -> Path:
     return _HOME[0]
 
 
-def env(extra: Optional[Dict[str, str]] = None, when: Optional[int] = None) -> Dict[str, str]:
+def env(when: Optional[int] = None) -> Dict[str, str]:
     """The environment of the fixture's own git: a temporary home, no global or system configuration, a fixed
     author, and the dates of `when` (seconds since the epoch) when given."""
     base = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home()), "GIT_CONFIG_GLOBAL": os.devnull,
@@ -97,15 +97,15 @@ def env(extra: Optional[Dict[str, str]] = None, when: Optional[int] = None) -> D
             "GIT_CONFIG_KEY_1": "maintenance.auto", "GIT_CONFIG_VALUE_1": "false"}
     if when is not None:
         base["GIT_AUTHOR_DATE"] = base["GIT_COMMITTER_DATE"] = f"{when} +0000"
-    return {**base, **(extra or {})}
+    return base
 
 
-def git(*args: str, repo=None, input=None, extra: Optional[Dict[str, str]] = None, when: Optional[int] = None) -> str:
+def git(*args: str, repo=None, input=None, when: Optional[int] = None) -> str:
     """Runs git (the one found when the module was imported, whatever a test did to PATH since) and answers its output
     as text. A failure raises AssertionError with what git said. `repo` is a bare repository."""
     argv = [_GIT] + (["--git-dir", str(repo)] if repo is not None else []) + list(args)
     done = subprocess.run(argv, input=input if isinstance(input, bytes) else (input or "").encode(),
-                          capture_output=True, env=env(extra, when), timeout=60, cwd=tempfile.gettempdir())
+                          capture_output=True, env=env(when), timeout=60, cwd=tempfile.gettempdir())
     if done.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} failed: {done.stderr.decode(errors='replace')}")
     return done.stdout.decode("utf-8", "replace")
@@ -223,28 +223,17 @@ def force_push_over(repo, files: Files, message: str = "Rewrite") -> str:
     return _commit(repo, files, message, root=True, skip=86400)
 
 
-def bare(repo) -> Path:
-    """A bare repository to use as a remote: `repo` itself when it is one, else a bare clone beside it."""
-    repo = Path(repo)
-    if (repo / "HEAD").is_file() and not (repo / ".git").exists():
-        return repo
-    target = repo.with_name(repo.name + ".git")
-    if not target.exists():
-        git("clone", "--bare", "--quiet", "--", str(repo), str(target))
-    return target
-
-
 def url(repo) -> str:
     """The address of a repository as git is given it: a file URL."""
     return "file://" + str(Path(repo).resolve())
 
 
 @functools.lru_cache(maxsize=16)
-def filler(size: int, seed: str = "filler") -> bytes:
+def filler(size: int) -> bytes:
     """`size` bytes that do not compress, the same every time: a large file that is small to describe."""
     out, count = bytearray(), 0
     while len(out) < size:
-        out += hashlib.sha256(f"{seed}:{count}".encode()).digest()
+        out += hashlib.sha256(f"filler:{count}".encode()).digest()
         count += 1
     return bytes(out[:size])
 
@@ -291,17 +280,17 @@ def hostile_files() -> Files:
     }
 
 
-def make_dotgit_repo(folder, branch: str = "main") -> Path:
+def make_dotgit_repo(folder) -> Path:
     """A bare repository whose only commit has a tree with an entry named `.git`: git's own object check refuses it
     (`hasDotgit`), so a fetch of it with `fsckObjects` fails. A tree like it cannot be made by `update-index`."""
     folder = Path(folder)
     folder.parent.mkdir(parents=True, exist_ok=True)
     git("init", "--bare", "--quiet", "--template=", "--", str(folder))
-    git("symbolic-ref", "HEAD", f"refs/heads/{branch}", repo=folder)
+    git("symbolic-ref", "HEAD", "refs/heads/main", repo=folder)
     blob = git("hash-object", "-w", "--stdin", repo=folder, input="x\n").strip()
     tree = git("mktree", repo=folder, input=f"100644 blob {blob}\t.git\n").strip()
     sha = git("commit-tree", tree, "-m", "A tree with a .git entry", repo=folder, when=BASE_TIME).strip()
-    git("update-ref", f"refs/heads/{branch}", sha, repo=folder)
+    git("update-ref", "refs/heads/main", sha, repo=folder)
     return folder
 
 

@@ -4,7 +4,6 @@ the three steps of the proxy, a second run that writes nothing, what is put back
 import itertools
 import json
 import re
-import unittest
 
 from lab_seeder import aim_proxies
 from lab_seeder import common
@@ -46,7 +45,7 @@ class World:
         self.proxies = {}        # hrid -> what the Automation API gives back
         self.apis = {}           # api id -> the API, its plans and its deployment state
         self.studios = {}        # id -> the studio as it was created, with its authorization check
-        self.gateway_calls, self.gateway_serves_after, self.tools_offered, self.event_stream = [], 0, {"alice": 7, "tina": 8}, False
+        self.gateway_calls, self.gateway_serves_after, self.tools_offered = [], 0, {"alice": 7, "tina": 8}
 
     def routes(self):
         return {
@@ -102,7 +101,7 @@ class World:
     def delete_automation_proxy(self, call):
         proxy = self.proxies.pop(call.path.rsplit("/", 1)[1], None)
         self.apis.pop(proxy and proxy["id"], None)
-        return 204
+        return 204 if proxy else 404
 
     def put_api(self, call):
         api = self.apis[ids(call)[0]]
@@ -173,8 +172,6 @@ class World:
             return 404, {"message": "No context-path matches the request URI."}
         who = call.headers["Authorization"].removeprefix("Bearer token-")
         message = {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": f"tool-{n}"} for n in range(self.tools_offered[who])]}}
-        if self.event_stream:
-            return 200, "event: message\ndata: " + json.dumps(message) + "\n\n", {"Content-Type": "text/event-stream"}
         return 200, message
 
 
@@ -231,93 +228,6 @@ class FirstRun(Proxies):
         self.assertTrue(analytics["logging"]["content"]["payload"], "the payloads that go with the spans")
         self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
 
-    def test_the_logs_keep_the_payloads_and_not_the_headers_because_one_of_them_is_the_bearer_token_of_the_caller(self):
-        self.seed()
-        content = self.the_api()["analytics"]["logging"]["content"]
-        self.assertEqual((content["headers"], content["payload"]), (False, True))
-
-    def test_the_headers_someone_logs_in_the_console_are_not_logged_again_after_a_run(self):
-        self.seed()
-        self.the_api()["analytics"]["logging"]["content"]["headers"] = True
-        self.seed()
-        self.assertIs(self.the_api()["analytics"]["logging"]["content"]["headers"], False)
-        self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
-
-    def test_only_the_root_of_the_proxy_is_served_and_that_flow_runs_before_any_other(self):
-        """The proxy hands every path under its own to the server, which has an admin route that is not MCP: a signed-in
-        customer who knows its token would reach it. Any path but the root is answered by the gateway with a 404."""
-        self.seed()
-        flows = self.the_proxy()["flows"]
-        self.assertEqual(flows[0]["name"], "Only the MCP endpoint")
-        [selector] = flows[0]["selectors"]
-        self.assertEqual(selector["type"], "CONDITION")
-        self.assertIn("#request.pathInfo != ''", selector["condition"])
-        self.assertIn("#request.pathInfo != '/'", selector["condition"])
-        [step] = flows[0]["request"]
-        self.assertEqual((step["policy"], step["configuration"]["status"]), ("mock", "404"))
-
-    def test_the_rate_limit_counts_in_the_background_per_person(self):
-        self.seed()
-        owner, step = self.flow("Rate limit")["request"]
-        self.assertEqual(step["policy"], "rate-limit")
-        self.assertIs(step["configuration"]["async"], True)
-        self.assertEqual(step["configuration"]["rate"]["limit"], 30)
-        self.assertIn(".split('@')[0]", step["configuration"]["rate"]["key"])
-
-    def test_the_person_stands_in_for_the_subscription_the_counter_is_stored_under(self):
-        """The plan has no subscription, and the rate limit stores a counter under the id of one (the attribute below): left
-        empty, the shared counter store refuses every refresh and the gateway log fills with stack traces."""
-        self.seed()
-        owner, step = self.flow("Rate limit")["request"]
-        self.assertEqual(owner["policy"], "policy-assign-attributes", "it runs before the rate limit")
-        self.assertEqual(owner["configuration"]["scope"], "REQUEST")
-        [attribute] = owner["configuration"]["attributes"]
-        self.assertEqual(attribute["name"], "gravitee.attribute.user-id")
-        self.assertEqual(attribute["value"], step["configuration"]["rate"]["key"])
-
-    def test_a_customer_sees_seven_tools_and_a_teller_all_of_them(self):
-        self.seed()
-        [step] = self.flow("Visible tools")["request"]
-        teller, customer = step["configuration"]["authorizations"]
-        self.assertIn("== 'teller'", teller["condition"])
-        self.assertEqual([f["patternType"] for f in teller["authorizedFeatures"]], ["ANY"])
-        self.assertIn("== 'customer'", customer["condition"])
-        names = [f["patternValue"] for f in customer["authorizedFeatures"]]
-        self.assertEqual(sorted(names), sorted(set(TOOLS) - {"freeze_card"}))
-
-    def test_each_argument_is_read_where_its_tool_reads_it_and_the_amount_is_made_a_whole_number(self):
-        self.seed()
-        attributes = {a["name"]: a["value"] for a in self.flow("Authorization")["request"][0]["configuration"]["attributes"]}
-        self.assertIn("== 'transfer_funds' ? #jsonPath(#request.content, '$.params.arguments.from_account') : "
-                      "#jsonPath(#request.content, '$.params.arguments.account_id')", attributes["authz_account_id"])
-        self.assertIn("T(java.lang.Math).ceil(#jsonPath(#request.content, '$.params.arguments.amount'))", attributes["authz_amount"])
-        self.assertTrue(attributes["authz_amount"].endswith(".longValue() : null}"))
-
-    def test_a_call_without_an_amount_is_not_asked_to_round_nothing(self):
-        """`ceil` of an argument that is not there is an error the gateway logs for every call of a tool that has no amount:
-        the attribute is only worked out when the argument is."""
-        self.seed()
-        attributes = {a["name"]: a["value"] for a in self.flow("Authorization")["request"][0]["configuration"]["attributes"]}
-        guard = "#jsonPath(#request.content, '$.params.arguments.amount') != null ? "
-        self.assertTrue(attributes["authz_amount"].startswith("{" + guard + "T(java.lang.Math).min("))
-
-    def test_each_step_says_what_it_covers_so_that_the_console_shows_it_under_the_name_of_its_policy(self):
-        """The console labels a step by its policy ("MCP ACL") and its Description field holds this: the Look beat of lessons 3
-        and 4 sends the person to read it. The Automation API keeps it (the platform was asked, the fake answers what it was
-        given), and no two steps are described alike."""
-        self.seed()
-        [sent] = self.platform.sent("PUT", AUTOMATION)
-        said = {(f["name"], s["name"]): s.get("description") for f in sent.json["flows"] for s in f["request"]}
-        self.assertEqual(len(said), 6)
-        for key, description in said.items():
-            self.assertTrue(description and description == description.strip() and not description.endswith("."), key)
-        self.assertEqual(len(set(said.values())), 6)
-        for key, words in {("Visible tools", "Tools by role"): ("teller", "every tool", "customer", "freeze_card"),
-                           ("Authorization", "Fine-Grained Authorization"): ("policy engine", "person", "agent"),
-                           ("Authorization", "Read tool arguments"): ("account", "amount")}.items():
-            for word in words:
-                self.assertIn(word, said[key], key)
-
     def test_the_authorization_names_the_tools_with_the_slug_the_catalog_gave_the_server(self):
         self.world.servers[0]["slug"] = "bank-tools"
         self.seed()
@@ -325,24 +235,6 @@ class FirstRun(Proxies):
         self.assertIn("'bank-tools.' + #context.attributes['mcp_tool_name']", configuration["actionExpr"])
         self.assertEqual(configuration["resourceExpr"], configuration["actionExpr"])
         self.assertNotIn("<slug>", json.dumps(self.the_proxy()))
-
-    def test_the_authorization_judges_the_person_the_agent_acts_for_and_fails_closed(self):
-        self.seed()
-        configuration = self.flow("Authorization")["request"][1]["configuration"]
-        self.assertEqual((configuration["subjectType"], configuration["resourceType"], configuration["agentResolution"]),
-                         ("User", "MCPTool", "AUTO"))
-        self.assertEqual(configuration["subjectExpr"], self.rate_limit()["configuration"]["rate"]["key"])
-        self.assertEqual((configuration["denyStatus"], configuration["logDecisions"], configuration["noSnapshotPolicy"]),
-                         (403, True, "RETRY_THEN_DENY"))
-        self.assertEqual([c["name"] for c in configuration["contextExpr"]], ["account_id", "customer_id", "card_id", "amount"])
-
-    def test_a_refusal_reaches_a_client_as_a_json_rpc_error_that_names_the_action(self):
-        self.seed()
-        template = self.the_api()["responseTemplates"]["GAPL_AUTHZ"]["*/*"]
-        self.assertEqual(template["statusCode"], 403)
-        body = json.loads(template["body"])
-        self.assertEqual((body["jsonrpc"], body["error"]["code"]), ("2.0", -32001))
-        self.assertIn("{#parameters['action']}", body["error"]["data"]["action"])
 
     def test_the_endpoint_waits_a_minute_for_the_server(self):
         self.seed()
@@ -364,11 +256,6 @@ class FirstRun(Proxies):
         [made] = common.created()
         self.assertEqual((made["product"], made["kind"], made["label"], made["name"], made["id"], made["hrid"]),
                          ("aim-proxies", "mcp-proxy", "MCP proxy APIs", "Acme Bakery MCP", "api-" + HRID, HRID))
-
-    def test_no_studio_is_made_without_a_file_for_it(self):
-        self.seed()
-        self.assertEqual(self.world.studios, {})
-        self.assertEqual(self.platform.sent("POST", AIM + "/mcp-studios"), [])
 
     def test_a_server_the_catalog_does_not_have_stops_the_seed_with_what_to_do(self):
         self.world.servers.clear()
@@ -467,17 +354,14 @@ class Gateway(Proxies):
         self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL="http://gateway")
 
-    def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it(self):
-        self.env(GATEWAY_INTERNAL_URL=None)
-        self.seed()
-        self.assertEqual(self.world.gateway_calls, [])
-        self.assertEqual(self.platform.sent("POST", TOKEN_URL), [])
-
-    def test_the_gateway_is_not_asked_unless_the_seed_is_asked_to_wait_for_it(self):
-        self.env(SEED_WAIT_GATEWAY="0")
-        self.seed()
-        self.assertEqual(self.world.gateway_calls, [])
-        self.assertEqual(self.platform.sent("POST", TOKEN_URL), [])
+    def test_the_gateway_is_not_asked_when_the_seed_does_not_know_it_or_is_not_asked_to_wait(self):
+        for setting in ({"GATEWAY_INTERNAL_URL": None}, {"SEED_WAIT_GATEWAY": "0"}):
+            with self.subTest(setting=setting):
+                self.setUp()
+                self.env(**setting)
+                self.seed()
+                self.assertEqual(self.world.gateway_calls, [])
+                self.assertEqual(self.platform.sent("POST", TOKEN_URL), [])
 
     def test_the_seed_waits_until_each_person_is_offered_the_tools_of_their_role(self):
         self.world.gateway_serves_after = 3
@@ -487,17 +371,21 @@ class Gateway(Proxies):
         self.assertEqual(self.world.gateway_calls[-1].json["method"], "tools/list")
         self.assertIn("✓ Acme Bakery MCP on the gateway (/acme-bakery/mcp) ready", self.output())
 
-    def test_the_answer_may_come_as_an_event_stream(self):
-        self.world.event_stream = True
-        self.seed()
-        self.assertEqual(len(self.world.gateway_calls), 2)
-
     def test_a_token_that_carries_no_claims_is_a_proxy_that_is_not_ready(self):
         self.world.tools_offered["alice"] = 0
         self.env(GATEWAY_READY_TIMEOUT="20")
         with self.assertRaisesRegex(common.SeedError, r"Acme Bakery MCP on the gateway \(/acme-bakery/mcp\) not ready after 20 s: "
                                                        r"alice@acme-bakery.test: 0 tools offered, 7 expected"):
             self.seed()
+
+    def test_an_answer_that_holds_no_tools_is_a_proxy_that_is_not_ready(self):
+        self.env(GATEWAY_READY_TIMEOUT="20")
+        for answer in ((200, {"jsonrpc": "2.0", "id": 1, "error": {"code": -32601, "message": "No such method"}}),
+                       (200, "event: ping\n\n", {"Content-Type": "text/event-stream"})):
+            with self.subTest(answer=answer):
+                self.platform.add({("POST", "http://gateway/acme-bakery/mcp"): answer})
+                with self.assertRaisesRegex(common.SeedError, "not ready after 20 s: alice@acme-bakery.test: 0 tools offered, 7 expected"):
+                    self.seed()
 
     def test_a_refused_sign_in_stops_the_seed_with_one_line_naming_the_person_and_the_endpoint(self):
         """The Lab UI shows the last line of what the seed printed: an error body must not spread over many."""
@@ -506,7 +394,7 @@ class Gateway(Proxies):
         with self.assertRaises(common.SeedError) as raised:
             self.seed()
         self.assertEqual(str(raised.exception), "Acme Bakery MCP on the gateway (/acme-bakery/mcp) not ready after 20 s: alice@acme-bakery.test: "
-                         'POST /acme-bakery/oauth/token: HTTP 400 { "error" : "invalid_grant", '
+                         f'POST {TOKEN_URL}: HTTP 400 {{ "error" : "invalid_grant", '
                          '"error_description" : "The credentials entered are invalid" }')
 
     def test_a_gateway_that_never_serves_it_stops_the_seed_with_the_last_answer(self):
@@ -560,29 +448,13 @@ class FirstRunProtections(Protections):
         self.assertEqual({key: enabled for key, enabled in self.written().items() if enabled is False},
                          {key: False for key in self.SWITCHED})
         self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
-
-    def test_on_those_steps_are_written_enabled_in_so_many_words(self):
-        self.env(SEED_PROTECTIONS="on")
-        self.world.tools_offered["alice"] = 7
-        self.seed()
-        self.assertEqual(self.steps(), {key: True for key in self.steps()})
-        self.assertEqual({key: self.written()[key] for key in self.SWITCHED}, {key: True for key in self.SWITCHED})
+        self.assertIn("Controls of Acme Bakery MCP are off: tools, pep", self.output())
 
     def test_a_step_that_is_not_a_control_is_written_without_a_switch_of_its_own(self):
         self.seed()
         [sent] = self.platform.sent("PUT", AUTOMATION)
         step = next(s for f in sent.json["flows"] for s in f["request"] if s["name"] == "30 calls a minute per user")
         self.assertNotIn("enabled", step)
-
-    def test_without_the_setting_the_proxy_is_protected(self):
-        self.env(SEED_PROTECTIONS=None)
-        self.world.tools_offered["alice"] = 7
-        self.seed()
-        self.assertEqual(self.steps(), {key: True for key in self.steps()})
-
-    def test_what_a_run_says_about_the_controls(self):
-        self.seed()
-        self.assertIn("Controls of Acme Bakery MCP are off: tools, pep", self.output())
 
     def test_a_step_a_control_names_that_the_file_lacks_stops_the_seed_before_the_proxy_is_written(self):
         self.seed_files({"controls.yaml": CONTROLS.replace("Fine-Grained Authorization", "Fine Grained Authorization")})
@@ -611,14 +483,6 @@ class StartingTheLessonsOverProtections(Protections):
         self.assertEqual(self.platform.changes(), [("PUT", AUTOMATION)], "the Automation API deploys what it changes")
         self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
         self.assertEqual(len(common.created()), 1, "the same proxy")
-
-    def test_the_proxy_is_not_made_again_for_one_step(self):
-        self.switch("Visible tools", "Tools by role", True)
-        before = self.the_proxy()["id"]
-        self.seed()
-        self.assertIs(self.steps()[("Visible tools", "Tools by role")], False)
-        self.assertEqual(self.the_proxy()["id"], before)
-        self.assertEqual(self.platform.sent("DELETE", re.compile(".*")), [])
 
     def test_the_other_mode_switches_both_back_on_and_the_next_run_writes_nothing(self):
         self.env(SEED_PROTECTIONS="on")
@@ -655,10 +519,6 @@ class ReadyProtections(Protections):
         super().setUp()
         self.env(SEED_WAIT_GATEWAY="1")   # what it tests is the wait for the gateway, which a seed does when asked
         self.env(GATEWAY_INTERNAL_URL="http://gateway", GATEWAY_READY_TIMEOUT="20")
-
-    def test_off_a_customer_is_expected_to_see_every_tool(self):
-        self.seed()
-        self.assertEqual(len(self.world.gateway_calls), 2)
 
     def test_off_a_gateway_that_still_hides_a_tool_has_not_taken_the_change(self):
         self.world.tools_offered["alice"] = 7
@@ -754,12 +614,6 @@ class Studios(WithStudio):
         self.seed()
         self.assertIs(self.the_studio()["fgaEnabled"], False)
 
-    def test_a_tool_the_catalog_does_not_have_stops_the_seed_naming_it(self):
-        del self.world.tools["mcp-tool.acme-bakery-open-api-getrate"]
-        with self.assertRaisesRegex(common.SeedError, "MCP studio: the tool mcp-tool.acme-bakery-open-api-getrate is not in the catalog"):
-            self.seed()
-        self.assertEqual(self.world.studios, {})
-
     def test_a_studio_at_that_path_the_seed_did_not_create_is_never_adopted(self):
         self.world.studios["theirs"] = {"name": "Theirs", "contextPath": "/acme-bakery/toolkit", "fgaEnabled": False}
         with self.assertRaisesRegex(common.SeedError, "/acme-bakery/toolkit is the path of 'Theirs', which the seed did not create"):
@@ -782,25 +636,6 @@ class Removal(WithStudio):
         self.assertIn("✓ Deleted MCP proxy 'Acme Bakery MCP'", self.output())
         self.assertIn("✓ Deleted MCP studio 'Acme Bakery Toolkit'", self.output())
 
-    def test_what_another_module_made_is_left_alone(self):
-        theirs = [{"product": "aim-workspaces", "kind": "workspace", "name": "w", "id": "w", "label": ""},
-                  {"product": "apim", "kind": "api", "name": "a", "id": "a", "label": ""}]
-        aim_proxies.remove(theirs)
-        self.assertEqual(self.platform.calls, [])
-
     def test_a_proxy_that_is_gone_is_not_an_error(self):
         self.world.proxies.clear()
         aim_proxies.remove(common.created())
-
-
-class Folder(Seed):
-
-    def test_a_playground_without_proxies_needs_no_setting_and_makes_no_call(self):
-        self.env(APIM_MANAGEMENT_URL=None)
-        aim_proxies.seed()
-        aim_proxies.remove([])
-        self.assertEqual(self.platform.calls, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

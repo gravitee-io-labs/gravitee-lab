@@ -31,7 +31,7 @@ changed them since, and switches the frameworks off. The answers and the attesta
 aim_catalog deletes.
 """
 
-from .aim_catalog import fingerprint
+from .apim import digest_of
 from .common import SeedError, adopted, created, forget, has_seed, items, load, log, making, owned, record, seed_file
 from .gamma import CATALOG, Gamma
 
@@ -166,7 +166,6 @@ class Governance:
     def __init__(self):
         self.g = Gamma()
         self.aim = self.g.aim
-        self.agents = None   # the agents of the catalog, listed once
 
     def connect(self):
         self.g.connect(SECTION, lambda: self.aim.get("/approval-settings"), "Approvals and compliance")
@@ -230,9 +229,7 @@ class Governance:
             log(SECTION, f"✓ Framework on: {framework}")
 
     def agent(self, slug):
-        if self.agents is None:
-            self.agents = self.aim.rows("/catalog/agents", CATALOG)
-        found = next((a for a in self.agents if a["entityId"] == f"agent.{slug}"), None)
+        found = next((a for a in self.aim.rows("/catalog/agents", CATALOG) if a["entityId"] == f"agent.{slug}"), None)
         if found is None:
             raise SeedError(f"The agent 'agent.{slug}' is not in the catalog: seed/aim/agents registers it before")
         return found
@@ -263,7 +260,7 @@ class Governance:
         agent = self.agent(slug)
         name, base = agent["definition"]["name"], f"/compliance/agents/{agent['id']}"
         values = self.values(entry.get("metadata") or {})
-        digest, earlier, assessment = fingerprint(values), stored("compliance-answers", agent["id"]), None
+        digest, earlier, assessment = digest_of(values), stored("compliance-answers", agent["id"]), None
         if values and (earlier is None or earlier.get("digest") != digest):
             assessment = self.aim.put(f"{base}/metadata", json={"values": values}).json()
             record(SECTION, "compliance-answers", LABELS["compliance-answers"], name, agent["id"], digest=digest)

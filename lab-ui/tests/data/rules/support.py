@@ -13,7 +13,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set
 
 from lab_ui.catalogs import gitx
 from lab_ui.catalogs.report import Problem
-from lab_ui.catalogs.rules import Context, context
+from lab_ui.catalogs.rules import context
 from lab_ui.catalogs.tree import ListTree
 from tests import Case
 from tests import gitfixture
@@ -78,10 +78,6 @@ def codes(problems: Iterable[Problem]) -> Set[str]:
     return {each.code for each in problems}
 
 
-def ctx_for(listing: ListTree, **given) -> Context:
-    return context(listing, **given)
-
-
 def run(module, *changes, drop: Iterable[str] = (), base: Optional[dict] = None, **given) -> List[Problem]:
     """The problems a rule module finds in the good catalog with the changes."""
     listing = tree(*changes, drop=drop, base=base)
@@ -90,7 +86,8 @@ def run(module, *changes, drop: Iterable[str] = (), base: Optional[dict] = None,
 
 def timed(call: Callable, *args, **kwargs):
     """(answer, seconds) of a call: the seconds of processor it took, not the seconds that went by, because the machine of a
-    test run is shared and a loaded one makes a quick call slow."""
+    test run is shared and a loaded one makes a quick call slow. A hostile shape is bounded at 3 s: a pattern that backtracks takes
+    tens of seconds, a linear one about 0.5 s of a laptop at worst and three times that on a runner of GitHub."""
     start = time.process_time()
     answer = call(*args, **kwargs)
     return answer, time.process_time() - start
@@ -132,6 +129,17 @@ def tool() -> str:
 
 def tool_address() -> str:
     return "noreply@" + "anthropic" + ".com"
+
+
+def tracked(case) -> List[str]:
+    """The files git tracks in this checkout; the test is skipped outside a work tree."""
+    try:
+        done = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        done = None
+    if done is None or done.returncode != 0:
+        case.skipTest("this checkout is not a git work tree")
+    return [name.decode() for name in done.stdout.split(b"\0") if name]
 
 
 GIT = gitx.executable()

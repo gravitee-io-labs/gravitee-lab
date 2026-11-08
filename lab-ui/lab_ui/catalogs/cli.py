@@ -2,11 +2,11 @@
 catalog, check it, index it, add and update catalogs without a page, start over, write the file an employee needs, make a
 catalog from the template and keep it in step with the Lab's standard. `python3 -I lab-ui/catalog.py <command>`.
 
-    check [PATH or ID] [--ci] [--base COMMIT] [--pr NUMBER] [--online] [--history] [--strict] [--soft] [--error CODE]
+    check [PATH or ID] [--ci] [--base COMMIT] [--pr NUMBER] [--online] [--history] [--error CODE]
                                       every rule that needs no Docker and no network; a folder is read where it is
     explain CODE                      the long form of a rule code
     new DIR --id ID --name NAME --maintainers @A[,@B]   a catalog from the template          (standard.main_new)
-    upgrade [DIR] [--write] [--commit]  --fleet OWNER --lab-ref COMMIT       the managed files, at the Lab's level
+    upgrade [DIR] [--write]  --fleet OWNER --lab-ref COMMIT                  the managed files, at the Lab's level
                                                                              (standard.main_upgrade, fleet.main)
     release VERSION [--tag] [--pr]    prepare a release, then tag it                         (release.main)
     repo-settings [OWNER/REPO or DIR] audit and apply the repository standard on GitHub      (settings.main)
@@ -14,18 +14,15 @@ catalog from the template and keep it in step with the Lab's standard. `python3 
     link PATH [--allow-machine]       a folder as a catalog (a working copy takes the place of an installed one)
     unlink ID                         the way back; the folder is never touched
     add ADDRESS [--branch B] [--yes]  the preview, and with --yes the Add
-    provision                         the first start, from a terminal: download what has no copy yet, then migrate
+    provision                         the first start, from a terminal: download what has no copy yet
     list                              the catalogs and their state
     update ID [--yes [--confirm-history]]  undo ID [--yes]   the plan, and with --yes the change
     remove ID [--delete-settings]
     suggest ADDRESS --name NAME [--description TEXT] [--allow-machine]   one entry of the suggestions file
     reset [--empty]                   start over: the next start is a first run, or has no catalog at all
     index [PATH or ID] [--out FILE]   the generated catalog.json, of a folder as it is or of an added catalog
-    images ID [--dry-run]             build the images a catalog builds
-    matrix ID --changed BASE HEAD     the end-to-end matrix of a change
 
-The five commands marked with a module are run by it: everything after their name is handed over as it is. Of those,
-`new`, `upgrade` and `release` answer `--help` here (HELP): their modules have none, and `repo-settings` and `ci` have their own.
+The five commands marked with a module are run by it: everything after their name is handed over as it is, `--help` too.
 
 Exit 0 when it worked, 1 when it found a problem or an upgrade is pending or it was refused, 2 for a usage or environment error
 (not a catalog, a tool missing) or a fault of the tool (a crash is never
@@ -39,7 +36,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -62,9 +58,11 @@ from .report import Problem
 ENVIRONMENT = ("bad_address", "bad_address_secret", "folder_missing", "folder_not_catalog", "folder_not_shared",
                "branch_missing", "not_listed", "symlink_unsupported", "git_missing", "git_old", "docker_missing", "unread",
                "busy")
-FORMATS = ("text", "github", "json")
 SUGGEST_LIMIT = 50   # as many entries as the Lab reads of the suggestions file
 POLL = 0.2   # seconds between two looks at where a download is
+# Why, when the download needs Docker that does not answer: the Makefile's words, since nothing runs to download later
+NO_DOCKER = ("Docker is not ready. Start it, or install it with Compose 5.0 or later (see Prerequisites in docs/installation.md), then "
+             "start the Lab again.")
 # The phases of a download (firstrun.PHASES) as the terminal says them; one that is not here is not said
 PHASE_WORDS = {"probe": "Checking the address", "fetch": "Downloading the files", "stage": "Installing"}
 LAB = paths.ROOT   # the Lab checkout this command runs from: the folder that holds lab-ui
@@ -81,11 +79,11 @@ class Usage(Exception):
 def say(text=""):
     """A line on standard output. What a catalog wrote (a name, a reason, a problem of its catalog.yml) is shown as text: no
     control character or escape sequence of it reaches the terminal."""
-    print(check.printable(text), flush=True)
+    print(report.printable(text, "\n"), flush=True)
 
 
 def complain(text):
-    print(check.printable(text), file=sys.stderr, flush=True)
+    print(report.printable(text, "\n"), file=sys.stderr, flush=True)
 
 
 def _lab(name):
@@ -278,8 +276,6 @@ def _preview_lines(preview):
         lines.append(f"  Uses this machine: {use.get('name')} ({', '.join(use.get('what') or [])})")
     for need in rows.get("needs") or []:
         lines.append(f"  Needs: {need.get('name')} {need.get('min') or ''}".rstrip())
-    for found in rows.get("found") or []:
-        lines.append(f"  Settings found: {found.get('name')}")
     for one in preview.get("blocked") or []:
         lines.append(f"  Cannot run: {one.get('name')} ({'; '.join(one.get('reasons') or [])})")
     return lines
@@ -399,11 +395,9 @@ def _progress(firstrun, ns, stop):
 
 def provision(args):
     """The first start from a terminal, in the foreground (`make catalogs`, and `make update` after its pull). The intent is
-    written when catalogs.json does not exist, every git entry that has no copy is downloaded, and a folder of the layout
-    before catalogs is moved to theirs (layout.run, which downloads nothing more). Exit 1, with the line of the error, when
-    something fails. A closed terminal ends the download and the move it runs, as it ends the Lab UI's."""
+    written when catalogs.json does not exist, and every git entry that has no copy is downloaded. Exit 1, with the line of
+    the error, when something fails. A closed terminal ends the download it runs, as it ends the Lab UI's."""
     firstrun = _lab("firstrun")
-    layout = importlib.import_module("lab_ui.library.layout")
     compose.stop_on_signals(gitx.stop_running)
     firstrun.reconcile()
     failed = 0
@@ -422,13 +416,11 @@ def provision(args):
                 raise CatalogError(str(problem), str((row.get("state") or {}).get("reason") or problem), 400)
             say(f"Installed {(row or {}).get('name') or ns}")
         except CatalogError as error:   # the first start's line for Docker says it downloads later: nothing here does
-            complain(f"{ns}: {layout.NO_DOCKER if error.code == 'docker_missing' else error.message}")
+            complain(f"{ns}: {NO_DOCKER if error.code == 'docker_missing' else error.message}")
             failed += 1
         finally:
             stop.set()
             watcher.join()
-    if not layout.run(say, complain, download=False):   # the default catalog was tried above: once is enough
-        failed += 1
     return 1 if failed else 0
 
 
@@ -539,7 +531,7 @@ def _target(text):
     if os.path.isdir(named) and (pathlike or registry.entry(wanted) is None):
         return Target("folder", os.path.realpath(named), "")
     if pathlike or not re.fullmatch(paths.NS, wanted):
-        raise Usage(f"{check.printable(wanted)[:200]} is not a folder")
+        raise Usage(f"{report.printable(wanted)[:200]} is not a folder")
     if registry.entry(wanted) is None:
         raise Usage(f"{wanted} is neither a folder nor a catalog installed or linked here")
     return Target("catalog", os.path.realpath(Path(paths.ROOT) / paths.CATALOGS_DIR / wanted), wanted)
@@ -561,7 +553,7 @@ def _codes(values):
         for one in value.split(","):
             one = one.strip().upper()
             if not RULE_CODE.fullmatch(one):
-                raise Usage(f"--error takes rule codes such as ST05 or DF22, separated by commas: {check.printable(one)[:40]}")
+                raise Usage(f"--error takes rule codes such as ST05 or DF22, separated by commas: {report.printable(one)[:40]}")
             codes.append(one)
     return tuple(dict.fromkeys(codes))
 
@@ -642,7 +634,7 @@ def _items(target, folder, summary, args, notes):
         with check.scrubbed():
             built, inputs = check.loaded()
             try:
-                found = check.catalog_problems(target.ns, built, inputs, audited=True)
+                found = check.catalog_problems(target.ns, built, inputs)
             except check.ComposeGone:
                 return Items([], [], None, [check.NO_COMPOSE])
             return Items(check.as_problems(found, built, target.ns, (paths.ROOT, target.path)), check.catalog_files(target.ns),
@@ -659,7 +651,7 @@ def _items(target, folder, summary, args, notes):
     with check.temporary_link(folder, ns, needs, audiences) as linked, check.scrubbed():
         built, inputs = check.loaded()
         try:
-            found = check.catalog_problems(ns, built, inputs, audited=True)
+            found = check.catalog_problems(ns, built, inputs)
         except check.ComposeGone:
             return Items([], [], None, [check.NO_COMPOSE])
         hide = (linked.root / paths.CATALOGS_DIR / ns, linked.root, linked.lab, linked.folder)
@@ -703,38 +695,18 @@ def _write_unit_file(root, tree, entry):
         handle.write(data)
 
 
-class _TooBig(Exception):
-    """The download of a pull request went past what the Lab accepts of a repository."""
-
-
-def _watch_download():
-    """What `fetch` is given to read the progress of the download as it arrives (the same line as the Lab's own fetch reads,
-    store.parse_progress): it raises _TooBig as soon as git says it has received more than the store may hold, which stops git
-    there. A pull request of a stranger's fork is a hostile repository: its size is not left to be looked at after the whole of it
-    was written."""
-    pending = [""]
-
-    def feed(text):
-        *finished, pending[0] = re.split(r"[\r\n]", pending[0] + text)
-        pending[0] = pending[0][-2048:]
-        for line in finished:
-            parsed = bare.parse_progress(line)
-            if parsed is not None and parsed[1] is not None and parsed[1] > bare.STORE_LIMIT:
-                raise _TooBig()
-    return feed
-
-
 def _pull(spec, target, stack, notes):
     """Fetches a pull request of the origin into a bare store of this run (hooks and file system monitor off, every object
-    checked) and reads it from git objects (`GitTree`): no checkout, so no hook, no filter driver and no Makefile of the pull
-    request can run. Its history is the commits since the merge base with the origin's main. The files the Lab would install
+    checked), stopped as soon as git says it has received more than a store may hold: a pull request of a stranger's fork is a
+    hostile repository. It reads it from git objects (`GitTree`): no checkout, so no hook, no filter driver and no Makefile of the
+    pull request can run. Its history is the commits since the merge base with the origin's main. The files the Lab would install
     (store.selected: no link, no special file) are written in a temporary folder, for Compose to read."""
     if target.kind != "folder":
         raise Usage("--pr reads a pull request of the origin of a folder, not an added catalog")
     done = gitx.run(["remote", "get-url", "origin"], cwd=target.path, timeout=10)
     origin = done.out.decode("utf-8", "replace").strip() if done.code == 0 else ""
     if not origin:
-        raise Usage(f"{check.printable(target.path)} has no origin remote: --pr fetches the pull request from it")
+        raise Usage(f"{report.printable(target.path)} has no origin remote: --pr fetches the pull request from it")
     number = _pull_number(spec, origin)
     address = gitx.checked(gitx.parse_address(origin))
     holder = Path(tempfile.mkdtemp(prefix="gravitee-lab-pr-")).resolve()
@@ -745,8 +717,8 @@ def _pull(spec, target, stack, notes):
         fetched = gitx.stream(["--git-dir", str(store), "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true",
                                "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "fetch", "--progress", "--no-tags",
                                "--no-recurse-submodules", "--", address.url, f"+refs/pull/{number}/head:refs/lab/pr",
-                               "+refs/heads/main:refs/lab/base"], env=gitx.address_env(address), on_stderr=_watch_download())
-    except _TooBig:
+                               "+refs/heads/main:refs/lab/base"], env=gitx.address_env(address), on_stderr=bare._Download(None).feed)
+    except bare._TooBig:
         raise gitx.fail("too_large", address) from None
     if fetched.code != 0:
         problem = gitx.classify(fetched.err, address)
@@ -781,43 +753,16 @@ def _pull(spec, target, stack, notes):
     return Pulled(str(folder), options, seeder)
 
 
-def _tidy(text, problems):
-    """The text of a check as `make check` prints it, for a problem that has no code (what the rules of the items say: the standard
-    has none for them): its line starts where the others' code does, and the verdict does not send to `make explain` with no code."""
-    text = re.sub(r"(?m)^     (?! )", "    ", text)
-    lines = text.split("\n")
-    last = max((number for number, line in enumerate(lines) if line.strip()), default=None)
-    tail = ". Run make explain CODE= for more."
-    if last is not None and lines[last].endswith(tail):
-        coded = [one for one in problems if one.severity in (report.ERROR, report.WARNING) and one.code]
-        lines[last] = lines[last][:-len(tail)]
-        if coded:
-            first = sorted(coded, key=lambda one: (one.severity != report.ERROR, one.path, int(one.line or 0), one.code))[0]
-            lines[last] += f". Run make explain CODE={check.printable(first.code)} for more."
-    return "\n".join(lines)
-
-
-UNTITLED = (re.compile(r"^(::(?:error|warning|notice) [^:\n]*),title=::", re.M), re.compile(r"^(::(?:error|warning|notice)) title=::", re.M))
-
-
-def _untitled(text):
-    """The annotations without the empty `title=` of a finding that has no code. Only the properties of a command are touched (they
-    hold no colon: a colon in a value is escaped), never the message after them."""
-    for pattern in UNTITLED:
-        text = pattern.sub(r"\1::", text)
-    return text
-
-
 def _render(found, files, skipped, fmt, verbose, header, ci):
     """The report of a check in the format asked. What was not checked is never left out: `text` says it with the verdict, `github`
     as an annotation (an error under --ci) and `json`, which is a list of problems, on standard error."""
     if fmt == "text":
-        return _tidy(report.render(found, "text", checked=files, skipped=skipped, verbose=verbose, header=header), found), ""
+        return report.render(found, "text", checked=files, skipped=skipped, verbose=verbose, header=header), ""
     if fmt == "github":
         level = "error" if ci else "warning"
-        extra = "".join(f"::{level} title=check::{report.escape_data(check.printable('Not checked: ' + why))}\n" for why in skipped)
-        return _untitled(report.render(found, "github", verbose=verbose)) + extra, ""
-    return report.render(found, "json", verbose=verbose), "".join(f"Not checked: {check.printable(why)}\n" for why in skipped)
+        extra = "".join(f"::{level} title=check::{report.escape_data(report.printable('Not checked: ' + why))}\n" for why in skipped)
+        return report.render(found, "github", verbose=verbose) + extra, ""
+    return report.render(found, "json", verbose=verbose), "".join(f"Not checked: {report.printable(why)}\n" for why in skipped)
 
 
 def _write_summary(found, skipped):
@@ -833,10 +778,6 @@ def _write_summary(found, skipped):
         complain(f"catalog.py: the summary could not be written: {error.strerror or error}")
 
 
-SD11 = "The Lab commit {sha7} is not a release of the Lab. Fix: pin the latest release (catalog.py upgrade --lab-ref latest)."
-WORKFLOW = re.compile(r"^[ \t-]*uses:[ \t]*([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/\.github/workflows/[A-Za-z0-9._-]+@([0-9a-f]{40})\b", re.M)
-
-
 def _line_of(text, needle):
     """The line (from 1) of a text that holds `needle`, else 0."""
     return next((number for number, line in enumerate(text.split("\n"), 1) if needle in line), 0)
@@ -850,9 +791,8 @@ def _on_main(sha):
 
 
 def _pin_problems(tree, notes):
-    """SD11 for `check --online`: the commit of the Lab that `.github/standard.json` pins, and the commit of each reusable caller
-    (`uses: <the Lab>/.github/workflows/...@<commit>`), has to be a release of the Lab (a tag vX.Y.Z on its `origin/main`), as the
-    Lab checkout that runs this knows it. A pin it cannot place is said, never taken for fine."""
+    """SD11 for `check --online`: the commit of the Lab that `.github/standard.json` pins has to be a release of the Lab (a tag
+    vX.Y.Z on its `origin/main`), as the Lab checkout that runs this knows it. A pin it cannot place is said, never taken for fine."""
     data = tree.read(".github/standard.json", 4097)
     if data is None or len(data) > 4096:
         return []
@@ -861,23 +801,17 @@ def _pin_problems(tree, notes):
     except (ValueError, RecursionError):
         return []
     lab = standard.get("lab") if isinstance(standard, dict) and isinstance(standard.get("lab"), dict) else {}
-    pins = {}
-    if isinstance(lab.get("ref"), str) and FULL_COMMIT.fullmatch(lab["ref"]):
-        pins[lab["ref"]] = (".github/standard.json", _line_of(data.decode("utf-8", "replace"), lab["ref"]))
-    for entry in tree.entries():
-        if entry.mode in trees.REGULAR and re.fullmatch(r"\.github/workflows/[^/]+\.ya?ml", entry.path):
-            text = tree.text(entry.path) or ""
-            for found in WORKFLOW.finditer(text):
-                if found.group(1) == lab.get("repository"):
-                    pins.setdefault(found.group(2), (entry.path, text.count("\n", 0, found.start()) + 1))
-    problems = []
-    for sha, (where, line) in pins.items():
-        state = _on_main(sha)
-        if state == "no":
-            problems.append(Problem("SD11", report.ERROR, where, line, SD11.format(sha7=sha[:7])))
-        elif state != "yes":
-            notes.append(f"SD11: {state}")
-    return problems
+    sha = lab.get("ref")
+    if not isinstance(sha, str) or not FULL_COMMIT.fullmatch(sha):
+        return []
+    state = _on_main(sha)
+    if state == "no":
+        line = _line_of(data.decode("utf-8", "replace"), sha)
+        message = _lab("standard").RULES["SD11"].message.format(sha7=sha[:7])
+        return [Problem("SD11", report.ERROR, ".github/standard.json", line, message)]
+    if state != "yes":
+        notes.append(f"SD11: {state}")
+    return []
 
 
 def _base_asked(args):
@@ -894,15 +828,15 @@ def run_check(args):
     """`audit.run` (the families SD, ST, SE, CR, WF, DF, GD, CO and IM over the files and the commits since origin/main), then the
     items (`catalog_problems`, the trust policy, naming, ports, `lab`) when Compose 5 can read them. A folder is read where it is:
     nothing is linked into the Lab and nothing is written. The report is text (what `make check` prints), `github` annotations or a
-    JSON list of {code, severity, path, line, message}. Exit 1 when it found an error (a warning too with --strict) or skipped
-    something, 0 with --soft, 2 under --ci when it could not read what a check needs, and for a catalog that is not here."""
+    JSON list of {code, severity, path, line, message}. Exit 1 when it found an error or skipped something, 2 under --ci when it
+    could not read what a check needs, and for a catalog that is not here."""
     if args.pr is not None and args.base is not None:
         raise Usage("--base cannot be combined with --pr: the base of a pull request is main")
     fmt = args.format or ("github" if args.ci else "text")
     error = _codes(args.error)
     target = _target(args.target)
     if target.kind == "folder" and args.pr is None and not _is_catalog(target.path):
-        raise Usage(f"{check.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
+        raise Usage(f"{report.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
     notes = []
     why = check.compose_missing()
     installed = target.kind == "catalog" and (registry.entry(target.ns) or {}).get("kind") == "git"
@@ -916,8 +850,7 @@ def run_check(args):
             items = _items(target, folder, check.folder_summary(folder), args, notes)
         has_seeder = pulled.has_seeder if pulled else os.path.lexists(Path(target.path) / "seeder")
         base, history = _base_asked(args)
-        how = dict(base=base, soft=args.soft, error=error, strict=args.strict, online=args.online, history=history,
-                   verbose=args.verbose, ci=args.ci, units=items.units, lab=Path(paths.ROOT),
+        how = dict(base=base, error=error, online=args.online, history=history, ci=args.ci, units=items.units,
                    seeder_paths=("../../../seeder",) if has_seeder else ("../../../seeder", "seeder"))
         how.update(pulled.options if pulled else {})
         options = audit.Options(**how)
@@ -928,8 +861,6 @@ def run_check(args):
     kept = [one for one in result.problems if not (installed and (one.code == "ST17" or install.machine_name(one.path)))]
     problems = [*kept, *items.problems, *pins]
     skipped = [*result.skipped, *notes, *items.skipped, *([why] if why else [])]
-    if args.soft:
-        problems = [one._replace(severity=report.WARNING) if one.severity == report.ERROR else one for one in problems]
     skipped = list(dict.fromkeys(skipped))
     result = result._replace(problems=problems, skipped=skipped)
     out, err = _render(problems, items.files, skipped, fmt, args.verbose, result.header, args.ci)
@@ -981,7 +912,7 @@ def index(args):
             text = manifest.render_index(manifest.build_index(target.ns))
     else:
         if not _is_catalog(target.path):
-            raise Usage(f"{check.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
+            raise Usage(f"{report.printable(args.target or '.')[:200]} is not a catalog: it has no catalog.yml")
         text = _folder_index(target.path)
         if text is None:
             return 1
@@ -993,99 +924,19 @@ def index(args):
     return 0
 
 
-@contextlib.contextmanager
-def _process_environment(new):
-    """The environment of this process is `new` for the length of the block, and what it was after. For a script of the engine that
-    starts Compose with the environment it finds (.github/scripts/lab_images.py) while it reads the files of a catalog."""
-    before = dict(os.environ)
-    os.environ.clear()
-    os.environ.update(new)
-    try:
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(before)
-
-
-def _lab_images():
-    """The engine's builder of images (.github/scripts/lab_images.py), whose label and tag logic a catalog's builder shares."""
-    script = Path(paths.ROOT) / ".github" / "scripts" / "lab_images.py"
-    if not script.is_file():
-        raise Usage("this engine has no .github/scripts/lab_images.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("lab_images", script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def images(args):
-    """The images the units of a catalog build, with the engine's label and tag logic and the prefix of the catalog's
-    `images`: printed with --dry-run, built and pushed otherwise. The seeder is the engine's, and is not built here. A build runs
-    in the build environment (compose.build_environment): the person's own HOME and DOCKER_CONFIG, for their credentials, and
-    nothing else of the shell."""
-    _compose()
-    try:
-        check.available(args.id)
-    except check.Unavailable as error:
-        raise Usage(str(error)) from None
-    with check.scrubbed():
-        meta = manifest.read_catalog(f"{paths.CATALOGS_DIR}/{args.id}/{manifest.FILE}")
-    if meta.get("images") and not os.environ.get("REGISTRY"):
-        os.environ["REGISTRY"] = meta["images"]
-    builder = _lab_images()
-    folder = Path(paths.ROOT) / paths.CATALOGS_DIR / args.id
-    found = {}
-    with _process_environment(compose.scrubbed_environment()):   # the engine's script starts Compose with the environment it has
-        for item in builder.items([folder / "addons", folder / "playgrounds"]):
-            found.update(builder.builds(item))
-    seeder = Path(builder.SEEDER).resolve()
-    found = {name: build for name, build in found.items() if Path(build["context"]).resolve() != seeder}
-    registry_name, commit, source = builder.settings(args.dry_run)
-    for name, build in sorted(found.items()):
-        say(f"== {registry_name}/{name}")
-        command = builder.command(registry_name, name, build, commit, source)
-        if args.dry_run:
-            say(" ".join(command))
-            continue
-        try:
-            subprocess.run(command, check=True, env=compose.build_environment())
-        except subprocess.CalledProcessError as error:
-            complain(f"{registry_name}/{name}: the build failed (exit {error.returncode})")
-            return 1
-    return 0
-
-
-def matrix(args):
-    """The end-to-end matrix of the items a change touches (lab_ui.e2e.plan), as JSON on standard output."""
-    from .. import e2e   # only this command needs it
-    _compose()
-    try:
-        found = e2e.plan(args.id, project.load(), changed=tuple(args.changed))
-    except e2e.PlanError as error:
-        raise Usage(str(error)) from None
-    say(json.dumps(found, indent=2))
-    return 0
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # explain, and the commands that the modules of the standard run: new, upgrade, release, repo-settings, ci
 # ---------------------------------------------------------------------------------------------------------------------
 
 def explain_command(args):
-    """The long form of a rule code: the rule, why it exists, the fix in full and what the Lab does with the same file at Add.
-    A text that is no code is a usage error, with the families that exist."""
+    """The long form of a rule code: the rule, its fix and why it exists. A text that is no code is a usage error, with the
+    families that exist."""
     explain = _lab("explain")
     code = args.code.strip().upper()
-    table = explain.table()
-    if code not in table:
+    if code not in explain.table():
         complain(explain.explain(args.code).rstrip("\n"))
         return 2
-    entry = table[code]
-    if args.format == "json":
-        sys.stdout.write(json.dumps(entry._asdict(), indent=2, sort_keys=True, ensure_ascii=True) + "\n")
-    else:
-        sys.stdout.write(check.printable(explain.explain(code)))
+    sys.stdout.write(report.printable(explain.explain(code), "\n"))
     sys.stdout.flush()
     return 0
 
@@ -1097,44 +948,16 @@ DELEGATED = {"new": ("standard", "main_new"), "upgrade": ("standard", "main_upgr
              "repo-settings": ("settings", "main"), "ci": ("ci", "main")}
 
 
-# What `catalog.py COMMAND --help` says for the commands whose module answers no help of its own (their parsers stop at the first
-# word they do not know, so the dispatcher says it): the words of the command and its usage line. `repo-settings` and `ci` are not
-# here: their modules list their options and their stages.
-HELP = {
-    "new": ("a catalog from the template of the standard, rendered into an empty folder",
-            "catalog.py new DIR --id ID --name NAME --maintainers @A[,@B or @ORG/TEAM] [--license SPDX] [--images PREFIX]\n"
-            "                [--description TEXT] [--security-contact ADDRESS] [--lab-repo OWNER/REPO] [--lab-ref COMMIT]\n"
-            "                [--platforms LIST] [--form inline|reusable] [--with e2e] [--local]"),
-    "upgrade": ("bring the managed files of a catalog to the level of this Lab, or of every catalog of an owner",
-                "catalog.py upgrade [DIR] [--write] [--commit] [--lab-ref COMMIT|latest] [--refresh-pins] [--adopt]\n"
-                "                   [--replace PATH] [--form inline|reusable] [--with e2e] [--maintainers @A] [--lab-repo OWNER/REPO]\n"
-                "                   [--format text|json]\n"
-                "catalog.py upgrade --fleet OWNER --lab-ref COMMIT [--format text|json|github]"),
-    "release": ("prepare a release of a catalog, then tag it",
-                "catalog.py release VERSION [--tag] [--pr] [--dir DIR]"),
-}
-
-
 def _fleet(rest):
     """Whether the words after `upgrade` are the loop over the catalogs of an owner (`--fleet OWNER`)."""
     return any(word == "--fleet" or word.startswith("--fleet=") for word in rest)
 
 
-def _help(command):
-    """The help of a delegated command that has none of its own: what it does and its usage line, on standard output."""
-    text, usage = HELP[command]
-    say(f"{text}\n\nusage: {usage}")
-    return 0
-
-
 def delegate(args):
     module, function = DELEGATED[args.command]
     rest = list(args.rest)
-    fleet = args.command == "upgrade" and _fleet(rest)
-    if fleet:
+    if args.command == "upgrade" and _fleet(rest):
         module, function = "fleet", "main"
-    elif args.command in HELP and any(word in ("-h", "--help") for word in rest):
-        return _help(args.command)
     return getattr(_lab(module), function)(rest)
 
 
@@ -1148,10 +971,6 @@ def parser():
         sub = commands.add_parser(name, help=text, description=text)
         sub.set_defaults(function=function)
         return sub
-
-    def formatted(sub):
-        sub.add_argument("--format", choices=FORMATS, help="text, github annotations or json (default text)")
-        return sub
     sub = one("link", link, "link a folder as a catalog")
     sub.add_argument("path")
     sub.add_argument("--allow-machine", action="store_true", help="allow its items to use this machine")
@@ -1161,7 +980,7 @@ def parser():
     sub.add_argument("address")
     sub.add_argument("--branch")
     sub.add_argument("--yes", action="store_true", help="add it, after the preview")
-    one("provision", provision, "download what has no copy yet and move a folder of the layout before catalogs")
+    one("provision", provision, "download what has no copy yet")
     one("list", list_catalogs, "the catalogs and their state")
     for name, function, text in (("update", update, "update a catalog"), ("undo", undo, "go back to the previous version")):
         sub = one(name, function, text)
@@ -1180,7 +999,8 @@ def parser():
     sub.add_argument("--allow-machine", action="store_true", help="preselect the allowance in the Add dialog")
     sub = one("reset", reset, "start over: the next start is a first run")
     sub.add_argument("--empty", action="store_true", help="have no catalog at all")
-    sub = formatted(one("check", run_check, "every rule that needs no Docker and no network; a folder is read where it is"))
+    sub = one("check", run_check, "every rule that needs no Docker and no network; a folder is read where it is")
+    sub.add_argument("--format", choices=report.FORMATS, help="text, github annotations or json (default text)")
     sub.add_argument("target", nargs="?", metavar="PATH_or_ID", help="a folder, or an added catalog (default: this folder; the id of a catalog wins over a folder of the same name, write ./ID)")
     sub.add_argument("--ci", action="store_true", help="annotations, the summary of the run, no skipped check")
     sub.add_argument("--base", metavar="COMMIT", help="the commit the change is measured from (default: git merge-base origin/main HEAD; "
@@ -1188,20 +1008,12 @@ def parser():
     sub.add_argument("--pr", metavar="NUMBER", help="read a pull request of the origin, from git objects, without running any of it")
     sub.add_argument("--online", action="store_true", help="also the checks that need GitHub")
     sub.add_argument("--history", action="store_true", help="the secrets and commits of every commit of the history")
-    sub.add_argument("--strict", action="store_true", help="a warning is a failure")
-    sub.add_argument("--soft", action="store_true", help="every error is a warning, and the exit code is 0")
     sub.add_argument("--error", action="append", metavar="CODE[,CODE]", help="make these rules errors for this run")
     sub.add_argument("--verbose", action="store_true", help="the information too")
     sub = one("index", index, "the generated catalog.json, of a folder (default: this one) or of an added catalog")
     sub.add_argument("target", nargs="?", metavar="PATH_or_ID", help="a folder, or an added catalog (default: this folder; the id of a catalog wins over a folder of the same name, write ./ID)")
     sub.add_argument("--out", metavar="FILE", help="write it to this file and not to standard output")
-    sub = one("images", images, "build the images a catalog builds")
-    sub.add_argument("id")
-    sub.add_argument("--dry-run", action="store_true")
-    sub = one("matrix", matrix, "the end-to-end matrix of a change")
-    sub.add_argument("id")
-    sub.add_argument("--changed", nargs=2, metavar=("BASE", "HEAD"), required=True)
-    sub = formatted(one("explain", explain_command, "the long form of a rule code"))
+    sub = one("explain", explain_command, "the long form of a rule code")
     sub.add_argument("code", metavar="CODE")
     for name, text in (("new", "a catalog from the template of the standard (catalog.py new DIR --id ID --name NAME --maintainers @A)"),
                        ("upgrade", "bring the managed files to the level of this Lab; --fleet OWNER --lab-ref COMMIT does it for every "
@@ -1209,9 +1021,7 @@ def parser():
                        ("release", "prepare a release, then tag it (catalog.py release VERSION [--tag] [--pr])"),
                        ("repo-settings", "audit and apply the repository standard on GitHub (catalog.py repo-settings --help)"),
                        ("ci", "the stages the managed workflows call: plan, gitleaks, manifests, build, test, smoke, run, ...")):
-        sub = one(name, delegate, text)
-        sub.set_defaults(command=name)
-        sub.add_argument("rest", nargs=argparse.REMAINDER)
+        one(name, delegate, text)
     return top
 
 

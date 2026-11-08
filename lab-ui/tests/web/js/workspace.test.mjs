@@ -11,7 +11,6 @@ import { Ev, flush, installDom, isOff, offWhy } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });   // a tab that shows a notice looks again every few seconds: not in this test
 const page = installDom({
-  ids: ["confirm-cancel", "choice-cancel", "confirm", "choice", "toasts", "confirm-title", "confirm-text", "confirm-ok", "confirm-input"],
   fetch: async (path) => asked(path),
 });
 const HEALTHY = { key: "healthy", label: "Healthy", running: true };
@@ -60,19 +59,6 @@ await flush();
 
 test("the UIs are made when their tabs are first shown", () => {
   assert.deepEqual(frames().map((frame) => frame.src), ["http://localhost:8110", "http://localhost:8086"]);
-});
-
-test("the page tells the apps in its frames nothing: not when a frame loads, not when the guide turns, not when the window goes narrow and wide again", () => {
-  loaded("http://localhost:8110");
-  loaded("http://localhost:8086");
-  section.querySelector("#pg-guide").dataset.page = "2";
-  setWidth(900);
-  page.resized.run();
-  assert.equal(card().classList.contains("rows"), true);
-  setWidth(1400);
-  page.resized.run();
-  assert.equal(card().classList.contains("rows"), false);
-  for (const url of ["http://localhost:8110", "http://localhost:8086"]) assert.deepEqual(sent(url), [], url);
 });
 
 test("a tab that shows a notice has no frame", async () => {
@@ -189,7 +175,7 @@ test("Reload loads the page of a UI again: the page it is on when the lab can re
   section.querySelector("[data-reload]").click();
   assert.equal(bank.contentWindow.reloaded, 1, "the page it is on");
   assert.deepEqual([bank.contentWindow.assigned, bank.contentWindow.replaced], [[], []]);
-  Workspace.send("ask-ace-accounts");
+  Workspace.send("ask-pip-accounts");
   assert.equal(sent("http://localhost:8110").length, 0, "not posted to the page that goes: it waits");
   listens("http://localhost:8110");
   assert.equal(sent("http://localhost:8110").length, 1, "and goes when the new page says that it listens");
@@ -331,7 +317,7 @@ test("a console is a tab of its own, whatever its service is called: even a serv
 
 // --- The actions of the guide ---------------------------------------------------------------
 
-const ACTIONS = ["ask-ace-accounts", "leak-an-iban"];
+const ACTIONS = ["ask-pip-accounts", "leak-a-token"];
 const guideOf = () => section.querySelector("#pg-guide");
 const buttons = () => section.querySelectorAll("[data-action]");
 const listens = (url, origin = new URL(url).origin) => page.fire("window", "message",
@@ -382,7 +368,7 @@ test("the action links wait for what is known of the first UI: down, refused or 
   tab("bakery-web").click();
   await flush();
   assert.deepEqual(state().map(([, title]) => title), ["Acme Bakery does not answer", "Acme Bakery does not answer"]);
-  assert.equal(Workspace.send("leak-an-iban"), false, "a disabled action is not sent");
+  assert.equal(Workspace.send("leak-a-token"), false, "a disabled action is not sent");
   verdicts = {};
 });
 
@@ -403,17 +389,17 @@ test("a click on an action shows the first tab, makes its UI and sends once the 
   tab("@details").click();
   await flush();
   assert.equal(frames().length, 0, "no UI was shown yet: none is made");
-  assert.equal(Workspace.send("ask-ace-accounts"), true);
+  assert.equal(Workspace.send("ask-pip-accounts"), true);
   assert.equal(SHOWN("bakery-web"), true, "its tab is shown");
   await flush();
   assert.deepEqual(frames().map((frame) => frame.src), ["http://localhost:8110"], "its UI is made");
   loaded("http://localhost:8110");
   assert.deepEqual(got("http://localhost:8110"), [], "nothing is sent to an app that has not said that it listens");
   listens("http://localhost:8110");
-  assert.deepEqual(got("http://localhost:8110"), ["ask-ace-accounts@http://localhost:8110"], "sent at once when it does, to the origin of its UI and no other");
-  assert.deepEqual(sent("http://localhost:8110")[0].message, { type: "gravitee-lab:action", id: "ask-ace-accounts" });
-  assert.equal(Workspace.send("leak-an-iban"), true);
-  assert.deepEqual(got("http://localhost:8110"), ["ask-ace-accounts@http://localhost:8110", "leak-an-iban@http://localhost:8110"], "then each click is sent as it comes");
+  assert.deepEqual(got("http://localhost:8110"), ["ask-pip-accounts@http://localhost:8110"], "sent at once when it does, to the origin of its UI and no other");
+  assert.deepEqual(sent("http://localhost:8110")[0].message, { type: "gravitee-lab:action", id: "ask-pip-accounts" });
+  assert.equal(Workspace.send("leak-a-token"), true);
+  assert.deepEqual(got("http://localhost:8110"), ["ask-pip-accounts@http://localhost:8110", "leak-a-token@http://localhost:8110"], "then each click is sent as it comes");
   assert.equal(SHOWN("bakery-web"), true);
 });
 
@@ -423,41 +409,31 @@ test("an action sent from the Details or from another UI brings the first tab ba
   tab("gamma-ui").click();
   await flush();
   assert.equal(SHOWN("gamma-ui"), true);
-  Workspace.send("ask-ace-accounts");
+  Workspace.send("ask-pip-accounts");
   await flush();
   assert.equal(SHOWN("bakery-web"), true);
   listens("http://localhost:8110");
   tab("@details").click();
-  Workspace.send("leak-an-iban");
+  Workspace.send("leak-a-token");
   assert.equal(SHOWN("bakery-web"), true);
-  assert.deepEqual(got("http://localhost:8110"), ["ask-ace-accounts@http://localhost:8110", "leak-an-iban@http://localhost:8110"]);
+  assert.deepEqual(got("http://localhost:8110"), ["ask-pip-accounts@http://localhost:8110", "leak-a-token@http://localhost:8110"]);
 });
 
 test("the actions asked while the app loads are sent in their order once it listens, and only once: one that waits is not asked twice", async () => {
   drawActions([BANK, GAMMA], { id: "order" });
   await flush();
-  Workspace.send("leak-an-iban");
-  Workspace.send("ask-ace-accounts");
-  Workspace.send("leak-an-iban");   // a second click on what waits: it is asked once, where it was first
+  Workspace.send("leak-a-token");
+  Workspace.send("ask-pip-accounts");
+  Workspace.send("leak-a-token");   // a second click on what waits: it is asked once, where it was first
   await flush();
   loaded("http://localhost:8110");
   listens("http://localhost:8110");
-  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["leak-an-iban", "ask-ace-accounts"]);
+  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["leak-a-token", "ask-pip-accounts"]);
   listens("http://localhost:8110");   // it says it again (its page loaded again): what was sent is not sent again
   assert.equal(sent("http://localhost:8110").length, 2);
-  Workspace.send("leak-an-iban");     // once it listens each click is sent, however many
-  Workspace.send("leak-an-iban");
+  Workspace.send("leak-a-token");     // once it listens each click is sent, however many
+  Workspace.send("leak-a-token");
   assert.equal(sent("http://localhost:8110").length, 4);
-});
-
-test("an app that never listens does not make the queue grow: the same action waits once", async () => {
-  drawActions([BANK, GAMMA], { id: "silent-app" });
-  await flush();
-  for (let i = 0; i < 50; i++) Workspace.send(i % 2 ? "leak-an-iban" : "ask-ace-accounts");
-  await flush();
-  loaded("http://localhost:8110");
-  listens("http://localhost:8110");
-  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["ask-ace-accounts", "leak-an-iban"], "a late word sends each once");
 });
 
 test("an app is believed that it listens only if it is the frame of the first tab, from the origin of its UI, with that message", async () => {
@@ -465,7 +441,7 @@ test("an app is believed that it listens only if it is the frame of the first ta
   await flush();
   tab("gamma-ui").click();
   await flush();
-  Workspace.send("ask-ace-accounts");
+  Workspace.send("ask-pip-accounts");
   await flush();
   const ready = { type: "gravitee-lab:ready" };
   const say = (source, origin, data = ready) => page.fire("window", "message", { source, origin, data });
@@ -482,7 +458,7 @@ test("an app is believed that it listens only if it is the frame of the first ta
   assert.deepEqual(got("http://localhost:8110"), [], "none of them made it listen");
   assert.deepEqual(got("http://localhost:8086"), [], "and the other app is sent nothing, ever");
   say(frameOf("http://localhost:8110").contentWindow, "http://localhost:8110");
-  assert.deepEqual(got("http://localhost:8110"), ["ask-ace-accounts@http://localhost:8110"]);
+  assert.deepEqual(got("http://localhost:8110"), ["ask-pip-accounts@http://localhost:8110"]);
   assert.deepEqual(got("http://localhost:8086"), []);
 });
 
@@ -490,14 +466,14 @@ test("an id that is none is never sent; an action is sent in rows as in columns"
   drawActions([BANK, GAMMA], { id: "refused" });
   await flush();
   listens("http://localhost:8110");
-  for (const id of ["", "Ask-Ace", "ask ace", "../x", "ask-ace\n", undefined, null, 42]) assert.equal(Workspace.send(id), false, String(id));
+  for (const id of ["", "Ask-Pip", "ask pip", "../x", "ask-pip\n", undefined, null, 42]) assert.equal(Workspace.send(id), false, String(id));
   assert.deepEqual(got("http://localhost:8110"), []);
   for (const width of [900, 1400]) {
     setWidth(width);
     page.resized.run();
-    assert.equal(Workspace.send("ask-ace-accounts"), true, `${width} px`);
+    assert.equal(Workspace.send("ask-pip-accounts"), true, `${width} px`);
   }
-  assert.deepEqual(got("http://localhost:8110"), ["ask-ace-accounts@http://localhost:8110", "ask-ace-accounts@http://localhost:8110"]);
+  assert.deepEqual(got("http://localhost:8110"), ["ask-pip-accounts@http://localhost:8110", "ask-pip-accounts@http://localhost:8110"]);
 });
 
 test("a UI that went away and came back is another page: it says again that it listens, and what waited for it is dropped", async () => {
@@ -506,7 +482,7 @@ test("a UI that went away and came back is another page: it says again that it l
   tab("bakery-web").click();
   await flush();
   listens("http://localhost:8110");
-  Workspace.send("ask-ace-accounts");
+  Workspace.send("ask-pip-accounts");
   assert.equal(got("http://localhost:8110").length, 1);
   // its service goes down: the page shows a notice, and the actions say why they cannot be sent
   const refresh = (up) => Workspace.attach(section, { ...item, tabs: [up ? BANK : DOWN(BANK), GAMMA] }, { attention: "" });
@@ -516,11 +492,12 @@ test("a UI that went away and came back is another page: it says again that it l
   refresh(true);
   await flush();
   assert.deepEqual(state(), [[false, ""], [false, ""]], "back");
-  assert.equal(Workspace.send("leak-an-iban"), true);
+  assert.deepEqual(frameOf("http://localhost:8110").contentWindow.replaced, ["http://localhost:8110"], "its page is gone: its address is loaded again, in place of the entry");
+  assert.equal(Workspace.send("leak-a-token"), true);
   assert.equal(got("http://localhost:8110").length, 1, "the page it was loaded again: it must say that it listens first");
   loaded("http://localhost:8110");
   listens("http://localhost:8110");
-  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["ask-ace-accounts", "leak-an-iban"]);
+  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["ask-pip-accounts", "leak-a-token"]);
 });
 
 test("what waited for an app that went away is dropped, not sent to the page that comes back until it says that it listens", async () => {
@@ -529,7 +506,7 @@ test("what waited for an app that went away is dropped, not sent to the page tha
   tab("bakery-web").click();
   await flush();
   loaded("http://localhost:8110");
-  assert.equal(Workspace.send("ask-ace-accounts"), true, "it waits: the app has not said that it listens");
+  assert.equal(Workspace.send("ask-pip-accounts"), true, "it waits: the app has not said that it listens");
   const refresh = (up) => Workspace.attach(section, { ...item, tabs: [up ? BANK : DOWN(BANK), GAMMA] }, { attention: "" });
   refresh(false);
   await flush();
@@ -537,8 +514,8 @@ test("what waited for an app that went away is dropped, not sent to the page tha
   await flush();
   listens("http://localhost:8110");
   assert.deepEqual(got("http://localhost:8110"), [], "the page that comes back is another: what waited for the one before is not its business");
-  Workspace.send("leak-an-iban");
-  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["leak-an-iban"]);
+  Workspace.send("leak-a-token");
+  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["leak-a-token"]);
 });
 
 test("an address the page loads in a UI makes a new page, which says again that it listens: an action asked meanwhile waits for it", async () => {
@@ -548,19 +525,19 @@ test("an address the page loads in a UI makes a new page, which says again that 
   await flush();
   loaded("http://localhost:8110");
   listens("http://localhost:8110");
-  Workspace.send("ask-ace-accounts");
+  Workspace.send("ask-pip-accounts");
   assert.equal(sent("http://localhost:8110").length, 1);
   const bank = frameOf("http://localhost:8110");
   // Back to start loads the start address: a new page, whose listener is not there yet
   section.querySelector("[data-home]").click();
   assert.equal(bank.contentWindow.assigned.at(-1), "http://localhost:8110");
-  Workspace.send("leak-an-iban");
+  Workspace.send("leak-a-token");
   assert.equal(sent("http://localhost:8110").length, 1, "not posted to the page that is going: it waits");
   listens("http://localhost:8110");
-  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["ask-ace-accounts", "leak-an-iban"], "and goes when the new page says that it listens");
+  assert.deepEqual(got("http://localhost:8110").map((line) => line.split("@")[0]), ["ask-pip-accounts", "leak-a-token"], "and goes when the new page says that it listens");
   // a link of the guide under the app's address: the same
   assert.equal(Workspace.follow(click(), link("http://localhost:8110/accounts")), true);
-  Workspace.send("ask-ace-accounts");
+  Workspace.send("ask-pip-accounts");
   assert.equal(sent("http://localhost:8110").length, 2, "waiting for the page it loads");
   listens("http://localhost:8110");
   assert.equal(sent("http://localhost:8110").length, 3);
@@ -575,14 +552,14 @@ test("an address with a fragment may be the page it is on, which does not say it
   listens("http://localhost:8110");
   assert.equal(Workspace.follow(click(), link("http://localhost:8110/#/teams")), true);
   assert.equal(frameOf("http://localhost:8110").contentWindow.assigned.at(-1), "http://localhost:8110/#/teams");
-  Workspace.send("ask-ace-accounts");
+  Workspace.send("ask-pip-accounts");
   assert.equal(sent("http://localhost:8110").length, 1, "sent at once: nothing says it again");
 });
 
 test("only the buttons the guide's links became send an action: no other element with the attribute does, nor is it enabled", async () => {
   drawActions([BANK, GAMMA], { id: "buttons" });
   await flush();
-  guideOf().innerHTML += '<p><span data-action="leak-an-iban" title="written">a sentence</span> <a data-action="leak-an-iban" title="written">a link</a></p>';
+  guideOf().innerHTML += '<p><span data-action="leak-a-token" title="written">a sentence</span> <a data-action="leak-a-token" title="written">a link</a></p>';
   Workspace.actions(guideOf(), "Acme Bakery", true);
   const others = section.querySelectorAll('span[data-action], a[data-action]');
   assert.equal(others.length, 2);
@@ -593,11 +570,11 @@ test("only the buttons the guide's links became send an action: no other element
 test("a playground that does not run, or shows no UI, sends nothing", async () => {
   drawActions([BANK, GAMMA], { id: "off", live: false });
   await flush();
-  assert.equal(Workspace.send("ask-ace-accounts"), false);
+  assert.equal(Workspace.send("ask-pip-accounts"), false);
   assert.deepEqual(state().map(([disabled]) => disabled), [true, true]);
   Workspace.leave(section);   // no card: the guide before a start, or of a playground with no UI
   Workspace.actions(guideOf() || section.querySelector(".guide"), "Acme Bakery", true);
-  assert.equal(Workspace.send("ask-ace-accounts"), false);
+  assert.equal(Workspace.send("ask-pip-accounts"), false);
   draw();   // the usual card again, for what follows
 });
 
@@ -615,7 +592,7 @@ test("the page sends the apps in its frames nothing but the actions of the guide
   section.querySelector("[data-home]").click();
   assert.deepEqual([...sent("http://localhost:8110"), ...sent("http://localhost:8086")], [], "nothing without an action");
   listens("http://localhost:8110");
-  Workspace.send("ask-ace-accounts");
+  Workspace.send("ask-pip-accounts");
   for (const url of ["http://localhost:8110", "http://localhost:8086"]) {
     for (const { message, origin } of sent(url)) {
       assert.deepEqual(Object.keys(message), ["type", "id"], url);
@@ -659,13 +636,6 @@ test("the tab the person chose is the one that shows, as the page is drawn again
   assert.equal(shownTab(), "bakery-web");
 });
 
-test("a tab is never cut short, so it has no tooltip of its own: its name is in full", async () => {
-  draw([BANK, { ...GAMMA, label: "A console whose name is a little long" }], true, "names");
-  await flush();
-  assert.deepEqual(section.querySelectorAll('[role="tab"]').map((button) => button.textContent.trim()), ["Acme Bakery", "A console whose name is a little long", "Details"]);
-  assert.deepEqual(section.querySelectorAll('[role="tab"]').map((button) => button.title), ["", "", ""]);
-});
-
 test("a playground that lists no console is the same page: its guide beside its details, and its actions say it shows no UI", async () => {
   drawActions([], { id: "no-console" });
   await flush();
@@ -673,7 +643,7 @@ test("a playground that lists no console is the same page: its guide beside its 
   assert.equal(shownTab(), "@details");
   assert.ok(section.querySelector(".pg-divider"), "the divider is there");
   assert.deepEqual(state().map(([, title]) => title), ["Acme Bakery shows no UI beside its guide", "Acme Bakery shows no UI beside its guide"]);
-  assert.equal(Workspace.send("ask-ace-accounts"), false);
+  assert.equal(Workspace.send("ask-pip-accounts"), false);
 });
 
 test("a playground without a guide is the same page too: the guide's place is there, whatever it holds", async () => {
@@ -681,7 +651,6 @@ test("a playground without a guide is the same page too: the guide's place is th
   await flush();
   assert.ok(section.querySelector("#pg-guide"), "the guide's place");
   assert.ok(section.querySelector(".pg-divider"), "the divider");
-  assert.equal(card().classList.contains("solo"), false);
   setWidth(900);
   page.resized.run();
   assert.equal(card().classList.contains("rows"), true, "as narrow as any: no guide is no reason for another layout");

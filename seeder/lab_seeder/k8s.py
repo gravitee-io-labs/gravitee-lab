@@ -1,6 +1,6 @@
 """Kubernetes: the manifests of seed/k8s/*.yaml (a Namespace, a Secret, a ManagementContext...), applied in name order to
 the cluster of KUBECONFIG, which the Gravitee Kubernetes Operator watches. One manifest to a file, like the other seed
-files (a file of several is applied too):
+files:
 
     apiVersion: v1
     kind: Secret
@@ -29,8 +29,8 @@ from pathlib import Path
 
 import yaml
 
-from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, forget, has_seed, log, owned, pause, \
-    record, render_yaml, setting, wait_until
+from .common import READY_TIMEOUT, REFUSED, Api, Gone, HttpError, SeedError, excerpt, files, forget, has_seed, load, log, owned, pause, \
+    record, setting, wait_until
 
 SECTION = "k8s"
 # What it records
@@ -56,7 +56,6 @@ class Cluster(Api):
         except (KeyError, IndexError, TypeError) as e:
             raise SeedError(f"{kubeconfig} is not a kubeconfig with a cluster and a user") from e
         super().__init__(cluster["server"], SECTION)
-        self.server = self.base_url
         self.dir = tempfile.mkdtemp(prefix="kube-")
         ca = self.file("ca.crt", cluster.get("certificate-authority-data"))
         self.session.verify = ca if ca else not cluster.get("insecure-skip-tls-verify", False)
@@ -101,11 +100,11 @@ def manifests():
     """The manifests of seed/k8s, in order, with their variables replaced."""
     out = []
     for path in files("k8s", suffixes=(".yaml", ".yml")):
-        for doc in render_yaml(path.read_text(encoding="utf-8"), path, every=True):
-            if doc:
-                if not all(doc.get(k) for k in ("apiVersion", "kind")) or not doc.get("metadata", {}).get("name"):
-                    raise SeedError(f"{path.name}: a manifest needs apiVersion, kind and metadata.name")
-                out.append(doc)
+        doc = load(path)
+        if doc:
+            if not all(doc.get(k) for k in ("apiVersion", "kind")) or not doc.get("metadata", {}).get("name"):
+                raise SeedError(f"{path.name}: a manifest needs apiVersion, kind and metadata.name")
+            out.append(doc)
     return out
 
 
@@ -117,11 +116,6 @@ def identity(doc):
 def label(doc):
     api_version, kind, namespace, name = identity(doc)
     return f"{kind} {namespace + '/' if namespace else ''}{name}"
-
-
-def refused(status, text):
-    """What a retry cannot fix: the cluster or the operator's webhook said no (a 5xx is a webhook that is not up yet)."""
-    return status < 500 and status != 429
 
 
 def generated(cluster, doc):
@@ -142,8 +136,7 @@ def generated(cluster, doc):
 
 def apply(cluster, doc):
     api_version, kind, namespace, name = identity(doc)
-    plural, namespaced = cluster.resource(api_version, kind)
-    if namespaced and not namespace:
+    if cluster.resource(api_version, kind)[1] and not namespace:   # namespaced
         raise SeedError(f"{label(doc)}: a {kind} needs metadata.namespace")
     path = cluster.path(api_version, kind, namespace, name)
     held = cluster.call("GET", path, expect=(200, 404))
@@ -154,18 +147,19 @@ def apply(cluster, doc):
                 raise SeedError("still being deleted")
 
         wait_until(SECTION, f"{label(doc)} to be deleted", gone)
+    made = held.status_code == 404 or deleting
 
     def attempt():
         try:
             cluster.call("PATCH", path, params={"fieldManager": FIELD_MANAGER, "force": "true"},
                          data=yaml.safe_dump(doc), headers={"Content-Type": "application/apply-patch+yaml"})
         except HttpError as e:
-            if refused(e.status, e.body):
+            if e.status < 500 and e.status != 429:   # the cluster or the operator's webhook said no; a 5xx is a webhook that is not up yet
                 raise Gone(f"{label(doc)}: {e}") from e
             raise
 
     wait_until(SECTION, f"{label(doc)} to be accepted by the cluster", attempt)
-    return path
+    return made
 
 
 def status_of(cluster, api_version, kind, namespace, name):
@@ -190,10 +184,6 @@ def wait_accepted(cluster, doc):
     wait_until(SECTION, f"{label(doc)} to be accepted by the operator", check)
 
 
-def namespaces_of(records):
-    return [x["name"] for x in records if x["kind"] == "namespace"]
-
-
 def seed():
     if not has_seed("k8s"):
         return
@@ -203,13 +193,13 @@ def seed():
     for doc in docs:
         api_version, kind, namespace, name = identity(doc)
         wait_until(SECTION, f"the cluster to know {kind}", lambda: cluster.resource(api_version, kind))
-        apply(cluster, generated(cluster, doc))
+        if apply(cluster, generated(cluster, doc)):   # recorded before the wait: the next run finds what the operator refused as there before
+            if kind == "Namespace" and api_version == "v1":
+                record(SECTION, "namespace", "namespaces", name, name)
+            else:
+                record(SECTION, "resource", "Kubernetes resources", label(doc), name, apiVersion=api_version, kind_name=kind,
+                       namespace=namespace)
         wait_accepted(cluster, doc)
-        if kind == "Namespace" and api_version == "v1":
-            record(SECTION, "namespace", "namespaces", name, name)
-        else:
-            record(SECTION, "resource", "Kubernetes resources", label(doc), name, apiVersion=api_version, kind_name=kind,
-                   namespace=namespace)
         log(SECTION, f"✓ {label(doc)}")
 
 
@@ -270,13 +260,13 @@ def remove(records):
         forget(*mine)
         return
     deleted = set()
-    for namespace in namespaces_of(mine):
+    for namespace in (x["name"] for x in mine if x["kind"] == "namespace"):
         found = []
         for api_version, kind, plural in operator_kinds(cluster):
             base = ("/apis/" + api_version) + f"/namespaces/{namespace}/{plural}"
             for item in cluster.call("GET", base, expect=(200, 404)).json().get("items") or []:
-                found.append((rank(kind), api_version, kind, f"{base}/{item['metadata']['name']}", item["metadata"]["name"]))
-        for _, api_version, kind, path, name in sorted(found, key=lambda x: x[0]):
+                found.append((rank(kind), kind, f"{base}/{item['metadata']['name']}", item["metadata"]["name"]))
+        for _, kind, path, name in sorted(found, key=lambda x: x[0]):
             delete_retrying(cluster, path, f"{kind} {namespace}/{name}")
             deleted.add(path)
     resources = [x for x in mine if x["kind"] == "resource"]

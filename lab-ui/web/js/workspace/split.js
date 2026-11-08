@@ -33,11 +33,8 @@ export function guideWidth(wanted, width) {
   return Math.min(max, Math.max(min, Number.isFinite(asked) ? Math.round(asked) : min));
 }
 
-// Which end of its travel the divider is at, for its cursor: it can only go the other way
-export function edge(now, width) {
-  const { min, max } = limits(width);
-  return now <= min ? "min" : now >= max ? "max" : "";
-}
+// Which end of its travel a divider is at, for its cursor: it can only go the other way
+export const edge = (now, { min, max }) => (now <= min ? "min" : now >= max ? "max" : "");
 
 // What a key does to the divider: the new width of the guide's panel, or null for a key that is not its own.
 // Left and Right move it by a step, Shift by a bigger one; Home and End take it to its limits.
@@ -137,7 +134,7 @@ export const isReady = (tab, origin, data) => !!tab && !!data && data.type === R
 // Why the actions of the guide cannot be sent now, "" when they can. `live`: the playground runs; `tab`: its first console,
 // null without one; `status`: what the page knows of that UI once it looked ("framed", "refused", "down", "" before). `down`
 // says what a UI that does not run is.
-export function actionReason({ live, name, tab, status }, down = (ui) => `${ui.label} is not running`) {
+export function actionReason({ live, name, tab, status }, down) {
   if (!live) return `${name} is not running`;
   if (!tab) return `${name} shows no UI beside its guide`;
   if (!tab.up) return down(tab);
@@ -153,8 +150,6 @@ export function actionReason({ live, name, tab, status }, down = (ui) => `${ui.l
 const TERM_MIN = 120;      // the terminal is never shorter than this when it is open
 const TERM_START = 240;    // and is this tall the first time
 const UIS_MIN = 160;       // the UIs keep at least this
-const TERM_STEP = 16;      // an arrow moves its divider by this, with Shift by TERM_BIG_STEP
-const TERM_BIG_STEP = 64;
 
 // How tall the terminal may be in a panel that has `height` to share: from its minimum to what leaves the UIs theirs
 export function termLimits(height) {
@@ -168,16 +163,10 @@ export function termHeight(wanted, height) {
   return Math.min(max, Math.max(min, Number.isFinite(asked) ? Math.round(asked) : TERM_START));
 }
 
-// Which end of its travel the divider is at, for its cursor: it can only go the other way
-export function termEdge(now, height) {
-  const { min, max } = termLimits(height);
-  return now <= min ? "min" : now >= max ? "max" : "";
-}
-
 // What a key does to the terminal's divider: the new height, or null for a key that is not its own. Up makes the terminal
 // taller, Down shorter (the divider moves with the arrow); Home and End take it to its limits.
 export function termNudge(key, shift, current, height) {
-  const { min, max } = termLimits(height), step = shift ? TERM_BIG_STEP : TERM_STEP;
+  const { min, max } = termLimits(height), step = shift ? BIG_STEP : STEP;
   const to = { ArrowUp: current + step, ArrowDown: current - step, Home: max, End: min }[key];
   return to === undefined ? null : Math.min(max, Math.max(min, to));
 }

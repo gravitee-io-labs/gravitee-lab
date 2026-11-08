@@ -5,14 +5,11 @@
 // needs a feature. A plugin of the Enterprise folder that needs none is still one. Any other is Community, one the catalog does not list
 // too. Each says so with its tag after its name and under the Enterprise or the Community filter, never under both or neither.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { flush, installDom, text } from "./dom-stub.mjs";
+import { flush, installDom, reply, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const EE = "graviteeio-ee/apim/plugins", CE = "graviteeio-apim/plugins";
 // The catalog: the folder that publishes each plugin says its edition
@@ -40,13 +37,10 @@ const INSTALLED = {
   feature_by_id: {}, licensed: Object.fromEntries(Object.keys(FEATURES).map((name) => [name, NEEDS])),
 };
 
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
 const page = installDom({
-  ids,
   fetch: async (path) => reply(path.startsWith("/api/plugins/catalog") ? { plugins: CATALOG }
     : path.startsWith("/api/plugins/installed") ? INSTALLED : path.startsWith("/api/plugins/versions") ? { versions: [] } : {}),
 });
-page.el("combo-pop").innerHTML = '<div class="combo-search"><input id="combo-input"></div><div id="combo-bar"></div><div id="combo-list"></div><div id="combo-foot"></div>';
 const { store } = await import("../../../web/js/core.js");
 const { pluginsPage } = await import("../../../web/js/pages/plugins.js");
 store.state = {

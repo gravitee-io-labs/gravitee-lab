@@ -15,7 +15,7 @@ catalog.
 A new version of items of Personal (a move, a copy, an import to Personal) is written whole beside Personal first (`stage`), then
 swapped in, all of its items or none (`swap_in`): every old one renamed aside, then every new one renamed in, a journal in the swap
 folder saying each phase before it starts. At any moment an item is the old one or the new one, whole. What a stop of the Lab leaves
-is put right from the journal alone, at the next change and at the Lab UI's start (`recover`), and said; a swap folder that holds
+is put right from the journal alone at the Lab UI's start (`recover`), and said in its terminal; a swap folder that holds
 the person's files is never deleted.
 
 Personal is the last check, as for an import: nothing judges what is there. An item blocked only for what it takes of this
@@ -45,13 +45,12 @@ import os
 import posixpath
 import secrets
 import shutil
-import time
-from concurrent.futures import ThreadPoolExecutor
+import sys
 from pathlib import Path
 
 from .. import paths
 from ..library import moves, personal as personals, project
-from . import registry, resolve, service
+from . import kept, registry, resolve, service
 from .contribute import _fields, labelled, mark as _mark, origins, rewritten, unmark
 from .registry import CatalogError
 
@@ -182,16 +181,14 @@ UNREAD = "{names} could not be read once in Personal ({why}), so Personal is as 
 
 def placed_without_claims(rels):
     """The check of a swap from a file (a move, an import to Personal), once its items are in Personal: each of them read as the
-    project reads it (project.read_own, the one reader of twins), side by side, and none says it is a copy. An item it cannot read,
+    project reads it (project.read_own, the one reader of twins), and none says it is a copy. An item it cannot read,
     or a claim, undoes the swap (CatalogError, `swap_in`) and says why. Only the items placed are read: not the whole project."""
     def one(rel):
         kind, slug = ("setup", posixpath.basename(rel)[:-4]) if rel.startswith("setups/") else (rel.split("/")[0][:-1], posixpath.basename(rel))
         return rel, project.read_own(paths.unit_file(kind, f"{paths.LOCAL}/{slug}"))
 
     def check():
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            read = list(pool.map(one, rels))
-        for rel, (config, why) in read:
+        for rel, (config, why) in map(one, rels):
             if config is None:
                 said = why if why.startswith("Compose") else why[:1].lower() + why[1:]   # within a sentence
                 raise _fail("placed_unread", UNREAD.format(names=_names_of([rel]), why=said), 409)
@@ -247,34 +244,27 @@ def plan(kind, uid):
     return {**answers, "used_by": _name(units, users[0]) if users else ""}
 
 
-def _folder_of(ns):
-    entry = registry.entry(ns) or {}
-    return Path(entry.get("path") or "")
-
-
 def move(kind, uid, together, allow=False):
     """Moves the item, and with `together` what it brings from its import that nothing else uses, to Personal; `allow`: the person
     allowed what takes more of this machine, which nothing judges there. Answers {moved: [{kind, id}], id, warning}. A change of
-    catalogs: it waits for none under way. The items are written whole beside Personal, then swapped in (`replace`): an item of
+    catalogs: it waits for none under way. The items are written whole beside Personal, then swapped in: an item of
     Personal is at any moment the old one or the new one, whole. The import loses its items only once they are in Personal; what
     Docker made there and cannot be deleted then is said (`warning`), and the move completes."""
     with service._changing():
-        recovered = recover()
-        with telling(recovered):
-            found = _check(kind, uid)
-            units = _units(found)
-            users = _users_of_root(found, kind, uid)
-            if users:
-                raise _fail("used", f"Used by {_name(units, users[0])}: move that one to Personal instead.")
-            moving, _ = _choice(found, kind, uid, together)
-            reason = _held(found, moving)
-            if reason:
-                raise _fail("held", reason)
-            uses = _judged(units, moving)[0]
-            if uses and not allow:
-                raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to move it to Personal.")
+        found = _check(kind, uid)
+        units = _units(found)
+        users = _users_of_root(found, kind, uid)
+        if users:
+            raise _fail("used", f"Used by {_name(units, users[0])}: move that one to Personal instead.")
+        moving, _ = _choice(found, kind, uid, together)
+        reason = _held(found, moving)
+        if reason:
+            raise _fail("held", reason)
+        uses = _judged(units, moving)[0]
+        if uses and not allow:
+            raise _fail("allow_machine", f"{', '.join(uses)} uses this machine: allow it to move it to Personal.")
         ns = paths.origin(uid)
-        source = _folder_of(ns)
+        source = Path((registry.entry(ns) or {}).get("path") or "")
         table = [(f"{paths.CATALOGS_DIR}/{ns}/{_rel(k, _slug(one))}", f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}")
                  for k, one in moving]
 
@@ -290,7 +280,7 @@ def move(kind, uid, together, allow=False):
                 (root / compose_rel).parent.mkdir(parents=True, exist_ok=True)
                 (root / compose_rel).write_text(text, encoding="utf-8")
         rels = [_rel(k, _slug(one)) for k, one in moving]
-        warnings = [recovered, replace(write, rels, placed_without_claims(rels))]
+        warnings = [swap_in(stage(write), rels, placed_without_claims(rels))]
         # The import loses what moved; what Docker made there and cannot be deleted is said, and the move completes
         stuck = []
         for k, one in moving:
@@ -322,17 +312,6 @@ def _links(folder, names):
     return {name for name in names if os.path.islink(os.path.join(folder, name))}
 
 
-@contextlib.contextmanager
-def telling(said):
-    """An error of a change says too what the start of that change put right (`recover`), which is said either way."""
-    try:
-        yield
-    except CatalogError as error:
-        if said:
-            error.message = f"{error.message} {said}"
-        raise
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # A new version of items of Personal, swapped in whole
 # ---------------------------------------------------------------------------------------------------------------------
@@ -351,22 +330,14 @@ FINISHED = "A change of Personal that stopped midway was finished for {names}."
 NOT_DONE = "A change of Personal that stopped midway could not be put right ({why}): it is kept in {where}."
 UNKNOWN = ("A change of Personal left files of yours in {where}, and no journal that says what they are: they are kept there. "
            "Fix: copy what you need into your items, then delete that folder.")
-STALE = 3600   # seconds after which a swap being written, whose writer does not answer as such, is a leftover
-
-
-def replace(write, rels, check=None):
-    """The items at `rels` (their folder, or the file of a setup, relative to Personal) replaced by those `write(root)` writes
-    whole at `root/<rel>` (`stage`, then `swap_in`). Answers what is said of it, or None."""
-    return swap_in(stage(write), rels, check)
 
 
 def stage(write):
-    """The new versions of items written whole beside Personal (`write(root)`), in a folder of their own that nothing reads, its
-    journal saying it is being written and by which process (a recovery leaves it alone while that process lives): answers it.
-    A failure here changes nothing in Personal."""
+    """The new versions of items written whole by `write(root)` at `root/<rel>` beside Personal, in a folder of their own that
+    nothing reads, its journal saying it is being written: answers it. A failure here changes nothing in Personal."""
     swap = paths.ROOT / paths.LAB_DIR / f"{SWAP}{secrets.token_hex(4)}"
     (swap / "new").mkdir(parents=True)
-    _note(swap, phase="staging", pid=os.getpid(), started=time.time())
+    _note(swap, phase="staging")
     try:
         write(swap / "new")
     except BaseException:
@@ -408,15 +379,14 @@ def swap_in(swap, rels, check=None):
     except BaseException:   # a refusal of the check, or anything else: what it swapped in is undone before it is said
         _undo(swap, rels)
         raise
-    return _settle(swap, rels, recovering=False)
+    return _settle(swap, rels)
 
 
 def recover():
     """What a change of Personal left when the Lab stopped in the middle of it, put right from its journal alone: what was still
-    being written (by no process that lives) goes, never seen; a swap stopped before all its new items were in is undone; one
-    with all of them in is finished (`_settle`). Each swap is put right on its own: one that cannot be never keeps the others, nor
-    the Lab UI's start, from being. Called at the Lab UI's start and at the start of each change of Personal, under the lock of
-    the catalogs. Answers what is said of it, or None."""
+    being written goes, never seen; a swap stopped before all its new items were in is undone; one with all of them in is finished
+    (`_settle`). Each swap is put right on its own: one that cannot be never keeps the others, nor the Lab UI's start, from being.
+    Answers what is said of it, or None."""
     said = []
     for swap in sorted((paths.ROOT / paths.LAB_DIR).glob(f"{SWAP}*")):
         if not swap.is_dir() or swap.is_symlink():
@@ -428,7 +398,7 @@ def recover():
             if phase in (None, "staging"):
                 if _holds_people(swap):   # no journal to say what it is, and the person's files in it: never deleted
                     said.append(UNKNOWN.format(where=f"{paths.LAB_DIR}/{swap.name}"))
-                elif phase is None or _stale(journal):
+                else:
                     shutil.rmtree(swap, ignore_errors=True)
             elif phase in ("aside", "in"):
                 names = _names_of(rels, swap / "old") or _names_of(rels, swap / "new")
@@ -436,17 +406,19 @@ def recover():
                 said.append(UNDONE.format(names=names))
             elif phase == "done":
                 said.append(FINISHED.format(names=_names_of(rels)))
-                said.append(_settle(swap, rels, recovering=True))
+                said.append(_settle(swap, rels))
         except Exception as error:  # noqa: BLE001 - one swap that cannot be put right keeps no other, nor the Lab, from being
             said.append(NOT_DONE.format(why=str(error)[:120] or type(error).__name__, where=f"{paths.LAB_DIR}/{swap.name}"))
     return " ".join(one for one in said if one) or None
 
 
 def recover_at_start():
-    """`recover` at the Lab UI's start, under the lock of the catalogs, a lock of the files that every Lab UI of this folder
-    takes: a second one never puts right what the first is doing (and what a live process writes is left alone, `stage`)."""
+    """`recover` before the Lab UI serves, under the lock of the catalogs: nothing is changing Personal then, and one Lab UI serves a
+    folder. What it says goes to the terminal."""
     with service._changing():
-        return recover()
+        said = recover()
+    if said:
+        print(f"Gravitee Lab UI: {said}", file=sys.stderr)
 
 
 def _undo(swap, rels):
@@ -460,11 +432,11 @@ def _undo(swap, rels):
         if os.path.lexists(swap / "old" / rel) and not os.path.lexists(home / rel):
             (home / rel).parent.mkdir(parents=True, exist_ok=True)
             os.rename(swap / "old" / rel, home / rel)
-    if not any(path.is_file() or path.is_symlink() for path in (swap / "old").rglob("*")):
+    if not _holds_people(swap):
         shutil.rmtree(swap, ignore_errors=True)
 
 
-def _settle(swap, rels, recovering):
+def _settle(swap, rels):
     """The end of a swap whose new items are all in: each gets the person's files of the item it replaced (`_bring`), and what it
     replaced of them is kept (kept.py). Then the folder goes; a setting that could be neither brought nor kept stays where it is,
     and the folder with it is renamed apart, never read again. The journal says done until then, so that a stop here is finished
@@ -474,9 +446,9 @@ def _settle(swap, rels, recovering):
     owner = {source: rel for rel in rels if (old / rel).is_dir() and not (old / rel).is_symlink()
              for source, _ in _bring(old / rel, home / rel, rel)}
     pairs = [(source, f"{owner[source]}/{source.relative_to(old / owner[source]).as_posix()}") for source in owner]
-    where, failed = _kept().keep(_kept().LOCAL, None, pairs, {rel: _names_of([rel]) for rel in set(owner.values())})
+    where, failed = kept.keep(kept.LOCAL, None, pairs, {rel: _names_of([rel]) for rel in set(owner.values())})
     said = [REPLACED.format(names=_names_of(sorted({owner[one] for one in owner if one not in failed}))) if where else ""]
-    _kept().remove_but(swap, [*failed, swap / JOURNAL])   # the journal goes last: until then a stop is finished from it
+    kept.remove_but(swap, [*failed, swap / JOURNAL])   # the journal goes last: until then a stop is finished from it
     if not failed:
         with contextlib.suppress(OSError):
             (swap / JOURNAL).unlink()
@@ -491,31 +463,14 @@ def _settle(swap, rels, recovering):
 
 
 def _note(swap, **journal):
-    """The journal of a swap written whole and to the disk, its folder too, before the step it announces: a stop of the machine
-    never leaves a step done that the journal does not say."""
-    temporary = swap / f".{JOURNAL}.tmp"
-    with open(temporary, "w", encoding="utf-8") as out:
-        out.write(json.dumps(journal, sort_keys=True) + "\n")
-        out.flush()
-        os.fsync(out.fileno())
-    os.replace(temporary, swap / JOURNAL)
-    folder = os.open(swap, os.O_RDONLY)
-    try:
-        os.fsync(folder)
-    finally:
-        os.close(folder)
+    """The journal of a swap on the disk before the step it announces: a stop of the machine never leaves a step done that the
+    journal does not say."""
+    paths.write_atomic(swap / JOURNAL, json.dumps(journal, sort_keys=True) + "\n")
 
 
 def _holds_people(swap):
     """Whether a swap folder holds a file of the person's: anything in old/, where the items it replaced went."""
     return any(path.is_file() or path.is_symlink() for path in (swap / "old").rglob("*"))
-
-
-def _stale(journal):
-    """Whether a swap being written was left: its writer runs no more, or (a process that took its number, one that does not
-    answer) it began more than STALE seconds ago."""
-    started = journal.get("started")
-    return not _alive(journal.get("pid")) or not isinstance(started, (int, float)) or time.time() - started > STALE
 
 
 def _journal(swap):
@@ -524,19 +479,6 @@ def _journal(swap):
     except (OSError, ValueError):
         return None
     return found if isinstance(found, dict) else None
-
-
-def _alive(pid):
-    """Whether the process `pid` runs: the Lab UI that is writing a swap."""
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return True   # it runs, as another user
-    return True
 
 
 def _place_ok(rel):
@@ -555,10 +497,10 @@ def _bring(old, new, rel):
         files += sorted(path for path in (old / "secrets").rglob("*") if path.is_file() or path.is_symlink())
     for path in files:
         inside = path.relative_to(old)
-        if os.path.lexists(new / inside) or not _kept().carry(path, new / inside, new):
+        if os.path.lexists(new / inside) or not kept.carry(path, new / inside, new):
             pairs.append((path, f"{rel}/{inside.as_posix()}"))
     if os.path.lexists(old / ".state"):
-        if os.path.lexists(new / ".state") or not _kept().carry(old / ".state", new / ".state", new):
+        if os.path.lexists(new / ".state") or not kept.carry(old / ".state", new / ".state", new):
             pairs.append((old / ".state", f"{rel}/.state"))
     return pairs
 
@@ -575,11 +517,6 @@ def _names_of(rels, root=None):
         except (OSError, ValueError):
             names.append(slug)
     return ", ".join(names)
-
-
-def _kept():
-    from . import kept   # the settings a change keeps
-    return kept
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -656,34 +593,32 @@ def copy(kind, uid, users=False, allow=False):
     copy. Answers {copies: [{kind, id}], id, warning}. A change of catalogs: it waits for none under way, and the copies are
     written whole beside Personal before they are in it."""
     with service._changing():
-        recovered = recover()
-        with telling(recovered):
-            found = project.load()
-            plan = copy_plan(kind, uid)
-            chosen = plan["with_users"] if users and plan["with_users"] else plan["alone"]
-            if chosen["held"]:
-                raise _fail("held", chosen["held"])
-            if chosen["uses_machine"] and not allow:
-                raise _fail("allow_machine", f"{', '.join(chosen['uses_machine'])} uses this machine: allow it to copy it to Personal.")
-            copies, switches = _copies(found, kind, uid, bool(users and plan["with_users"]))
-            places = {node: (paths.unit_file(*node) if node[0] == "setup" else paths.unit_folder(*node)) for node in copies}
-            table = [(places[node], f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(node[0], _slug(node[1]))}") for node in copies]
-            texts = {}
-            for node in copies:   # written for its place first: what cannot be stops the copy before anything is written
-                k, one = node
-                compose_file = paths.ROOT / places[node] if k == "setup" else paths.ROOT / places[node] / "compose.yml"
-                here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
-                there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
-                text = compose_file.read_text(encoding="utf-8")   # what it holds says its private catalog, resolved now, and whose copy it is
-                held = origins(text, one, compose_file.parent, _name(_units(found), node))   # what it holds is content of
-                # Changed as it is and checked as Compose reads it where it is, then written for its new place
-                edited = _mark(labelled(unmark(text), held, keep_empty=True), one) or text
-                shown = _name(_units(found), node)
-                rewritten(text, edited, {"copy_of": one, **_fields(held, keep_empty=True)},
-                          _slug(one) if shown == one else shown,
-                          "that it is your copy" + (" and its private label" if held else ""), compose_file.parent,
-                          compose_file.name)
-                texts[node] = moves.repoint(edited, here, there, table)
+        found = project.load()
+        plan = copy_plan(kind, uid)
+        chosen = plan["with_users"] if users and plan["with_users"] else plan["alone"]
+        if chosen["held"]:
+            raise _fail("held", chosen["held"])
+        if chosen["uses_machine"] and not allow:
+            raise _fail("allow_machine", f"{', '.join(chosen['uses_machine'])} uses this machine: allow it to copy it to Personal.")
+        copies, switches = _copies(found, kind, uid, bool(users and plan["with_users"]))
+        places = {node: (paths.unit_file(*node) if node[0] == "setup" else paths.unit_folder(*node)) for node in copies}
+        table = [(places[node], f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(node[0], _slug(node[1]))}") for node in copies]
+        texts = {}
+        for node in copies:   # written for its place first: what cannot be stops the copy before anything is written
+            k, one = node
+            compose_file = paths.ROOT / places[node] if k == "setup" else paths.ROOT / places[node] / "compose.yml"
+            here = posixpath.dirname(places[node] if k == "setup" else f"{places[node]}/compose.yml")
+            there = posixpath.dirname(f"{paths.CATALOGS_DIR}/{paths.LOCAL}/{_rel(k, _slug(one))}" + ("" if k == "setup" else "/compose.yml"))
+            text = compose_file.read_text(encoding="utf-8")   # what it holds says its private catalog, resolved now, and whose copy it is
+            held = origins(text, one, compose_file.parent, _name(_units(found), node))   # what it holds is content of
+            # Changed as it is and checked as Compose reads it where it is, then written for its new place
+            edited = _mark(labelled(unmark(text), held, keep_empty=True), one) or text
+            shown = _name(_units(found), node)
+            rewritten(text, edited, {"copy_of": one, **_fields(held, keep_empty=True)},
+                      _slug(one) if shown == one else shown,
+                      "that it is your copy" + (" and its private label" if held else ""), compose_file.parent,
+                      compose_file.name)
+            texts[node] = moves.repoint(edited, here, there, table)
 
         def write(root):
             for node in copies:
@@ -698,10 +633,9 @@ def copy(kind, uid, users=False, allow=False):
                     path.chmod(path.stat().st_mode | 0o200)
                 target.chmod(target.stat().st_mode | 0o200)
                 (target / "compose.yml").write_text(texts[node], encoding="utf-8")
-        said = replace(write, [_rel(k, _slug(one)) for k, one in copies])
+        said = swap_in(stage(write), [_rel(k, _slug(one)) for k, one in copies])
         for old, new in table if switches else ():
             personals.follow(old, new)
         project.forget()
-    warning = " ".join(one for one in (recovered, said) if one)
     return {"copies": [{"kind": k, "id": f"{paths.LOCAL}/{_slug(one)}"} for k, one in copies], "id": f"{paths.LOCAL}/{_slug(uid)}",
-            **({"warning": warning} if warning else {})}
+            **({"warning": said} if said else {})}

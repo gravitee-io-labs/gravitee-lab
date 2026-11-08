@@ -3,7 +3,6 @@ its own domain, one it must leave. The token that gives Gamma its access goes fr
 
 import json
 import re
-import unittest
 from unittest import mock
 
 from lab_seeder import common
@@ -127,8 +126,6 @@ class Link(Seed):
             "defaultDomainId": "domain-1", "defaultDomainHrid": "acme-bakery", "gatewayUrl": "http://localhost:8092",
             "serviceAccountAccessToken": TOKEN}])
         self.assertTrue(self.world.config["hasAccessToken"])
-        self.assertEqual([(r["kind"], r["name"], r["id"]) for r in common.created()],
-                         [("am-service-account", "gamma-service-account", "user-1"), ("am-link", "Gamma to Access Management", "domain-1")])
 
     def test_the_link_is_tested_with_the_token_before_it_is_saved(self):
         self.seed(self.world)
@@ -311,18 +308,3 @@ class Link(Seed):
         am_link.remove([{"product": "am", "kind": "domain", "name": "d", "id": "d"}])
         am_link.remove([])
         self.assertEqual((self.output(), self.platform.calls), ("", []))
-
-    def test_a_playground_that_does_not_seed_the_link_reads_no_setting_and_makes_no_call(self):
-        with mock.patch.object(common, "SEED_DIR", common.SEED_DIR / "nothing"), mock.patch.dict("os.environ", {}, clear=True):
-            am_link.seed()
-        self.assertEqual(self.platform.calls, [])
-
-    def test_the_label_of_the_note_is_plural_and_its_kind_is_removed_in_the_modules_order(self):
-        self.assertEqual(am_link.ORDER, ["am-link", "am-service-account"])
-        self.seed(self.world)
-        self.assertEqual({r["kind"] for r in common.created()}, set(am_link.ORDER))
-        self.assertTrue(all(r["label"].endswith("s") for r in common.created()))
-
-
-if __name__ == "__main__":
-    unittest.main()

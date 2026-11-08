@@ -11,7 +11,7 @@
 Everything is found by name or client ID before being created, so re-running is safe, and what already says what the
 file says is not saved again: AM reloads a domain or an application on every save. A user with `additionalInformation`
 (what the tokens carry) is found first and kept as the file says, next to the fields AM adds at the first sign-in.
-An item marked `optional: true` only warns when it fails (typically a feature the license does not include).
+An authorization engine marked `optional: true` only warns when it fails (a feature the license does not include).
 
 With AM_GATEWAY_URL set, the seed ends once the gateway serves the domain and signs in each application that has a
 `clientSecret`, so that a service that starts after it and signs in at once finds them there.
@@ -25,8 +25,8 @@ file's: it is never generated, read back or logged.
 import json
 import os
 
-from .common import (REFUSED, Api, SeedError, adopted, excerpt, files, forget, items, load, log, making, owned, pending, record, recorded,
-                     seed_file, setting, unmade, wait_until)
+from .common import (REFUSED, Api, SeedError, adopted, contains, files, forget, items, load, log, making, owned, record, recorded,
+                     seed_file, setting, wait_until)
 
 SECTION = "am"
 # What it records, dependents first
@@ -39,15 +39,6 @@ SCOPE_APPROVAL_SECONDS = 300
 # The kinds of agent that AM starts with `private_key_jwt`; a file that gives one a secret has it sign in with it
 KEYED_KINDS = ("HOSTED_DELEGATED", "AUTONOMOUS")
 SCOPES_PER_PAGE = 50   # AM answers no more, whatever the request asks
-
-
-def contains(actual, wanted):
-    """Whether `actual` holds everything `wanted` says: the platform adds defaults and ids of its own."""
-    if isinstance(wanted, dict):
-        return isinstance(actual, dict) and all(k in actual and contains(actual[k], v) for k, v in wanted.items())
-    if isinstance(wanted, list):
-        return isinstance(actual, list) and len(actual) == len(wanted) and all(contains(a, w) for a, w in zip(actual, wanted))
-    return actual == wanted
 
 
 def same_scopes(actual, wanted):
@@ -278,38 +269,12 @@ class AccessManagement:
     # --- Users ----------------------------------------------------------------------------
 
     def user(self, spec):
-        spec = {key: value for key, value in spec.items() if key != "optional"}   # the seed's flag, not a user's field
-        if "additionalInformation" in spec:
-            self._user_with_profile(spec)
-            return
-        username = spec["username"]
-        found = self._find_user(username) if pending(SECTION, "user", username) else None   # the answer an earlier seed lost
-        if found and adopted(SECTION, "user", username, found["id"], domain=self.domain_id):
-            log(SECTION, f"User exists: {username}")
-            return
-        with making(SECTION, "user", "users", username, domain=self.domain_id):
-            r = self.api.post(f"{self.domain_url}/users", expect=(200, 201, 202, 400), json={
-                "forceResetPassword": False, "preRegistration": False, **spec})
-            if r.status_code == 400:
-                unmade(SECTION, "user", username)
-                if "already exists" not in r.text.lower():
-                    raise SeedError(f"User '{username}': {excerpt(r.text, 300)}")
-            else:
-                record(SECTION, "user", "users", username, r.json()["id"], domain=self.domain_id)
-        log(SECTION, f"{'✓ User created' if r.status_code != 400 else 'User exists'}: {username}")
-
-    def _find_user(self, username):
-        users = items(self.api.get(f"{self.domain_url}/users", params={"q": username, "size": 50}).json())
-        return next((u for u in users if u["username"] == username), None)
-
-    def _user_with_profile(self, spec):
-        """A user whose profile (`additionalInformation`) the tokens carry: created when missing, then its profile made to
-        hold what the file says. AM adds fields of its own to it at the first sign-in, which are kept."""
-        username, profile = spec["username"], spec["additionalInformation"]
-        found = self._find_user(username)
-        if found:
-            user = self.api.get(f"{self.domain_url}/users/{found['id']}").json()
-            adopted(SECTION, "user", username, found["id"], domain=self.domain_id)
+        """A user, created when missing, then its profile (`additionalInformation`, which the tokens carry) made to hold what the
+        file says. AM adds fields of its own to it at the first sign-in, which are kept."""
+        username, profile = spec["username"], spec.get("additionalInformation")
+        user = self._find_user(username)
+        if user:
+            adopted(SECTION, "user", username, user["id"], domain=self.domain_id)
             log(SECTION, f"User exists: {username}")
         else:
             body = {k: v for k, v in spec.items() if k != "additionalInformation"}
@@ -318,12 +283,18 @@ class AccessManagement:
                     "forceResetPassword": False, "preRegistration": False, **body}).json()
                 record(SECTION, "user", "users", username, user["id"], domain=self.domain_id)
             log(SECTION, f"✓ User created: {username}")
-        current = user.get("additionalInformation") or {}
+        if profile is None:
+            return
+        current = self.api.get(f"{self.domain_url}/users/{user['id']}").json().get("additionalInformation") or {}
         if not contains(current, profile):
             self.api.put(f"{self.domain_url}/users/{user['id']}", json={
                 "email": spec["email"], "firstName": spec["firstName"], "lastName": spec["lastName"],
                 "additionalInformation": {**current, **profile}})
             log(SECTION, f"  ✓ Profile of {username}")
+
+    def _find_user(self, username):
+        users = items(self.api.get(f"{self.domain_url}/users", params={"q": username, "size": 50}).json())
+        return next((u for u in users if u["username"] == username), None)
 
     # --- Groups ---------------------------------------------------------------------------
 
@@ -432,18 +403,6 @@ def signs_in(gateway, spec, method):
                  auth=auth, headers={"Content-Type": None})
 
 
-def optional(spec, step):
-    """Runs a step; an optional one only warns when it fails. Whether it ran."""
-    try:
-        step()
-        return True
-    except SeedError as e:
-        if not spec.get("optional"):
-            raise
-        log(SECTION, f"! Skipped '{spec.get('name', spec.get('username', ''))}': {e}")
-        return False
-
-
 def seed(stores):
     domain_file = seed_file("am", "domain.yaml")
     if not domain_file:
@@ -456,17 +415,22 @@ def seed(stores):
     with_secret = []
     for path in files("am", "applications"):
         spec = load(path)
-        if optional(spec, lambda: am.application(spec)) and spec.get("clientSecret"):
+        am.application(spec)
+        if spec.get("clientSecret"):
             with_secret.append(spec)
     for spec in domain.get("users", []):
-        optional(spec, lambda: am.user(spec))
+        am.user(spec)
     for spec in domain.get("groups", []):
-        optional(spec, lambda: am.group(spec))
+        am.group(spec)
     for path in files("am", "protected-resources"):
-        spec = load(path)
-        optional(spec, lambda: am.protected_resource(spec))
+        am.protected_resource(load(path))
     for spec in domain.get("authorizationEngines", []):
-        optional(spec, lambda: am.authorization_engine(spec, stores))
+        try:
+            am.authorization_engine(spec, stores)
+        except SeedError as e:
+            if not spec.get("optional"):
+                raise
+            log(SECTION, f"! Skipped '{spec['name']}': {e}")
     am.wait_served(with_secret)
 
 

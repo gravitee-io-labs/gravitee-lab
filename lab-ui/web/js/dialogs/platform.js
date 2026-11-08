@@ -88,7 +88,7 @@ export function openReplaceToken({ platform, done }) {
 let creating = null;   // the platform whose gateway is created, and what runs once it is
 const gatewayFields = `<div class="field" id="gateway-choice"><label for="gateway-environment">Environment</label>${select("gateway-environment")}</div>`
   + field("gateway-name", "Name", input("gateway-name", 'minlength="2" maxlength="128" required'))
-  + note("gateway-replaces", "", true);
+  + note("gateway-replaces");
 const openGateway = formDialog("gateway", gatewayFields, { key: "new:gateway", verb: "create", label: "Create" },
   () => api(`/api/platforms/${creating.platform.id}/gateways`, { environmentId: $("#gateway-environment").value,
     name: $("#gateway-name").value.trim() }),
@@ -269,7 +269,7 @@ const useStep = (id, label, term, fields) => `<fieldset class="connect-section" 
 const useFields = `<div class="connect-body"><div class="connect-fields">
     <section class="connect-section" id="use-choice"><div class="field"><label for="use-environment">Environment</label>${select("use-environment")}</div></section>
     ${useStep("use-gateway", "Run a gateway here", TERMS.gateway, field("use-gateway-name", "Name", input("use-gateway-name", 'minlength="2" maxlength="128" required'))
-      + note("use-replaces", "", true))}
+      + note("use-replaces"))}
     ${useStep("use-deploys", "Allow deploys", TERMS.token, `<div class="connect-open">${consoleLink("use-open")}</div>`
       + todo("use-todo", [["In Settings, Cloud Tokens, generate a Cloud Token", 0],
         ['Choose the type Automation and the environment <span id="use-env-name"></span>, confirm, then copy the token', 1]])
@@ -441,6 +441,4 @@ export function openConnect({ added, runs, done }) {
 }
 
 // Set up one environment that is not used yet: the second step alone, for it. `runs`, `replaces` and `done` as in the wizard.
-export function openUseEnvironment({ platform, environment, runs = true, replaces = "", done }) {
-  setUp({ platform, environment, runs, replaces, done });
-}
+export const openUseEnvironment = setUp;

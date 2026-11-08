@@ -3,10 +3,10 @@ seed/aim/agents/*.yaml. The card and the `metadata` of the same file are aim_cat
 before; a file with neither key is left to it.
 
     identity:
-      clientId: care-copilot                       # the AM application the agent signs in with
+      clientId: desk-copilot                       # the AM application the agent signs in with
     access:
-      - {studio: Customer care, plan: Agents}      # a subscription to a plan of an MCP studio (aim/studios)
-      - {api: Harbor models, plan: Agents, apiKey: "${HARBOR_LLM_KEY}"}   # to a plan of an API of seed/apim/apis
+      - {studio: Customer desk, plan: Agents}      # a subscription to a plan of an MCP studio (aim/studios)
+      - {api: Orchid models, plan: Agents, apiKey: "${ORCHID_LLM_KEY}"}   # to a plan of an API of seed/apim/apis
 
 Three steps for each agent, each writing only what is missing:
 
@@ -58,8 +58,6 @@ UNSERVED = ("The agent '{name}': this platform has no application for an agent o
             "(/catalog/agents/{{id}}/application), which the keys identity and access of seed/aim/agents need: they work on the "
             "amp-demo build, not on a release of API Management. There, give the agent an application of seed/apim/applications whose "
             "client_id is its client ID in Access Management, and subscribe it to the plan of the studio")
-# What closing a subscription answers when it is done: or closed already (400), or gone with its studio (404)
-CLOSED = (200, 202, 204, 400, 404)
 # What detaching an identity answers when there is nothing to do or to reach: no identity attached (409), the agent or
 # its application gone (404), Access Management out of reach (502)
 DETACHED = (200, 404, 409, 502)
@@ -109,16 +107,12 @@ class Identities:
         self.access.connect()
         found = self.access.find_domain(domain)
         self.domain = found.get("hrid") or found["name"]
-        self.url = f"{self.access.env_url}/domains/{found['id']}"
+        self.access.domain_url = f"{self.access.env_url}/domains/{found['id']}"
 
     def find(self, client_id):
         """The id of the application with this client id, which is the identity the catalog attaches. None for none."""
-        api = self.access.api
-        for candidate in items(api.get(f"{self.url}/applications", params={"q": client_id, "size": 200}).json()):
-            detail = api.get(f"{self.url}/applications/{candidate['id']}").json()
-            if ((detail.get("settings") or {}).get("oauth") or {}).get("clientId") == client_id:
-                return detail["id"]
-        return None
+        found = self.access._find_application(client_id)
+        return found["id"] if found else None
 
 
 # --- The agents -----------------------------------------------------------------------------
@@ -133,7 +127,6 @@ class Agents:
         self.g = Gamma()
         self.aim = self.g.aim
         self.identities = None   # connected when the first agent asks for an identity
-        self.studios = None      # the MCP studios, listed once
 
     def connect(self):
         self.g.connect(SECTION, lambda: self.aim.get("/catalog/agents", params={"perPage": 1}), "Agents")
@@ -228,9 +221,7 @@ class Agents:
         log(SECTION, f"  ✓ Access restored: {name}")
 
     def studio(self, name):
-        if self.studios is None:
-            self.studios = [p for p in self.aim.rows("/mcp-proxies", WORKSPACES) if p.get("mode") == "STUDIO"]
-        found = [s for s in self.studios if s["name"] == name]
+        found = [p for p in self.aim.rows("/mcp-proxies", WORKSPACES) if p.get("mode") == "STUDIO" and p["name"] == name]
         if not found:
             raise SeedError(f"The MCP studio '{name}' is not there: aim/studios makes it before the agent subscribes")
         if len(found) > 1:
@@ -354,9 +345,9 @@ def remove(records):
     for x in mine:
         if x["kind"] == "subscription":
             if x.get("via") == apim.SECTION:   # to an API of seed/apim, closed where it was made
-                agents.g.v2.post(f"/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED, idempotent=True)
+                agents.g.v2.post(f"/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=apim.ENDED, idempotent=True)
             else:
-                agents.aim.post(f"/mcp-proxies/{x['api']}/subscriptions/{x['id']}/_close", expect=CLOSED, idempotent=True)
+                agents.aim.post(f"/mcp-proxies/{x['api']}/subscriptions/{x['id']}/_close", expect=apim.ENDED, idempotent=True)
             forget(x)
             log(SECTION, f"✓ Closed subscription '{x['name']}'")
         else:

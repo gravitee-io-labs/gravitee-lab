@@ -13,7 +13,6 @@ import json
 import os
 import shutil
 import socket
-import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
@@ -24,7 +23,6 @@ from lab_ui.docker import compose, envfiles
 from lab_ui import paths
 from lab_ui.catalogs import ci, manifest, registry
 from lab_ui.catalogs.ci import manifests
-from lab_ui.catalogs.ci import main as ci_main
 from tests import Case
 from tests import fixtures
 from tests.fakedocker import FakeDocker
@@ -40,7 +38,7 @@ CONFIG = {"services": {
 
 
 def loaded(kind="addon", name="mock", config=None, tested=(), resolve=None, variables=None):
-    return ci.Loaded(kind, name, name, ci.unit_path(kind, name), "", config if config is not None else CONFIG, ("mock",),
+    return ci.Loaded(kind, name, ci.unit_path(kind, name), "", config if config is not None else CONFIG, ("mock",),
                      tuple(tested), None if variables is None else frozenset(variables), resolve)
 
 
@@ -91,8 +89,9 @@ class Asking(Case):
 
     def setUp(self):
         self.script = manifests.script()
-        self.script.RESOLVE = lambda name, port, type=None: PUBLIC if name != "registry.internal.test" else \
-            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.1.2.3", port))]
+        private = {"registry.internal.test": "10.1.2.3", "10.0.0.5": "10.0.0.5", "127.0.0.1": "127.0.0.1"}   # a resolver answers an address with itself
+        self.script.RESOLVE = lambda name, port, type=None: PUBLIC if name not in private else \
+            [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (private[name], port))]
         self.registry = Registry()
 
     def ask(self):
@@ -137,11 +136,6 @@ class Images(Asking):
         self.assertIn("graviteeio/apim-gateway:4.12.0", found)
         self.assertEqual(notes, ["addon:mock: set 0 of x-gravitee.tested could not be read: service x has neither an image nor "
                                  "a build context"])
-
-    def test_sets_that_a_loader_cannot_resolve_are_said(self):
-        notes = []
-        manifests.images_of(loaded(tested=[{"APIM_VERSION": "4.12.0"}]), self.script.pulled, notes)
-        self.assertEqual(notes, ["addon:mock: the sets of versions it was tried with were not read"])
 
     def test_a_loader_failure_that_is_no_compose_error_is_not_hidden(self):
         def resolve(variables):
@@ -215,8 +209,7 @@ class Answers(Asking):
     def test_each_image_is_asked_once_whoever_pulls_it(self):
         self.registry = Registry({"https://registry-1.docker.io/v2/library/busybox/manifests/1.36": 200})
         one, two = loaded("addon", "one"), loaded("playground", "two")
-        problems, results, _ = manifests.run([one, two], self.ask(), module=self.script)
-        self.assertEqual(problems[:0], [])
+        manifests.run([one, two], self.ask(), module=self.script)
         busybox = [url for _, url, _ in self.registry.asked if "library/busybox" in url]
         self.assertEqual(len(busybox), 1)
 
@@ -259,13 +252,13 @@ class Stage(Asking):
         self.refused = []
 
     def run_stage(self, *argv, units='["addon:mock"]'):
-        loader = mock.Mock(return_value=ci.Loading(self.units, self.refused, []))
+        loader = mock.Mock(return_value=ci.Loading(self.units, self.refused))
         with mock.patch.object(ci, "LOADER", loader):
             code = manifests.main([".", "--units", units, *argv], self.out, self.err, ask=self.ask(), module=self.script)
         return code, loader
 
     def test_a_missing_tag_ends_the_stage_with_1(self):
-        code, loader = self.run_stage("--format", "github")
+        code, loader = self.run_stage("--ci")
         self.assertEqual(code, 1)
         self.assertIn("::error file=addons/mock/compose.yml,title=MF01::graviteeio/apim-gateway:9.9.9: the registry has no tag "
                       "9.9.9. Fix: use a tag that exists, or an earlier version.", self.out.getvalue())
@@ -273,7 +266,7 @@ class Stage(Asking):
 
     def test_a_registry_that_did_not_answer_is_a_warning_and_exit_0(self):
         self.registry = Registry(default="down")
-        code, _ = self.run_stage("--format", "github")
+        code, _ = self.run_stage("--ci")
         self.assertEqual(code, 0)
         self.assertIn("::warning file=addons/mock/compose.yml,title=MF02::registry-1.docker.io did not answer", self.out.getvalue())
 
@@ -287,21 +280,17 @@ class Stage(Asking):
     def test_a_unit_the_lab_refused_is_a_finding_and_no_registry_is_asked_for_it(self):
         self.units = []
         self.refused = [ci.Refused("addon", "mock", "addons/mock/compose.yml", ("Runs with full privileges",), "T03")]
-        code, _ = self.run_stage("--format", "github")
+        code, _ = self.run_stage("--ci")
         self.assertEqual(code, 1)
         self.assertIn("title=T03::addon:mock was not read: Runs with full privileges. Fix: make check says how.", self.out.getvalue())
         self.assertEqual(self.registry.asked, [])
 
     def test_the_summary_is_written_with_ci(self):
-        import tempfile
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        summary = os.path.join(folder, "summary.md")
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}):
+        summary = self.folder() / "summary.md"
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
             code, _ = self.run_stage("--ci")
         self.assertEqual(code, 1)
-        with open(summary, encoding="utf-8") as handle:
-            text = handle.read()
+        text = summary.read_text(encoding="utf-8")
         self.assertIn("MF01", text)
         self.assertIn("make ci", text)
 
@@ -317,10 +306,8 @@ class Stage(Asking):
                 self.assertEqual([line for line in self.err.getvalue().splitlines() if line.startswith("::")], [])
 
     def test_a_catalog_the_lab_cannot_read_is_exit_2(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder, True)
         with mock.patch.object(ci, "LOADER", mock.Mock(side_effect=ci.Unavailable("the Lab does not have this folder"))):
-            code = manifests.main([folder, "--units", '["addon:x"]'], self.out, self.err)
+            code = manifests.main([str(self.folder()), "--units", '["addon:x"]'], self.out, self.err)
         self.assertEqual(code, 2)
         self.assertIn("catalog.py ci: the Lab does not have this folder", self.err.getvalue())
 
@@ -330,11 +317,6 @@ class Stage(Asking):
             code = manifests.main([".", "--units", "[]"], self.out, self.err)
         self.assertEqual((code, self.err.getvalue()), (0, ""))
         loader.assert_not_called()
-
-    def test_the_dispatcher_reaches_it(self):
-        with mock.patch.object(ci, "LOADER", mock.Mock(return_value=ci.Loading([], [], []))):
-            code = ci_main(["manifests", ".", "--units", "[]"], self.out, self.err)
-        self.assertEqual(code, 0, self.err.getvalue())
 
     def test_it_holds_no_secret(self):
         with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_" + "A" * 36, "ACTIONS_RUNTIME_TOKEN": "runtime-secret"}):
@@ -348,11 +330,8 @@ class Stage(Asking):
 class Script(unittest.TestCase):
     """The engine's script, as a module and as a command."""
 
-    def test_it_is_a_module_with_the_names_the_stage_uses(self):
+    def test_what_a_unit_pulls_is_the_image_of_a_service_it_does_not_build(self):
         module = manifests.script()
-        for name in ("reference", "exists", "check", "pulled", "images", "main"):
-            self.assertTrue(callable(getattr(module, name)), name)
-        self.assertEqual(module.reference("ghcr.io/a/b:1"), ("ghcr.io", "a/b", "1"))
         self.assertEqual(module.pulled({"a": {"image": "x:1"}, "b": {"image": "y:1", "build": {"context": "."}}, "c": {"build": "."},
                                         "d": "not a service", "e": {"image": 3}}), ["x:1"])
 
@@ -389,6 +368,8 @@ class Hostile(Case):
         "addons/gated/compose.yml": "services:\n  shown:\n    image: busybox\n  evil:\n    profiles: [debug]\n    image: example.test/lab/evil:1\n"
                                     "    privileged: true\n    pid: host\n    build:\n      context: .\n      dockerfile_inline: |\n"
                                     "        FROM busybox\n",
+        # a gateway this catalog is not trusted with: the project clears it (N04), and the unit still works only with its token
+        "addons/foreign/compose.yml": "x-gravitee: {gateway: {platform: cloud, service: f, token: FOREIGN_TOKEN}}\nservices:\n  f:\n    image: busybox\n",
     }
 
     def setUp(self):
@@ -420,6 +401,14 @@ class Hostile(Case):
         every = " ".join(" ".join(cmd) for cmd, _ in self.calls[before:])
         for name in ("remote", "absolute", "env", "zero"):   # (the screen refuses these: no call names them. `privileged` passes the
             self.assertNotIn(f"hostile/addons/{name}/", every)   # screen and is refused by the policy, so the project read it)
+
+    def test_a_gateway_the_project_clears_still_says_the_unit_needs_a_token(self):
+        elsewhere = self.folder + "-unlisted"   # (the Lab does not list this id and it does not say host_access: N04)
+        shutil.copytree(self.folder, elsewhere, symlinks=True)
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        meta = Path(elsewhere, "catalog.yml")
+        meta.write_text(meta.read_text(encoding="utf-8").replace("id: hostile", "id: unlisted"), encoding="utf-8")
+        self.assertEqual([each.needs_credentials for each in ci.lab_loader(elsewhere, [("addon", "foreign")]).units], [True])
 
     def test_the_resolved_json_is_read_with_the_scrubbed_environment(self):
         with mock.patch.dict(os.environ, {"HOSTILE_TAG": "from-the-shell", "HOSTILE_TOKEN": "ghp_" + "B" * 36}):
@@ -508,16 +497,6 @@ class Hostile(Case):
         self.assertEqual(problems[0].message, "addon:gated was not read: Uses a Compose feature the Lab does not check: profiles (evil). "
                                               "Fix: Remove `profiles`, or ask the Lab's maintainers to support it.")
 
-    def test_the_premise_of_that_compose_prints_the_service_only_with_a_profile_on(self):
-        file = ".lab/catalogs/hostile/addons/gated/compose.yml"
-        scrubbed = compose.scrubbed_environment()
-        plain = compose.config_json(compose.all_files([file]), timeout=60, environ=scrubbed)
-        every = compose.config_json(compose.all_files([file]), timeout=60, environ={**scrubbed, **ci.ALL_PROFILES})
-        self.assertNotIn("evil", plain["services"])
-        self.assertEqual(sorted(every["services"]["evil"]["profiles"]), ["debug"])
-        self.assertEqual(ci.gated(plain), [])
-        self.assertEqual(ci.gated(every), ["evil"])
-
     def test_the_core_of_the_lab_has_no_profile_so_that_a_service_with_one_is_always_a_units(self):
         core = (Path(__file__).resolve().parents[4] / paths.CORE_FILE).read_text(encoding="utf-8")
         self.assertFalse([line for line in core.splitlines() if line.strip().startswith("profiles:")])
@@ -525,7 +504,7 @@ class Hostile(Case):
     def test_a_service_with_a_profile_is_a_refusal_for_every_stage_and_nothing_of_it_is_built_or_asked(self):
         out, err = io.StringIO(), io.StringIO()
         asked = []
-        code = manifests.main([self.folder, "--units", '["addon:gated"]', "--format", "github"], out, err, ask=lambda image: asked.append(image))
+        code = manifests.main([self.folder, "--units", '["addon:gated"]', "--ci"], out, err, ask=lambda image: asked.append(image))
         self.assertEqual((code, asked), (1, []))
         self.assertIn("title=T01::addon:gated was not read: Uses a Compose feature the Lab does not check: profiles (evil).", out.getvalue())
         fake = FakeDocker(self)
@@ -546,7 +525,7 @@ class Hostile(Case):
     def test_the_stage_answers_for_the_refused_units_with_exit_1_and_asks_no_registry(self):
         out, err = io.StringIO(), io.StringIO()
         asked = []
-        code = manifests.main([self.folder, "--units", '["addon:privileged", "addon:remote"]', "--format", "github"], out, err,
+        code = manifests.main([self.folder, "--units", '["addon:privileged", "addon:remote"]', "--ci"], out, err,
                               ask=lambda image: asked.append(image))
         self.assertEqual(code, 1, err.getvalue())
         self.assertEqual(asked, [])

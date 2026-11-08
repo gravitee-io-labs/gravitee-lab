@@ -17,8 +17,8 @@ from ..docker import compose, envfiles, images
 from .. import paths
 from ..docker.jobs import JOBS, JobFailed, awaited
 from ..gravitee import platforms
-from ..catalogs import registry, resolve
-from . import machine, moves, versions
+from ..catalogs import resolve
+from . import machine, versions
 from .project import _control_plane, _dotenv, brought
 
 LOCKED = f"{paths.ON_FILE} has your own changes"
@@ -27,10 +27,6 @@ FROM = "from"
 # Said once more in .env when the first catalog is added (prepare_catalogs)
 NO_REMOTE_COMMENT = ("\n# Compose never fetches an include from a repository or a registry: nothing a catalog's files "
                      "name is read with your sign-ins\n")
-# What .env says of the files Compose reads, as .env.example has it
-COMPOSE_FILE_LINES = ("\n# The files Compose reads: the core, and what is on. "
-                      "Keep it: without it, docker compose runs the core alone\n"
-                      f"COMPOSE_FILE={paths.COMPOSE_FILE}\n")
 OFF = "the catalog's Start and Stop are off"   # what a locked on file keeps from running, as its problem says
 # What a plan says before it runs, in the order of its dialog: what starts, stops (it runs), is turned off (it is on
 # and does not run), is kept, and restarts
@@ -78,13 +74,14 @@ def conflicts(project, ids):
 
 
 def _unset(project):
-    """The add-ons with a required setting left without a value in their .env: {id: [the names of those settings]}. The .env
-    of a catalog's add-on is read as a catalog's file is (project._dotenv): one that is a link or a pipe holds none."""
+    """The add-ons with a required setting left without a value in their .env or the root one, which Compose gives
+    precedence: {id: [the names of those settings]}. The .env of a catalog's add-on is read as a catalog's file is
+    (project._dotenv): one that is a link or a pipe holds none."""
     found = {}
     for aid, addon in sorted(project["addons"].items()):
         required = [setting["key"] for setting in addon["settings"] if setting["required"]]
         if required:
-            values = _dotenv(addon["env_file"])
+            values = {**_dotenv(addon["env_file"]), **_dotenv(paths.ENV_FILE)}
             lacking = [key for key in required if not values.get(key)]
             if lacking:
                 found[aid] = lacking
@@ -217,7 +214,7 @@ def current(project):
     elif broken:
         locked = f"{broken[0]} does not load"
         problems += [{"file": paths.ON_FILE, "message": f"{path} does not load: {OFF}"} for path in broken]
-    problems += _copy_problems(project) + _dangling_problems()
+    problems += _copy_problems(project)
     unset = _unset(project)
     # Where an item runs when it is not this machine: {"<kind>:<id>": the kind of platform}
     where = {f"{unit[0]}:{unit[1]}": kind for path, kind in compose.targets(paths.ON_FILE).items()
@@ -250,58 +247,11 @@ def _copy_problems(project):
         except (OSError, ValueError):
             found.append({"file": original, "message": f"what {name} runs on its platform is missing: turn {name} off and on again"})
             continue
-        for _, _, target in compose._include_items(text, paths.ROOT / original):
+        for _, _, target in compose._include_items(text, original):
             if target and not (paths.ROOT / target).is_file():
                 found.append({"file": original, "message": f"what {name} runs on its platform includes "
                                                            f"{_named(project, target)}, which is not there any more: "
                                                            f"turn {name} off and on again"})
-    return found
-
-
-_UNIT_PATH = re.compile(rf"{re.escape(paths.CATALOGS_DIR)}/({paths.NS})/(addons|playgrounds)/([a-z0-9-]+)(?:/|$)")
-_dangling = {}   # (file, its modification time, its size) -> its problems: a file is read again only when it changed
-
-
-def _dangling_problems():
-    """The paths of the files of this machine that lead into the folder of an item of a catalog that the catalog no longer
-    has (it was renamed, or removed), wherever the Lab does not write them again: a bind in a list written on one line, a
-    path in a command. Compose reads such a file all the same, and the container finds nothing there: each is said under the
-    file, by the name of the item, until it no longer names it. A comment names nothing."""
-    found = []
-    for file in moves._personal_files():
-        try:
-            info = file.stat()
-        except OSError:
-            continue
-        key = (str(file), info.st_mtime_ns, info.st_size)
-        if key not in _dangling:
-            if len(_dangling) >= 1000:   # what was read of files since changed is not kept for ever
-                _dangling.clear()
-            _dangling[key] = _dangling_in(file)
-        for problem in _dangling[key]:
-            if not (paths.ROOT / problem["folder"]).is_dir():
-                catalog = registry.lock_of(problem["ns"]).get("name") or problem["ns"]
-                found.append({"file": problem["file"], "message": f"names a folder that {catalog} no longer has (an item it "
-                                                                  "renamed or removed): change it"})
-    return found
-
-
-def _dangling_in(file):
-    """The paths of one file into the folder of an item of a catalog: [{file, ns, folder}], `folder` being where it leads."""
-    try:
-        text = file.read_text(encoding="utf-8")
-    except (OSError, ValueError):
-        return []
-    rel = os.path.relpath(file, paths.ROOT).replace(os.sep, "/")
-    folder, found = os.path.dirname(rel), []
-    lines = "\n".join(compose.COMMENT.sub("", line) for line in text.splitlines())
-    for written in sorted(set(moves.UPWARD.findall(lines))):
-        target = _UNIT_PATH.match(os.path.normpath(os.path.join(folder, written)).replace(os.sep, "/"))
-        if not target or written.rstrip("/").endswith(".yml"):   # an include: the project says when its file is not there
-            continue
-        ns, kind, name = target.groups()
-        if (paths.ROOT / paths.CATALOGS_DIR / ns).is_dir():
-            found.append({"file": rel, "ns": ns, "folder": f"{paths.CATALOGS_DIR}/{ns}/{kind}/{name}"})
     return found
 
 
@@ -440,13 +390,6 @@ def saved_setting(project, variable):
     return (found[1]["registry"] if variable.endswith("_REGISTRY") else found[1]["tag"]), found[1]["owner"]["name"]
 
 
-def saved_image(project, variable):
-    """The tag saved for the image a version variable sets, and the name of what it belongs to ("API Management");
-    None when no service's image uses it."""
-    found = service_of(project, variable)
-    return (found[1]["tag"], found[1]["owner"]["name"]) if found else None
-
-
 def enough(unit, variable, tag, wanted):
     """Whether an image tag meets the minimum a playground asks of it (`requires.images`): it is that version or a later one
     (at_least), or the playground lists it among the versions it was tested with, which is the playground saying it works on it
@@ -460,7 +403,7 @@ def _lacking(project, unit):
     than the one saved (`requires.images`), in the order of its `requires`."""
     found = []
     for variable, wanted in ((unit.get("requires") or {}).get("images") or {}).items():
-        saved = saved_image(project, variable)
+        saved = saved_setting(project, variable)
         if saved and not enough(unit, variable, saved[0], wanted):
             found.append((variable, saved[1], wanted))
     return found
@@ -756,7 +699,7 @@ def _port_clash(project, state, up, kind, unit, going=frozenset()):
 def taken(project, names):
     """The host ports these services publish that another program uses now (machine.held), sorted: Compose would fail to
     publish them once the on file names what publishes them, and every later Start all with it. Asked when a start is
-    clicked, never for the state: it binds each port for an instant. None while the lab's own cannot be told: Compose
+    clicked, never for the state: it tries each port. None while the lab's own cannot be told: Compose
     says it then."""
     return machine.held(_published(project, names)) or []
 
@@ -1028,11 +971,6 @@ def _switch_parts(project, to):
     return {**({"versions": forward} if forward else {}), **({"goes_back": back} if back else {}), "switch": to}
 
 
-def _remote(place):
-    """Whether a place is a remote one: anything but None and This machine, given by its id or as a place."""
-    return bool(place) and (place if isinstance(place, str) else place["id"]) != MACHINE
-
-
 def local_needs(project, unit):
     """The services of this machine's platform that a deploy to another platform starts for a playground, an add-on or a
     setup: those its apps, its seed and the services of what it brings depend on, and what they depend on in turn, but the
@@ -1115,10 +1053,10 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     versions it was tested with (switch); it goes there anyway when the saved ones are older than it asks, and what runs
     on an image the switch changes restarts with it (images.changing).
 
-    `place`: where a start deploys. None, or This machine (MACHINE, by its id or as a place), is the plan above, as it
-    always was, and so is every stop. A remote place, {id, name, gateway, here, serving}, makes the plan of a lab
-    without the core (_remote_view): the platform never starts, no core service starts, restarts or goes, and the seed
-    is not among what `up` names, because it runs apart (`fresh`, given per place, says whether it runs). `gateway` is
+    `place`: where a start deploys. None is the plan above, and so is every stop. A remote place, {id, name, gateway, here,
+    serving}, makes the plan of a lab without the core (_remote_view): the platform never starts, no core service starts,
+    restarts or goes, and the seed is not among what `up` names, because it runs apart (`fresh`, given per place, says
+    whether it runs). `gateway` is
     the id of the add-on that runs the gateway of that kind of platform: the plan turns it on like an explicit add-on,
     so it outlives the playground's stop. It starts when it does not run. It restarts, with the rows `serves` and
     `stops_serving`, when it runs and is not this place's (`here` false); `serving` is {id, name} of the place it
@@ -1130,7 +1068,7 @@ def plan(project, state, up, kind, uid, do, fresh=False, behind=frozenset(), pla
     and makes again what of it runs behind what is saved, and what it brings back here from a platform (_brought_back);
     a stop removes what goes by name and restarts the core services it changed. What was stopped on purpose, or started
     outside the Lab UI, is left as it is."""
-    remote, given = do == "start" and _remote(place), project
+    remote, given = do == "start" and bool(place), project
     if remote:
         project = _remote_view(project, kind, uid, place["gateway"])
     else:
@@ -1371,17 +1309,11 @@ def write(playground, explicit, targets=None, names=None, blocked=None, since=No
 
 
 def prepare():
-    """What this machine needs before Compose runs: .lab/ with an empty on file when nothing is on yet, and
-    COMPOSE_FILE in .env, for a `docker compose` typed by hand to read what is on."""
+    """What this machine needs before Compose runs: .lab/ with an empty on file when nothing is on yet."""
     root = paths.ROOT
     (root / paths.LAB_DIR).mkdir(exist_ok=True)
     if not (root / paths.ON_FILE).exists():
         write(None, [])
-    env = root / paths.ENV_FILE
-    if env.is_file() and "COMPOSE_FILE" not in envfiles.read(paths.ENV_FILE):
-        text = env.read_text(encoding="utf-8")
-        paths.write_atomic(env, text + ("" if text.endswith("\n") or not text else "\n") + COMPOSE_FILE_LINES,
-                           mode=0o600)
 
 
 def prepare_catalogs():
@@ -1479,14 +1411,6 @@ def make_binds(project, plan):
     return made
 
 
-def commands(plan):
-    """The Compose runs of a plan, each only when it has something to do (with no service, Compose would take them
-    all): what goes is removed by name, Compose asked by project name, whatever the files include; then what starts
-    and what restarts, by name, without what they depend on (`--no-deps`), which the plan names when it does not
-    run. What runs is left as it is, what was stopped stays stopped, what was started outside the Lab UI stays."""
-    return _removal(plan["services"]["remove"]) + starting(plan["services"]["start"])
-
-
 def _removal(names):
     """The run that removes these services by name, with the anonymous volumes of their containers (`-v`): an image that
     declares a VOLUME gets one at each start, which nothing reaches once its container is gone, not even a Reset. Named
@@ -1495,8 +1419,8 @@ def _removal(names):
 
 
 def starting(names):
-    """The run that starts these services by name, as every start of an item does (commands()): none for no service,
-    which Compose would read as every one."""
+    """The run that starts these services by name, as every start of an item does, without what they depend on
+    (`--no-deps`), which the plan names when it does not run: none for no service, which Compose would read as every one."""
     return [[*compose.COMPOSE, "up", "-d", "--no-deps", *names]] if names else []
 
 
@@ -1531,8 +1455,8 @@ def steps(project, plan, start=None, swap=None, undo=None):
     is canceled, the Lab UI stops): nothing for a plan the on file changed since (unchanged()); then what goes is
     removed, while the on file still names it, so that it is on and stopped rather than off and still running, which
     would read as started by hand; then a gateway's token is swapped (`swap`, the step swapping() makes, when the plan
-    starts one that does not run here); then the on file is written (written()); then what starts and restarts, by name
-    (commands()). `start`: the services the last one names, when they are more than the plan's (a playground's product,
+    starts one that does not run here); then the on file is written (written()); then what starts and restarts, by name.
+    `start`: the services the last one names, when they are more than the plan's (a playground's product,
     stopped to load its plugins). `undo`: the first gate's (unchanged())."""
     return [lambda job: unchanged(plan, undo), *_removal(plan["services"]["remove"]), *([swap] if swap else []),
             lambda job: written(job, project, plan), *starting(plan["services"]["start"] if start is None else start)]
@@ -1611,7 +1535,7 @@ def awaits(project, pairs, named=()):
 
 
 def waits(project, plan):
-    """What each command of a plan waits for, in the order of commands(): the containers it removes, then those it
+    """What each command of a plan waits for, in the order of steps(): the containers it removes, then those it
     starts or restarts."""
     services, remove, start = project["services"], plan["services"]["remove"], plan["services"]["start"]
     return ([awaited(services, stop=remove)] if remove else []) + ([awaited(services, start=start)] if start else [])

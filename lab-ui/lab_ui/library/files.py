@@ -88,30 +88,15 @@ class ReadOnly(RuntimeError):
     replaces. A RuntimeError, so that the API answers 409, as for a file that changed on disk."""
 
 
-def _rows(memo):
-    """What the registry says of each catalog ({namespace: row}), asked once per call (`memo`); none when it cannot
-    say."""
-    if "rows" not in memo:
-        try:
-            rows = registry.inputs()
-        except Exception:  # noqa: BLE001 - a registry that cannot answer names nothing: the namespace stands in
-            rows = None
-        memo["rows"] = {ns: row for ns, row in rows.items() if isinstance(row, dict)} if isinstance(rows, dict) else {}
-    return memo["rows"]
-
-
-def _part_of(uid, memo):
+def _part_of(uid):
     """The reason the files of a unit may not be changed, "Part of Acme Hub", when the unit is part of a catalog
     installed from git; None for the items of this machine, of a folder catalog (a link to the author's folder, whose
     files are theirs) and of a project that has no catalogs. A git install is a real folder that holds the manifest the
     Lab writes, or one the registry says is: either is enough, so that a doubt refuses."""
-    try:
-        ns = paths.origin(uid)
-    except paths.NotFound:
-        return None
+    ns = paths.origin(uid)
     if ns in (None, paths.LOCAL):
         return None
-    folder, row = ROOT / paths.CATALOGS_DIR / ns, _rows(memo).get(ns, {})
+    folder, row = ROOT / paths.CATALOGS_DIR / ns, registry.inputs().get(ns, {})
     if not (row.get("kind") == "git" or (not folder.is_symlink() and (folder / paths.MANIFEST).is_file())):
         return None
     name = shown(row["name"], 80) if isinstance(row.get("name"), str) else ""
@@ -121,20 +106,17 @@ def _part_of(uid, memo):
 def _refuse(path):
     """Raises ReadOnly for a compose file or a guide that is part of a git catalog: it is read, never written."""
     unit = _owner(path)
-    reason = _part_of(unit[1], {}) if unit else None
+    reason = _part_of(unit[1]) if unit else None
     if reason:
         raise ReadOnly(reason)
 
 
 def _in_catalog(path):
     """Whether a path is a unit file of a catalog's folder, git or folder, not of this machine's own items nor of the
-    project (the core, the on file, the layout before catalogs): the files that are checked from a copy in the scratch
-    folder, never from one beside them."""
+    project (the core, the on file): the files that are checked from a copy in the scratch folder, never from one beside
+    them."""
     unit = paths.unit_of(path) if isinstance(path, str) else None
-    try:
-        return unit is not None and paths.origin(unit[1]) not in (None, paths.LOCAL)
-    except paths.NotFound:
-        return False
+    return unit is not None and paths.origin(unit[1]) not in (None, paths.LOCAL)
 
 
 def _unit(project, kind, uid):
@@ -150,14 +132,14 @@ def _section(title, on, runs, file, env_file=None, guide=None, reason=None):
             "files": [{"path": path, "name": path.split("/")[-1], "kind": kind} for path, kind in files]}
 
 
-def _unit_section(project, on, running, kind, uid, memo):
+def _unit_section(project, on, running, kind, uid):
     """A unit's compose file, a playground's guide, and its .env when it has settings of its own. One that does not
     load is still listed, under its id, so that it can be repaired."""
     unit, guide = _unit(project, kind, uid), paths.unit_guide(kind, uid)
     is_on = _is_on(kind, uid, unit, on)
     return _section(unit.get("name") or uid, is_on, _runs(project, kind, unit, is_on, running),
                     paths.unit_file(kind, uid), unit.get("env_file") if unit.get("settings") else None,
-                    guide if guide and (ROOT / guide).is_file() else None, _part_of(uid, memo))
+                    guide if guide and (ROOT / guide).is_file() else None, _part_of(uid))
 
 
 def _running():
@@ -173,7 +155,7 @@ def sections(project, path):
     and whether something of it runs (`runs`): only then does applying it recreate anything. The core runs while a
     service of the platform does. A section of a unit that is part of a git catalog is `readonly`, with its `reason`."""
     belongs = None if path in TOP else _unit_of(path)   # before anything is asked of Docker: a path that is none is refused
-    on, running, memo = layers.current(project), _running(), {}
+    on, running = layers.current(project), _running()
     if belongs is None:
         units, ids = [("playground", on["playground"])] if on["playground"] else [], on["effective"]
     else:
@@ -181,14 +163,14 @@ def sections(project, path):
         unit = _unit(project, kind, uid)
         units, ids = [(kind, uid)], brought(unit) if unit else []
     units += [("setup", sid) for kind, uid in units for sid in _unit(project, kind, uid).get("setups", [])]
-    addons = sorted((_unit_section(project, on, running, "addon", aid, memo) for aid in ids),
+    addons = sorted((_unit_section(project, on, running, "addon", aid) for aid in ids),
                     key=lambda section: section["title"].lower())
     core = any(service["owner"]["kind"] == "platform" for name, service in project["services"].items()
                if name in running)
     on_section = [_section("What is on", True, core, ON_FILE)] \
         if path in TOP and (ROOT / ON_FILE).is_file() else []
     return [_section("Core", True, core, CORE_FILE, ENV_FILE), *on_section,
-            *(_unit_section(project, on, running, *unit, memo) for unit in units), *addons]
+            *(_unit_section(project, on, running, *unit) for unit in units), *addons]
 
 
 def _file(path):

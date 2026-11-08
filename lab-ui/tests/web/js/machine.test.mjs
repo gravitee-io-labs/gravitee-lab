@@ -2,19 +2,16 @@
 // answers: each line says its state, what it is and its fix (a link, a command to copy, or one the Lab UI runs here); the whole says in one line
 // whether the platform can start; asked again on a timer while it is watched, and no longer once it is not.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { flush, installDom, text } from "./dom-stub.mjs";
+import { flush, installDom, reply, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
 
 const row = (id, state, detail, actions = []) => ({ id, state, title: id[0].toUpperCase() + id.slice(1), detail, actions });
-const READY = { ready: true, problems: 0, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
-const LOOK = { ready: true, problems: 1, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("memory", "warn", "6 GB: give it 8 GB in the settings of Docker Desktop")] };
-const DOWN = { ready: false, problems: 3, checks: [
+const READY = { ready: true, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("git", "ok", "Git 2.43.2")] };
+const LOOK = { ready: true, checks: [row("docker", "ok", "Docker Desktop 29.8.2, Compose 5.6.0"), row("memory", "warn", "6 GB: give it 8 GB in the settings of Docker Desktop")] };
+const DOWN = { ready: false, checks: [
   row("docker", "error", "Docker Desktop is not running", [{ id: "open-docker", label: "Open Docker Desktop", primary: true }]),
   row("memory", "idle", "Known once Docker runs"),
   row("ports", "warn", "27017 (MongoDB) is used by another program", [{ id: "start-docker", label: "Copy the command", primary: true, copy: "sudo systemctl start docker" }]),
@@ -22,12 +19,10 @@ const DOWN = { ready: false, problems: 3, checks: [
 ] };
 
 const server = { machine: READY, calls: [] };
-const reply = (body) => ({ ok: true, status: 200, headers: { get: () => "" }, json: async () => body });
-const page = installDom({ ids, fetch: async (path, options = {}) => {
+const page = installDom({ fetch: async (path, options = {}) => {
   server.calls.push({ path, method: options.method || "GET" });
   return reply(path.startsWith("/api/machine") ? server.machine : {});
 } });
-globalThis.getComputedStyle = () => ({ position: "static", getPropertyValue: () => "0" });
 const { machine, machineBlocked, machineToFix, machineRowsHtml, machineSummary, refreshMachine, watchMachine, unwatchMachine } =
   await import("../../../web/js/dialogs/machine.js");
 const settle = async () => { for (let i = 0; i < 4; i += 1) await flush(); };
@@ -71,7 +66,7 @@ test("the whole says in one line whether the platform can start", async () => {
 });
 
 test("a fix on its way keeps the platform waiting and the whole says what it waits for", async () => {
-  server.machine = { ready: false, problems: 2, checks: [row("docker", "working", "Docker Desktop is starting"),
+  server.machine = { ready: false, checks: [row("docker", "working", "Docker Desktop is starting"),
     row("disk", "warn", "14 GB free: the first start downloads about 15 GB")] };
   await refreshMachine(true);
   assert.equal(machineBlocked(), true, "Continue and Start wait for Docker");

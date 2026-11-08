@@ -4,10 +4,10 @@
 // catalog when there is more than one to tell apart, each row then naming its catalog in a column of its own on a wide card. While the
 // catalogs download or are missing, the list says so in place of its rows.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, ID_PATTERN, splitKey } from "../core.js";
+import { $, esc, icon, setHTML, loading, api, store, router, recall, remember, ID_PATTERN, splitKey, catalogRows } from "../core.js";
 import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, paintActions, contentStatus, originLink,
   actionButton, keyed, dockerDown, stateDot, serviceCells, serviceOpen, noteHtml, noteBadge, blockerButton, itemLink, unopened, starButton,
-  toggleStar, statusHtml, progressBar, TURNS, fileButtons } from "../components/ui.js";
+  toggleStar, statusHtml, progressBar, TURNS, fileButtons, reveal } from "../components/ui.js";
 import { CategoryFilter } from "../components/combo.js";
 import { runJob, runAction, busy, showOutput } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
@@ -93,7 +93,7 @@ export function startWarning(x) {
 }
 
 // The form that takes what the place lacks, in its environment
-function fix(x, what) {
+export function fix(x, what) {
   const place = unready(x);
   if (!place) return;
   const form = { platform: place.platform, environmentId: place.environment.id, done: () => store.refreshPlaces() };
@@ -244,7 +244,7 @@ function drawRows(ul, items, html) {
 // --- Where the items come from ------------------------------------------------------
 
 // The catalogs the state lists that hold items: those added, git or folder, in the order the server gives
-const added = () => (Array.isArray(store.state?.catalogs) ? store.state.catalogs : []).filter((c) => ["git", "folder"].includes(c.kind));
+const added = () => catalogRows().filter((c) => ["git", "folder"].includes(c.kind));
 const LOCAL = "local";   // the source of this machine's items: the id of its row
 // The first catalog is the one whose items have bare ids, and so no origin: the first of those listed, which the picker lists first
 const firstId = () => added().find((c) => c.listed)?.id ?? "@first";
@@ -258,12 +258,6 @@ function sourceOrder(entries) {
   return entries.sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 }
 
-// Whether the list tells the sources of its items apart, from the items it has: not while one catalog (or this machine) holds them all;
-// else with a picker of the catalogs, this machine's items among them as Personal
-const scopeOf = (all) => (new Set(all.map(sourceOf)).size < 2 ? "" : "picker");
-
-const PICKER = '<button class="combo-btn" data-catalogs aria-haspopup="dialog"><span class="sr-only">Catalog: </span><span class="value"></span>';
-
 // `noun` names what a row is, as the header of its first column
 function list(kind, title, noun) {
   // Starred or not is chosen once for each list: it is the same at the next visit
@@ -276,9 +270,9 @@ function list(kind, title, noun) {
   // returns to the list as it was. `target`: the row to bring into view and focus once it is drawn.
   const routed = new Set();
   let section, pager, categories, target = null;
-  // The control that tells the catalogs apart, drawn from the items there are (scope): none, or the picker; the block of
+  // The control that tells the catalogs apart, drawn from the items there are: none, or the picker; the block of
   // the content of the catalogs, and the places both go in
-  let scopeEl = null, scopeKind = "", catalogs = null, wanted = null;
+  let scopeEl = null, catalogs = null, wanted = null;
   let rowsEl, emptyEl, contentEl = null, contentHtml = "";
   // The list as it was before an address showed one of its rows, which may clear its filters and turn its page: its
   // filters, its search, its categories, its catalogs and its page, given back by the list's own address. What is changed by hand
@@ -327,16 +321,15 @@ function list(kind, title, noun) {
   // The control that tells the catalogs apart, mounted when the items need one and taken off when they no longer do: it is drawn from the
   // items, never from the page's markup, and what was chosen with it is not kept. A catalog asked for from outside (selectCatalog) is chosen.
   function mountScope(all) {
-    const want = scopeOf(all);
-    if (want !== scopeKind) {
+    const want = new Set(all.map(sourceOf)).size > 1;   // not while one catalog (or this machine) holds them all; Personal is one of the choices
+    if (want !== !!catalogs) {
       scopeEl?.remove();
       catalogs?.clear();
       scopeEl = catalogs = null;
-      scopeKind = want;
-      $(".list-card", section).classList.toggle("by-catalog", !!want);   // its rows name their catalog where the card has the room
+      $(".list-card", section).classList.toggle("by-catalog", want);   // its rows name their catalog where the card has the room
       if (want) {
         const holder = document.createElement("div");
-        holder.innerHTML = `${PICKER}${icon("chevron")}</button>`;
+        holder.innerHTML = `<button class="combo-btn" data-catalogs aria-haspopup="dialog"><span class="sr-only">Catalog: </span><span class="value"></span>${icon("chevron")}</button>`;
         scopeEl = holder.firstElementChild;
         $(".list-filters", section).append(scopeEl);
         catalogs = CategoryFilter(scopeEl, () => store.state?.[`${kind}s`] || [], () => filter({}), sourceName,
@@ -379,30 +372,20 @@ function list(kind, title, noun) {
     $("[data-starred]", section).checked = filters.starred;
     // With no item at all there is nothing to filter, and the catalogs' content says why (it says "No setup yet" itself when it is all there)
     $(".list-tools", section).hidden = !all.length;
-    paintContent(contentStatus(state.content ? state : { content: { key: "ready" } }, { kind, items: all.length }));
+    paintContent(contentStatus(state, { kind, items: all.length }));
     emptyEl.hidden = shown.length > 0 || !all.length;
     setHTML(emptyEl, emptyHtml({ filtered: true, starred: filters.starred && !all.some((x) => x.starred),
       running: filters.running && !all.some(alive) }));
     const sub = (x) => (id) => opened.has(`${x.id}>${id}`);
     drawRows(rowsEl, pager.slice(shown), (x) => ({ row: row(x), detail: opened.has(x.id) ? detail(x, sub(x)) : "" }));
     paintActions(section);
-    if (known) reveal(target);
+    if (known) reveal(`.list-item[data-key="${CSS.escape(target)}"]`, section, ".s-toggle");
     else if (target && !waiting) {
       // Given up: it is not there, and it is not coming
       opened.delete(target);
       routed.delete(target);
     }
     if (!waiting) target = null;
-  }
-
-  // The row an address opened, in view and focused, once the router has set the page's scroll
-  function reveal(id) {
-    requestAnimationFrame(() => {
-      const li = $$(".list-item", section).find((one) => one.dataset.key === id);
-      if (!li) return;   // drawn again meanwhile, without it
-      li.scrollIntoView({ block: "nearest" });
-      $(".s-toggle", li)?.focus({ preventScroll: true });
-    });
   }
 
   // Filtering, paging and opening a row draw again from the last state

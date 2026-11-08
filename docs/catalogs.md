@@ -4,18 +4,6 @@ The Lab runs the Gravitee platform and nothing else. Everything you can turn on 
 playgrounds, comes from **catalogs**: Git repositories that follow one structure. The Lab is set up with one catalog,
 Gravitee public, and you can add others.
 
-1. [What a catalog is](#what-a-catalog-is)
-2. [The first start](#the-first-start)
-3. [Add, update, go back, remove](#add-update-go-back-remove)
-4. [Versions](#versions)
-5. [What blocked means](#what-blocked-means)
-6. [Items that use your machine](#items-that-use-your-machine)
-7. [Private catalogs](#private-catalogs)
-8. [Your own items](#your-own-items)
-9. [Offline, privacy and starting over](#offline-privacy-and-starting-over)
-10. [Updating a Lab from before catalogs](#updating-a-lab-from-before-catalogs)
-11. [Errors and what to do](#errors-and-what-to-do)
-
 ## What a catalog is
 
 A catalog is a Git repository with a `catalog.yml` and three folders: `addons/`, `setups/` and `playgrounds/`. The Lab
@@ -55,7 +43,7 @@ shows. A catalog that needs another one says which; add that one first.
 *Update available* when a newer version exists ([Versions](#versions)), with a dot on the Catalogs entry of the menu. A version
 that uses what your Lab does not read yet is never installed: the row says it needs a newer Gravitee Lab, and you keep the newest version
 your Lab reads. **Update**
-is the only way a copy is replaced, except for a catalog the Lab can no longer read, which is brought forward by itself. A catalog
+is the only way a copy is replaced. A catalog
 with something to decide opens a dialog that says what changes first: the version, from the one you have to the new one
 (*Unreleased* when the catalog makes no releases, *Unchanged* when a release was moved), every item it updates, adds, removes or
 breaks with its kind, what changed in the folder of each item it updates (`README.md`, `compose.yml`, `seed/`), what is new in
@@ -75,8 +63,8 @@ is off, **Remove containers**), so that nothing is moved under a container; whil
 that is on and has none stays on. What else holds the update, as for any item that
 is on: a new version of it that cannot run, and an item that is on and includes it in a way the Lab cannot write again (an item
 of another catalog, or a path the Lab does not reach): turn that one off first. A file of yours that still names what moved
-where the Lab does not write it again (a path in a list written on one line) is listed in the problems of the Lab UI until you
-change it, and one that names an old service (`depends_on`) is one Compose refuses, which the problems say too. If a file could
+where the Lab does not write it again (a path in a list written on one line) finds nothing there until you change it, and one
+that names an old service (`depends_on`) is one Compose refuses, which the problems say. If a file could
 not be moved (it belongs to another user, or is on another disk), the update stops and says so: make it yours again, click
 **Repair**, which puts back what it had moved and waits for containers the same way, then update again. An update that a
 start of the Lab finds stopped half way, with the item's containers back, is shown damaged with what holds it: turn the item
@@ -253,7 +241,7 @@ file so: the preview says so under **Kept settings** (from an earlier import, us
 take, because its item has its own, stay where they are, and the import says where. A setting the Lab could not move is said
 with where it still is, and nothing else is deleted with it. What Docker made and the Lab cannot delete is said, and an import of
 that name waits until you remove it. A move or an import to Personal that stopped midway, because the Lab stopped, is put right
-at the next one, and said. The Catalogs page lists the settings the Lab keeps by the names of their items, on the row they came
+when the Lab UI starts again. The Catalogs page lists the settings the Lab keeps by the names of their items, on the row they came
 from: **Personal** for those a new version replaced, **Imported** for those of a removed import. **Remove**, in the menu of each,
 says what it deletes and deletes them, and nothing else does.
 
@@ -284,44 +272,17 @@ every few hours, each at its own address, with Git. Nothing about you is sent be
 check off for one catalog: its menu, **Stop checking automatically**. To start over, as if the Lab had just been installed:
 `python3 lab-ui/catalog.py reset` (and `reset --empty` to have no catalog at all, which is a Lab with the platform only).
 
-## Updating a Lab from before catalogs
-
-An update moves nothing by surprise. Stop the platform, pull, and run the one command:
-
-```bash
-make stop
-```
-
-```bash
-make update
-```
-
-`make update` is `git pull --ff-only` then `make catalogs`: it downloads the default catalog and moves your settings,
-your stars and what you had in the old folders to the new layout. Starting the Lab UI does the same, once, before it opens:
-a Lab that was pulled some other way is moved all the same. Your own add-ons, setups and playgrounds (the ones under
-`local/`) become Personal. Both then say in the terminal what you may want to look at: what the catalog does not have is now
-Personal, anything you changed inside a shared item is kept aside in `.lab/migration/kept`, what needs a catalog you do not
-have is turned off, and files that could not be moved stay where they were. When the move cannot be made (the catalog does
-not download, `.lab/catalogs.json` or `.lab/catalogs.lock` does not read, a disk error), they say why, and what to do with a
-file that does not read, nothing is deleted, and the Lab UI does not start until it is fixed: start it again to finish the
-move. `.lab/migration/undo.sh` puts the previous layout back;
-a file that changed since is kept beside the restored one with the suffix `.after-update`.
-
-Until the move is made, `make start`, `make ps`, `make urls`, `make check` and the other targets that read what is on say
-`This Lab was updated: run make update to move your settings.` and stop. `make stop`, `make down` and `make reset` keep
-working.
-
 ## Errors and what to do
 
 | The Lab says | What it means | What to do |
 |---|---|---|
 | Docker cannot share this folder | A folder catalog outside the folders Docker Desktop shares | Move it under your home folder |
-| No access to the catalog | Git could not sign in | Sign in with Git on this machine, then **Try again** |
+| No access | Git could not sign in | Sign in with Git on this machine, then **Try again** |
 | Unreachable | No network, or the host is down | Try again later; the copy you have still works |
 | Another catalog already uses the name … | Two catalogs claim one name | Remove one, or ask its owner to rename it |
 | Rewritten | The catalog's history was rewritten | Read what changed; **Update anyway** if you trust it |
 | Damaged | A file of the copy differs from what was installed | **Repair** |
 | Needs a catalog | An item needs another catalog | Add it |
-| Needs a newer Lab | A newer version of the catalog uses what this Lab does not read: you keep the newest version it reads | Update Gravitee Lab (`make update`), then restart it |
+| Needs a newer Gravitee Lab | A newer version of the catalog uses what this Lab does not read: you keep the newest version it reads | Update Gravitee Lab (`make update`), then restart it |
 
 If a line is not here, it names its own fix. `python3 lab-ui/catalog.py explain CODE` gives the long form of a rule code.

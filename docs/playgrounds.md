@@ -17,7 +17,7 @@ the default catalog follow the same rules.
 | Playgrounds | A use case: what is specific to one story | `playgrounds/<id>/` | Acme Shop |
 
 The test for add-on or playground: would someone turn it on without this use case? A broker, a tracing backend or a live
-view of agent traffic: yes, those are add-ons. The bank's apps, its APIs and users, and its guide: no, they belong to
+view of agent traffic: yes, those are add-ons. The shop's apps, its APIs and users, and its guide: no, they belong to
 the playground.
 
 A playground declares what it needs from the layers below. It never redefines them.
@@ -90,7 +90,7 @@ x-gravitee:
 |---|---|
 | `kind` | `playground` |
 | `name` | How the Lab UI names it |
-| `description` | A phrase with no leading article and no final period: what it shows. Required. Its row in the `playgrounds/README.md` of the catalog repeats it exactly |
+| `description` | A phrase with no leading article and no final period: what it shows. Required |
 | `category` | One of `x-gravitee.categories` in `docker-compose.yml`. Required for what is shared |
 | `tags` | Short labels, shown on its page. Required for what is shared: at least one, none twice |
 | `duration` | How long the guide takes, as `35 min` or `1 h 30 min`. Required for what is shared |
@@ -122,7 +122,7 @@ x-gravitee:
 
 ### Host access
 
-A playground runs containers with your Docker access. A service that takes more of your machine than its own container does must say why, so that a reviewer and a user read it before it runs. `make check` asks for it, for a shared file:
+A playground runs containers with your Docker access. A service that takes more of your machine than its own container does must say why, so that a reviewer and a user read it before it runs. `catalog.py check` and Share ask for it (T28), for a shared file:
 
 ```yaml
 x-gravitee:
@@ -130,7 +130,7 @@ x-gravitee:
     k3s: Runs containerd and the kubelet inside its container, which only a privileged container can do
 ```
 
-What counts: a privileged container, the network, the processes, the shared memory, the host name or the users of the host, added capabilities, devices, a security profile that is `unconfined`, the Docker socket, and a folder of your machine outside the project. A folder of the project, a named volume and a port do not. What a file includes is the included file's to say. A declaration for a service that takes nothing is an error too, so that the list stays true.
+What counts: a privileged container, the network, the processes, the shared memory, the host name or the users of the host, added capabilities, devices, a security profile that is `unconfined`, the Docker socket, and a folder of your machine outside the project. A folder of the project, a named volume and a port do not. What a file includes is the included file's to say.
 
 ### Tested versions
 
@@ -146,8 +146,8 @@ x-gravitee:
 A playground says the versions it was built and checked on, not the ones it asks for at least (`requires.images`). A version it lists
 there is also enough for its minimum. Only a release (`4.13.7`) is taken as it is: any other version (a pre-release such as
 `4.13.0-alpha.5`, a demo build, `latest`) is not tested unless the playground names that very version, in `tested` or as the
-`requires.images` it asks for. Without a tested version to go to, the warning says to choose a release and Start offers only
-*Start anyway*. Gravitee changes things between versions, whatever its numbers say, and a playground that is not run on its versions may end on its
+`requires.images` it asks for. Without a tested version to go to, *Before you start* says to choose a release on the Images page,
+and Start starts on the images as they are. Gravitee changes things between versions, whatever its numbers say, and a playground that is not run on its versions may end on its
 seed after the whole setup. In a catalog of the standard, the nightly `versions.yml` tries each playground on the newest releases and
 writes the sets that work ([Gravitee versions](writing-a-catalog.md#gravitee-versions)): a set written by hand is the starting point. Each item is a set: what was checked together. The saved images are tested when they match
 every image of one set:
@@ -176,7 +176,7 @@ older ones: they stay tested. `make check` says when a name is not the version v
 
 ```yaml
 include:
-  - ../../addons/jade/compose.yml                 # Jade
+  - ../../addons/acme-console/compose.yml         # Acme Console
 ```
 
 A playground includes the add-ons and setups it needs. Starting it turns them on, and stops or turns off what conflicts
@@ -185,10 +185,10 @@ personal one.
 
 ### `terminal`
 
-`terminal: logistics-kubectl` names the service whose container gets a shell, under the UIs, in the page of the playground. The
+`terminal: shop-kubectl` names the service whose container gets a shell, under the UIs, in the page of the playground. The
 Lab UI starts `sh` there with `docker exec -it`, so everything the shell has comes from the container: its image, its
 working directory (`working_dir`), its environment, its mounts. A container that only waits for the shell (`entrypoint: ["sleep",
-"infinity"]`) is how Acme Freight has one, with its lessons' files mounted and `ENV` naming a file of aliases that `sh` reads
+"infinity"]`) is how a playground has one, with its lessons' files mounted and `ENV` naming a file of aliases that `sh` reads
 at its start (`k` for `kubectl`). The terminal is for what the playground teaches to do from a command line; a shell on this
 machine is not what it opens.
 
@@ -229,8 +229,8 @@ environment of the Gravitee Cloud accounts you connected. An environment the pla
 reason as its tail. With [API Management in the Cloud](lab-ui.md#where-api-management-runs), its environment is the place
 proposed first; a playground that cannot go there proposes *This machine*, and its page says why.
 
-A deploy to Gravitee Cloud starts the gateway add-on of its kind and the apps, and runs the seed apart from the core
-(`docker compose run --rm --no-deps`), so that it starts, restarts and recreates nothing of the core.
+A deploy to Gravitee Cloud starts the gateway add-on of its kind, the apps and what they need of this machine's platform, and
+runs the seed apart (`docker compose run --rm --no-deps`). It restarts and recreates nothing of the core.
 
 What an environment runs comes from its gateways, as the Cloud lists them: each has a scope (`APIM` or `AM`) and a version,
 and the environment runs the product of each scope at the version of its oldest gateway. The product is named as the core's
@@ -240,9 +240,13 @@ gateway mounts what the Hybrid gateway add-on mounts. The Lab gives the first re
 
 | Reason | When | What to change |
 |---|---|---|
+| Brings its own seed code, Seed data reads a token | The notes of [the policy](catalogs.md#what-blocked-means): such a seed gets no Cloud Token, whatever the environment | Run the seeder as it is, and read no token in `seed/`: [N01](catalog-rules.md#n01), [N02](catalog-rules.md#n02) |
 | Nothing to deploy | There is no seed service, or `seed/` holds nothing | A seed service, and `seed/apim/` for the API Management it fills |
 | Needs Gamma | `seed/` holds `aim/` or `authz/`, and the account's plan does not enable Gamma | Nothing, when the playground is about Gamma |
 | Needs API Management 4.13 | `requires.images` asks for a later minor version of API Management than the oldest gateway of the environment runs | Ask for the version the environment runs, which the Gravitee Cloud page shows in the gateway's popover |
+| Needs the llm-proxy entrypoint | The APIs its seed creates use a plugin that the environment's Management API lacks (entrypoint, endpoint, policy or resource), read with its Cloud Token | Use what the environment has |
+| The license lacks ... | The license of the environment's organization does not deploy such a plugin, or lacks a feature of API Management that `requires.license` names, read with its Cloud Token | A license that has it |
+| Needs plugins on the gateway | `requires.plugins` lists a plugin and the gateway add-on mounts no plugins folder | Nothing, until the add-on mounts one |
 | Changes this machine's Management API | The playground, or an add-on or a setup it brings, changes a service of API Management's control plane (its Management API, its consoles): Gravitee Cloud runs them | Nothing of the control plane can change in Cloud: put the change on the gateway, which is the platform's |
 | Its apps use this machine's Management API | An app, or a service of an add-on it brings, has `depends_on` the Management API or a console of API Management, or an app calls one in a URL of its `environment` or `command` | Make the apps backends, which the gateway of Gravitee Cloud calls |
 | Seeds more than API Management and Access Management | `seed/` holds another entry than `apim/`, `am/` and `openfga/`: `aim/`, `authz/`, `environments/`, `controls.yaml`, `refills.yaml` | The seed of a deploy fills API Management in the platform, and Access Management and OpenFGA here. No management API creates the [environments of its own](#environments-of-its-own) a seed names |
@@ -260,9 +264,9 @@ gateway mounts what the Hybrid gateway add-on mounts. The Lab gives the first re
 - The seed service may depend on the core: it runs apart from it for Gravitee Cloud, and its `depends_on` are for *This
   machine*.
 - A deploy gives the seed the seeder's [settings](#settings) for that place, in the environment of that one run, over
-  those its service sets: `APIM_MANAGEMENT_URL`, `APIM_MANAGEMENT_PATH`, `APIM_TOKEN`, `APIM_ORG`, `APIM_ENV`,
-  `APIM_GATEWAY_URL` (`http://localhost:8090`), `GATEWAY_INTERNAL_URL` (`http://apim-hybrid-gateway:8082`) and
-  `STATE_DIR`. The token goes by name (`-e APIM_TOKEN`), never as a value on the command line.
+  those its service sets: `APIM_MANAGEMENT_URL`, `AIM_AUTOMATION_URL`, `AIM_GAMMA_URL`, `APIM_MANAGEMENT_PATH`,
+  `APIM_PORTAL_PATH`, `APIM_TOKEN`, `APIM_ORG`, `APIM_ENV`, `APIM_GATEWAY_URL` (`http://localhost:8090`),
+  `GATEWAY_INTERNAL_URL` (`http://apim-hybrid-gateway:8082`) and `STATE_DIR`. The token goes by name (`-e APIM_TOKEN`), never as a value on the command line.
 - The seed service mounts `./.state:/state`, as every seed does: the record of each place is kept under it, apart from
   *This machine*'s ([What it records](#what-it-records)).
 - The guide names both gateways in its calls, `localhost:8082` for *This machine* and `localhost:8090` for Gravitee Cloud,
@@ -332,22 +336,21 @@ An app is a service the playground builds and runs. Two ways to build one:
 An add-on that builds from a repository:
 
 ```yaml
-  agent-lens:
-    build: https://github.com/acme/agent-lens.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa:viewer   # Pinned to an upstream commit, so the image does not change unannounced
+  acme-viewer:
+    build: https://github.com/acme/viewer.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa:viewer   # Pinned to an upstream commit, so the image does not change unannounced
 ```
 
 A playground can build its apps from a repository too. An app that needs the whole repository as its context names
 its Dockerfile:
 
 ```yaml
-  acme-hostels-agent:
+  shop-assistant:
     build:
-      context: https://github.com/acme/hostels.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa
-      dockerfile: hotel-agent/Dockerfile
+      context: https://github.com/acme/shop.git#99fe20daed1d5d13d51a10c23abe4f1b05cb04fa
+      dockerfile: assistant/Dockerfile
 ```
 
-An app follows the rules of an add-on's services, `restart: unless-stopped` included. See
-[`addons/AGENTS.md`](units.md#add-ons). This is Acme Shop's open REST API:
+An app follows [the rules of an add-on's services](units.md#add-ons), `restart: unless-stopped` included. This is Acme Shop's open REST API:
 
 ```yaml
   shop-api:
@@ -357,10 +360,10 @@ An app follows the rules of an add-on's services, `restart: unless-stopped` incl
     container_name: gio-shop-api
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8113:8000"   # The bank's open REST API, which MCP Studio can turn into tools
+      - "127.0.0.1:8113:8000"   # The shop's open REST API, which MCP Studio can turn into tools
     labels:
       io.gravitee.name: Acme Shop open API
-      io.gravitee.description: The bank's open REST API, which MCP Studio can turn into tools
+      io.gravitee.description: The shop's open REST API, which MCP Studio can turn into tools
     # ...
     networks:
       - internal
@@ -386,7 +389,7 @@ An app follows the rules of an add-on's services, `restart: unless-stopped` incl
     # ...
     labels:
       io.gravitee.name: Acme Shop web app
-      io.gravitee.description: The bank's web app, where customers chat with Ace
+      io.gravitee.description: The shop's web app, where customers chat with Ace
       io.gravitee.console.shop-web.name: Acme Shop
       io.gravitee.console.shop-web.url: http://localhost:8110
 ```
@@ -400,7 +403,7 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
 ```yaml
   shop-seed:
     image: ghcr.io/gravitee-io-labs/gravitee-lab/seeder:latest
-    build: ../../seeder
+    build: ../../../../../seeder
     pull_policy: ${ACME_SHOP_PULL_POLICY:-build}
     container_name: gio-shop-seed
     restart: "no"
@@ -414,7 +417,7 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
       # ...
     labels:
       io.gravitee.name: Playground seed
-      io.gravitee.description: Sets up the bank's APIs, applications and identity on the platform
+      io.gravitee.description: Sets up the shop's APIs, applications and identity on the platform
       io.gravitee.role: seed
     networks:
       - internal
@@ -427,8 +430,8 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
   `docker compose up`) runs it again, which is why running it twice must be safe.
 - **Endpoints, never container names.** A seed talks to endpoints. Its files hold no address and no container name: they
   use `${VAR}`, and the seed service sets each one, to a container name in the lab. The seeder reads every endpoint
-  from its settings, so the same files can seed another platform. the seed check of a catalog (`make ci`) fails on a literal address in a seed
-  file, and on a variable no seed service sets.
+  from its settings, so the same files can seed another platform. The *Seed files* job of a catalog's CI (`seedlint.py`) fails on a variable no
+  seed service sets.
 
 ### Files
 
@@ -442,7 +445,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/environments/<id>/environment.yaml` | The id, name and description of an environment of its own | Nothing: the seed [never creates it](#environments-of-its-own) |
 | `seed/environments/<id>/settings.yaml`, `apis/*.json`, `applications/*.yaml`, `subscriptions/*.yaml` | As `seed/apim/`, for that environment | APIM Management API |
 | `seed/environments/<id>/users.yaml`, `groups/*.yaml` | The users that groups name, and groups with their members | APIM Management API, Automation API |
-| `seed/environments/<id>/portal/`, `seed/apim/portal/` | The developer portal of the environment: theme, structure, pages, links, API listings, and the text of the page of each listed API. Images in `assets/` | Automation API, and the Console's navigation items for the listings and the pages of their APIs |
+| `seed/environments/<id>/portal/`, `seed/apim/portal/` | The developer portal of the environment: theme, structure, pages, API listings, and the text of the page of each listed API. Images in `assets/` | Automation API, and the Console's navigation items for the listings and the pages of their APIs |
 | `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
@@ -495,15 +498,15 @@ seed/environments/<id>/
   apis/*.json           API exports
   applications/*.yaml
   subscriptions/*.yaml
-  portal/               theme.yaml, portal.yaml, pages/*.yaml, content/*, links/*.yaml, listings/*.yaml, api-overview.md,
+  portal/               theme.yaml, portal.yaml, pages/*.yaml, content/*, listings/*.yaml, api-overview.md,
                         api-details.md, api-docs/<feed>.yaml
   assets/               the images that portal/theme.yaml names
 ```
 
 - **The id** is the folder's name, the environment's id and its hrid: lowercase letters, digits and dashes, not `local` or `default`,
   and never the platform's own (`APIM_ENV`), which the seed refuses. `environment.yaml` repeats the id and holds a `name`, and
-  `make check` says when they are missing or differ. The id, the name and the description are one line of plain or quoted
-  text with no ` #` in it: the init script, `make check` and the seed read the file in three ways, and agree on that. `${ENV_ID}` and `${ENV_NAME}` stand for the id and the name in every
+  the seed and the catalog's CI (`seedlint.py`) say when they are missing or differ. The id, the name and the description are one line of plain or quoted
+  text with no ` #` in it: the init script and the seed read the file in two ways, and agree on that. `${ENV_ID}` and `${ENV_NAME}` stand for the id and the name in every
   file of the folder: the engine sets them, the seed service sets every other variable.
 - **The seed never creates or deletes an environment**, because [no API does](#environments-and-developer-portals). It looks
   the environment up by id and stops with `Environment <id> does not exist on this platform` when it is missing. The playground
@@ -534,7 +537,7 @@ seed/environments/<id>/
   organization, but the Console lists only the environments where a user has a role. The seed gives its login the administrator
   role in each environment that the Console does not list for it (every one made in the database), so that the data steward
   finds it in the environment picker, records it, and a removal takes it back. An environment that lists it is left alone.
-- **The portal** is one `portal.yaml` for an environment, which is one portal, with a homepage at most. Its pages, links and
+- **The portal** is one `portal.yaml` for an environment, which is one portal, with a homepage at most. Its pages and
   listings name only what the folder holds: a `location` is a path of `portal.yaml`, an `activeThemeHrid` a theme of the
   folder, an `apiHrid` the `crossId` of an API export of `apis/`. A path is written as people read it
   (`Event feeds/Manufacturing`). A key a file does not have stops the seed. The platform's own environment takes the same
@@ -544,9 +547,8 @@ seed/environments/<id>/
   |---|---|
   | `portal/theme.yaml` | The portal theme of the Automation API (`hrid`, `name`, `definition` with `color` and `font`), and `assets:` with the `logo`, `favicon` and `backgroundImage` as paths relative to the file (an image under 256 KB), which the seed sends as data URIs. The page and card colors are `color.background.page` and `color.background.card`; the Console's `pageBackground` and `cardBackground` are accepted and written that way |
   | `portal/portal.yaml` | `hrid`, `name`, `activeThemeHrid` and `structure.topNavbar` (`path`, `displayName`, `visibility`) |
-  | `portal/pages/*.yaml` | A page: `hrid`, `name`, `type`, `area`, `location`, `order`, `visibility`, and `file:` in place of `content`, the path of its text |
+  | `portal/pages/*.yaml` | A page: `hrid`, `name`, `type`, `area`, `location`, `order`, `visibility`, and `file:`, the path of its text |
   | `portal/content/*` | The text of pages: Gravitee Markdown, AsyncAPI, OpenAPI. Never read as a page. Rendered with the seed's variables, so a page's own `${...}` is written `$${...}` |
-  | `portal/links/*.yaml` | A link: `hrid`, `name`, `href`, `location`, `order`, `visibility` |
   | `portal/listings/*.yaml` | The APIs shown and where: `hrid` and `apis` of `apiHrid`, `location`, `order`, `visibility`. The `order` is a position among the items of the location, 0 first, which is its default; an API that moves to another `location` in the file moves in the portal |
   | `portal/api-overview.md` | Optional. The Gravitee Markdown of the Overview page of every API a listing shows, rendered with the seed's variables and with `${ENV_ID}` and `${ENV_NAME}`. The platform's own expressions are written `$${...}` (`$${api.name}`, `$${api.description}`), and the platform refuses a text whose expression it cannot evaluate, which stops the seed with its message. Without the file, the pages keep the platform's default text |
   | `portal/api-docs/<feed>.yaml` | Optional. The AsyncAPI document (YAML, version 2.0 to 2.6, 3.0 or 3.1), or the OpenAPI document (an `openapi` key), of the listed API whose `crossId` is `<environment id>-<feed>`: the file name is the end of the `crossId`. Rendered with the seed's variables and with `${ENV_ID}` and `${ENV_NAME}`, `$${` standing for a literal `${`. A file for an API no listing shows, two files for one API (`.yaml` and `.yml`), a version the portal does not show, and a document with no `info.title`, `info.version`, or `channels` (AsyncAPI) or `paths` (OpenAPI) stop the seed before its first change |
@@ -622,9 +624,9 @@ replaces or deletes only what that record says it created:
   playground and then Re-seed: the credential keeps its id, so the providers that name it get the new key. The record keeps a
   fingerprint of the secret, never the secret.
 - The approval settings of the environment are the one thing it replaces that it did not create: it records the values they had, and a removal puts them back unless someone changed them since.
-- The entities of an `entities:` list are recorded once for each type, with their ids.
-- An [environment of its own](#environments-of-its-own) is never created, changed or deleted. A group, a portal, its theme,
-  a page or a link with the hrid of one of its own, that it did not create, is an error, and so is a page of an API itself with
+- The entities of an `entities:` list are recorded once for their source, with their ids in the order they were saved.
+- An [environment of its own](#environments-of-its-own) is never created, changed or deleted. A group, a portal, its theme
+  or a page with the hrid of one of its own, that it did not create, is an error, and so is a page of an API itself with
   the type and name of one of its own (`AsyncAPI`, `Overview`), and an API that a listing would
   put in a folder where someone else already put it. A user that exists is
   used as it is: never changed, never deleted. The seed's login is recorded when it had to be made an administrator of an
@@ -680,8 +682,8 @@ outage:                             # lesson 2: an outage of the cloud provider 
   failover: true
 ```
 
-A control targets an `api` (the steps of a flow, or with `failover: true` the API's failover, switched on or off), an
-`mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), or a `policy`. A failover control needs a
+A control targets an `api` (the steps of a flow, by phase, `request` or `response`, or with `failover: true` the API's failover,
+switched on or off), an `mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), or a `policy`. A failover control needs a
 `failover` block in the API's file, which says how it fails over once it is on.
 
 - **Names are those of the seed files**, not always the console's. A step is named by its `name` in the file, a policy
@@ -754,9 +756,8 @@ hackathon:                          # lesson 6: a click on "Spend the Hackathon 
   ran).
 - **The refill is the one thing the seed does outside the management APIs.** It reaches the core's Redis. If it cannot,
   it says so and goes on.
-- **Test it** with `make test` (`seeder/tests/test_refills.py` and the refill tests of `test_aim_workspaces.py`: a fake
-  Redis and the real files of Acme Shop), and on the running lab: spend the budget, Re-seed, and call the workspace
-  again.
+- **Test it** on the running lab: spend the budget, Re-seed, and call the workspace again. A lesson that depends on a refill
+  gives a budget one run does not empty, or says in its guide that a spent budget is whole again when its period ends.
 
 ## The guide
 
@@ -777,7 +778,8 @@ hackathon:                          # lesson 6: a click on "Spend the Hackathon 
 A block of the guide whose fence says `run` after the language, as in ```` ```bash run ````, gets a *Run* button, which types the block
 at the prompt of the playground's [terminal](#terminal) and presses Enter after its last line. It reads as a block of the
 language in any other viewer. The button is disabled, with the reason, while the playground has no terminal or does not run. Write
-a block as what a person would paste: one command a line, a long one continued with a backslash. A block meant to be read, such as
+a block as what a person would paste: one command a line, a long one continued with a backslash, with the addresses of the
+container (`$GATEWAY`), not `localhost`. A block meant to be read, such as
 a manifest or an output, is a plain fence.
 
 ### Accounts in a guide
@@ -815,7 +817,7 @@ The button is disabled, with a tooltip that says why, while it cannot work: the 
 first start too), it lists no console, or its first console cannot be used (it is not running, does not answer, or
 refuses to be shown in a frame). It is never clicked to fail.
 
-What an app does is two messages, `window.postMessage`, each checked on both sides for the origin and for the window it
+What an app does is these messages, `window.postMessage`, each checked on both sides for the origin and for the window it
 comes from:
 
 | Message | From, to | Means |
@@ -895,24 +897,9 @@ A running playground shows its page in a frame of the Lab UI, so what the app se
 
 ## Personal and shared
 
-A playground can be personal first, in `.lab/catalogs/local/playgrounds/<id>/` (git-ignored), with the id `local/<id>`. It is
-tagged *Personal* in the Lab UI. *New playground* writes either kind, from a form or with an AI agent.
-
-- A personal playground and a playground of a catalog sit at the same depth, so the same paths work in both: it includes an
-  add-on of its catalog as `../../addons/<id>/compose.yml`, a setup as `../../setups/<id>.yml`, one of another catalog as
-  `../../../<catalog id>/addons/<id>/compose.yml`, and its seed builds `../../../../../seeder`.
-- A playground of a catalog never includes a personal add-on or setup, and Share says so. A personal one includes what it
-  wants. A playground of a catalog stands alone, so it runs on any machine.
-
-To share one, start it here until its seed ends without an error, then choose *Share* in its ⋯ menu. The Lab UI says first
-what keeps it from being shared, for each catalog you can write to: it includes a personal add-on or setup, it has not run
-yet, its name is taken, or the catalog's rules find something in the copy. Then it copies the folder into the catalog: a
-branch of a repository to propose with a pull request, or a copy in a folder. The versions it ran on go into the copy as its
-`tested` set when its file declares none. Your personal playground stays and runs until *Use the catalog version* replaces it.
-Without the Lab UI, the `share-item` skill has the same steps. A playground of a catalog is not made personal again: create a
-personal one for a private variant.
-
-Deleting a personal playground says what its seed created and leaves in Gravitee (*Stays in Gravitee*).
+A playground can be personal first: [Personal and shared](../AGENTS.md#personal-and-shared) says where it is kept and what it may
+include, and [Create, share and star](lab-ui.md#create-share-and-star) how to share it. Start it here until its seed ends without
+an error first. Deleting a personal playground says what its seed created and leaves in Gravitee (*Stays in Gravitee*).
 
 ## Before you share
 
@@ -927,9 +914,9 @@ make ci
 ```
 
 `make check` (or `python3 lab-ui/catalog.py check <catalog id or folder>` from the Lab) covers the metadata, includes, conflicts,
-image defaults, restart policies, descriptions, ports, what a playground requires, and the API definitions its seed imports. It
-also checks that the catalog row of the playground reads as its metadata says, and prints the row it expects. `make ci` also
-checks the seed files of the playgrounds, builds the apps and runs their tests in their images. Then start the playground from
+image defaults, restart policies, descriptions, ports and what a playground requires. `make ci` also
+builds the apps and runs their tests in their images, and the *Seed files* job of its CI reads the seed files of the playgrounds
+(`python seeder/seedlint.py <folder>/playgrounds`, with the seeder's requirements). Then start the playground from
 its page and go through its guide. Share runs the same rules on the copy before anything leaves your machine.
 
 To run a playground without the Lab UI, put `.lab/catalogs/<catalog>/playgrounds/<id>/compose.yml` first in the `include` list of
@@ -986,13 +973,12 @@ with the code it names once no build that the Lab runs needs it.
 |---|---|---|---|
 | A studio's protocol versions | A list on every release, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends a release the list, from either key, and a build the key the file gives (`aim_proxies.protocol_versions`) |
 | A studio's keyless plan | The amp-demo build makes it from `KEYLESS`, the name of Agent Management, and its plans read it back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`) |
-| The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | `module`, when it is not the default | Asks again with the module when the answer holds that code (`aim_dashboards`) |
-| An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again (`apim.UNSUPPORTED`), or makes the studio again (`aim_proxies.UNSUPPORTED`) |
+| The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | Nothing | Asks again with the module when the answer holds that code (`aim_dashboards`) |
+| An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again, or makes the studio again (`apim.UNSUPPORTED`) |
 | Models of an AI workspace with an endpoint of their own | The only kind the amp-demo build takes | A component with `target` and a price on each model | Makes the component the file describes (`aim_workspaces`) |
 | The application of an agent of the catalog | Served by the amp-demo build, not by a release (4.13.0 to 4.13.3) | `identity` and `access` in `seed/aim/agents/` on amp-demo; on a release, an application of `seed/apim/applications` whose `client_id` is the agent's | Stops with a line that says what to write instead (`aim_agents`) |
 | Where a Gamma list starts | Page 0 or page 1, depending on the list and the build | Nothing | Reads from the other start when page 0 is refused, or when the pages from 1 hold fewer rows than the list announces (`gamma.ManagementApi.rows`) |
 | The shape of a Gamma list | `content`, `data`, `items`, with a total or a `pagination` | Nothing | Reads all of them (`gamma.page_of`) |
-| Saving a tool imported from an API | Refused by 4.13.1 | On 4.13.1, no references in a tool's `tailoring` | Puts the tool's words in the import (`aim_catalog.import_entry`), and saves only its references after it (`aim_catalog.tailor`) |
 | Deleting a protected resource of Access Management | 4.12 answers 500 without its type | Nothing | Sends `type=MCP_SERVER` (`am.remove`) |
 | A TLS key store or trust store that is "no store" | 4.12 names it `NONE` and refuses `{"type": ""}`, which a 4.11 export holds | Leave the store out | Nothing |
 
@@ -1063,14 +1049,3 @@ What a seed of [environments of its own](#environments-of-its-own) relies on, as
   `portal.next.access.enabled`, which the core sets from its environment (`metadata.readonly` lists them with `email.*`).
 - **One gateway serves every environment of the organization**: the lab sets no `organizations` or `environments` filter
   in the gateway's `gravitee.yml`.
-
-## Limits
-
-- One playground is on at a time. Two use cases would fight over gateway settings and ports, so starting another one
-  stops the first, or turns it off.
-- A playground that uses Enterprise features needs a license that includes them. A seed that fills Gamma needs the Gamma
-  modules of API Management 4.13 or later, and a playground can need pre-release builds of both API Management
-  and Access Management, chosen on the Images page. The page says what is missing before the start.
-- The UIs of a playground are framed only by the Lab UI on port 9000.
-- A seed stops on an object it finds and did not create. It never adopts, changes or deletes one.
-- A refill reaches the core's Redis. Without it, a spent budget stays spent until its period ends.

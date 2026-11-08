@@ -13,8 +13,8 @@ container does): an H finding is allowed only when the catalog is listed or allo
 
 What judge reads:
 - `unit`: {kind, id, name, meta (its x-gravitee block), references (the names its compose files read with ${NAME}, and the
-  environment names they pass through: reads(); the files that env_files() names are read the same way), seed_references (the names its seed/** files read), includes (the
-  project-relative targets its own file includes, None for one that leaves the project), seed (its seed service)}.
+  environment names they pass through: reads()), seed_references (the names its seed/** files read), includes (the
+  project-relative targets its own file includes, None for one that leaves the project)}.
 - `unit_config`, `core_config`: the unit with the core, and the core alone, as `docker compose config --format json` gives
   them. `own`: the services the unit defines that neither the core nor an included unit defines. `overlaid`: {service: {key:
   what its own file adds}} on a service of the core or of an included unit (overlays()).
@@ -23,31 +23,29 @@ What judge reads:
 - `context`: {host_ok (the catalog is listed, or its entry says host: true), listed, local, ns, requires (the namespaces its
   catalog declares), shared_settings, core_variables, license_variable, closure_names, closure_services, seeder_images, home,
   level, contract, contract_min, unknown (what of the contract a published unit uses that this Lab does not read), realpath,
-  screened (the text screen's reasons), error (why Compose could not read it), audience (the catalog's: "public" or "private") and closure_audiences (the audience of each catalog the unit's closure
-  reaches)}. The last two are how a caller that has measured the audiences, the command line with `--online` for one, gets T24
-  from judge itself; the Lab's own pipeline adds T24 with `add_reason` and gives neither. Judge measures nothing.
+  screened (the text screen's reasons), error (why Compose could not read it)}. Judge measures nothing: the caller adds T24 with
+  `add_reason`.
 Every key is optional and absent means the narrowest reading: nothing allowed, no host access. The one exception is `realpath`:
 absent, the paths are compared as written, so the caller that reads a disk must always hand it in.
 
 What a caller builds around it: `build_roots` (the roots, the one function that reads the disk), `overlays` (the overlaid
 services from compose.raw), `reads` and `seed_reads` (the settings a unit reads), `host_ok` (the one place that decides
-`context["host_ok"]`), `prescreen`, `env_files` and `include_targets` (T19, before Compose is asked: what a text refuses, the
-files it reads into the environment, which `reads` reads for T20, and the files it includes, which the closure follows;
-`unescaped` is the text as they read its letters), then `add_reason` for T21 and T24 and `combine` for T25 once the units of
-a project are judged.
+`context["host_ok"]`), `prescreen` and `include_targets` (T19, before Compose is asked: what a text refuses, and the files it
+includes, which the closure follows; `unescaped` is the text as they read its letters), then `add_reason` for T21 and T24 and
+`combine` for T25 once the units of a project are judged.
 
 What a caller says to a person: the reason lines are the Lab's (`RULES`, `line`) and are all a popover shows. The command line
-and CI add the fix (`FIXES`, `fix`) after the reason, so a message is "reason. Fix: fix"; no fix names a place the Lab keeps
-its own files, because the reader of a catalog never has them."""
+and CI add the fix (`FIXES`) after the reason, so a message is "reason. Fix: fix"; no fix names a place the Lab keeps its own
+files, because the reader of a catalog never has them."""
 
 import posixpath
 import re
 
-from .resolve import audience_blocked, rank, shown as _clean, target_of
+from .resolve import shown as _clean, target_of
 
 # The service keys the policy checks or that cannot hurt: the keys the units use, and the harmless Compose keys. A key
 # outside this set and HOST_KEYS blocks (T01). `x-` keys are extensions Compose ignores. Absent on purpose: volumes_from,
-# models, post_start, pre_stop, develop (and extends, which Compose consumes: the text screen reads it).
+# models, post_start, pre_stop, develop (and extends, env_file and label_file, which the text screen refuses).
 SERVICE_KEYS = frozenset("""
 annotations attach blkio_config build cap_drop cgroup command configs container_name cpu_count cpu_percent cpu_period
 cpu_quota cpu_rt_period cpu_rt_runtime cpu_shares cpus cpuset credential_spec depends_on deploy dns dns_opt dns_search
@@ -60,10 +58,6 @@ userns_mode uts volumes working_dir""".split())
 # uses one is told what it takes ("Runs with full privileges"), not that a key is unknown
 HOST_KEYS = frozenset(("privileged", "use_api_socket", "provider", "devices", "device_cgroup_rules", "gpus", "cap_add",
                        "sysctls", "runtime", "cgroup_parent"))
-# The keys that name a file Compose reads into the environment. Compose merges that content into `environment` before the
-# JSON exists, so they are in the JSON only when it was asked not to (`config --no-env-resolution`), and then they are judged
-# there (T19), the paths by their real place: a link in the unit's folder that leads out of it shows only here.
-FILE_KEYS = ("env_file", "label_file")
 TOP_KEYS = frozenset(("name", "services", "volumes", "networks", "secrets", "configs"))   # and `x-*` (T02)
 # What a unit's file may add to a service of the core or of a unit it includes (T22)
 OVERLAY_KEYS = ("environment", "extra_hosts", "depends_on", "labels", "volumes", "ports")
@@ -76,10 +70,8 @@ LOCAL_HOSTS = ("localhost", "127.0.0.1", "[::1]", "host.docker.internal")   # wh
 PINNED = re.compile(r"[0-9a-f]{40}(?::.*)?")   # what follows the # of a remote build context (T18)
 # The build keys a unit may use (T18), and no other: a key that is not here reaches beyond the build (ssh, secrets, the
 # cache, network, entitlements, tags, privileged), or takes the Dockerfile from the file (dockerfile_inline), or is one that a
-# later Compose adds. The list is default-deny, and the CI stage that builds (BD02) holds the same one. `additional_contexts`
-# is the one more key, for a build of the Lab's seeder alone
+# later Compose adds. The list is default-deny, and the CI stage that builds (BD02) holds the same one
 BUILD_KEYS = ("context", "dockerfile", "args", "target", "labels")
-SEEDER_BUILD_KEYS = ("additional_contexts",)
 
 # The reason lines of 8.3. A rule with several lines yields each that holds, except T06 and T26, which yield the first. `class`
 # P, H, or N (a restriction that does not block).
@@ -123,9 +115,9 @@ RULES = {
     "N05": {"class": "N", "lines": ("Its terminal is not offered by this catalog",)},
 }
 # What to do about a rule, for the author who reads it in `make check` or in CI (the standard's 6.10): one line for each rule,
-# said after its reason as "Fix: ...". T01 to T27 are the standard's own words. The blanks are the ones `fix` fills: {key}
-# (what the Lab does not check), {NS} (the namespace as a setting prefix), {name} (the unit that is blocked), {min} and {max}
-# (the levels this Lab reads), {file} (the unit's file). No fix names a place under `.lab/`: a git install is read only, and
+# said after its reason as "Fix: ...". T01 to T27 are the standard's own words. The blanks are what the caller fills: {key}
+# (what the Lab does not check), {NS} (the namespace as a setting prefix), {name} (the unit that is blocked), {file} (the
+# unit's file). No fix names a place under `.lab/`: a git install is read only, and
 # the person who reads the fix is writing the catalog, where there is no such folder. A restriction (N01 to N05) blocks
 # nothing: its fix says what lifts it.
 FIXES = {
@@ -147,8 +139,7 @@ FIXES = {
     "T16": "Point `file:` at a file inside the unit.",
     "T17": "Write the port as `127.0.0.1:HOST:CONTAINER`.",
     "T18": "Put the build context under the unit, pin a remote context to a 40-character commit after `#`, and remove ssh, "
-           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted "
-           "(default-deny; `additional_contexts` only for the Lab's seeder).",
+           "secrets and cache options. Only `context`, `dockerfile`, `args`, `target` and `labels` are accepted (default-deny).",
     "T19": "Use a relative path inside the catalog.",
     "T20": "Prefix the setting with `{NS}_`, or read only `*_VERSION`, `*_REGISTRY`, `*_PULL_POLICY` and the shared settings.",
     "T21": "Prefix service, container and volume names with the catalog id.",
@@ -176,12 +167,13 @@ SEED_OWN = "Brings its own seed code"   # N01: why a place other than This machi
 SEED_TOKEN = "Seed data reads a token"   # N02: the same for seed data that reads a token
 NOT_OFFERED = "Not offered by this catalog"   # why the terminal pane and the run buttons are disabled (N05)
 SHOWN = 3   # names a line spells out before it counts the rest
-SOURCE_CUT = 120   # an image or the address of a build, as the preview shows it
+SOURCE_CUT = 120   # the address of a build, as the preview shows it
 NAME_CUT = 60   # the characters of one author's name in a reason line
 FIELD_CUT = 240   # and of a whole field: three names, the count of the rest
 
-# The names of what is secret (check.SECRET_NAME and check.NOT_SECRET, which a test keeps equal): a seed that reads one
-# gets no token to hold (N02)
+# The names of what is secret, in an environment, a label or an account (an API key, not a public one), then the endings of a
+# name that says where a secret is, what kind it is, how it is reached or whether it is on, which is none itself
+# (AM_TOKEN_URL, KAFKA_TLS_TYPE, SECRET_MANAGER_HOST, TOKEN_TIMEOUT): a seed that reads one gets no token to hold (N02)
 SECRET_NAME = re.compile(r"PASSWORD|PASSWD|PASSPHRASE|SECRET|API[_.-]?KEY|(?:^|[_.-])TOKEN$|(?<!PUBLIC)[_.-]KEY$", re.I)
 NOT_SECRET = re.compile(r"(?:URL|URI|PATH|FILE|TYPE|ENDPOINT|ENABLED|HOST|PORT|METHOD|POLICY|REGEX|NAMESPACE|PROVIDER"
                         r"|TIMEOUT|TIMEOUTMS)$", re.I)
@@ -200,20 +192,6 @@ def line(code, variant=0, **fields):
     state the page polls, so a field is cleaned and cut."""
     return RULES[code]["lines"][variant].format(**{name: _clean(value, FIELD_CUT) if isinstance(value, str) else value
                                                    for name, value in fields.items()})
-
-
-_BLANK = re.compile(r"\{(\w+)\}")
-
-
-def fix(code, **fields):
-    """The fix of a rule (FIXES), with the blanks the caller can fill: fix("T26", min=1, max=2). A blank it is given no field
-    for stays as written. `NS` is also made from `ns`, the namespace as the Lab keeps it (acme-hub), as the prefix a setting
-    takes (ACME_HUB). What an author wrote goes through a person's eyes, so a field is cleaned and cut like a reason's. An
-    unknown code is a KeyError, as for `line`."""
-    if "NS" not in fields and isinstance(fields.get("ns"), str):
-        fields["NS"] = _env_name(fields["ns"])
-    return _BLANK.sub(lambda found: _clean(str(fields[found.group(1)]), FIELD_CUT) if found.group(1) in fields
-                      else found.group(0), FIXES[code])
 
 
 def _dict(value):
@@ -271,7 +249,6 @@ def _resolver(realpath=None):
     without one: Compose gives every bind and build context as an absolute path, so a relative one is a spelling that
     matches no root. An exotic spelling can only miss an allow-list (a false Blocked), never pass."""
     real = realpath if callable(realpath) else None
-    cache = {}
 
     def resolve(path, base=None):
         if not isinstance(path, str) or not path or "\0" in path:
@@ -280,12 +257,10 @@ def _resolver(realpath=None):
             if not base:
                 return ""
             path = posixpath.join(base, path)
-        if path not in cache:
-            try:
-                cache[path] = posixpath.normpath(real(path) if real else path)
-            except (OSError, ValueError):
-                cache[path] = posixpath.normpath(path)
-        return cache[path]
+        try:
+            return posixpath.normpath(real(path) if real else path)
+        except (OSError, ValueError):
+            return posixpath.normpath(path)
     return resolve
 
 
@@ -300,14 +275,13 @@ def _beside(path, root):
     return _inside(path, root) or _inside(root, path)
 
 
-def build_roots(root, folder, closure=(), products=(), machine=None, realpath=None):
+def build_roots(root, folder, closure=(), products=(), realpath=None):
     """The `roots` of judge for one unit, every path real. `root`: the project; `folder`: the unit's own folder (None for a
     setup); `closure`: the folders of the units of its include closure that sit in the same catalog (a unit of another
     catalog is never a root, so its .env, secrets and state stay unreadable to a stranger, even read-only); `products`: the
-    names under plugins/; `machine`: the paths that no unit may mount whatever it declares (default: what holds the core's
-    secrets, the tokens and the Lab's own state, .env and .lab, and what runs on this machine, MACHINE_FILES). `realpath` is
-    os.path.realpath unless given:
-    this is the one function here that reads the disk, and judge never calls it."""
+    names under plugins/. No unit may mount MACHINE_FILES whatever it declares: what holds the core's secrets, the tokens and
+    the Lab's own state, .env and .lab, and what runs on this machine. `realpath` is os.path.realpath unless given: this is the
+    one function here that reads the disk, and judge never calls it."""
     import os
     real = realpath or os.path.realpath
 
@@ -316,11 +290,10 @@ def build_roots(root, folder, closure=(), products=(), machine=None, realpath=No
 
     root = str(root)
     own = one(folder) if folder else None
-    machine = [f"{root}/{name}" for name in MACHINE_FILES] if machine is None else machine
     return {"unit": own, "state": f"{own}/.state" if own else None, "secrets": f"{own}/secrets" if own else None,
             "plugins": [one(f"{root}/plugins/{name}") for name in products],
             "closure": [one(path) for path in closure if path], "seeder": one(f"{root}/seeder"),
-            "machine": [one(path) for path in machine]}
+            "machine": [one(f"{root}/{name}") for name in MACHINE_FILES]}
 
 
 def _roots(roots, resolve):
@@ -486,7 +459,7 @@ class _Lex:
 
     def __init__(self, flow):
         self.tokens, self.depth, self.quote, self.pieces = [], 0, "", []
-        self.flow, self.bad, self.json, self.last, self.cost = flow, False, False, None, 0
+        self.flow, self.bad, self.json, self.last = flow, False, False, None
         self.odd, self.end = False, 0
 
     def alias(self):
@@ -588,10 +561,9 @@ class _Lex:
         return found
 
 
-def _bad_place(value, folder, files):
-    """Whether a path or an address names a place that the unit has no business reading: absolute, home, remote, a variable
-    or, for an include, one that leaves the project (`files` False) and, for the files a service reads, one that leaves the
-    unit's own folder (`files` True)."""
+def _bad_place(value, folder):
+    """Whether an include names a place that the unit has no business reading: absolute, home, remote, a variable or one that
+    leaves the project."""
     value = value.strip()
     if not value:
         return False
@@ -599,8 +571,6 @@ def _bad_place(value, folder, files):
             or "://" in value or value.startswith(_REMOTE):
         return True
     target = posixpath.normpath(posixpath.join(folder or ".", value))
-    if files and folder:
-        return not _inside(target, folder)
     return target == ".." or target.startswith("../")
 
 
@@ -639,21 +609,20 @@ def _value(lines, number, start, end, spent, flow):
     return lex, lex.whole() and spent[0] <= SCREEN_CHARS
 
 
-def _scan(text, file, follow):
-    """The T19 lines that hold, and the project-relative paths of the files named by `env_file` and `label_file` that stay in
-    the unit's folder: ({lines}, [paths]). See prescreen. The text is read every way `_readings` says, and a file is held to
-    each: on a line that an escape or a fold made, a word that is no key where it stands (a fold glued it to the line before)
-    is refused, since nothing says where its value is."""
+def _scan(text, file):
+    """The T19 lines that hold. See prescreen. The text is read every way `_readings` says, and a file is held to each: on a
+    line that an escape or a fold made, a word that is no key where it stands (a fold glued it to the line before) is refused,
+    since nothing says where its value is."""
     include, files = RULES["T19"]["lines"]
     text = text if isinstance(text, str) else ""
     name = str(file or "")
     if len(text.encode("utf-8", "replace")) > MAX_FILE:
-        return {files}, []
+        return {files}
     if SEED_FOLDER.search(name) or not name.endswith((".yml", ".yaml")):
-        return set(), []
+        return set()
     if _NOT_TEXT.search(text):
-        return {files}, []
-    found, paths, spent, folder = set(), [], [0], posixpath.dirname(name)
+        return {files}
+    found, spent, folder = set(), [0], posixpath.dirname(name)
     for read, made in _readings(text):
         if _blind("\n".join(read)):
             found.add(files)
@@ -665,54 +634,32 @@ def _scan(text, file, follow):
                 wanted = include if key == "include" else files
                 if wanted in found:
                     continue
-                if made[number] and match.start() not in at:   # a fold glued it to the line before: where is its value?
-                    found.add(wanted)
-                    continue
-                if key in ("env_file", "label_file") and not follow:
-                    found.add(files)
+                if key in ("env_file", "label_file") or made[number] and match.start() not in at:
+                    found.add(wanted)   # refused whatever it names; a key a fold glued to the line before has no value to read
                     continue
                 readings = [_value(lines, number, match.start(), match.end(), spent, flow) for flow in (False, True)]
                 if spent[0] > SCREEN_CHARS:
                     found.add(files)
-                    return found, []
+                    return found
                 names = [value for lex, _ in readings for kind, value in lex.tokens if kind in ("s", "k")]
                 if not all(whole for _, whole in readings) or any(lex.alias() for lex, _ in readings) \
                         or key == "extends" and any(("k", "file") in lex.tokens for lex, _ in readings):
                     found.add(wanted)
-                elif key == "include":
-                    if any(_bad_place(value, folder, False) for value in names):
-                        found.add(include)
-                elif key != "extends":
-                    if readings[0][0].tokens != readings[1][0].tokens \
-                            or any(_bad_place(value, folder, True) for value in names):
-                        found.add(files)
-                    else:
-                        paths += [posixpath.normpath(posixpath.join(folder or ".", value))
-                                  for value in readings[0][0].paths() if value.strip()]
-    return found, sorted(set(paths))
+                elif key == "include" and any(_bad_place(value, folder) for value in names):
+                    found.add(include)
+    return found
 
 
-def prescreen(text, file, follow=False):
+def prescreen(text, file):
     """The reasons (T19) for what a compose file's text gives away, before Compose reads it: an `include` that is absolute,
-    `~`, remote, a variable or leaves the project; an `extends` of another file; an `env_file` or a `label_file` (any, unless
-    `follow`); a file over 1 MB; a construct the screen cannot read (an alias in those places, a key spelled without its
+    `~`, remote, a variable or leaves the project; an `extends` of another file; an `env_file` or a `label_file`, whatever it
+    names, because Compose reads that file into the environment of the service, `${NAME}` included, and this screen cannot
+    see into it; a file over 1 MB; a construct the screen cannot read (an alias in those places, a key spelled without its
     letters, a file that is not UTF-8, a file that takes too long to read). `file` is the project-relative path; seed data,
-    which Compose never reads, is only held to the size. [] when clean.
-
-    A file that an `env_file` or a `label_file` names is read by Compose into the environment of the service, `${NAME}`
-    included, and this screen cannot see into it. So these two keys are refused outright, until the caller says it looks:
-    with `follow=True` the keys are held to the unit's folder (an absolute, `~`, remote or variable name, or one that leaves
-    the folder, is refused), and the caller must then put the text of every file `env_files()` names through `reads()` (T20)
-    and read each at its real path, which must stay in the folder (a link in a folder catalog is the one thing no text shows)."""
+    which Compose never reads, is only held to the size. [] when clean."""
     include, files = RULES["T19"]["lines"]
-    found = _scan(text, file, follow)[0]
+    found = _scan(text, file)
     return [line for line in (include, files) if line in found]
-
-
-def env_files(text, file):
-    """The project-relative paths of the files that the `env_file` and `label_file` of a compose file name and that stay in
-    the unit's folder, sorted: what `prescreen(..., follow=True)` asks its caller to read. [] for a file that is not screened."""
-    return _scan(text, file, True)[1]
 
 
 def _block_list(lines, number, match, readings):
@@ -783,7 +730,7 @@ def include_targets(text, file):
             if not _block_list(lines, number, match, readings):
                 return None
             for value in readings[0][0].paths():
-                if value and (not _NAME.fullmatch(value) or _bad_place(value, folder, False)):
+                if value and (not _NAME.fullmatch(value) or _bad_place(value, folder)):
                     return None
                 target = posixpath.normpath(posixpath.join(folder or ".", value)) if value else None
                 if target and target not in found:
@@ -1037,24 +984,22 @@ def _source(build):
     return re.sub(r"\.git$", "", address)
 
 
-def _pinned(context):
+def pinned(context):
     """Whether a remote build context is a git repository at a commit: a git address, then # and 40 hex digits."""
     address, _, ref = context.partition("#")
     git = address.endswith(".git") or address.startswith(("git@", "git://", "ssh://", "github.com/"))
     return bool(git and PINNED.fullmatch(ref))
 
 
-def build_extras(build, seeder=False):
-    """The keys of a build that T18 does not accept, sorted, as the text Compose printed them: every key but BUILD_KEYS, and
-    `additional_contexts` unless the build is the Lab's seeder (`seeder`). The one list that the stage of the CI that builds
-    refuses by (BD02). A build given as a text is a context and has none; one that is neither text nor a mapping is not a
-    build the Lab can read, and has `build` itself as the key it does not accept."""
+def build_extras(build):
+    """The keys of a build that T18 does not accept, sorted, as the text Compose printed them: every key but BUILD_KEYS. A
+    build given as a text is a context and has none; one that is neither text nor a mapping is not a build the Lab can read,
+    and has `build` itself as the key it does not accept."""
     if isinstance(build, str):
         return []
     if not isinstance(build, dict):
         return ["build"]
-    allowed = BUILD_KEYS + (SEEDER_BUILD_KEYS if seeder else ())
-    return sorted(str(key) for key in build if key not in allowed)
+    return sorted(str(key) for key in build if key not in BUILD_KEYS)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1062,8 +1007,7 @@ def build_extras(build, seeder=False):
 # ---------------------------------------------------------------------------------------------------------------------
 
 def empty_surface():
-    return {"images": [], "builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None, "shell": None,
-            "uses_machine": [], "needs": []}
+    return {"builds": [], "ports": [], "core": [], "reads": [], "plugins": [], "seed": None, "uses_machine": []}
 
 
 def _verdict(reasons=(), notes=(), surface=None, codes=(), name=""):
@@ -1081,10 +1025,10 @@ def add_reason(verdict, code, line):
 
 def sum_surfaces(surfaces):
     """The surface of several units as one: the preview of a catalog, the start of an item and the units it brings. Lists
-    are united in a stable order; the seed is custom when any is, the shell the first there is."""
+    are united in a stable order; the seed is custom when any is."""
     total, seeds = empty_surface(), [s["seed"] for s in surfaces if s.get("seed")]
     for surface in surfaces:
-        for key in ("images", "reads", "plugins", "needs", "ports"):
+        for key in ("reads", "plugins", "ports"):
             total[key] = sorted(set(total[key]) | set(surface.get(key) or ()))
         total["builds"] += [b for b in surface.get("builds") or () if b not in total["builds"]]
         total["uses_machine"] += [u for u in surface.get("uses_machine") or () if u not in total["uses_machine"]]
@@ -1094,7 +1038,6 @@ def sum_surfaces(surfaces):
                 seen["keys"] = sorted(set(seen["keys"]) | set(entry["keys"]))
             else:
                 total["core"].append(dict(entry, keys=list(entry["keys"])))
-        total["shell"] = total["shell"] or surface.get("shell")
     total["seed"] = "custom" if "custom" in seeds else ("official" if seeds else None)
     return total
 
@@ -1160,14 +1103,10 @@ def seeder_ok(unit_config, roots, engine_seeder_images, realpath=None):
                if _dict(_dict(service).get("labels")).get("io.gravitee.role") == "seed")
 
 
-ALLOWANCE = True   # milestone M2: the allowance a person gives a catalog (host: true) is honored
-
-
 def host_ok(listed, entry=None):
-    """Whether the class H items of a catalog may use this machine: it is listed, or, once M2 ships, the person allowed
-    it (`host: true` in its entry of catalogs.json, exactly). Until then only listing counts, and a class H item of any other
-    catalog stays Blocked: the absence of the feature fails safe. The one place that decides `context["host_ok"]`."""
-    return bool(listed) or ALLOWANCE and isinstance(entry, dict) and entry.get("host") is True
+    """Whether the class H items of a catalog may use this machine: it is listed, or the person allowed it (`host: true` in
+    its entry of catalogs.json, exactly). The one place that decides `context["host_ok"]`."""
+    return bool(listed) or isinstance(entry, dict) and entry.get("host") is True
 
 
 def declared_ok(context):
@@ -1178,37 +1117,12 @@ def declared_ok(context):
     return bool(context.get("host_ok") or context.get("local"))
 
 
-def _terminal_services(value):
-    """The services an `x-gravitee.terminal` names, or None when it names none that the policy can read."""
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        return _terminal_services(value.get("service"))
-    if isinstance(value, list) and value:
-        names = [(_terminal_services(item) or [None])[0] for item in value]
-        return None if None in names else names
-    return None
-
-
-def terminal_ok(unit, own, closure_services):
-    """N05: whether the terminal a unit asks for (`x-gravitee.terminal`, or the unit's `terminal`) opens a shell in a service
-    that is the unit's own or one of its closure, and is not its seed service (`unit["seed"]`: a name or a list). A unit with
-    no terminal is fine; one the policy cannot read is not."""
-    unit = _dict(unit)
-    terminal = unit["terminal"] if "terminal" in unit else _dict(unit.get("meta")).get("terminal")
-    if terminal is None:
-        return True
-    names, seed = _terminal_services(terminal), unit.get("seed")
-    seeds = {seed} if isinstance(seed, str) else set(seed or ())
-    return bool(names) and all(name in set(own or ()) | set(closure_services or ()) and name not in seeds for name in names)
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # judge
 # ---------------------------------------------------------------------------------------------------------------------
 
 def _unknown(key):
-    return key not in SERVICE_KEYS and key not in HOST_KEYS and key not in FILE_KEYS and not str(key).startswith("x-")
+    return key not in SERVICE_KEYS and key not in HOST_KEYS and not str(key).startswith("x-")
 
 
 def _bad_volume(name, definition, project):
@@ -1228,7 +1142,7 @@ def _bad_network(name, definition, project):
 
 
 class _Run:
-    """One judgement: the inputs, the findings of each rule, the surface. Built and read by judge and surface alone."""
+    """One judgement: the inputs, the findings of each rule, the surface. Built and read by judge alone."""
 
     def __init__(self, unit, unit_config, core_config, own, overlaid, roots, env, context):
         self.unit, self.context = _dict(unit), _dict(context)
@@ -1293,7 +1207,6 @@ class _Run:
             for code, variant in _hits(self.services[name], self.members):
                 self.hit(name, code, variant)
             self.mounts(name, self.services[name])
-            self.read_files(self.services[name])
             self.attachments(self.services[name])
             self.ports(self.services[name])
             self.build(self.services[name])
@@ -1336,16 +1249,6 @@ class _Run:
                         or any(_inside(path, folder) for folder in roots["closure"])):
                     self.say("T12")
 
-    def read_files(self, service):
-        """T19 on the files a service reads into its environment, when the JSON still names them: each must be inside the unit's
-        folder once its links are followed."""
-        for key in FILE_KEYS:
-            entries = service.get(key)
-            for entry in entries if isinstance(entries, list) else [entries] if entries else []:
-                path = entry.get("path") if isinstance(entry, dict) else entry
-                if not isinstance(path, str) or not _inside(self.resolve(path, self.roots["unit"]), self.roots["unit"]):
-                    self.say("T19", 1)
-
     def attachments(self, service):
         """T15 on the networks a service joins, and on the network of a service of the platform that it takes as its own."""
         attached = service.get("networks")
@@ -1369,8 +1272,7 @@ class _Run:
     def build(self, service):
         """T18 on how a service is built: where from (the unit's folder, the Lab's seeder, or a git repository at a commit),
         and with which keys. The keys are default-deny (BUILD_KEYS): any other blocks, whatever its value, and so does a build
-        that is neither a mapping nor a text. `additional_contexts` is accepted for the Lab's seeder alone, and each of its
-        contexts is held to the same rule as the context."""
+        that is neither a mapping nor a text."""
         build = service.get("build")
         if build is None:
             return
@@ -1380,9 +1282,8 @@ class _Run:
         build = {"context": build} if isinstance(build, str) else build
         context, roots = str(build.get("context") or ""), self.roots
         seeder = roots["seeder"]
-        from_seeder = False
         if context and not posixpath.isabs(context):   # Compose gives a local context as an absolute path
-            if not _pinned(context):
+            if not pinned(context):
                 self.say("T18", 1)
         else:
             path = self.resolve(context, roots["unit"]) if context else roots["unit"]
@@ -1394,26 +1295,10 @@ class _Run:
                 where = self.resolve(dockerfile, path)
                 if not (_inside(where, roots["unit"]) or from_seeder and _inside(where, seeder)):
                     self.say("T18", 0)
-        extra = build.get("additional_contexts")
-        for value in (list(extra.values()) if isinstance(extra, dict) else
-                      [str(item).partition("=")[2] for item in _list(extra)]):
-            self.extra_context(str(value))
         image = _repository(service.get("image"))
         taken = {_repository(_dict(other).get("image")) for other in _dict(self.core.get("services")).values()}
-        if build_extras(build, from_seeder) or image and image in taken:   # a built image must not take the core's name
+        if build_extras(build) or image and image in taken:   # a built image must not take the core's name
             self.say("T18", 2)
-
-    def extra_context(self, value):
-        """T18 on one of the extra build contexts."""
-        if value.startswith(("docker-image://", "target:", "service:")):
-            return
-        if not posixpath.isabs(value):
-            if not _pinned(value):
-                self.say("T18", 1)
-            return
-        path = self.resolve(value)
-        if not (_inside(path, self.roots["unit"]) or self.roots["seeder"] and path == self.roots["seeder"]):
-            self.say("T18", 0)
 
     def top(self):
         """T14 to T16 on what the unit declares at the top of its file: what the core does not declare already."""
@@ -1508,21 +1393,6 @@ class _Run:
                 self.say("T23")
                 return
 
-    def audience(self):
-        """T24 from the audiences a caller measured (`audience` of the unit's catalog, `closure_audiences` of the catalogs its
-        closure reaches): a public unit depends on public units only. Nothing is said without both, which is how the Lab's own
-        pipeline calls it (it adds T24 once every unit is judged), and how the command line calls it offline: an audience
-        that was not measured is not guessed. What is given is read as 6.4 reads it: a word that is not "public" is private,
-        and so is a list of audiences that is not a list."""
-        context = self.context
-        if "audience" not in context or "closure_audiences" not in context:
-            return
-        theirs = context["closure_audiences"]
-        theirs = theirs if isinstance(theirs, (list, tuple, set, frozenset)) else ["private"]   # a doubt is private
-        mine = rank(context["audience"] if isinstance(context["audience"], str) else None)
-        if any(audience_blocked(mine, rank(one if isinstance(one, str) else None)) for one in theirs):
-            self.say("T24")
-
     def compat(self):
         """T26: what the unit uses that this Lab does not read (`context["unknown"]`, the items `understood` named, given for
         the unit of a published catalog), else the legacy level it states against what this Lab reads."""
@@ -1574,8 +1444,9 @@ class _Run:
         return seeder_ok(self.config, self.roots, self.context.get("seeder_images"), self.realpath)
 
     def terminal(self):
-        unit = dict(self.unit, meta=self.meta, seed=self.seeds())
-        return terminal_ok(unit, self.own, set(self.context.get("closure_services") or ()) | set(self.own))
+        """N05: the terminal opens a shell in a service of the unit or of its closure, and not in its seed service."""
+        name = self.meta.get("terminal")
+        return isinstance(name, str) and name in self.members and name not in self.seeds()
 
     def addresses(self):
         """N03: a console or a host check that is not on this machine."""
@@ -1608,13 +1479,11 @@ class _Run:
         """What the unit will do, from the same JSON as the verdict."""
         found, context = empty_surface(), self.context
         declared = _dict(self.meta.get("host_access"))
-        images, ports, plugins = set(), set(), set()
+        ports, plugins = set(), set()
         for name in self.own:
             service = self.services[name]
             if service.get("build") is not None:
                 found["builds"].append({"service": name, "source": _clean(_source(service["build"]), SOURCE_CUT)})
-            elif service.get("image"):
-                images.add(_clean(_repository(service["image"]), SOURCE_CUT))
             for port in _list(service.get("ports")):
                 published = str(_dict(port).get("published", ""))
                 if published.isdigit():
@@ -1627,7 +1496,7 @@ class _Run:
                     "service": name, "label": self.label(name),
                     "what": elevations(service, self.roots, self.realpath, context.get("home"), self.members),
                     "why": _clean(declared[name]) if isinstance(declared.get(name), str) else ""})
-        found["images"], found["ports"], found["plugins"] = sorted(images), sorted(ports), sorted(plugins)
+        found["ports"], found["plugins"] = sorted(ports), sorted(plugins)
         found["core"] = [{"service": name, "label": self.label(name), "keys": sorted(added)}
                          for name, added in self.overlaid.items() if added]
         names = {n for n in _list(self.unit.get("references")) if isinstance(n, str)}
@@ -1643,10 +1512,6 @@ class _Run:
                                      or mine and n.startswith(mine) and n in self.env)
         if self.kind == "playground" and self.seeds():
             found["seed"] = "official" if self.official() else "custom"
-        shell = _terminal_services(self.meta.get("terminal"))
-        found["shell"] = shell[0] if shell and self.terminal() else None
-        found["needs"] = sorted({t[0] for t in map(target_of, _list(self.unit.get("includes")))
-                                 if t and t[0] not in (context.get("ns"), "local")})
         return found
 
     def run(self):
@@ -1659,7 +1524,6 @@ class _Run:
             self.host()
         self.settings()
         self.includes()
-        self.audience()
         self.compat()
         self.copy()
         if self.config is None:
@@ -1686,14 +1550,3 @@ def judge(unit, unit_config, core_config, own, overlaid, roots, env, context):
     except Exception as error:   # noqa: BLE001 hostile input blocks one unit, it never breaks the project
         return _verdict([line("T27", last=f"unexpected {type(error).__name__}")], (), None, ["T27"],
                         _dict(unit).get("name") or "")
-
-
-def surface(unit_config, core_config, own, overlaid, roots, context):
-    """What a unit will do, for the preview: the `surface` of its verdict. `context["unit"]` is the unit judge reads,
-    for what only it says (the reasons it gives for using this machine, its terminal, its gateway, its includes)."""
-    if not isinstance(unit_config, dict):
-        return empty_surface()
-    context = _dict(context)
-    run = _Run(context.get("unit"), unit_config, core_config, own, overlaid, roots, (), context)
-    run.scan()
-    return run.surface()

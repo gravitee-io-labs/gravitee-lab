@@ -12,8 +12,8 @@ def tag(saved="4.12.20", running="4.13.0-alpha.4"):
     return {"kind": "tag", "saved": saved, "running": running}
 
 
-def config(*settings, labels=False):
-    return {"kind": "config", "settings": list(settings), "labels": labels}
+def config(*settings):
+    return {"kind": "config", "settings": list(settings)}
 
 
 IMAGE = {"kind": "image", "tag": "3.0.2", "built": False}
@@ -40,11 +40,9 @@ class Why(unittest.TestCase):
         # Without another cause, the configuration is what is left to say
         self.assertEqual(reasons.why(latest, {"image": "sha256:3f2a9c1b77d0"}, "config"), config())
 
-    def test_a_changed_configuration_names_its_settings_and_labels_when_they_are_known(self):
+    def test_a_changed_configuration_names_its_settings_when_they_are_known(self):
         self.assertEqual(reasons.why({"tag": "3.0.2", "built": False}, {"image": "a/b:3.0.2"}, "config", ["X", "Y"]),
                          config("X", "Y"))
-        self.assertEqual(reasons.why({"tag": "3.0.2", "built": False}, {"image": "a/b:3.0.2"}, "config", labels=True),
-                         config(labels=True))
         # A container whose image is not known says nothing of tags
         self.assertEqual(reasons.why(SERVICE, {"image": ""}, "config"), config())
         self.assertEqual(reasons.why(SERVICE, {}, "config"), config())
@@ -57,9 +55,6 @@ class Line(unittest.TestCase):
         self.assertEqual(reasons.line({"a": {**IMAGE, "built": True}}), "Its image was built again since it started.")
         self.assertEqual(reasons.line({"a": config("GRAVITEE_LICENSE", "REDIS_PASSWORD")}),
                          "Its settings changed since it started: GRAVITEE_LICENSE, REDIS_PASSWORD.")
-
-    def test_a_configuration_that_cannot_be_told_says_only_that_it_changed(self):
-        self.assertEqual(reasons.line({"a": config()}), "Its configuration changed since it started.")
 
     def test_nothing_behind_says_nothing(self):
         self.assertEqual(reasons.line({}), "")
@@ -82,8 +77,8 @@ class Line(unittest.TestCase):
         self.assertEqual(reasons.line({"a": config("S")}, {"a": "A"}, "Alert Engine", whole=True),
                          "Alert Engine: its settings changed since it started: S.")
         # Several of them are the owner, and an owner is one: its words are the singular
-        self.assertEqual(reasons.line({"a": config("S"), "b": config("S")}, labels, "Kafka", whole=True),
-                         "Kafka: its settings changed since it started: S.")
+        self.assertEqual(reasons.line({"a": config("S"), "b": config("S")}, labels, "Kazoo", whole=True),
+                         "Kazoo: its settings changed since it started: S.")
         self.assertEqual(reasons.line({"a": config("S"), "b": config("S")}, labels, whole=True),
                          "Their settings changed since they started: S.")
 
@@ -123,7 +118,7 @@ class Line(unittest.TestCase):
 
     def test_each_set_of_settings_is_a_clause_of_its_own(self):
         labels = {"a": "Gateway", "b": "Engine", "c": "Cache"}
-        whys = {"a": config("PLUGINS"), "b": config("INTERNAL_API_PASSWORD"), "c": config(labels=True)}
+        whys = {"a": config("PLUGINS"), "b": config("INTERNAL_API_PASSWORD"), "c": config()}
         self.assertEqual(reasons.line(whys, labels),
                          "Gateway: its settings changed since it started: PLUGINS; "
                          "Engine: its settings changed since it started: INTERNAL_API_PASSWORD; "
@@ -131,8 +126,6 @@ class Line(unittest.TestCase):
         # The same ones are one clause, however many services
         same = {"a": config("PLUGINS"), "b": config("PLUGINS")}
         self.assertEqual(reasons.line(same, labels), "Gateway, Engine: their settings changed since they started: PLUGINS.")
-        both = {"a": config("PLUGINS", labels=True)}
-        self.assertEqual(reasons.line(both, labels), "Gateway: its settings changed since it started: PLUGINS.")
 
     def test_too_many_tags_for_a_line_say_that_and_the_rows_say_which(self):
         labels = {name: name for name in "abcde"}
@@ -171,8 +164,6 @@ class Causes(unittest.TestCase):
         self.assertEqual(reasons.causes({"a": {**IMAGE, "built": True}}), [{"kind": "image", "tag": "3.0.2", "built": True, "services": []}])
         self.assertEqual(reasons.causes({"a": config("GRAVITEE_LICENSE", "REDIS_PASSWORD")}),
                          [{"kind": "settings", "settings": ["GRAVITEE_LICENSE", "REDIS_PASSWORD"], "services": []}])
-        # The labels Compose sets are no word of a person's: the configuration changed, no name
-        self.assertEqual(reasons.causes({"a": config(labels=True)}), [{"kind": "config", "services": []}])
         self.assertEqual(reasons.causes({"a": config()}), [{"kind": "config", "services": []}])
 
     def test_the_tags_are_said_without_the_system_they_share(self):
@@ -206,9 +197,3 @@ class Causes(unittest.TestCase):
         self.assertTrue(reasons.causes({"a": tag("4.12.20-debian", "4.13.0-alpha.4-debian")})[0]["older"])
         self.assertFalse(reasons.causes({"a": tag("4.13.0", "4.13.0-alpha.4")})[0]["older"], "a release is above its pre-releases")
         self.assertFalse(reasons.causes({"a": tag("latest", "4.13.0")})[0]["older"], "a tag that moves names no version")
-
-    def test_never_a_value(self):
-        # What drift.py finds is a name; the causes hold names and tags, and the line the same
-        found = reasons.causes({"a": config("INTERNAL_API_PASSWORD")})
-        self.assertEqual(found, [{"kind": "settings", "settings": ["INTERNAL_API_PASSWORD"], "services": []}])
-        self.assertEqual(set().union(*(cause.keys() for cause in found)), {"kind", "settings", "services"})

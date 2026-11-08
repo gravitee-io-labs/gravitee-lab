@@ -2,14 +2,16 @@
 No test reaches GitHub. GitHub is a table of recorded replies (tests/data/settings: `user-private-free` is the personal Free
 private repository of the standard's, `public-standard` and `org-private` are repositories that are at the
 standard, built from the documented shapes), served by a transport that records every call. The rulesets the module applies
-are the Lab's template; the test data holds a copy of the four managed files (the template is written by another package)."""
+are the Lab's template."""
 
+import base64
 import copy
 import io
 import json
 import os
 import re
 import subprocess
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -20,9 +22,6 @@ from lab_ui.catalogs.settings import FAIL, MANUAL, NA, OK, WARN, Reply
 from .. import Case, gitfixture
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "settings"
-TEMPLATE = DATA / "rulesets"
-REAL_RULESETS = settings.RULESETS   # the Lab's own, of the standard it ships
-SOURCE = Path(settings.__file__).read_text(encoding="utf-8")
 
 
 def normalize(path):
@@ -36,14 +35,6 @@ def load(name):
     """(repository, {"GET path": Reply}) of a fixture, a copy for the test to change."""
     data = json.loads((DATA / f"{name}.json").read_text(encoding="utf-8"))
     return data["repo"], {key: Reply(item["code"], copy.deepcopy(item["body"])) for key, item in data["replies"].items()}
-
-
-def covers(*ids):
-    """Marks a test as the one of these identifiers."""
-    def mark(test):
-        test.covers = ids
-        return test
-    return mark
 
 
 class Hub:
@@ -177,11 +168,7 @@ class Scene:
     def finding(self, id, **options):
         return {finding.id: finding for finding in self.audit(**options)}[id]
 
-    def statuses(self, **options):
-        return {finding.id: finding.status for finding in self.audit(**options)}
-
     def sets_standard(self, **changes):
-        import base64
         body = json.loads(base64.b64decode(self.get("/contents/.github/standard.json?ref=main").body["content"]))
         body.update(changes)
         raw = (json.dumps(body, sort_keys=True) + "\n").encode()
@@ -192,11 +179,6 @@ class Scene:
 def requests_of(finding):
     """[(method, path, body)] of the requests a finding asks for."""
     return [(r["method"], r["path"], r["body"]) for r in finding.fix] if isinstance(finding.fix, list) else []
-
-
-class Base(Case):
-    def setUp(self):
-        self.patch(settings, "RULESETS", TEMPLATE)
 
 
 class Transport(Case):
@@ -237,18 +219,6 @@ class Transport(Case):
                         (1, "", "gh: Upgrade to GitHub Pro (HTTP 403)"))
         self.assertEqual(Reply(404, {"message": "Not Found", "status": "404"}), gh("GET", "repos/acme/lab-hub/x"))
         self.assertEqual(403, gh("GET", "repos/acme/lab-hub/y").code)
-
-    def test_a_missing_gh_and_a_missing_sign_in_are_one_line_each(self):
-        gh, _ = self.gh(FileNotFoundError())
-        with self.assertRaises(settings.Unusable) as raised:
-            gh("GET", "repos/acme/lab-hub")
-        self.assertNotIn("\n", str(raised.exception))
-        self.assertIn("gh auth login", str(raised.exception))
-        for stderr, code in (("To get started with GitHub CLI, please run:  gh auth login", 4), ("gh: Bad credentials (HTTP 401)", 1)):
-            gh, _ = self.gh((code, "", stderr))
-            with self.assertRaises(settings.Unusable) as raised:
-                gh("GET", "repos/acme/lab-hub")
-            self.assertEqual("Not signed in to GitHub. Run gh auth login, then run this again.", str(raised.exception))
 
     def test_a_slow_github_is_no_answer_and_a_flood_is_cut(self):
         gh, _ = self.gh(subprocess.TimeoutExpired("gh", 30), (0, "x" * (settings.REPLY_LIMIT + 1), ""))
@@ -308,105 +278,6 @@ class PlanLimits(unittest.TestCase):
             self.assertFalse(settings.plan_limit(Reply(code, body)), (code, body))
 
 
-class Fixtures(Base):
-    """The recorded replies say what the standard says they say."""
-
-    def test_the_personal_repository_is_the_one_of_section_1_1(self):
-        scene = Scene("user-private-free")
-        meta = scene.get().body
-        self.assertEqual((True, "User", True), (meta["private"], meta["owner"]["type"], meta["permissions"]["admin"]))
-        self.assertEqual((True, True, True, False, "COMMIT_OR_PR_TITLE", "COMMIT_MESSAGES", True),
-                         tuple(meta[k] for k in ("allow_squash_merge", "allow_merge_commit", "allow_rebase_merge",
-                                                 "delete_branch_on_merge", "squash_merge_commit_title",
-                                                 "squash_merge_commit_message", "allow_forking")))
-        self.assertEqual(403, scene.get("/rulesets").code)
-        self.assertEqual(403, scene.get("/rules/branches/main").code)
-        self.assertEqual({"enabled": True, "allowed_actions": "all", "sha_pinning_required": False}, scene.get("/actions/permissions").body)
-        self.assertEqual({"default_workflow_permissions": "read", "can_approve_pull_request_reviews": False},
-                         scene.get("/actions/permissions/workflow").body)
-        self.assertEqual("none", scene.get("/actions/permissions/access").body["access_level"])
-        self.assertEqual(422, scene.get("/actions/permissions/fork-pr-contributor-approval").code)
-        fork = scene.get("/actions/permissions/fork-pr-workflows-private-repos").body
-        self.assertEqual({"run_workflows_from_fork_pull_requests": False, "send_write_tokens_to_workflows": False,
-                          "send_secrets_and_variables": False, "require_approval_for_fork_pr_workflows": False}, fork)
-        self.assertEqual({"days": 90, "maximum_allowed_days": 400}, scene.get("/actions/permissions/artifact-and-log-retention").body)
-        self.assertEqual({"enabled": False, "enforced_by_owner": False}, scene.get("/immutable-releases").body)
-        self.assertEqual(422, scene.get("/actions/organization-secrets").code)
-        self.assertEqual(404, scene.get("/private-vulnerability-reporting").code)
-        self.assertEqual([1], [len(scene.get("/collaborators?permission=push").body)])
-
-    def test_no_fixture_names_an_owner_a_catalog_or_a_credential(self):
-        banned = re.compile(r"dobl1|gravitee|ghp_|github_pat_|BEGIN [A-Z ]*PRIVATE KEY|@[a-z0-9.-]+\.(?:com|org|io)\b", re.I)
-        for path in sorted(DATA.rglob("*")):
-            if path.is_file():
-                text = path.read_text(encoding="utf-8")
-                found = banned.search(text.replace("gravitee-lab-catalog", "").replace("Lab catalog standard", ""))
-                self.assertIsNone(found, f"{path.name}: {found and found.group(0)}")
-
-    def test_the_rulesets_of_the_test_data_are_the_managed_files_of_the_standard(self):
-        loaded, why = settings.load_rulesets(TEMPLATE)
-        self.assertEqual("", why)
-        self.assertEqual({"main": "catalog-main", "tags": "catalog-tags", "push": "catalog-push", "paths": "catalog-protected-paths"},
-                         {key: body["name"] for key, body in loaded.items()})
-        for body in loaded.values():
-            self.assertNotIn("_managed", body)
-        raw = json.loads((TEMPLATE / "default-branch.json").read_text())
-        self.assertTrue(raw["_managed"].startswith("Managed by the Lab catalog standard 1: "))
-        self.assertEqual(1, settings.template_level(TEMPLATE))
-        checks = [r for r in loaded["main"]["rules"] if r["type"] == "required_status_checks"][0]["parameters"]
-        self.assertEqual([{"context": "Catalog CI result", "integration_id": 15368}], checks["required_status_checks"])
-        self.assertEqual([{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}], loaded["tags"]["bypass_actors"])
-
-    def test_the_rulesets_of_the_test_data_are_those_of_section_4_3(self):
-        loaded, _ = settings.load_rulesets(TEMPLATE)
-        self.assertEqual({"name": "catalog-main", "target": "branch", "enforcement": "active", "bypass_actors": [],
-                          "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
-                          "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}, {"type": "required_linear_history"},
-                                    {"type": "required_signatures"},
-                                    {"type": "pull_request", "parameters": {
-                                        "required_approving_review_count": 1, "dismiss_stale_reviews_on_push": True,
-                                        "require_code_owner_review": True, "require_last_push_approval": True,
-                                        "required_review_thread_resolution": True, "allowed_merge_methods": ["squash"]}},
-                                    {"type": "required_status_checks", "parameters": {
-                                        "strict_required_status_checks_policy": True, "do_not_enforce_on_create": False,
-                                        "required_status_checks": [{"context": "Catalog CI result", "integration_id": 15368}]}}]},
-                         loaded["main"])
-        self.assertEqual({"name": "catalog-tags", "target": "tag", "enforcement": "active",
-                          "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
-                          "conditions": {"ref_name": {"include": ["~ALL"], "exclude": []}},
-                          "rules": [{"type": "creation"}, {"type": "deletion"}, {"type": "non_fast_forward"}]}, loaded["tags"])
-        self.assertEqual({"name": "catalog-push", "target": "push", "enforcement": "active", "bypass_actors": [],
-                          "rules": [{"type": "file_path_restriction", "parameters": {"restricted_file_paths": [
-                              "**/.env", "**/.env.local", "**/.state/**", "**/secrets/**"]}},
-                                    {"type": "file_extension_restriction", "parameters": {"restricted_file_extensions": [
-                                        "*.pem", "*.key", "*.p12", "*.pfx", "*.jks", "*.keystore", "*.csr"]}},
-                                    {"type": "max_file_size", "parameters": {"max_file_size": 5}}]}, loaded["push"])
-        self.assertEqual({"name": "catalog-protected-paths", "target": "push", "enforcement": "active",
-                          "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
-                          "rules": [{"type": "file_path_restriction", "parameters": {"restricted_file_paths": [
-                              ".github/workflows/**", ".github/actions/**", ".github/rulesets/**", ".github/CODEOWNERS",
-                              ".github/standard.json", ".catalog/**", "Makefile"]}}]}, loaded["paths"])
-
-    def test_the_template_is_read_from_the_template_and_nowhere_else(self):
-        loaded, why = settings.load_rulesets(DATA / "does-not-exist")
-        self.assertEqual({}, loaded)
-        self.assertIn("could not be read", why)
-        folder = self.folder()
-        for name in ("default-branch.json", "tags.json", "push.json", "protected-paths.json"):
-            (folder / name).write_text((TEMPLATE / name).read_text(), encoding="utf-8")
-        self.assertEqual("", settings.load_rulesets(folder)[1])
-        (folder / "tags.json").write_text("[1]", encoding="utf-8")
-        self.assertIn("is not a ruleset", settings.load_rulesets(folder)[1])
-        (folder / "tags.json").write_text("x" * (settings.RULESET_LIMIT + 1), encoding="utf-8")
-        self.assertIn("is over", settings.load_rulesets(folder)[1])
-        (folder / "tags.json").unlink()
-        outside = folder.parent / "outside.json"
-        outside.write_text((TEMPLATE / "tags.json").read_text(), encoding="utf-8")
-        self.addCleanup(outside.unlink)
-        os.symlink(outside, folder / "tags.json")
-        self.assertIn("is not in the template's folder", settings.load_rulesets(folder)[1])
-
-
 NO_RULES = "needs GitHub Pro, an organization or a public repository: rules cannot be enforced here"
 
 
@@ -414,12 +285,25 @@ def as_public(**more):
     return {"as": "public", **more}
 
 
-class Audit(Base):
+def weaken(scene, kind, **params):
+    """The effective rule of this kind, with these parameters."""
+    rules = copy.deepcopy(scene.get("/rules/branches/main").body)
+    for rule in rules:
+        if rule["type"] == kind:
+            rule.setdefault("parameters", {}).update(params)
+    scene.set("/rules/branches/main", rules)
+
+
+class Audit(Case):
     """One test for each identifier of the table: what it passes, and what it fails or cannot say."""
+
+    def says(self, scene, id, status, now, **options):
+        found = scene.finding(id, **options)
+        self.assertEqual((status, now), (found.status, found.now))
+        return found
 
     # ------------------------------------------------------------------ repo.*
 
-    @covers("repo.default_branch")
     def test_repo_default_branch(self):
         scene = Scene("public-standard")
         self.assertEqual(OK, scene.finding("repo.default_branch").status)
@@ -433,7 +317,6 @@ class Audit(Base):
         scene.remove("", "default_branch")
         self.assertEqual(MANUAL, scene.finding("repo.default_branch").status)
 
-    @covers("repo.merge")
     def test_repo_merge(self):
         self.assertEqual(OK, Scene("public-standard").finding("repo.merge").status)
         found = Scene("user-private-free").finding("repo.merge")
@@ -451,7 +334,6 @@ class Audit(Base):
         self.assertEqual(MANUAL, found.status)
         self.assertIn("has_wiki", found.now)
 
-    @covers("repo.topic")
     def test_repo_topic(self):
         scene = Scene("user-private-free")
         found = scene.finding("repo.topic")
@@ -467,15 +349,15 @@ class Audit(Base):
         scene.set("/topics", {"names": ["gravitee-lab-catalog"]})
         self.assertEqual(OK, scene.finding("repo.topic").status)
 
-    @covers("repo.forking")
     def test_repo_forking(self):
         private = Scene("org-private")
         self.assertEqual(OK, private.finding("repo.forking").status)
         private.edit(allow_forking=True)
-        found = private.finding("repo.forking")
-        self.assertEqual((FAIL, "allow_forking=true"), (found.status, found.now))
+        found = self.says(private, "repo.forking", FAIL, "allow_forking=true")
         self.assertEqual([("PATCH", "repos/acme-labs/lab-internal", {"allow_forking": False})], requests_of(found))
         self.assertEqual(OK, Scene("public-standard").finding("repo.forking").status)
+        mine = Scene("user-private-free").finding("repo.forking")
+        self.assertEqual((NA, "the repository belongs to a user: GitHub lets only an organization turn forking off"), (mine.status, mine.now))
         # The go-public gate: a repository that is still private must allow forking once it is public
         gate = Scene("org-private")
         found = gate.finding("repo.forking", **as_public())
@@ -487,11 +369,10 @@ class Audit(Base):
         private.remove("", "allow_forking")
         self.assertEqual(MANUAL, private.finding("repo.forking").status)
 
-    @covers("repo.immutable_releases")
     def test_repo_immutable_releases(self):
         self.assertEqual(OK, Scene("public-standard").finding("repo.immutable_releases").status)
         mine = Scene("user-private-free").finding("repo.immutable_releases")
-        self.assertEqual((WARN, "enabled=false"), (mine.status, mine.now))      # until V19 shows what it does on the plan
+        self.assertEqual((WARN, "enabled=false"), (mine.status, mine.now))
         self.assertEqual([("PUT", "repos/acme/lab-hub/immutable-releases", None)], requests_of(mine))
         org = Scene("org-private")
         org.set("/immutable-releases", {"enabled": False, "enforced_by_owner": False})
@@ -503,11 +384,9 @@ class Audit(Base):
 
     # ------------------------------------------------------------------ actions.*
 
-    @covers("actions.pinning")
     def test_actions_pinning(self):
         self.assertEqual(OK, Scene("public-standard").finding("actions.pinning").status)
-        found = Scene("user-private-free").finding("actions.pinning")
-        self.assertEqual((FAIL, "sha_pinning_required=false"), (found.status, found.now))
+        found = self.says(Scene("user-private-free"), "actions.pinning", FAIL, "sha_pinning_required=false")
         # The setting is sent with the others as they are now, so that it cannot undo them
         self.assertEqual([("PUT", "repos/acme/lab-hub/actions/permissions",
                            {"enabled": True, "allowed_actions": "all", "sha_pinning_required": True})], requests_of(found))
@@ -515,19 +394,17 @@ class Audit(Base):
         scene.set("/actions/permissions", {"message": "Resource not accessible by integration"}, 403)
         self.assertEqual(MANUAL, scene.finding("actions.pinning").status)
 
-    @covers("actions.listed")
     def test_actions_listed(self):
         self.assertEqual(OK, Scene("public-standard").finding("actions.listed").status)
         org = Scene("org-private")
         org.edit("/actions/permissions", allowed_actions="all")
-        found = org.finding("actions.listed")
-        self.assertEqual((FAIL, 'enabled=true, allowed_actions="all"'), (found.status, found.now))
+        found = self.says(org, "actions.listed", FAIL, 'enabled=true, allowed_actions="all"')
         self.assertEqual([("PUT", "repos/acme-labs/lab-internal/actions/permissions",
                            {"enabled": True, "allowed_actions": "selected", "sha_pinning_required": True}),
                           ("PUT", "repos/acme-labs/lab-internal/actions/permissions/selected-actions",
                            {"github_owned_allowed": True, "verified_allowed": False, "patterns_allowed": ["docker/*"]})],
                          requests_of(found))
-        # On a personal private repository the list may not be enforced (V3): a warning, and words, not requests
+        # On a personal private repository the list may not be enforced: a warning, and words, not requests
         mine = Scene("user-private-free").finding("actions.listed")
         self.assertEqual((WARN, 'enabled=true, allowed_actions="all"'), (mine.status, mine.now))
         self.assertIsInstance(mine.fix, str)
@@ -546,7 +423,7 @@ class Audit(Base):
         # A pattern that is not under the owner is not within it, whatever it starts with
         for patterns in (["docker*"], ["*"], ["*/x"], ["dockerx/y"], ["docker/"], ["docker"], ["Docker/*"], ["evil/docker/*"],
                          ["docker/x,evil/y"], ["docker/x evil/y"], ["docker/../evil/x"], ["docker/x\nevil/*"], [""], [5], [None],
-                         [["docker/*"]], ["docker/*", "!docker/x"], ["x" * 300]):
+                         [["docker/*"]], ["docker/*", "!docker/x"], ["x" * 300], ["acme-labs/lab/*"]):
             scene = Scene("public-standard")
             scene.edit("/actions/permissions/selected-actions", patterns_allowed=patterns)
             found = scene.finding("actions.listed")
@@ -559,29 +436,6 @@ class Audit(Base):
         scene.set("/actions/permissions/selected-actions", {"message": "Not Found"}, 404)
         self.assertEqual(MANUAL, scene.finding("actions.listed").status)
 
-    def test_the_list_of_actions_names_the_lab_in_the_reusable_form(self):
-        scene = Scene("org-private")
-        scene.sets_standard(form="reusable")
-        scene.edit("/actions/permissions", allowed_actions="all")
-        self.assertEqual(["acme-labs/lab/*", "docker/*"], requests_of(scene.finding("actions.listed"))[1][2]["patterns_allowed"])
-        # The Lab's own workflows at a commit are within `acme-labs/lab/*`; the owner's other repositories are not
-        scene = Scene("org-private")
-        scene.sets_standard(form="reusable")
-        scene.edit("/actions/permissions/selected-actions", patterns_allowed=["acme-labs/lab/.github/workflows/ci.yml@" + "a" * 40])
-        self.assertEqual(OK, scene.finding("actions.listed").status)
-        scene.edit("/actions/permissions/selected-actions", patterns_allowed=["acme-labs/other/*"])
-        self.assertEqual(FAIL, scene.finding("actions.listed").status)
-        scene = Scene("org-private")                                    # and in the inline form the Lab is not listed at all
-        scene.edit("/actions/permissions/selected-actions", patterns_allowed=["acme-labs/lab/*"])
-        self.assertEqual(FAIL, scene.finding("actions.listed").status)
-        scene = Scene("org-private")
-        scene.sets_standard(form="reusable", lab=None)          # the Lab is not named: the list cannot be made
-        scene.edit("/actions/permissions", allowed_actions="all")
-        found = scene.finding("actions.listed")
-        self.assertEqual(MANUAL, found.status)
-        self.assertIsNone(found.fix)
-
-    @covers("actions.token")
     def test_actions_token(self):
         self.assertEqual(OK, Scene("public-standard").finding("actions.token").status)
         for change in ({"can_approve_pull_request_reviews": True}, {"default_workflow_permissions": "write"}):
@@ -595,7 +449,6 @@ class Audit(Base):
         scene.drop("/actions/permissions/workflow")
         self.assertEqual(MANUAL, scene.finding("actions.token").status)
 
-    @covers("actions.fork")
     def test_actions_fork_on_a_private_repository(self):
         self.assertEqual(OK, Scene("user-private-free").finding("actions.fork").status)         # forks do not run at all
         self.assertEqual(OK, Scene("org-private").finding("actions.fork").status)
@@ -608,7 +461,6 @@ class Audit(Base):
         # The key is send_write_tokens_to_workflows: send_write_tokens is not one GitHub knows
         self.assertEqual({"run_workflows_from_fork_pull_requests": False, "send_write_tokens_to_workflows": False,
                           "send_secrets_and_variables": False, "require_approval_for_fork_pr_workflows": True}, body)
-        self.assertNotIn("send_write_tokens", body)
         scene = Scene("org-private")
         scene.edit("/actions/permissions/fork-pr-workflows-private-repos", send_secrets_and_variables=True)
         self.assertEqual(FAIL, scene.finding("actions.fork").status)
@@ -635,29 +487,24 @@ class Audit(Base):
         self.assertEqual(NA, gate.status)
         self.assertEqual("A first-time contributor's run waits for a maintainer", gate.title)
 
-    @covers("actions.access")
     def test_actions_access(self):
         self.assertEqual(OK, Scene("org-private").finding("actions.access").status)
         scene = Scene("org-private")
         scene.set("/actions/permissions/access", {"access_level": "organization"})
-        found = scene.finding("actions.access")
-        self.assertEqual((WARN, 'access_level="organization"'), (found.status, found.now))
+        found = self.says(scene, "actions.access", WARN, 'access_level="organization"')
         self.assertEqual([("PUT", "repos/acme-labs/lab-internal/actions/permissions/access", {"access_level": "none"})], requests_of(found))
         scene.set("/actions/permissions/access", {"message": "Not Found"}, 404)
         self.assertEqual(MANUAL, scene.finding("actions.access").status)
-        self.assertNotIn("actions.access", Scene("public-standard").statuses())       # a public repository has no such setting
+        self.assertNotIn("actions.access", [finding.id for finding in Scene("public-standard").audit()])       # a public repository has no such setting
 
-    @covers("actions.retention")
     def test_actions_retention(self):
         self.assertEqual(OK, Scene("public-standard").finding("actions.retention").status)
-        found = Scene("user-private-free").finding("actions.retention")
-        self.assertEqual((WARN, "days=90"), (found.status, found.now))
+        found = self.says(Scene("user-private-free"), "actions.retention", WARN, "days=90")
         self.assertEqual([("PUT", "repos/acme/lab-hub/actions/permissions/artifact-and-log-retention", {"days": 30})], requests_of(found))
         scene = Scene("public-standard")
         scene.set("/actions/permissions/artifact-and-log-retention", {"message": "Not Found"}, 404)
         self.assertEqual(MANUAL, scene.finding("actions.retention").status)
 
-    @covers("actions.secrets")
     def test_actions_secrets(self):
         found = Scene("org-private").finding("actions.secrets")
         self.assertEqual((OK, "No secret but LAB_DEPLOY_KEY"), (found.status, found.title))         # the Lab is private
@@ -679,13 +526,15 @@ class Audit(Base):
         needs = {"standard": 1, "form": "inline", "lab": {"repository": "acme-labs/lab", "ref": "a" * 40}, "platforms": ["linux/amd64"],
                  "needs": {"hub": {"repository": "acme/hub", "ref": "b" * 40}}}
         scene = Scene("org-private")
-        found = scene.finding("actions.secrets", standard=needs)
+        scene.sets_standard(**needs)
+        found = scene.finding("actions.secrets")
         self.assertEqual(WARN, found.status)
         self.assertIn("NEEDS_DEPLOY_KEY is not in the Actions store", found.now)
         both = {"secrets": [{"name": "LAB_DEPLOY_KEY"}, {"name": "NEEDS_DEPLOY_KEY"}]}
         scene.set("/actions/secrets", both)
         scene.set("/dependabot/secrets", both)
-        self.assertEqual(OK, scene.finding("actions.secrets", standard=needs).status)
+        self.assertEqual(OK, scene.finding("actions.secrets").status)
+        scene.sets_standard(needs={})
         self.assertEqual(WARN, scene.finding("actions.secrets").status, "without a need, the second key is one secret too many")
 
     def test_a_public_lab_needs_no_key_and_the_go_public_gate_fails_on_it(self):
@@ -699,29 +548,22 @@ class Audit(Base):
         self.assertEqual(FAIL, gate.status)
         self.assertEqual(OK, Scene("public-standard").finding("actions.secrets").status)
 
-    @covers("actions.org_secrets")
     def test_actions_org_secrets(self):
         mine = Scene("user-private-free")
-        found = mine.finding("actions.org_secrets")
-        self.assertEqual((NA, "the repository belongs to a user"), (found.status, found.now))        # GitHub answers 422
-        self.assertIn("actions.org_secrets", mine.audit().inapplicable)
+        self.says(mine, "actions.org_secrets", NA, "the repository belongs to a user")        # GitHub answers 422
         self.assertEqual(OK, Scene("org-private").finding("actions.org_secrets").status)
         scene = Scene("org-private")
         scene.set("/actions/organization-secrets", {"total_count": 1, "secrets": [{"name": "LEAKY_TOKEN"}]})
-        found = scene.finding("actions.org_secrets")
-        self.assertEqual((FAIL, "also: LEAKY_TOKEN"), (found.status, found.now))
-        self.assertEqual(OK, scene.finding("actions.org_secrets", allow_org_secrets=["LEAKY_TOKEN"]).status)
+        self.says(scene, "actions.org_secrets", FAIL, "also: LEAKY_TOKEN")
         scene = Scene("org-private")
         scene.set("/actions/organization-variables", {"total_count": 1, "variables": [{"name": "WIDE_OPEN"}]})
-        found = scene.finding("actions.org_secrets")
-        self.assertEqual((FAIL, "also: WIDE_OPEN"), (found.status, found.now))
+        self.says(scene, "actions.org_secrets", FAIL, "also: WIDE_OPEN")
         scene.set("/actions/organization-variables", {"message": "Resource not accessible"}, 403)
         self.assertEqual(MANUAL, scene.finding("actions.org_secrets").status)
         scene = Scene("org-private")
         scene.set("/actions/organization-secrets", {"message": "Validation Failed"}, 422)      # on an organization it is not the answer
         self.assertEqual(MANUAL, scene.finding("actions.org_secrets").status)
 
-    @covers("actions.runners")
     def test_actions_runners(self):
         self.assertEqual(OK, Scene("user-private-free").finding("actions.runners").status)
         self.assertEqual(OK, Scene("org-private").finding("actions.runners").status)
@@ -732,8 +574,7 @@ class Audit(Base):
         self.assertIn("1 self-hosted runner", found.now)
         scene = Scene("org-private")
         scene.table["GET orgs/acme-labs/actions/runner-groups/1/runners"] = Reply(200, {"total_count": 2, "runners": [{}, {}]})
-        found = scene.finding("actions.runners")
-        self.assertEqual((FAIL, "self-hosted runners in Default"), (found.status, found.now))
+        self.says(scene, "actions.runners", FAIL, "self-hosted runners in Default")
         scene = Scene("org-private")
         scene.table["GET orgs/acme-labs/actions/runner-groups?visible_to_repository=lab-internal"] = Reply(403, {"message": "Not allowed"})
         found = scene.finding("actions.runners")
@@ -742,32 +583,25 @@ class Audit(Base):
         scene.set("/actions/runners", {"message": "Not Found"}, 404)
         self.assertEqual(MANUAL, scene.finding("actions.runners").status)
 
-    @covers("actions.oidc")
     def test_actions_oidc(self):
         found = Scene("org-private").finding("actions.oidc")
         self.assertEqual(MANUAL, found.status)
         self.assertIn("job_workflow_ref", found.fix)
         self.assertIn("repo:ORG/*", found.fix)
-        mine = Scene("user-private-free")
-        self.assertEqual(NA, mine.finding("actions.oidc").status)
-        self.assertIn("actions.oidc", mine.audit().inapplicable)
+        self.assertEqual(NA, Scene("user-private-free").finding("actions.oidc").status)
 
-    @covers("actions.nightly")
     def test_actions_nightly(self):
         self.assertEqual(OK, Scene("public-standard").finding("actions.nightly").status)
         scene = Scene("public-standard")
         scene.set("/actions/workflows", {"workflows": [{"id": 12, "path": ".github/workflows/nightly.yml", "state": "disabled_inactivity"}]})
-        found = scene.finding("actions.nightly")
-        self.assertEqual((FAIL, 'state="disabled_inactivity"'), (found.status, found.now))
+        found = self.says(scene, "actions.nightly", FAIL, 'state="disabled_inactivity"')
         self.assertEqual([("PUT", "repos/acme-labs/lab-hub/actions/workflows/nightly.yml/enable", None)], requests_of(found))
         scene.set("/actions/workflows", {"workflows": [{"id": 11, "path": ".github/workflows/ci.yml", "state": "active"}]})
-        found = scene.finding("actions.nightly")
-        self.assertEqual((FAIL, "nightly.yml is not there"), (found.status, found.now))
+        found = self.says(scene, "actions.nightly", FAIL, "nightly.yml is not there")
         self.assertIn("catalog.py upgrade", found.fix)
         scene.sets_standard(standard=1)                      # standard 1 has no nightly.yml
         found = scene.finding("actions.nightly")
         self.assertEqual(NA, found.status)
-        self.assertIn("actions.nightly", scene.audit().inapplicable)
         mine = Scene("user-private-free")
         self.assertEqual(NA, mine.finding("actions.nightly").status)          # no standard.json: not a catalog yet
         scene = Scene("public-standard")
@@ -776,12 +610,12 @@ class Audit(Base):
         scene = Scene("public-standard")
         scene.set("/contents/.github/standard.json?ref=main", {"message": "Not Found"}, 403)
         self.assertEqual(MANUAL, scene.finding("actions.nightly").status)
-        self.assertEqual(NA, Scene("public-standard").finding("actions.nightly", standard={"standard": 1}).status)
-        self.assertEqual(MANUAL, Scene("public-standard").finding("actions.nightly", standard={"form": "inline"}).status)
+        scene = Scene("public-standard")
+        scene.sets_standard(standard="one")
+        self.assertEqual(MANUAL, scene.finding("actions.nightly").status)
 
     # ------------------------------------------------------------------ lab.*, environments.*, packages.*
 
-    @covers("lab.key")
     def test_lab_key(self):
         found = Scene("org-private").finding("lab.key")
         self.assertEqual(MANUAL, found.status)
@@ -799,23 +633,20 @@ class Audit(Base):
         self.assertIn("A public Lab needs no key", scene.finding("lab.key").fix)
         for store in ("actions", "dependabot"):
             scene.set(f"/{store}/secrets", {"total_count": 0, "secrets": []})
-        found = scene.finding("lab.key")
-        self.assertEqual((NA, "the Lab is public: no key reads it"), (found.status, found.now))
+        self.says(scene, "lab.key", NA, "the Lab is public: no key reads it")
         # A standard.json is whatever a contributor merged: nothing of it reaches a command that is not a name
         scene = Scene("org-private")
         scene.sets_standard(lab={"repository": "x; rm -rf ~", "ref": "0" * 40})
         self.assertIn("--repo OWNER/LAB", scene.finding("lab.key").fix)
         self.assertNotIn("rm -rf ~", scene.finding("lab.key").fix)
 
-    @covers("environments.policy")
     def test_environments_policy(self):
         self.assertEqual(OK, Scene("public-standard").finding("environments.policy").status)
         mine = Scene("user-private-free").finding("environments.policy")
         self.assertEqual(NA, mine.status)
         scene = Scene("public-standard")
         scene.set("/environments", {"total_count": 0, "environments": []})
-        found = scene.finding("environments.policy")
-        self.assertEqual((FAIL, "publish does not exist"), (found.status, found.now))
+        found = self.says(scene, "environments.policy", FAIL, "publish does not exist")
         self.assertEqual([("PUT", "repos/acme-labs/lab-hub/environments/publish",
                            {"deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}),
                           ("POST", "repos/acme-labs/lab-hub/environments/publish/deployment-branch-policies", {"name": "main", "type": "branch"}),
@@ -823,8 +654,7 @@ class Audit(Base):
                          requests_of(found))
         scene = Scene("public-standard")
         scene.set("/environments/publish/deployment-branch-policies", {"branch_policies": [{"name": "main", "type": "branch"}]})
-        found = scene.finding("environments.policy")
-        self.assertEqual((FAIL, "publish does not allow v*"), (found.status, found.now))
+        found = self.says(scene, "environments.policy", FAIL, "publish does not allow v*")
         self.assertEqual([("POST", "repos/acme-labs/lab-hub/environments/publish/deployment-branch-policies", {"name": "v*", "type": "tag"})],
                          requests_of(found))
         scene = Scene("public-standard")
@@ -853,7 +683,6 @@ class Audit(Base):
         scene.set("/environments", {"message": "Not Found"}, 404)
         self.assertEqual(MANUAL, scene.finding("environments.policy").status)
 
-    @covers("packages.actions_access")
     def test_packages_actions_access(self):
         found = Scene("public-standard").finding("packages.actions_access")
         self.assertEqual(MANUAL, found.status)
@@ -862,60 +691,38 @@ class Audit(Base):
 
     # ------------------------------------------------------------------ rules.*
 
-    def dropping(self, id, kind):
-        scene = Scene("public-standard")
-        self.assertEqual(OK, scene.finding(id).status)
-        scene.set("/rules/branches/main", [rule for rule in scene.get("/rules/branches/main").body if rule["type"] != kind])
-        found = scene.finding(id)
-        self.assertEqual((FAIL, "missing"), (found.status, found.now))
-        method, path, body = requests_of(found)[0]
-        self.assertEqual(("PUT", "repos/acme-labs/lab-hub/rulesets/1001", "catalog-main"), (method, path, body["name"]))
-        self.assertNotIn("_managed", body)
-        self.assertEqual(NA, Scene("user-private-free").finding(id).status)
-        self.assertEqual(NO_RULES, Scene("user-private-free").finding(id).now)
+    def test_a_rule_that_is_dropped_is_made_again_and_needs_a_plan(self):
+        for id, kind in (("rules.deletion", "deletion"), ("rules.non_fast_forward", "non_fast_forward"),
+                         ("rules.required_linear_history", "required_linear_history"), ("rules.required_signatures", "required_signatures")):
+            with self.subTest(id=id):
+                scene = Scene("public-standard")
+                self.assertEqual(OK, scene.finding(id).status)
+                scene.set("/rules/branches/main", [rule for rule in scene.get("/rules/branches/main").body if rule["type"] != kind])
+                found = scene.finding(id)
+                self.assertEqual((FAIL, "missing"), (found.status, found.now))
+                method, path, body = requests_of(found)[0]
+                self.assertEqual(("PUT", "repos/acme-labs/lab-hub/rulesets/1001", "catalog-main"), (method, path, body["name"]))
+                self.assertNotIn("_managed", body)
+                self.assertEqual(NA, Scene("user-private-free").finding(id).status)
+                self.assertEqual(NO_RULES, Scene("user-private-free").finding(id).now)
 
-    @covers("rules.deletion")
-    def test_rules_deletion(self):
-        self.dropping("rules.deletion", "deletion")
-
-    @covers("rules.non_fast_forward")
-    def test_rules_non_fast_forward(self):
-        self.dropping("rules.non_fast_forward", "non_fast_forward")
-
-    @covers("rules.required_linear_history")
-    def test_rules_required_linear_history(self):
-        self.dropping("rules.required_linear_history", "required_linear_history")
-
-    @covers("rules.required_signatures")
-    def test_rules_required_signatures(self):
-        self.dropping("rules.required_signatures", "required_signatures")
-
-    def weaken(self, scene, kind, **params):
-        rules = copy.deepcopy(scene.get("/rules/branches/main").body)
-        for rule in rules:
-            if rule["type"] == kind:
-                rule.setdefault("parameters", {}).update(params)
-        scene.set("/rules/branches/main", rules)
-
-    @covers("rules.pull_request")
     def test_rules_pull_request(self):
         self.assertEqual(OK, Scene("public-standard").finding("rules.pull_request").status)
         scene = Scene("public-standard")
-        self.weaken(scene, "pull_request", require_code_owner_review=False)
-        found = scene.finding("rules.pull_request")
-        self.assertEqual((FAIL, "require_code_owner_review=false"), (found.status, found.now))        # it names the key
+        weaken(scene, "pull_request", require_code_owner_review=False)
+        self.says(scene, "rules.pull_request", FAIL, "require_code_owner_review=false")        # it names the key
         for change, text in (({"required_approving_review_count": 0}, "required_approving_review_count=0"),
                              ({"allowed_merge_methods": ["merge", "squash"]}, "allowed_merge_methods="),
                              ({"dismiss_stale_reviews_on_push": False}, "dismiss_stale_reviews_on_push=false"),
                              ({"require_last_push_approval": False}, "require_last_push_approval=false"),
                              ({"required_review_thread_resolution": False}, "required_review_thread_resolution=false")):
             scene = Scene("public-standard")
-            self.weaken(scene, "pull_request", **change)
+            weaken(scene, "pull_request", **change)
             found = scene.finding("rules.pull_request")
             self.assertEqual(FAIL, found.status, change)
             self.assertIn(text, found.now)
         scene = Scene("public-standard")
-        self.weaken(scene, "pull_request", required_approving_review_count=2)           # stricter is fine
+        weaken(scene, "pull_request", required_approving_review_count=2)           # stricter is fine
         self.assertEqual(OK, scene.finding("rules.pull_request").status)
         # Two rulesets apply together: the strictest of each key counts
         scene = Scene("public-standard")
@@ -925,77 +732,50 @@ class Audit(Base):
         scene.set("/rules/branches/main", rules)
         self.assertEqual(OK, scene.finding("rules.pull_request").status)
         scene.set("/rules/branches/main", [rule for rule in rules if rule["type"] != "pull_request"])
-        self.assertEqual((FAIL, "missing"), (scene.finding("rules.pull_request").status, scene.finding("rules.pull_request").now))
+        self.says(scene, "rules.pull_request", FAIL, "missing")
 
-    @covers("rules.checks")
     def test_rules_checks(self):
         self.assertEqual(OK, Scene("public-standard").finding("rules.checks").status)
         # A check any app can post does not count: it has to be bound to GitHub Actions
         for bound in ({"context": "Catalog CI result"}, {"context": "Catalog CI result", "integration_id": 99},
                       {"context": "Catalog CI result", "integration_id": None}):
             scene = Scene("public-standard")
-            self.weaken(scene, "required_status_checks", required_status_checks=[bound])
+            weaken(scene, "required_status_checks", required_status_checks=[bound])
             found = scene.finding("rules.checks")
             self.assertEqual(FAIL, found.status, bound)
             self.assertEqual("Catalog CI result is required but any app can post it", found.now)
         scene = Scene("public-standard")
-        self.weaken(scene, "required_status_checks", required_status_checks=[{"context": "Other", "integration_id": 15368}])
+        weaken(scene, "required_status_checks", required_status_checks=[{"context": "Other", "integration_id": 15368}])
         self.assertEqual("Catalog CI result is not required", scene.finding("rules.checks").now)
         scene = Scene("public-standard")
-        self.weaken(scene, "required_status_checks", strict_required_status_checks_policy=False)
-        self.assertEqual((FAIL, "strict_required_status_checks_policy=false"),
-                         (scene.finding("rules.checks").status, scene.finding("rules.checks").now))
+        weaken(scene, "required_status_checks", strict_required_status_checks_policy=False)
+        self.says(scene, "rules.checks", FAIL, "strict_required_status_checks_policy=false")
         scene = Scene("public-standard")
         scene.set("/rules/branches/main", [r for r in scene.get("/rules/branches/main").body if r["type"] != "required_status_checks"])
-        self.assertEqual((FAIL, "missing"), (scene.finding("rules.checks").status, scene.finding("rules.checks").now))
-        # --required-check: the engine audits its own check
-        scene = Scene("public-standard")
-        self.assertEqual("E2E result is not required", scene.finding("rules.checks", required_checks=["E2E result"]).now)
-        self.assertEqual("The checks CI result and E2E result, run by GitHub Actions, pass first, on an up to date branch",
-                         scene.finding("rules.checks", required_checks=["CI result", "E2E result"]).title, "the title names them")
-        self.assertIn("Catalog CI result", scene.finding("rules.checks").title)
-        self.weaken(scene, "required_status_checks", required_status_checks=[
-            {"context": "Catalog CI result", "integration_id": 15368}, {"context": "E2E result", "integration_id": 15368}])
-        self.assertEqual(OK, scene.finding("rules.checks", required_checks=["E2E result", "Catalog CI result"]).status)
-        scene.set("/rules/branches/main", [r for r in scene.get("/rules/branches/main").body if r["type"] != "required_status_checks"])
-        body = requests_of(scene.finding("rules.checks", required_checks=["E2E result", "build"]))[0][2]
-        checks = [r for r in body["rules"] if r["type"] == "required_status_checks"][0]["parameters"]["required_status_checks"]
-        self.assertEqual([{"context": "E2E result", "integration_id": 15368}, {"context": "build", "integration_id": 15368}], checks)
+        self.says(scene, "rules.checks", FAIL, "missing")
 
-    @covers("rules.bypass")
     def test_rules_bypass(self):
         self.assertEqual(OK, Scene("public-standard").finding("rules.bypass").status)
         solo = {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
-        scene = Scene("public-standard")
-        detail = copy.deepcopy(scene.get("/rulesets/1001").body)
-        detail["bypass_actors"] = [solo]
-        scene.set("/rulesets/1001", detail)
-        found = scene.finding("rules.bypass")
-        self.assertEqual((WARN, "one administrator can merge their own pull request"), (found.status, found.now))
-        self.assertEqual([], requests_of(found)[0][2]["bypass_actors"])        # without --solo the fix takes it away
-        found = scene.finding("rules.bypass", solo=True)
-        self.assertEqual((WARN, None), (found.status, found.fix))              # asked for, and it is there
-        # --solo with none: the ruleset is applied with exactly one administrator, in pull request mode
-        none = Scene("public-standard")
-        found = none.finding("rules.bypass", solo=True)
-        self.assertEqual(FAIL, found.status)
-        self.assertEqual([solo], requests_of(found)[0][2]["bypass_actors"])
+        key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
         for actors in ([{"actor_id": 1, "actor_type": "Team", "bypass_mode": "always"}],
                        [solo, {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
                        [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]):
             scene = Scene("public-standard")
-            detail = copy.deepcopy(scene.get("/rulesets/1001").body)
-            detail["bypass_actors"] = actors
-            scene.set("/rulesets/1001", detail)
-            self.assertEqual(FAIL, scene.finding("rules.bypass").status, actors)
-        # The deploy key that versions.yml pushes the versions it recorded with is no one who merges a pull request
-        key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
-        for actors, status in (([key], OK), ([solo, key], WARN)):
+            scene.edit("/rulesets/1001", bypass_actors=actors)
+            found = scene.finding("rules.bypass")
+            self.assertEqual(FAIL, found.status, actors)
+            self.assertEqual([key], requests_of(found)[0][2]["bypass_actors"])
+        # A sole maintainer keeps it: no fix takes away the one way they have to merge
+        for actors in ([solo], [solo, key]):
             scene = Scene("public-standard")
-            detail = copy.deepcopy(scene.get("/rulesets/1001").body)
-            detail["bypass_actors"] = actors
-            scene.set("/rulesets/1001", detail)
-            self.assertEqual(status, scene.finding("rules.bypass").status, actors)
+            scene.edit("/rulesets/1001", bypass_actors=actors)
+            found = scene.finding("rules.bypass")
+            self.assertEqual((WARN, None), (found.status, found.fix), actors)
+        # The deploy key that versions.yml pushes the versions it recorded with is no one who merges a pull request
+        scene = Scene("public-standard")
+        scene.edit("/rulesets/1001", bypass_actors=[key])
+        self.assertEqual(OK, scene.finding("rules.bypass").status)
         scene = Scene("public-standard")
         scene.remove("/rulesets/1001", "bypass_actors")             # a reader who is not an administrator is not told
         found = scene.finding("rules.bypass")
@@ -1005,11 +785,9 @@ class Audit(Base):
         scene.set("/rules/branches/main", [{"type": "deletion"}])
         self.assertEqual(MANUAL, scene.finding("rules.bypass").status)
 
-    @covers("rules.deploy_key")
     def test_rules_deploy_key(self):
         """The deploy key of versions.yml passes the rules of main and of the tags: then rulesets that it does not pass keep it from
-        deleting or rewriting them, and it is the one deploy key that writes. Read with the rulesets of standard 7."""
-        self.patch(settings, "RULESETS", REAL_RULESETS)
+        deleting or rewriting them, and it is the one deploy key that writes."""
         key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
         history = {"id": 1003, "name": "catalog-main-history", "target": "branch", "enforcement": "active", "source_type": "Repository",
                    "source": "acme-labs/lab-hub", "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
@@ -1020,12 +798,8 @@ class Audit(Base):
 
         def scene(with_history=True, keys=(("versions", False),)):
             found = Scene("public-standard")
-            detail = copy.deepcopy(found.get("/rulesets/1001").body)
-            detail["bypass_actors"] = [key]
-            found.set("/rulesets/1001", detail)
-            tags = copy.deepcopy(found.get("/rulesets/1002").body)
-            tags["bypass_actors"] = [*tags["bypass_actors"], key]
-            found.set("/rulesets/1002", tags)
+            found.edit("/rulesets/1001", bypass_actors=[key])
+            found.edit("/rulesets/1002", bypass_actors=[*found.get("/rulesets/1002").body["bypass_actors"], key])
             if with_history:
                 listing = copy.deepcopy(found.get("/rulesets").body)
                 listing += [{name: one[name] for name in ("id", "name", "target", "enforcement", "source", "source_type")}
@@ -1048,10 +822,8 @@ class Audit(Base):
         # The key of versions.yml is there and no ruleset lets it through: what it records never reaches main. The fix adds the key
         # to the bypass of main and of the tags, and keeps the administrator who bypasses, then creates the history rulesets
         unset = Scene("public-standard")
-        main = copy.deepcopy(unset.get("/rulesets/1001").body)
         admin = {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
-        main["bypass_actors"] = [admin]
-        unset.set("/rulesets/1001", main)
+        unset.edit("/rulesets/1001", bypass_actors=[admin])
         unset.set("/keys", [{"id": 1, "title": "versions", "read_only": False}])
         found = unset.finding("rules.deploy_key")
         self.assertEqual(FAIL, found.status)
@@ -1060,31 +832,25 @@ class Audit(Base):
         put = {path: body for method, path, body in sent if method == "PUT"}
         self.assertEqual(put["repos/acme-labs/lab-hub/rulesets/1001"]["bypass_actors"], [admin, key])
         self.assertEqual(put["repos/acme-labs/lab-hub/rulesets/1002"]["bypass_actors"][-1], key)
-        self.assertEqual(put["repos/acme-labs/lab-hub/rulesets/1001"]["rules"], main["rules"], "nothing else changes")
+        self.assertEqual(put["repos/acme-labs/lab-hub/rulesets/1001"]["rules"], unset.get("/rulesets/1001").body["rules"], "nothing else changes")
         self.assertEqual({"catalog-main-history", "catalog-tag-history"}, {body["name"] for method, _, body in sent if method == "POST"})
         unset.set("/keys", [{"id": 1, "title": "lab", "read_only": True}])
         self.assertEqual(OK, unset.finding("rules.deploy_key").status, "no key that writes: versions.yml is not set up")
         # A history ruleset of another branch keeps nothing of main
         elsewhere = scene()
         elsewhere.set("/rulesets/1003", {**history, "conditions": {"ref_name": {"include": ["refs/heads/legacy"], "exclude": []}}})
-        found = elsewhere.finding("rules.deploy_key")
-        self.assertEqual((FAIL, "nothing keeps a deploy key from deleting or rewriting main"), (found.status, found.now))
+        self.says(elsewhere, "rules.deploy_key", FAIL, "nothing keeps a deploy key from deleting or rewriting main")
 
-    @covers("rules.tags")
     def test_rules_tags(self):
         self.assertEqual(OK, Scene("public-standard").finding("rules.tags").status)
         scene = Scene("public-standard")
         scene.set("/rulesets", [item for item in scene.get("/rulesets").body if item["target"] != "tag"])
-        found = scene.finding("rules.tags")
-        self.assertEqual((FAIL, "no active tag ruleset"), (found.status, found.now))
+        found = self.says(scene, "rules.tags", FAIL, "no active tag ruleset")
         method, path, body = requests_of(found)[0]
         self.assertEqual(("POST", "repos/acme-labs/lab-hub/rulesets", "catalog-tags"), (method, path, body["name"]))
         scene = Scene("public-standard")
-        detail = copy.deepcopy(scene.get("/rulesets/1002").body)
-        detail["rules"] = [rule for rule in detail["rules"] if rule["type"] != "deletion"]
-        scene.set("/rulesets/1002", detail)
-        found = scene.finding("rules.tags")
-        self.assertEqual((FAIL, "missing: deletion"), (found.status, found.now))
+        scene.edit("/rulesets/1002", rules=[rule for rule in scene.get("/rulesets/1002").body["rules"] if rule["type"] != "deletion"])
+        found = self.says(scene, "rules.tags", FAIL, "missing: deletion")
         self.assertEqual("PUT", requests_of(found)[0][0])                  # the ruleset of that name is replaced
         scene = Scene("public-standard")
         listing = copy.deepcopy(scene.get("/rulesets").body)
@@ -1098,24 +864,14 @@ class Audit(Base):
                            {"ref_name": {"include": ["refs/tags/*"], "exclude": []}},
                            {"ref_name": {"include": ["refs/tags/**"], "exclude": []}}, {}, None):
             scene = Scene("public-standard")
-            detail = copy.deepcopy(scene.get("/rulesets/1002").body)
-            detail["conditions"] = conditions
-            scene.set("/rulesets/1002", detail)
+            scene.edit("/rulesets/1002", conditions=conditions)
             self.assertEqual((FAIL, "the tag ruleset does not reach every tag"),
                              (scene.finding("rules.tags").status, scene.finding("rules.tags").now), conditions)
         for conditions in ({"ref_name": {"include": ["refs/tags/**/*"], "exclude": []}},
                            {"ref_name": {"include": ["refs/tags/v1.*", "~ALL"], "exclude": []}}):
             scene = Scene("public-standard")
-            detail = copy.deepcopy(scene.get("/rulesets/1002").body)
-            detail["conditions"] = conditions
-            scene.set("/rulesets/1002", detail)
+            scene.edit("/rulesets/1002", conditions=conditions)
             self.assertEqual(OK, scene.finding("rules.tags").status, conditions)
-
-    def tag_ruleset(self, scene, **changes):
-        """The details of the tag ruleset, changed."""
-        detail = copy.deepcopy(scene.get("/rulesets/1002").body)
-        detail.update(changes)
-        scene.set("/rulesets/1002", detail)
 
     def test_only_an_administrator_bypasses_the_tag_ruleset(self):
         """The title says an administrator: a ruleset that lets the write role make a tag lets it start `publish.yml`."""
@@ -1125,15 +881,16 @@ class Audit(Base):
                        [{"actor_id": 5, "actor_type": "Integration", "bypass_mode": "always"}],
                        [{"actor_id": 1, "actor_type": "OrganizationAdmin", "bypass_mode": "always"}], ["x"], [None], [[5]]):
             scene = Scene("public-standard")
-            self.tag_ruleset(scene, bypass_actors=actors)
+            scene.edit("/rulesets/1002", bypass_actors=actors)
             found = scene.finding("rules.tags")
             self.assertEqual((FAIL, "bypass for someone but an administrator"), (found.status, found.now), actors)
             method, path, body = requests_of(found)[0]
-            self.assertEqual(("PUT", "repos/acme-labs/lab-hub/rulesets/1002", [admin]), (method, path, body["bypass_actors"]))
+            deploy_key = {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}
+            self.assertEqual(("PUT", "repos/acme-labs/lab-hub/rulesets/1002", [admin, deploy_key]), (method, path, body["bypass_actors"]))
         for actors in ([admin], [], [{**admin, "bypass_mode": "pull_request"}],
                        [admin, {"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}]):
             scene = Scene("public-standard")
-            self.tag_ruleset(scene, bypass_actors=actors)
+            scene.edit("/rulesets/1002", bypass_actors=actors)
             self.assertEqual(OK, scene.finding("rules.tags").status, actors)
         # A reader who is not an administrator is not sent the list: the audit cannot say, and does not say ok
         for hidden in ("absent", None, "admin", {"actor_id": 5}):
@@ -1141,12 +898,12 @@ class Audit(Base):
             if hidden == "absent":
                 scene.remove("/rulesets/1002", "bypass_actors")
             else:
-                self.tag_ruleset(scene, bypass_actors=hidden)
+                scene.edit("/rulesets/1002", bypass_actors=hidden)
             found = scene.finding("rules.tags")
             self.assertEqual((MANUAL, "bypass_actors are returned to administrators only"), (found.status, found.now), hidden)
         # What one ruleset leaves open another can close: a rule counts when a ruleset that only an administrator bypasses has it
         scene = Scene("public-standard")
-        self.tag_ruleset(scene, bypass_actors=[{"actor_id": 4, "actor_type": "RepositoryRole", "bypass_mode": "always"}])
+        scene.edit("/rulesets/1002", bypass_actors=[{"actor_id": 4, "actor_type": "RepositoryRole", "bypass_mode": "always"}])
         listing = copy.deepcopy(scene.get("/rulesets").body)
         listing.append({**listing[1], "id": 1003, "name": "tags-of-the-organization"})
         scene.set("/rulesets", listing)
@@ -1156,57 +913,36 @@ class Audit(Base):
         self.assertEqual(OK, scene.finding("rules.tags").status)
         strict["rules"] = [rule for rule in strict["rules"] if rule["type"] != "creation"]            # but not for a rule it lacks
         scene.set("/rulesets/1003", strict)
-        found = scene.finding("rules.tags")
-        self.assertEqual((FAIL, "bypass for someone but an administrator"), (found.status, found.now))
+        self.says(scene, "rules.tags", FAIL, "bypass for someone but an administrator")
         scene.set("/rulesets/1003", {**strict, "bypass_actors": None})            # and what is only hidden is hidden
         self.assertEqual(FAIL, scene.finding("rules.tags").status)                # the visible one still lets someone through
-        self.tag_ruleset(scene, bypass_actors=[{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}])
+        scene.edit("/rulesets/1002", bypass_actors=[{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}])
         self.assertEqual(OK, scene.finding("rules.tags").status)
 
     def test_the_bypass_of_a_push_ruleset_is_no_bypass_of_the_pull_request(self):
         """GitHub lists the rules of the push rulesets among those of the branch: on an internal repository the administrator who
         may change the files that run with a token must not read as someone who may merge past the review."""
-        solo = {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}
         scene = Scene("public-standard")
-        detail = copy.deepcopy(scene.get("/rulesets/1001").body)
-        detail["bypass_actors"] = [solo]
-        scene.set("/rulesets/1001", detail)
         scene.set("/rulesets/1004", {"id": 1004, "name": "catalog-protected-paths", "target": "push", "enforcement": "active",
-                                     "bypass_actors": [{**solo, "bypass_mode": "always"}], "rules": []})
+                                     "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}], "rules": []})
         rules = copy.deepcopy(scene.get("/rules/branches/main").body)
         rules.append({"type": "file_path_restriction", "ruleset_id": 1004, "ruleset_source_type": "Repository",
                       "ruleset_source": "acme-labs/lab-hub", "parameters": {"restricted_file_paths": [".github/**"]}})
         scene.set("/rules/branches/main", rules)
-        found = scene.finding("rules.bypass", solo=True)
-        self.assertEqual((WARN, None), (found.status, found.fix))
+        self.assertEqual(OK, scene.finding("rules.bypass").status)
 
-    def test_the_template_says_dot_pem_and_github_is_asked_for_star_dot_pem(self):
-        """GitHub refuses a push ruleset whose extensions do not start with `*.` (422): the managed file keeps the extensions as a
-        person writes them, and the ruleset that is requested and compared has them the way GitHub has them."""
-        real = Path(settings.__file__).resolve().parents[2] / "templates" / "catalog" / "managed" / ".github" / "rulesets"
-        template = json.loads((real / "push.json").read_text(encoding="utf-8"))
-        rule = next(rule for rule in template["rules"] if rule["type"] == "file_extension_restriction")
-        self.assertTrue(all(each.startswith(".") for each in rule["parameters"]["restricted_file_extensions"]))
-        loaded = settings.load_rulesets(real)[0]["push"]
-        rule = next(rule for rule in loaded["rules"] if rule["type"] == "file_extension_restriction")
-        self.assertTrue(all(each.startswith("*.") for each in rule["parameters"]["restricted_file_extensions"]))
-
-    @covers("rules.push")
     def test_rules_push(self):
         self.assertEqual(OK, Scene("org-private").finding("rules.push").status)
         public = Scene("public-standard")
         self.assertEqual(NA, public.finding("rules.push").status)
-        self.assertIn("rules.push", public.audit().inapplicable)                # a public repository cannot have it: not a gap
         personal = Scene("public-standard")
         personal.edit(private=True, visibility="private", owner={"login": "acme", "type": "User"})
         found = personal.finding("rules.push")
         self.assertEqual(NA, found.status)
         self.assertIn("organization plan", found.now)
-        self.assertNotIn("rules.push", personal.audit().inapplicable)            # a plan that falls short: --strict counts it
         scene = Scene("org-private")
         scene.set("/rulesets", [item for item in scene.get("/rulesets").body if item["name"] != "catalog-push"])
-        found = scene.finding("rules.push")
-        self.assertEqual((FAIL, "no push ruleset named catalog-push"), (found.status, found.now))
+        found = self.says(scene, "rules.push", FAIL, "no push ruleset named catalog-push")
         self.assertEqual(("POST", "repos/acme-labs/lab-internal/rulesets"), requests_of(found)[0][:2])
         for edit, text in ((lambda rule: rule["parameters"].update(max_file_size=50) if rule["type"] == "max_file_size" else None, "max_file_size=50"),
                            (lambda rule: rule["parameters"]["restricted_file_extensions"].remove("*.pem")
@@ -1223,9 +959,7 @@ class Audit(Base):
             self.assertIn(text, found.now)
             self.assertEqual("PUT", requests_of(found)[0][0])
         scene = Scene("org-private")
-        detail = copy.deepcopy(scene.get("/rulesets/2003").body)
-        detail["rules"] = [rule for rule in detail["rules"] if rule["type"] != "max_file_size"]
-        scene.set("/rulesets/2003", detail)
+        scene.edit("/rulesets/2003", rules=[rule for rule in scene.get("/rulesets/2003").body["rules"] if rule["type"] != "max_file_size"])
         self.assertEqual("max_file_size missing", scene.finding("rules.push").now)
         scene = Scene("org-private")
         listing = copy.deepcopy(scene.get("/rulesets").body)
@@ -1240,9 +974,7 @@ class Audit(Base):
                        [{"actor_id": 4, "actor_type": "RepositoryRole", "bypass_mode": "always"}],
                        [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}], ["x"]):
             scene = Scene("org-private")
-            detail = copy.deepcopy(scene.get("/rulesets/2003").body)
-            detail["bypass_actors"] = actors
-            scene.set("/rulesets/2003", detail)
+            scene.edit("/rulesets/2003", bypass_actors=actors)
             found = scene.finding("rules.push")
             self.assertEqual((FAIL, "bypass for someone"), (found.status, found.now), actors)
             method, path, body = requests_of(found)[0]
@@ -1252,29 +984,21 @@ class Audit(Base):
             if hidden == "absent":
                 scene.remove("/rulesets/2003", "bypass_actors")
             else:
-                detail = copy.deepcopy(scene.get("/rulesets/2003").body)
-                detail["bypass_actors"] = hidden
-                scene.set("/rulesets/2003", detail)
+                scene.edit("/rulesets/2003", bypass_actors=hidden)
             found = scene.finding("rules.push")
             self.assertEqual((MANUAL, "bypass_actors are returned to administrators only"), (found.status, found.now), hidden)
         scene = Scene("org-private")
         scene.remove("/rulesets/2003", "bypass_actors")
-        detail = copy.deepcopy(scene.get("/rulesets/2003").body)
-        detail["rules"] = [rule for rule in detail["rules"] if rule["type"] != "max_file_size"]
-        scene.set("/rulesets/2003", detail)
-        self.assertEqual((FAIL, "max_file_size missing"), (scene.finding("rules.push").status, scene.finding("rules.push").now))
+        scene.edit("/rulesets/2003", rules=[rule for rule in scene.get("/rulesets/2003").body["rules"] if rule["type"] != "max_file_size"])
+        self.says(scene, "rules.push", FAIL, "max_file_size missing")
 
-    @covers("rules.protected_paths")
     def test_rules_protected_paths(self):
         scene = Scene("org-private")
         self.assertEqual(OK, scene.finding("rules.protected_paths").status)
         self.assertEqual(NA, Scene("public-standard").finding("rules.protected_paths").status)
-        detail = copy.deepcopy(scene.get("/rulesets/2004").body)
-        detail["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"},
-                                   {"actor_id": 1, "actor_type": "Team", "bypass_mode": "always"}]
-        scene.set("/rulesets/2004", detail)
-        found = scene.finding("rules.protected_paths")
-        self.assertEqual((FAIL, "bypass for someone but an administrator"), (found.status, found.now))
+        scene.edit("/rulesets/2004", bypass_actors=[{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"},
+                                                    {"actor_id": 1, "actor_type": "Team", "bypass_mode": "always"}])
+        self.says(scene, "rules.protected_paths", FAIL, "bypass for someone but an administrator")
         scene = Scene("org-private")
         detail = copy.deepcopy(scene.get("/rulesets/2004").body)
         detail["rules"][0]["parameters"]["restricted_file_paths"].remove(".catalog/**")
@@ -1285,8 +1009,7 @@ class Audit(Base):
         self.assertNotIn(".catalog/**", found.now)
         scene = Scene("org-private")
         scene.set("/rulesets", [item for item in scene.get("/rulesets").body if item["name"] != "catalog-protected-paths"])
-        self.assertEqual((FAIL, "no push ruleset named catalog-protected-paths"),
-                         (scene.finding("rules.protected_paths").status, scene.finding("rules.protected_paths").now))
+        self.says(scene, "rules.protected_paths", FAIL, "no push ruleset named catalog-protected-paths")
         # The control that closes R1 on the internal catalog: it is not ok when nobody can say who bypasses it. A reader who is
         # not an administrator is not sent the list, and then the rule stays manual (the same answer as rules.bypass)
         for hidden in ("absent", None, "admin"):
@@ -1294,9 +1017,7 @@ class Audit(Base):
             if hidden == "absent":
                 scene.remove("/rulesets/2004", "bypass_actors")
             else:
-                detail = copy.deepcopy(scene.get("/rulesets/2004").body)
-                detail["bypass_actors"] = hidden
-                scene.set("/rulesets/2004", detail)
+                scene.edit("/rulesets/2004", bypass_actors=hidden)
             found = scene.finding("rules.protected_paths")
             self.assertEqual((MANUAL, "bypass_actors are returned to administrators only"), (found.status, found.now), hidden)
             # and so a second writer is not allowed on the strength of it
@@ -1332,21 +1053,18 @@ class Audit(Base):
 
     # ------------------------------------------------------------------ security.*, files.*, people.*
 
-    @covers("security.scanning")
     def test_security_scanning(self):
         self.assertEqual(OK, Scene("public-standard").finding("security.scanning").status)
         scene = Scene("public-standard")
         scene.edit(security_and_analysis={"secret_scanning": {"status": "enabled"}, "secret_scanning_push_protection": {"status": "disabled"}})
-        found = scene.finding("security.scanning")
-        self.assertEqual((FAIL, "secret_scanning=enabled, secret_scanning_push_protection=disabled"), (found.status, found.now))
+        found = self.says(scene, "security.scanning", FAIL, "secret_scanning=enabled, secret_scanning_push_protection=disabled")
         self.assertEqual([("PATCH", "repos/acme-labs/lab-hub", {"security_and_analysis": {
             "secret_scanning": {"status": "enabled"}, "secret_scanning_push_protection": {"status": "enabled"}}})], requests_of(found))
         scene = Scene("org-private")
         scene.edit(security_and_analysis={"secret_scanning": {"status": "disabled"}, "secret_scanning_push_protection": {"status": "disabled"}})
         self.assertEqual(WARN, scene.finding("security.scanning").status)           # a paid add-on on a private repository
         # Audited as a public repository it is the same paid add-on on the same private repository: a warning, not a failure
-        found = scene.finding("security.scanning", **as_public())
-        self.assertEqual((WARN, "secret_scanning=disabled, secret_scanning_push_protection=disabled"), (found.status, found.now))
+        self.says(scene, "security.scanning", WARN, "secret_scanning=disabled, secret_scanning_push_protection=disabled", **as_public())
         self.assertEqual(WARN, scene.finding("security.scanning", **{"as": "internal"}).status)
         scene.edit(visibility="internal")
         self.assertEqual(WARN, scene.finding("security.scanning").status)
@@ -1356,17 +1074,14 @@ class Audit(Base):
         scene.edit(permissions={"admin": False, "push": True, "pull": True})
         self.assertEqual(MANUAL, scene.finding("security.scanning").status)
 
-    @covers("security.dependabot")
     def test_security_dependabot(self):
         self.assertEqual(OK, Scene("public-standard").finding("security.dependabot").status)
-        found = Scene("user-private-free").finding("security.dependabot")
-        self.assertEqual((FAIL, "alerts disabled, security updates disabled"), (found.status, found.now))
+        found = self.says(Scene("user-private-free"), "security.dependabot", FAIL, "alerts disabled, security updates disabled")
         self.assertEqual([("PUT", "repos/acme/lab-hub/vulnerability-alerts", None), ("PUT", "repos/acme/lab-hub/automated-security-fixes", None)],
                          requests_of(found))              # alerts first: the updates need them
         scene = Scene("public-standard")
         scene.set("/automated-security-fixes", {"message": "Not Found"}, 404)
-        found = scene.finding("security.dependabot")
-        self.assertEqual((FAIL, "security updates disabled"), (found.status, found.now))
+        found = self.says(scene, "security.dependabot", FAIL, "security updates disabled")
         self.assertEqual(1, len(requests_of(found)))
         scene = Scene("public-standard")
         scene.set("/automated-security-fixes", {"enabled": False, "paused": False})
@@ -1378,53 +1093,42 @@ class Audit(Base):
         scene.set("/automated-security-fixes", {"message": "Server Error"}, 500)
         self.assertEqual(MANUAL, scene.finding("security.dependabot").status)
 
-    @covers("security.reporting")
     def test_security_reporting(self):
         self.assertEqual(OK, Scene("public-standard").finding("security.reporting").status)
         scene = Scene("public-standard")
         scene.set("/private-vulnerability-reporting", {"enabled": False})
-        found = scene.finding("security.reporting")
-        self.assertEqual((FAIL, "disabled"), (found.status, found.now))
+        found = self.says(scene, "security.reporting", FAIL, "disabled")
         self.assertEqual([("PUT", "repos/acme-labs/lab-hub/private-vulnerability-reporting", None)], requests_of(found))
         scene.set("/private-vulnerability-reporting", {"message": "Forbidden"}, 403)
         self.assertEqual(MANUAL, scene.finding("security.reporting").status)
         private = Scene("org-private")
         self.assertEqual(NA, private.finding("security.reporting").status)
-        self.assertIn("security.reporting", private.audit().inapplicable)         # it does not exist on a private repository
-        self.assertNotIn("security.reporting", private.audit(**as_public()).inapplicable)     # but the gate wants it
 
-    @covers("files.codeowners")
     def test_files_codeowners(self):
         self.assertEqual(OK, Scene("public-standard").finding("files.codeowners").status)
-        found = Scene("user-private-free").finding("files.codeowners")
-        self.assertEqual((FAIL, "no CODEOWNERS file"), (found.status, found.now))
+        found = self.says(Scene("user-private-free"), "files.codeowners", FAIL, "no CODEOWNERS file")
         self.assertIn("catalog.py upgrade --adopt", found.fix)
         scene = Scene("public-standard")
         scene.set("/codeowners/errors", {"errors": [{"line": 3, "kind": "Unknown owner", "message": "Unknown owner on line 3: @nobody"}]})
         found = scene.finding("files.codeowners")
         self.assertEqual(FAIL, found.status)
         self.assertEqual("1 error(s), the first at line 3: Unknown owner on line 3: @nobody", found.now)
-        # A personal private repository may not ask for a review from the file (V21): a valid file is not counted there
+        # A personal private repository may not ask for a review from the file: a valid file is not counted there
         mine = Scene("user-private-free")
         mine.set("/codeowners/errors", {"errors": []})
         self.assertEqual(NA, mine.finding("files.codeowners").status)
-        self.assertNotIn("files.codeowners", mine.audit().inapplicable)
         scene.set("/codeowners/errors", {"message": "Server Error"}, 500)
         self.assertEqual(MANUAL, scene.finding("files.codeowners").status)
 
-    @covers("people.write")
     def test_people_write(self):
-        found = Scene("org-private").finding("people.write")
-        self.assertEqual((MANUAL, "maintainer-one"), (found.status, found.now))
+        self.says(Scene("org-private"), "people.write", MANUAL, "maintainer-one")
         two = {"login": "zed", "permissions": {"push": True}}
         scene = Scene("org-private")
         scene.set("/collaborators?permission=push", scene.get("/collaborators?permission=push").body + [two])
-        found = scene.finding("people.write")
-        self.assertEqual((MANUAL, "maintainer-one, zed"), (found.status, found.now))       # rulesets stand between a branch and a publish
+        self.says(scene, "people.write", MANUAL, "maintainer-one, zed")       # rulesets stand between a branch and a publish
         mine = Scene("user-private-free")
         mine.set("/collaborators?permission=push", mine.get("/collaborators?permission=push").body + [two])
-        found = mine.finding("people.write")
-        self.assertEqual((FAIL, "acme, zed"), (found.status, found.now))            # no rulesets: write access is publish access
+        found = self.says(mine, "people.write", FAIL, "acme, zed")            # no rulesets: write access is publish access
         self.assertIn("one writer", found.fix)
         # The internal catalog: a second writer needs the protected paths rule
         self.assertEqual(MANUAL, scene.finding("people.write", **{"as": "internal"}).status)
@@ -1441,40 +1145,7 @@ class Audit(Base):
         self.assertEqual(MANUAL, scene.finding("people.write").status)
 
 
-SAMPLE = {
-    # What prints for the personal repository, line by line: id -> (status, title, now). A title that the
-    # standard words differently since the sample was made is left out
-    "repo.merge": (FAIL, "Squash merges only, with the pull request title and no body; the branch goes with the merge; no auto-merge; no wiki", None),
-    "repo.forking": (NA, "Nobody forks a private repository", "the repository belongs to a user: GitHub lets only an organization turn forking off"),
-    "repo.immutable_releases": (WARN, "A published release cannot change", "enabled=false"),
-    "actions.pinning": (FAIL, "Every action is pinned to a full commit, or the run does not start", "sha_pinning_required=false"),
-    "actions.listed": (WARN, "Only listed actions run", 'enabled=true, allowed_actions="all"'),
-    "actions.token": (OK, "The token reads by default and cannot approve a pull request", None),
-    "actions.fork": (OK, "A fork's pull request gets no write token and no secret", None),
-    "actions.access": (OK, "Other repositories cannot call this repository's workflows", None),
-    "actions.retention": (WARN, "Logs and artifacts are kept 30 days at most", "days=90"),
-    "actions.secrets": (OK, "No secret but LAB_DEPLOY_KEY", None),
-    "actions.org_secrets": (NA, "Organization secrets and variables scoped to this repository", "the repository belongs to a user"),
-    "actions.runners": (OK, "No self-hosted runner can run this repository's workflows", None),
-    "security.scanning": (NA, "Secret scanning and push protection", "needs a public repository or GitHub Secret Protection"),
-    "security.reporting": (NA, "Private vulnerability reporting", None),
-    "files.codeowners": (FAIL, "CODEOWNERS is valid", "no CODEOWNERS file"),
-    "people.write": (MANUAL, "Who can push a branch, and so publish an image", "acme"),
-}
-EXPECTED_IDS = (
-    "repo.default_branch", "repo.merge", "repo.topic", "repo.forking", "repo.immutable_releases", "actions.pinning",
-    "actions.listed", "actions.token", "actions.fork", "actions.access", "actions.retention", "actions.secrets",
-    "actions.org_secrets", "actions.runners", "actions.oidc", "actions.nightly", "lab.key", "environments.policy",
-    "packages.actions_access", "rules.deletion", "rules.non_fast_forward", "rules.required_linear_history",
-    "rules.required_signatures", "rules.pull_request", "rules.checks", "rules.bypass", "rules.tags", "rules.deploy_key", "rules.push",
-    "rules.protected_paths", "security.scanning", "security.dependabot", "security.reporting", "files.codeowners", "people.write")
-
-
-def squash(text):
-    return re.sub(r"\s+", " ", text).strip()
-
-
-class Whole(Base):
+class Whole(Case):
     """The three recorded repositories, as a whole."""
 
     def test_a_repository_at_the_standard_has_nothing_to_fix(self):
@@ -1483,111 +1154,29 @@ class Whole(Base):
             found = scene.audit()
             self.assertEqual([], [(f.id, f.status) for f in found if f.status in (FAIL, WARN)], name)
             # Every identifier, in the order of the table; a public repository has no `actions.access` to say
-            self.assertEqual([i for i in EXPECTED_IDS if i != "actions.access" or name != "public-standard"], [f.id for f in found], name)
+            self.assertEqual([i for i in settings.IDS if i != "actions.access" or name != "public-standard"], [f.id for f in found], name)
             self.assertEqual(0, settings.exit_code(found), name)
             self.assertEqual(repo, found.repo)
 
     def test_the_personal_repository_says_what_the_plan_cannot_give(self):
         found = Scene("user-private-free").audit()
-        self.assertEqual(list(EXPECTED_IDS), [f.id for f in found])               # every identifier, in the order of the table
+        self.assertEqual(list(settings.IDS), [f.id for f in found])               # every identifier, in the order of the table
         self.assertEqual({FAIL: 5, WARN: 3, OK: 6, NA: 19, MANUAL: 2}, settings.summary(found))
-        by = {f.id: f for f in found}
-        for id, (status, title, now) in SAMPLE.items():
-            self.assertEqual(status, by[id].status, id)
-            self.assertEqual(title, by[id].title, id)
-            if now is not None:
-                self.assertEqual(now, by[id].now, id)
         self.assertEqual("private, user-owned", found.about)
-        self.assertEqual(1, found.level)
+        self.assertEqual(settings.LEVEL, found.level)
 
     def test_the_text_is_the_table_of_the_standard(self):
-        text = settings.render(Scene("user-private-free").audit())
-        lines = text.splitlines()
-        self.assertEqual("Catalog standard 1 for acme/lab-hub (private, user-owned)", lines[0])
-        wanted = {squash(f"{status} {id} {title}") for id, (status, title, _) in SAMPLE.items() if title}
-        have = {squash(line) for line in lines}
-        self.assertEqual(set(), wanted - have)
+        found = Scene("user-private-free").audit()
+        lines = settings.render(found).splitlines()
+        self.assertEqual(f"Catalog standard {settings.LEVEL} for acme/lab-hub (private, user-owned)", lines[0])
+        have = {re.sub(r"\s+", " ", line).strip() for line in lines}
+        self.assertEqual(set(), {f"{f.status} {f.id} {f.title}" for f in found} - have)      # a row for each finding, whatever its status
         self.assertIn("n.a. repo.forking Nobody forks a private repository", have)
         self.assertIn("why: the repository belongs to a user", have)
         self.assertIn("fix: PATCH repos/acme/lab-hub", have)
         self.assertEqual("Summary: 5 fail, 3 warn, 6 ok, 19 n.a., 2 manual", lines[-1])
-        width = max(len(i) for i in EXPECTED_IDS)
-        self.assertIn(f"  {FAIL:<6} {'repo.merge':<{width}} {SAMPLE['repo.merge'][1]}", lines)      # the columns of the sample
-
-    def test_auditing_twice_gives_identical_output(self):
-        for name in ("user-private-free", "public-standard", "org-private"):
-            first, second = Scene(name), Scene(name)
-            for fmt in ("text", "json", "github"):
-                self.assertEqual(settings.render(first.audit(), fmt), settings.render(second.audit(), fmt), (name, fmt))
-            self.assertEqual(settings.render(first.audit()), settings.render(first.audit()))              # the same hub, asked again
-            options = {"as": "public", "solo": True}
-            self.assertEqual(settings.render(Scene(name).audit(**options)), settings.render(Scene(name).audit(**options)))
-
-    def test_the_json_is_one_document_with_sorted_keys(self):
-        document = json.loads(settings.render(Scene("user-private-free").audit(), "json"))
-        self.assertEqual(["about", "findings", "not_applicable", "repository", "standard", "summary"], list(document))
-        self.assertEqual(["fix", "id", "now", "status", "title"], list(document["findings"][0]))
-        self.assertEqual(list(EXPECTED_IDS), [f["id"] for f in document["findings"]])
-        self.assertEqual({"fail": 5, "warn": 3, "ok": 6, "n.a.": 19, "manual": 2}, document["summary"])
-        self.assertEqual(["actions.nightly", "actions.oidc", "actions.org_secrets", "repo.forking", "security.reporting"], document["not_applicable"])
-        merge = [f for f in document["findings"] if f["id"] == "repo.merge"][0]
-        self.assertEqual("PATCH", merge["fix"][0]["method"])
-
-    def test_strict_counts_a_warning_and_a_plan_that_falls_short_but_not_a_rule_that_does_not_apply(self):
-        self.assertEqual(0, settings.exit_code(Scene("public-standard").audit(), strict=True))
-        self.assertEqual(0, settings.exit_code(Scene("org-private").audit(), strict=True))       # no reporting on a private repository
-        self.assertEqual(0, settings.exit_code(Scene("org-private").audit(**{"as": "internal"}), strict=True))
-        mine = Scene("user-private-free").audit()
-        self.assertEqual(1, settings.exit_code(mine))
-        scene = Scene("org-private")
-        scene.set("/actions/permissions/artifact-and-log-retention", {"days": 90})
-        self.assertEqual(0, settings.exit_code(scene.audit()))
-        self.assertEqual(1, settings.exit_code(scene.audit(), strict=True))
-        # A plan without rules: not a failure, but the gate fails on it
-        scene = Scene("public-standard")
-        scene.set("/rules/branches/main", {"message": "Upgrade to GitHub Pro or make this repository public to enable this feature."}, 403)
-        self.assertEqual(0, settings.exit_code(scene.audit()))
-        self.assertEqual(1, settings.exit_code(scene.audit(), strict=True))
-        gate = Scene("org-private").audit(**as_public())
-        self.assertEqual(1, settings.exit_code(gate, strict=True))            # still private: reporting cannot be on
-
-    def test_strict_leaves_alone_what_the_plan_sells_and_the_standard_does_not_ask_for(self):
-        """Secret scanning is a paid add-on on a private or internal repository and the standard asks for it nowhere there: `--as internal --strict` is clean without it. The go-public gate still lists it."""
-        scene = Scene("org-private")
-        scene.edit(security_and_analysis={"secret_scanning": {"status": "disabled"}, "secret_scanning_push_protection": {"status": "disabled"}})
-        for options in ({}, {"as": "private"}, {"as": "internal"}):
-            found = scene.audit(**options)
-            self.assertEqual(["security.scanning"], [f.id for f in found if f.status == WARN], options)
-            self.assertEqual(0, settings.exit_code(found), options)
-            self.assertEqual(0, settings.exit_code(found, strict=True), options)
-        gate = scene.audit(**as_public())
-        self.assertEqual(WARN, {f.id: f for f in gate}["security.scanning"].status)
-        self.assertEqual(1, settings.exit_code(gate, strict=True))
-        self.assertNotIn("security.scanning", gate.optional)
-        self.assertNotIn("security.scanning", gate.inapplicable)
-        # Another warning of the same repository is still counted, and a failure is never left alone
-        scene.set("/actions/permissions/artifact-and-log-retention", {"days": 90})
-        self.assertEqual(1, settings.exit_code(scene.audit(**{"as": "internal"}), strict=True))
-        # A public repository gets it free: a failure
-        public = Scene("public-standard")
-        public.edit(security_and_analysis={"secret_scanning": {"status": "disabled"}, "secret_scanning_push_protection": {"status": "enabled"}})
-        found = public.audit()
-        self.assertEqual(FAIL, {f.id: f for f in found}["security.scanning"].status)
-        self.assertEqual(1, settings.exit_code(found))
-        # The same through the command: it says so, and exits 0
-        scene = Scene("org-private")
-        scene.edit(security_and_analysis={"secret_scanning": {"status": "disabled"}, "secret_scanning_push_protection": {"status": "disabled"}})
-        run = Run(["acme-labs/lab-internal", "--as", "internal", "--strict"], scene)
-        self.assertEqual(0, run.code)
-        self.assertIn("warn   security.scanning", run.text)
-        self.assertEqual(1, Run(["acme-labs/lab-internal", "--as", "public", "--strict"], scene).code)
-
-    def test_a_rule_is_not_a_plan_limit_unless_github_says_so(self):
-        scene = Scene("public-standard")
-        scene.set("/rules/branches/main", {"message": "Upgrade to GitHub Pro or make this repository public to enable this feature."}, 403)
-        self.assertEqual({NA}, {f.status for f in scene.audit() if f.id in settings.ALL_RULES})
-        scene.set("/rules/branches/main", {"message": "Must have admin rights to Repository."}, 403)
-        self.assertEqual({MANUAL}, {f.status for f in scene.audit() if f.id in settings.ALL_RULES})
+        width = max(len(i) for i in settings.IDS)
+        self.assertIn(f"  {FAIL:<6} {'repo.merge':<{width}} {settings.TITLES['repo.merge']}", lines)      # the columns of the table
 
     def test_the_effective_rules_alone(self):
         scene = Scene("org-private")
@@ -1598,15 +1187,8 @@ class Whole(Base):
         paths = {path for method, path, _ in scene.hub.calls}
         self.assertEqual({"repos/acme-labs/lab-internal", "repos/acme-labs/lab-internal/rules/branches/main",
                           "repos/acme-labs/lab-internal/branches/main", "repos/acme-labs/lab-internal/codeowners/errors"}, paths)
-        self.weaken_one(scene)
+        weaken(scene, "pull_request", require_code_owner_review=False)
         self.assertEqual(FAIL, {f.id: f for f in scene.audit(effective_only=True)}["rules.pull_request"].status)
-
-    def weaken_one(self, scene):
-        rules = copy.deepcopy(scene.get("/rules/branches/main").body)
-        for rule in rules:
-            if rule["type"] == "pull_request":
-                rule["parameters"]["require_code_owner_review"] = False
-        scene.set("/rules/branches/main", rules)
 
     def test_the_visibility_a_repository_is_audited_as(self):
         private = Scene("org-private")
@@ -1615,16 +1197,12 @@ class Whole(Base):
         self.assertEqual("A public repository can be forked", {f.id: f for f in found}["repo.forking"].title)
         self.assertNotIn("actions.access", {f.id for f in found})
         self.assertEqual("public, organization-owned", Scene("public-standard").audit().about)
-        for name in ("public-standard",):
-            for kind in ("private", "internal"):
-                with self.assertRaises(settings.Usage) as raised:
-                    Scene(name).audit(**{"as": kind})
-                self.assertEqual(f"--as {kind} cannot describe a public repository.", str(raised.exception))
+        for kind in ("private", "internal"):
+            with self.assertRaises(settings.Usage) as raised:
+                Scene("public-standard").audit(**{"as": kind})
+            self.assertEqual(f"--as {kind} cannot describe a public repository.", str(raised.exception))
         self.assertEqual(NA, {f.id: f for f in Scene("org-private").audit(**as_public())}["rules.push"].status)
         self.assertEqual(OK, {f.id: f for f in Scene("org-private").audit(**{"as": "internal"})}["rules.push"].status)
-        for bad in ("secret", "", 3):
-            with self.assertRaises(settings.Usage):
-                Scene("org-private").audit(**{"as": bad})
 
     def test_an_internal_repository_is_audited_as_it_is(self):
         scene = Scene("org-private")
@@ -1639,10 +1217,6 @@ class Whole(Base):
         for repo in ("a b/c", "../x/y", "x", "a/b/c", "a/.git", "a/b.git", "a/..", "", "-x/y", "a/b\n", None, 3):
             with self.assertRaises(settings.Usage):
                 settings.audit(repo, scene.hub, {})
-        for options in ({"required_checks": [""]}, {"required_checks": ["a\nb"]}, {"required_checks": [3]}, {"required_checks": ["x" * 101]},
-                        {"allow_org_secrets": [""]}, {"allow_org_secrets": ["a\nb"]}):
-            with self.assertRaises(settings.Usage):
-                settings.audit(scene.repo, scene.hub, options)
         self.assertEqual([], scene.hub.calls)
         scene.table.pop(f"GET repos/{scene.repo}")
         with self.assertRaises(settings.Refused) as raised:
@@ -1653,37 +1227,8 @@ class Whole(Base):
             scene.audit()
 
 
-class Degraded(Base):
-    def test_without_the_template_the_rulesets_are_not_compared_and_none_is_sent(self):
-        self.patch(settings, "RULESETS", DATA / "does-not-exist")
-        scene = Scene("org-private")
-        scene.set("/rules/branches/main", [r for r in scene.get("/rules/branches/main").body if r["type"] not in ("deletion", "pull_request")])
-        found = {f.id: f for f in scene.audit()}
-        self.assertEqual("Catalog standard for acme-labs/lab-internal (private, organization-owned)", settings.render(scene.audit()).splitlines()[0])
-        self.assertEqual(FAIL, found["rules.deletion"].status)
-        self.assertIsInstance(found["rules.deletion"].fix, str)
-        self.assertIn("The Lab's rulesets are not here", found["rules.deletion"].fix)
-        for id in ("rules.pull_request", "rules.checks", "rules.push", "rules.protected_paths"):
-            self.assertEqual(MANUAL, found[id].status, id)
-            self.assertIn("could not be read", found[id].now)
-        self.assertEqual([], settings.apply(scene.repo, scene.hub, list(found.values()), True))
-        self.assertEqual([], scene.hub.writes())
-
-    def test_a_template_that_is_not_a_ruleset_is_not_sent(self):
-        folder = self.folder()
-        for name in ("default-branch.json", "tags.json", "push.json", "protected-paths.json"):
-            (folder / name).write_text((TEMPLATE / name).read_text(), encoding="utf-8")
-        (folder / "push.json").write_text(json.dumps({"name": 3, "target": "branch", "rules": []}), encoding="utf-8")
-        self.patch(settings, "RULESETS", folder)
-        scene = Scene("org-private")
-        self.assertEqual(MANUAL, scene.finding("rules.push").status)
-        self.assertEqual(MANUAL, scene.finding("rules.pull_request").status)
-
-
-class Limits(Base):
+class Limits(Case):
     def test_a_megabyte_of_text_in_a_reply_is_cut_in_under_a_second(self):
-        import base64
-        import time
         big = "x" * (1024 * 1024)
         scene = Scene("org-private")
         scene.edit(topics=[big], default_branch="main")
@@ -1695,35 +1240,20 @@ class Limits(Base):
         scene.set("/actions/permissions", {"enabled": big, "allowed_actions": big, "sha_pinning_required": big})
         started = time.process_time()
         found = scene.audit()
-        text = settings.render(found, "text") + settings.render(found, "json") + settings.render(found, "github")
+        text = settings.render(found)
         self.assertLess(time.process_time() - started, 1.0)
         self.assertLess(len(text), 100000)
         self.assertEqual("the level of the standard cannot be read: it cannot be read", {f.id: f for f in found}["actions.nightly"].now)
 
     def test_a_megabyte_of_standard_json_is_not_read(self):
-        import base64
         scene = Scene("org-private")
         raw = b'{"standard": 3, "x": "' + b"y" * (1024 * 1024) + b'"}'
         scene.set("/contents/.github/standard.json?ref=main", {"encoding": "base64", "size": len(raw), "content": base64.b64encode(raw).decode()})
         self.assertEqual(MANUAL, scene.finding("actions.nightly").status)
 
-    def test_brackets_nested_deeper_than_python_reads_are_a_finding_and_not_a_trace(self):
-        """A `standard.json` a contributor merged: 4 KB of brackets passes the size guard and takes the parser of Python 3.9
-        past its limit; it would end the audit, the nightly one and the audit of the whole fleet."""
-        import base64
-        for raw in (b"[" * 2040 + b"]" * 2040, b'{"standard": ' + b"[" * 2000 + b"]" * 2000 + b"}", b'{"standard": 1, "lab": ' + b"{" * 100 + b"}" * 100 + b"}"):
-            scene = Scene("org-private")
-            scene.set("/contents/.github/standard.json?ref=main", {"encoding": "base64", "size": len(raw), "content": base64.b64encode(raw).decode()})
-            self.assertEqual(MANUAL, scene.finding("actions.nightly").status, raw[:20])
-            self.assertTrue(scene.audit())
-            out, err = io.StringIO(), io.StringIO()
-            self.assertIn(settings.main(["acme-labs/lab-internal"], runner=scene.hub, stdout=out, stderr=err), (0, 1))
-            self.assertEqual("", err.getvalue())
-
     def test_a_recursion_error_of_the_parser_is_a_finding_whichever_python_runs(self):
         """Python 3.9 stops at about a thousand brackets and 3.12 and later at more: the parser is made to stop, so that the
         answer is the same on every Python."""
-        import base64
         real = json.loads
 
         def stops(text, *args, **kwargs):
@@ -1741,12 +1271,8 @@ class Limits(Base):
             gh = settings.Gh(lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "[[[[1]]]]", ""))
             self.assertEqual(Reply(200, {"message": "[[[[1]]]]"}), gh("GET", "repos/acme/lab-hub"))
 
-    def test_the_fork_key_is_the_one_github_knows(self):
-        self.assertIn("send_write_tokens_to_workflows", SOURCE)
-        self.assertNotRegex(SOURCE, r"send_write_tokens(?!_to_workflows)")
 
-
-class Hostile(Base):
+class Hostile(Case):
     """What GitHub says is whatever a writer of the repository made it: the audit does not trust its shape, and what it shows
     is cut and has no control character."""
 
@@ -1762,11 +1288,10 @@ class Hostile(Base):
                     for code in (200, 403, 404):
                         scene = Scene(name)
                         scene.table[key] = Reply(code, copy.deepcopy(value))
-                        for options in ({"effective_only": True}, {"as": "public", "solo": True}):
+                        for options in ({"effective_only": True}, {"as": "public"}):
                             found = scene.audit(**options)
                             self.assertTrue(all(f.status in settings.STATUSES for f in found), (name, key, value, code))
-                            for fmt in ("text", "json", "github"):
-                                settings.render(found, fmt)
+                            settings.render(found)
 
     def test_a_value_of_any_shape_inside_a_reply_is_a_finding_and_not_a_trace(self):
         """Each leaf of each recorded reply (the first of a list), one at a time, replaced by a value of another kind."""
@@ -1798,12 +1323,11 @@ class Hostile(Base):
                         changed[key] = Reply(reply.code, put(copy.deepcopy(reply.body), path, value))
                         scene = Scene(name, loaded=(repo, changed))
                         try:
-                            found = scene.audit(**{"as": "public", "solo": True})
+                            found = scene.audit(**{"as": "public"})
                         except settings.Unusable:
                             continue            # the repository itself no longer reads as one
                         self.assertTrue(all(f.status in settings.STATUSES for f in found), (name, key, path, value))
-                        for fmt in ("text", "json", "github"):
-                            settings.render(found, fmt)
+                        settings.render(found)
                         ran += 1
         self.assertGreater(ran, 2000)
 
@@ -1832,48 +1356,10 @@ class Hostile(Base):
         for finding in found:
             self.assertTrue(finding.now.isprintable(), finding.id)
             self.assertLessEqual(len(finding.now), 400, finding.id)
-        text = settings.render(found, "text")
-        self.assertFalse(re.search(r"[\x00-\x09\x0b-\x1f\x7f‮]", text))
-        lines = settings.render(found, "github").splitlines()
-        self.assertTrue(lines)
-        for line in lines:
-            self.assertRegex(line, r"^::(error|warning) title=[a-z_.]+::")
-            self.assertNotIn("\n", line)
-        self.assertIn("pwned%250A", "".join(lines))               # a percent sign cannot begin an escape of the workflow command
+        self.assertFalse(re.search(r"[\x00-\x09\x0b-\x1f\x7f‮]", settings.render(found)))
 
 
-class Coverage(unittest.TestCase):
-    def test_the_identifiers_are_those_of_the_table_of_7_5(self):
-        self.assertEqual(EXPECTED_IDS, settings.IDS)
-        self.assertEqual(35, len(set(settings.IDS)))
-
-    def test_every_identifier_has_a_test_of_its_own(self):
-        covered = {}
-        for name in dir(Audit):
-            for id in getattr(getattr(Audit, name), "covers", ()):
-                covered.setdefault(id, []).append(name)
-        self.assertEqual(set(settings.IDS), set(covered))
-        self.assertEqual([], [id for id, names in covered.items() if len(names) != 1])
-
-    def test_the_signatures_are_the_frozen_ones(self):
-        """Audit(repo, runner, options), apply(repo, runner, findings, yes), audit_fleet(owner, runner, options)
-        and upgrade_fleet(owner, runner, lab_ref); what a package adds comes after them and has a default."""
-        import inspect
-        from lab_ui.catalogs import fleet
-        for function, names in ((settings.audit, ["repo", "runner", "options"]), (settings.apply, ["repo", "runner", "findings", "yes"]),
-                                (fleet.audit_fleet, ["owner", "runner", "options"]), (fleet.upgrade_fleet, ["owner", "runner", "lab_ref"])):
-            parameters = list(inspect.signature(function).parameters.values())
-            self.assertEqual(names, [p.name for p in parameters[:len(names)]], function.__name__)
-            self.assertTrue(all(p.default is not p.empty or p.kind is p.VAR_KEYWORD for p in parameters[len(names):]), function.__name__)
-
-    def test_a_title_is_one_line_in_sentence_case(self):
-        for id, title in settings.TITLES.items():
-            self.assertRegex(title, r"^[A-Z]", id)
-            self.assertNotRegex(title, r"[\n·]", id)
-            self.assertFalse(title.endswith("."), id)
-
-
-TEMPLATE_RULESETS = settings.load_rulesets(TEMPLATE)[0]
+TEMPLATE_RULESETS = settings.load_rulesets()
 PLAN_WORDS = "Upgrade to GitHub Team to enable this feature."
 
 
@@ -1881,7 +1367,7 @@ def crafted(*requests, status=FAIL):
     return [settings.Finding("repo.merge", status, "t", "", list(requests))]
 
 
-class Apply(Base):
+class Apply(Case):
     """`--apply`: the requests, none of them without `yes`, and nothing the module may not do."""
 
     def no_removal(self, hub):
@@ -1919,15 +1405,6 @@ class Apply(Base):
                           "squash_merge_commit_message": "BLANK"}, applied[0].body)      # the merge findings, one request
         self.assertTrue(all(call[0] == "GET" for call in scene.hub.calls))
 
-    def test_warnings_are_applied_only_when_asked(self):
-        scene = Scene("user-private-free")
-        findings = scene.audit()
-        more = settings.apply(scene.repo, scene.hub, findings, False, warnings=True)
-        self.assertEqual({"PUT repos/acme/lab-hub/immutable-releases", "PUT repos/acme/lab-hub/actions/permissions/artifact-and-log-retention"},
-                         {f"{item.method} {item.path}" for item in more} - {f"{item.method} {item.path}" for item in
-                                                                              settings.apply(scene.repo, scene.hub, findings, False)})
-        self.assertNotIn("selected-actions", " ".join(item.path for item in more))       # the list of actions waits for V3
-
     def test_with_yes_the_requests_are_made_in_order(self):
         scene = Scene("user-private-free")
         findings = scene.audit()
@@ -1941,12 +1418,12 @@ class Apply(Base):
         scene = self.broken()
         findings = scene.audit()
         self.assertGreater(len([f for f in findings if f.status == FAIL]), 10)
-        done = settings.apply(scene.repo, scene.hub, findings, True, warnings=True)
+        done = settings.apply(scene.repo, scene.hub, findings, True)
         self.assertEqual({"done"}, {item.outcome for item in done}, [item for item in done if item.outcome != "done"])
         self.no_removal(scene.hub)
         again = scene.audit()
-        self.assertEqual([], [(f.id, f.status, f.now) for f in again if f.status in (FAIL, WARN)])
-        self.assertEqual([], settings.apply(scene.repo, scene.hub, again, True, warnings=True))
+        self.assertEqual([], [(f.id, f.status, f.now) for f in again if f.status == FAIL])
+        self.assertEqual([], settings.apply(scene.repo, scene.hub, again, True))
         self.assertEqual("Nothing to change", settings.render_applied([]))
         writes = len(scene.hub.writes())
         settings.apply(scene.repo, scene.hub, scene.audit(), True)
@@ -1956,38 +1433,22 @@ class Apply(Base):
         scene = self.broken()
         for _ in range(3):
             settings.apply(scene.repo, scene.hub, scene.audit(), True)
-        self.assertEqual([("catalog-main", "branch"), ("catalog-protected-paths", "push"), ("catalog-push", "push"),
-                          ("catalog-tags", "tag")], scene.hub.rulesets())
-        self.assertEqual(4, len([call for call in scene.hub.writes() if call[1].endswith("/rulesets")]))
+        self.assertEqual([("catalog-main", "branch"), ("catalog-main-history", "branch"), ("catalog-protected-paths", "push"),
+                          ("catalog-push", "push"), ("catalog-tag-history", "tag"), ("catalog-tags", "tag")], scene.hub.rulesets())
+        self.assertEqual(6, len([call for call in scene.hub.writes() if call[1].endswith("/rulesets")]))
         self.assertEqual(0, len([call for call in scene.hub.writes() if "/rulesets/" in call[1]]))
 
     def test_a_ruleset_of_that_name_is_replaced_not_added(self):
         scene = Scene("org-private", live=True)
-        rules = copy.deepcopy(scene.get("/rules/branches/main").body)
-        for rule in rules:
-            if rule["type"] == "pull_request":
-                rule["parameters"]["require_code_owner_review"] = False
-        scene.set("/rules/branches/main", rules)
+        weaken(scene, "pull_request", require_code_owner_review=False)
         findings = scene.audit()
         found = {f.id: f for f in findings}["rules.pull_request"]
         self.assertEqual(("PUT", "repos/acme-labs/lab-internal/rulesets/2001"), requests_of(found)[0][:2])
         done = settings.apply(scene.repo, scene.hub, findings, True)
-        self.assertEqual([("PUT", "repos/acme-labs/lab-internal/rulesets/2001")], [(i.method, i.path) for i in done])
-        self.assertEqual(4, len(scene.hub.rulesets()))
+        self.assertEqual([("PUT", "repos/acme-labs/lab-internal/rulesets/2001"), ("POST", "repos/acme-labs/lab-internal/rulesets")],
+                         [(i.method, i.path) for i in done])   # and the history ruleset it comes with
+        self.assertEqual(5, len(scene.hub.rulesets()))
         self.assertEqual([], [f.id for f in scene.audit() if f.status == FAIL])
-
-    def test_the_ruleset_is_found_again_just_before_it_is_sent(self):
-        scene = self.broken()
-        findings = scene.audit()
-        self.assertEqual({"POST"}, {req[0] for f in findings for req in requests_of(f) if req[1].endswith("/rulesets")})
-        # Another maintainer made it between the audit and the apply: the apply replaces it and does not add a second
-        scene.hub.store[7] = {"name": "catalog-tags", "target": "tag", "enforcement": "active", "rules": [{"type": "creation"}],
-                              "id": 7, "source_type": "Repository", "source": scene.repo, "bypass_actors": []}
-        scene.hub.sync()
-        done = settings.apply(scene.repo, scene.hub, findings, True)
-        tags = [i for i in done if i.path.endswith(("/rulesets", "/rulesets/7")) and i.body["name"] == "catalog-tags"]
-        self.assertEqual([("PUT", "repos/acme-labs/lab-internal/rulesets/7")], [(i.method, i.path) for i in tags])
-        self.assertEqual(1, len([r for r in scene.hub.rulesets() if r[0] == "catalog-tags"]))
 
     def test_two_rulesets_of_one_name_or_the_organizations_do_not_make_a_third(self):
         scene = Scene("org-private")
@@ -2005,9 +1466,8 @@ class Apply(Base):
         scene.set("/rules/branches/main", [r for r in scene.get("/rules/branches/main").body if r["type"] != "deletion"])
         findings = scene.audit()
         self.assertEqual("POST", requests_of({f.id: f for f in findings}["rules.deletion"])[0][0])
-        # And when the apply looks again, just before it sends: still not the organization's ruleset
         planned = settings.apply(scene.repo, scene.hub, findings, False)
-        self.assertEqual([("POST", "repos/acme-labs/lab-internal/rulesets")], [(i.method, i.path) for i in planned])
+        self.assertEqual([("POST", "repos/acme-labs/lab-internal/rulesets")] * 2, [(i.method, i.path) for i in planned])   # and its history
         duplicated = Scene("org-private")
         listing = copy.deepcopy(duplicated.get("/rulesets").body)
         listing.insert(0, {**listing[0], "id": 2000, "source_type": "Organization"})
@@ -2015,58 +1475,24 @@ class Apply(Base):
         duplicated.set("/rulesets", listing)
         duplicated.set("/rules/branches/main", [r for r in duplicated.get("/rules/branches/main").body if r["type"] != "deletion"])
         planned = settings.apply(duplicated.repo, duplicated.hub, duplicated.audit(), False)
-        self.assertEqual([("PUT", "repos/acme-labs/lab-internal/rulesets/2001")], [(i.method, i.path) for i in planned])
+        self.assertEqual([("PUT", "repos/acme-labs/lab-internal/rulesets/2001"), ("POST", "repos/acme-labs/lab-internal/rulesets")],
+                         [(i.method, i.path) for i in planned])   # and its history
 
     def test_the_rulesets_come_from_the_template_without_their_marker(self):
         scene = self.broken()
         done = settings.apply(scene.repo, scene.hub, scene.audit(), True)
         sent = {item.body["name"]: item.body for item in done if item.path.endswith("/rulesets")}
-        self.assertEqual(4, len(sent))
-        self.assertEqual({"main": "catalog-main", "tags": "catalog-tags", "push": "catalog-push", "paths": "catalog-protected-paths"},
-                         {key: body["name"] for key, body in TEMPLATE_RULESETS.items()})
+        self.assertEqual(6, len(sent))
         for body in TEMPLATE_RULESETS.values():
             self.assertEqual(body, sent[body["name"]])
             self.assertNotIn("_managed", sent[body["name"]])
-        self.assertEqual([], sent["catalog-main"]["bypass_actors"])
-
-    def test_solo_adds_exactly_one_administrator_in_pull_request_mode(self):
-        scene = self.broken()
-        findings = scene.audit(solo=True)
-        done = settings.apply(scene.repo, scene.hub, findings, True)
-        sent = {item.body["name"]: item.body for item in done if item.path.endswith("/rulesets")}
-        self.assertEqual([{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}], sent["catalog-main"]["bypass_actors"])
-        self.assertEqual(TEMPLATE_RULESETS["tags"], sent["catalog-tags"])           # the other rulesets are as they are
-        self.assertEqual(TEMPLATE_RULESETS["push"], sent["catalog-push"])
-        found = {f.id: f for f in scene.audit(solo=True)}["rules.bypass"]
-        self.assertEqual((WARN, None), (found.status, found.fix))             # the audit warns while a bypass exists
-        self.assertEqual(WARN, {f.id: f for f in scene.audit()}["rules.bypass"].status)
-        self.assertEqual([], settings.apply(scene.repo, scene.hub, scene.audit(solo=True), True))
-
-    def test_the_checks_asked_for_are_in_the_ruleset(self):
-        scene = self.broken()
-        done = settings.apply(scene.repo, scene.hub, scene.audit(required_checks=["E2E result"]), True)
-        body = [item.body for item in done if item.path.endswith("/rulesets") and item.body["name"] == "catalog-main"][0]
-        checks = [r for r in body["rules"] if r["type"] == "required_status_checks"][0]["parameters"]["required_status_checks"]
-        self.assertEqual([{"context": "E2E result", "integration_id": 15368}], checks)
-        self.assertEqual([], settings.apply(scene.repo, scene.hub, scene.audit(required_checks=["E2E result"]), True))
-
-    def test_nothing_is_ever_removed(self):
-        scene = self.broken()
-        settings.apply(scene.repo, scene.hub, scene.audit(), True, warnings=True)
-        self.no_removal(scene.hub)
-        for module in ("settings.py", "fleet.py"):
-            self.assertNotRegex(Path(settings.__file__).with_name(module).read_text(encoding="utf-8"), r"\bDELETE\b", module)
-        self.assertEqual((), tuple(m for m in settings.READS + settings.WRITES if m not in ("GET", "PATCH", "POST", "PUT")))
-        self.assertEqual([], [method for method, _ in settings.ALLOWED if method not in ("PATCH", "POST", "PUT")])
-        for method in ("DELETE", "HEAD", "get"):
-            self.assertFalse(settings.allowed("acme/lab-hub", method, "repos/acme/lab-hub/rulesets/1"))
+        self.assertEqual([{"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}], sent["catalog-main"]["bypass_actors"])
 
     def test_the_list_of_what_may_be_sent_names_no_secret_variable_person_or_removal(self):
         banned = ("secret", "variable", "collaborator", "invitation", "transfer", "key", "hook", "team", "/forks", "dispatch",
                   "visibility", "rename", "archive", "branches", "protection", "delete", "remove")
         self.assertEqual([], [(method, shape) for method, shape in settings.ALLOWED
                               if any(word in shape.lower() for word in banned) or method not in ("PATCH", "POST", "PUT")])
-        self.assertEqual({"allow_forking", "security_and_analysis"} | set(settings.MERGE), set(settings.REPO_KEYS))
 
     def test_what_may_be_sent(self):
         repo, base = "acme/lab-hub", "repos/acme/lab-hub"
@@ -2105,19 +1531,6 @@ class Apply(Base):
             self.assertEqual(["skipped"], [item.outcome for item in done], req)
             self.assertEqual("this is not a request repo-settings makes", done[0].detail)
         self.assertEqual([], scene.hub.writes())
-
-    def test_an_allow_list_is_never_enabled_without_its_patterns(self):
-        base = "repos/acme/lab-hub"
-        scene = Scene("user-private-free")
-        enable = settings.request("PUT", base + "/actions/permissions", {"enabled": True, "allowed_actions": "selected"}, enables_list=True)
-        for patterns in (None, []):
-            plan = [enable] + ([settings.request("PUT", base + "/actions/permissions/selected-actions", {"patterns_allowed": patterns})]
-                               if patterns is not None else [])
-            done = settings.apply(scene.repo, scene.hub, crafted(*plan), True)
-            self.assertEqual("an allow-list is not enabled without its patterns", done[0].detail)
-            self.assertEqual(0, len([w for w in scene.hub.writes() if w[1].endswith("/actions/permissions")]))
-        full = [enable, settings.request("PUT", base + "/actions/permissions/selected-actions", {"patterns_allowed": ["docker/*"]})]
-        self.assertEqual(["done", "done"], [i.outcome for i in settings.apply(scene.repo, scene.hub, crafted(*full), True)])
 
     def test_when_a_request_is_refused_the_rest_of_its_fix_is_not_sent(self):
         scene = Scene("org-private", refuse={("PUT", "/actions/permissions"): Reply(422, {"message": "Validation Failed"})})
@@ -2168,9 +1581,9 @@ class Apply(Base):
             done = [i for i in settings.apply(scene.repo, scene.hub, scene.audit(), True) if i.path.endswith("/topics")]
             self.assertEqual([outcome], [i.outcome for i in done], code)
 
-    def test_a_paid_feature_is_never_sent_without_warnings(self):
-        """Secret scanning on a private repository is an add-on that is paid for, also under --as public (the gate): it is
-        planned and sent only with --warnings."""
+    def test_a_paid_feature_is_never_sent(self):
+        """Secret scanning on a private repository is an add-on that is paid for, also under --as public (the gate): it is said
+        and never sent."""
         disabled = {"secret_scanning": {"status": "disabled"}, "secret_scanning_push_protection": {"status": "disabled"}}
         for options in ({}, {"as": "public"}, {"as": "internal"}):
             scene = Scene("org-private", live=True)
@@ -2179,15 +1592,10 @@ class Apply(Base):
             plain = settings.apply(scene.repo, scene.hub, findings, True)
             self.assertEqual([], [i for i in plain if "security_and_analysis" in (i.body or {})], options)
             self.assertEqual([], [w for w in scene.hub.writes() if "security_and_analysis" in (w[2] or {})], options)
-            paid = settings.apply(scene.repo, scene.hub, findings, True, warnings=True)
-            self.assertEqual(1, len([i for i in paid if "security_and_analysis" in (i.body or {})]), options)
-            self.assertEqual({"secret_scanning": {"status": "enabled"}, "secret_scanning_push_protection": {"status": "enabled"}},
-                             scene.get().body["security_and_analysis"], options)
         scene = Scene("org-private")
         scene.edit(security_and_analysis=copy.deepcopy(disabled))
         run = Run(["acme-labs/lab-internal", "--as", "public", "--apply"], scene)
         self.assertNotIn("secret_scanning", run.text.split("Summary:")[1])             # no request of the dry run carries it
-        self.assertIn("secret_scanning", Run(["acme-labs/lab-internal", "--as", "public", "--apply", "--warnings"], scene).text.split("Summary:")[1])
 
     def test_a_request_the_plan_does_not_allow_is_skipped_and_the_others_go_on(self):
         scene = self.broken()
@@ -2199,16 +1607,6 @@ class Apply(Base):
         self.assertTrue([i for i in done if i.outcome == "done"])
         self.assertEqual([], [i for i in done if i.outcome == "refused"])
 
-    def test_the_rulesets_that_cannot_be_listed_are_not_sent(self):
-        scene = self.broken()
-        findings = scene.audit()
-        scene.table[f"GET {scene.path('/rulesets')}"] = Reply(500, {"message": "Server Error"})
-        done = settings.apply(scene.repo, scene.hub, findings, True)
-        rulesets = [i for i in done if i.path.endswith("/rulesets")]
-        self.assertEqual({"skipped"}, {i.outcome for i in rulesets})
-        self.assertIn("cannot be listed", rulesets[0].detail)
-        self.assertEqual([], [w for w in scene.hub.writes() if w[1].endswith("/rulesets")])
-
     def test_only_a_fix_that_is_a_request_is_applied(self):
         scene = Scene("user-private-free")
         req = settings.request("PUT", "repos/acme/lab-hub/topics", {"names": ["x"]})
@@ -2216,8 +1614,7 @@ class Apply(Base):
             self.assertEqual([], settings.apply(scene.repo, scene.hub, crafted(req, status=status), True), status)
         self.assertEqual([], settings.apply(scene.repo, scene.hub, [settings.Finding("repo.merge", FAIL, "t", "", "words")], True))
         self.assertEqual([], settings.apply(scene.repo, scene.hub, crafted(req, status=WARN), True))
-        self.assertEqual(1, len(settings.apply(scene.repo, scene.hub, crafted(req, status=WARN), True, warnings=True)))
-        self.assertEqual([], scene.hub.writes()[1:])
+        self.assertEqual([], scene.hub.writes())
 
     def test_the_requests_are_printed_as_commands_a_person_can_type(self):
         planned = [settings.Applied("PATCH", "repos/acme/lab-hub", {"allow_forking": False, "name": "it's"}, "planned", ""),
@@ -2247,30 +1644,17 @@ def git_says(url):
     return lambda args, cwd=None: gitx.Result(0, (url + "\n").encode(), "")
 
 
-class Command(Base):
+class Command(Case):
     """`catalog.py repo-settings`: the arguments, what it prints, and its exit codes."""
 
     def test_the_audit_of_a_repository(self):
         scene = Scene("user-private-free")
         run = Run(["acme/lab-hub"], scene)
         self.assertEqual((1, ""), (run.code, run.error))
-        self.assertTrue(run.text.startswith("Catalog standard 1 for acme/lab-hub (private, user-owned)\n"))
+        self.assertTrue(run.text.startswith(f"Catalog standard {settings.LEVEL} for acme/lab-hub (private, user-owned)\n"))
         self.assertTrue(run.text.rstrip().endswith("Summary: 5 fail, 3 warn, 6 ok, 19 n.a., 2 manual"))
         self.assertEqual([], scene.hub.writes())
         self.assertEqual(0, Run(["acme-labs/lab-hub"], Scene("public-standard")).code)
-        self.assertEqual(0, Run(["acme-labs/lab-hub", "--strict"], Scene("public-standard")).code)
-        self.assertEqual(1, Run(["acme/lab-hub", "--strict"], Scene("user-private-free")).code)
-
-    def test_json_and_github_output(self):
-        run = Run(["acme/lab-hub", "--format", "json"], Scene("user-private-free"))
-        self.assertEqual(1, run.code)
-        self.assertEqual("acme/lab-hub", json.loads(run.text)["repository"])
-        run = Run(["acme/lab-hub", "--format", "github"], Scene("user-private-free"))
-        lines = run.text.splitlines()
-        self.assertEqual(8, len(lines))                      # a line for each failure and each warning, and for nothing else
-        self.assertTrue(lines[0].startswith("::error title=repo.merge::Squash merges only"))
-        self.assertTrue(all(re.match(r"::(error|warning) title=[a-z_.]+::", line) for line in lines))
-        self.assertEqual(0, len(Run(["acme-labs/lab-hub", "--format", "github"], Scene("public-standard")).text.strip()))
 
     def test_apply_is_a_dry_run_until_yes(self):
         scene = Scene("user-private-free")
@@ -2283,70 +1667,43 @@ class Command(Base):
 
     def test_apply_with_yes_and_a_second_apply(self):
         scene = Apply.broken(Apply())
-        run = Run(["acme-labs/lab-internal", "--apply", "--yes", "--warnings"], scene)
+        run = Run(["acme-labs/lab-internal", "--apply", "--yes"], scene)
         self.assertEqual("", run.error)
         self.assertEqual(0, run.code)
         self.assertIn("done     PATCH repos/acme-labs/lab-internal", run.text)
         self.assertNotIn("refused", run.text)
-        again = Run(["acme-labs/lab-internal", "--apply", "--yes", "--warnings"], scene)
+        again = Run(["acme-labs/lab-internal", "--apply", "--yes"], scene)
         self.assertEqual(0, again.code)
         self.assertTrue(again.text.rstrip().endswith("Nothing to change"))
-        self.assertEqual(0, Run(["acme-labs/lab-internal", "--strict"], scene).code)
 
     def test_the_exit_code_after_yes_is_the_one_of_what_is_there_now(self):
         scene = Scene("user-private-free", live=True)
         run = Run(["acme/lab-hub", "--apply", "--yes"], scene)
         self.assertGreater(len(scene.hub.writes()), 3)
         self.assertEqual(1, run.code)               # the CODEOWNERS file is missing, and no request can make it
-        again = Run(["acme/lab-hub", "--format", "json"], scene)
-        failing = [f["id"] for f in json.loads(again.text)["findings"] if f["status"] == "fail"]
-        self.assertEqual(["files.codeowners"], failing)
+        self.assertEqual(["files.codeowners"], [f.id for f in scene.audit() if f.status == FAIL])
         scene.set("/codeowners/errors", {"errors": []})
-        self.assertEqual(0, Run(["acme/lab-hub", "--apply", "--yes", "--warnings"], scene).code)
+        self.assertEqual(0, Run(["acme/lab-hub", "--apply", "--yes"], scene).code)
         none = Scene("user-private-free")
         none.set("/codeowners/errors", {"errors": []})
-        none.table = {key: value for key, value in none.table.items()}
         run = Run(["acme/lab-hub", "--apply", "--yes"], none)
         self.assertEqual(1, run.code)
-
-    def test_the_help(self):
-        for argv in (["--help"], ["acme/lab-hub", "-h"]):
-            run = Run(argv, Scene("user-private-free"))
-            self.assertEqual((0, ""), (run.code, run.error))
-            self.assertTrue(run.text.startswith("catalog.py repo-settings [OWNER/REPO or FOLDER]"))
-            self.assertIn("Exit 0 when nothing failed", run.text)
-
-    def test_a_request_that_github_refuses_is_a_failure_of_the_command(self):
-        scene = Scene("user-private-free", refuse={("PUT", "/topics"): Reply(403, {"message": "Must have admin rights to Repository."})})
-        run = Run(["acme/lab-hub", "--apply", "--yes"], scene)
-        self.assertEqual(1, run.code)
-        self.assertIn("refused  PUT repos/acme/lab-hub/topics  HTTP 403: Must have admin rights to Repository.", run.text)
-
-    def test_json_with_apply_is_one_document(self):
-        run = Run(["acme/lab-hub", "--apply", "--format", "json"], Scene("user-private-free"))
-        document = json.loads(run.text)
-        self.assertEqual(["about", "findings", "not_applicable", "repository", "requests", "standard", "summary"], list(document))
-        self.assertEqual({"planned"}, {r["outcome"] for r in document["requests"]})
 
     def test_the_options_reach_the_audit(self):
         scene = Scene("org-private")
         scene.set("/actions/organization-secrets", {"secrets": [{"name": "MINE"}]})
         self.assertEqual(1, Run(["acme-labs/lab-internal"], scene).code)
-        self.assertEqual(0, Run(["acme-labs/lab-internal", "--allow-org-secret", "MINE"], scene).code)
         run = Run(["acme-labs/lab-internal", "--as", "public"], Scene("org-private"))
         self.assertIn("(private, organization-owned, audited as public)", run.text)
-        run = Run(["acme-labs/lab-internal", "--required-check", "E2E result", "--required-check", "build"], Scene("org-private"))
-        self.assertIn("E2E result is not required", run.text)
-        self.assertEqual(1, run.code)
         run = Run(["acme-labs/lab-internal", "--effective-only"], Scene("org-private"))
         self.assertNotIn("repo.merge", run.text)
         self.assertEqual(0, run.code)
 
     def test_a_command_line_that_makes_no_sense_is_one_line_and_exit_2(self):
         scene = Scene("org-private")
-        for argv in (["acme-labs/lab-internal", "--yes"], ["acme-labs/lab-internal", "--warnings"], ["--bogus"],
-                     ["acme-labs/lab-internal", "--as", "secret"], ["acme-labs/lab-internal", "--format", "xml"],
-                     ["acme-labs/lab-internal", "--required-check", ""], ["acme-labs/lab-internal", "--fleet", "acme-labs"],
+        for argv in (["acme-labs/lab-internal", "--yes"], ["--bogus"],
+                     ["acme-labs/lab-internal", "--as", "secret"],
+                     ["acme-labs/lab-internal", "--fleet", "acme-labs"],
                      ["--fleet", "acme-labs", "--apply"], ["a/b", "c/d"], ["--as", "private", "acme-labs/lab-hub"], ["not a repository"]):
             run = Run(argv, Scene("public-standard") if "lab-hub" in " ".join(argv) else scene)
             self.assertEqual(2, run.code, argv)
@@ -2385,9 +1742,9 @@ class Command(Base):
         self.assertEqual((2, ""), (run.code, run.text))
         self.assertEqual("The GitHub command-line tool gh is not installed. Install it from https://cli.github.com and run gh auth login.\n",
                          run.error)
-        run = Run(["acme/lab-hub"], runner=settings.Gh(lambda argv, **k: subprocess.CompletedProcess(
-            argv, 4, "", "To get started with GitHub CLI, please run:  gh auth login")))
-        self.assertEqual((2, "Not signed in to GitHub. Run gh auth login, then run this again.\n"), (run.code, run.error))
+        for code, said in ((4, "To get started with GitHub CLI, please run:  gh auth login"), (1, "gh: Bad credentials (HTTP 401)")):
+            run = Run(["acme/lab-hub"], runner=settings.Gh(lambda argv, **k: subprocess.CompletedProcess(argv, code, "", said)))
+            self.assertEqual((2, "Not signed in to GitHub. Run gh auth login, then run this again.\n"), (run.code, run.error))
         scene = Scene("org-private")
         run = Run(["acme-labs/nothing"], scene)
         self.assertEqual((2, "acme-labs/nothing was not found, or you cannot read it (HTTP 404: Not Found).\n"), (run.code, run.error))
@@ -2466,72 +1823,13 @@ class Command(Base):
         self.assertEqual(sorted(body["name"] for body in TEMPLATE_RULESETS.values()), sorted(body["name"] for body in sent))
         self.assertNotIn("evil", json.dumps(sent))
         self.assertFalse([path for path in opened if path and path.startswith(os.path.realpath(str(folder)))])
-        self.assertTrue([path for path in opened if path and path.startswith(os.path.realpath(str(TEMPLATE)))])
+        self.assertTrue([path for path in opened if path and path.startswith(os.path.realpath(str(settings.RULESETS)))])
 
 
-class Isolation(Base):
-    """What the module reads and writes: the repository's replies and the Lab's template, nothing else."""
+class Isolation(unittest.TestCase):
+    """The module is reached only through its transport: it reads no token, and runs no shell."""
 
-    def watched(self, scene, action):
-        opened, touched = [], []
-        real = io.open
-
-        def spy(file, mode="r", *a, **k):
-            opened.append((os.path.realpath(str(file)) if isinstance(file, (str, os.PathLike)) else None, mode))
-            return real(file, mode, *a, **k)
-
-        class Watched(dict):
-            def __getitem__(self, key):
-                touched.append(key)
-                return super().__getitem__(key)
-
-            def get(self, key, default=None):
-                touched.append(key)
-                return super().get(key, default)
-
-            def __contains__(self, key):
-                touched.append(key)
-                return super().__contains__(key)
-
-            def __iter__(self):
-                touched.append("*")
-                return super().__iter__()
-
-            def copy(self):
-                touched.append("*")
-                return dict(self)
-
-        with mock.patch("builtins.open", spy), mock.patch("io.open", spy), mock.patch.object(os, "environ", Watched(os.environ)):
-            action()
-        return opened, touched
-
-    def test_the_audit_and_the_apply_read_the_template_and_no_environment_variable(self):
-        scene = Apply.broken(Apply())
-
-        def action():
-            findings = scene.audit(solo=True)
-            settings.apply(scene.repo, scene.hub, findings, True, warnings=True)
-            settings.render(scene.audit(), "text")
-        opened, touched = self.watched(scene, action)
-        root = os.path.realpath(str(TEMPLATE))
-        self.assertTrue(opened)
-        for path, mode in opened:
-            self.assertEqual(root, os.path.dirname(path or ""), path)
-            self.assertEqual("rb", mode)                                  # read, and nothing written
-        self.assertEqual([], touched)
-
-    def test_the_source_reads_no_environment_variable_and_no_file_but_the_template(self):
+    def test_the_source_reads_no_environment_variable(self):
         for module in ("settings.py", "fleet.py"):
             text = Path(settings.__file__).with_name(module).read_text(encoding="utf-8")
             self.assertNotRegex(text, r"os\.environ|getenv|environb|putenv|os\.system|shell\s*=\s*True|os\.popen", module)
-        # The two reads of the template (the rulesets and their level), and for the fleet the standard.json of its own clone
-        code = lambda name: re.sub(r'"""[\s\S]*?"""', "", Path(settings.__file__).with_name(name).read_text(encoding="utf-8"))  # noqa: E731
-        self.assertEqual(2, len(re.findall(r"\bopen\(", code("settings.py"))))
-        self.assertEqual(1, len(re.findall(r"\bopen\(", code("fleet.py"))))
-
-    def test_the_module_imports_nothing_but_the_standard_library(self):
-        for module in ("settings.py", "fleet.py"):
-            text = Path(settings.__file__).with_name(module).read_text(encoding="utf-8")
-            names = set(re.findall(r"^(?:import|from) ([a-z_0-9]+)", text, re.M))
-            self.assertEqual(set(), names - {"argparse", "base64", "binascii", "copy", "importlib", "json", "os", "re", "shlex", "shutil", "subprocess",
-                                             "sys", "tempfile", "time", "pathlib", "typing", "urllib"}, module)

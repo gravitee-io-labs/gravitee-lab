@@ -15,9 +15,11 @@ once a release of its line is there. A set of a build that is no version (amp-de
 Hub's, are the playground's own: never tried here, never touched. The sets are written with the builds first, then the
 pre-releases, then the releases oldest first: the last set is the one a Start offers to switch to (`layers.untested`), a release."""
 
+import json
 import re
 
 from . import paths
+from .docker import images
 from .library.versions import at_least, order, parse, written
 
 MINORS = 5   # the minor versions of Gravitee a playground keeps up with: the newest five
@@ -159,6 +161,14 @@ def candidates(unit, tags, follow=None):
     return sets
 
 
+def followed(built):
+    """The version variables of Gravitee's images (`follow`); None for a project that lists no services."""
+    if "services" not in built:
+        return None
+    return {component["id"] for component in images.components(built)
+            if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")}
+
+
 def said(unit, versions, follow=None):
     """The versions of a set a playground is judged on, as a person reads them: "APIM_VERSION 4.13.3, AM_VERSION 4.13.3"."""
     keys = variables(unit, follow)
@@ -172,12 +182,8 @@ def plan(built, ns=None, tags=None, warn=None, night=0, failed=None):
     `tags(built, variable, registry)` lists the tags of an image. A playground whose tags cannot be read is said to
     `warn(sentence)` and left for the next night. `failed(uid, said)` is true of a set that failed on the files the playground
     has now: it is not tried again until they change."""
-    import json
-    from .docker import images
     tags = tags or (lambda project, key, registry: [tag["name"] for tag in images.tags(project, key, registry)])
-    follow = {component["id"] for component in images.components(built)
-              if component.get("registry_key") and "graviteeio" in str(component.get("registry_default") or "")} \
-        if "services" in built else None
+    follow = followed(built)
     jobs = []
     shared = [(uid, unit) for uid, unit in sorted(built["playgrounds"].items())
               if not paths.personal(uid) and (ns is None or unit.get("catalog") == ns)]
@@ -312,6 +318,3 @@ def write(text, sets):
         place = place if place is not None else len(body.rstrip("\n")) + 1
         body = body[:place] + _block(sets) + body[place:]
     return text[:start.end()] + body + text[end:]
-
-
-__all__ = ["MAX_JOBS", "MINORS", "candidates", "merged", "newest", "plan", "registries", "variables", "write"]

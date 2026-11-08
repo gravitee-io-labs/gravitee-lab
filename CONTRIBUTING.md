@@ -29,20 +29,14 @@ The seed of a playground is a container built from `seeder/`. It creates the pla
 | `seeder/` | The engine every playground's seed runs | [seeder/AGENTS.md](seeder/AGENTS.md) |
 | `lab-ui/` | The Lab UI, its page and its tests | [lab-ui/AGENTS.md](lab-ui/AGENTS.md) |
 | `docs/` | The documentation | [Documentation](#documentation) |
-| `.github/` | CI, the workflow and script that publish the images, the templates, and `tests/` for the Makefile, the images script and the Compose conventions | [Pull requests and review](#pull-requests-and-review) |
+| `.github/` | CI, the workflow that publishes the seeder's image, the templates, and `tests/` for the Makefile, the workflows and the Compose conventions | [Pull requests and review](#pull-requests-and-review) |
 
 The `AGENTS.md` files are written for AI agents, but they are the reference for the rules too: read the one of the folder you change.
-
-Three principles run through the project:
-
-- **Standard Compose only.** `include`, `x-` extensions, labels and `${VAR:-default}` carry everything. A person who runs `docker compose` gets the same result as the Lab UI.
-- **One way for each thing.** Before you add a piece, find the one that does it already.
-- **The Lab UI knows no product.** It reads the Compose files (`x-gravitee` blocks, labels, `include`, `image:` lines). No list of products, add-ons or images lives in its code.
 
 ## Set up your machine
 
 1. Install the [Prerequisites](docs/installation.md#prerequisites).
-2. Run `make setup`. It makes `.venv` with the seeder's requirements (`requests`, `pyyaml`, `redis`) and `ruff`, and needs Python 3.10 or later. If your `python3` is older, name a newer one: `PYTHON3=python3.12 make setup`. A `.venv` that `make setup` made with a Python that is too old is removed again; one that existed before is left for you to remove.
+2. Run `make setup`. It makes `.venv` with the seeder's requirements (`requests`, `pyyaml`, `redis`) and `ruff`, and needs Python 3.10 or later. If your `python3` is older, name a newer one: `PYTHON3=python3.12 make setup`.
 3. Node 22.7 or later (20.19 or later in the 20 line) is optional: it runs the Lab UI page tests. Docker is needed by `make e2e`.
 
 A test whose dependency is missing prints a skip line, such as "Seeder tests skipped". A skipped test did not pass: read the output.
@@ -88,40 +82,25 @@ before sharing it, make it in **Personal** (the **New** buttons of the lists) an
 
 ## Documentation
 
-| Where | What lives there |
-|---|---|
-| [README.md](README.md) | What the lab is and where to start |
-| `docs/` | Installation, the Lab UI, configuration, playgrounds, Gravitee Cloud, troubleshooting and maintaining the repository |
-| A folder's `README.md` | What a user needs to know about one add-on or playground beyond its settings |
-| `AGENTS.md` files | The rules for people who change the project |
-| Comments in Compose files | One line for each setting: the Lab UI shows them next to the setting |
-
 Write in American English, with sentence case headings, imperative sentences and short paragraphs. Draw diagrams in Mermaid. Name files and folders in lowercase with dashes.
 
-## Conventions
+## Commit messages
 
-- Never commit `.env` files, `.lab/`, `plugins/`, secrets, licenses, keys or certificates. Git ignores them: check `git status` before you commit.
-- A compose file holds no literal password, secret, token or key. Write a setting: `${NAME:-default}`, whose default may be a public demo value, or `${NAME}` when the user must provide it. `make check` refuses a literal in a shared file ([the rule](AGENTS.md#rules)).
-- An item of a catalog never includes a personal one.
-- A comment describes a setting or a non-obvious reason, never who wrote the code.
-- Files use LF line endings (`.gitattributes` and `.editorconfig` enforce it).
-- A commit message has a plain imperative subject (aim for 72 characters or fewer) and a body that explains why. Do not add tool-generated trailers or credits.
+A commit message has a plain imperative subject (aim for 72 characters or fewer) and a body that explains why. Do not add tool-generated trailers or credits.
 
 ## Use an AI agent
 
-`AGENTS.md` is the contract for any agent. Codex, Copilot and Cursor read it as it is, Claude Code through `CLAUDE.md`, and Gemini CLI through `.gemini/settings.json`. The skills `new-addon`, `new-setup`, `new-playground`, `new-catalog`, `share-item` and `prepare-pull-request` live in `.agents/skills/`, with a stub for each in `.claude/skills/`; `make check` enforces that wiring.
+`AGENTS.md` is the contract for any agent. Codex, Copilot and Cursor read it as it is, Claude Code through `CLAUDE.md`, and Gemini CLI through `.gemini/settings.json`. The skills `new-addon`, `new-setup`, `new-playground`, `new-catalog`, `share-item` and `prepare-pull-request` live in `.agents/skills/`, with a stub for each in `.claude/skills/`; `make check` asks for each stub and each `CLAUDE.md`.
 
 You stay the author: read every line the agent writes, run the checks yourself, and do not submit what you do not understand.
 
 ## Pull requests and review
 
-The pull request template asks what changed and why, how you tried it, and for a checklist: `make check` prints All good, `make lint` and `make test` pass, you tried it in the Lab UI, the change holds no secrets, `.env` or `.lab/` files, and the docs are up to date.
-
 Maintainers review on a best-effort basis.
 
 ### What CI does
 
-Every pull request, from any fork, gets these jobs with no secret and no wait: **Lint**, **Compose files** (`make check` with the Compose release the lab pins and with the newest one, which is what a Linux user gets from Docker's repository, then the builds of the seeder's image, printed and not run), **Repository tests** (the tests of `.github/tests`), **Seeder tests**, **Lab UI tests** (the whole suite on Python 3.15, in four parts that take about as long, from the seconds in `lab-ui/tests/durations.json`: `python3 lab-ui/tests/run.py --time` writes them again when the parts drift apart), and **Lab UI on Python 3.9**, the oldest Python the Lab UI supports and the one a Mac comes with: every module imports on it, `make check` passes, and the quicker tests run (`run.py --imports`, then `run.py --quick`). **CI result** passes when all of them did: it is the check a merge waits for. **Default catalog** checks the default catalog with your change, so that a change of the engine that breaks it shows on the pull request: it is not required, since the fix may belong to the catalog.
+Every pull request, from any fork, gets these jobs with no secret and no wait: **Lint and seeder tests**, **Compose files** (`make check` with the Compose release the lab pins and with the newest one, which is what a Linux user gets from Docker's repository), **Repository tests** (the tests of `.github/tests`), **Lab UI tests** (the whole suite on Python 3.15, in four parts that take about as long, from the seconds in `lab-ui/tests/durations.json`: `python3 lab-ui/tests/run.py --time` writes them again when the parts drift apart), and **Lab UI on Python 3.9**, the oldest Python the Lab UI supports and the one a Mac comes with: every module imports on it, `make check` passes, and the quicker tests run (`run.py --imports`, then `run.py --quick`). **CI result** passes when all of them did: it is the check a merge waits for. **Default catalog** checks the default catalog with your change, so that a change of the engine that breaks it shows on the pull request: it is not required, since the fix may belong to the catalog.
 
 The engine holds no item, so the **E2E** workflow tries the canary of the default catalog (`canary:` in its `catalog.yml`) on the engine as your change leaves it. A change that touches nothing every item shares (documentation, the page) runs nothing. Each catalog runs the same test for its own changes.
 
@@ -151,7 +130,7 @@ Your machine hides what a fresh clone lacks, such as a file you forgot to commit
 
 ## Images and releases
 
-When a push to `main` changes the seeder or the core file (a Markdown file alone builds nothing), CI builds the seeder's image and pushes it to `ghcr.io/gravitee-io-labs/gravitee-lab`, as `latest` and as `sha-<commit>`, so that a playground's seed pulls it instead of building it. The image carries the label `org.opencontainers.image.licenses=AGPL-3.0-only`. A catalog publishes the images of its own items by its own workflow. Contributors never push images. Every merge to `main` is a version of the Lab, published by the *Release* workflow: `main` is what users get, so it must always run. A maintainer labels a pull request `minor` for a new feature or `major` for a change that needs people to do something by hand; with no label it is a patch. A pull request that adds something catalogs can use (a key, a label, a seed folder) also gets `catalog-format`, and its release lists it under *For catalogs* ([Publishing a version](docs/maintaining.md#publishing-a-version)).
+When a push to `main` changes the seeder (a Markdown file alone builds nothing), CI builds the seeder's image and pushes it to `ghcr.io/gravitee-io-labs/gravitee-lab/seeder`, as `latest` and as `sha-<commit>`, so that a playground's seed pulls it instead of building it. The image carries the label `org.opencontainers.image.licenses=AGPL-3.0-only`. A catalog publishes the images of its own items by its own workflow. Contributors never push images. Every merge to `main` is a version of the Lab, published by the *Release* workflow: `main` is what users get, so it must always run. A maintainer labels a pull request `minor` for a new feature or `major` for a change that needs people to do something by hand; with no label it is a patch. A pull request that adds something catalogs can use (a key, a label, a seed folder) also gets `catalog-format`, and its release lists it under *For catalogs* ([Publishing a version](docs/maintaining.md#publishing-a-version)).
 
 ## Maintainers
 

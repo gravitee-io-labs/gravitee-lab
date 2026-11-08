@@ -29,7 +29,6 @@ It uses what your machine has, adds only what is missing, then opens the Lab UI 
 4. **Command**: it links the command `gravitee-lab` into `~/.local/bin`. When that folder is not on your `PATH`, it adds one
    line, marked `# Added by Gravitee Lab`, to the profile of your shell (`~/.zshrc`, `~/.bashrc`, `~/.bash_profile` on
    macOS, fish's `conf.d`, or `~/.profile`): open a new terminal to use the command.
-5. **Docker**: it only looks. The Lab UI's first page says how to install or start it.
 
 Run it again at any time: it skips what is done and never deletes anything. Next time, run `gravitee-lab`. Keep the terminal
 open while you use the Lab UI: Ctrl+C stops the Lab UI, and the containers keep running.
@@ -158,17 +157,8 @@ To go further, turn on add-ons, setups and a playground from their pages. An add
 
 ### Without the Lab UI
 
-The Lab UI runs `docker compose` for you. To do it yourself, use the Makefile (`make help` lists every target). From any
-folder, `gravitee-lab` runs the same targets: `gravitee-lab stop`, `gravitee-lab logs SVC=apim-gateway`, `gravitee-lab help`.
-
-| Command | What it does |
-|---|---|
-| `make init` | Create what a fresh clone lacks: `.env`, the demo certificates, the plugin folders and `.lab/on.yml` |
-| `make all` | Create and start the core and what is on |
-| `make ps` | Show container status and health |
-| `make logs SVC=<name>` | Follow the logs, of one service or of all |
-| `make stop` | Stop all containers and keep the data |
-| `make urls` | Print what is on and the URL of every console |
+The Lab UI runs `docker compose` for you. To do it yourself, use the Makefile: [its targets](configuration.md#make-targets). From
+any folder, `gravitee-lab` runs the same targets: `gravitee-lab stop`, `gravitee-lab logs SVC=apim-gateway`, `gravitee-lab help`.
 
 Run `make init` once before a `docker compose` command that you type yourself: `make ui` and `make all` run it for you. `.lab/on.yml` lists what is on: see [the on file](lab-ui.md#the-on-file).
 
@@ -190,13 +180,13 @@ Run `make init` once before a `docker compose` command that you type yourself: `
 - **Stop the Lab UI**: press Ctrl+C in its terminal. The containers keep running.
 - **Stop the containers**: run `gravitee-lab stop` (`make stop` in the clone), or click **Stop** on the Containers page. The
   data stays.
-- **Update**: click **Update to** in the menu when a newer version is out ([Versions of the Lab](lab-ui.md#versions-of-the-lab)). From a terminal, or for a clone with changes of its own: stop the platform with `make stop`, run `make update` (a fast-forward `git pull`, then the download of the catalogs and the move of your settings if the layout changed: see [Updating a Lab from before catalogs](catalogs.md#updating-a-lab-from-before-catalogs)), then `gravitee-lab`. **Update** on the Containers page pulls newer images of the versions you chose.
+- **Update**: click **Update** in the menu when a newer version is out ([Versions of the Lab](lab-ui.md#versions-of-the-lab)). From a terminal, or for a clone with changes of its own: stop the platform with `make stop`, run `make update` (a fast-forward `git pull`, then the download of the catalogs), then `gravitee-lab`. **Update** on the Containers page pulls newer images of the versions you chose.
 - **Remove**: run `gravitee-lab uninstall` to take the command off your `PATH` (the link and the line of your profile that
   the installer added). Then run `make reset` in the clone to delete the containers, the data volumes and what the seeds recorded (a seed is a one-time job that creates a playground's sample APIs and users; `make reset` asks first), then delete the folder. To start clean and keep the folder, run `make reset` and start again, or use **Reset** in the Containers page's menu, which also turns off the playground that is on. On Linux, containers can leave files that your user cannot delete (in `plugins/` and in the `.state/` folders of the installed playgrounds): if `rm` says "Permission denied", use `sudo rm -rf`. To free the disk, `docker image prune -a` removes every image that no container uses, also those of other projects. On Windows, run `make reset` in the distribution, delete `~/gravitee-lab` there and **Gravitee Lab** from the Start menu; `install.ps1` leaves WSL, the distribution and Docker Desktop, which you may use for other things: remove them from Windows' Settings > Apps if you do not.
 
 ## Help
 
 - Start with [Troubleshooting](troubleshooting.md).
-- For a bug or a question about the lab, open an issue in the Issues tab of this repository. Include your operating system, `docker --version`, `docker compose version`, `git rev-parse --short HEAD`, the output of `make ps` and the log lines that matter. Remove your license, tokens and passwords first.
+- For a bug or a question about the lab, open an issue in the Issues tab of this repository: its form says what to include. Remove your license, tokens and passwords first.
 - For a vulnerability, follow [SECURITY.md](../SECURITY.md).
 - For questions about Gravitee products, see the [documentation](https://documentation.gravitee.io) and the [community](https://community.gravitee.io).

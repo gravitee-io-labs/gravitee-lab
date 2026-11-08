@@ -26,9 +26,10 @@ from pathlib import Path
 from typing import Callable, List, NamedTuple, Optional
 
 from . import gitx, settings, standard as standards
+from .report import escape_data
 from .standard import pin_problem, release_state
 from .tree import FolderTree
-from .settings import FAIL, WARN, Refused, Unusable, Usage, as_dict, as_list, clean, is_int, plan_limit, refusal
+from .settings import Refused, Unusable, Usage, as_dict, clean, is_int, plan_limit, refusal
 
 COMMIT = re.compile(r"[0-9a-f]{40}")
 KIND_FOLDERS = ("addons/", "setups/", "playgrounds/")   # the content of a catalog: an upgrade never touches it
@@ -38,8 +39,6 @@ LAB_LOG = 50                                            # the lines of the Lab's
 BRANCH_PREFIX = "standard/"
 PULL_LIMIT = 3
 STANDARD_FILE = ".github/standard.json"
-NO_IDENTITY = ("Please tell me who you are", "Author identity unknown", "unable to auto-detect email address",
-               "auto-detection is disabled")
 
 
 class Row(NamedTuple):
@@ -119,31 +118,15 @@ def _unread(row: Row) -> bool:
     return bool(row.error) and not row.error.startswith("archived")
 
 
-def exit_code(rows, strict: bool = False) -> int:
+def exit_code(rows) -> int:
     """1 when a repository failed a rule or could not be read (an archived one is left out), as settings.exit_code says for
     one; else 0."""
-    return 1 if any(_unread(row) or settings.exit_code(row.findings, strict) for row in rows) else 0
+    return 1 if any(_unread(row) or settings.exit_code(row.findings) for row in rows) else 0
 
 
-def render_audit(rows, fmt: str = "text") -> str:
-    """The audit as one table of identifiers by repository, or as `github` annotations, or as JSON."""
+def render_audit(rows) -> str:
+    """The audit as one table of identifiers by repository."""
     owner = getattr(rows, "owner", "")
-    if fmt == "json":
-        return json.dumps({"owner": owner, "repositories": [
-            {"repository": row.repo, "error": row.error, "summary": settings.summary(row.findings),
-             "not_applicable": sorted(getattr(row.findings, "inapplicable", ())),
-             "findings": [finding._asdict() for finding in row.findings]} for row in rows]}, indent=2, sort_keys=True)
-    if fmt == "github":
-        lines = []
-        for row in rows:
-            if _unread(row):
-                lines.append(f"::error title={settings.TOPIC}::" + settings.escape(f"{row.repo}: {row.error}"))
-            for finding in row.findings:
-                if finding.status in (FAIL, WARN):
-                    level = "error" if finding.status == FAIL else "warning"
-                    lines.append(f"::{level} title={finding.id}::" + settings.escape(
-                        f"{row.repo}: {finding.title}" + (f": {finding.now}" if finding.now else "")))
-        return "\n".join(lines)
     if not rows:
         return f"No repository of {owner} has the topic {settings.TOPIC}"
     names = [row.repo.split("/", 1)[1] for row in rows]
@@ -193,7 +176,7 @@ class _Work:
         """The output of a git command, or the line of why it failed."""
         result = self.git(args, cwd=cwd, timeout=timeout)
         if result.code != 0:
-            if any(words in (result.err or "") for words in NO_IDENTITY):
+            if any(words in (result.err or "") for words in gitx.NO_IDENTITY):
                 raise _Failed("Git has no name and email to commit with. Set user.name and user.email, then run this again.")
             verb = next((a for i, a in enumerate(args) if not a.startswith("-") and (i == 0 or args[i - 1] != "-c")),
                         "command")
@@ -213,16 +196,6 @@ def _open_pull(runner: Callable, repo: str) -> Optional[int]:
                 as_dict(head.get("repo")).get("full_name") == repo and is_int(item.get("number")):
             return item["number"]
     return None
-
-
-def _owned(plan) -> List[str]:
-    """The paths the plan leaves to the catalog (their marker was removed): the `owned` entries of the plan of 7.4."""
-    plan = as_dict(plan)
-    entries = plan.get("owned")
-    if not isinstance(entries, list):
-        entries = [e for e in as_list(plan.get("files")) if isinstance(e, dict) and e.get("action") == "owned"]
-    found = [entry if isinstance(entry, str) else as_dict(entry).get("path") for entry in entries]
-    return sorted({clean(path, 200) for path in found if isinstance(path, str)})
 
 
 def _read_standard(folder: Path) -> dict:
@@ -282,9 +255,8 @@ def _words(work: _Work, folder: Path, before: dict) -> tuple:
     moved pin brings the link that compares the two commits of the Lab and the Lab's own log between them, which is what a
     reviewer of a pin reads: that code will judge every pull request of the catalog."""
     after = _read_standard(folder)
-    level = after.get("standard") if is_int(after.get("standard")) else getattr(work.standard, "LEVEL", None)
-    lines = [f"Brings the managed files to catalog standard {level}." if level
-             else "Brings the managed files to the Lab's level."]
+    level = after.get("standard") if is_int(after.get("standard")) else work.standard.LEVEL
+    lines = [f"Brings the managed files to catalog standard {level}."]
     old, new, log = as_dict(before.get("lab")), as_dict(after.get("lab")), ""
     lab = new.get("repository")
     if isinstance(lab, str) and settings.REPO_NAME.fullmatch(lab) and COMMIT.fullmatch(str(old.get("ref"))) and \
@@ -316,7 +288,7 @@ def _upgrade(work: _Work, repo: str, branch: str, folder: Path) -> Upgraded:
     before = _read_standard(folder)
     plan = work.standard.upgrade_plan(work.tree(folder), {"lab_ref": work.lab_ref})
     work.standard.upgrade_apply(folder, plan)
-    owned = _owned(plan)
+    owned = sorted({clean(path, 200) for path in plan["owned"]})   # the paths the plan leaves to the catalog
     changed = _changed(work, folder)
     if not changed:
         return Upgraded(repo, "current", "", owned)
@@ -324,8 +296,8 @@ def _upgrade(work: _Work, repo: str, branch: str, folder: Path) -> Upgraded:
     if stop:
         raise _Failed(stop)
     level, lines, log = _words(work, folder, before)
-    subject = f"Update to catalog standard {level}" if level else "Update to the Lab's catalog standard"
-    name = _free_branch(work, url, f"{BRANCH_PREFIX}{level or 'lab'}-{work.today()}")
+    subject = f"Update to catalog standard {level}"
+    name = _free_branch(work, url, f"{BRANCH_PREFIX}{level}-{work.today()}")
     work.run(["checkout", "--quiet", "-b", name], cwd=str(folder))
     work.run(["add", "-A", "--", "."], cwd=str(folder))
     # The commit is the maintainer's own, unsigned (a branch is not required to be signed), with no trailer
@@ -335,8 +307,8 @@ def _upgrade(work: _Work, repo: str, branch: str, folder: Path) -> Upgraded:
     if not now or now[0] != base:
         return Upgraded(repo, "moved", f"{branch} moved while the upgrade ran; run it again", owned)
     work.run(["push", "--quiet", "--", url, f"HEAD:refs/heads/{name}"], cwd=str(folder))
-    reply = settings.as_reply(work.runner("POST", f"repos/{repo}/pulls", {
-        "title": subject, "head": name, "base": branch, "body": "\n\n".join(lines + ([log] if log else []))}))
+    reply = work.runner("POST", f"repos/{repo}/pulls", {
+        "title": subject, "head": name, "base": branch, "body": "\n\n".join(lines + ([log] if log else []))})
     link = as_dict(reply.body).get("html_url")
     if not 200 <= reply.code < 300 or not isinstance(link, str):
         why = "the plan does not allow it" if plan_limit(reply) else refusal(reply)
@@ -387,7 +359,7 @@ def _on_lab_main(work: _Work) -> None:
     if release_state(work.lab, work.lab_ref, git=git) != "yes":
         raise Unusable(f"The Lab commit {work.lab_ref[:7]} is not a release of the Lab. Fix: pin the latest release "
                        "(catalog.py upgrade --lab-ref latest).")
-    problem = pin_problem(work.lab, work.lab_ref, getattr(work.standard, "LEVEL", 0), git=git)
+    problem = pin_problem(work.lab, work.lab_ref, work.standard.LEVEL, git=git)
     if problem:   # the release must ship the standard the fleet writes, or the catalogs' CI calls what it does not have
         raise Unusable(problem)
 
@@ -418,7 +390,7 @@ def render_upgrade(results, fmt: str = "text") -> str:
         return json.dumps([item._asdict() for item in results], indent=2, sort_keys=True)
     if fmt == "github":
         return "\n".join(
-            f"::{'error' if item.status in ('failed', 'moved') else 'notice'} title=upgrade::" + settings.escape(
+            f"::{'error' if item.status in ('failed', 'moved') else 'notice'} title=upgrade::" + escape_data(
                 f"{item.repo}: {item.status}" + (f" {item.detail}" if item.detail else "")
                 + ("; owned files skipped: " + ", ".join(item.owned) if item.owned else ""))
             for item in results if item.status != "current")
@@ -445,7 +417,7 @@ def main(argv: Optional[List[str]] = None, runner: Optional[Callable] = None, st
     of the Lab (SD11), a command line that makes no sense. `seams` are those of `upgrade_fleet`."""
     out, err = stdout or sys.stdout, stderr or sys.stderr
     try:
-        parser = settings.Parser(prog="catalog.py upgrade", add_help=False)
+        parser = settings.Parser(prog="catalog.py upgrade")
         parser.add_argument("--fleet", required=True, metavar="OWNER")
         parser.add_argument("--lab-ref", required=True, metavar="COMMIT")
         parser.add_argument("--format", choices=("text", "json", "github"), default="text")

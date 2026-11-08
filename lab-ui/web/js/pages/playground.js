@@ -3,7 +3,7 @@
 // environment of the platform, a place chosen in its head. A playground of a catalog says which in its head, and what it lacks of the
 // catalogs and of this Lab before it can start; one of this machine has a More, with its Share and its Delete.
 
-import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, hrefOf, ID_PATTERN, splitKey, credHtml } from "../core.js";
+import { $, $$, esc, icon, setHTML, loading, api, store, router, recall, remember, hrefOf, ID_PATTERN, splitKey, credHtml, catalogRows } from "../core.js";
 import { effectsDialog, paintLinks, platformLinks, progressBar, dockerDown, stateDot, toast, openMenu, originLink, catalogNeed,
   actionButton, paintActions, planRows, accepted, itemLink, openButton, noteHtml, licenseForm, starButton, toggleStar, pluginWords,
   GAP, applyBadge, TURNS, fileButtons } from "../components/ui.js";
@@ -69,7 +69,34 @@ function held(why) {
   const wait = store.wait(), offline = store.offline ? wait : "";
   return { disabled: !!(offline || why), reason: offline || why };
 }
-export const shareEntry = (x) => ({ label: "Share", ...held(x.held?.share), onSelect: () => share(x) });
+export const shareEntry = (x) => ({ label: "Share", ...held(""), onSelect: () => share(x) });
+
+// A flow of a menu: asks the server what it would do (`check`), says it (`ask` answers the body of the request that does it, nothing to
+// stop there), then does it. Both requests show on the item's button, and what they refuse is said in a toast.
+async function planned(x, verb, route, ask, done) {
+  const key = `${x.kind}:${x.id}`;
+  try {
+    const body = await ask(await busy(key, verb, api(route, { check: true })));
+    if (body) await done(await busy(key, verb, api(route, body)));
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// The dialog of an export, and what it sends: the items of private content the person saw, each under each origin, since the server makes
+// the file only if it carries no other
+async function askExport(plan, title, option) {
+  const go = await effectsDialog({ title, options: [option],
+    action: () => ((plan.private || []).length ? "Export with private content" : "Export"), unchosen: "" });
+  if (!go) return null;
+  const seen = (plan.private || []).flatMap((one) => (one.item_ids || []).map((id) => `${one.key}|${id}`));
+  return seen.length ? { private: seen } : {};
+}
+
+function saveExport(made) {
+  save(made.file, made.data);
+  toast(`Exported ${made.file}`);
+}
 
 // A playground in a file, which another Lab imports from its Playgrounds page: one of this machine, or of a catalog that not every Lab
 // has. One of the default catalog (a bare id) comes with every Lab, and has nothing to export.
@@ -80,14 +107,7 @@ export const exportEntry = (x) => ({ label: "Export", ...held(""), onSelect: () 
 // make with the rules of that Lab; then the file, saved where the browser saves downloads. What would be blocked there is said, and
 // keeps the file from being made: it would not start. What comes from a private catalog leaves with the file: it is said, and the
 // button says it too.
-async function exportPlayground(x) {
-  const key = `playground:${x.id}`, route = `/api/playgrounds/${x.id}/export`;
-  let plan;
-  try {
-    plan = await busy(key, "export", api(route, { check: true }));
-  } catch (err) {
-    return toast(err.message, true);
-  }
+const exportPlayground = (x) => planned(x, "export", `/api/playgrounds/${x.id}/export`, (plan) => {
   const blocked = (plan.blocked || []).flatMap((one) => (one.reasons || []).map((reason) => `${one.name}: ${reason}`));
   const rows = [
     { label: "Carries", items: plan.carries || [] },
@@ -101,33 +121,15 @@ async function exportPlayground(x) {
     { label: "Blocked on another Lab", items: blocked, tone: "danger", note: true },
   ];
   const why = blocked.length ? "It would be blocked on another Lab" : "";
-  const go = await effectsDialog({ title: `Export ${x.name}`, options: [{ rows, disabled: !!why, reason: why }],
-    action: () => ((plan.private || []).length ? "Export with private content" : "Export"), unchosen: "" });
-  if (!go) return;
-  try {
-    // The items of private content the person saw, each under each origin: the server makes the file only if it carries no other
-    const seen = (plan.private || []).flatMap((one) => (one.item_ids || []).map((id) => `${one.key}|${id}`));
-    const made = await busy(key, "export", api(route, seen.length ? { private: seen } : {}));
-    save(made.file, made.data);
-    toast(`Exported ${made.file}`);
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
+  return askExport(plan, `Export ${x.name}`, { rows, disabled: !!why, reason: why });
+}, saveExport);
 
 // The same playground for Docker Compose alone, with no Lab: a folder with one docker-compose.yml, its .env.example and the guide as its
 // README. Any playground, those of the default catalog too. What it runs and leaves out, what it needs, and what leaves with it from a
 // private catalog are said first, as the server makes the folder.
 export const standaloneEntry = (x) => ({ label: "Export for Docker Compose", ...held(""), onSelect: () => exportStandalone(x) });
 
-async function exportStandalone(x) {
-  const key = `playground:${x.id}`, route = `/api/playgrounds/${x.id}/standalone`;
-  let plan;
-  try {
-    plan = await busy(key, "export", api(route, { check: true }));
-  } catch (err) {
-    return toast(err.message, true);
-  }
+const exportStandalone = (x) => planned(x, "export", `/api/playgrounds/${x.id}/standalone`, (plan) => {
   // The features of the license by name while they fit a line, else how many: the README of the folder names each
   const features = plan.license || [];
   const license = !features.length ? "A license" : features.length <= 2 ? `A license with ${features.join(", ")}`
@@ -139,34 +141,16 @@ async function exportStandalone(x) {
     { label: "Private", items: (plan.private || []).map((one) => ({ name: one.name, literal: true })), note: true },
     { label: "Needs access", items: (plan.registries || []).map((one) => one.registry), note: true },
   ];
-  const go = await effectsDialog({ title: `Export ${x.name} for Docker Compose`, options: [{ rows }],
-    action: () => ((plan.private || []).length ? "Export with private content" : "Export"), unchosen: "" });
-  if (!go) return;
-  try {
-    // The items of private content the person saw, each under each origin: the server makes the file only if it carries no other
-    const seen = (plan.private || []).flatMap((one) => (one.item_ids || []).map((id) => `${one.key}|${id}`));
-    const made = await busy(key, "export", api(route, seen.length ? { private: seen } : {}));
-    save(made.file, made.data);
-    toast(`Exported ${made.file}`);
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
+  return askExport(plan, `Export ${x.name} for Docker Compose`, { rows });
+}, saveExport);
 
 // An item imported from a file and kept as a catalog of its own becomes the person's own: alone, or with what it brings from the file that
 // nothing else uses. What it moves, what stays and why, and what it replaces in Personal are said first, as the server plans them.
 export const movable = (x) => x?.origin?.id === "imported";
 export const moveEntry = (x) => ({ label: "Move to Personal", ...held(""), onSelect: () => moveToPersonal(x) });
 
-async function moveToPersonal(x) {
-  const key = `${x.kind}:${x.id}`, route = `/api/${x.kind}s/${x.id}/move`;
-  let plan;
-  try {
-    plan = await busy(key, "move", api(route, { check: true }));
-  } catch (err) {
-    return toast(err.message, true);
-  }
-  if (plan.used_by) return toast(`Used by ${plan.used_by}: move that one to Personal instead`, true);
+const moveToPersonal = (x) => planned(x, "move", `/api/${x.kind}s/${x.id}/move`, async (plan) => {
+  if (plan.used_by) return void toast(`Used by ${plan.used_by}: move that one to Personal instead`, true);
   // What takes more of this machine, which nothing judges once it is Personal's, moves only once the person allows it: the button says so
   const rows = (p) => [{ label: "Moves", items: p.moves }, { label: "Replaces", items: p.replaces, tone: "danger" },
     { label: "Uses this machine", items: p.uses_machine || [], note: true },
@@ -178,31 +162,20 @@ async function moveToPersonal(x) {
     ? [option(plan.together, "together", "With its setups and add-ons", "What nothing else uses"), option(plan.alone, "alone", `Only the ${x.kind === "playground" ? "playground" : "item"}`, "Its setups and add-ons stay in Imported")]
     : [option(plan.alone, "alone", "")];
   const chosen = await effectsDialog({ title: `Move ${x.name} to Personal`, options, action: (value) => (allows(value) ? "Allow and move" : "Move") });
-  if (!chosen) return;
-  try {
-    const moved = await busy(key, "move", api(route, { together: chosen === "together", ...(allows(chosen) ? { allow: true } : {}) }));
-    toast(moved.warning ? `Moved. ${moved.warning}` : "Moved", !!moved.warning);
-    await store.refresh();
-    // The page of what was imported is gone: the one of the item in Personal takes its place in the history
-    router.replace(x.kind === "playground" ? `#/playgrounds/${moved.id}` : `#/${x.kind}s/${moved.id}`);
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
+  return chosen && { together: chosen === "together", ...(allows(chosen) ? { allow: true } : {}) };
+}, async (moved) => {
+  toast(moved.warning ? `Moved. ${moved.warning}` : "Moved", !!moved.warning);
+  await store.refresh();
+  // The page of what was imported is gone: the one of the item in Personal takes its place in the history
+  router.replace(x.kind === "playground" ? `#/playgrounds/${moved.id}` : `#/${x.kind}s/${moved.id}`);
+});
 
 // The person's own version of an item of a catalog, to change as they like: alone, or with what uses it in the catalogs, which is then
 // copied too and uses the copy. What it copies, what of Personal then uses the copy, and what takes more of this machine are said first.
 export const copyable = (x) => !!x && !x.personal && !movable(x) && !x.twin;
 export const copyEntry = (x) => ({ label: "Copy to Personal", ...held(""), onSelect: () => copyToPersonal(x) });
 
-async function copyToPersonal(x) {
-  const key = `${x.kind}:${x.id}`, route = `/api/${x.kind}s/${x.id}/copy`;
-  let plan;
-  try {
-    plan = await busy(key, "copy", api(route, { check: true }));
-  } catch (err) {
-    return toast(err.message, true);
-  }
+const copyToPersonal = (x) => planned(x, "copy", `/api/${x.kind}s/${x.id}/copy`, async (plan) => {
   const rows = (p) => [{ label: "Copies", items: p.copies }, { label: "Uses the copy", items: p.switches, note: true },
     { label: "Uses this machine", items: p.uses_machine || [], note: true }];
   const option = (p, value, label, sub) => ({ value, label, sub, rows: rows(p), disabled: !!p.held, reason: p.held });
@@ -211,16 +184,12 @@ async function copyToPersonal(x) {
     : [option(plan.alone, "alone", "")];
   const allows = (value) => (((value === "users" ? plan.with_users : plan.alone) || plan.alone).uses_machine || []).length > 0;
   const chosen = await effectsDialog({ title: `Copy ${x.name} to Personal`, options, action: (value) => (allows(value) ? "Allow and copy" : "Copy") });
-  if (!chosen) return;
-  try {
-    const copied = await busy(key, "copy", api(route, { users: chosen === "users", ...(allows(chosen) ? { allow: true } : {}) }));
-    toast(copied.warning ? `Copied. ${copied.warning}` : "Copied", !!copied.warning);
-    await store.refresh();
-    router.replace(x.kind === "playground" ? `#/playgrounds/${copied.id}` : `#/${x.kind}s/${copied.id}`);
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
+  return chosen && { users: chosen === "users", ...(allows(chosen) ? { allow: true } : {}) };
+}, async (copied) => {
+  toast(copied.warning ? `Copied. ${copied.warning}` : "Copied", !!copied.warning);
+  await store.refresh();
+  router.replace(x.kind === "playground" ? `#/playgrounds/${copied.id}` : `#/${x.kind}s/${copied.id}`);
+});
 
 // The menu of a playground's head: Export when it can be, Export for Docker Compose, Move to Personal for an imported one, Copy to Personal for one of a catalog,
 // Share and Delete for one of this machine
@@ -521,7 +490,7 @@ async function renderGuide(item, el) {
 // row to update it). The button of each is `button`: `data-need` says what it does, which the page answers with the Catalogs page's own
 // actions (dialogs/catalog.js).
 function catalogLine(need) {
-  const { line, button } = catalogNeed(need), row = (Array.isArray(store.state?.catalogs) ? store.state.catalogs : []).find((c) => c.id === need.id);
+  const { line, button } = catalogNeed(need), row = catalogRows().find((c) => c.id === need.id);
   const why = need.reason === "failed" ? [row?.state?.reason, row?.state?.next].filter(Boolean).join(" ") : "";
   let mend = "";
   if (button?.act === "update") mend = `<a class="btn" href="${esc(hrefOf({ kind: "catalog", id: need.id }))}">${esc(button.label)}</a>`;

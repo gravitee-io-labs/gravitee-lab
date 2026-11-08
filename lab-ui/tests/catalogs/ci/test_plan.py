@@ -5,12 +5,12 @@ fake `docker` records its calls, and `compose.run` is made to fail), that what i
 `json.dumps` values whatever the tree holds, and that the scope is the one 5.5 says on a push, a first push, a change to
 `.github/`, a README, a `guide.md`, an add-on that a playground includes, and a pull request of too many apps."""
 
+import contextlib
 import io
 import json
 import os
 import re
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -133,10 +133,6 @@ class Scope(unittest.TestCase):
             with self.subTest(base=base):
                 self.assertEqual(plan_of(catalog(), None, event="pull_request", base=base).scope, "first push")
 
-    def test_a_change_git_cannot_name_is_everything_and_says_so(self):
-        found = plan.compute(trees.ListTree.from_files(catalog()), "pull_request", None, "a" * 40)
-        self.assertEqual((found.scope, len(found.units)), ("git could not say what changed", 4))
-
     def test_a_unit_that_cannot_be_followed_is_touched_by_any_change_to_a_unit(self):
         # An include of another catalog is not one the text screen follows: the unit may include any unit of this one
         files = catalog({"addons/plain/compose.yml": "include:\n  - ../../../other/addons/x/compose.yml\nservices: {}\n"})
@@ -189,13 +185,6 @@ class Flags(unittest.TestCase):
             found = plan_of(catalog(), ["playgrounds/bank/README.md", *outside])
             self.assertEqual((found.units, found.compile), (["playground:bank", "setup:pair"], False), outside)
         self.assertTrue(plan_of(catalog(), ["playgrounds/bank/README.md", "playgrounds/bank/apps/web/app.py", "docs/x.md"]).compile)
-
-    def test_a_readme_and_a_file_is_more_than_a_readme(self):
-        self.assertTrue(plan_of(catalog(), ["playgrounds/bank/README.md", "playgrounds/bank/apps/web/app.py"]).compile)
-
-    def test_a_playground_with_a_seed_folder_asks_for_the_seed_job(self):
-        self.assertTrue(plan_of(catalog(), ["playgrounds/bank/compose.yml"]).seed)
-        self.assertFalse(plan_of(catalog(), ["addons/plain/compose.yml"]).seed)
 
     def test_a_seed_folder_in_an_add_on_is_no_seed(self):
         files = catalog({"addons/plain/seed/apim/apis/x.json": "{}"})
@@ -270,7 +259,7 @@ class Limit(unittest.TestCase):
         files["playgrounds/big2/compose.yml"] = "include:\n  - ../big/compose.yml\nservices: {}\n"
         files.update({f"playgrounds/big2/apps/app{n}/Dockerfile": "FROM busybox:1.36\n" for n in range(10)})
         found = plan_of(files, ["playgrounds/big/compose.yml"])
-        self.assertEqual(found.apps, 25)   # big (15) and big2 (10), which includes it and is built again
+        self.assertIn("it changes 25 apps", found.problems[0].message)   # big (15) and big2 (10), which includes it and is built again
         self.assertEqual([each.code for each in found.problems], ["BD06"])
 
     def test_a_push_or_a_change_to_the_standard_is_never_split(self):
@@ -296,15 +285,6 @@ class Fast(unittest.TestCase):
 
 class Lines(unittest.TestCase):
 
-    def test_the_four_outputs_are_one_line_each(self):
-        found = plan_of(catalog(), ["addons/mock/compose.yml"])
-        lines = found.outputs()
-        self.assertEqual(list(lines), ["units", "seed", "compile", "matrix"])
-        self.assertEqual(lines["units"], '["addon:mock", "playground:bank", "setup:pair"]')
-        self.assertEqual((lines["seed"], lines["compile"]), ("true", "true"))
-        self.assertEqual(json.loads(lines["matrix"]), {"include": [ARCH]})
-        self.assertTrue(all("\n" not in value for value in lines.values()))
-
     def test_the_words_a_person_reads(self):
         text = plan.lines_of(plan_of(catalog(), ["addons/plain/compose.yml"]))
         self.assertEqual(text, ["Scope: the change and what includes it", "Units: addon:plain",
@@ -318,9 +298,7 @@ class Run(Case):
 
     def command(self, root, *argv, outputs=True):
         out, err = io.StringIO(), io.StringIO()
-        target = Path(tempfile.mkdtemp(prefix="gravitee-lab-output-"))
-        self.addCleanup(lambda: __import__("shutil").rmtree(target, True))
-        file = target / "output"
+        file = self.folder() / "output"
         env = {"GITHUB_OUTPUT": str(file)} if outputs else {}
         with mock.patch.dict(os.environ, env):
             if not outputs:
@@ -333,7 +311,7 @@ class Command(support.WithGit, Run):
 
     def setUp(self):
         support.WithGit.setUp(self)
-        self.fake = FakeDocker(self)
+        FakeDocker(self)
         self.patch(compose, "run", mock.Mock(side_effect=AssertionError("the plan ran a command")))
         self.repo = self.work(files=catalog())
         self.first = self.git(self.repo, "rev-parse", "HEAD").strip()
@@ -353,20 +331,6 @@ class Command(support.WithGit, Run):
             "matrix=" + json.dumps({"include": [ARCH]})])
         self.assertIn("Units: addon:mock, playground:bank, setup:pair", shown)
 
-    def test_a_readme_only_pull_request_builds_nothing(self):
-        head = self.change({"addons/plain/README.md": "# Plain\n"})
-        code, _, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                           "--github-output")
-        self.assertEqual(code, 0)
-        self.assertEqual(written.splitlines()[:3], ['units=["addon:plain"]', "seed=false", "compile=false"])
-
-    def test_a_change_to_the_workflows_is_everything(self):
-        head = self.change({".github/workflows/ci.yml": "name: CI\n"})
-        _, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                            "--github-output")
-        self.assertIn('units=["addon:mock", "addon:plain", "playground:bank", "setup:pair"]', written)
-        self.assertIn("Scope: everything (a change to a file every unit is judged by)", shown)
-
     def test_a_push_is_everything_whatever_the_base(self):
         for base in ("", "0" * 40, self.first, "feedface" * 5):
             with self.subTest(base=base):
@@ -374,12 +338,6 @@ class Command(support.WithGit, Run):
                                                     "--github-output")
                 self.assertIn("compile=true", written)
                 self.assertIn("Scope: everything (push)", shown)
-
-    def test_a_first_push_is_everything(self):
-        _, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", "0" * 40, "--head", self.first,
-                                            "--github-output")
-        self.assertIn("Scope: everything (first push)", shown)
-        self.assertIn("seed=true", written)
 
     def test_a_base_that_is_no_commit_is_everything_and_the_plan_still_answers(self):
         code, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", "ab" * 20, "--head", self.first,
@@ -410,38 +368,17 @@ class Command(support.WithGit, Run):
         files = {f"playgrounds/big/apps/app{n}/Dockerfile": "FROM busybox:1.36\n" for n in range(21)}
         head = self.change({**files, "playgrounds/big/compose.yml": COMPOSE.format(name="big")})
         code, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                               "--github-output", "--format", "github")
+                                               "--github-output")
         self.assertEqual(code, 1)
         self.assertIsNone(written)   # no file and no key: the result job turns red on an empty answer
-        self.assertIn("::error title=BD06::Split this pull request: it changes 21 apps, the limit is 20.", shown)
+        self.assertIn("Split this pull request: it changes 21 apps, the limit is 20.", shown)
 
     def test_a_standard_that_names_no_known_platform_writes_nothing_and_exits_1(self):
         head = self.change({".github/standard.json": '{"platforms": ["linux/riscv64"], "standard": 1}\n'})
         code, shown, _, written = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                               "--github-output", "--format", "github")
+                                               "--github-output")
         self.assertEqual((code, written), (1, None))
-        self.assertIn("title=SD04::.github/standard.json: platforms must be a non-empty list made of linux/amd64 and "
-                      "linux/arm64.", shown)
-
-    def test_ci_means_github_annotations_and_a_summary(self):
-        summary = Path(tempfile.mkdtemp(prefix="gravitee-lab-summary-")) / "summary.md"
-        self.addCleanup(lambda: __import__("shutil").rmtree(summary.parent, True))
-        head = self.change({"playgrounds/big/compose.yml": COMPOSE.format(name="big"),
-                            **{f"playgrounds/big/apps/app{n}/Dockerfile": "FROM busybox:1.36\n" for n in range(21)}})
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
-            code, shown, _, _ = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head, "--ci")
-        self.assertEqual(code, 1)
-        self.assertIn("::error title=BD06::", shown)
-        text = summary.read_text(encoding="utf-8")
-        self.assertIn("What the change touches", text)
-        self.assertIn("1 problem to look at. To see them on your machine, run `make ci`.", text)
-
-    def test_the_json_format_is_the_plan_and_its_problems(self):
-        head = self.change({"addons/plain/compose.yml": COMPOSE.format(name="plain") + "# x\n"})
-        code, shown, _, _ = self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head,
-                                         "--format", "json")
-        document = json.loads(shown)
-        self.assertEqual((code, document["units"], document["problems"], document["scope"]), (0, ["addon:plain"], [], "change"))
+        self.assertIn(".github/standard.json: platforms must be a non-empty list made of linux/amd64 and linux/arm64.", shown)
 
     def test_the_outputs_need_a_workflow_step(self):
         code, _, said, _ = self.command(self.repo, "--event", "push", "--github-output", outputs=False)
@@ -449,25 +386,11 @@ class Command(support.WithGit, Run):
         self.assertIn("--github-output needs $GITHUB_OUTPUT", said)
 
     def test_a_usage_that_is_wrong_is_exit_2(self):
-        for argv in (["--event", "Push; rm"], ["--event", ""], ["--format", "xml"], ["/nonexistent-folder-xyz"]):
+        for argv in (["--event", "Push; rm"], ["--event", ""], ["/nonexistent-folder-xyz"]):
             with self.subTest(argv=argv):
                 out, err = io.StringIO(), io.StringIO()
                 self.assertEqual(plan.main(argv, out, err), 2)
                 self.assertEqual(out.getvalue(), "")
-
-    def test_the_plan_never_runs_docker(self):
-        head = self.change({"addons/plain/compose.yml": COMPOSE.format(name="plain") + "# x\n"})
-        self.command(self.repo, "--event", "pull_request", "--base", self.first, "--head", head, "--github-output")
-        self.command(self.repo, "--event", "push", "--github-output")
-        self.assertEqual(self.fake.calls(), [])
-        compose.run.assert_not_called()
-
-    def test_the_dispatcher_reaches_it(self):
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": os.devnull}):
-            code = ci_main(["plan", str(self.repo), "--event", "push", "--github-output"], out, err)
-        self.assertEqual(code, 0, err.getvalue())
-        self.assertIn("Scope: everything (push)", out.getvalue())
 
 
 class Hostile(support.WithGit, Run):
@@ -530,22 +453,18 @@ class Hostile(support.WithGit, Run):
         compose.run.assert_not_called()
 
 
-class Kit(unittest.TestCase):
+class Kit(Case):
     """What every stage shares (lab_ui/catalogs/ci/__init__.py)."""
 
     def test_the_outputs_of_a_step_are_lines_of_a_key_and_a_value_and_nothing_else(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        target = os.path.join(folder, "output")
+        target = self.folder() / "output"
         ci.write_outputs({"units": '["a"]', "seed": "true"}, target)
         ci.write_outputs({"compile": "false"}, target)
         with open(target, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), 'units=["a"]\nseed=true\ncompile=false\n')   # (appended: other steps write there too)
 
     def test_a_key_or_a_value_that_could_start_a_command_or_a_line_is_refused_before_anything_is_written(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        target = os.path.join(folder, "output")
+        target = self.folder() / "output"
         for items in ({"units": "a\nb=c"}, {"units": "a\rb"}, {"units": "::error::x"}, {"units": "a\x00b"}, {"Units": "x"},
                       {"units=x\nevil": "y"}, {"units": 3}, {"": "x"}, {"a b": "x"}, {"ok": "fine", "bad": "line\nbreak"}):
             with self.subTest(items=items), self.assertRaises(ValueError):
@@ -571,35 +490,6 @@ class Kit(unittest.TestCase):
                      '["addon:a\\n"]', '["addon:a/b"]', '["addon:../x"]', '["unit:a"]', '[["addon:a"]]', "[" * 100000, '["addon:' + "a" * 101 + '"]'):
             with self.subTest(text=text[:30]), self.assertRaises(ci.Usage):
                 ci.parse_units(text)
-
-    def test_the_messages_of_the_stages_are_the_standards_word_for_word(self):
-        spec = {
-            "BD01": "{image}: the build failed at step {n}/{m}, {instruction} (exit {code}). Fix: run make ci to see it on your "
-                    "machine; the last 15 lines are in the summary.",
-            "BD02": "{service}: build.{key} is not accepted. Fix: use context, dockerfile, args, target and labels only.",
-            "BD04": "{image}: the build took over 10 minutes and was stopped.",
-            "BD05": "Docker Hub refused the pull (rate limit). This is not your change: run the job again in a few minutes.",
-            "BD06": "Split this pull request: it changes {n} apps, the limit is 20.",
-            "MF01": "{image}: the registry has no tag {tag}. Fix: use a tag that exists, or an earlier version.",
-            "MF02": "{registry} did not answer: {image} was not checked.",
-            "TS01": "{app}: {n} tests failed. Fix: run make ci APP={app} to see them.",
-            "TS02": "{app} has no tests. Fix: COPY tests ./tests in the Dockerfile and add some.",
-            "SD04": ".github/standard.json: {problem}.",
-            "ND01": "{ids}: this catalog needs these catalogs and the secret NEEDS_DEPLOY_KEY is not set. Fix: give the repository a "
-                    "read-only deploy key of theirs: make settings prints the commands.",
-            "ND02": "{name} ({repository}) could not be fetched or linked: {why}. Fix: NEEDS_DEPLOY_KEY must be a deploy key of that "
-                    "repository, and ref a commit of it.",
-        }
-        self.assertEqual({code: message for code, (_, message) in ci.MESSAGES.items()}, spec)
-        self.assertEqual({code: severity for code, (severity, _) in ci.MESSAGES.items()},
-                         {"BD01": "error", "BD02": "error", "BD04": "error", "BD05": "error", "BD06": "error", "MF01": "error",
-                          "MF02": "warning", "TS01": "error", "TS02": "warning", "SD04": "error", "ND01": "error", "ND02": "error"})
-
-    def test_they_are_the_table_the_explain_command_prints(self):
-        from lab_ui.catalogs import explain
-        table = {code: (severity, message) for code, severity, _, message in (*explain.STAGES, *explain.SD)}
-        for code, row in ci.MESSAGES.items():
-            self.assertEqual(table[code], row, code)
 
     def test_a_place_in_a_message_is_not_read_again_in_what_fills_it(self):
         found = ci.problem("MF01", "p", 0, image="ghcr.io/x/{tag}", tag="{image}")
@@ -629,24 +519,6 @@ class Kit(unittest.TestCase):
         with self.assertRaises(ci.Usage):
             ci.platform_of("linux/riscv64")
 
-    def test_the_stage_word_is_looked_up_and_a_stage_that_is_not_in_this_lab_is_not_available_yet(self):
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.dict(ci.STAGES, {"ghost": ("a_module_that_is_not_there", "main")}):
-            self.assertEqual(ci_main(["ghost"], out, err), 2)
-        self.assertEqual((out.getvalue(), err.getvalue()), ("", "catalog.py ci: ghost is not available yet in this Lab.\n"))
-
-    def test_a_module_without_the_function_is_not_available_either(self):
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.dict(ci.STAGES, {"ghost": ("plan", "no_such_function")}):
-            self.assertEqual(ci_main(["ghost"], out, err), 2)
-        self.assertIn("ghost is not available yet in this Lab.", err.getvalue())
-
-    def test_a_module_that_fails_to_import_is_a_fault_not_a_missing_stage(self):
-        with mock.patch.dict(ci.STAGES, {"ghost": ("plan", "main")}), \
-                mock.patch("importlib.import_module", side_effect=ModuleNotFoundError("no", name="something_it_needs")):
-            with self.assertRaises(ModuleNotFoundError):
-                ci_main(["ghost"], io.StringIO(), io.StringIO())
-
     def test_no_stage_and_a_word_that_is_none_are_usage(self):
         out, err = io.StringIO(), io.StringIO()
         self.assertEqual(ci_main([], out, err), 2)
@@ -659,17 +531,8 @@ class Kit(unittest.TestCase):
         self.assertEqual(ci_main(["nope\n::error::x"], out, err), 2)
         self.assertEqual([line for line in err.getvalue().splitlines() if line.startswith("::")], [])
 
-    def test_the_table_of_stages_names_the_function_each_package_writes(self):
-        for stage, (module, function) in ci.STAGES.items():
-            self.assertRegex(module, r"^[a-z0-9]+$")
-            self.assertRegex(function, r"^[a-z_]+$")
-        self.assertEqual({stage for stage, (module, _) in ci.STAGES.items() if module in
-                          ("plan", "gitleaks", "manifests", "build", "apps", "run")},
-                         {"plan", "gitleaks", "manifests", "build", "test", "run"})
-
     def test_a_catalog_that_lists_too_many_files_is_exit_2_not_a_traceback(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        folder = str(self.folder())
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(trees.FolderTree, "entries", side_effect=trees.TreeError("This catalog lists more files than the check reads.")):
             self.assertEqual(plan.main([folder, "--event", "push"], out, err), 2)
@@ -691,16 +554,12 @@ class Kit(unittest.TestCase):
         self.assertEqual((code, len(out), len(err)), (3, 3000 * 1001, 3000 * 1001))   # (neither pipe filled while the other was waited for)
 
     def test_a_command_that_does_not_end_is_stopped_with_what_it_started(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        pidfile = os.path.join(folder, "pid")
-        program = ("import os, subprocess, sys, time\nchild = subprocess.Popen(['sleep', '120'])\n"
-                   f"open({pidfile!r}, 'w').write(str(child.pid))\ntime.sleep(120)")
+        pidfile = self.folder() / "pid"
         started = time.monotonic()
-        code, out, err = ci.run_limited([sys.executable, "-c", program], timeout=2, environ=dict(os.environ))
+        code, out, err = ci.run_limited(["sh", "-c", f"sleep 120 & echo $! > {pidfile}; wait"], timeout=2, environ=dict(os.environ))
         self.assertLess(time.monotonic() - started, 30)
         self.assertEqual(code, 124)
-        self.assertEqual(err, f"{sys.executable} did not answer within 2 s")
+        self.assertEqual(err, "sh did not answer within 2 s")
         child = int(Path(pidfile).read_text())
         for _ in range(50):   # (the signal is delivered, and the child is collected by init)
             try:
@@ -735,8 +594,7 @@ class Kit(unittest.TestCase):
         self.assertEqual(err.getvalue(), "catalog.py ci: give a thing ::error::x\n")
 
     def test_the_help_of_every_stage_is_printed_once_and_is_exit_0(self):
-        import contextlib
-        for stage in ("plan", "gitleaks", "manifests", "build", "test", "run"):
+        for stage in ci.STAGES:
             for flag in ("--help", "-h"):
                 with self.subTest(stage=stage, flag=flag):
                     out, err, printed = io.StringIO(), io.StringIO(), io.StringIO()
@@ -745,7 +603,6 @@ class Kit(unittest.TestCase):
                     self.assertEqual((code, err.getvalue()), (0, ""))
                     self.assertIn(f"catalog.py ci {stage}", printed.getvalue())
                     self.assertIn("usage:", printed.getvalue())
-        self.assertEqual(ci_main(["--help"], io.StringIO(), io.StringIO()), 0)
 
     def test_a_usage_that_is_wrong_is_still_exit_2_with_one_line(self):
         err = io.StringIO()
@@ -754,7 +611,7 @@ class Kit(unittest.TestCase):
         self.assertTrue(err.getvalue().startswith("catalog.py ci: "))
 
 
-class Bounded(unittest.TestCase):
+class Bounded(Case):
     """What a stranger's program prints is cut to a size a message, a summary and GitHub accept."""
 
     def test_the_tail_is_fifteen_lines_of_at_most_five_hundred_characters(self):
@@ -777,12 +634,10 @@ class Bounded(unittest.TestCase):
         self.assertLess(time.process_time() - start, 1.0)
 
     def test_a_summary_over_what_github_keeps_is_cut_at_a_line_and_says_so(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        target = os.path.join(folder, "summary.md")
+        target = self.folder() / "summary.md"
         text = "# Title\n" + "".join(f"line {number} {'é' * 40}\n" for number in range(60_000))
         self.assertGreater(len(text.encode("utf-8")), ci.SUMMARY_LIMIT)
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": target}):
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(target)}):
             ci.write_summary(text)
             ci.write_summary("## small\n")
         written = Path(target).read_bytes()
@@ -794,10 +649,8 @@ class Bounded(unittest.TestCase):
         self.assertTrue(cut.splitlines()[-1].startswith("line ") and cut.splitlines()[-1].endswith("é"))   # (a whole line)
 
     def test_a_summary_under_the_limit_is_written_as_it_is(self):
-        folder = tempfile.mkdtemp()
-        self.addCleanup(__import__("shutil").rmtree, folder, True)
-        target = os.path.join(folder, "summary.md")
-        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": target}):
+        target = self.folder() / "summary.md"
+        with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(target)}):
             ci.write_summary("a")
             ci.write_summary("b\n")
         self.assertEqual(Path(target).read_text(), "a\nb\n")

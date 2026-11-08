@@ -1,9 +1,9 @@
 // Images: the version of every component and, for the Gravitee ones, the registry it comes from.
 // Changes are a draft until they are saved.
 
-import { $, esc, icon, setHTML, loading, ago, compareVersions, api, store, drafts, recall, remember, VARIANTS, ofPlatform } from "../core.js";
+import { $, esc, icon, setHTML, loading, ago, compareVersions, api, store, drafts, recall, remember, VARIANTS, ofPlatform, bareTag } from "../core.js";
 import { toast, emptyHtml, applyBadge, dockerDown, paintProgress, paintBusy, refocus, actionButton,
-  paintActions, statusHtml, noteBadge, progressBar, setOff, behindTip, behindWhy } from "../components/ui.js";
+  paintActions, statusHtml, noteBadge, progressBar, setOff } from "../components/ui.js";
 import { runJob, runPlatform, busy, confirmApply, savedOnly } from "../activity/jobs.js";
 import { Combo } from "../components/combo.js";
 
@@ -64,7 +64,7 @@ function set(key, value) {
 }
 
 // The section a component is listed in: the Gravitee ones of a group of the platform (the add-on's gateway too, it is a
-// gateway of its group), what the platform's own add-ons run, and the rest, which is not Gravitee's (the databases, Kafka, a playground's)
+// gateway of its group), what the platform's own add-ons run, and the rest, which is not Gravitee's (the databases, Kazoo, a playground's)
 const sectionOf = (c) => (c.kind === "gravitee" && c.group ? "platform" : ofPlatform(store.item("addon", c.owner.id)) && c.owner.kind === "addon" ? "addons" : "third");
 
 const dirty = () => Object.keys(draft).length > 0;
@@ -118,12 +118,11 @@ async function tagsOf(c) {
   return tags[key];
 }
 
-// A tag's variant (the system its image is built on, "default" for none), the tag without it, and what kind of tag
-// it is: one that moves (latest, 4.9), a release (4.9.2), or a build
+// A tag's variant (the system its image is built on, "default" for none), and what kind of tag it is: one that moves
+// (latest, 4.9), a release (4.9.2), or a build
 const variantOf = (tag) => VARIANTS.find((v) => tag.endsWith(`-${v}`)) || "default";
-const baseOf = (tag) => { const v = variantOf(tag); return v === "default" ? tag : tag.slice(0, -(v.length + 1)); };
 function kindOf(tag) {
-  const base = baseOf(tag);
+  const base = bareTag(tag);
   if (/latest/.test(base) || /^\d+(\.\d+)?$/.test(base)) return "moving";
   if (/^v?\d+\.\d+\.\d+/.test(base)) return "release";
   return "build";
@@ -170,7 +169,7 @@ function status(c) {
   else {
     // What runs behind, also a container that keeps restarting on the image it runs: the badge says which tag runs, so that
     // what follows it keeps only what it does not say
-    html = (behind(c) ? applyBadge(reasonOf(c), "pill warn", causesOf(c)) : !c.running.length ? statusHtml("stopped", "Stopped", { quiet: true })
+    html = (behind(c) ? applyBadge(reasonOf(c), causesOf(c)) : !c.running.length ? statusHtml("stopped", "Stopped", { quiet: true })
       : statusHtml("running", "Running")) + (c.outside ? noteBadge(c.outside) : "");
   }
   return `<div class="list-state">${html}</div>`;
@@ -336,7 +335,7 @@ function pickTag(button, c) {
       return [
         { label: "Same as", items: follows.filter((it) => it.name.toLowerCase().includes(q)) },
         group("Moving tags", kind("moving"), newest),
-        group("Releases", kind("release"), (a, b) => compareVersions(baseOf(a.name), baseOf(b.name))),
+        group("Releases", kind("release"), (a, b) => compareVersions(bareTag(a.name), bareTag(b.name))),
         group("Builds", kind("build"), newest),
       ];
     },
@@ -384,9 +383,9 @@ function refocusField(c, field) {
 
 // A component that is on takes its images from Azure, the draft's registry included: a login is needed to pull them.
 // The server names the registry for any Azure one in the files, a default or what is off too. What is saved is the
-// server's to say (`azure_in_use`) when it does; a draft is only known here.
+// server's to say (`azure_in_use`); a draft is only known here.
 const AZURE = /\.azurecr\.io$/;
-const azureInUse = () => (!dirty() && typeof images.azure_in_use === "boolean" ? images.azure_in_use
+const azureInUse = () => (!dirty() ? images.azure_in_use
   : images.components.some((c) => c.enabled && AZURE.test((regOf(c) || "").split("/")[0])));
 
 // The registry that asks for a login, with its state and its button; nothing while no component that is on uses it

@@ -1,8 +1,7 @@
 # Run with `make lint` (`make setup` installs ruff).
-# Ruff already skips .venv, node_modules and what .gitignore lists; the personal folders are named for a fresh clone too.
+# Ruff already skips .venv and what .gitignore lists.
 line-length = 120
 target-version = "py39"
-extend-exclude = ["addons/local", "setups/local", "playgrounds/local"]
 
 # The Lab UI runs on Python 3.9 or later; the seeder's dependencies need 3.10
 [per-file-target-version]

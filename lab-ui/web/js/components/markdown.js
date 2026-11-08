@@ -1,8 +1,8 @@
 // Markdown as the page shows it: rendered and sanitized, its links opening next to the lab, its action links
-// (`[Ask Ace](action:ask-ace)`) drawn as buttons, its account links (`[Maya](account:maya.chen)`) drawn as the sign-in with copy
+// (`[Ask Pip](action:ask-pip)`) drawn as buttons, its account links (`[Nora](account:nora.pine)`) drawn as the sign-in with copy
 // buttons, and its blocks to run (```bash run) given a Run button. A playground's guide on its page and in the editor's preview.
 
-import { credHtml, esc, icon, loadScript } from "../core.js";
+import { credHtml, esc, icon, loadScript, withoutDefine } from "../core.js";
 import { actionOf, isLook } from "../workspace/split.js";
 
 // The user name of an account link, `account:<username>`, as a playground's `accounts` write it; null for any other address
@@ -22,23 +22,15 @@ const MERMAID = "https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.15.0/mermaid.
 const MERMAID_HASH = "sha384-yQ4mmBBT+vhTAwjFH0toJXNYJ6O4usWnt6EPIdWwrRvx2V/n5lXuDZQwQFeSFydF";
 
 // What a guide cannot carry besides what DOMPurify removes already: a form (it could send what is typed in it anywhere), a style
-// (it could cover the page), and the `data-action` that only an action link, once sanitized, is given (withActions)
-const SANITIZE = { FORBID_TAGS: ["form"], FORBID_ATTR: ["data-action", "style", "formaction"] };
+// (it could cover the page), and any data-* attribute: the page's own handlers answer them, so a guide's could press its controls
+const SANITIZE = { FORBID_TAGS: ["form"], FORBID_ATTR: ["style", "formaction"], ALLOW_DATA_ATTR: false };
 
 let libs = null;      // the two libraries, loaded once
 let diagrams = null;  // Mermaid, loaded once a text has a diagram
 let drawn = 0;        // the diagrams drawn so far: each has its own id
 
-// The two libraries give globals. Once the editor has been opened, its loader offers `define` to every script and
-// they would register with it instead: it is put aside while they load.
 async function loadLibs() {
-  const define = window.define;
-  if (define) window.define = undefined;
-  try {
-    await Promise.all([loadScript(MARKED, MARKED_HASH), loadScript(PURIFY, PURIFY_HASH)]);
-  } finally {
-    if (define) window.define = define;
-  }
+  await withoutDefine(() => Promise.all([loadScript(MARKED, MARKED_HASH), loadScript(PURIFY, PURIFY_HASH)]));
   marked.use({ renderer: { code: runBlock } });
   DOMPurify.addHook("afterSanitizeAttributes", (n) => {
     if (n.tagName === "A") { n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener"); }
@@ -51,16 +43,10 @@ async function loadLibs() {
   });
 }
 
-// The same loader dance as loadLibs. Its colors are the page's, set in its stylesheet: they follow the theme; its
-// text is measured in the page's font. Strict: a label is text, never HTML or a link that runs code.
+// Its colors are the page's, set in its stylesheet: they follow the theme; its text is measured in the page's font. Strict: a label is
+// text, never HTML or a link that runs code.
 async function loadMermaid() {
-  const define = window.define;
-  if (define) window.define = undefined;
-  try {
-    await loadScript(MERMAID, MERMAID_HASH);
-  } finally {
-    if (define) window.define = define;
-  }
+  await withoutDefine(() => loadScript(MERMAID, MERMAID_HASH));
   mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "base",
     fontFamily: getComputedStyle(document.body).fontFamily });
 }

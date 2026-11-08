@@ -40,11 +40,10 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urljoin, urlsplit
 
 from .. import report, tree as trees
-from ..report import WARNING, Problem
-from ..rules import guides, newlines, read_limit, say
-from . import Unavailable, Usage, conclude, entry, parsed, parser
+from ..report import Problem
+from ..rules import guides, line_of, newlines, read_limit
+from . import Unavailable, conclude, entry, parsed, parser, problem
 
-MESSAGE = "{path}:{line}: the link {url} answers {status}."
 TIMEOUT = 15            # seconds a host has to answer
 HOPS = 5                # redirects followed
 MAX_LINKS = 2000        # addresses asked, whatever the catalog holds
@@ -232,7 +231,7 @@ def links_of(path: str, text: str) -> List[Link]:
         url = clean(match.group())
         if not wanted(url):
             continue
-        line = _line_of(offsets, match.start())
+        line = line_of(offsets, match.start())
         if (line, url) in seen:
             continue
         seen.add((line, url))
@@ -240,18 +239,6 @@ def links_of(path: str, text: str) -> List[Link]:
         if len(found) >= MAX_PER_FILE:
             break
     return found
-
-
-def _line_of(offsets: Sequence[int], position: int) -> int:
-    """The line (from 1) of an offset, given the offsets of the line feeds."""
-    low, high = 0, len(offsets)
-    while low < high:
-        middle = (low + high) // 2
-        if offsets[middle] < position:
-            low = middle + 1
-        else:
-            high = middle
-    return low + 1
 
 
 def markdown_links(tree) -> List[Link]:
@@ -322,8 +309,7 @@ def findings(links: Sequence[Link], answers: Dict[str, Optional[Answer]]) -> Lis
         if said is None:
             continue
         shown = report.printable(link.url if len(link.url) <= SHOWN else link.url[:SHOWN - 1] + "…")
-        found.append(Problem("LK01", WARNING, link.path, link.line,
-                             say(MESSAGE, path=report.printable(link.path), line=link.line, url=shown, status=said)))
+        found.append(problem("LK01", link.path, link.line, path=report.printable(link.path), line=link.line, url=shown, status=said))
     return found
 
 
@@ -348,8 +334,6 @@ def main(argv, out, err, **seams) -> int:
     """`ci links`. Exit 0 whatever LK01 found (they are warnings), 2 when the links could not be asked at all."""
     found = parser("links", "The links of the guides and the READMEs answer.")
     args = parsed(found, argv)
-    if not os.path.isdir(args.path):
-        raise Usage(f"{report.printable(args.path)} is not a folder")
     tree = seams.get("tree") or trees.FolderTree(os.path.abspath(args.path))
     links = markdown_links(tree)
     urls = list(dict.fromkeys(link.url for link in links))
@@ -368,11 +352,6 @@ def main(argv, out, err, **seams) -> int:
         skipped.append(f"{total['left']} addresses were not asked: the ten minutes of the run were up")
     if total["private"]:
         skipped.append(f"{total['private']} addresses are not on the public network and were not asked")
-    if args.format != "json":
-        out.write(f"Links: {total['addresses']} addresses in {len({link.path for link in links})} files, "
-                  f"{total['broken']} that do not answer\n")
-    return conclude("links", problems, args, out, "catalog.py ci links", skipped, title="The links of the guides answer")
-
-
-__all__ = ["Answer", "Fetcher", "Link", "MESSAGE", "ask_all", "broken", "clean", "findings", "is_public", "links_of", "main",
-           "markdown_links", "no_network", "reserved", "wanted"]
+    out.write(f"Links: {total['addresses']} addresses in {len({link.path for link in links})} files, "
+              f"{total['broken']} that do not answer\n")
+    return conclude(problems, args, out, "catalog.py ci links", skipped, title="The links of the guides answer")

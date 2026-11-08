@@ -36,11 +36,6 @@ class FolderTrees(WithGit):
         self.assertNotIn(".git", found)
         self.assertEqual(sorted(found), list(found), "the entries are sorted")
 
-    def test_an_untracked_file_is_left_out_when_asked(self):
-        repo = self.work(files={"README.md": "hi\n"})
-        self.put(repo, "new.txt", "x\n")
-        self.assertEqual(["README.md"], [each.path for each in tree.FolderTree(repo, untracked=False).entries()])
-
     def test_a_file_the_index_has_and_the_disk_lost_is_not_an_entry(self):
         repo = self.work(files={"a.txt": "a\n", "b.txt": "b\n"})
         (repo / "b.txt").unlink()
@@ -115,7 +110,7 @@ class FolderTrees(WithGit):
         history.commits()
         list(history.added())
         tree.default_base(repo)
-        tree.head_of(repo)
+        tree.resolve(repo, "HEAD")
         self.assertEqual(before, sha_of(repo))
 
     def test_nothing_of_the_repository_runs_to_list_it(self):
@@ -244,9 +239,9 @@ class GitTrees(WithGit):
 
 class ListTrees(unittest.TestCase):
 
-    def test_entries_of_the_stores_listing_or_of_tuples_or_of_this_module(self):
+    def test_entries_of_tuples_or_of_this_module(self):
         held = {"a.txt": b"alpha", "b/c.txt": b"gamma"}
-        entries = [store.Entry("100644", "0" * 40, 5, "a.txt"), tree.Entry("100755", "b/c.txt", 5), ("120000", "l", 1)]
+        entries = [("100644", "a.txt", 5), tree.Entry("100755", "b/c.txt", 5), ("120000", "l", 1)]
         listing = tree.ListTree(entries, lambda path, limit: held.get(path))
         self.assertEqual([tree.Entry("100644", "a.txt", 5), tree.Entry("100755", "b/c.txt", 5), tree.Entry("120000", "l", 1)],
                          listing.entries())
@@ -254,16 +249,6 @@ class ListTrees(unittest.TestCase):
         self.assertEqual(b"al", listing.read("a.txt", 2))
         self.assertIsNone(listing.read("l"), "a link is not read")
         self.assertIsNone(listing.read("missing"))
-
-    def test_a_reader_of_the_path_alone_works_too(self):
-        listing = tree.ListTree([("100644", "a.txt", 1)], {"a.txt": "alpha"}.get)
-        self.assertEqual(b"alpha", listing.read("a.txt"), "a text is read as its bytes")
-        listing = tree.ListTree([("100644", "a.txt", 1)], lambda path: b"x")
-        self.assertEqual(b"x", listing.read("a.txt"))
-
-    def test_a_reader_that_answers_anything_but_content_read_nothing(self):
-        listing = tree.ListTree([("100644", "a.txt", 1)], lambda path, limit: 12345)
-        self.assertIsNone(listing.read("a.txt"))
 
     def test_files_held_in_memory(self):
         listing = tree.ListTree.from_files({"a.txt": "alpha", "run": ("100755", b"#!/bin/sh\n"), "l": ("120000", "a.txt")})
@@ -372,7 +357,8 @@ class Histories(WithGit):
 
     def test_a_history_over_the_limit_is_said(self):
         repo = self.history_repo()
-        history = tree.History(repo, None, limit=100)
+        self.patch(tree, "LOG_LIMIT", 100)
+        history = tree.History(repo)
         self.assertEqual([], list(history.added()))
         self.assertIn("too large", history.note)
 
@@ -388,7 +374,6 @@ class Histories(WithGit):
         self.assertIsNone(tree.default_base(repo), "no origin/main")
         self.git(repo, "update-ref", "refs/remotes/origin/main", self.base)
         self.assertEqual(self.base, tree.default_base(repo))
-        self.assertEqual(self.third, tree.head_of(repo))
         self.assertTrue(tree.is_repository(repo))
         self.assertFalse(tree.is_repository(self.holder))
 
@@ -417,7 +402,7 @@ class Histories(WithGit):
         self.assertTrue((linked / ".git").is_file(), "a linked work tree has a file where a clone has a folder")
         where = tree.git_dir_of(linked)
         self.assertEqual(os.path.realpath(repo / ".git" / "worktrees" / "linked"), os.path.realpath(where))
-        self.assertEqual(self.third, tree.head_of(linked))
+        self.assertEqual(self.third, tree.resolve(linked, "HEAD"))
         listing = tree.GitTree(where, self.base)
         self.assertEqual(["a.txt", "docs/b.md"], [each.path for each in listing.entries()])
         self.assertEqual(b"one\ntwo\nthree\n", listing.read("a.txt"), "the objects are the repository's, found from the linked git directory")
@@ -425,7 +410,7 @@ class Histories(WithGit):
 
     def test_an_empty_repository_has_no_head(self):
         repo = self.work(commit=False)
-        self.assertIsNone(tree.head_of(repo))
+        self.assertIsNone(tree.resolve(repo, "HEAD"))
         self.assertIsNone(tree.default_base(repo))
 
     def test_a_bare_repository_is_read_by_its_git_directory(self):

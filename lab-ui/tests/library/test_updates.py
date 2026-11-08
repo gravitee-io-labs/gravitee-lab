@@ -13,7 +13,7 @@ from unittest import mock
 
 from lab_ui import paths
 from lab_ui.catalogs.registry import CatalogError
-from lab_ui.docker import jobs
+from lab_ui.docker import compose, jobs
 from lab_ui.library import updates
 
 from .. import Case
@@ -53,6 +53,7 @@ class Versions(Case):
         self.lab = self.top / "lab"
         git(self.top, "clone", "-q", str(self.remote), str(self.lab))
         self.patch(paths, "ROOT", self.lab)
+        self.patch(compose, "ROOT", self.lab)   # where a job runs its commands: never the clone these tests run from
         updates.forget()
         self.addCleanup(updates.forget)
         self.patch(updates, "_checked", {"at": None, "error": None, "checking": False})
@@ -114,7 +115,7 @@ class Versions(Case):
         self.patch(paths, "ROOT", self.top / "nowhere")
         updates.forget()
         self.assertEqual(updates.describe()["version"], None)
-        self.assertEqual(updates.blocked(), "This Lab is not a Git clone. Download the new version from GitHub")
+        self.assertEqual(updates._held(updates._local(), "v1.1.0"), "This Lab is not a Git clone. Download the new version from GitHub")
 
     def test_each_version_says_what_it_changed_newest_first_with_the_number_of_its_pull_request(self):
         self.at("v1.0.0")
@@ -172,23 +173,19 @@ class Versions(Case):
         started = []
         self.patch(updates, "restart", lambda: started.append(True))
         self.patch(updates, "_loads", lambda: None)   # the new code starts: this repository holds no Lab UI to load
+        self.patch(updates.threading, "Timer", lambda delay, function: mock.Mock(start=function))
         self.patch(jobs, "JOBS", jobs.Jobs())
-        job = updates.update("1.1.0")
-        for _ in range(100):
-            if job.done:
-                break
-            time.sleep(0.05)
+        job = self.finished(updates.update("1.1.0"))
         self.assertTrue(job.ok, job.lines)
         self.assertEqual(job.title, "Update Gravitee Lab to 1.1.0")
         self.assertEqual(git(self.lab, "describe", "--tags"), "v1.1.0")
         self.assertEqual(git(self.lab, "branch", "--show-current"), "main")
         if shutil.which("make"):   # this Lab has no Makefile: what init could not make is said, and the Lab UI starts again anyway
             self.assertTrue(any(line.startswith("make init failed") for line in job.lines), job.lines)
-        time.sleep(1.8)   # the new start comes once the job said it is over
         self.assertEqual(started, [True])
 
     def finished(self, job):
-        for _ in range(100):
+        for _ in range(1200):   # a real git on a loaded machine: it costs nothing once the job ends
             if job.done:
                 return job
             time.sleep(0.05)
@@ -200,13 +197,13 @@ class Versions(Case):
         started = []
         self.patch(updates, "restart", lambda: started.append(True))
         self.patch(updates, "_loads", lambda: "SyntaxError: invalid syntax")
+        self.patch(updates.threading, "Timer", lambda delay, function: mock.Mock(start=function))
         self.patch(jobs, "JOBS", jobs.Jobs())
         job = self.finished(updates.update("1.1.0"))
         self.assertFalse(job.ok)
         self.assertIn("Gravitee Lab 1.1.0 does not start on this machine: SyntaxError: invalid syntax. This Lab stays as it was",
                       job.lines[-1])
         self.assertEqual((git(self.lab, "rev-parse", "HEAD"), git(self.lab, "branch", "--show-current")), (before, "main"))
-        time.sleep(1.8)
         self.assertEqual(started, [], "the Lab UI that runs is not replaced")
 
     def test_the_new_code_is_loaded_by_its_own_server_before_the_lab_ui_starts_on_it(self):

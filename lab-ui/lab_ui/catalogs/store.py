@@ -1,5 +1,5 @@
 """The bare git store of a catalog (`.lab/cache/git/<ns>.git`) and the pure filter of what is installed from it. A store
-holds objects, the refs `refs/lab/tip`, `pin` and `previous`, the release tags of the remote as `refs/lab/releases/v*`, and the
+holds objects, the ref `refs/lab/tip`, the release tags of the remote as `refs/lab/releases/v*`, and the
 file a fetch locks (`lab-fetch.flock`); it has
 no working tree, no hooks and no automatic garbage collection, and is disposable (a fetch makes it again). `rejections`
 is as a pure function of a listing: it decides, from modes, names and sizes alone, which files of a
@@ -14,14 +14,13 @@ import hashlib
 import os
 import re
 import shutil
-import threading
 import time
-import unicodedata
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
 from . import gitx
 from .gitx import CatalogError, fail
+from .registry import shown
 
 MIB = 1024 * 1024
 # A store over this size is removed and the catalog refused (the fetch is stopped as soon as it is known)
@@ -56,16 +55,12 @@ LISTINGS = tuple(f"{folder}/{name}" for folder in AREAS for name in GUIDES)
 REGULAR = ("100644", "100755")
 
 _SEGMENT = re.compile(r"[A-Za-z0-9._+-]+")
-_NAME = re.compile(r"[a-z0-9-]+")
+_NAME = re.compile(r"(?!local\Z)[a-z0-9-]+")   # `local` would read as the items of this machine
 _SHA = re.compile(r"[0-9a-f]{40}")
 _REF = re.compile(r"refs/lab/[a-z][a-z0-9-]*")
-_SHORT = re.compile(r"tip|pin|previous")
 _PATHSPEC = re.compile(r"[A-Za-z0-9._+/-]+")
 # Where a fetch keeps the remote's tags that may be releases (`v*`), and the name of a release tag: three numbers, no sign
 RELEASES = "refs/lab/releases/"
-# The tip as of the last fetch that brought the release tags too: a store a Lab fetched before it read releases has none, and does
-# not say yet whether the catalog has any
-RELEASES_READ = "refs/lab/releases-read"
 _RELEASE = re.compile(r"v([0-9]{1,9})\.([0-9]{1,9})\.([0-9]{1,9})")
 _RECORD = re.compile(rb"(\d{6}) (?:blob|commit|tree) ([0-9a-f]{40}) +(-|\d+)\t(.*)", re.S)
 _PROGRESS = re.compile(r"(?:Receiving|Unpacking) objects:\s+(\d+)%")
@@ -96,8 +91,6 @@ class _TooBig(Exception):
 
 # The file in a store that a fetch holds a lock on (`flock`). Not a `*.lock`: `clean` removes those
 FETCH_LOCK = "lab-fetch.flock"
-_FETCHING = {}
-_FETCHING_LOCK = threading.Lock()
 
 
 def _dir(store) -> str:
@@ -111,9 +104,8 @@ def _sha(value) -> str:
 
 
 def _ref(value) -> str:
-    """A reference of the lab, `refs/lab/<name>` or one of `tip`, `pin` and `previous` alone, as `refs/lab/<name>`."""
-    if isinstance(value, str) and _SHORT.fullmatch(value):
-        value = f"refs/lab/{value}"
+    """A reference of the lab, `refs/lab/<name>` or `tip` alone, as `refs/lab/<name>`."""
+    value = "refs/lab/tip" if value == "tip" else value
     if isinstance(value, str) and _REF.fullmatch(value):
         return value
     raise ValueError(f"not a reference of the lab: {value!r}")
@@ -227,7 +219,7 @@ def _flock(store, deadline, address):
     path = os.path.join(store, FETCH_LOCK)
     while True:
         os.makedirs(store, exist_ok=True)
-        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         keep = False
         try:
             while True:
@@ -239,7 +231,7 @@ def _flock(store, deadline, address):
                         raise fail("timeout", address) from None
                     time.sleep(0.05)
                 except OSError:
-                    return None   # a file system that cannot lock: the lock of this process is all there is
+                    return None   # a file system that cannot lock: a fetch that meets another fails, and is tried again
             try:
                 keep = os.stat(path).st_ino == os.fstat(descriptor).st_ino
             except OSError:
@@ -256,28 +248,20 @@ def _exclusive(store, wait, address=None):
     """One fetch at a time into a store, for up to `wait` seconds of waiting, then `timeout`. Two fetches into one store
     at the same time fail one of them (`cannot lock ref refs/lab/tip`) when the remote has news, and the second one
     cleans up what the first is writing. The network steps of the Lab hold no other lock, so a check in the
-    background and a Check again by hand can meet: they take turns, here for the threads of this process and by `flock`
-    for the other processes (the command line)."""
-    key = os.path.realpath(str(store))
-    with _FETCHING_LOCK:
-        turn = _FETCHING.setdefault(key, threading.Lock())
-    deadline = time.monotonic() + max(wait, 0)
-    if not turn.acquire(timeout=max(wait, 0)):
-        raise fail("timeout", address)
-    descriptor = None
+    background and a Check again by hand can meet: they take turns by `flock`, which two descriptors of one process wait on
+    as two processes do (the command line)."""
+    descriptor = _flock(str(store), time.monotonic() + max(wait, 0), address)
     try:
-        descriptor = _flock(str(store), deadline, address)
         yield
     finally:
         if descriptor is not None:
             os.close(descriptor)
-        turn.release()
 
 
 def fetch(address: gitx.Address, branch: Optional[str], store, stall: float = 30, cap: float = 600,
-          progress: Optional[Callable[[float], None]] = None, releases: bool = True) -> str:
+          progress: Optional[Callable[[float], None]] = None) -> str:
     """Fetches `branch` (the remote's HEAD when None, or an empty text: `gitx.asked_branch`) into the store as
-    `refs/lab/tip` and answers the sha of the tip. With `releases`, the remote's tags that start with `v` come too, as
+    `refs/lab/tip` and answers the sha of the tip. The remote's tags that start with `v` come too, as
     `refs/lab/releases/<tag>`: forced, so a tag the owners moved is the remote's again (the caller compares it with the commit
     it remembers, `release_commit`), and pruned, so a deleted tag goes. They never become tags of the store (`--no-tags`): a
     tag is a name the remote may move, and the Lab installs commits. Every object is checked (fsck); submodules and hooks are
@@ -291,10 +275,10 @@ def fetch(address: gitx.Address, branch: Optional[str], store, stall: float = 30
     source = "HEAD" if branch is None else f"refs/heads/{branch}"
     store = Path(_dir(store))
     with _exclusive(store, cap + stall, address):
-        return _fetch(address, source, store, stall, cap, progress, releases)
+        return _fetch(address, source, store, stall, cap, progress)
 
 
-def _fetch(address, source, store, stall, cap, progress, releases=True):
+def _fetch(address, source, store, stall, cap, progress):
     fresh = not (store / "HEAD").exists()
     if fresh:
         init(store)
@@ -304,7 +288,7 @@ def _fetch(address, source, store, stall, cap, progress, releases=True):
     args = ["--git-dir", str(store), "-c", "transfer.fsckObjects=true", "-c", "fetch.fsckObjects=true",
             "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
             "fetch", "--progress", "--no-tags", "--prune", "--no-recurse-submodules", "--",
-            address.url, f"+{source}:refs/lab/tip"] + ([f"+refs/tags/v*:{RELEASES}v*"] if releases else [])
+            address.url, f"+{source}:refs/lab/tip", f"+refs/tags/v*:{RELEASES}v*"]
     try:
         result = gitx.stream(args, env=gitx.address_env(address), stall=stall, cap=cap, on_stderr=download.feed)
         if result.code != 0:
@@ -321,27 +305,9 @@ def _fetch(address, source, store, stall, cap, progress, releases=True):
         if fresh:
             shutil.rmtree(store, ignore_errors=True)
         raise
-    if releases:
-        set_ref(store, RELEASES_READ, tip)
     if progress and download.fraction < 1.0:
         progress(1.0)
     return tip
-
-
-def releases_read(store) -> bool:
-    """Whether a fetch brought the release tags of the remote into this store (`RELEASES_READ`): without one, the store does not
-    say whether the catalog makes releases."""
-    return resolve(store, RELEASES_READ) is not None
-
-
-def set_ref(store, name: str, commit: Optional[str]) -> None:
-    """Points a reference of the lab (`refs/lab/tip`, `refs/lab/pin`, `refs/lab/previous`; `tip`, `pin` and `previous`
-    are taken as those) at a commit the store holds; None deletes it."""
-    name = _ref(name)
-    if commit is None:
-        _git(store, "update-ref", "-d", name)
-    else:
-        _git(store, "update-ref", name, _sha(commit))
 
 
 def resolve(store, name: str) -> Optional[str]:
@@ -349,11 +315,6 @@ def resolve(store, name: str) -> Optional[str]:
     result = _run(store, "rev-parse", "--verify", "--quiet", f"{_rev(name)}^{{commit}}")
     sha = result.out.decode("utf-8", "replace").strip()
     return sha if result.code == 0 and _SHA.fullmatch(sha) else None
-
-
-def has(store, oid: str) -> bool:
-    """Whether the store holds an object."""
-    return _run(store, "cat-file", "-e", _sha(oid)).code == 0
 
 
 def roots(store, commit: str) -> List[str]:
@@ -702,12 +663,6 @@ def release_commit(store, version: str) -> Optional[str]:
     return sha if result.code == 0 and _SHA.fullmatch(sha) else None
 
 
-def touching(store, tip: str, path: str, limit: int = 50) -> List[str]:
-    """The commits, newest first and following first parents, that changed `path`, as `git log --first-parent` lists
-    them: where a file such as `catalog.yml` took each of its forms."""
-    return [commit for commit, _ in changes(store, tip, [path], limit)]
-
-
 def changes(store, tip: str, paths: Iterable[str], limit: int = 50, since: Optional[str] = None) -> List[Tuple[str, Optional[str]]]:
     """[(commit, its first parent or None)] of the commits, newest first and following first parents, that changed one of
     `paths`, in one `git log --first-parent`. `since`: only the commits after that one, which is left out with what came
@@ -742,10 +697,6 @@ def read(store, commit: str, path: str, limit: int = MIB) -> Optional[bytes]:
     return _git(store, "cat-file", "blob", match.group(2).decode(), limit=limit + 1).out
 
 
-def _clip(text: str, length: int) -> str:
-    return text if len(text) <= length else text[:length - 1].rstrip() + "…"
-
-
 def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5) -> List[str]:
     """The subjects of the commits from `old` (not included; None for all) to `new` that touched `folders`, newest
     first, merges left out, those that start with `Bump `, `Merge ` or `Revert ` dropped (dependency bots and merge
@@ -757,11 +708,9 @@ def log(store, old: Optional[str], new: str, folders: List[str], limit: int = 5)
     out = _git(store, "log", "--no-merges", "--max-count=200", "--format=%s", span, "--", *paths).out
     subjects = []
     for line in out.decode("utf-8", "replace").splitlines():
-        text = " ".join("".join(" " if unicodedata.category(c) == "Cc" else c for c in line
-                                if unicodedata.category(c) != "Cf").split())
-        text = re.sub(r"\s*\(#\d+\)$", "", text)
+        text = shown(re.sub(r"\s*\(#\d+\)\s*$", "", line), 160)
         if text and not re.match(r"(Bump|Merge|Revert) ", text):
-            subjects.append(_clip(text, 160))
+            subjects.append(text)
         if len(subjects) >= limit:
             break
     return subjects

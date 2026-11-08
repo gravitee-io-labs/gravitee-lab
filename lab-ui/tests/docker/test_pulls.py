@@ -121,9 +121,9 @@ class Command(unittest.TestCase):
     def test_what_an_up_brings_with_it_is_pulled_too(self):
         # Without --no-deps the up starts what its services need: their images are pulled as well. A file called up
         # is not the command
-        up = [*compose.COMPOSE, "-f", "up", "up", "-d", "kafka"]
+        up = [*compose.COMPOSE, "-f", "up", "up", "-d", "kazoo"]
         self.assertEqual(jobs._pull_before(up), [*compose.COMPOSE, "-f", "up", "pull", "--policy", "missing",
-                                                 "--ignore-buildable", "--ignore-pull-failures", "--include-deps", "kafka"])
+                                                 "--ignore-buildable", "--ignore-pull-failures", "--include-deps", "kazoo"])
         self.assertEqual(jobs._pull_before([*compose.COMPOSE, "up", "-d"]),
                          [*compose.COMPOSE, "pull", "--policy", "missing", "--ignore-buildable",
                           "--ignore-pull-failures"])
@@ -145,7 +145,7 @@ class Run(unittest.TestCase):
             started.append(started_cmd)
             return mock.Mock(stdout=iter(line + "\n" for line in next(printed)), wait=lambda: code, returncode=code)
         job = Job("Start the stack", [cmd], key="platform", verb="start", waits=waits)
-        with mock.patch.object(jobs.subprocess, "Popen", command):
+        with mock.patch.object(jobs.compose.subprocess, "Popen", command):
             job.run()
         return job, started
 
@@ -170,7 +170,7 @@ class Run(unittest.TestCase):
                     yield json.dumps(event) + "\n"
                     seen.append(job.progress)
             return mock.Mock(stdout=lines(), wait=lambda: 0, returncode=0)
-        with mock.patch.object(jobs.subprocess, "Popen", command):
+        with mock.patch.object(jobs.compose.subprocess, "Popen", command):
             job.run()
         self.assertEqual(seen[3], 0.225)   # a quarter of the bytes
         self.assertEqual(seen[8], 0.9)   # all downloaded, not yet pulled
@@ -223,7 +223,7 @@ class Run(unittest.TestCase):
                 ended.wait(10)
             return mock.Mock(stdout=lines(), wait=lambda: -15, returncode=-15, poll=lambda: -15 if ended.is_set() else None)
         job = Job("Start the stack", [UP], key="platform", verb="start")
-        with mock.patch.object(jobs.subprocess, "Popen", command), mock.patch.multiple(jobs, SILENT=0.2, WATCH=0.02), \
+        with mock.patch.object(jobs.compose.subprocess, "Popen", command), mock.patch.multiple(jobs, SILENT=0.2, WATCH=0.02), \
                 mock.patch.object(jobs.compose, "end", side_effect=lambda process: ended.set()):
             job.run()
         self.assertEqual((len(started), job.ok), (1, False))
@@ -267,6 +267,6 @@ class Run(unittest.TestCase):
             job.cancel()
             return mock.Mock(stdout=iter([]), wait=lambda: 0, returncode=0, poll=lambda: 0)
         job = Job("Start the stack", [UP], key="platform", verb="start")
-        with mock.patch.object(jobs.subprocess, "Popen", command):
+        with mock.patch.object(jobs.compose.subprocess, "Popen", command):
             job.run()
         self.assertEqual((len(printed), job.ok, job.error()), (1, False, "Canceled"))

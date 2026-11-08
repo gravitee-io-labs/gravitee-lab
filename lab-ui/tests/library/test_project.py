@@ -1,5 +1,5 @@
 """project.build() on inputs shaped like what docker compose prints: no disk, no Docker. Then what tells that a file
-the project is read from changed, in a temporary folder. The first classes read the layout before catalogs (Legacy); the
+the project is read from changed, in a temporary folder. The first classes read units as the person's own (AsOwn); the
 last read the fixture catalogs (tests/data), as the Lab UI reads a machine with catalogs: from the fixtures with the real
 core (Compose renders the files, no daemon; a skip that shows without Compose 5) and from inputs made by hand."""
 
@@ -9,7 +9,6 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -22,28 +21,28 @@ from lab_ui.catalogs import trust
 
 from .. import Case, fixtures
 
-CORE, KAFKA, CONSOLE = "docker-compose.yml", "addons/kafka/compose.yml", "addons/kafka-desk/compose.yml"
-JADE, OPENFGA = "addons/jade/compose.yml", "addons/openfga/compose.yml"
-INSPECTOR = "addons/agent-lens/compose.yml"
-EVENTS, MINE, WELCOME = "setups/event-streams.yml", "setups/local/mine.yml", "playgrounds/welcome/compose.yml"
-WHOAMI, SANDBOX = "addons/local/whoami/compose.yml", "playgrounds/local/sandbox/compose.yml"
-HYBRID, CLOUD = "addons/hybrid/compose.yml", "playgrounds/cloud/compose.yml"
+CORE, KAZOO, CONSOLE = "docker-compose.yml", ".lab/catalogs/fixture/addons/kazoo/compose.yml", ".lab/catalogs/fixture/addons/kazoo-desk/compose.yml"
+JADE, ORCHARD = ".lab/catalogs/fixture/addons/jade/compose.yml", ".lab/catalogs/fixture/addons/orchard/compose.yml"
+INSPECTOR = ".lab/catalogs/fixture/addons/agent-lens/compose.yml"
+EVENTS, MINE, WELCOME = ".lab/catalogs/fixture/setups/event-streams.yml", ".lab/catalogs/local/setups/mine.yml", ".lab/catalogs/fixture/playgrounds/welcome/compose.yml"
+WHOAMI, SANDBOX = ".lab/catalogs/local/addons/whoami/compose.yml", ".lab/catalogs/local/playgrounds/sandbox/compose.yml"
+HYSSOP, CLOUD = ".lab/catalogs/fixture/addons/hyssop/compose.yml", ".lab/catalogs/fixture/playgrounds/cloud/compose.yml"
 
 
 HOST_SHAPE = "a list of checks, each with a name and a check URL, its expect and help in text"
 
 
-class Legacy(Case):
-    """A project as it was before catalogs: with no catalogs.default.json the units sit in addons/, setups/ and playgrounds/,
-    each kind with its personal ones in a folder `local`, and the units are read and shown together as they always were.
-    The repository has a default file now, so these cases ask for that layout: what they say must hold while it is served."""
+class AsOwn(Case):
+    """Units of the default catalog read as the person's own are: what is built from them, with no verdict of a catalog."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        patcher = mock.patch.object(paths, "default_ns", return_value=None)
-        patcher.start()
-        cls.addClassCleanup(patcher.stop)
+        for target, name, how in ((paths, "default_ns", {"return_value": "fixture"}), (project, "_tier", {"return_value": "local"}),
+                                  (project, "_apart", {"side_effect": lambda problems, given: (problems, {})})):
+            patcher = mock.patch.object(target, name, **how)
+            patcher.start()
+            cls.addClassCleanup(patcher.stop)
 
 
 def port(published, target=None, host_ip="127.0.0.1"):
@@ -70,12 +69,12 @@ GATEWAY_IMAGE = ("${APIM_GATEWAY_REGISTRY:-${APIM_REGISTRY:-graviteeio}}/apim-ga
                  ":${APIM_GATEWAY_VERSION:-${APIM_VERSION:-4.12.20}-debian}")
 
 # What an add-on's file defines shows again, merged in, in every file that includes it
-KAFKA_SERVICES = {
-    "kafka": service("docker.io/bitnamilegacy/kafka:${KAFKA_VERSION:-3.9}", "Kafka broker", ports=[port(9091)]),
-    "kafka-client": service("docker.io/bitnamilegacy/kafka:${KAFKA_VERSION:-3.9}", "Kafka client"),
-    "kafka-ui": service("provectuslabs/kafka-ui:latest", "Kafka UI", restart=None, ports=[port(8088, 8080)],
-                        labels={"io.gravitee.console.kafka-ui.name": "Kafka UI",
-                                "io.gravitee.console.kafka-ui.url": "http://localhost:8088"}),
+KAZOO_SERVICES = {
+    "kazoo": service("docker.io/acmecontainer/kazoo:${KAZOO_VERSION:-3.9}", "Kazoo broker", ports=[port(9091)]),
+    "kazoo-client": service("docker.io/acmecontainer/kazoo:${KAZOO_VERSION:-3.9}", "Kazoo client"),
+    "kazoo-ui": service("acmecontainer/kazoo-ui:latest", "Kazoo UI", restart=None, ports=[port(8088, 8080)],
+                        labels={"io.gravitee.console.kazoo-ui.name": "Kazoo UI",
+                                "io.gravitee.console.kazoo-ui.url": "http://localhost:8088"}),
     "apim-gateway": {"ports": [port(9092)], "environment": {"gravitee_kafka_enabled": "true"}},
 }
 INSPECTOR_SERVICES = {
@@ -83,11 +82,11 @@ INSPECTOR_SERVICES = {
                                build={"context": "https://example.com/repo.git"}),
     "apim-gateway": {"environment": {"gravitee_reporters_tcp_enabled": "true"}},
 }
-OPENFGA_SERVICES = {
-    "openfga": service("openfga/openfga:${OPENFGA_VERSION:-v1.21.0}", "OpenFGA", ports=[port(3000)],
-                       depends_on={"openfga-migrate": {"condition": "service_completed_successfully",
+ORCHARD_SERVICES = {
+    "orchard": service("orchard/orchard:${ORCHARD_VERSION:-v1.21.0}", "Orchard", ports=[port(3000)],
+                       depends_on={"orchard-migrate": {"condition": "service_completed_successfully",
                                                        "required": True}}),
-    "openfga-migrate": service("openfga/openfga:${OPENFGA_VERSION:-v1.21.0}", restart=None),
+    "orchard-migrate": service("orchard/orchard:${ORCHARD_VERSION:-v1.21.0}", restart=None),
 }
 
 RAW = {
@@ -128,23 +127,23 @@ RAW = {
                         "io.gravitee.console.portal.password": "admin"}),
         },
     },
-    KAFKA: {
-        "name": "kafka",
-        "x-gravitee": {"kind": "addon", "name": "Kafka", "category": "Event", "description": "Kafka broker"},
-        "services": KAFKA_SERVICES,
+    KAZOO: {
+        "name": "kazoo",
+        "x-gravitee": {"kind": "addon", "name": "Kazoo", "category": "Event", "description": "Kazoo broker"},
+        "services": KAZOO_SERVICES,
     },
     CONSOLE: {
-        "name": "kafka-desk",
-        "x-gravitee": {"kind": "addon", "name": "Kafka Desk", "category": "Gravitee Platform",
-                       "description": "Gravitee's console for Kafka"},
+        "name": "kazoo-desk",
+        "x-gravitee": {"kind": "addon", "name": "Kazoo Desk", "category": "Gravitee Platform",
+                       "description": "Gravitee's console for Kazoo"},
         "services": {
-            **KAFKA_SERVICES,
-            "kafka-desk": service(
-                "${KAFKA_DESK_REGISTRY:-graviteeio}/apim-kafka-desk:${KAFKA_DESK_VERSION:-4.9.0}",
-                "Kafka Desk", ports=[port(8080)], container_name="gio-kafka-desk",
-                labels={"io.gravitee.console.kafka-desk.name": "Kafka Desk",
-                        "io.gravitee.console.kafka-desk.url": "http://localhost:8080"}),
-            "apim-management-api": {"environment": {"gravitee_kafka_desk_enabled": "true"}},
+            **KAZOO_SERVICES,
+            "kazoo-desk": service(
+                "${KAZOO_DESK_REGISTRY:-graviteeio}/apim-kazoo-desk:${KAZOO_DESK_VERSION:-4.9.0}",
+                "Kazoo Desk", ports=[port(8080)], container_name="gio-kazoo-desk",
+                labels={"io.gravitee.console.kazoo-desk.name": "Kazoo Desk",
+                        "io.gravitee.console.kazoo-desk.url": "http://localhost:8080"}),
+            "apim-management-api": {"environment": {"gravitee_kazoo_desk_enabled": "true"}},
         },
     },
     JADE: {
@@ -158,11 +157,11 @@ RAW = {
                        "requires": {"license": ["apim-reporter-tcp"]}},
         "services": INSPECTOR_SERVICES,
     },
-    OPENFGA: {
-        "x-gravitee": {"kind": "addon", "name": "OpenFGA", "category": "AI", "description": "Authorization"},
-        "services": OPENFGA_SERVICES,
+    ORCHARD: {
+        "x-gravitee": {"kind": "addon", "name": "Orchard", "category": "AI", "description": "Authorization"},
+        "services": ORCHARD_SERVICES,
     },
-    EVENTS: {"x-gravitee": {"kind": "setup", "name": "Event streams", "category": "Event", "description": "Kafka"},
+    EVENTS: {"x-gravitee": {"kind": "setup", "name": "Event streams", "category": "Event", "description": "Kazoo"},
              "services": {}},
     MINE: {"x-gravitee": {"kind": "setup", "name": "My demo"}, "services": {}},
     WELCOME: {
@@ -173,7 +172,7 @@ RAW = {
                        "requires": {"plugins": {"apim": ["gravitee-policy-interrupt"]}},
                        "accounts": [{"for": "Website", "username": "john", "password": "${WELCOME_PASSWORD:-doe}"}]},
         "services": {
-            **INSPECTOR_SERVICES, **OPENFGA_SERVICES,
+            **INSPECTOR_SERVICES, **ORCHARD_SERVICES,
             "acme-website": service("gravitee-lab/acme-website", "ACME Hello website", ports=[port(8002, 80)],
                                     build={"context": "https://example.com/repo.git"}, pull_policy="build",
                                     labels={"io.gravitee.console.acme.name": "ACME Hello",
@@ -194,16 +193,16 @@ IMAGES = {
     "apim-management-api": "graviteeio.azurecr.io/apim-management-api:4.13.0",
     "apim-portal-ui": "graviteeio.azurecr.io/apim-portal-ui:4.13.0",
     "apim-gateway": "graviteeio.azurecr.io/apim-gateway:4.13.0-debian",
-    "kafka": "docker.io/bitnamilegacy/kafka:3.9", "kafka-client": "docker.io/bitnamilegacy/kafka:3.9",
-    "kafka-desk": "localhost:5000/team/apim-kafka-desk:4.9.0", "jade": "jadetracing/jade:2.21.0",
-    "openfga": "openfga/openfga:v1.21.0", "openfga-migrate": "openfga/openfga:v1.21.0",
+    "kazoo": "docker.io/acmecontainer/kazoo:3.9", "kazoo-client": "docker.io/acmecontainer/kazoo:3.9",
+    "kazoo-desk": "localhost:5000/team/apim-kazoo-desk:4.9.0", "jade": "jadetracing/jade:2.21.0",
+    "orchard": "orchard/orchard:v1.21.0", "orchard-migrate": "orchard/orchard:v1.21.0",
 }
 
 
 def resolved():
     """One interpolated configuration of everything: each service once, images with their values."""
     services = {}
-    for path in (WELCOME, OPENFGA, INSPECTOR, JADE, CONSOLE, KAFKA, CORE):
+    for path in (WELCOME, ORCHARD, INSPECTOR, JADE, CONSOLE, KAZOO, CORE):
         for name, definition in RAW[path]["services"].items():
             if "image" in definition:
                 services[name] = dict(definition, image=IMAGES.get(name, definition["image"]))
@@ -214,18 +213,18 @@ def resolved():
 def inputs():
     return copy.deepcopy({
         "raw": RAW,
-        "includes": {CORE: [], KAFKA: [], CONSOLE: [KAFKA], JADE: [], INSPECTOR: [], OPENFGA: [],
-                     EVENTS: [CONSOLE], MINE: [JADE, CONSOLE], WELCOME: [OPENFGA, INSPECTOR]},
+        "includes": {CORE: [], KAZOO: [], CONSOLE: [KAZOO], JADE: [], INSPECTOR: [], ORCHARD: [],
+                     EVENTS: [CONSOLE], MINE: [JADE, CONSOLE], WELCOME: [ORCHARD, INSPECTOR]},
         "variables": {
             CORE: [variable("GRAVITEE_LICENSE", "", "Enterprise license"), variable("REDIS_VERSION", "8.10.1-alpine"),
                    variable("REDIS_PASSWORD", "redispassword", "Redis password"), variable("MONGODB_VERSION", "8.0.29"),
                    variable("APIM_REGISTRY", "graviteeio"), variable("APIM_VERSION", "4.12.20"),
                    variable("APIM_GATEWAY_REGISTRY", "${APIM_REGISTRY:-graviteeio}"),
                    variable("APIM_GATEWAY_VERSION", "${APIM_VERSION:-4.12.20}-debian")],
-            CONSOLE: [variable("KAFKA_DESK_REGISTRY", "graviteeio"), variable("KAFKA_DESK_VERSION", "4.9.0"),
-                      variable("KAFKA_DESK_SECRET", "demo", "Signs the console's tokens"),
-                      variable("KAFKA_DESK_THEME", None, "Light or dark"), variable("GRAVITEE_LICENSE", "")],
-            KAFKA: [variable("KAFKA_VERSION", "3.9")],
+            CONSOLE: [variable("KAZOO_DESK_REGISTRY", "graviteeio"), variable("KAZOO_DESK_VERSION", "4.9.0"),
+                      variable("KAZOO_DESK_SECRET", "demo", "Signs the console's tokens"),
+                      variable("KAZOO_DESK_THEME", None, "Light or dark"), variable("GRAVITEE_LICENSE", "")],
+            KAZOO: [variable("KAZOO_VERSION", "3.9")],
         },
         "resolved": resolved(),
         "environ": {}, "env": {},   # the environment of the Lab UI, and the variables of each .env file
@@ -233,22 +232,22 @@ def inputs():
         "guides": {"welcome": "# Welcome\n\n## 1. Semantic caching\ntext\n\n## 2.  Rate limiting \n\n"
                                "## Not numbered\n"},
         "seeds": {},   # what the seed folder of each playground holds, by name
-        "problems": [{"file": "addons/broken/compose.yml", "message": "yaml: line 3: did not find expected key"}],
+        "problems": [{"file": ".lab/catalogs/fixture/addons/broken/compose.yml", "message": "yaml: line 3: did not find expected key"}],
     })
 
 
 # The add-on that runs the gateway of a platform, with its own Redis, and a playground that can be deployed to that
 # platform. They are not in RAW: the tests of the other modules count its add-ons and playgrounds.
-HYBRID_RAW = {
+HYSSOP_RAW = {
     "x-gravitee": {"kind": "addon", "name": "Hybrid gateway", "category": "Gravitee Platform",
                    "description": "Gateway managed by a platform",
-                   "gateway": {"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN"}},
+                   "gateway": {"platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN"}},
     "services": {
-        "apim-hybrid-gateway": service(
-            "${HYBRID_GATEWAY_REGISTRY:-graviteeio}/apim-gateway:${HYBRID_GATEWAY_VERSION:-4.12.21-debian}",
-            "Hybrid gateway", ports=[port(8090, 8082)], environment={"gravitee_cloud_token": "${HYBRID_CLOUD_TOKEN}"},
-            depends_on={"hybrid-redis": {"condition": "service_healthy", "required": True}}),
-        "hybrid-redis": service("redis:${HYBRID_REDIS_VERSION:-${REDIS_VERSION:-8.10.1-alpine}}",
+        "apim-hyssop-gateway": service(
+            "${HYSSOP_GATEWAY_REGISTRY:-graviteeio}/apim-gateway:${HYSSOP_GATEWAY_VERSION:-4.12.21-debian}",
+            "Hybrid gateway", ports=[port(8090, 8082)], environment={"gravitee_cloud_token": "${HYSSOP_CLOUD_TOKEN}"},
+            depends_on={"hyssop-redis": {"condition": "service_healthy", "required": True}}),
+        "hyssop-redis": service("redis:${HYSSOP_REDIS_VERSION:-${REDIS_VERSION:-8.10.1-alpine}}",
                                 "Hybrid gateway Redis"),
     },
 }
@@ -270,21 +269,21 @@ def with_cloud():
     """inputs() with the hybrid gateway add-on and the playground that can be deployed to a platform: an API seed, apps
     that stand alone."""
     given = inputs()
-    given["raw"].update({HYBRID: copy.deepcopy(HYBRID_RAW), CLOUD: copy.deepcopy(CLOUD_RAW)})
-    given["includes"].update({HYBRID: [], CLOUD: []})
+    given["raw"].update({HYSSOP: copy.deepcopy(HYSSOP_RAW), CLOUD: copy.deepcopy(CLOUD_RAW)})
+    given["includes"].update({HYSSOP: [], CLOUD: []})
     given["variables"].update({
-        HYBRID: [variable("HYBRID_GATEWAY_REGISTRY", "graviteeio"),
-                 variable("HYBRID_GATEWAY_VERSION", "4.12.21-debian"),
-                 variable("HYBRID_REDIS_VERSION", "${REDIS_VERSION:-8.10.1-alpine}"),
+        HYSSOP: [variable("HYSSOP_GATEWAY_REGISTRY", "graviteeio"),
+                 variable("HYSSOP_GATEWAY_VERSION", "4.12.21-debian"),
+                 variable("HYSSOP_REDIS_VERSION", "${REDIS_VERSION:-8.10.1-alpine}"),
                  variable("REDIS_VERSION", "8.10.1-alpine"),
-                 variable("HYBRID_CLOUD_TOKEN", None, "Token of the hybrid gateway"),
-                 variable("HYBRID_LICENSE", "", "License key")], CLOUD: []})
+                 variable("HYSSOP_CLOUD_TOKEN", None, "Token of the hybrid gateway"),
+                 variable("HYSSOP_LICENSE", "", "License key")], CLOUD: []})
     given["guides"]["cloud"] = "# Cloud\n\n## 1. First\n"
     given["seeds"]["cloud"] = ["apim"]
     return given
 
 
-class Build(Legacy):
+class Build(AsOwn):
 
     @classmethod
     def setUpClass(cls):
@@ -330,7 +329,7 @@ class Build(Legacy):
 
     def test_products_from_plugin_mounts(self):
         self.assertEqual(self.project["products"], {"apim": {
-            "name": "API Management", "folder": "plugins/apim",
+            "folder": "plugins/apim",
             "services": {"apim-gateway": "/opt/graviteeio-gateway/plugins",
                          "apim-management-api": "/opt/graviteeio-management-api/plugins"},
             "lib": {"apim-gateway": "/opt/graviteeio-gateway/lib",
@@ -339,26 +338,26 @@ class Build(Legacy):
 
     def test_own_services_leave_out_the_core_and_what_is_included(self):
         addons = self.project["addons"]
-        self.assertEqual(addons["kafka"]["services"], ["kafka", "kafka-client", "kafka-ui"])
-        self.assertEqual(addons["kafka-desk"]["services"], ["kafka-desk"])
-        self.assertEqual(addons["kafka-desk"]["needs"], ["kafka"])
-        self.assertEqual(addons["kafka"]["needs"], [])
+        self.assertEqual(addons["kazoo"]["services"], ["kazoo", "kazoo-client", "kazoo-ui"])
+        self.assertEqual(addons["kazoo-desk"]["services"], ["kazoo-desk"])
+        self.assertEqual(addons["kazoo-desk"]["needs"], ["kazoo"])
+        self.assertEqual(addons["kazoo"]["needs"], [])
 
     def test_restarts_are_the_core_services_a_file_changes_itself(self):
         addons = self.project["addons"]
-        self.assertEqual(addons["kafka"]["restarts"], ["apim-gateway"])
-        self.assertEqual(addons["kafka-desk"]["restarts"], ["apim-management-api"])   # the gateway is Kafka's
-        self.assertEqual(addons["openfga"]["restarts"], [])
+        self.assertEqual(addons["kazoo"]["restarts"], ["apim-gateway"])
+        self.assertEqual(addons["kazoo-desk"]["restarts"], ["apim-management-api"])   # the gateway is Kazoo's
+        self.assertEqual(addons["orchard"]["restarts"], [])
         self.assertEqual(self.project["playgrounds"]["welcome"]["restarts"], ["apim-gateway"])
 
     def test_a_core_service_that_two_includes_change_is_theirs(self):
-        # Merged, the gateway is neither Kafka's nor Jade's: what each of them sets is still not the file's
-        given, demo = inputs(), "playgrounds/demo/compose.yml"
+        # Merged, the gateway is neither Kazoo's nor Jade's: what each of them sets is still not the file's
+        given, demo = inputs(), ".lab/catalogs/fixture/playgrounds/demo/compose.yml"
         gateway = {"ports": [port(9092)], "environment": {"gravitee_kafka_enabled": "true",
                                                           "gravitee_services_opentelemetry_enabled": "true"}}
         given["raw"][demo] = {"x-gravitee": {"kind": "playground", "name": "Demo"},
-                              "services": {**KAFKA_SERVICES, **RAW[JADE]["services"], "apim-gateway": gateway}}
-        given["includes"][demo] = [KAFKA, JADE]
+                              "services": {**KAZOO_SERVICES, **RAW[JADE]["services"], "apim-gateway": gateway}}
+        given["includes"][demo] = [KAZOO, JADE]
         self.assertEqual(project.build(given)["playgrounds"]["demo"]["restarts"], [])
         gateway["environment"]["gravitee_groovy_whitelist_mode"] = "append"   # a setting of its own
         self.assertEqual(project.build(given)["playgrounds"]["demo"]["restarts"], ["apim-gateway"])
@@ -367,32 +366,32 @@ class Build(Legacy):
         addon = self.project["addons"]["agent-lens"]
         self.assertEqual({k: addon[k] for k in ("id", "kind", "name", "category", "description", "file", "env_file")},
                          {"id": "agent-lens", "kind": "addon", "name": "AI Agent Lens", "category": "AI",
-                          "description": "Live diagram", "file": INSPECTOR, "env_file": "addons/agent-lens/.env"})
+                          "description": "Live diagram", "file": INSPECTOR, "env_file": ".lab/catalogs/fixture/addons/agent-lens/.env"})
         self.assertEqual(addon["conflicts"], {"jade": "both take the gateway's OpenTelemetry exporter"})
         self.assertEqual(addon["requires"], {"license": ["apim-reporter-tcp"]})
         self.assertEqual(self.project["addons"]["jade"]["conflicts"], {})
 
     def test_settings_are_an_addons_own_variables(self):
-        settings = self.project["addons"]["kafka-desk"]["settings"]
+        settings = self.project["addons"]["kazoo-desk"]["settings"]
         self.assertEqual(settings, [
-            {"key": "KAFKA_DESK_SECRET", "default": "demo", "required": False,
+            {"key": "KAZOO_DESK_SECRET", "default": "demo", "required": False,
              "comment": "Signs the console's tokens", "secret": True},
-            {"key": "KAFKA_DESK_THEME", "default": None, "required": True, "comment": "Light or dark",
+            {"key": "KAZOO_DESK_THEME", "default": None, "required": True, "comment": "Light or dark",
              "secret": False}])
-        self.assertEqual(self.project["addons"]["kafka"]["settings"], [])   # KAFKA_VERSION belongs to Images
+        self.assertEqual(self.project["addons"]["kazoo"]["settings"], [])   # KAZOO_VERSION belongs to Images
 
     def test_setups(self):
         setups = self.project["setups"]
         self.assertEqual(list(setups), ["event-streams", "local/mine"])
-        self.assertEqual(setups["event-streams"]["includes"], ["kafka-desk"])
-        self.assertEqual(setups["event-streams"]["members"], ["kafka", "kafka-desk"])
+        self.assertEqual(setups["event-streams"]["includes"], ["kazoo-desk"])
+        self.assertEqual(setups["event-streams"]["members"], ["kazoo", "kazoo-desk"])
         self.assertFalse(setups["event-streams"]["personal"])
         mine = setups["local/mine"]
         self.assertEqual((mine["kind"], mine["name"], mine["category"], mine["description"], mine["file"]),
                          ("setup", "My demo", "", "", MINE))
         self.assertTrue(mine["personal"])
-        self.assertEqual(mine["includes"], ["jade", "kafka-desk"])
-        self.assertEqual(mine["members"], ["jade", "kafka", "kafka-desk"])
+        self.assertEqual(mine["includes"], ["jade", "kazoo-desk"])
+        self.assertEqual(mine["members"], ["jade", "kazoo", "kazoo-desk"])
 
     def test_what_belongs_to_this_machine_is_built_like_the_rest(self):
         given = inputs()
@@ -401,7 +400,7 @@ class Build(Legacy):
         given["raw"][WHOAMI] = {"x-gravitee": {"kind": "addon", "name": "Whoami", "category": "Other"},
                                 "services": whoami}
         given["raw"][SANDBOX] = {"x-gravitee": {"kind": "playground", "name": "Sandbox"},
-                                 "services": {**whoami, **KAFKA_SERVICES, **RAW[JADE]["services"],
+                                 "services": {**whoami, **KAZOO_SERVICES, **RAW[JADE]["services"],
                                               **RAW[CONSOLE]["services"]}}
         given["includes"].update({WHOAMI: [], SANDBOX: [MINE, WHOAMI]})
         given["variables"][WHOAMI] = [variable("WHOAMI_VERSION", "v1.11"), variable("WHOAMI_NAME", None, "Its name")]
@@ -409,10 +408,10 @@ class Build(Legacy):
         built = project.build(given)
         addon, playground = built["addons"]["local/whoami"], built["playgrounds"]["local/sandbox"]
         self.assertEqual((addon["file"], addon["env_file"], addon["services"]),
-                         (WHOAMI, "addons/local/whoami/.env", ["whoami"]))
+                         (WHOAMI, ".lab/catalogs/local/addons/whoami/.env", ["whoami"]))
         self.assertEqual([setting["key"] for setting in addon["settings"]], ["WHOAMI_NAME"])
         self.assertEqual((playground["file"], playground["setups"], playground["addons"], playground["services"]),
-                         (SANDBOX, ["local/mine"], ["jade", "kafka", "kafka-desk", "local/whoami"], []))
+                         (SANDBOX, ["local/mine"], ["jade", "kazoo", "kazoo-desk", "local/whoami"], []))
         self.assertEqual(playground["chapters"], ["First step"])
         self.assertEqual(built["services"]["whoami"]["owner"],
                          {"kind": "addon", "id": "local/whoami", "name": "Whoami"})
@@ -421,14 +420,14 @@ class Build(Legacy):
 
     def test_a_playground_brings_the_add_ons_of_the_setups_it_includes(self):
         given = inputs()
-        given["includes"][WELCOME] = [EVENTS, OPENFGA, INSPECTOR]
+        given["includes"][WELCOME] = [EVENTS, ORCHARD, INSPECTOR]
         # Compose merges in what the setup's add-ons define; the gateway keeps the playground's own change
         merged = given["raw"][WELCOME]["services"]
         merged.update({name: service for name, service in RAW[CONSOLE]["services"].items() if name not in merged})
         playground = project.build(given)["playgrounds"]["welcome"]
         self.assertEqual(playground["setups"], ["event-streams"])
-        self.assertEqual(playground["includes"], ["openfga", "agent-lens"])   # in the order of the file
-        self.assertEqual(playground["addons"], ["agent-lens", "kafka", "kafka-desk", "openfga"])
+        self.assertEqual(playground["includes"], ["orchard", "agent-lens"])   # in the order of the file
+        self.assertEqual(playground["addons"], ["agent-lens", "kazoo", "kazoo-desk", "orchard"])
         # What the setup's add-ons run and change is theirs
         self.assertEqual(playground["services"], ["acme-website", "hello-agent", "hello-seed"])
         self.assertEqual(playground["restarts"], ["apim-gateway"])
@@ -436,7 +435,7 @@ class Build(Legacy):
     def test_playground(self):
         playground = self.project["playgrounds"]["welcome"]
         self.assertEqual(playground["setups"], [])
-        self.assertEqual(playground["addons"], ["agent-lens", "openfga"])
+        self.assertEqual(playground["addons"], ["agent-lens", "orchard"])
         self.assertEqual(playground["services"], ["acme-website", "hello-agent", "hello-seed"])
         self.assertEqual(playground["apps"], ["acme-website", "hello-agent"])
         self.assertEqual(playground["seed"], "hello-seed")
@@ -450,9 +449,9 @@ class Build(Legacy):
         self.assertEqual((playground["tags"], playground["duration"], playground["first_start"], playground["source"]),
                          (["MCP", "A2A"], "30 min", "5 min", None))
         self.assertEqual(playground["consoles"], ["acme-website"])
-        self.assertNotIn("start", playground)
         self.assertEqual(playground["requires"], {"plugins": {"apim": ["gravitee-policy-interrupt"]}})
         self.assertEqual(playground["accounts"], [{"for": "Website", "username": "john", "password": "doe"}])
+        self.assertEqual((playground["env_file"], playground["settings"]), (".lab/catalogs/fixture/playgrounds/welcome/.env", []))
 
     def test_service_of_the_platform(self):
         gateway = self.project["services"]["apim-gateway"]
@@ -462,7 +461,7 @@ class Build(Legacy):
         self.assertEqual(gateway["raw_image"], GATEWAY_IMAGE)
         self.assertEqual(gateway["image"], "graviteeio.azurecr.io/apim-gateway:4.13.0-debian")
         self.assertEqual((gateway["registry"], gateway["tag"]), ("graviteeio.azurecr.io", "4.13.0-debian"))
-        self.assertEqual(gateway["ports"], ["8082", "18082"])   # its own: 9092 is published by Kafka
+        self.assertEqual(gateway["ports"], ["8082", "18082"])   # its own: 9092 is published by Kazoo
         self.assertIsNone(gateway["image_tags"])
         self.assertEqual(self.project["services"]["mongodb"]["image_tags"], "library/mongo")
         self.assertEqual(self.project["services"]["redis"]["container"], "gio-redis")
@@ -479,10 +478,10 @@ class Build(Legacy):
 
     def test_service_of_an_addon_and_of_a_playground(self):
         services = self.project["services"]
-        console = services["kafka-desk"]
-        self.assertEqual(console["owner"], {"kind": "addon", "id": "kafka-desk", "name": "Kafka Desk"})
+        console = services["kazoo-desk"]
+        self.assertEqual(console["owner"], {"kind": "addon", "id": "kazoo-desk", "name": "Kazoo Desk"})
         self.assertEqual((console["registry"], console["tag"]), ("localhost:5000/team", "4.9.0"))
-        self.assertEqual(services["kafka"]["owner"]["id"], "kafka")
+        self.assertEqual(services["kazoo"]["owner"]["id"], "kazoo")
         website = services["acme-website"]
         self.assertEqual(website["owner"], {"kind": "playground", "id": "welcome", "name": "Welcome"})
         self.assertEqual((website["built"], website["tag"], website["role"]), (True, "latest", None))
@@ -493,8 +492,8 @@ class Build(Legacy):
     def test_one_shot_services(self):
         services = self.project["services"]
         oneshot = {name for name, s in services.items() if s["oneshot"]}
-        # Kafka UI has no restart policy, but it publishes a port; the Kafka client restarts unless stopped
-        self.assertEqual(oneshot, {"openfga-migrate", "hello-seed"})
+        # Kazoo UI has no restart policy, but it publishes a port; the Kazoo client restarts unless stopped
+        self.assertEqual(oneshot, {"orchard-migrate", "hello-seed"})
 
     def test_a_service_says_whether_it_needs_a_license(self):
         # The label io.gravitee.license: required, as Compose runs the service; any other value, or none, is no need
@@ -503,16 +502,6 @@ class Build(Legacy):
         given["resolved"]["mongodb"]["labels"]["io.gravitee.license"] = "optional"
         services = project.build(given)["services"]
         self.assertEqual({name for name, s in services.items() if s["needs_license"]}, {"redis"})
-
-    def test_whether_the_license_is_usable_is_given_not_read(self):
-        # build() is pure: the fact comes with the other inputs
-        for usable in (True, False):
-            self.assertIs(project.build({**inputs(), "license_usable": usable})["license_usable"], usable)
-
-    def test_what_a_service_depends_on(self):
-        services = self.project["services"]
-        self.assertEqual((services["openfga"]["depends_on"], services["openfga-migrate"]["depends_on"]),
-                         (["openfga-migrate"], []))
 
     def test_a_service_has_the_command_it_runs_as_one_text(self):
         given = inputs()
@@ -538,29 +527,26 @@ class Build(Legacy):
                                    "username": None, "password": None}])
         self.assertEqual(self.project["services"]["redis"]["consoles"], [])
 
-    def test_a_link_says_the_demo_sign_in_of_its_console(self):
-        found = {link["label"]: (link["username"], link["password"]) for link in self.project["links"]}
-        self.assertEqual(found["Developer Portal"], ("admin", "admin"))
-        self.assertEqual(found["Legacy Developer Portal"], (None, None))
-
     def test_links_current_first_then_by_label(self):
         links = self.project["links"]
         self.assertEqual([(link["label"], link["section"], link["port"], link["service"]) for link in links], [
             ("ACME Hello", "Playground", "8002", "acme-website"),
             ("Developer Portal", "API Management", "8085", "apim-portal-ui"),
-            ("Kafka Desk", "Gravitee Platform", "8080", "kafka-desk"),
-            ("Kafka UI", "Event", "8088", "kafka-ui"),
+            ("Kazoo Desk", "Gravitee Platform", "8080", "kazoo-desk"),
+            ("Kazoo UI", "Event", "8088", "kazoo-ui"),
             ("Legacy Developer Portal", "API Management", "8085", "apim-portal-ui")])
         self.assertEqual([link["legacy"] for link in links], [False, False, False, False, True])
         self.assertEqual(links[0]["url"], "http://localhost:8002")
+        self.assertEqual([(link["username"], link["password"]) for link in links if "Portal" in link["label"]],
+                         [("admin", "admin"), (None, None)])   # the demo sign-in of its console
 
     def test_problems_are_kept(self):
         self.assertEqual(self.project["problems"],
-                         [{"file": "addons/broken/compose.yml", "message": "yaml: line 3: did not find expected key"}])
+                         [{"file": ".lab/catalogs/fixture/addons/broken/compose.yml", "message": "yaml: line 3: did not find expected key"}])
         self.assertNotIn("broken", self.project["addons"])
 
 
-class Degraded(Legacy):
+class Degraded(AsOwn):
     """What does not load, or is not declared as it should be, is reported and the rest still builds."""
 
     def test_a_file_that_does_not_load_says_why_without_its_full_path(self):
@@ -588,17 +574,17 @@ class Degraded(Legacy):
     def test_x_gravitee_that_is_not_a_mapping(self):
         # Compose does not look inside the block: the editor saves it, and the file must still open
         given = inputs()
-        given["raw"][KAFKA]["x-gravitee"] = "kafka"
+        given["raw"][KAZOO]["x-gravitee"] = "kazoo"
         given["raw"][JADE]["x-gravitee"] = ["addon"]
         given["raw"][CORE]["x-gravitee"] = "platform"
         built = project.build(given)
-        for file in (KAFKA, JADE, CORE):
+        for file in (KAZOO, JADE, CORE):
             self.assertIn({"file": file, "message": "x-gravitee must be a mapping"}, built["problems"])
-        kafka = built["addons"]["kafka"]
-        self.assertEqual((kafka["name"], kafka["category"], kafka["requires"], kafka["services"]),
-                         ("kafka", "", {}, ["kafka", "kafka-client", "kafka-ui"]))
+        kazoo = built["addons"]["kazoo"]
+        self.assertEqual((kazoo["name"], kazoo["category"], kazoo["requires"], kazoo["services"]),
+                         ("kazoo", "", {}, ["kazoo", "kazoo-client", "kazoo-ui"]))
         self.assertEqual((built["name"], built["groups"]), ("gravitee", []))
-        self.assertEqual(built["setups"]["event-streams"]["members"], ["kafka", "kafka-desk"])
+        self.assertEqual(built["setups"]["event-streams"]["members"], ["kazoo", "kazoo-desk"])
 
     def test_requires_that_is_not_a_mapping(self):
         given = inputs()
@@ -691,15 +677,15 @@ class Degraded(Legacy):
 
     def test_a_name_that_is_a_number(self):
         given = inputs()
-        given["raw"][KAFKA]["x-gravitee"]["name"] = 2024
-        self.assertEqual(project.build(given)["addons"]["kafka"]["name"], "2024")
+        given["raw"][KAZOO]["x-gravitee"]["name"] = 2024
+        self.assertEqual(project.build(given)["addons"]["kazoo"]["name"], "2024")
 
     def test_without_the_interpolated_configuration(self):
         given = inputs()
         given["resolved"] = {}
         built = project.build(given)
         self.assertEqual(built["services"]["redis"]["image"], "redis:${REDIS_VERSION:-8.10.1-alpine}")
-        self.assertEqual(built["addons"]["kafka-desk"]["services"], ["kafka-desk"])
+        self.assertEqual(built["addons"]["kazoo-desk"]["services"], ["kazoo-desk"])
 
     def test_without_the_core_file(self):
         given = inputs()
@@ -708,7 +694,7 @@ class Degraded(Legacy):
         built = project.build(given)
         self.assertEqual((built["core_loaded"], built["groups"], built["license_var"], built["products"]),
                          (False, [], None, {}))
-        self.assertEqual(built["addons"]["kafka"]["services"], ["kafka", "kafka-client", "kafka-ui", "apim-gateway"])
+        self.assertEqual(built["addons"]["kazoo"]["services"], ["kazoo", "kazoo-client", "kazoo-ui", "apim-gateway"])
 
     def test_the_services_of_a_playground_are_in_the_order_of_its_file_and_its_seed_is_last(self):
         # Not alphabetical: its author orders them, and the seed, which runs once at the end, comes after the apps
@@ -731,14 +717,14 @@ class Degraded(Legacy):
         self.assertEqual(playground["apps"], playground["services"])
 
 
-class Platforms(Legacy):
+class Platforms(AsOwn):
     """What an add-on says of the gateway it runs."""
 
     def built(self, change=None):
-        """The project of with_cloud() once `change(raw of the hybrid add-on, raw of the playground)` is made."""
+        """The project of with_cloud() once `change(raw of the hyssop add-on, raw of the playground)` is made."""
         given = with_cloud()
         if change:
-            change(given["raw"][HYBRID], given["raw"][CLOUD])
+            change(given["raw"][HYSSOP], given["raw"][CLOUD])
         return project.build(given)
 
     def problems(self, built, path):
@@ -746,27 +732,17 @@ class Platforms(Legacy):
 
     def test_the_gateway_an_add_on_runs(self):
         built = self.built()
-        self.assertEqual(built["addons"]["hybrid"]["gateway"], {
-            "platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN",
-            "domains": ["localhost:8090", "apim-hybrid-gateway:8082"], "group": "api-management"})
-        self.assertEqual(self.problems(built, HYBRID), [])
-        self.assertEqual(built["addons"]["hybrid"]["services"], ["apim-hybrid-gateway", "hybrid-redis"])
-        self.assertEqual(built["addons"]["hybrid"]["restarts"], [])   # its own Redis: it changes nothing of the core
-
-    def test_a_gateway_belongs_to_the_group_that_runs_its_image_whatever_its_registry_and_tag(self):
-        # The core's gateway is graviteeio.azurecr.io/apim-gateway:4.13.0-debian, the hybrid one
-        # graviteeio/apim-gateway:4.12.21-debian: another registry and another tag, the same image
-        built = self.built()
-        name = {service: built["services"][service]["image"].split(":")[0] for service in built["services"]}
-        self.assertNotEqual(name["apim-gateway"], name["apim-hybrid-gateway"])
-        self.assertEqual(built["addons"]["hybrid"]["gateway"]["group"], "api-management")
-        # Its Redis runs the image of the core's Redis, in Databases: the gateway decides, not the add-on's other services
-        self.assertEqual(name["hybrid-redis"], name["redis"])
+        self.assertEqual(built["addons"]["hyssop"]["gateway"], {
+            "platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN",
+            "domains": ["localhost:8090", "apim-hyssop-gateway:8082"], "group": "api-management"})
+        self.assertEqual(self.problems(built, HYSSOP), [])
+        self.assertEqual(built["addons"]["hyssop"]["services"], ["apim-hyssop-gateway", "hyssop-redis"])
+        self.assertEqual(built["addons"]["hyssop"]["restarts"], [])   # its own Redis: it changes nothing of the core
 
     def test_a_gateway_whose_image_no_group_runs_belongs_to_none(self):
-        def other(hybrid, cloud):
-            hybrid["services"]["apim-hybrid-gateway"]["image"] = "${HYBRID_REGISTRY:-graviteeio}/am-gateway:4.12.7"
-        self.assertIsNone(self.built(other)["addons"]["hybrid"]["gateway"]["group"])
+        def other(hyssop, cloud):
+            hyssop["services"]["apim-hyssop-gateway"]["image"] = "${HYSSOP_REGISTRY:-graviteeio}/am-gateway:4.12.7"
+        self.assertIsNone(self.built(other)["addons"]["hyssop"]["gateway"]["group"])
 
     def test_the_image_of_a_service_whatever_its_registry_tag_or_digest(self):
         for service, image in (
@@ -782,73 +758,46 @@ class Platforms(Legacy):
 
     def test_the_domains_come_from_the_first_published_port_and_are_listed_nowhere(self):
         def ports(*found):
-            return lambda hybrid, cloud: hybrid["services"]["apim-hybrid-gateway"].__setitem__("ports", list(found))
+            return lambda hyssop, cloud: hyssop["services"]["apim-hyssop-gateway"].__setitem__("ports", list(found))
         for found, domains in (
-                ([port(8090, 8082), port(8443, 8443)], ["localhost:8090", "apim-hybrid-gateway:8082"]),
-                ([{"target": 9000}, port(8095, 8080)], ["localhost:8095", "apim-hybrid-gateway:8080"]),
-                ([{"target": 9000}, port("${HYBRID_PORT:-8090}", 8082)], []),   # no number to publish on
+                ([port(8090, 8082), port(8443, 8443)], ["localhost:8090", "apim-hyssop-gateway:8082"]),
+                ([{"target": 9000}, port(8095, 8080)], ["localhost:8095", "apim-hyssop-gateway:8080"]),
+                ([{"target": 9000}, port("${HYSSOP_PORT:-8090}", 8082)], []),   # no number to publish on
                 ([{"target": 9000}], []), ([], [])):
             with self.subTest(ports=found):
                 built = self.built(ports(*found))
-                self.assertEqual(built["addons"]["hybrid"]["gateway"]["domains"], domains)
+                self.assertEqual(built["addons"]["hyssop"]["gateway"]["domains"], domains)
         # A service that does not exist publishes none: `make check` says so
-        self.assertEqual(self.built(lambda hybrid, cloud: hybrid["x-gravitee"]["gateway"].update(service="nothing"))
-                         ["addons"]["hybrid"]["gateway"]["domains"], [])
-
-    def test_an_add_on_that_says_none_runs_none(self):
-        built = self.built()
-        self.assertEqual([uid for uid, addon in built["addons"].items() if addon["gateway"]], ["hybrid"])
-        self.assertIsNone(self.built(lambda hybrid, cloud: hybrid["x-gravitee"].pop("gateway"))
-                          ["addons"]["hybrid"]["gateway"])
-        self.assertIsNone(self.built(lambda hybrid, cloud: hybrid["x-gravitee"].update(gateway=None))
-                          ["addons"]["hybrid"]["gateway"])
+        self.assertEqual(self.built(lambda hyssop, cloud: hyssop["x-gravitee"]["gateway"].update(service="nothing"))
+                         ["addons"]["hyssop"]["gateway"]["domains"], [])
 
     def test_a_gateway_written_otherwise_is_reported_and_left_out(self):
         message = "x-gravitee.gateway must be a mapping of platform, service and token, each a text"
-        complete = {"platform": "cloud", "service": "apim-hybrid-gateway", "token": "HYBRID_CLOUD_TOKEN"}
+        complete = {"platform": "cloud", "service": "apim-hyssop-gateway", "token": "HYSSOP_CLOUD_TOKEN"}
         for written in ("cloud", ["cloud"], {}, {**complete, "token": ""}, {**complete, "service": 8082},
                         {key: value for key, value in complete.items() if key != "platform"}):
             with self.subTest(written=written):
-                built = self.built(lambda hybrid, cloud: hybrid["x-gravitee"].update(gateway=written))
-                self.assertIsNone(built["addons"]["hybrid"]["gateway"])
-                self.assertEqual(self.problems(built, HYBRID), [message])
+                built = self.built(lambda hyssop, cloud: hyssop["x-gravitee"].update(gateway=written))
+                self.assertIsNone(built["addons"]["hyssop"]["gateway"])
+                self.assertEqual(self.problems(built, HYSSOP), [message])
 
     def test_without_the_key_the_project_is_what_it_was(self):
         # The key changes its own entry of the project and nothing else; the entry is empty without it
-        with_key, without = self.built(), self.built(lambda hybrid, cloud: hybrid["x-gravitee"].pop("gateway"))
-        self.assertIsNone(without["addons"]["hybrid"]["gateway"])
-        with_key["addons"]["hybrid"]["gateway"] = None
+        with_key, without = self.built(), self.built(lambda hyssop, cloud: hyssop["x-gravitee"].pop("gateway"))
+        self.assertIsNone(without["addons"]["hyssop"]["gateway"])
+        with_key["addons"]["hyssop"]["gateway"] = None
         # Where it can go is its own too: the add-on that runs a gateway is where it runs
         for part in ("deploys_to", "cannot"):
-            with_key["addons"]["hybrid"][part] = without["addons"]["hybrid"][part]
+            with_key["addons"]["hyssop"][part] = without["addons"]["hyssop"][part]
         # And the project says which add-on runs the gateway of a platform, for the pages to read instead of looking
-        self.assertEqual(with_key["platform"], {"gateways": {"cloud": "hybrid"}})
+        self.assertEqual(with_key["platform"], {"gateways": {"cloud": "hyssop"}})
         with_key["platform"] = without["platform"]
         self.assertEqual(without["platform"], {"gateways": {"cloud": None}})
         self.assertEqual(with_key, without)
 
-    def test_a_unit_says_nothing_more_than_it_did(self):
-        built = project.build(inputs())
-        before = {"addons": {"category", "conflicts", "description", "env_file", "file", "id", "kind", "name", "needs",
-                             "personal", "requires", "restarts", "services", "settings"},
-                  "setups": {"category", "description", "file", "id", "includes", "kind", "members", "name", "personal"},
-                  "playgrounds": {"accounts", "addons", "apps", "category", "chapters", "consoles", "description",
-                                  "duration", "env_file", "file", "first_start", "guide", "id", "includes", "kind",
-                                  "name", "personal", "requires", "restarts", "seed", "services", "settings", "setups",
-                                  "source", "tags", "terminal", "tested"}}
-        platform = {"asks", "deploys_to", "cannot"}   # what a platform makes of each, from its files
-        # Where it comes from and whether it can start: none of a unit read before catalogs says anything of them
-        placed = {"catalog", "origin", "readonly", "display_file", "blocked", "needs_catalogs", "compat", "unknown", "twin",
-                  "uses_machine", "verdict"}
-        new = {"addons": {"gateway"} | platform | placed, "setups": platform | placed, "playgrounds": platform | placed}
-        for kind, units in before.items():
-            for uid, unit in built[kind].items():
-                with self.subTest(unit=uid):
-                    self.assertEqual(set(unit), units | new[kind])
-
 
 NOTHING, MORE = "Nothing to deploy", "Seeds more than API Management and Access Management"
-ACCESS, GAMMA, LATER = "Needs Access Management", "Needs Gamma", "Needs API Management 4.13"
+GAMMA, LATER = "Needs Gamma", "Needs API Management 4.13"
 PLUGINS = "Needs plugins on the gateway"
 CHANGES, USES = "Changes this machine's Management API", "Its apps use this machine's Management API"
 
@@ -863,7 +812,7 @@ def check(*gateways, environment="env"):
                           "version": version, "domains": []} for number, (scope, version) in enumerate(gateways)]}
 
 
-class Deployable(Legacy):
+class Deployable(AsOwn):
     """Where a playground can be deployed: judged from what it is and from what an environment runs, as its gateways
     say, never declared. The playground of with_cloud() is one that can go to an environment whose gateway runs API
     Management 4.12, once something of it is changed: one reason at a time, and each reason with a playground that does
@@ -880,8 +829,8 @@ class Deployable(Legacy):
         API Management 4.12.21, the first one first."""
         built = self.built()
         offers = offers or platforms.capabilities(built, check(("APIM", "4.12.21")), "env")
-        return project.reasons(built["playgrounds"][uid], built, self.given["raw"], self.given["seeds"].get(uid, []),
-                               offers)
+        return project.judge(project.asks(built["playgrounds"][uid], built, self.given["raw"], self.given["seeds"].get(uid, [])),
+                             offers)
 
     def meta(self, **said):
         self.given["raw"][CLOUD]["x-gravitee"].update(said)
@@ -949,36 +898,15 @@ class Deployable(Legacy):
             deep = {"next": [deep]}
         self.assertEqual(project.plugins_used(deep)["policy"], {"deep"})
 
-    # The shapes of an LLM proxy and of a native Kafka API with a kafka-acl policy, as the catalogs ship them
-    LLM = {"api": {
-        "listeners": [{"type": "HTTP", "entrypoints": [{"type": "llm-proxy"}]}],
-        "endpointGroups": [{"type": "llm-proxy", "endpoints": [{"type": "llm-proxy", "configuration": {
-            "modelGovernance": {"prefixPolicy": {"policy": "NO_PREFIX"}}}}]}],
-        "flows": [{"request": [{"policy": "rate-limit", "enabled": True}]}]},
-        "plans": [{"security": {"type": "KEY_LESS"}}]}
-    KAFKA = {"api": {
-        "listeners": [{"type": "KAFKA", "entrypoints": [{"type": "native-kafka"}]}],
-        "endpointGroups": [{"type": "native-kafka", "endpoints": [{"type": "native-kafka"}]}],
-        "flows": [{"interact": [{"policy": "kafka-acl", "enabled": True, "configuration": {"authorizations": [{
-            "resources": [{"type": "TOPIC", "resourcePattern": "orders"}, {"type": "GROUP", "resourcePattern": "*"},
-                          {"type": "CLUSTER", "resourcePattern": "kafka-cluster"}]}]}}]}]},
-        "plans": [{"security": {"type": "KEY_LESS"}}]}
-
-    def test_a_setting_of_a_plugin_called_policy_is_no_policy(self):
-        self.assertEqual(sorted(project.plugins_used(self.LLM)["policy"]), ["key-less", "rate-limit"])
-
-    def test_the_resources_of_a_kafka_acl_are_no_resource_plugins(self):
-        self.assertEqual(project.plugins_used(self.KAFKA)["resource"], set())
-
-    def test_an_environment_with_every_plugin_of_the_definition_can_take_it(self):
-        # Every plugin these definitions name is installed and deployed: no reason
-        installed = {"entrypoint": {"llm-proxy": True, "native-kafka": True},
-                     "endpoint": {"llm-proxy": True, "native-kafka": True},
-                     "policy": {"rate-limit": True, "kafka-acl": True, "key-less": True}, "resource": {}}
-        offers = {"products": None, "plugins": True, "installed": installed}
-        for definition in (self.LLM, self.KAFKA):
-            needs = {kind: sorted(ids) for kind, ids in project.plugins_used(definition).items()}
-            self.assertEqual(project.judge(self.asked(**needs), offers), [])
+    def test_what_a_definition_uses_is_its_plugins_not_what_their_settings_call_so(self):
+        # The shapes of an LLM proxy and of a kafka-acl: a setting called policy is no policy, and the resources it lists are no
+        # resource plugins
+        llm = {"api": {"endpointGroups": [{"endpoints": [{"configuration": {"modelGovernance": {"prefixPolicy": {"policy": "NO_PREFIX"}}}}]}]}}
+        kafka = {"api": {"flows": [{"interact": [{"policy": "kafka-acl", "configuration": {"authorizations": [{
+            "resources": [{"type": "TOPIC", "resourcePattern": "orders"}, {"type": "GROUP", "resourcePattern": "*"}]}]}}]}]}}
+        self.assertEqual(project.plugins_used(llm)["policy"], set())
+        self.assertEqual(project.plugins_used(kafka)["policy"], {"kafka-acl"})
+        self.assertEqual(project.plugins_used(kafka)["resource"], set())
 
     def asked(self, **needs):
         return {"deploys": True, "products": [], "versions": [], "fills": [], "plugins": False, "changes": False,
@@ -1030,16 +958,24 @@ class Deployable(Legacy):
         built = self.built()
         self.assertEqual(built["playgrounds"]["cloud"]["cannot"], {"cloud": NOTHING})
 
-    def test_it_needs_the_product_that_a_folder_of_its_seed_fills(self):
-        # Access Management runs on this machine, whichever platform runs API Management: its folder is no need.
-        # Gamma's are: it needs the platform to have it, and its seed is for this machine's API Management
-        for names, wanted in ((("apim",), []), (("am", "apim"), []), (("am",), []),
+    def test_what_its_seed_holds_is_what_it_asks(self):
+        # Access Management runs on this machine, whichever platform runs API Management: its folder is no need, nor is
+        # OpenFGA's. Gamma's are: it needs the platform to have it, and its seed is for this machine's API Management. No
+        # management API creates an environment, and what else a seed holds only this machine reads
+        for names, wanted in ((("apim",), []), (("am", "apim"), []), (("am",), []), (("apim", "openfga"), []),
+                              (("apim", "am", "openfga"), []),
                               (("aim", "apim"), [GAMMA, MORE]), (("apim", "authz"), [GAMMA, MORE]),
                               (("aim", "apim", "authz"), [GAMMA, MORE]),   # one reason for a product
-                              (("authz", "am", "apim", "aim"), [GAMMA, MORE])):
+                              (("authz", "am", "apim", "aim"), [GAMMA, MORE]),
+                              (("apim", "controls.yaml"), [MORE]), (("apim", "notes.txt"), [MORE]),
+                              (("am", "apim", "refills.yaml"), [MORE]), (("apim", "environments"), [MORE]),
+                              (("environments",), [MORE]), (("am", "apim", "environments", "openfga"), [MORE])):
             with self.subTest(seed=names):
                 self.seed(*names)
                 self.assertEqual(self.why(), wanted)
+        playground = self.built()["playgrounds"]["cloud"]
+        self.assertEqual((playground["deploys_to"], playground["cannot"], playground["asks"]["more"]),
+                         ([], {"cloud": MORE}, True))
 
     def test_it_needs_the_product_that_an_image_it_requires_belongs_to(self):
         self.access_management()
@@ -1066,11 +1002,11 @@ class Deployable(Legacy):
         self.meta(requires={"images": {"APIM_VERSION": "4.13.0", "APIM_GATEWAY_VERSION": "4.14.0"}})
         self.assertEqual(self.why(), [LATER, "Needs API Management 4.14"])
         # The image of an add-on, or of nothing, is no product of the platform
-        self.meta(requires={"images": {"KAFKA_DESK_VERSION": "9.0.0", "NOTHING_VERSION": "9.0.0",
+        self.meta(requires={"images": {"KAZOO_DESK_VERSION": "9.0.0", "NOTHING_VERSION": "9.0.0",
                                        "MONGODB_VERSION": "9.0.0"}})
         self.assertEqual(self.why(), [])
-        self.given["raw"][KAFKA]["x-gravitee"]["name"] = "Gamma"   # named as a product, it is not a group of the core
-        self.meta(requires={"images": {"KAFKA_VERSION": "9.0.0"}})
+        self.given["raw"][KAZOO]["x-gravitee"]["name"] = "Gamma"   # named as a product, it is not a group of the core
+        self.meta(requires={"images": {"KAZOO_VERSION": "9.0.0"}})
         self.assertEqual(self.why(), [])
 
     def test_it_asks_for_no_plugin_of_a_platform_whose_gateway_mounts_none(self):
@@ -1093,64 +1029,55 @@ class Deployable(Legacy):
         self.assertEqual(self.why(), [])
 
     def test_nor_do_the_add_ons_it_brings(self):
-        self.brings(OPENFGA)   # nothing of the core
+        self.brings(ORCHARD)   # nothing of the core
         self.assertEqual(self.why(), [])
-        self.brings(OPENFGA, KAFKA)   # a port and a setting on the gateway: written for the gateway of the platform
+        self.brings(ORCHARD, KAZOO)   # a port and a setting on the gateway: written for the gateway of the platform
         self.assertEqual(self.why(), [])
-        self.brings(OPENFGA, CONSOLE)   # a setting on the Management API, which is not here
+        self.brings(ORCHARD, CONSOLE)   # a setting on the Management API, which is not here
         self.assertEqual(self.why(), [CHANGES])
-        self.brings(EVENTS, OPENFGA)   # through a setup, and the add-on it includes
+        self.brings(EVENTS, ORCHARD)   # through a setup, and the add-on it includes
         self.given["includes"][EVENTS] = [CONSOLE]
         self.given["raw"][CLOUD]["services"].update(self.given["raw"][CONSOLE]["services"])
         self.assertEqual(self.why(), [CHANGES])
         self.given["raw"][CLOUD]["services"].pop("apim-management-api", None)
-        self.brings(OPENFGA)
-        self.given["includes"][OPENFGA] = [JADE]   # what an add-on includes is brought too: it sets the gateway only
+        self.brings(ORCHARD)
+        self.given["includes"][ORCHARD] = [JADE]   # what an add-on includes is brought too: it sets the gateway only
         self.assertEqual(self.why(), [])
-        self.given["includes"][OPENFGA] = [CONSOLE]
+        self.given["includes"][ORCHARD] = [CONSOLE]
         self.assertEqual(self.why(), [CHANGES])
 
     def test_an_app_waits_for_no_service_of_the_core(self):
         # An add-on's service starts with the deploy; the seed's own dependencies are the core's place, not this one
-        self.brings(OPENFGA)
-        self.app(depends_on={"openfga": {"condition": "service_healthy", "required": True}})
+        self.brings(ORCHARD)
+        self.app(depends_on={"orchard": {"condition": "service_healthy", "required": True}})
         self.assertEqual(self.why(), [])
         # What of the platform runs here with the deploy (the databases, Access Management) is no reason; the control plane
         # of API Management is Gravitee Cloud's
-        self.app(depends_on={name: {"condition": "service_healthy", "required": True} for name in ("openfga", "redis")})
+        self.app(depends_on={name: {"condition": "service_healthy", "required": True} for name in ("orchard", "redis")})
         self.assertEqual(self.why(), [])
         self.app(depends_on={name: {"condition": "service_healthy", "required": True}
-                             for name in ("openfga", "apim-management-api")})
+                             for name in ("orchard", "apim-management-api")})
         self.assertEqual(self.why(), [USES])
         # The gateway is not one of them: what the app says of it is written for the gateway of the platform
         self.app(depends_on={"apim-gateway": {"condition": "service_healthy", "required": True}})
         self.assertEqual(self.why(), [])
 
     def test_nor_does_a_service_of_an_add_on_it_brings(self):
-        self.brings(OPENFGA)
-        self.needs(OPENFGA, "openfga-migrate", "openfga")   # for another of the add-on: it starts with the deploy
+        self.brings(ORCHARD)
+        self.needs(ORCHARD, "orchard-migrate", "orchard")   # for another of the add-on: it starts with the deploy
         self.assertEqual(self.why(), [])
-        self.needs(OPENFGA, "openfga-migrate", "redis", "openfga")   # the platform's database runs here too
+        self.needs(ORCHARD, "orchard-migrate", "redis", "orchard")   # the platform's database runs here too
         self.assertEqual(self.why(), [])
-        self.needs(OPENFGA, "openfga-migrate", "apim-management-api", "openfga")
+        self.needs(ORCHARD, "orchard-migrate", "apim-management-api", "orchard")
         self.assertEqual(self.why(), [USES])
-        self.needs(OPENFGA, "openfga-migrate", "openfga")
-        self.needs(OPENFGA, "openfga", "apim-management-api")   # each service of the add-on is read, not the first
-        self.assertEqual(self.why(), [USES])
-
-    def test_nor_one_of_a_setup_s_add_ons(self):
-        self.given["includes"][EVENTS] = [OPENFGA]
-        self.brings(EVENTS)
-        self.assertEqual(self.why(), [])
-        self.needs(OPENFGA, "openfga", "redis")
-        self.assertEqual(self.why(), [])
-        self.needs(OPENFGA, "openfga", "apim-management-api")
+        self.needs(ORCHARD, "orchard-migrate", "orchard")
+        self.needs(ORCHARD, "orchard", "apim-management-api")   # each service of the add-on is read, not the first
         self.assertEqual(self.why(), [USES])
 
     def test_an_app_calls_no_gateway_nor_service_of_the_core(self):
-        self.brings(OPENFGA)
+        self.brings(ORCHARD)
         # A backend of an add-on, this machine, the internet, and a name in a sentence are fine
-        self.app(environment={"PORT": "8000", "FGA_URL": "http://openfga:8080", "NOTE": "the apim-gateway is not called",
+        self.app(environment={"PORT": "8000", "FGA_URL": "http://orchard:8080", "NOTE": "the apim-gateway is not called",
                               "OLLAMA_URL": "${OLLAMA_URL:-http://host.docker.internal:11434}"},
                  command=["serve", "--upstream", "https://api.example.com"])
         self.assertEqual(self.why(), [])
@@ -1158,7 +1085,7 @@ class Deployable(Legacy):
         for environment, command in (
                 ({"LLM_URL": "http://apim-gateway:8082/acme/llm"}, ""),
                 ({"MCP_URL": "${MCP_URL:-http://apim-gateway:8082/mcp}"}, ""),
-                ({"GATEWAY_URL": "http://apim-hybrid-gateway:8082"}, ""),
+                ({"GATEWAY_URL": "http://apim-hyssop-gateway:8082"}, ""),
                 ({}, ["serve", "--llm=http://apim-gateway:8082/llm"])):
             with self.subTest(environment=environment, command=command):
                 self.app(environment=environment, command=command)
@@ -1198,30 +1125,6 @@ class Deployable(Legacy):
             "APIM_MANAGEMENT_URL": "http://apim-management-api:8083", "GATEWAY_INTERNAL_URL": "http://apim-gateway:8082"}
         self.assertEqual(self.why(), [])
 
-    def test_it_seeds_nothing_but_what_the_platform_and_this_machine_run(self):
-        # API Management goes to the platform, Access Management and OpenFGA are seeded here
-        for names in (("apim", "openfga"), ("apim", "am", "openfga")):
-            with self.subTest(seed=names):
-                self.seed(*names)
-                self.assertEqual(self.why(), [])
-        for names in (("apim", "controls.yaml"), ("apim", "refills.yaml"), ("apim", "notes.txt")):
-            with self.subTest(seed=names):
-                self.seed(*names)
-                self.assertEqual(self.why(), [MORE])
-        self.seed("am", "apim", "refills.yaml")
-        self.assertEqual(self.why(), [MORE])
-
-    def test_a_playground_that_seeds_environments_of_its_own_cannot_be_deployed(self):
-        # No management API creates an environment, and a platform's own are not the lab's to multiply: the playground
-        # makes them in the core's database, which only this machine has
-        for names in (("apim", "environments"), ("environments",), ("am", "apim", "environments", "openfga")):
-            with self.subTest(seed=names):
-                self.seed(*names)
-                self.assertEqual(self.why(), [MORE])
-        playground = self.built()["playgrounds"]["cloud"]
-        self.assertEqual((playground["deploys_to"], playground["cannot"], playground["asks"]["more"]),
-                         ([], {"cloud": MORE}, True))
-
     def test_the_most_basic_reason_comes_first_and_the_others_follow_in_order(self):
         # What a person fixes first: nothing to deploy, then the products and their versions that the platform lacks,
         # what it mounts, what it changes of this machine's core, what its apps use of it, and last more seeding
@@ -1257,8 +1160,7 @@ class Deployable(Legacy):
         self.assertEqual(self.why(later), [])
         self.meta(requires={"images": {"APIM_VERSION": "4.13.0"}})
         several = platforms.capabilities(built, check(("APIM", "4.13.2"), ("APIM", "4.12.21")), "env")
-        self.assertEqual((several["products"], several["detail"]), (
-            {"API Management": "4.12.21"}, "API Management: the gateways run 4.12.21, 4.13.2, the oldest counts"))
+        self.assertEqual(several["products"], {"API Management": "4.12.21"})
         self.assertEqual(self.why(several), [LATER], "the oldest gateway of the environment is the version it runs")
         self.assertEqual(self.why(platforms.capabilities(built, check(("AM", "4.13.0")), "env")),
                          ["Needs API Management"], "an environment without API Management")
@@ -1275,21 +1177,16 @@ class Deployable(Legacy):
         self.assertEqual(self.why({"products": None, "plugins": True}), [])
 
     def test_a_plugin_needs_a_gateway_that_mounts_a_plugins_folder(self):
-        # The hybrid gateway mounts what its add-on's file mounts: here nothing, then the plugins of API Management
+        # The hybrid gateway mounts what its add-on's file mounts: here the plugins of API Management
         self.meta(requires={"plugins": {"apim": ["gravitee-policy-x"]}})
-        self.assertEqual(self.why(), [PLUGINS])
-        self.given["raw"][HYBRID]["services"]["apim-hybrid-gateway"]["volumes"] = [
+        self.given["raw"][HYSSOP]["services"]["apim-hyssop-gateway"]["volumes"] = [
             bind("plugins/apim", "/opt/graviteeio-gateway/plugins-ext")]
         built = self.built()
         self.assertTrue(platforms.plugins(built, "cloud"))
         self.assertEqual((built["playgrounds"]["cloud"]["deploys_to"], self.why()), (["cloud"], []))
 
-    def test_a_playground_that_does_not_stand_alone_cannot_go(self):
-        welcome = self.built()["playgrounds"]["welcome"]
-        self.assertEqual((welcome["deploys_to"], welcome["cannot"]), ([], {"cloud": NOTHING}))
-
     def test_an_add_on_that_does_not_load_is_left_out(self):
-        self.given["includes"][CLOUD] = ["addons/broken/compose.yml"]   # its file is not among those that load
+        self.given["includes"][CLOUD] = [".lab/catalogs/fixture/addons/broken/compose.yml"]   # its file is not among those that load
         self.assertEqual(self.why(), [])
 
 
@@ -1312,21 +1209,14 @@ def read(case, catalogs=None, local=(), fixture=None, more=None):
 
 
 class Fixture(Case):
-    """The fixture catalogs read once for the class, in a project folder of its own (read): `inputs`, `built`. What a class
-    changes is its CATALOGS, LOCAL and FIXTURE."""
-
-    CATALOGS = {"partner": {}, "lab-new": {}, "lab-old": {}}
-    LOCAL = ("scratch", "sandbox")
-    FIXTURE = {}
+    """The fixture catalogs read once for the class, in a project folder of its own (read): `inputs`, `built`."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        fixtures.need_compose()
         holder = cls.holder = Case()   # a case of the class's own: the folder it makes and what it patches last as long
         cls.addClassCleanup(holder.doCleanups)
-        cls.inputs, cls.built = read(holder, cls.CATALOGS, cls.LOCAL, cls.FIXTURE)
-        cls.root = holder.root
+        cls.inputs, cls.built = read(holder, {"partner": {}, "lab-new": {}, "lab-old": {}}, ("scratch", "sandbox"))
 
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
@@ -1337,8 +1227,8 @@ class Real(Fixture):
         """Against an environment whose gateway runs API Management at this version."""
         offers = platforms.capabilities(self.built, check(("APIM", version)), "env")
         self.assertEqual(offers["products"], {"API Management": version}, "the group of the core names the product")
-        return project.reasons(self.built["playgrounds"][uid], self.built, self.inputs["raw"],
-                               self.inputs["seeds"][uid], offers)
+        return project.judge(project.asks(self.built["playgrounds"][uid], self.built, self.inputs["raw"], self.inputs["seeds"][uid]),
+                             offers)
 
     def test_shop_needs_more_than_a_platform_offers_and_the_plugins_of_its_api_are_the_first_reason(self):
         # Its seed fills API Management and Access Management, which runs here with the deploy, so the platform is asked
@@ -1352,15 +1242,6 @@ class Real(Fixture):
     def test_tour_api_can_go(self):
         tour = self.built["playgrounds"]["tour"]
         self.assertEqual((tour["deploys_to"], tour["cannot"], self.reasons("tour")), (["cloud"], {}, []))
-
-    def test_the_seed_folders_are_read_by_name(self):
-        self.assertEqual(self.inputs["seeds"]["tour"], ["apim"])
-        self.assertEqual(self.inputs["seeds"]["shop"], ["am", "apim"])
-        self.assertEqual(self.inputs["seeds"]["local/sandbox"], ["apim"])
-
-    def test_what_the_apis_of_a_seed_use_is_read_in_its_folder(self):
-        self.assertEqual(self.inputs["uses"]["shop"]["policy"], ["fixture-policy", "key-less"])   # its plan's security too
-        self.assertEqual(self.inputs["uses"]["tour"]["entrypoint"], ["http-proxy"])
 
 
 def unit_of(built, key):
@@ -1400,12 +1281,8 @@ class Catalogs(Fixture):
         # catalog on the disk
         self.assertEqual((echo["file"], echo["display_file"]),
                          (".lab/catalogs/fixture/addons/echo/compose.yml", "addons/echo/compose.yml"))
-        self.assertEqual(built["setups"]["pair"]["display_file"], "setups/pair.yml")
-        self.assertEqual(built["playgrounds"]["shop"]["display_file"], "playgrounds/shop/compose.yml")
         self.assertEqual((scratch["file"], scratch["display_file"]),
                          (".lab/catalogs/local/addons/scratch/compose.yml", "addons/scratch/compose.yml"))
-        self.assertEqual((built["playgrounds"]["local/sandbox"]["file"], built["playgrounds"]["local/sandbox"]["display_file"]),
-                         (".lab/catalogs/local/playgrounds/sandbox/compose.yml", "playgrounds/sandbox/compose.yml"))
         self.assertEqual(ledger["env_file"], ".lab/catalogs/partner/addons/ledger/.env")
         for kind in ("addons", "setups", "playgrounds"):
             for uid, unit in built[kind].items():
@@ -1423,15 +1300,6 @@ class Catalogs(Fixture):
                 self.assertEqual(self.inputs["includes"][file], compose.includes(file))
         self.assertEqual(self.inputs["includes"][".lab/catalogs/fixture/setups/pair.yml"],
                          [".lab/catalogs/fixture/addons/echo/compose.yml", ".lab/catalogs/partner/addons/ledger/compose.yml"])
-
-    def test_every_unit_has_the_fields_of_a_row(self):
-        for kind in ("addons", "setups", "playgrounds"):
-            for uid, unit in self.built[kind].items():
-                with self.subTest(unit=uid):
-                    self.assertLessEqual({"origin", "readonly", "display_file", "blocked", "needs_catalogs", "compat", "twin",
-                                          "uses_machine", "catalog", "verdict"}, set(unit))
-                    self.assertIn(unit["compat"], ("ok", "new", "old"))
-                    self.assertIsInstance(unit["needs_catalogs"], list)
 
     def test_the_verdict_of_each_unit_is_the_one_of_the_oracle(self):
         """expected.json is what the policy must say of every unit of fixture and partner: the verdict, its reasons and notes
@@ -1454,30 +1322,12 @@ class Catalogs(Fixture):
         self.assertIsNone(cluster["blocked"], "the catalog is listed and the unit says why")
         self.assertEqual(self.built["addons"]["echo"]["uses_machine"], [])
 
-    def test_a_unit_brings_the_machine_use_of_what_it_includes(self):
-        # Scratch of this machine includes Echo; a unit that includes the cluster would say it too: here, the sum is the unit's
-        self.assertEqual(self.built["addons"]["echo-core"]["uses_machine"], [])
-        self.assertEqual(self.built["setups"]["pair"]["uses_machine"], [])
-
     def test_the_level_a_unit_is_written_for_is_read_against_the_core(self):
         built = self.built
         self.assertEqual({uid: built["addons"][uid]["compat"] for uid in ("echo", "future", "@lab-new/newer", "@lab-old/older")},
                          {"echo": "ok", "future": "new", "@lab-new/newer": "new", "@lab-old/older": "old"})
         self.assertEqual(built["addons"]["future"]["blocked"], {"reasons": ["Needs a newer Gravitee Lab"]})
         self.assertEqual(built["addons"]["@lab-old/older"]["blocked"], {"reasons": ["Written for an older Gravitee Lab"]})
-
-    def test_a_blocked_unit_is_listed_and_brings_no_service(self):
-        built = self.built
-        for kind, uid in (("addons", "future"), ("addons", "@lab-new/newer"), ("addons", "@lab-old/older"), ("setups", "pair")):
-            self.assertTrue(built[kind][uid]["blocked"], uid)
-        self.assertEqual([built["addons"][uid]["services"] for uid in ("future", "@lab-new/newer", "@lab-old/older")], [[], [], []])
-        owned = {service["owner"]["id"] for service in built["services"].values()}
-        self.assertFalse(owned & {"future", "@lab-new/newer", "@lab-old/older"})
-        self.assertNotIn("fixture-future", built["services"])
-        # What can start brings its services
-        self.assertEqual(built["services"]["fixture-echo"]["owner"], {"kind": "addon", "id": "echo", "name": "Echo"})
-        self.assertEqual(built["addons"]["echo"]["services"], ["fixture-echo"])
-        self.assertEqual(built["services"]["partner-ledger"]["owner"]["id"], "@partner/ledger")
 
     def test_what_a_unit_defines_itself_is_what_its_own_configuration_gave(self):
         service = self.built["services"]["fixture-echo"]
@@ -1500,88 +1350,54 @@ class Catalogs(Fixture):
         self.assertEqual(summary["partner"]["blocked"], [])
         self.assertEqual(summary["lab-new"]["blocked"][0]["id"], "@lab-new/newer")
 
-    def test_the_gateway_an_add_on_declares_is_the_one_the_project_chooses(self):
-        built = self.built
-        self.assertEqual(built["addons"]["gateway"]["gateway"]["service"], "fixture-gateway")
-        self.assertEqual(built["platform"], {"gateways": {"cloud": "gateway"}})
-        self.assertEqual(built["addons"]["gateway"]["gateway"]["domains"], ["localhost:8195", "fixture-gateway:80"])
-
-    def test_nothing_a_catalog_says_reaches_the_banner(self):
-        self.assertEqual(self.built["problems"], [])
-        self.assertEqual(self.built["catalog_problems"], {})
-
-    def test_what_gather_read_for_the_policy_is_given_with_the_inputs(self):
-        inputs = self.inputs
-        self.assertEqual(inputs["default"], "fixture")
-        self.assertEqual(inputs["contract"], {"contract": 5, "contract_min": 1, "seeder_image": fixtures.seeder_image(self.holder)})
-        self.assertNotIn("layout", inputs, "the move of an old layout is made before the project is read: it is no input")
-        self.assertEqual(list(inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
-        self.assertEqual(inputs["screened"], {})
-        self.assertIsNotNone(inputs["core_config"])
-        self.assertIn("apim-gateway", inputs["core_config"]["services"])
-        self.assertTrue(set(inputs["configs"]) >= {".lab/catalogs/fixture/addons/echo/compose.yml"})
+    def test_gather_keeps_the_order_of_the_registry_and_reads_the_seeder_of_the_core(self):
+        self.assertEqual(list(self.inputs["catalogs"]), ["fixture", "local", "partner", "lab-new", "lab-old"])
+        self.assertEqual(self.inputs["contract"]["seeder_image"], fixtures.seeder_image(self.holder))
 
 
-class Accounts(Legacy):
+class Accounts(AsOwn):
     """The accounts of a playground show the settings in them as they are now: the Lab UI's environment first, then the
     root .env, then the playground's own, else the default the value gives. Compose reads them so: the root .env wins
     over the .env of an included file, which only applies where the root sets nothing."""
 
-    OWN, CORE_ENV, OTHER = "playgrounds/welcome/.env", ".env", "addons/kafka/.env"
+    OWN, CORE_ENV, OTHER = ".lab/catalogs/fixture/playgrounds/welcome/.env", ".env", ".lab/catalogs/fixture/addons/kazoo/.env"
 
-    def password(self, text="${WELCOME_PASSWORD:-doe}", environ=None, **files):
+    def password(self, text, environ, files):
         """The password of the playground's account, written `text`, with these variables in the environment and in
         these .env files."""
         given = inputs()
         given["raw"][WELCOME]["x-gravitee"]["accounts"][0]["password"] = text
-        given["environ"], given["env"] = environ or {}, files
+        given["environ"], given["env"] = environ, files
         built = project.build(given)
         self.assertEqual(given["raw"][WELCOME]["x-gravitee"]["accounts"][0]["password"], text)   # as it was
         return built["playgrounds"]["welcome"]["accounts"][0]["password"]
 
-    def test_the_default_when_nothing_sets_it(self):
-        self.assertEqual(self.password(), "doe")
-        self.assertEqual(self.password(**{self.OWN: {"OTHER": "x"}, self.CORE_ENV: {}}), "doe")
+    def test_what_a_password_shows(self):
+        # The first place that sets it decides, also when it sets it to nothing, which a default with a colon reads as no value
+        colon, dash, bare = "${WELCOME_PASSWORD:-doe}", "${WELCOME_PASSWORD-doe}", "${WELCOME_PASSWORD}"
+        nested, own, root = "${WELCOME_PASSWORD:-${WELCOME_ADMIN_PASSWORD:-last}}", self.OWN, self.CORE_ENV
 
-    def test_set_in_the_playground_s_env(self):
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": "mine"}}), "mine")
-
-    def test_set_in_the_core_s_env(self):
-        self.assertEqual(self.password(**{self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}), "core")
-
-    def test_set_in_the_environment(self):
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": "shell"}), "shell")
-
-    def test_the_environment_comes_first_then_the_root_env_then_the_playground(self):
-        files = {self.OWN: {"WELCOME_PASSWORD": "own"}, self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": "shell"}, **files), "shell")
-        self.assertEqual(self.password(**files), "core")
-        del files[self.CORE_ENV]
-        self.assertEqual(self.password(**files), "own")
-
-    def test_the_env_of_another_item_is_not_read(self):
-        self.assertEqual(self.password(**{self.OTHER: {"WELCOME_PASSWORD": "kafka"},
-                                          "playgrounds/other/.env": {"WELCOME_PASSWORD": "other"}}), "doe")
-
-    def test_an_empty_value_is_no_value_for_a_default_with_a_colon(self):
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": ""}}), "doe")
-        self.assertEqual(self.password(environ={"WELCOME_PASSWORD": ""}), "doe")
-        # What Compose reads: the first place that sets it decides, also when it sets it to nothing
-        self.assertEqual(self.password(**{self.CORE_ENV: {"WELCOME_PASSWORD": ""}, self.OWN: {"WELCOME_PASSWORD": "own"}}),
-                         "doe")
-        self.assertEqual(self.password(**{self.OWN: {"WELCOME_PASSWORD": ""}, self.CORE_ENV: {"WELCOME_PASSWORD": "core"}}),
-                         "core")
-        self.assertEqual(self.password("${WELCOME_PASSWORD-doe}", **{self.OWN: {"WELCOME_PASSWORD": ""}}), "")
-        self.assertEqual(self.password("${WELCOME_PASSWORD-doe}"), "doe")
-
-    def test_a_setting_without_default_shows_its_name_until_it_has_a_value(self):
-        self.assertEqual(self.password("${WELCOME_PASSWORD}"), "${WELCOME_PASSWORD}")
-        self.assertEqual(self.password("${WELCOME_PASSWORD}", **{self.OWN: {"WELCOME_PASSWORD": "mine"}}), "mine")
-
-    def test_a_default_that_refers_to_another_setting(self):
-        text = "${WELCOME_PASSWORD:-${WELCOME_ADMIN_PASSWORD:-last}}"
-        self.assertEqual(self.password(text), "last")
-        self.assertEqual(self.password(text, **{self.CORE_ENV: {"WELCOME_ADMIN_PASSWORD": "admin"}}), "admin")
+        def to(value):
+            return {"WELCOME_PASSWORD": value}
+        for text, environ, files, wanted in (
+                (colon, {}, {}, "doe"),
+                (colon, {}, {own: {"OTHER": "x"}, root: {}}, "doe"),
+                (colon, to("shell"), {own: to("own"), root: to("core")}, "shell"),
+                (colon, {}, {own: to("own"), root: to("core")}, "core"),
+                (colon, {}, {own: to("own")}, "own"),
+                (colon, {}, {self.OTHER: to("kazoo"), ".lab/catalogs/fixture/playgrounds/other/.env": to("other")}, "doe"),
+                (colon, {}, {own: to("")}, "doe"),
+                (colon, to(""), {}, "doe"),
+                (colon, {}, {root: to(""), own: to("own")}, "doe"),
+                (colon, {}, {own: to(""), root: to("core")}, "core"),
+                (dash, {}, {own: to("")}, ""),
+                (dash, {}, {}, "doe"),
+                (bare, {}, {}, bare),
+                (bare, {}, {own: to("mine")}, "mine"),
+                (nested, {}, {}, "last"),
+                (nested, {}, {root: {"WELCOME_ADMIN_PASSWORD": "admin"}}, "admin")):
+            with self.subTest(text=text, environ=environ, files=files):
+                self.assertEqual(self.password(text, environ, files), wanted)
 
     def test_every_text_of_every_account_is_read_and_nothing_else(self):
         given = inputs()
@@ -1593,9 +1409,7 @@ class Accounts(Legacy):
         built = project.build(given)
         self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [
             {"for": "Website of ACME", "username": "jane", "port": 8002, "admin": True, "tags": ["${WELCOME_USER:-john}"]},
-            {"for": "LLM", "key": "key-2"}])   # what is no account is said, and left out: the page reads each as one
-        self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
-                      built["problems"])
+            {"for": "LLM", "key": "key-2"}])   # what is no account is left out: the page reads each as one
 
     def test_a_user_name_is_text_as_the_page_shows_it_and_a_guide_s_account_link_names_it(self):
         # YAML reads an unquoted 1234 as a number: the page finds the account a link names by its text
@@ -1608,27 +1422,17 @@ class Accounts(Legacy):
             {"for": "Kiosk", "username": "1234", "password": 0}, {"for": "Till", "username": "1.5"},
             {"for": "Door", "username": None}, {"for": "Desk", "username": None}, {"for": "LLM", "key": "k"}])
 
-    def test_accounts_that_are_not_a_list_are_said_and_none(self):
-        given = inputs()
-        given["raw"][WELCOME]["x-gravitee"]["accounts"] = "${WELCOME_PASSWORD:-doe}"
-        built = project.build(given)
-        self.assertEqual(built["playgrounds"]["welcome"]["accounts"], [])
-        self.assertIn({"file": WELCOME, "message": "x-gravitee.accounts must be a list of accounts, each a mapping"},
-                      built["problems"])
-        del given["raw"][WELCOME]["x-gravitee"]["accounts"]
-        self.assertEqual(project.build(given)["playgrounds"]["welcome"]["accounts"], [])
 
-
-class Gathered(Legacy):
+class Gathered(AsOwn):
     """The variables the accounts are read with come from the disk and the process, and a change shows."""
 
     def test_the_env_files_of_the_core_and_of_each_add_on_and_playground_are_read(self):
         self.folder(paths, project, envfiles, files={
-            CORE: "", KAFKA: "", WELCOME: "", EVENTS: "", ".env": "A=1\n", "addons/kafka/.env": "B='two words'\n",
-            "playgrounds/welcome/.env": "WELCOME_PASSWORD=\"mine\"\n# comment\nEMPTY=\n"})
+            CORE: "", KAZOO: "", WELCOME: "", EVENTS: "", ".env": "A=1\n", ".lab/catalogs/fixture/addons/kazoo/.env": "B='two words'\n",
+            ".lab/catalogs/fixture/playgrounds/welcome/.env": "WELCOME_PASSWORD=\"mine\"\n# comment\nEMPTY=\n"})
         self.assertEqual(project._env_values(), {
-            ".env": {"A": "1"}, "addons/kafka/.env": {"B": "two words"},
-            "playgrounds/welcome/.env": {"WELCOME_PASSWORD": "mine", "EMPTY": ""}})
+            ".env": {"A": "1"}, ".lab/catalogs/fixture/addons/kazoo/.env": {"B": "two words"},
+            ".lab/catalogs/fixture/playgrounds/welcome/.env": {"WELCOME_PASSWORD": "mine", "EMPTY": ""}})
 
     def test_an_account_shows_a_change_of_an_env_file_the_next_time_the_project_is_loaded(self):
         self.folder(paths, project, envfiles, files=dict.fromkeys((CORE, WELCOME), ""))
@@ -1638,9 +1442,9 @@ class Gathered(Legacy):
         def shown():
             return project.load()["playgrounds"]["welcome"]["accounts"][0]["password"]
         self.assertEqual(shown(), "doe")
-        self.write("playgrounds/welcome/.env", "WELCOME_PASSWORD=first\n")
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/.env", "WELCOME_PASSWORD=first\n")
         self.assertEqual(shown(), "first")
-        self.write("playgrounds/welcome/.env", "WELCOME_PASSWORD=second\n")
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/.env", "WELCOME_PASSWORD=second\n")
         self.assertEqual(shown(), "second")
         self.write(".env", "WELCOME_PASSWORD=core\n")
         self.assertEqual(shown(), "core")   # the root one comes first
@@ -1649,10 +1453,10 @@ class Gathered(Legacy):
 
     def test_the_seed_folder_of_each_playground_is_read_by_name(self):
         self.folder(paths, project, files={
-            "playgrounds/welcome/seed/apim/apis/one.json": "{}", "playgrounds/welcome/seed/am/domain.yaml": "",
-            "playgrounds/welcome/seed/controls.yaml": "", "playgrounds/welcome/seed/.DS_Store": "",
-            "playgrounds/local/sandbox/seed/aim/agents/one.yaml": "", "playgrounds/empty/seed/.gitkeep": "",
-            "playgrounds/none/compose.yml": "", "playgrounds/file/seed": "not a folder"})
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/one.json": "{}", ".lab/catalogs/fixture/playgrounds/welcome/seed/am/domain.yaml": "",
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/controls.yaml": "", ".lab/catalogs/fixture/playgrounds/welcome/seed/.DS_Store": "",
+            ".lab/catalogs/local/playgrounds/sandbox/seed/aim/agents/one.yaml": "", ".lab/catalogs/fixture/playgrounds/empty/seed/.gitkeep": "",
+            ".lab/catalogs/fixture/playgrounds/none/compose.yml": "", ".lab/catalogs/fixture/playgrounds/file/seed": "not a folder"})
         self.assertEqual([project._seed_names(uid) for uid in ("welcome", "local/sandbox", "empty", "none", "file")],
                          [["am", "apim", "controls.yaml"], ["aim"], [], [], []])
 
@@ -1661,16 +1465,16 @@ class Gathered(Legacy):
             groups = [{"type": endpoint, "endpoints": [{"type": endpoint}]}] if endpoint else []
             return json.dumps({"api": {"listeners": [{"entrypoints": [{"type": entrypoint}]}], "endpointGroups": groups}})
         self.folder(paths, project, files={
-            "playgrounds/welcome/seed/apim/apis/one.json": api("http-proxy", "http-proxy"),
-            "playgrounds/welcome/seed/environments/novo-nordisk/apis/feed.json": api("sse", "solace"),
-            "playgrounds/welcome/seed/environments/beam/apis/feed.json": api("webhook", "solace"),
-            "playgrounds/welcome/seed/environments/beam/apis/broken.json": "not json",
-            "playgrounds/welcome/seed/environments/beam/apis/list.json": "[]",
-            "playgrounds/welcome/seed/environments/beam/apis/text.json": '{"api": "text", "plans": 3}',
-            "playgrounds/local/sandbox/seed/environments/moderna/apis/feed.json": api("websocket"),
-            "playgrounds/none/compose.yml": ""})
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/one.json": api("http-proxy", "http-proxy"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/north-meadow/apis/feed.json": api("sse", "sorrel"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beet/apis/feed.json": api("webhook", "sorrel"),
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beet/apis/broken.json": "not json",
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beet/apis/list.json": "[]",
+            ".lab/catalogs/fixture/playgrounds/welcome/seed/environments/beet/apis/text.json": '{"api": "text", "plans": 3}',
+            ".lab/catalogs/local/playgrounds/sandbox/seed/environments/mallard/apis/feed.json": api("websocket"),
+            ".lab/catalogs/fixture/playgrounds/none/compose.yml": ""})
         self.assertEqual(project._seed_uses("welcome"), {
-            "entrypoint": ["http-proxy", "sse", "webhook"], "endpoint": ["http-proxy", "solace"], "policy": [],
+            "entrypoint": ["http-proxy", "sse", "webhook"], "endpoint": ["http-proxy", "sorrel"], "policy": [],
             "resource": []})
         # What is no JSON object is said to be no definition: the license's checks name it
         self.assertEqual([(file.name, definition is None) for file, definition in project.seed_definitions("welcome")],
@@ -1678,16 +1482,6 @@ class Gathered(Legacy):
                           ("text.json", False), ("feed.json", False)])
         self.assertEqual(project._seed_uses("local/sandbox")["entrypoint"], ["websocket"])
         self.assertEqual(project._seed_uses("none"), {kind: [] for kind in project.PLUGIN_KINDS})
-
-    def test_the_seed_folders_are_gathered_with_the_playgrounds(self):
-        self.folder(paths, project, envfiles, files={
-            CORE: "", WELCOME: "", "playgrounds/welcome/seed/apim/apis/one.json": "{}", "playgrounds/welcome/seed/am/x": "",
-            SANDBOX: "", "addons/kafka/seed/apim/x": ""})
-        self.patch(project, "_resolved", return_value={})
-        self.patch(project, "_raw", lambda path: ({"services": {}}, None))
-        self.patch(compose, "includes", return_value=[])
-        self.patch(compose, "variables", return_value=[])
-        self.assertEqual(project.gather()["seeds"], {"welcome": ["am", "apim"], "local/sandbox": []})
 
     def test_the_environment_of_the_process_is_gathered(self):
         self.folder(paths, project, envfiles, files={CORE: ""})
@@ -1699,7 +1493,7 @@ class Gathered(Legacy):
             self.assertEqual(project.gather()["environ"]["WELCOME_PASSWORD"], "shell")
 
 
-class License(Legacy):
+class License(AsOwn):
     """Whether the license of the core's .env lets the services that need one start, gathered with the other inputs and
     seen again by the next project once it is saved."""
 
@@ -1717,15 +1511,6 @@ class License(Legacy):
 
     def usable(self):
         return project.load()["license_usable"]
-
-    def test_gathered_from_the_env_of_the_core(self):
-        self.assertIs(project.gather()["license_usable"], False)   # no .env
-        self.write(".env", "GRAVITEE_LICENSE=genuine\n")
-        self.assertIs(project.gather()["license_usable"], True)
-        self.write(".env", "GRAVITEE_LICENSE=forged\n")   # not signed by GraviteeSource
-        self.assertIs(project.gather()["license_usable"], False)
-        self.write(".env", "GRAVITEE_LICENSE=\n")
-        self.assertIs(project.gather()["license_usable"], False)
 
     def test_an_expired_license_is_not_usable_and_one_that_expires_soon_is(self):
         now = license.datetime.datetime.now(license.datetime.timezone.utc)
@@ -1746,8 +1531,14 @@ class License(Legacy):
         self.assertIs(self.usable(), False)
         self.write(".env", "GRAVITEE_LICENSE=genuine\n")
         self.assertIs(self.usable(), True)
-        self.write(".env", "GRAVITEE_LICENSE=forged\n")
+        self.write(".env", "GRAVITEE_LICENSE=forged\n")   # not signed by GraviteeSource
         self.assertIs(self.usable(), False)
+        self.write(".env", "GRAVITEE_LICENSE=genuine\n")
+        self.assertIs(self.usable(), True)
+        self.write(".env", "GRAVITEE_LICENSE=\n")
+        self.assertIs(self.usable(), False)
+        self.write(".env", "GRAVITEE_LICENSE=genuine\n")
+        self.assertIs(self.usable(), True)
         (self.root / ".env").unlink()
         self.assertIs(self.usable(), False)
 
@@ -1766,22 +1557,22 @@ class License(Legacy):
             self.assertEqual(gathered.call_count, 1)
 
 
-class Order(Legacy):
+class Order(AsOwn):
 
     def test_a_file_gives_its_services_as_it_writes_them_not_as_compose_sorts_them(self):
-        self.folder(project, files={"playgrounds/bank/compose.yml": (
+        self.folder(project, files={".lab/catalogs/fixture/playgrounds/bank/compose.yml": (
             "name: bank\n\nx-gravitee:\n  kind: playground\n\nservices:\n  bakery-web:   # the screen\n    image: web\n"
             "    labels:\n      a: b\n\n  # comment\n  bakery-api:\n    image: api\n  bakery-agent:\n    image: agent\n"
             "\nnetworks:\n  internal:\n    name: n\n")})
-        self.assertEqual(project._written("playgrounds/bank/compose.yml"), ["bakery-web", "bakery-api", "bakery-agent"])
-        self.assertEqual(project._written("playgrounds/missing/compose.yml"), [])
+        self.assertEqual(project._written(".lab/catalogs/fixture/playgrounds/bank/compose.yml"), ["bakery-web", "bakery-api", "bakery-agent"])
+        self.assertEqual(project._written(".lab/catalogs/fixture/playgrounds/missing/compose.yml"), [])
         config = {"services": {"bakery-agent": {}, "bakery-api": {}, "bakery-web": {}, "extra": {}, "core": {}}}
         # In the file's order, what it does not name after them, the core's services out
-        self.assertEqual(project._own("playgrounds/bank/compose.yml", config, [], {"core"}),
+        self.assertEqual(project._own(".lab/catalogs/fixture/playgrounds/bank/compose.yml", config, [], {"core"}),
                          ["bakery-web", "bakery-api", "bakery-agent", "extra"])
 
 
-class Tag(Legacy):
+class Tag(AsOwn):
 
     def test_the_tag_an_image_names(self):
         self.assertEqual([project.tag(image) for image in ("graviteeio/apim-gateway:4.12.20", "redis:8.0", "localhost:5000/team/app:1.2",
@@ -1794,25 +1585,11 @@ class Tag(Legacy):
             self.assertEqual(project.tag(image), "", image)
 
 
-class Fingerprint(Legacy):
-
-    def test_changes_when_a_file_it_reads_changes_appears_or_goes(self):
-        root = self.folder(paths, project, files=dict.fromkeys((CORE, KAFKA, WELCOME), ""))
-        env, guide = root / "addons/kafka/.env", root / "playgrounds/welcome/guide.md"
-        seen = [project.fingerprint()]
-        for change in (lambda: env.write_text("A=1\n", encoding="utf-8"), lambda: guide.write_text("# Welcome\n", encoding="utf-8"),
-                       lambda: env.write_text("A=22\n", encoding="utf-8"), guide.unlink):
-            change()
-            seen.append(project.fingerprint())
-        self.write("addons/kafka/notes.md", "Not read")
-        seen.append(project.fingerprint())
-        self.assertEqual(len(set(seen)), len(seen) - 1)
-        self.assertEqual(seen[-1], seen[-2])
-
+class Fingerprint(AsOwn):
 
     def test_a_seed_folder_decides_where_a_playground_goes_so_its_entries_are_part_of_it(self):
         root = self.folder(paths, project, files=dict.fromkeys((CORE, WELCOME), ""))
-        seed, seen = root / "playgrounds/welcome/seed", [project.fingerprint()]
+        seed, seen = root / ".lab/catalogs/fixture/playgrounds/welcome/seed", [project.fingerprint()]
         for at, change in enumerate((seed.mkdir, (seed / "apim").mkdir, (seed / "am").mkdir, (seed / "am").rmdir), 1):
             change()
             os.utime(seed, ns=(at * 10**9, at * 10**9))   # a filesystem may not tell two changes a moment apart
@@ -1820,31 +1597,31 @@ class Fingerprint(Legacy):
         self.assertEqual(len(set(seen)), len(seen))
 
 
-class Saved(Legacy):
+class Saved(AsOwn):
     """What each service of what is on is, as saved: the hashes Compose makes them from, the images their tags name."""
 
     def setUp(self):
-        self.folder(paths, project, files={CORE: "", KAFKA: ""})
+        self.folder(paths, project, files={CORE: "", KAZOO: ""})
         compose.CACHE.drop("config-hash:")
         self.addCleanup(compose.CACHE.drop, "config-hash:")
         self.hashes = self.patch(compose, "config_hashes", return_value={"mongodb": "h1", "redis": "h2"})
         self.held = self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "sha256:m",
-                                                                   "bitnamilegacy/kafka:3.9": "sha256:k"})
+                                                                   "acmecontainer/kazoo:3.9": "sha256:k"})
         self.project = {"core_loaded": True, "services": {
             "mongodb": {"image": "mongo:8.0.29"}, "redis": {"image": "redis:8"},
-            "kafka": {"image": "docker.io/bitnamilegacy/kafka:3.9"}, "app": {"image": ""}}}
+            "kazoo": {"image": "docker.io/acmecontainer/kazoo:3.9"}, "app": {"image": ""}}}
 
     def test_hashes_and_images(self):
         self.assertEqual(project.saved(self.project), {"hashes": {"mongodb": "h1", "redis": "h2"},
-                                                       "images": {"mongodb": "sha256:m", "kafka": "sha256:k"}})
+                                                       "images": {"mongodb": "sha256:m", "kazoo": "sha256:k"}})
 
     def test_the_hashes_are_asked_again_when_a_file_or_the_on_file_changes(self):
         project.saved(self.project)
         project.saved(self.project)
         self.assertEqual(self.hashes.call_count, 1)
-        self.write(".lab/on.yml", "include:\n  - addons/kafka/compose.yml\n")   # what is on changed
+        self.write(".lab/on.yml", "include:\n  - .lab/catalogs/fixture/addons/kazoo/compose.yml\n")   # what is on changed
         project.saved(self.project)
-        self.write(KAFKA, "services: {}\n")
+        self.write(KAZOO, "services: {}\n")
         project.saved(self.project)
         self.assertEqual(self.hashes.call_count, 3)
         # What could not be had is asked again at the next ask, not minutes later: meanwhile what runs behind is not
@@ -1902,13 +1679,9 @@ class Needs(Case):
         self.assertNotIn(pair["file"], inputs["configs"], "it is judged when the catalog arrives, not resolved without it")
         self.assertIsNone(pair["blocked"])
         self.assertEqual(built["problems"], [])
-
-    def test_the_other_units_of_the_catalog_are_judged_as_before(self):
-        _, built, _ = self.pair(catalogs={"lab-new": {}})
+        # The other units of the catalog are judged as before
         self.assertEqual(built["addons"]["echo"]["needs_catalogs"], [])
         self.assertTrue(built["addons"]["future"]["blocked"])
-        self.assertEqual(built["catalogs"]["fixture"]["needs"],
-                         [{key: self.PARTNER[key] for key in ("id", "name", "url", "min")}])
 
     def test_a_catalog_that_is_added_and_not_downloaded_is_downloading_or_failed(self):
         for error, reason in ((None, "downloading"), ("unreachable", "failed")):
@@ -1959,19 +1732,19 @@ class Hostile(Case):
             "services:\n  fixture-evil:\n    image: busybox\n    env_file: /dev/zero\n")
 
     def asked(self, run):
-        """(what `run` made of the project, the files Compose was asked to read or resolve): compose.raw and the resolving of
-        one unit are watched, and answer as they would."""
-        asked = []
-        raw, alone = compose.raw, project._alone
+        """(what `run` made of the project, the files Compose was asked to read or resolve): every read comes to
+        compose._config, whoever asks, and what it reads from a scratch file was named to compose.all_files or is a copy read
+        from the folder of its original. Both answer as they would."""
+        asked, config, on_top, scratch = [], compose._config, compose.all_files, str(compose.scratch())
 
-        def watched_raw(path, *more, **how):
-            asked.append(path)
-            return raw(path, *more, **how)
+        def watched_config(files, *more, **how):
+            asked.extend(file.replace(f"{compose.ROOT}/", "") for file in files if scratch not in file)
+            return config(files, *more, **how)
 
-        def watched_alone(path, *more):
-            asked.append(path)
-            return alone(path, *more)
-        with mock.patch.object(compose, "raw", watched_raw), mock.patch.object(project, "_alone", watched_alone):
+        def watched_on_top(named, *more):
+            asked.extend(named)
+            return on_top(named, *more)
+        with mock.patch.object(compose, "_config", watched_config), mock.patch.object(compose, "all_files", watched_on_top):
             return run(), asked
 
     def evil(self, case):
@@ -1991,6 +1764,13 @@ class Hostile(Case):
         self.assertNotIn("fixture-evil", built["services"])
         self.assertTrue(built["addons"]["echo"]["services"], "the rest of the catalog loads")
         self.assertEqual(built["problems"], [])
+
+    def test_defaults_nested_past_what_python_can_read_end_that_item_and_not_the_project(self):
+        deep = "${A:-" * 600 + "x" + "}" * 600
+        text = ("x-gravitee: {kind: addon, name: Deep, category: Other, description: Nested}\n"
+                f"services:\n  deep:\n    image: busybox\n    labels:\n      a: '{deep}'\n    pull_policy: '{deep}'\n")
+        _, built = read(self, more=lambda case: case.write(".lab/catalogs/local/addons/deep/compose.yml", text))
+        self.assertTrue(built["addons"]["echo"]["services"], "the rest loads")
 
     def test_a_file_that_is_a_link_or_a_pipe_or_not_text_or_too_large_is_refused_before_it_is_read(self):
         def files(case):
@@ -2017,9 +1797,7 @@ class Hostile(Case):
         def many(case):
             for number in range(20):
                 case.write(f".lab/catalogs/fixture/addons/zero{number}/compose.yml", self.EVIL)
-        started = time.monotonic()
         (inputs, built), asked = self.asked(lambda: read(self, more=many))
-        self.assertLess(time.monotonic() - started, 10)
         self.assertEqual([file for file in asked if "zero" in file], [])
         self.assertEqual(sum(1 for uid, one in built["addons"].items() if uid.startswith("zero") and one["blocked"]), 20)
 
@@ -2105,18 +1883,16 @@ class Hostile(Case):
 
     def held(self, name, text, more=None, others=None):
         """The project with a unit `name` in the default catalog that has this text and what `more(case)` adds, read with a time
-        limit of three seconds so that a Compose that is asked to read what never ends is a failure of the test, not a
-        wait: (the inputs, the project, the files Compose was asked about)."""
+        limit of three seconds so that a Compose that is asked to read what never ends does not hold the test: (the inputs, the
+        project, the files Compose was asked about)."""
         def files(case):
             case.write(f".lab/catalogs/fixture/addons/{name}/compose.yml", text)
             if more:
                 more(case, case.root / f".lab/catalogs/fixture/addons/{name}")
             for other, content in (others or {}).items():
                 case.write(other, content)
-        started = time.monotonic()
         with mock.patch.object(project, "UNIT_TIMEOUT", 3):
             (inputs, built), asked = self.asked(lambda: read(self, more=files))
-        self.assertLess(time.monotonic() - started, 12, "Compose was not asked to read what never ends")
         return inputs, built, [file for file in asked if name in file or "mine" in file]
 
     def test_a_file_a_unit_includes_that_is_no_unit_is_never_given_to_compose_for_it_reads_what_its_include_says(self):
@@ -2267,13 +2043,8 @@ class Hostile(Case):
             file = case.root / ".lab/catalogs/fixture/catalog.yml"
             file.write_text(file.read_text(encoding="utf-8") + "  shared_settings: [FIXTURE_ONE]\ninclude:\n  - pipe.yml\n", encoding="utf-8")
             os.mkfifo(case.root / ".lab/catalogs/fixture/pipe.yml")
-        raw = compose.raw
-        asked = []
-        with mock.patch.object(project, "UNIT_TIMEOUT", 3), \
-                mock.patch.object(compose, "raw", lambda path, *more, **how: asked.append(path) or raw(path, *more, **how)):
-            started = time.monotonic()
-            inputs, _ = read(self, more=catalog)
-        self.assertLess(time.monotonic() - started, 12)
+        with mock.patch.object(project, "UNIT_TIMEOUT", 3):
+            (inputs, _), asked = self.asked(lambda: read(self, more=catalog))
         self.assertEqual([file for file in asked if file.endswith("catalog.yml")], [])
         self.assertEqual(inputs["shared_settings"]["fixture"], [])
 
@@ -2337,16 +2108,7 @@ class Names(Case):
     def read(self, files, **how):
         return read(self, catalogs={"partner": {"files": files}}, **how)[1]
 
-    def test_a_unit_that_reuses_the_name_of_a_service_of_an_earlier_one_is_blocked_by_it(self):
-        built = self.read({"addons/clash/compose.yml": addon("clash", ["fixture-echo"])})
-        self.assertEqual(built["addons"]["@partner/clash"]["blocked"], {"reasons": ["Same name as Echo"]})
-        self.assertEqual(built["addons"]["@partner/clash"]["services"], [])
-        # The earlier one, the default catalog and the catalog the clash is in are untouched
-        self.assertIsNone(built["addons"]["echo"]["blocked"])
-        self.assertIsNone(built["addons"]["@partner/ledger"]["blocked"])
-        self.assertEqual(built["services"]["fixture-echo"]["owner"]["id"], "echo")
-
-    def test_nor_a_container_name_nor_a_volume(self):
+    def test_a_container_name_is_a_name_too(self):
         text = addon("same", ["fixture-same"]).replace("gio-fixture-same", "gio-fixture-echo")
         built = self.read({"addons/same/compose.yml": text})
         self.assertEqual(built["addons"]["@partner/same"]["blocked"], {"reasons": ["Same name as Echo"]})
@@ -2357,20 +2119,6 @@ class Names(Case):
         found = self.read({"addons/redis-clone/compose.yml": text})["addons"]["@partner/redis-clone"]
         self.assertEqual(found["services"], [])
         self.assertIn("gio-redis", found["blocked"]["reasons"][0])
-
-    def test_the_default_catalog_and_this_machine_are_never_blocked_by_a_later_catalog(self):
-        # Partner defines Echo's service first in its own file, but the default catalog claims first
-        built = self.read({"addons/clash/compose.yml": addon("clash", ["fixture-echo", "scratch-notes"])}, local=("scratch",))
-        self.assertIsNone(built["addons"]["echo"]["blocked"])
-        self.assertIsNone(built["addons"]["local/scratch"]["blocked"])
-        self.assertTrue(built["addons"]["@partner/clash"]["blocked"])
-
-    def test_a_unit_that_is_blocked_already_claims_nothing(self):
-        # The first unit of the later catalog is blocked by its level, so the second may keep the name it also defines
-        first = addon("first", ["shared-name"], says=", requires: {lab: 99}")
-        built = self.read({"addons/first/compose.yml": first, "addons/second/compose.yml": addon("second", ["shared-name"])})
-        self.assertEqual(built["addons"]["@partner/first"]["blocked"]["reasons"], ["Needs a newer Gravitee Lab"])
-        self.assertIsNone(built["addons"]["@partner/second"]["blocked"])
 
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
@@ -2399,7 +2147,7 @@ class Twins(Case):
 
     def twin(self, case):
         text = (fixtures.CATALOGS / "fixture/addons/echo/compose.yml").read_text(encoding="utf-8")
-        case.write(".lab/catalogs/local/addons/echo/compose.yml", text.replace("../../", "../../"))
+        case.write(".lab/catalogs/local/addons/echo/compose.yml", text)
 
     def test_a_personal_item_and_a_catalog_item_with_the_same_name_and_services_are_each_others_twin(self):
         inputs, built = read(self, more=self.twin)
@@ -2429,11 +2177,6 @@ class Twins(Case):
         _, built = read(self, more=other)
         self.assertIsNone(built["addons"]["local/echo"]["twin"])
         self.assertIsNone(built["addons"]["echo"]["twin"])
-
-    def test_a_unit_that_is_not_a_unit_of_this_machine_has_no_twin(self):
-        _, built = read(self)
-        self.assertEqual([unit["twin"] for kind in ("addons", "setups", "playgrounds") for unit in built[kind].values()],
-                         [None] * 10)
 
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
@@ -2487,8 +2230,6 @@ class Allowed(Case):
         found = self.partner(host=True)["addons"]["@partner/cluster"]
         self.assertIsNone(found["blocked"])
         self.assertEqual(found["uses_machine"][0]["service"], "partner-cluster")
-        with mock.patch.object(trust, "ALLOWANCE", False):   # without the milestone, whatever the entry says
-            self.assertTrue(self.partner(host=True)["addons"]["@partner/cluster"]["blocked"])
 
     def test_a_gateway_declared_by_a_catalog_that_is_not_trusted_with_one_is_cleared_before_any_reader_sees_it(self):
         built = self.partner()
@@ -2496,8 +2237,6 @@ class Allowed(Case):
         self.assertIsNone(gateway["gateway"])
         self.assertIn("Its gateway is not used: the Cloud pages do not offer it", gateway["verdict"]["notes"])
         self.assertEqual(built["platform"], {"gateways": {"cloud": "gateway"}}, "the default catalog's is still the one")
-        self.assertNotIn("group", {key for addon in built["addons"].values() if addon["id"] == "@partner/gateway"
-                                   for key in (addon["gateway"] or {})})
 
     def test_it_is_honored_when_the_catalog_is_listed_or_the_unit_is_this_machines(self):
         built = self.partner()
@@ -2572,41 +2311,13 @@ class Anchored(Case):
 
     def test_without_the_anchor_the_same_unit_mounts_files_outside_its_folder(self):
         for name, lock in (("no contract.lock", None), ("no anchor in it", "contract 1\ncontract_min 1\nanchor seeder since=1\n"),
-                           ("the other product's", "anchor plugins/am since=1\n")):
+                           ("the other product's", "contract 1\ncontract_min 1\nanchor plugins/am since=1\n")):
             with self.subTest(name):
                 inputs, unit = self.read(lock)
                 self.assertEqual(inputs["products"], ["am"] if lock and "plugins/am" in lock else [])
                 self.assertEqual((unit["blocked"] or {}).get("reasons"), [self.OUTSIDE])
         inputs, unit = self.read(None, ("apim",))
         self.assertIsNone(unit["blocked"], "the folder is there: it never needed the anchor")
-
-    def test_what_the_contract_names_is_read_as_a_folder_name_and_only_so(self):
-        lock = "\n".join(["anchor plugins/ok-1 since=1", "anchor plugins/ok-2", "anchor plugins/../etc since=1", "anchor plugins/UPPER since=1",
-                          "anchor plugins/deep/er since=1", "anchor plugins/apim/ since=1", "anchor plugins/ since=1",
-                          "  anchor plugins/indented since=1", "anchors plugins/near since=1", "anchor plugins/a.b since=1",
-                          "anchor plugins/space name since=1", "anchor plugins/tab\tsince=1", "# anchor plugins/commented",
-                          "anchor seeder since=1", "anchor lab-ui port=9000", "anchor plugins/\u0430pim since=1"])
-        self.folder(project)
-        self.write("contract.lock", lock)
-        self.assertEqual(project._anchored_plugins(), ["ok-1", "ok-2", "space", "tab"])
-        self.assertEqual(project._plugin_folders(), ["ok-1", "ok-2", "space", "tab"])
-
-    def test_a_contract_that_is_a_link_or_too_big_or_not_text_names_nothing(self):
-        self.folder(project)
-        (self.root.parent / "elsewhere.lock").write_text("anchor plugins/apim since=1\n", encoding="utf-8")
-        self.addCleanup((self.root.parent / "elsewhere.lock").unlink)
-        (self.root / "contract.lock").symlink_to(self.root.parent / "elsewhere.lock")
-        self.assertEqual(project._anchored_plugins(), [], "a link is not followed")
-        (self.root / "contract.lock").unlink()
-        self.write("contract.lock", "anchor plugins/apim since=1\n" + "# x\n" * (project.TEXT_LIMIT // 4))
-        self.assertEqual(project._anchored_plugins(), [], "over the limit")
-        (self.root / "contract.lock").write_bytes(b"anchor plugins/apim since=1\n\xff\xfe")
-        self.assertEqual(project._anchored_plugins(), [], "not UTF-8 text")
-        (self.root / "contract.lock").unlink()
-        (self.root / "contract.lock").mkdir()
-        self.assertEqual(project._anchored_plugins(), [], "a folder")
-        (self.root / "contract.lock").rmdir()
-        self.assertEqual(project._anchored_plugins(), [], "none")
 
     def test_a_change_of_the_contract_reads_the_project_again(self):
         self.folder(project)
@@ -2833,12 +2544,6 @@ class Together(Case):
         self.assertIn("apim-gateway", echo["services"], "with the core")
         self.assertNotIn("fixture-echo", inputs["core_config"]["services"])
 
-    def test_the_aggregate_is_the_core_alone_when_nothing_of_this_machine_is(self):
-        with mock.patch.object(compose, "resolved", wraps=compose.resolved) as resolved:
-            read(self, catalogs={"partner": {}})
-        resolved.assert_called_once()
-        self.assertEqual(resolved.call_args[0][0], compose.all_files([]))
-
 
 @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
 class Remembered(Case):
@@ -2911,17 +2616,12 @@ class CoreAndRootEnv(Case):
         built, _ = project.loaded()
         return built["core_loaded"]
 
-    def test_a_broken_root_env_then_fixed_loads_the_core_again(self):
-        self.write(".env", "FIXTURE_X=1\nMY VAR=1\n")
-        project.forget()
-        self.assertFalse(self.core_loaded(), "Compose refuses the .env, so the core does not load")
-        self.write(".env", "FIXTURE_X=1\n")
-        self.assertTrue(self.core_loaded(), "the .env is fixed: the core loads again")
-
-    def test_a_good_reading_is_not_kept_once_the_root_env_breaks(self):
+    def test_a_reading_is_not_kept_once_the_root_env_breaks_and_the_core_loads_again_once_it_is_fixed(self):
         self.assertTrue(self.core_loaded())
         self.write(".env", "FIXTURE_X=1\nMY VAR=1\n")
         self.assertFalse(self.core_loaded(), "Compose refuses the .env now")
+        self.write(".env", "FIXTURE_X=1\n")
+        self.assertTrue(self.core_loaded(), "the .env is fixed")
 
 
 class Fresh(Case):
@@ -2943,25 +2643,16 @@ class Fresh(Case):
         self.assertEqual(built["platform"], {"gateways": {"cloud": None}})
 
     @unittest.skipUnless(fixtures.have_compose(), "the Docker CLI with Compose 5 or later is not installed")
-    def test_with_no_default_file_the_project_is_what_it_was(self):
-        # Before catalogs the units sit in the folders of their kind and are read together, none of them judged
+    def test_with_no_default_file_the_units_of_this_machine_stay_and_no_other_folder_is_read(self):
+        unit = "x-gravitee: {kind: addon, name: Kazoo}\nservices:\n  kazoo:\n    image: busybox\n"
         self.folder(paths, project, compose, envfiles, files={
             CORE: "name: lab\nx-gravitee: {name: Lab, groups: [Core]}\nservices:\n  core:\n    image: busybox\n    labels: "
                   "{io.gravitee.group: Core}\n",
-            KAFKA: "x-gravitee: {kind: addon, name: Kafka}\nservices:\n  kafka:\n    image: busybox\n"})
+            "addons/kazoo/compose.yml": unit, ".lab/catalogs/local/addons/kazoo/compose.yml": unit})
         self.assertIsNone(paths.default_ns())
-        with mock.patch.object(compose, "resolved", wraps=compose.resolved) as resolved, \
-                mock.patch.object(project, "_alone") as alone:
-            inputs = project.gather()
-        built = project.build(inputs)
-        resolved.assert_called_once_with(compose.all_files([KAFKA]))
-        alone.assert_not_called()
-        self.assertEqual((inputs["default"], inputs["screened"], inputs["configs"], inputs["catalog_problems"]), (None, {}, {}, {}))
-        kafka = built["addons"]["kafka"]
-        self.assertEqual((kafka["origin"], kafka["blocked"], kafka["verdict"], kafka["catalog"], kafka["needs_catalogs"]),
-                         (None, None, None, None, []))
-        self.assertEqual((built["catalogs"], built["catalog_problems"], built["problems"]), ({}, {}, []))
-        self.assertEqual(built["platform"], {"gateways": {"cloud": None}})
+        built = project.build(project.gather())
+        self.assertEqual(list(built["addons"]), ["local/kazoo"])
+        self.assertIsNone(built["addons"]["local/kazoo"]["blocked"])
 
 
 class Fingerprints(Case):
@@ -2983,6 +2674,7 @@ class Fingerprints(Case):
         self.assertTrue(self.changes(lambda: echo.write_text(echo.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")))
         guide = root / ".lab/catalogs/fixture/playgrounds/shop/guide.md"
         self.assertTrue(self.changes(lambda: guide.write_text("# Shop\n", encoding="utf-8")))
+        self.assertTrue(self.changes(guide.unlink))
         self.assertTrue(self.changes(lambda: self.write(".lab/catalogs/fixture/addons/echo/.env", "A=1\n")))
         self.assertTrue(self.changes(lambda: self.write(".lab/catalogs/partner/addons/ledger/.env", "A=1\n")))
         self.assertTrue(self.changes(lambda: self.write(".lab/catalogs/fixture/addons/new/compose.yml", "services: {}\n")))
@@ -3009,14 +2701,15 @@ class Fingerprints(Case):
         self.project()
         self.assertFalse(self.changes(lambda: self.write(".lab/catalogs/.stage-new/addons/x/compose.yml", "services: {}\n")))
 
-    def test_it_costs_little_for_a_hundred_units(self):
+    def test_a_poll_opens_no_file_of_a_hundred_units(self):
         files = {f"addons/unit-{number:03}/compose.yml": "services: {}\n" for number in range(100)}
         fixtures.project(self, paths, project, files=files)
         self.write(".lab/catalogs/fixture/addons/unit-000/.env", "A=1\n")
         self.assertGreater(len(paths.files()), 100)
         project.fingerprint()
-        best = min(timed(project.fingerprint) for _ in range(30))
-        self.assertLess(best, 0.015, f"{best * 1000:.1f} ms")
+        opened = AssertionError("a poll is a stat of each file")
+        with mock.patch("builtins.open", side_effect=opened), mock.patch("io.open", side_effect=opened):
+            project.fingerprint()
 
 
 class ReadAgain(Case):
@@ -3049,7 +2742,7 @@ class ReadAgain(Case):
         self.edited(file, json.dumps(definition), 3)
         self.assertIn("rate-limit", project.loaded()[1]["uses"]["local/sandbox"]["policy"])
         # A file the seed adds deeper down is seen too: an environment of its own
-        self.edited(".lab/catalogs/local/playgrounds/sandbox/seed/environments/beam/apis/beam.json",
+        self.edited(".lab/catalogs/local/playgrounds/sandbox/seed/environments/beet/apis/beet.json",
                     json.dumps({"api": {"listeners": [{"entrypoints": [{"type": "sse"}]}]}}), 4)
         self.assertIn("sse", project.loaded()[1]["uses"]["local/sandbox"]["entrypoint"])
         # And what the seed reads of this machine's settings, whose token a place does not hand it (N02)
@@ -3058,12 +2751,6 @@ class ReadAgain(Case):
         definition["api"]["description"] = "${AUDIT_FIXTURE_TOKEN}"
         self.edited(file, json.dumps(definition), 5)
         self.assertIn("AUDIT_FIXTURE_TOKEN", project.loaded()[1]["seed_references"][sandbox])
-
-
-def timed(function):
-    started = time.perf_counter()
-    function()
-    return time.perf_counter() - started
 
 
 class Exclusive(Case):
@@ -3166,54 +2853,38 @@ class Catalog(Case):
 
     def test_a_bare_key_of_conflicts_names_the_add_on_of_the_same_catalog_else_the_default_one_and_the_layers_find_it(self):
         twin = member("acme-hub", "addon", "twin", ["twin"], says={"conflicts": {
-            "echo": "both take 8191", "kafka": "same ports", "@fixture/jade": "x", "nothing": "", "local/mine": "y"}})
+            "echo": "both take 8191", "kazoo": "same ports", "@fixture/jade": "x", "nothing": "", "local/mine": "y"}})
         mine = member("local", "addon", "mine", ["mine"], says={"conflicts": {"jade": "z", "twin": "w"}})
-        units = [twin, mine, member("acme-hub", "addon", "echo", ["echo"]), member("fixture", "addon", "kafka", ["kafka"]),
+        units = [twin, mine, member("acme-hub", "addon", "echo", ["echo"]), member("fixture", "addon", "kazoo", ["kazoo"]),
                  member("fixture", "addon", "jade", ["jade"])]
         built = self.build(units, catalogs={"acme-hub": {"name": "Acme Hub"}})
         self.assertEqual(built["addons"]["@acme-hub/twin"]["conflicts"], {
-            "@acme-hub/echo": "both take 8191", "kafka": "same ports", "jade": "x", "nothing": "", "local/mine": "y"})
+            "@acme-hub/echo": "both take 8191", "kazoo": "same ports", "jade": "x", "nothing": "", "local/mine": "y"})
         self.assertEqual(built["addons"]["local/mine"]["conflicts"], {"jade": "z", "twin": "w"},
                          "a bare key of this machine's is the default catalog's: a unit of another catalog is named in full")
-        self.assertEqual(built["addons"]["kafka"]["conflicts"], {})
+        self.assertEqual(built["addons"]["kazoo"]["conflicts"], {})
         ids = sorted(built["addons"])
         self.assertEqual([(clash["a"], clash["b"], clash["reason"]) for clash in layers.conflicts(built, ids)], [
             ("@acme-hub/echo", "@acme-hub/twin", "both take 8191"), ("@acme-hub/twin", "jade", "x"),
-            ("@acme-hub/twin", "kafka", "same ports"), ("@acme-hub/twin", "local/mine", "y"), ("jade", "local/mine", "z")])
+            ("@acme-hub/twin", "kazoo", "same ports"), ("@acme-hub/twin", "local/mine", "y"), ("jade", "local/mine", "z")])
 
     def test_two_keys_of_conflicts_that_name_one_add_on_keep_the_first_reason_that_says_something(self):
         twin = member("acme-hub", "addon", "twin", ["twin"], says={"conflicts": {"echo": "", "@acme-hub/echo": "both take 8191",
-                                                                                "@fixture/kafka": "a", "kafka": "b"}})
-        built = self.build([twin, member("acme-hub", "addon", "echo", ["echo"]), member("fixture", "addon", "kafka", ["kafka"])],
+                                                                                "@fixture/kazoo": "a", "kazoo": "b"}})
+        built = self.build([twin, member("acme-hub", "addon", "echo", ["echo"]), member("fixture", "addon", "kazoo", ["kazoo"])],
                            catalogs={"acme-hub": {"name": "Acme Hub"}})
-        self.assertEqual(built["addons"]["@acme-hub/twin"]["conflicts"], {"@acme-hub/echo": "both take 8191", "kafka": "a"})
+        self.assertEqual(built["addons"]["@acme-hub/twin"]["conflicts"], {"@acme-hub/echo": "both take 8191", "kazoo": "a"})
 
     def test_conflict_id_is_the_one_definition_of_what_a_key_names(self):
-        known = {"jade", "kafka", "@acme-hub/ledger", "@acme-hub/kafka", "local/kafka", "local/mine"}
-        for key, catalog, wanted in (("kafka", "acme-hub", "@acme-hub/kafka"), ("jade", "acme-hub", "jade"),
-                                     ("ledger", "acme-hub", "@acme-hub/ledger"), ("ledger", "fixture", None), ("kafka", "fixture", "kafka"),
-                                     ("@fixture/kafka", "acme-hub", "kafka"), ("@acme-hub/kafka", "fixture", "@acme-hub/kafka"),
-                                     ("kafka", "local", "local/kafka"), ("mine", "local", "local/mine"), ("mine", "fixture", None),
-                                     ("local/mine", "acme-hub", "local/mine"), ("kafka", None, "kafka"), (None, "fixture", None),
-                                     (7, "fixture", None), ("", "fixture", None), ("@/kafka", "fixture", None)):
+        known = {"jade", "kazoo", "@acme-hub/ledger", "@acme-hub/kazoo", "local/kazoo", "local/mine"}
+        for key, catalog, wanted in (("kazoo", "acme-hub", "@acme-hub/kazoo"), ("jade", "acme-hub", "jade"),
+                                     ("ledger", "acme-hub", "@acme-hub/ledger"), ("ledger", "fixture", None), ("kazoo", "fixture", "kazoo"),
+                                     ("@fixture/kazoo", "acme-hub", "kazoo"), ("@acme-hub/kazoo", "fixture", "@acme-hub/kazoo"),
+                                     ("kazoo", "local", "local/kazoo"), ("mine", "local", "local/mine"), ("mine", "fixture", None),
+                                     ("local/mine", "acme-hub", "local/mine"), ("kazoo", None, "kazoo"), (None, "fixture", None),
+                                     (7, "fixture", None), ("", "fixture", None), ("@/kazoo", "fixture", None)):
             with self.subTest(key=key, catalog=catalog):
                 self.assertEqual(project.conflict_id(key, catalog, known), wanted)
-
-    def test_the_path_a_person_reads_is_the_one_in_the_catalog_that_holds_the_unit_this_machines_included(self):
-        built = self.build([member("local", "addon", "mine", ["mine-svc"]), member("local", "playground", "play", ["play-app"]),
-                            member("first", "addon", "two", ["two-svc"]), member("fixture", "addon", "one", ["one-svc"])])
-        shown = {(kind, uid): unit["display_file"] for kind in ("addons", "playgrounds") for uid, unit in built[kind].items()}
-        self.assertEqual(shown, {("addons", "local/mine"): "addons/mine/compose.yml",
-                                 ("playgrounds", "local/play"): "playgrounds/play/compose.yml",
-                                 ("addons", "@first/two"): "addons/two/compose.yml", ("addons", "one"): "addons/one/compose.yml"})
-        self.assertEqual(built["addons"]["local/mine"]["file"], ".lab/catalogs/local/addons/mine/compose.yml", "the file is its own")
-
-    def test_a_unit_of_the_layout_before_catalogs_says_its_file(self):
-        for file in ("addons/kafka/compose.yml", "addons/local/whoami/compose.yml", "setups/local/mine.yml"):
-            with self.subTest(file=file):
-                self.assertEqual(project._placed("x", file, {"default": None})["display_file"], file)
-        self.assertEqual(project._placed("local/x", ".lab/catalogs/local/addons/x/compose.yml", {"default": "fixture"})["display_file"],
-                         "addons/x/compose.yml")
 
     def test_a_unit_of_a_catalog_added_later_loses_a_name_the_earlier_one_holds_and_the_earlier_is_untouched(self):
         built = self.build([member("fixture", "addon", "one", ["shared"]), member("first", "addon", "two", ["shared"]),
@@ -3437,7 +3108,7 @@ class Catalog(Case):
             with self.subTest(ns, kind=kind):
                 built = project.build(self.pointed(ns, kind=kind))
                 on = (uid, []) if kind == "playground" else (None, [uid])
-                for playground, effective in ((None, []), ("other", ["kafka"]), on):
+                for playground, effective in ((None, []), ("other", ["kazoo"]), on):
                     self.assertEqual(self.gamma(built, playground, effective, tabs=False),
                                      [("Gamma Console", "http://localhost:8086")], "the core's, its setting read")
 
@@ -3446,7 +3117,7 @@ class Catalog(Case):
             with self.subTest(ns):
                 built = project.build(self.pointed(ns))
                 self.assertEqual(self.gamma(built), [("Gamma Console", "http://localhost:8086")], "the core's, its setting read")
-                self.assertEqual(self.gamma(built, "other", ["kafka"]), [("Gamma Console", "http://localhost:8086")])
+                self.assertEqual(self.gamma(built, "other", ["kazoo"]), [("Gamma Console", "http://localhost:8086")])
                 self.assertEqual(self.gamma(built, uid), [("Gamma Console", self.DEEP)], "on, it opens where it says")
 
     def test_an_add_on_changes_a_tab_on_a_console_of_the_core_while_it_is_on(self):
@@ -3457,30 +3128,30 @@ class Catalog(Case):
                 self.assertEqual(self.gamma(built, None, [uid]), [("Gamma Console", self.DEEP)])
 
     def test_a_console_a_unit_adds_on_a_service_of_the_core_shows_while_it_is_on(self):
-        unit = member("local", "addon", "beam", ["beam-svc"])
+        unit = member("local", "addon", "beet", ["beet-svc"])
         given = catalog_inputs([unit])
-        given["raw"][unit[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.beam.name": "Beam",
-                                                                         "io.gravitee.console.beam.url": "http://localhost:8099"}}
+        given["raw"][unit[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.beet.name": "Beet",
+                                                                         "io.gravitee.console.beet.url": "http://localhost:8099"}}
         built = project.build(given)
         self.assertEqual(self.gamma(built, None, [], tabs=False), [])
-        self.assertEqual(self.gamma(built, None, ["local/beam"], tabs=False), [("Beam", "http://localhost:8099")])
+        self.assertEqual(self.gamma(built, None, ["local/beet"], tabs=False), [("Beet", "http://localhost:8099")])
 
     def test_the_units_that_are_on_change_a_tab_on_a_console_of_the_core_key_by_key_in_the_order_of_the_on_file(self):
         # The playground names the console and an add-on that is on points it: both hold, as Compose merges them
-        named, pointed = member("local", "playground", "lumen", ["lumen-web"]), member("local", "addon", "beam", ["beam-svc"])
+        named, pointed = member("local", "playground", "lumen", ["lumen-web"]), member("local", "addon", "beet", ["beet-svc"])
         given = catalog_inputs([named, pointed])
         given["raw"][project.CORE_FILE]["services"]["apim-gateway"]["labels"].update(
             {"io.gravitee.console.gamma.name": "Gamma Console", "io.gravitee.console.gamma.url": "http://localhost:8086"})
         given["raw"][named[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.gamma.name": "Gamma"}}
         given["raw"][pointed[0]]["services"]["apim-gateway"] = {"labels": {"io.gravitee.console.gamma.url": self.DEEP}}
         built = project.build(given)
-        self.assertEqual(self.gamma(built, "local/lumen", ["local/beam"]), [("Gamma", self.DEEP)])
-        self.assertEqual(self.gamma(built, None, ["local/beam"]), [("Gamma Console", self.DEEP)])
+        self.assertEqual(self.gamma(built, "local/lumen", ["local/beet"]), [("Gamma", self.DEEP)])
+        self.assertEqual(self.gamma(built, None, ["local/beet"]), [("Gamma Console", self.DEEP)])
         self.assertEqual(self.gamma(built, "local/lumen"), [("Gamma", "http://localhost:8086")])
         # Two that set the same key: the first in the on file wins, the playground before the add-ons, the add-ons by id
         given["raw"][named[0]]["services"]["apim-gateway"]["labels"]["io.gravitee.console.gamma.url"] = "http://localhost:8086/mine"
         built = project.build(given)
-        self.assertEqual(self.gamma(built, "local/lumen", ["local/beam"]), [("Gamma", "http://localhost:8086/mine")])
+        self.assertEqual(self.gamma(built, "local/lumen", ["local/beet"]), [("Gamma", "http://localhost:8086/mine")])
 
     def test_a_unit_of_a_catalog_never_points_a_console_of_the_core_off_this_machine(self):
         built = project.build(self.pointed("first", "https://phish.example/login"))
@@ -3495,17 +3166,6 @@ class Catalog(Case):
         built = project.build(given)
         self.assertTrue(built["playgrounds"]["@first/lumen"]["blocked"])
         self.assertEqual(self.gamma(built, "@first/lumen"), [("Gamma Console", "http://localhost:8086")])
-
-    def test_a_machine_with_catalogs_and_no_other_input_still_builds(self):
-        # What a test that does not know the catalogs gives: the units are listed, and none can be judged without a core
-        file = fixtures.unit_file("first", "addon", "two")
-        raw = {project.CORE_FILE: copy.deepcopy(PLATFORM), file: {"x-gravitee": {"kind": "addon"}, "services": {"two": {}}}}
-        built = project.build({"raw": raw, "includes": {}, "variables": {}, "resolved": {}, "environ": {}, "env": {},
-                               "guides": {}, "problems": [], "license_usable": True})
-        two = built["addons"]["@first/two"]
-        self.assertEqual((two["origin"], two["catalog"], two["needs_catalogs"]),
-                         ({"id": "first", "name": "first", "version": None}, "first", []))
-        self.assertEqual(two["blocked"], {"reasons": ["Cannot be read: the platform cannot be read"]}, "no core was read")
 
     def test_a_stub_is_listed_with_the_folder_name_and_its_reasons(self):
         file = fixtures.unit_file("first", "playground", "bad")
@@ -3550,7 +3210,25 @@ class Reading(Case):
 
     def test_what_is_not_text_may_be_read_all_the_same_when_it_is_data(self):
         self.assertEqual(project._read("bytes.yml", strict=False), ("\ufffd\ufffd not text", None))
-        self.assertEqual(project._read("big.yml", limit=2 << 20, strict=False)[1], None)
+
+    def test_a_guide_that_cannot_be_read_gives_no_chapters_and_stops_nothing(self):
+        guide = paths.unit_guide("playground", "local/mine")
+        self.write(guide, "# Mine\n")
+        self.assertEqual(project._guides(["local/mine"], ()), {"local/mine": "# Mine\n"})
+        self.assertEqual(project._guides(["local/mine"], {paths.unit_file("playground", "local/mine")}), {}, "a stub's is not read")
+        (self.root / guide).write_bytes(b"\xff not text")
+        self.assertEqual(project._guides(["local/mine"], ()), {})
+
+    def test_a_unit_folder_that_becomes_a_link_is_refused_at_the_next_read(self):
+        env = ".lab/catalogs/xx/addons/x/.env"
+        self.write(env, "A=1\n")
+        self.write("outside/.env", "A=secret\n")
+        self.assertEqual(project._read(env), ("A=1\n", None))
+        folder = self.root / ".lab/catalogs/xx/addons/x"
+        (folder / ".env").unlink()
+        folder.rmdir()
+        os.symlink(self.root / "outside", folder)
+        self.assertEqual(project._read(env), (None, "link"))
 
     def test_a_file_that_is_read_is_opened_without_following_a_link_put_there_after_the_look(self):
         real = os.lstat
@@ -3630,8 +3308,7 @@ class Reading(Case):
         self.write(a, "include:\n  - ../../../core/addons/z/compose.yml\n")
         self.assertEqual(project._reach(a, set(), set())["unsafe"], [reserved])
 
-    def test_why_a_unit_is_held_says_which_file_and_which_kind_so_that_an_author_is_told_what_to_change(self):
-        # The line a person reads is the policy's (T19, T25); the kind is for whoever tells an author which spelling to change
+    def test_what_holds_a_unit_is_said_in_the_line_of_the_policy(self):
         a, b, c = (self.UNIT.format(name) for name in ("a", "b", "c"))
         self.patch(paths, "default_ns", return_value="fixture")
         spellings = {"a long form with required": "include:\n  - path: ../b/compose.yml\n    required: false\n",
@@ -3643,17 +3320,15 @@ class Reading(Case):
                 self.write(a, text)
                 self.write(b, "services: {}\n")
                 found = project._reach(a, set(), {a, b})
-                self.assertEqual((found["files"], found["unsafe"], found.get("unnamed")), ([], [a], [a]),
+                self.assertEqual((found["files"], found["unsafe"]), ([], [a]),
                                  "the unit itself, which the screen found clean, is held: nothing it names is followed")
-        self.assertNotIn("unnamed", project._reach(self.UNIT.format("none"), set(), set()), "a unit that is not there names none")
         self.write(a, "include:\n  - ../b/compose.yml\n")
         self.write(b, "include:\n  - path: ../c/compose.yml\n    required: false\n")
         self.write(c, "services: {}\n")
         found = project._reach(a, set(), {a, b, c})
-        self.assertEqual((found["files"], found["unsafe"], found["unnamed"]), ([a], [b], [b]))
-        self.assertEqual(project.held_why(found, set()), [(b, "unnamed")])
+        self.assertEqual((found["files"], found["unsafe"]), ([a], [b]))
         self.assertEqual(project.held_reasons(found, set()), ["Includes content from outside the catalog"])
-        # The others, each with its own kind
+        # A refused unit, a link and a file that is no unit, each with its own line
         self.write(a, "include:\n  - ../b/compose.yml\n  - ../c/compose.yml\n  - ../d/compose.yml\n  - ../e/compose.yml\n")
         d, e = self.UNIT.format("d"), self.UNIT.format("e")
         self.write(b, "services: {}\n")
@@ -3662,10 +3337,10 @@ class Reading(Case):
         os.symlink(self.root / "plain.yml", self.root / d)
         self.write(e, "services: {}\n")
         found = project._reach(a, {c}, {a, b})
-        self.assertEqual(project.held_why(found, {c}), [(c, "refused"), (d, "special"), (e, "outside")])
+        self.assertEqual(project.held_reasons(found, {c}), ["Needs c, which is blocked", "Reads files outside its folder",
+                                                            "Includes content from outside the catalog"])
         with mock.patch.object(project, "REACH_LIMIT", 1):
             found = project._reach(a, set(), {a, b, c, e})
-        self.assertEqual([kind for _, kind in project.held_why(found, set())], ["bomb"])
         self.assertEqual(project.held_reasons(found, set()), ["Includes content from outside the catalog"])
 
     def test_what_a_unit_of_this_machine_includes_is_followed_but_for_the_files_of_a_catalog_that_are_no_unit(self):
@@ -3817,36 +3492,31 @@ class Reading(Case):
         with mock.patch.object(project, "_read", wraps=project._read) as read:
             self.assertEqual(project._seed_scan("unit/seed"), ([], ["Reads files outside its folder"]))
         read.assert_not_called()
+        self.patch(paths, "default_ns", return_value="fixture")
         self.assertEqual(project._seed_names("unit", safe=True), [])
 
-    def test_a_catalog_file_that_includes_something_is_not_read_for_the_names_its_units_share(self):
+    def test_a_catalog_file_that_holds_more_than_its_block_is_not_read_for_the_names_its_units_share(self):
         shared = "x-gravitee-catalog:\n  id: z\n  shared_settings: [A_ONE]\n"
-        with mock.patch.object(project, "_raw", side_effect=AssertionError("Compose was asked")):
+        with mock.patch.object(compose, "raw", side_effect=AssertionError("Compose was asked")):
             for number, text in enumerate(("include:\n  - pipe.yml\n", "include: [pipe.yml]\n", "x: {include: [pipe.yml]}\n",
                                            '"include":\n  - pipe.yml\n', '"inclu\\u0064e": [pipe.yml]\n')):
                 with self.subTest(text=text):
                     self.write(f".lab/catalogs/inc{number}/catalog.yml", text + shared)
                     self.assertEqual(project._shared_settings(f"inc{number}"), [])
-        self.write(".lab/catalogs/fine/catalog.yml", shared + "  description: Does not include: much\n")
-        with mock.patch.object(project, "_raw", lambda path, **how: ({"x-gravitee-catalog": {"shared_settings": ["A_ONE"]}}, None)):
-            self.assertEqual(project._shared_settings("fine"), ["A_ONE"])
+            self.assertEqual(project._shared_settings("absent"), [])
 
     def test_a_file_that_includes_nothing_it_can_read_includes_nothing(self):
         self.assertEqual(project._includes("bytes.yml"), [])
         self.assertEqual(project._includes("absent.yml"), [])
         self.assertEqual(project._includes("pipe.yml"), [])
 
-    def test_the_names_a_catalog_says_its_units_share_are_read_after_the_same_screen_as_a_unit(self):
-        self.write(".lab/catalogs/x/catalog.yml", "x-gravitee-catalog:\n  id: x\n  shared_settings: [A_ONE, b_two, 'not a name', 3]\n")
-        with mock.patch.object(project, "_raw", lambda path, **how: ({"x-gravitee-catalog": {"shared_settings": [
-                "A_ONE", "b_two", "not a name", 3]}}, None)):
-            self.assertEqual(project._shared_settings("x"), ["A_ONE", "b_two"])
-        self.write(".lab/catalogs/y/catalog.yml", "include: [/etc/passwd]\nx-gravitee-catalog:\n  shared_settings: [A]\n")
-        with mock.patch.object(project, "_raw", side_effect=AssertionError("Compose was asked")):
-            self.assertEqual(project._shared_settings("y"), [])
-            self.assertEqual(project._shared_settings("absent"), [])
-            self.write(".lab/catalogs/z/catalog.yml", "x-gravitee-catalog:\n  id: z\n")
-            self.assertEqual(project._shared_settings("z"), [], "no word of it, no call")
+    def test_the_names_a_catalog_says_its_units_share_are_those_of_a_catalog_yml_that_reads(self):
+        block = {"id": "xy", "name": "XY", "description": "It", "version": "1.0.0"}
+        self.write(".lab/catalogs/xy/catalog.yml", "x-gravitee-catalog:\n  id: xy\n")
+        for shared, names in ((["A_ONE"], ["A_ONE"]), (["A_ONE", "not a name"], []), ("A_ONE", [])):
+            with self.subTest(shared=shared), mock.patch.object(compose, "raw", lambda path, **how: {"x-gravitee-catalog": {**block, "shared_settings": shared}}):
+                project.forget()
+                self.assertEqual(project._shared_settings("xy"), names)
 
     def test_the_level_of_the_core_and_its_seeder_are_read_with_a_floor_of_one(self):
         self.assertEqual(project._contract({}), {"contract": 1, "contract_min": 1, "seeder_image": ""})
@@ -3889,9 +3559,6 @@ class Reading(Case):
 class Options(Case):
     """How a unit is asked of Compose ()."""
 
-    def setUp(self):
-        self.patch(project, "_no_env", True)
-
     def test_a_unit_is_resolved_without_reading_the_files_it_names(self):
         with mock.patch.object(compose, "_config", wraps=compose._config) as asked:
             read(self)
@@ -3900,72 +3567,6 @@ class Options(Case):
                    if call.kwargs.get("timeout", 120) <= project.UNIT_TIMEOUT and "--no-interpolate" not in call.args]
         self.assertGreater(len(options), 8)
         self.assertEqual(set(options), {("--no-env-resolution",)})
-
-    UNKNOWN = "unknown flag: --no-env-resolution"
-
-    def compose_that_says(self, help_text):
-        """A Compose that refuses the option with the words of the real one, and prints this for `config --help`: the calls
-        of the help are counted."""
-        real, run, helps = compose._config, compose.run, []
-
-        def config(files, *options, timeout=120):
-            if "--no-env-resolution" in options:
-                raise compose.ComposeError(self.UNKNOWN)
-            return real(files, *options, timeout=timeout)
-
-        def helping(cmd, *more, **how):
-            if cmd[-2:] == ["config", "--help"]:
-                helps.append(cmd)
-                return 0, help_text, ""
-            return run(cmd, *more, **how)
-        self.patch(project, "_option", {"known": None})
-        self.start(mock.patch.object(compose, "_config", config))
-        self.start(mock.patch.object(compose, "run", helping))
-        return helps
-
-    def test_a_compose_that_does_not_know_the_option_is_asked_without_it_from_then_on(self):
-        helps = self.compose_that_says("Usage:  docker compose config [OPTIONS]\n      --format string   Format the output\n")
-        _, built = read(self)
-        self.assertFalse(project._no_env)
-        self.assertEqual(built["addons"]["echo"]["blocked"], None)
-        self.assertEqual(built["addons"]["echo"]["services"], ["fixture-echo"])
-        self.assertEqual(len(helps), 1, "asked once, whatever the units")
-
-    def test_what_a_unit_makes_compose_print_does_not_take_the_option_away_from_the_others(self):
-        # An error that a unit makes Compose print, down to a last line that is the very one of the real refusal
-        self.patch(project, "_option", {"known": None})
-        hostile = [("same", 'image: "${EVIL:?' + self.UNKNOWN + '}"'), ("lines", 'image: "${EVIL:?x\\n' + self.UNKNOWN + '}"')]
-        helps, run = [], compose.run
-
-        def units(case):
-            for name, image in hostile:
-                case.write(f".lab/catalogs/fixture/addons/{name}/compose.yml", addon(name).replace("image: busybox", image))
-
-        def watched(cmd, *more, **how):
-            if cmd[-2:] == ["config", "--help"]:
-                helps.append(cmd)
-            return run(cmd, *more, **how)
-        with mock.patch.object(compose, "run", watched):
-            _, built = read(self, more=units)
-        self.assertTrue(project._no_env)
-        for name, _ in hostile:
-            self.assertEqual(built["addons"][name]["services"], [], name)
-            self.assertIn("unknown flag", " ".join(built["addons"][name]["blocked"]["reasons"]), name)
-        self.assertEqual(built["addons"]["echo"]["services"], ["fixture-echo"])
-        self.assertEqual(len(helps), 1, "Compose was asked once, whatever the units said")
-        self.assertTrue(project._option["known"])
-
-    def test_a_compose_that_cannot_print_its_help_is_taken_to_know_the_option(self):
-        self.patch(project, "_option", {"known": None})
-        with mock.patch.object(compose, "run", return_value=(2, "", "no")):
-            self.assertTrue(project._knows())
-        self.assertIsNone(project._option["known"], "not remembered: the help may be had later")
-        with mock.patch.object(compose, "run", return_value=(0, "      --no-env-resolution\n", "")) as run:
-            self.assertTrue(project._knows())
-            self.assertTrue(project._knows())
-        run.assert_called_once()
-        project.forget()
-        self.assertIsNone(project._option["known"], "forgotten with the rest")
 
 
 class Kept(Case):

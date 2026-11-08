@@ -1,30 +1,4 @@
-=== banner: the core stopped, nothing runs ===
-<div id="banner" class="calm">
-  <div class="notice calm">
-    <svg class="notice-icon" aria-hidden="true">
-      <use href="#i-info">
-    <p class="notice-body">
-      <strong class="notice-title">
-        "Gravitee platform is stopped"
-    <span class="notice-actions">
-      <button class="btn pbtn primary" data-act-for="platform" data-act-verb="start" data-busy="" data-platform="start">
-        <span class="pbtn-wrap">
-          <span class="pbtn-face">
-            <svg aria-hidden="true">
-              <use href="#i-play">
-            <span>
-              "Start"
-          <span class="pbtn-side" aria-hidden="true">
-            <span class="pbtn-fill">
-            <span class="pbtn-text" data-wait="Starting…" data-size="Starting 100%">
-              <span>
-                <span class="spinner">
-                <span class="pbtn-mark">
-                <span>
-                  "Starting…"
-=== banner: the core runs ===
-<div id="banner" class="calm" hidden="">
-=== banner: the core stopped, an add-on runs ===
+=== banner: the core stopped ===
 <div id="banner" class="calm">
   <div class="notice calm">
     <svg class="notice-icon" aria-hidden="true">
@@ -334,16 +308,16 @@
               <div class="panel-row ">
                 <span class="panel-name">
                   <span class="dot-status running">
-                  <span data-tip="Kafka">
-                    <a class="name-link" href="#/addons/kafka">
-                      "Kafka"
-                  <span class="muted" data-tip="Kafka for the demo" data-tip-cut="">
-                    "Kafka for the demo"
+                  <span data-tip="Kazoo">
+                    <a class="name-link" href="#/addons/kazoo">
+                      "Kazoo"
+                  <span class="muted" data-tip="Kazoo for the demo" data-tip-cut="">
+                    "Kazoo for the demo"
                 <span class="muted">
                   "Running"
                 <span class="panel-actions">
                   <span class="icon-gap">
-                  <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">
+                  <button class="icon-btn" data-file="addons/kazoo/compose.yml" data-tip="Edit addons/kazoo/compose.yml" aria-label="Edit addons/kazoo/compose.yml">
                     <svg aria-hidden="true">
                       <use href="#i-file">
                   <span class="icon-gap">
@@ -403,21 +377,21 @@
           "State"
         <span>
       <ul class="list-rows">
-        <li class="list-item open" data-key="kafka">
+        <li class="list-item open" data-key="kazoo">
           <div class="list-row list-grid">
-            <button type="button" class="s-toggle" data-toggle="" aria-label="Kafka" aria-controls="detail-kafka" aria-keyshortcuts="S" aria-expanded="true">
+            <button type="button" class="s-toggle" data-toggle="" aria-label="Kazoo" aria-controls="detail-kazoo" aria-keyshortcuts="S" aria-expanded="true">
               <svg aria-hidden="true">
                 <use href="#i-chevron">
             <span class="list-main">
-              <strong class="list-name" data-tip="Kafka" data-tip-cut="">
-                "Kafka"
+              <strong class="list-name" data-tip="Kazoo" data-tip-cut="">
+                "Kazoo"
               <span class="list-marks">
-                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Kafka">
+                <button class="icon-btn star" data-star="" aria-pressed="false" data-tip="Star (S)" aria-label="Star Kazoo">
                   <svg aria-hidden="true">
                     <use href="#i-star">
               <span class="list-sub">
-                <span class="list-desc" data-tip="Kafka for the demo" data-tip-cut="">
-                  "Kafka for the demo"
+                <span class="list-desc" data-tip="Kazoo for the demo" data-tip-cut="">
+                  "Kazoo for the demo"
             <span class="list-col col-from" data-tip="Catalog" data-tip-cut="">
               "Catalog"
             <span class="list-col col-cat" data-tip="Demo" data-tip-cut="">
@@ -429,7 +403,7 @@
                   "Running"
             <span class="list-actions">
               <span class="warn-slot">
-              <button class="btn pbtn act" data-act-for="addon:kafka" data-act="" data-busy="name" aria-label="Stop Kafka">
+              <button class="btn pbtn act" data-act-for="addon:kazoo" data-act="" data-busy="name" aria-label="Stop Kazoo">
                 <span class="pbtn-wrap">
                   <span class="pbtn-face">
                     <svg aria-hidden="true">
@@ -444,20 +418,20 @@
                         <span class="pbtn-mark">
                         <span>
               <span class="row-icons">
-                <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">
+                <button class="icon-btn" data-file="addons/kazoo/compose.yml" data-tip="Edit addons/kazoo/compose.yml" aria-label="Edit addons/kazoo/compose.yml">
                   <svg aria-hidden="true">
                     <use href="#i-file">
                 <span class="icon-gap">
-                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Kafka" aria-haspopup="true">
+                <button class="icon-btn" data-more="" data-tip="More" aria-label="More for Kazoo" aria-haspopup="true">
                   <svg aria-hidden="true">
                     <use href="#i-more">
-          <div class="list-detail" id="detail-kafka">
+          <div class="list-detail" id="detail-kazoo">
             <section class="panel ">
               <div class="panel-head">
                 <span>
                   "About"
               <p class="panel-row">
-                "Kafka for the demo"
+                "Kazoo for the demo"
             <section class="panel panel-table">
               <div class="panel-head">
                 <span>
@@ -469,11 +443,11 @@
               <div class="panel-row">
                 <span class="panel-name">
                   <span class="dot-status running">
-                  <span data-tip="kafka">
-                    "kafka"
+                  <span data-tip="kazoo">
+                    "kazoo"
                   <span class="muted" data-tip="Running" data-tip-cut="">
                     "Running"
-                <span class="s-version" data-tip="graviteeio/kafka:1">
+                <span class="s-version" data-tip="graviteeio/kazoo:1">
                   "1"
                 <span class="s-ports">
                   <span>
@@ -644,9 +618,9 @@
             <span class="icon-gap">
             <span class="icon-gap">
             <span class="icon-gap">
-        <li data-key="group:api-management" class="group open">
+        <li data-key="group:api-management" class="group ">
           <div class="group-row cols opens">
-            <button type="button" class="s-toggle" data-toggle="" aria-expanded="true" aria-label="API Management">
+            <button type="button" class="s-toggle" data-toggle="" aria-expanded="false" aria-label="API Management">
               <svg aria-hidden="true">
                 <use href="#i-chevron">
             <span class="s-name">
@@ -682,55 +656,17 @@
                         <span class="pbtn-mark">
                         <span>
                           "Stopping…"
-          <ul class="containers">
-            <li class="container cols" data-service="gateway">
-              <span>
-              <span class="s-name">
-                <span class="c-name" data-tip="gateway (gateway)">
-                  "gateway"
-                <span class="c-id">
-                  "gateway"
-              <span class="s-state">
-                <span class="status muted">
-                  <span class="dot-status stopped" aria-hidden="true">
-                  <span class="status-word">
-                    "Stopped"
-              <span class="s-version" data-tip="graviteeio/gateway:1">
-                "1"
-              <span class="s-ports">
-              <span class="s-uptime">
-              <span class="row-icons">
-                <span class="icon-gap">
-                <span class="icon-gap">
-                <span class="icon-gap">
-                <button class="icon-btn" data-act="logs" data-tip="Logs" aria-label="Logs of gateway">
-                  <svg aria-hidden="true">
-                    <use href="#i-logs">
-                <span class="icon-gap">
-                <button class="pbtn icon-btn" data-act-for="service:gateway" data-act-verb="stop start" data-busy="" data-act="start" data-tip="Start" aria-label="Start gateway">
-                  <span class="pbtn-wrap">
-                    <span class="pbtn-face">
-                      <svg aria-hidden="true">
-                        <use href="#i-play">
-                    <span class="pbtn-side" aria-hidden="true">
-                      <span class="pbtn-fill">
-                      <span class="pbtn-text" data-wait="Stopping…" data-size="Stopping 100%">
-                        <span>
-                          <span class="spinner">
-                          <span class="pbtn-mark">
-                          <span>
-                            "Stopping…"
         <li data-key="section:Other add-ons" class="stack-sep">
           "Other add-ons"
-        <li data-key="addon:kafka" class="group open">
+        <li data-key="addon:kazoo" class="group open">
           <div class="group-row cols opens">
-            <button type="button" class="s-toggle" data-toggle="" aria-expanded="true" aria-label="Kafka">
+            <button type="button" class="s-toggle" data-toggle="" aria-expanded="true" aria-label="Kazoo">
               <svg aria-hidden="true">
                 <use href="#i-chevron">
             <span class="s-name">
               <span class="g-name">
-                <a class="name-link" href="#/addons/kafka">
-                  "Kafka"
+                <a class="name-link" href="#/addons/kazoo">
+                  "Kazoo"
             <span class="s-state">
               <span class="status">
                 <span class="dot-status running" aria-hidden="true">
@@ -746,14 +682,14 @@
               "5 min"
             <span class="row-icons">
               <span class="icon-gap">
-              <button class="icon-btn" data-file="addons/kafka/compose.yml" data-tip="Edit addons/kafka/compose.yml" aria-label="Edit addons/kafka/compose.yml">
+              <button class="icon-btn" data-file="addons/kazoo/compose.yml" data-tip="Edit addons/kazoo/compose.yml" aria-label="Edit addons/kazoo/compose.yml">
                 <svg aria-hidden="true">
                   <use href="#i-file">
               <span class="icon-gap">
-              <button class="icon-btn" data-act="logs" data-tip="Logs" aria-label="Logs of Kafka">
+              <button class="icon-btn" data-act="logs" data-tip="Logs" aria-label="Logs of Kazoo">
                 <svg aria-hidden="true">
                   <use href="#i-logs">
-              <button class="pbtn icon-btn" data-act-for="addon:kafka" data-act-verb="restart" data-busy="name" data-act="restart" data-tip="Restart" aria-label="Restart Kafka">
+              <button class="pbtn icon-btn" data-act-for="addon:kazoo" data-act-verb="restart" data-busy="name" data-act="restart" data-tip="Restart" aria-label="Restart Kazoo">
                 <span class="pbtn-wrap">
                   <span class="pbtn-face">
                     <svg aria-hidden="true">
@@ -766,7 +702,7 @@
                         <span class="pbtn-mark">
                         <span>
                           "Restarting…"
-              <button class="pbtn icon-btn" data-act-for="addon:kafka" data-act-verb="stop start" data-busy="name" data-act="stop" data-tip="Stop" aria-label="Stop Kafka">
+              <button class="pbtn icon-btn" data-act-for="addon:kazoo" data-act-verb="stop start" data-busy="name" data-act="stop" data-tip="Stop" aria-label="Stop Kazoo">
                 <span class="pbtn-wrap">
                   <span class="pbtn-face">
                     <svg aria-hidden="true">
@@ -780,19 +716,19 @@
                         <span>
                           "Stopping…"
           <ul class="containers">
-            <li class="container cols" data-service="kafka">
+            <li class="container cols" data-service="kazoo">
               <span>
               <span class="s-name">
-                <span class="c-name" data-tip="kafka (kafka)">
-                  "kafka"
+                <span class="c-name" data-tip="kazoo (kazoo)">
+                  "kazoo"
                 <span class="c-id">
-                  "kafka"
+                  "kazoo"
               <span class="s-state">
                 <span class="status">
                   <span class="dot-status running" aria-hidden="true">
                   <span class="status-word">
                     "Running"
-              <span class="s-version" data-tip="graviteeio/kafka:1">
+              <span class="s-version" data-tip="graviteeio/kazoo:1">
                 "1"
               <span class="s-ports">
                 <span>
@@ -805,10 +741,10 @@
                 <span class="icon-gap">
                 <span class="icon-gap">
                 <span class="icon-gap">
-                <button class="icon-btn" data-act="logs" data-tip="Logs" aria-label="Logs of kafka">
+                <button class="icon-btn" data-act="logs" data-tip="Logs" aria-label="Logs of kazoo">
                   <svg aria-hidden="true">
                     <use href="#i-logs">
-                <button class="pbtn icon-btn" data-act-for="service:kafka" data-act-verb="restart" data-busy="name" data-act="restart" data-tip="Restart" aria-label="Restart kafka">
+                <button class="pbtn icon-btn" data-act-for="service:kazoo" data-act-verb="restart" data-busy="name" data-act="restart" data-tip="Restart" aria-label="Restart kazoo">
                   <span class="pbtn-wrap">
                     <span class="pbtn-face">
                       <svg aria-hidden="true">
@@ -821,7 +757,7 @@
                           <span class="pbtn-mark">
                           <span>
                             "Restarting…"
-                <button class="pbtn icon-btn" data-act-for="service:kafka" data-act-verb="stop start" data-busy="name" data-act="stop" data-tip="Stop" aria-label="Stop kafka">
+                <button class="pbtn icon-btn" data-act-for="service:kazoo" data-act-verb="stop start" data-busy="name" data-act="stop" data-tip="Stop" aria-label="Stop kazoo">
                   <span class="pbtn-wrap">
                     <span class="pbtn-face">
                       <svg aria-hidden="true">

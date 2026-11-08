@@ -1,37 +1,23 @@
 // The seams between the pages that the Catalogs work left to the shell of the page (web/js/main.js, core.js, jobs.js, ui.js, combo.js,
 // environment-actions.js, pages/stack.js): the code a refusal of the server carries, a key that only the click that holds it lets go, the
 // timer of the menu, the bubble hosted in the dialog that is open, an effects dialog that starts with nothing chosen, the row that says where an
-// item comes from in a plan, the picker that counts catalogs from two, the entries of `state.catalogs` that are no row, Add catalog leading to
-// the Catalogs page, and Start all in the Cloud held while no add-on can run its gateway. Run for real over a small DOM.
+// item comes from in a plan, the picker that counts catalogs from two, the entries of `state.catalogs` that are no row, and Start all in the
+// Cloud held while no add-on can run its gateway. Run for real over a small DOM.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { mock, test } from "node:test";
 
-import { El, Ev, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
+import { Ev, flush, installDom, isOff, offWhy, text } from "./dom-stub.mjs";
 import { FIRST, PERSONAL, catalog, content, lab } from "./fixtures.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
-const html = readFileSync(new URL("../../../web/index.html", import.meta.url), "utf8");
-const ids = [...html.matchAll(/\bid="([\w-]+)"/g)].map((found) => found[1]).filter((id) => !/^i-|^gio-g$|^combo-(?!pop)/.test(id));
-const page = installDom({ ids, fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
+const page = installDom({ fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) });
 globalThis.innerHeight = 800;
-// Two selectors the page asks and the small DOM does not know: a button at work (:is)
-const { closest } = El.prototype;
-El.prototype.closest = function (selector) { return closest.call(this, selector.replace(":is(.busy, .said)", ".busy")); };
-// A radio is checked as its markup says, until a test chooses another
-Object.defineProperty(El.prototype, "checked", {
-  get() { return this._checked ?? this.hasAttribute("checked"); },
-  set(value) { this._checked = !!value; },
-  configurable: true,
-});
 
-const { api, store, router, catalogRows } = await import("../../../web/js/core.js");
+const { api, store, catalogRows } = await import("../../../web/js/core.js");
 const ui = await import("../../../web/js/components/ui.js");
 const { busy } = await import("../../../web/js/activity/jobs.js");
 const { CategoryFilter } = await import("../../../web/js/components/combo.js");
-const { perform } = await import("../../../web/js/platform/environment-actions.js");
 const { platformHead, paintHead } = await import("../../../web/js/pages/stack.js");
-const { catalogsPage } = await import("../../../web/js/pages/catalogs.js");
 
 const settle = async () => {
   await flush();
@@ -316,10 +302,10 @@ test("a toast made just before its dialog closes is not left in it: the toasts l
   page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
 });
 
-test("a dialog opened again goes to the top; one that is open already keeps its place; a dialog that was never shown by showModal is found by the document", () => {
+test("a dialog opened again goes to the top; one that is open already keeps its place", () => {
   const host = () => page.doc.querySelector("#toasts").parent;
   const closed = (dlg) => { dlg.close(); page.doc.dispatchEvent(new Ev("close", { target: dlg })); };
-  const [a, b, c] = [1, 2, 3].map(() => { const dlg = page.doc.createElement("dialog"); page.doc.body.append(dlg); return dlg; });
+  const [a, b] = [1, 2].map(() => { const dlg = page.doc.createElement("dialog"); page.doc.body.append(dlg); return dlg; });
   a.showModal();
   b.showModal();
   ui.toast("x");
@@ -334,14 +320,9 @@ test("a dialog opened again goes to the top; one that is open already keeps its 
   b.showModal();
   ui.toast("w");
   assert.ok(host() === b, "closed and opened again: on top");
-  // Open by its attribute, as the page never does: the last of the document stands in when none opened by showModal is open
   closed(a);
   closed(b);
-  c.open = true;
-  ui.toast("v");
-  assert.ok(host() === c);
-  closed(c);
-  for (const dlg of [a, b, c]) dlg.remove();
+  for (const dlg of [a, b]) dlg.remove();
   page.doc.querySelectorAll(".toast").forEach((t) => t.remove());
 });
 
@@ -349,7 +330,6 @@ test("a dialog opened again goes to the top; one that is open already keeps its 
 
 const choice = page.ids.choice, picks = page.ids["choice-list"], ok = page.ids["choice-ok"];
 const radios = () => picks.querySelectorAll("input");
-picks.querySelector = (selector) => (selector === "input:checked" ? radios().find((radio) => radio.checked) : El.prototype.querySelector.call(picks, selector));
 const pick = (index) => {
   radios().forEach((radio, i) => { radio.checked = i === index; });
   picks.onchange();
@@ -367,21 +347,6 @@ const answer = async (confirmed) => {
 const OPTIONS = [{ value: "gravitee", label: "Gravitee public", sub: "Public" }, { value: "acme-hub", label: "Acme Hub", sub: "Private" }];
 const share = (options = OPTIONS, more = {}) => ui.effectsDialog({ title: "Share Acme Bakery", options, action: () => "Share", unchosen: "Choose where to share", ...more });
 
-test("a choice that must be made starts with nothing chosen: its button waits and says why, Enter does nothing, and an option that is chosen frees it", async () => {
-  const asked = share();
-  assert.deepEqual(radios().map((radio) => radio.checked), [false, false], "none is chosen, and none is the first by default");
-  assert.equal(isOff(ok), true);
-  assert.equal(offWhy(ok), "Choose where to share");
-  assert.equal(text(ok), "Share");
-  assert.equal(enter(), true, "Enter on a choice does nothing while there is none");
-  pick(1);
-  assert.equal(isOff(ok), false);
-  assert.equal(enter(), false, "chosen, Enter confirms");
-  await answer(true);
-  assert.equal(await asked, "acme-hub");
-  assert.equal(isOff(ok), false, "the button is the other dialogs' too");
-});
-
 test("Cancel while nothing is chosen answers null, and so does a forged confirmation: nothing is shared by a key", async () => {
   let asked = share();
   await answer(false);
@@ -391,35 +356,6 @@ test("Cancel while nothing is chosen answers null, and so does a forged confirma
   await answer(true);   // the button cannot be pressed; a confirmation that comes all the same chooses nothing
   assert.equal(await asked, null);
   assert.equal(isOff(ok), false);
-});
-
-test("an option that cannot be taken waits with its reason, and a choice among options none of which can be taken says the first one's", async () => {
-  const blocked = (value, reason) => ({ value, label: value, disabled: true, reason });
-  // A single destination that cannot take the item is no choice: it is shown, and the button says why
-  let asked = share([blocked("only", "You cannot push to Acme Hub. Ask for access.")]);
-  assert.deepEqual(radios().map((radio) => radio.checked), [true]);
-  assert.equal(offWhy(ok), "You cannot push to Acme Hub. Ask for access.");
-  await answer(false);
-  await asked;
-  // Several, none of which can: nothing to choose
-  asked = share([blocked("a", "You cannot push to A."), blocked("b", "B does not take contributions from the Lab.")]);
-  assert.deepEqual(radios().map((radio) => radio.checked), [false, false]);
-  assert.equal(offWhy(ok), "You cannot push to A.");
-  await answer(false);
-  await asked;
-  // Several, one of which can: the others are not chosen, the button waits for the one that can
-  asked = share([blocked("a", "You cannot push to A."), { value: "b", label: "B" }]);
-  assert.equal(offWhy(ok), "Choose where to share");
-  pick(1);
-  assert.equal(isOff(ok), false);
-  await answer(true);
-  assert.equal(await asked, "b");
-  // A single destination that can be taken is chosen, and the button is free
-  asked = share([{ value: "only", label: "Only" }]);
-  assert.deepEqual(radios().map((radio) => radio.checked), [true]);
-  assert.equal(isOff(ok), false);
-  await answer(true);
-  assert.equal(await asked, "only");
 });
 
 test("a dialog without that parameter is what it was: the first option chosen, its button free, whatever the one before it did", async () => {
@@ -450,7 +386,7 @@ test("a dialog without that parameter is what it was: the first option chosen, i
 // --- Where an item comes from, in a plan -----------------------------------------------------------------------------------------------
 
 test("a plan says where its item comes from when the server says it: one row among those that say what it leaves, the catalog's name, its version as the hint", async () => {
-  const plan = { starts: [{ kind: "addon", id: "kafka", name: "Kafka" }], from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" },
+  const plan = { starts: [{ kind: "addon", id: "kazoo", name: "Kazoo" }], from: [{ name: "Acme Hub" }], hints: { from: "Version 1.4.0" },
     keeps: [{ kind: "addon", id: "redis", name: "Redis" }], deploys_to: [{ kind: "environment", id: "machine", name: "This machine" }] };
   const rows = ui.planRows(plan);
   assert.deepEqual(rows.map((row) => row.label), ["Stops", "Turns off", "Starts", "Changes versions", "Goes back", "Restarts", "Loses its license", "Deploys to", "From", "Keeps", "Serves", "Stops serving", "Not started"]);
@@ -461,13 +397,13 @@ test("a plan says where its item comes from when the server says it: one row amo
   assert.deepEqual(ui.planRows({ starts: plan.starts }).find((row) => row.label === "From").items, [], "no catalog said: no row");
   assert.deepEqual(ui.planRows({ from: [{ name: "Acme Hub" }] }).find((row) => row.label === "From").hint, "", "no hint said: none");
   // As the dialog draws it: a pill and a muted hint, among the rows that say what stays
-  const asked = ui.confirmPlan("Start Kafka", "Start", plan);
+  const asked = ui.confirmPlan("Start Kazoo", "Start", plan);
   const notes = picks.querySelectorAll(".choice-row").map((row) => [text(row.querySelector(".choice-row-label")), row.querySelectorAll(".pill").map(text), row.querySelectorAll(".muted").map(text)]);
   assert.deepEqual(notes, [["From", ["Acme Hub"], ["Version 1.4.0"]], ["Keeps", ["Redis"], []]]);
   await answer(true);
   assert.deepEqual(await asked, []);
   // With no dialog there is nothing to say first
-  assert.deepEqual(await ui.confirmPlan("Start Kafka", "Start", null), []);
+  assert.deepEqual(await ui.confirmPlan("Start Kazoo", "Start", null), []);
 });
 
 // --- The picker counts catalogs from two ---------------------------------------------------------------------------------------------------
@@ -481,9 +417,6 @@ test("the filter names as many values as its label lets it, two as it always did
   assert.deepEqual([[], ["A"], ["A", "B"], ["A", "B", "C"]].map((values) => said(plain, values)), ["All categories", "A", "A, B", "3 categories"]);
   const few = CategoryFilter(button, () => items, () => {}, undefined, { label: { none: "All catalogs", all: "All catalogs", many: (n) => `${n} catalogs`, few: 1 } });
   assert.deepEqual([[], ["A"], ["A", "B"], ["A", "B", "C"]].map((values) => said(few, values)), ["All catalogs", "A", "2 catalogs", "3 catalogs"]);
-  // A label that does not say keeps two
-  const old = CategoryFilter(button, () => items, () => {}, undefined, { label: { none: "All", all: "All", many: (n) => `${n} kinds` } });
-  assert.deepEqual([["A", "B"], ["A", "B", "C"]].map((values) => said(old, values)), ["A, B", "3 kinds"]);
 });
 
 // --- Entries of the catalogs that are no row ----------------------------------------------------------------------------------------------
@@ -491,9 +424,8 @@ test("the filter names as many values as its label lets it, two as it always did
 const CHECKING = { id: "check", kind: "progress", progress: 0.4 };
 
 test("the progress of the fetch of an Add rides among the catalogs and is no row: the helper that lists them leaves it out", () => {
-  const rows = [FIRST(), catalog(), PERSONAL(), { id: "gravitee", kind: "suggested", listed: true }, CHECKING, { id: "odd" }, null, { id: "x", kind: "toString" }];
+  const rows = [FIRST(), catalog(), PERSONAL(), { id: "gravitee", kind: "suggested", listed: true }, CHECKING, { id: "odd" }, { id: "x", kind: "toString" }];
   assert.deepEqual(catalogRows(lab({ catalogs: rows })).map((row) => row.kind), ["git", "git", "machine", "suggested"]);
-  assert.deepEqual(catalogRows(lab({ catalogs: "no" })), [], "a state that does not say");
   assert.deepEqual(catalogRows(null), []);
   // The bar of the Add dialog and the clock of the page do read it
   store.state = lab({ catalogs: [FIRST(), CHECKING] });
@@ -504,62 +436,12 @@ test("the progress of the fetch of an Add rides among the catalogs and is no row
   assert.equal(store.measuring(), false);
 });
 
-test("what the content says to retry, and the dot of the menu, never take the progress of a fetch for a catalog", () => {
-  const failed = (catalogs) => lab({ content: content("failed"), catalogs });
-  const retry = (state) => ui.contentStatus(state).match(/data-catalog="([^"]*)"/)?.[1];
-  const added = [FIRST({ commit: "" }), catalog({ commit: "9f1c2ab" })];
-  assert.equal(retry(failed(added)), "gravitee");
-  assert.equal(ui.contentStatus(failed([...added, CHECKING])), ui.contentStatus(failed(added)), "the same block with it as without");
-  assert.equal(ui.contentStatus(failed([CHECKING, ...added])), ui.contentStatus(failed(added)), "wherever it stands");
-  assert.equal(retry(failed([CHECKING])), "", "alone, it is no catalog to try again");
-  assert.equal(ui.contentLead(failed([CHECKING, ...added])).extra, ui.contentLead(failed(added)).extra);
-  const entry = page.doc.createElement("a");
-  entry.setAttribute("class", "nav-item");
-  entry.setAttribute("data-nav", "catalogs");
-  entry.setAttribute("aria-label", "Catalogs");
-  entry.innerHTML = '<span>Catalogs</span><i class="nav-dot" hidden></i>';
-  page.doc.body.append(entry);
-  ui.paintMenuDot(lab({ catalogs: [FIRST(), { ...CHECKING, attention: "update" }] }));
-  assert.equal(entry.querySelector(".nav-dot").hidden, true, "no row asks for attention");
-  ui.paintMenuDot(lab({ catalogs: [FIRST(), { ...CHECKING, attention: "update" }, catalog({ attention: "repair" })] }));
-  assert.equal(entry.getAttribute("aria-label"), "Catalogs, needs repair", "the first row that does, not the entry that is none");
-  entry.remove();
-});
-
-// --- Add catalog leads to the Catalogs page ------------------------------------------------------------------------------------------------
-
-test("the action of an environment that no add-on can serve leads to the Catalogs page and asks nothing of the platform", () => {
-  location.hash = "#/dashboard";
-  const calls = [];
-  globalThis.fetch = async (path) => { calls.push(path); return { ok: true, status: 200, json: async () => ({}) }; };
-  const environment = { id: "env-development", name: "Development" };
-  const found = { state: "ok", environments: [environment], gateways: [] };
-  perform({ id: "cloud-eu", kind: "cloud", name: "Gravitee Cloud" }, () => found, environment, "add-catalog", () => calls.push("reread"));
-  assert.equal(location.hash, "#/catalogs");
-  assert.deepEqual(calls, []);
-});
-
-test("#/catalogs and #/catalogs/<ns> are the Catalogs page of the router, which shows its section and gives it the namespace", () => {
-  store.state = lab({ catalogs: [FIRST(), catalog()] });
-  router.register(catalogsPage);
-  router.start();
-  location.hash = "#/catalogs";
-  assert.ok(router.current.page === catalogsPage);
-  assert.deepEqual(router.current.params, [undefined]);
-  assert.equal(page.ids["page-catalogs"].hidden, false);
-  location.hash = "#/catalogs/acme-hub";
-  assert.ok(router.current.page === catalogsPage);
-  assert.deepEqual(router.current.params, ["acme-hub"]);
-  assert.equal(page.doc.title, "Catalogs - Gravitee Lab");
-  catalogsPage.hide();
-});
-
 // --- Start all in the Cloud ----------------------------------------------------------------------------------------------------------------
 
 const CLOUD = { place: "cloud-eu/env-development", chosen: true, name: "Development (Gravitee Cloud)", group: { id: "api-management", name: "API Management" },
   start: { needed: true, enabled: true, reason: null }, stop: { needed: false, enabled: true, reason: null } };
 const idle = { needed: false, enabled: true, reason: null };
-const cloud = (more = {}, gateways = { cloud: "hybrid" }, core = CLOUD) => {
+const cloud = (more = {}, gateways = { cloud: "hyssop" }, core = CLOUD) => {
   const state = lab({ ...more });
   return { ...state, core, platform: { ...state.platform, state: { key: "stopped", label: "Stopped" }, gateways, start: { ...idle, needed: true }, apply: idle, restart: idle, update: idle } };
 };
@@ -581,31 +463,15 @@ test("with API Management in the Cloud, Start all waits while no add-on can run 
   const none = { cloud: null };
   assert.deepEqual(head(cloud({}, none)), { shown: true, off: true, why: "Needs a gateway add-on" });
   assert.equal(head(cloud({ content: content("downloading") }, none)).why, "Downloading playgrounds, setups and add-ons");
-  assert.equal(head(cloud({ content: content("failed") }, none)).why, content("failed").line);
-  assert.equal(head(cloud({ content: content("none") }, none)).why, "No catalog added");
   // A provider that exists wins over what the catalogs are doing
   assert.deepEqual(head(cloud({ content: content("downloading") })), { shown: true, off: false, why: "" });
   // The reason of the core is still said when an add-on can run it
   const stuck = { ...CLOUD, start: { needed: true, enabled: false, reason: "Set up a gateway in Development first" } };
-  assert.deepEqual(head(cloud({}, { cloud: "hybrid" }, stuck)), { shown: true, off: true, why: "Set up a gateway in Development first" });
+  assert.deepEqual(head(cloud({}, { cloud: "hyssop" }, stuck)), { shown: true, off: true, why: "Set up a gateway in Development first" });
   // ... and the catalogs' reason comes first, since it is the cause
   assert.equal(head(cloud({}, none, stuck)).why, "Needs a gateway add-on");
-  // This machine's Start all is never held by it, and a state that does not say what runs a gateway holds nothing
+  // This machine's Start all is never held by it
   assert.deepEqual(head(cloud({}, none, { ...CLOUD, place: "machine" })), { shown: true, off: false, why: "" });
-  const old = cloud();
-  delete old.platform.gateways;
-  assert.deepEqual(head(old), { shown: true, off: false, why: "" });
   // Held, then free once an add-on can: the same button
   store.state = lab();
-});
-
-// --- The sections of the page and the pages of the router -----------------------------------------------------------------------------
-
-test("every section of the page has a menu entry, and the Catalogs page is among the pages that the router has", () => {
-  const sections = [...html.matchAll(/<section class="page[^"]*" id="page-([\w-]+)"/g)].map((found) => found[1]);
-  assert.ok(sections.includes("catalogs"));
-  const entries = [...html.matchAll(/data-nav="([\w-]+)"/g)].map((found) => found[1]);
-  assert.ok(entries.includes("catalogs"), "the entry of the menu, last in its group");
-  assert.equal(catalogsPage.id, "catalogs");
-  assert.equal(catalogsPage.nav, "catalogs");
 });

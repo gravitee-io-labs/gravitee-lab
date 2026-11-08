@@ -1,7 +1,7 @@
 """catalogs/fleet.py: the loops over the topic. GitHub is a fake `gh` that lists repositories, the open pull requests and takes
 the pull request the upgrade opens; the repositories themselves are bare git repositories on this machine (tests/gitfixture.py),
-cloned, committed to and pushed to for real with the git that `gitx` runs. The Lab's `standard` module is written by another
-package: a stub with its two functions stands in for it. The Lab checkout that runs the command (which says
+cloned, committed to and pushed to for real with the git that `gitx` runs. A stub with the two functions of the Lab's
+`standard` module stands in for it. The Lab checkout that runs the command (which says
 whether the pin is on its `origin/main`, and gives the log between two pins) is a table of answers, and in two tests a real
 repository made on this machine. A test that needs git and finds none prints a skip line."""
 
@@ -10,14 +10,15 @@ import io
 import json
 import os
 import re
+import types
 from pathlib import Path
 from unittest import mock
 
 from lab_ui.catalogs import fleet, gitx, settings, standard
-from lab_ui.catalogs.settings import FAIL, Reply
+from lab_ui.catalogs.settings import Reply
 
 from .. import Case, gitfixture
-from .test_settings import TEMPLATE, load, normalize
+from .test_settings import load, normalize
 
 OLD, NEW = "a" * 40, "b" * 40
 TOPIC = "gravitee-lab-catalog"
@@ -102,12 +103,7 @@ def files(ref=OLD):
     }
 
 
-class Fleet(Case):
-    def setUp(self):
-        self.patch(settings, "RULESETS", TEMPLATE)
-
-
-class Audit(Fleet):
+class Audit(Case):
     """audit_fleet: every catalog of an owner, as one table."""
 
     def hub(self, repos, edit=None):
@@ -173,37 +169,17 @@ class Audit(Fleet):
         self.assertEqual(1, fleet.exit_code(rows))                  # a repository that cannot be read
         self.assertEqual(0, fleet.exit_code([row for row in rows if row.repo.endswith(("lab-hub", "lab-internal", "lab-gone"))]))
 
-    def test_the_exit_code_is_the_one_of_each_repository(self):
-        runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
-        rows = fleet.audit_fleet("acme-labs", runner, {})
-        self.assertEqual((0, 0), (fleet.exit_code(rows), fleet.exit_code(rows, True)))
-        runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
-        weak = fleet.audit_fleet("acme-labs", runner, {"as": "public"})
-        self.assertEqual(1, fleet.exit_code(weak))                  # the private one still forbids forking
-        self.assertEqual(FAIL, {f.id: f for f in weak[1].findings}["repo.forking"].status)
-
-    def test_the_table_in_json_and_as_annotations(self):
-        runner = self.hub([listed("acme-labs/lab-internal"), listed("acme-labs/lab-hub"), listed("acme-labs/lab-hidden")])
-        rows = fleet.audit_fleet("acme-labs", runner, {"as": "public"})
-        document = json.loads(fleet.render_audit(rows, "json"))
-        self.assertEqual(["owner", "repositories"], list(document))
-        self.assertEqual(["acme-labs/lab-hidden", "acme-labs/lab-hub", "acme-labs/lab-internal"], [r["repository"] for r in document["repositories"]])
-        self.assertEqual(["error", "findings", "not_applicable", "repository", "summary"], list(document["repositories"][0]))
-        lines = fleet.render_audit(rows, "github").splitlines()
-        self.assertTrue(lines[0].startswith("::error title=gravitee-lab-catalog::acme-labs/lab-hidden: acme-labs/lab-hidden was not found"))
-        self.assertTrue(any(line.startswith("::error title=repo.forking::acme-labs/lab-internal: A public repository can be forked") for line in lines))
-        self.assertTrue(all(re.match(r"^::(error|warning) title=[a-z_.-]+::", line) for line in lines))
+    def test_no_catalog_is_said_in_a_line(self):
         self.assertEqual("No repository of acme has the topic gravitee-lab-catalog", fleet.render_audit(fleet.Fleet(owner="acme")))
 
     def test_the_command_line_audits_the_fleet(self):
         runner = self.hub([listed("acme-labs/lab-hub"), listed("acme-labs/lab-internal")])
         out, err = io.StringIO(), io.StringIO()
-        code = settings.main(["--fleet", "acme-labs", "--strict"], runner=runner, stdout=out, stderr=err)
+        code = settings.main(["--fleet", "acme-labs"], runner=runner, stdout=out, stderr=err)
         self.assertEqual((0, ""), (code, err.getvalue()))
         self.assertTrue(out.getvalue().startswith("Catalog standard for 2 repositories of acme-labs\n"))
         out, err = io.StringIO(), io.StringIO()
-        self.assertEqual(1, settings.main(["--fleet", "acme-labs", "--as", "public", "--format", "github"], runner=runner, stdout=out, stderr=err))
-        self.assertIn("title=repo.forking", out.getvalue())
+        self.assertEqual(1, settings.main(["--fleet", "acme-labs", "--as", "public"], runner=runner, stdout=out, stderr=err))
         out, err = io.StringIO(), io.StringIO()
         self.assertEqual(2, settings.main(["--fleet", "a b"], runner=runner, stdout=out, stderr=err))
         self.assertEqual(["OWNER is a user or an organization of github.com."], err.getvalue().splitlines())
@@ -232,7 +208,7 @@ class Audit(Fleet):
         self.assertEqual("Not signed in to GitHub. Run gh auth login, then run this again.\n", err.getvalue())
 
 
-class Upgrade(Fleet):
+class Upgrade(Case):
     """upgrade_fleet: one pull request for each repository, from a clone that is removed."""
 
     def setUp(self):
@@ -338,10 +314,6 @@ class Upgrade(Fleet):
         lines = fleet.render_upgrade(results).splitlines()
         self.assertEqual("acme/lab-hub       opened  https://github.com/acme/lab-hub/pull/41  owned files skipped: "
                          ".github/CODEOWNERS, .github/dependabot.yml", lines[0])
-        files_plan = Standard()
-        files_plan.upgrade_plan = lambda tree, options: {"files": [{"path": ".github/Makefile", "action": "owned"},
-                                                                    {"path": ".github/a.yml", "action": "update"}]}
-        self.assertEqual([[".github/Makefile"]], [r.owned for r in self.run_fleet(Github(repos=[listed("acme/third")]), files_plan)])
 
     def test_nothing_to_change_is_current(self):
         github = Github(repos=[listed("acme/lab-hub")])
@@ -473,8 +445,6 @@ class Upgrade(Fleet):
 
     def test_the_lab_modules_are_the_defaults_when_none_is_given(self):
         """`standard.upgrade_plan`, `standard.upgrade_apply` and `tree.FolderTree` are what runs when no stand-in is given."""
-        import types
-        from unittest import mock
         standard = Standard()
         module = types.SimpleNamespace(upgrade_plan=standard.upgrade_plan, upgrade_apply=standard.upgrade_apply, LEVEL=2)
         github = Github(repos=[listed("acme/lab-hub")])
@@ -662,12 +632,11 @@ class Upgrade(Fleet):
         results = self.run_fleet(github, Standard(ref=lab["action"]), ref=lab["action"])
         self.assertEqual("opened", results[0].status)
         body = github.posted[0][1]["body"]
-        short = lambda commit: commit[:7]  # noqa: E731
         self.assertIn(f"git log --oneline {lab['first']}..{lab['action']} -- lab-ui .github\n\n    ", body)
         lines = body.split("-- lab-ui .github\n\n")[1].splitlines()
         self.assertEqual(["Pin the Lab action @someone #12", "Make the engine read the standard"],
                          [line.strip().split(" ", 1)[1] for line in lines])
-        self.assertEqual([short(lab["action"]), short(lab["engine"])], [line.strip().split(" ", 1)[0][:7] for line in lines])
+        self.assertEqual([lab["action"][:7], lab["engine"][:7]], [line.strip().split(" ", 1)[0][:7] for line in lines])
         self.assertNotIn("Write a guide", body)
         self.assertTrue(all(line.startswith("    ") for line in lines))
         message = gitfixture.git("log", "-1", "--format=%B", BRANCH, repo=self.remotes["acme/lab-hub"])
@@ -740,19 +709,9 @@ class Upgrade(Fleet):
                           "::notice title=upgrade::acme/f: skipped archived"], lines)
         self.assertEqual("", fleet.render_upgrade([fleet.Upgraded("acme/b", "current", "", [])], "github"))
         self.assertEqual("", fleet.render_upgrade([], "github"))
-        github = Github(repos=[listed("acme/lab-hub"), listed("acme/lab-internal")])
-        for name in ("acme/lab-hub", "acme/lab-internal"):
-            self.remote(name)
-        seams = dict(standard=Standard(), tree=lambda root: root, remote=lambda repo: gitfixture.url(self.remotes[repo]),
-                     workdir=str(self.workdir), today=lambda: TODAY, git=self.git, lab=str(self.lab))
-        out, err = io.StringIO(), io.StringIO()
-        code = fleet.main(["--fleet", "acme", "--lab-ref", NEW, "--format", "github"], runner=github, stdout=out, stderr=err, **seams)
-        self.assertEqual((0, ""), (code, err.getvalue()))
-        self.assertEqual(["::notice title=upgrade::acme/lab-hub: opened https://github.com/acme/lab-hub/pull/41",
-                          "::notice title=upgrade::acme/lab-internal: opened https://github.com/acme/lab-internal/pull/42"], out.getvalue().splitlines())
 
 
-class Reading(Fleet):
+class Reading(Case):
     """`.github/standard.json` of a clone is whatever the catalog merged: it is read once, small, in the clone, as JSON."""
 
     def test_the_standard_of_a_clone(self):

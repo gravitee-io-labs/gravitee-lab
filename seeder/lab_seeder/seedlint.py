@@ -1,36 +1,20 @@
 """Lints the seed files of playgrounds, read as the seeder reads them: each ${VAR} they use is one the playground's seed
-service sets (or one the engine gives the files of an environment), no address is written out (it is a variable, so the
-same files work against any platform), each file parses once its variables are replaced, the folders of
-seed/environments agree with themselves, and the subscriptions of a studio (seed/aim/studios) name a plan of it that takes
-them, with an apiKey that is text.
+service sets (or one the engine gives the files of an environment), each file parses once its variables are replaced, the
+folders of seed/environments agree with themselves, and the subscriptions of a studio (seed/aim/studios) name a plan of it that
+takes them, with an apiKey that is text.
 
-    python seedlint.py [FOLDER...] [--format text|github|json]
+    python seedlint.py FOLDER... [--format text|github]
 
 A FOLDER is a folder of playgrounds (each has a compose.yml with a seed service, and a seed/ folder) or one playground, or
 both: it is read as a playground, and so is each folder under it, so that a compose file beside the playgrounds hides none of
-them. With none, the folder is the sample of the engine. A folder that
-does not exist is nothing to lint, not an error: a catalog with add-ons and tests only has no `playgrounds/`. The exit code
-is 0 when nothing is wrong, 1 when something is, 2 when the command line is wrong. `--format github` prints one workflow
+them. A folder that does not exist is nothing to lint, not an error: a catalog with add-ons and tests only has no `playgrounds/`.
+The exit code is 0 when nothing is wrong, 1 when something is, 2 when the command line is wrong. `--format github` prints one workflow
 annotation for each problem, on the file as the diff of the repository names it, escaped as the catalog tools escape theirs
 (report.py of the Lab UI): `%`, CR and LF in the message, also `:` and `,` in a property, so that a file name cannot start a
 command of its own.
 
-`problems(playground_folder)` is the same check for one playground, and the functions the seeder's tests use on their own
-(`unset_variables`, `literal_addresses`, `provided_to`, `environment_problems`) live here, so that the engine's tests, the
-harness a catalog's tests import (testkit.py, which has no copy of them) and a catalog's CI run one set of checks.
-
-An address is looked for twice. `literal_addresses(text)` reads the text of a file as it is. A YAML or JSON file that has a
-backslash may also write an address in escapes (`"https:\\u002f\\u002fhost"` is `https://host` once the file is parsed, and
-the text shows no `://`), so `escaped_addresses` reads the strings of the parsed document, the scalars of the composed YAML
-and the strings of the JSON (and, inside them, the JSON texts that a string holds, as the `sharedConfiguration` of an
-endpoint does), and finds what the text hides. The seeder replaces a variable by its default in the text, before the parser
-reads it, so a default is read as the text it becomes. An address under a name that no name system resolves, `.test`,
-`.example`, `.invalid` and example.com, .org and .net (RFC 2606 and 6761), cannot reach a service, so a documentation URL
-under one is allowed there; the first rule, on the text as it is, has no such allowance. The strings are read as a parser reads
-an address: the authority ends at `/`, `?` or `#` and nowhere else, so in `https://example.com'@elsewhere` the quote, a space or
-a backslash join the user, and the host is the name after the `@`: a public host, a reserved name or a variable in front of an
-`@` is no exemption for the address. A file whose strings the lint cannot read to the end (a variable where YAML wants a name,
-JSON texts nested deeper than NESTED) is named, as it cannot be told whether it hides an address: the lint fails closed.
+`problems(playground_folder)` is the same check for one playground, so that the engine's tests and a catalog's CI run one
+set of checks.
 
 What is read is a stranger's pull request. Nothing of it runs: a file is parsed, never imported or executed. A link is
 never followed, whether it is a file or folder of the tree or the folder the command is given, so a seed that links to a file
@@ -47,8 +31,7 @@ of the seed (the contract of the engine scans the seeder's modules for the setti
 
 It reads the seed with the seeder's own loader (`common`), so it needs the seeder's requirements (pip install -r
 seeder/requirements.txt, Python 3.10 or later) and nothing else. It is a tool of tests and of a catalog's CI, not of a seed
-run: it stays out of the image (seeder/.dockerignore lists it, as it lists testkit.py), and a catalog's CI runs it from the
-checkout of the Lab.
+run: it stays out of the image (seeder/.dockerignore lists it), and a catalog's CI runs it from the checkout of the Lab.
 """
 
 import argparse
@@ -62,36 +45,12 @@ from collections import namedtuple
 from pathlib import Path
 
 try:
-    import yaml
-
-    from . import common
+    from . import aim_proxies, common
 except ImportError as e:
     raise ImportError("seedlint reads the seed as the seeder does and needs its requirements: pip install -r "
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
 
-# The folder of playgrounds the command lints when none is given: a frozen copy in the engine
-SAMPLES = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "samples"
-
 TEXT = (".yaml", ".yml", ".json", ".md", ".gapl", ".cedar", ".txt")   # whatever the seed may read, not only what it parses
-# An address that is not a variable would break on a platform that is not this one (a scheme is written in any case). The
-# public hosts the files may name
-LITERAL_URL = re.compile(r"(?i:https?)://(?!\$\{)([^\s\"'/\\}:]+)")
-PUBLIC = re.compile(r"^(?:www\.w3\.org|json-schema\.org|[a-z0-9.-]*gravitee\.io|[a-z0-9.-]*huggingface\.co"
-                    r"|generativelanguage\.googleapis\.com)$")
-# The names that no name system resolves (RFC 2606 and 6761): .test, .example and .invalid under at least one label, and
-# example.com, .org and .net with the names under them. A bare `test` or `example` is not one: a service of a Compose network
-# may be named so. A trailing dot is the same name
-RESERVED = re.compile(r"^(?:[a-z0-9_-]+\.)+(?:test|example|invalid)\.?$|^(?:[a-z0-9_-]+\.)*example\.(?:com|org|net)\.?$")
-# What may follow a host that is the whole of the authority: a port, and then the end of it. A colon followed by anything
-# else is no port: it opens the password of a user (`https://example.com:x@elsewhere`) when the text is read as it is
-PORT = re.compile(r":\d{0,5}(?![^\s\"'/?#\\}])")
-# The user in front of the host of an address, up to the last `@` of the authority. A parser ends the authority at `/`, `?` or `#`
-# and at nothing else: the quote, the space, the tab or the backslash after a name are part of the user, and the host is the name
-# after the `@` (`https://example.com'@elsewhere` goes to `elsewhere`)
-USER = re.compile(r"((?i:https?)://)[^/?#]*@")
-# A text that is JSON when it starts so (common.is_json_text): the platform parses a string like that once more
-JSON_TEXT = re.compile(r"\s*[\[{]")
-NESTED = 3                 # the JSON texts inside one another that are read (a string of a document, a string of that, and so on)
 # The pattern of Compose for a value of the seed service: ${NAME}, ${NAME-default}, ${NAME:-default}, and $$ for a dollar
 COMPOSE_VARIABLE = re.compile(r"\$(?:\$|\{[A-Za-z_]\w*(?::?-([^}]*))?\})")
 # A default opened and, when nothing closes it, read to the end of the text by every pattern of the seeder
@@ -101,16 +60,11 @@ SMALL = 256 * 1024         # the most an image of a theme may weigh: a theme is 
 LIMIT = 1024 * 1024        # the most of a file that is read, as the Lab's readers do (Tree.read)
 RENDERED = 8 * 1024 * 1024  # the most a file may weigh once its variables are replaced
 SLOW = 20_000_000          # characters a file may make the seeder's patterns read for defaults that nothing closes
-COPIED = common.COPIED     # the pairs the loader of YAML may copy for the merge keys of a file (about 0.3 s: the real files need 300)
 MANY = 20                  # the findings of one kind that are told for a file; the others are counted
 SHOWN = 500                # the problems the command prints, the others are counted
 MESSAGE = 400              # the characters of a message that are kept: a message may quote a stranger's file
 UNCLOSED = ("opens defaults, ${NAME:- , that nothing closes: the seed would read on to the end of the file for each. "
             "Fix: close each with }")
-MERGES = common.MERGES
-UNREAD = ("has escapes in strings that the lint cannot read to the end (a variable where YAML wants a name or a tag, JSON text "
-          f"nested more than {NESTED} deep), so it cannot tell whether an address is written in them. Fix: keep a variable to the "
-          "values, and the JSON texts flat")
 # The front matter of a SKILL.md, as the seeder of the skills (aim_catalog.skill_files) reads it
 FRONT_MATTER = re.compile(r"---\n(.*?)\n---", re.S)
 # What a program that prints a line takes for a command of the runner: GitHub's workflow commands, the new and the old one
@@ -118,11 +72,7 @@ COMMANDS = ("::", "##[")
 
 Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
-# What a subscription of a studio's file may say (aim_proxies.SUBSCRIPTION_KEYS)
-STUDIO_SUBSCRIPTION = ("application", "plan", "apiKey")
-# The keys of a studio's file that give its protocol versions, one of the two (aim_proxies.VERSION_KEYS)
-STUDIO_VERSIONS = ("supportedProtocolVersions", "protocolVersion")
-TITLES = {"variable": "Seed variable", "address": "Seed address", "read": "Seed file", "parse": "Seed file",
+TITLES = {"variable": "Seed variable", "read": "Seed file", "parse": "Seed file",
           "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
 
 
@@ -187,11 +137,6 @@ def _walk(seed):
             elif path.suffix in TEXT:
                 odd.append((path, "is not a regular file"))
     return sorted(found), sorted(odd)
-
-
-def seed_paths(folder):
-    """The text files of a playground's seed folder, as paths."""
-    return _walk(Path(folder) / "seed")[0]
 
 
 @contextlib.contextmanager
@@ -303,159 +248,10 @@ def _first_uses(matches, environment, provided=()):
     return found
 
 
-def unset_variables(text, environment, provided=()):
-    """The ${VAR} of a file that has no default in the file and no value from the seed service. `$${VAR}` is a literal. The
-    names in `provided` are the engine's own (the files of an environment have common.PROVIDED): they need no value."""
-    return {name for name, _ in _first_uses(_variables(text), environment, provided)}
-
-
 def provided_to(path, folder):
     """The names the engine gives a file of the seed: those of an environment for the files under seed/environments, none for
     the others."""
     return common.PROVIDED if path.relative_to(folder / "seed").parts[:1] == ("environments",) else ()
-
-
-def _reserved(host, text, end):
-    """Whether the host of an address, which ends at `end` of the text, is under a name that nothing resolves (RESERVED) and is
-    the host of the address: the colon that follows it opens a port, not the password of a user in front of another host."""
-    return bool(RESERVED.match(host)) and (text[end:end + 1] != ":" or PORT.match(text, end) is not None)
-
-
-def _addresses(text, reserved=False, strict=False):
-    """[(address, offset)] of the addresses of a text that are not a variable, public hosts apart, at their first use. With
-    `reserved`, the names that nothing resolves (RESERVED) are allowed too. With `strict`, the text is read as a parser reads its
-    addresses: the user in front of a host is dropped (USER), so that what stands for a host is the name after the last `@` of the
-    authority, and the exemptions (a public host, a reserved name, a name that starts with a variable) hold for that name; the
-    offsets are those of the text without the users."""
-    if strict:
-        text = USER.sub(r"\1", text)
-    seen, found = set(), []
-    for m in LITERAL_URL.finditer(text):
-        host = m.group(1).lower()
-        if m.group(0) not in seen and not PUBLIC.match(host) and not (reserved and _reserved(host, text, m.end(1))):
-            seen.add(m.group(0))
-            found.append((m.group(0), m.start()))
-    return found
-
-
-def literal_addresses(text):
-    """The addresses of a file that are not a variable, public hosts apart. The text is read as it is: see `escaped_addresses`
-    for what it hides."""
-    return {address for address, _ in _addresses(text)}
-
-
-# --- What a file writes in escapes ------------------------------------------------------
-
-def _masked(text, mark, defaults=False):
-    """The text with each variable replaced by `mark`, a character that stands for it: a variable stands where the format has
-    no room for one (`[${A}]` in a flow collection, a default with a colon), and the text would not parse. With `defaults`, a
-    default stays after it, as the seeder puts it in the text before the parser reads it. `$${NAME}` is the page's own and
-    stays."""
-    pieces, last = [], 0
-    for m in _variables(text):
-        if not m.group(1):
-            pieces += (text[last:m.start()], mark + (m.group(3) or "") if defaults else mark)
-            last = m.end()
-    return "".join(pieces) + text[last:]
-
-
-def _scalars(text):
-    """([(value, line)], whole) of the scalars of a YAML text, keys too, with their escapes resolved, in the order of the
-    documents. They are read from the composed nodes, which hold no value of their own: an alias is not read again, and a text
-    that repeats itself is no work. A text that does not compose is read as far as it does (`whole` is then False): the parse
-    rule says why it stops."""
-    pending, whole = [], True
-    try:
-        for root in yaml.compose_all(text, Loader=yaml.SafeLoader):
-            pending.append(root)
-    except Exception:  # noqa: BLE001 - whatever a stranger's text makes the parser do ends the list; the parse rule reports it
-        whole = False
-    pending.reverse()
-    found, seen = [], set()
-    while pending:
-        node = pending.pop()
-        if id(node) in seen:
-            continue
-        seen.add(id(node))
-        if isinstance(node, yaml.ScalarNode):
-            found.append((node.value, node.start_mark.line + 1))
-        elif isinstance(node, yaml.SequenceNode):
-            pending.extend(reversed(node.value))
-        elif isinstance(node, yaml.MappingNode):
-            pending.extend(reversed([child for pair in node.value for child in pair]))
-    return found, whole
-
-
-def _decoded(path, text):
-    """([(string, line)], whole) of a YAML or JSON file as the loader reads its strings, with the escapes resolved, when the
-    text has a backslash: a text without one writes nothing in escapes. A JSON file is read as JSON, as the seeder reads it
-    (line 0: it has none), the variables of each string unreplaced: the seeder replaces them after the escapes are resolved.
-    YAML is read as the seeder reads it, with the variables replaced in its text: a variable is parsed as a character that
-    stands for it and put back as `${`, so that a host that starts with one is a variable here as it is in the text, and the
-    default of the variable stays, as the seeder puts it in the text. A default that the parser cannot take in its place is
-    masked. A JSON file that is no document until its variables are replaced (a bare `${PORT}`) is read as YAML, as a scalar of
-    YAML is a string of JSON for everything a seed holds, with each variable masked: the seeder escapes a default for JSON
-    there, so that the escapes of a default are not resolved. `whole` is False when the strings could not be read to the end."""
-    if "\\" not in text or not str(path).endswith((".yaml", ".yml", ".json")):
-        return [], True
-    in_json = str(path).endswith(".json")
-    if in_json:
-        try:
-            return [(each, 0) for each in _strings(_parsed(text))], True
-        except Exception:  # noqa: BLE001 - not JSON, or deeper than the parser reads: the YAML reader goes as far as it can
-            pass
-    used = set(text)
-    mark = next((chr(code) for code in range(0xE000, 0xF900) if chr(code) not in used), None)   # the private use area
-    if mark is None:
-        return _scalars(text)
-    masked = _masked(text, mark, defaults=not in_json)
-    found, whole = _scalars(masked)
-    if not whole and not in_json:   # a default that the parser cannot take in the place of the variable
-        plain = _masked(text, mark)
-        if plain != masked:
-            found, whole = _scalars(plain)
-    return [(value.replace(mark, "${"), line) for value, line in found], whole
-
-
-def _texts(value, state, depth=0):
-    """The text of a string of a document and, one after another, those of the JSON texts inside it: a string that is itself
-    a JSON object or array (the `sharedConfiguration` of an endpoint) is parsed again by the platform, and its escapes hide an
-    address as well. `state[0]` becomes False for a JSON text nested deeper than NESTED, which is not read."""
-    yield value
-    if JSON_TEXT.match(value):
-        try:
-            inner = _parsed(value)
-        except Exception:  # noqa: BLE001 - not JSON, or deeper than the parser reads: it is a text like another
-            return
-        if isinstance(inner, (dict, list)):
-            if depth >= NESTED:
-                state[0] = False
-                return
-            for each in _strings(inner):
-                yield from _texts(each, state, depth + 1)
-
-
-def _escaped(path, text, known=()):
-    """([(address, line)], whole) of the addresses that a YAML or JSON file writes in escapes, at their first use, but those of
-    `known` (the ones the text shows), public hosts and the names that nothing resolves apart. `whole` is False when the file
-    has strings that could not be read to the end."""
-    decoded, whole = _decoded(path, text)
-    seen, found, state = set(known), [], [True]
-    for value, line in decoded:
-        for string in _texts(value, state):
-            if "://" in string:   # nothing else is an address
-                for address, _ in _addresses(string, reserved=True, strict=True):
-                    if address not in seen:
-                        seen.add(address)
-                        found.append((address, line))
-    return found, whole and state[0]
-
-
-def escaped_addresses(path, text):
-    """The addresses of a YAML or JSON file that its text does not show: they are written in escapes (`https:\\u002f\\u002fhost`),
-    and a name that nothing resolves (`.test`, `.example`, `.invalid`, example.com, .org and .net) is not one. `path` says
-    which kind of file it is."""
-    return {address for address, _ in _escaped(path, text, {a for a, _ in _addresses(text)})[0]}
 
 
 # --- The seed service of a playground ---------------------------------------------------
@@ -484,7 +280,7 @@ def seed_service(compose):
     try:
         document = common.parse_yaml(text, compose)
     except common.MergeError:
-        raise Unreadable(compose, MERGES) from None
+        raise Unreadable(compose, common.MERGES) from None
     services = document.get("services") if isinstance(document, dict) else None
     services = services if isinstance(services, dict) else {}
     return next((s for s in services.values()
@@ -547,17 +343,6 @@ def _playgrounds(root):
             [Path(e.path) for e in entries if e.is_symlink() and os.path.isdir(e.path)])
 
 
-def seeded_playgrounds(root):
-    """(folder, environment of its seed service) of each shared playground of `root` that has a seed folder and a seed
-    service. A compose file that cannot be read stops it, as the test that asks must not miss a playground."""
-    for folder in _playgrounds(root)[0]:
-        environment, trouble = _seeded(folder)
-        if trouble:
-            raise common.SeedError(f"{trouble[0].path}: {trouble[0].message}")
-        if environment is not None:
-            yield folder, environment
-
-
 # --- The folders of seed/environments ---------------------------------------------------
 
 def _flat(error):
@@ -606,7 +391,7 @@ def _loaded(path, provided=None):
     try:
         return common.load(path, provided=provided)
     except common.MergeError:
-        raise Unreadable(path, MERGES) from None
+        raise Unreadable(path, common.MERGES) from None
 
 
 def _load(path, provided=None):
@@ -654,8 +439,8 @@ def _environment_findings(folder, variables, found=None):
         says(path, f"id is {_brief(identity.get('id'), quoted=True)}, the folder is {id!r}")
     if not identity.get("name"):
         says(path, "name is missing")
-    if not re.fullmatch(r"[a-z0-9-]+", id) or id == "default":
-        says(path, "an environment is named with lowercase letters, digits and dashes, and is not the platform's own")
+    if not re.fullmatch(r"[a-z0-9-]+", id) or id in ("default", "local"):
+        says(path, "an environment is named with lowercase letters, digits and dashes, and is not `local` or the platform's own")
     given = {"ENV_ID": id, "ENV_NAME": identity.get("name") or ""}
 
     users = set()
@@ -733,12 +518,6 @@ def _environment_findings(folder, variables, found=None):
     return found
 
 
-def environment_problems(folder, variables):
-    """What is wrong in one folder of seed/environments, read as the seed reads it (its variables replaced, ENV_ID and ENV_NAME
-    given): the problems the files have with one another, one text each."""
-    return [f"{path}: {text}" for path, text in _environment_findings(folder, variables)]
-
-
 def says_about_subscription(path, where, sub, plan, says):
     """What the platform refuses of a subscription to this plan, from its file."""
     pushes = plan.get("mode") == "PUSH"
@@ -772,8 +551,8 @@ def studio_problems(spec):
     in steps (`access`), whose registration plan is closed."""
     if not isinstance(spec, dict):
         return []
-    given = [spec[key] for key in STUDIO_VERSIONS if key in spec]
-    found = [] if len(given) == 1 else [f"it gives {' or '.join(STUDIO_VERSIONS)}, one of the two"]
+    given = [spec[key] for key in aim_proxies.VERSION_KEYS if key in spec]
+    found = [] if len(given) == 1 else [f"it gives {' or '.join(aim_proxies.VERSION_KEYS)}, one of the two"]
     if len(given) == 1 and not all(isinstance(v, str) for v in (given[0] if isinstance(given[0], list) else [given[0]])):
         found.append("a protocol version is text: quote it")
     listed = spec.get("subscriptions")
@@ -782,10 +561,10 @@ def studio_problems(spec):
     if not isinstance(listed, list) or not all(isinstance(sub, dict) for sub in listed):
         return [*found, "subscriptions is a list of {application, plan, apiKey}"]
     for sub in listed:
-        unknown = sorted(set(sub) - set(STUDIO_SUBSCRIPTION), key=str)
+        unknown = sorted(set(sub) - set(aim_proxies.SUBSCRIPTION_KEYS), key=str)
         if unknown:
             found.append(f"subscriptions: {_brief(', '.join(map(str, unknown)))} is not a key of a subscription "
-                         f"({', '.join(STUDIO_SUBSCRIPTION)})")
+                         f"({', '.join(aim_proxies.SUBSCRIPTION_KEYS)})")
         if not (isinstance(sub.get("application"), str) and sub["application"]):
             found.append("subscriptions: each names its application")
         elif "plan" in sub and not (isinstance(sub["plan"], str) and sub["plan"]):
@@ -833,22 +612,6 @@ def _parse(path, text, matches, environment, provided):
     return None
 
 
-def _address_problems(path, text):
-    """(problems, whole) of the addresses a seed file writes out, as its text shows them and, for a YAML or JSON file with a
-    backslash, as its strings have them once the escapes are resolved (those say so). MANY are told, the others counted.
-    `whole` is False when the strings of the file could not be read to the end."""
-    shown = _addresses(text)
-    hidden, whole = _escaped(path, text, {address for address, _ in shown})
-    fix = "Fix: an address is a ${VARIABLE} set by the seed service."
-    found = [Problem("address", str(path), text.count("\n", 0, offset) + 1, f"{_short(address, 100)} is written out. {fix}")
-             for address, offset in shown[:MANY]]
-    found += [Problem("address", str(path), line, f"{_short(address, 100)} is written out in escapes. {fix}")
-              for address, line in hidden[:max(0, MANY - len(shown))]]
-    if len(shown) + len(hidden) > MANY:
-        found.append(Problem("address", str(path), 0, f"{len(shown) + len(hidden) - MANY} more addresses are written out."))
-    return found, whole
-
-
 def _front_matter(text):
     """The front matter of a SKILL.md, as the seeder of the skills reads it, else an empty text."""
     head = FRONT_MATTER.match(text)
@@ -887,17 +650,13 @@ def _lint(folder):
             if len(unset) > MANY:
                 out.append(Problem("variable", str(path), 0, f"{len(unset) - MANY} more variables have no value."))
             blocked = bool(unset)
-        told, whole = _address_problems(path, text)
-        out.extend(told)
-        if path.name == "SKILL.md" and common.merged_pairs(_front_matter(text)) > COPIED:
-            out.append(Problem("read", str(path), 0, MERGES))
+        if path.name == "SKILL.md" and common.merged_pairs(_front_matter(text)) > common.COPIED:
+            out.append(Problem("read", str(path), 0, common.MERGES))
         if not blocked and path.suffix in (".yaml", ".yml", ".json"):
             failure = _parse(path, text, matches, environment, provided)
             if failure:
                 out.append(Problem(failure[0], str(path), failure[2], failure[1]))
                 blocked = True
-            elif not whole:   # it parses, and the lint could not read its strings: the parse rule has nothing to say about that
-                out.append(Problem("read", str(path), 0, UNREAD))
         if blocked:
             unread.add(path)
         elif path.suffix in (".yaml", ".yml") and path.parent == folder / "seed" / "aim" / "studios":
@@ -993,9 +752,7 @@ def _named(path):
 
 
 def render(found, fmt="text"):
-    """The problems as text lines (path:line: message), as GitHub annotations, or as JSON, one string."""
-    if fmt == "json":
-        return json.dumps([p._asdict() for p in found], indent=2, sort_keys=True)
+    """The problems as text lines (path:line: message) or as GitHub annotations, one string."""
     if fmt == "github":
         return "\n".join(annotation(p) for p in found)
     return "\n".join(f"{_named(p.path)}{':' + str(p.line) if p.line else ''}: {_plain(p.message)}" for p in found)
@@ -1016,37 +773,20 @@ def _n(count, noun):
     return f"{count} {noun}" + ("" if count == 1 else "s")
 
 
-def _shown(folder):
-    """A folder as the command prints it: relative to where it runs when it is under it, as the runner of a workflow wants."""
-    folder = Path(folder)
-    if folder.is_absolute():
-        try:
-            return folder.relative_to(Path.cwd())
-        except ValueError:
-            return folder
-    return folder
-
-
-def _parser():
-    parser = argparse.ArgumentParser(prog="seedlint.py", description="Lints the seed files of playgrounds, as the seeder reads them.",
-                                     epilog="With no FOLDER: the sample of the engine. Exit code "
-                                            "0: nothing wrong, 1: problems, 2: wrong command line.")
-    parser.add_argument("folders", nargs="*", metavar="FOLDER", help="a folder of playgrounds, or one playground")
-    parser.add_argument("--format", choices=("text", "github", "json"), default="text")
-    return parser
-
-
 def main(argv=None, out=None):
     """The command. `out` is where it prints (sys.stdout)."""
-    args = _parser().parse_intermixed_args(argv)
+    parser = argparse.ArgumentParser(prog="seedlint.py", description="Lints the seed files of playgrounds, as the seeder reads them.",
+                                     epilog="Exit code 0: nothing wrong, 1: problems, 2: wrong command line.")
+    parser.add_argument("folders", nargs="+", type=Path, metavar="FOLDER", help="a folder of playgrounds, or one playground")
+    parser.add_argument("--format", choices=("text", "github"), default="text")
+    args = parser.parse_intermixed_args(argv)
     out = sys.stdout if out is None else out
-    folders = [_shown(folder) for folder in args.folders] or [_shown(SAMPLES)]
-    for folder in folders:
+    for folder in args.folders:
         if os.path.lexists(folder) and not os.path.isdir(folder):
             print(f"{folder} is not a folder", file=sys.stderr)
             return 2
     lines, found = [], []
-    for folder in folders:
+    for folder in args.folders:
         if not os.path.isdir(folder):
             lines.append(f"No folder {folder}: nothing to lint.")
             continue
@@ -1059,19 +799,12 @@ def main(argv=None, out=None):
             lines.append(f"All good: {read}")
         else:
             lines.append(f"Nothing to lint: no playground of {folder} has a seed.")
-    if args.format == "json":
-        text = render(found, "json")
-    else:
-        shown = found[:SHOWN]
-        if args.format == "github":
-            shown = [problem._replace(path=_in_repository(problem.path)) for problem in shown]
-        text = render(shown, args.format)
-        if len(found) > len(shown):
-            lines.insert(0, f"{_n(len(found) - len(shown), 'more problem')} not shown.")
-    for line in ([text] if text else []) + ([] if args.format == "json" else lines):
+    shown = found[:SHOWN]
+    if args.format == "github":
+        shown = [problem._replace(path=_in_repository(problem.path)) for problem in shown]
+    text = render(shown, args.format)
+    if len(found) > len(shown):
+        lines.insert(0, f"{_n(len(found) - len(shown), 'more problem')} not shown.")
+    for line in ([text] if text else []) + lines:
         out.write(line.encode("utf-8", "replace").decode("utf-8") + "\n")
     return 1 if found else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

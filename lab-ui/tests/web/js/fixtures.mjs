@@ -10,14 +10,13 @@ export const ADDRESS = "github.com/example/catalog";
 export const HOSTILE = '<img src=x onerror="boom()">';
 export const HOSTILE_QUOTED = `"><script>boom()</script>'`;
 
-// A state key: the server writes its word, tone, reason and next step. `STATE` is exported for the tests
-// of the pages that draw a state, so that none writes its own shape of one.
-export const STATE = (key, label, tone = "muted", reason = "", next = "") => ({ key, label, tone, reason, next, whatsnew: [] });
+// A state key: the server writes its word, tone, reason and next step
+const STATE = (key, label, tone = "muted", reason = "", next = "") => ({ key, label, tone, reason, next, whatsnew: [] });
 
 // Every key of the catalogs' states, the "machine" one apart (the row of Personal has it: PERSONAL), in the order of the table of 1.3
 export const STATES = {
   uptodate: STATE("uptodate", "Up to date", "muted", "Version 1.4.0, checked 3 hours ago"),
-  update: { ...STATE("update", "Update available", "warn", "Version 1.5.0"), whatsnew: ["Add the ledger"] },
+  update: STATE("update", "Update available", "warn", "Version 1.5.0"),
   checking: STATE("checking", "Checking"),
   updating: STATE("updating", "Updating", "working"),
   downloading: STATE("downloading", "Downloading", "working", "From github.com/owner/repo"),
@@ -42,26 +41,26 @@ export const catalog = (more = {}) => ({
   version: "1.4.0", commit: "9f1c2ab", updated: "2026-10-12T18:03:11Z", checked: "2026-10-16T09:12:30Z",
   audience: "private", counts: { playground: 14, setup: 2, addon: 9 },
   state: STATES.uptodate, progress: null, attention: null,
-  auto: true, has_previous: false, writable: false, host: "no",
+  auto: true, has_previous: false, host: "no",
   held: { update: "", remove: "", undo: "No previous version" },
-  blocked: [], uses_machine: [], ignored: 0, problems: [], needs: [], ...more,
+  blocked: [], uses_machine: [], ignored: 0, problems: [], ...more,
 });
 
 // The first catalog the Lab lists, the one whose items have bare ids; this machine's own row; a listed catalog the person removed; a folder
 export const FIRST = (more = {}) => catalog({ id: "gravitee", name: "Gravitee public", description: "The demos everyone has", listed: true,
   address: ADDRESS, url: `https://${ADDRESS}.git`, web_url: `https://${ADDRESS}`, audience: "public", host: "listed", ...more });
 export const PERSONAL = (more = {}) => ({ id: "local", kind: "machine", listed: false, name: "Personal", description: "", counts: { playground: 1, setup: 0, addon: 2 },
-  state: { key: "machine", label: "", tone: "muted", reason: "", next: "", whatsnew: [] }, progress: null, attention: null, ...more });
+  state: { key: "machine", label: "", tone: "muted", reason: "", next: "" }, progress: null, attention: null, ...more });
 export const NOT_ADDED = (more = {}) => ({ id: "gravitee", kind: "suggested", listed: true, name: "Gravitee public", description: "The demos everyone has",
   address: ADDRESS, url: `https://${ADDRESS}.git`, state: STATES.suggested, progress: null, attention: null, ...more });
 export const FOLDER = (more = {}) => catalog({ id: "my-catalog", kind: "folder", name: "My catalog", description: "", address: "~/lab/my-catalog", url: "", web_url: "",
-  version: "", commit: "", writable: true, state: STATES.linked, ...more });
+  version: "", commit: "", state: STATES.linked, ...more });
 
 // The field `content`: key `ready` when any catalog has a pin or any folder catalog is there, `downloading` while a git entry has an attempt
 // running, `failed` when one has a last error (`line`, its `code` and the `address` it was asked), else `none`, with `offer`, the first listed
 // catalog that is not added
-export const OFFER = { id: "gravitee", name: "Gravitee public" };
-export const CONTENT = {
+const OFFER = { id: "gravitee", name: "Gravitee public" };
+const CONTENT = {
   ready: { key: "ready", line: "", code: null, progress: null, address: ADDRESS, offer: null },
   downloading: { key: "downloading", line: "", code: null, progress: 0.42, address: ADDRESS, offer: null },
   failed: { key: "failed", line: "Cannot reach github.com. Check your connection, then try again.", code: "unreachable", progress: null, address: ADDRESS, offer: null },

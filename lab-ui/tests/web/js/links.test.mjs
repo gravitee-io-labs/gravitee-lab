@@ -6,12 +6,12 @@ import { test } from "node:test";
 
 import { El, installDom } from "./dom-stub.mjs";
 
-const page = installDom({ ids: ["confirm-cancel", "choice-cancel", "confirm", "choice", "toasts", "confirm-title", "confirm-text", "confirm-ok", "confirm-input"] });
+const page = installDom();
 const { store } = await import("../../../web/js/core.js");
 const { paintLinks } = await import("../../../web/js/components/ui.js");
 
 const link = (label, service, section, up = true, port = "8080") => ({ label, url: `http://localhost:${port}`, port, service, section, up });
-const SERVICES = Object.fromEntries(["bakery-web", "gamma-ui", "am-management-ui", "apim-management-ui", "kiosk", "jade", "smtp4dev"].map((name) => [name,
+const SERVICES = Object.fromEntries(["bakery-web", "gamma-ui", "am-management-ui", "apim-management-ui", "kiosk", "jade", "malt-box"].map((name) => [name,
   { label: name, state: { key: "healthy", label: "Healthy", running: true } }]));
 const state = {
   blind: false, wait: "", docker: { error: null }, services: SERVICES,
@@ -23,7 +23,7 @@ store.state = state;
 const LINKS = [
   link("Kiosk", "kiosk", "Observability", true, "5601"), link("Acme Bakery", "bakery-web", "Playground", true, "8110"),
   link("AM Console", "am-management-ui", "Access Management", true, "8081"), link("Gamma Console", "gamma-ui", "API Management", true, "8086"),
-  link("APIM Console", "apim-management-ui", "API Management", true, "8084"), link("Mail", "smtp4dev", "Other", false, "5080"),
+  link("APIM Console", "apim-management-ui", "API Management", true, "8084"), link("Malt", "malt-box", "Other", false, "5080"),
 ];
 
 let made = 0;
@@ -61,11 +61,11 @@ test("a console that runs opens in a browser tab of its own, one that does not s
   assert.equal(kiosk.getAttribute("target"), "_blank");
   assert.equal(kiosk.getAttribute("rel"), "noopener");
   assert.match(kiosk.textContent, /:5601/, "its port");
-  const mail = el.querySelectorAll(".link").find((anchor) => anchor.textContent.includes("Mail"));
-  assert.equal(mail.hasAttribute("href"), false);
-  assert.equal(mail.getAttribute("aria-disabled"), "true");
-  assert.equal(mail.getAttribute("data-tip"), "Mail is not running", "why, as a tooltip");
-  assert.equal(mail.classList.contains("off"), true);
+  const malt = el.querySelectorAll(".link").find((anchor) => anchor.textContent.includes("Malt"));
+  assert.equal(malt.hasAttribute("href"), false);
+  assert.equal(malt.getAttribute("aria-disabled"), "true");
+  assert.equal(malt.getAttribute("data-tip"), "Malt is not running", "why, as a tooltip");
+  assert.equal(malt.classList.contains("off"), true);
 });
 
 test("with nothing to open it says so, across the card", () => {

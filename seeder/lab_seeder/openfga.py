@@ -1,7 +1,7 @@
 """OpenFGA: stores from seed/openfga/*.yaml, in the OpenFGA store file format (`fga store import`).
 
     name: Documents
-    model: |                # the model in the OpenFGA language, or model_file: a .fga file next to it
+    model: |                # the model in the OpenFGA language
       model
         schema 1.1
       type user
@@ -15,7 +15,6 @@ only written when it changed, and existing tuples are kept.
 import json
 import subprocess
 import tempfile
-from pathlib import Path
 
 from .common import REFUSED, Api, SeedError, adopted, files, forget, load, log, making, owned, record, setting, wait_until
 
@@ -65,8 +64,7 @@ def seed():
     for path in paths:
         spec = load(path)
         name = spec.get("name") or path.stem
-        dsl = spec.get("model") or (Path(path).parent / spec["model_file"]).read_text(encoding="utf-8")
-        model = to_json(dsl)
+        model = to_json(spec["model"])
 
         store = next((s for s in api.get("/stores").json().get("stores", []) if s["name"] == name), None)
         if store:

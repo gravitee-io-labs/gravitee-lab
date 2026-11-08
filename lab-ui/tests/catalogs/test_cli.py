@@ -16,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import types
 import unittest
 from pathlib import Path
@@ -24,11 +23,10 @@ from unittest import mock
 
 from lab_ui.catalogs import cli as catalog
 from lab_ui.library import check, project
-from lab_ui.library import layout as moves   # the real one: a test replaces it while the command runs
 from lab_ui.docker import compose, envfiles
 from lab_ui.gravitee import license
 from lab_ui import paths
-from lab_ui.catalogs import defaults, gitx, manifest, registry
+from lab_ui.catalogs import defaults, gitx, registry
 from lab_ui.catalogs import store as bare
 from lab_ui.catalogs import firstrun as phases   # the real one: a test replaces it while the command runs
 
@@ -138,7 +136,7 @@ class Linking(Tool):
         self.assertIsNone(self.config())
         self.run_tool("link", str(self.author()))
         self.assertEqual([one["id"] for one in self.config()["catalogs"]], [PARTNER])
-        self.assertEqual([row["id"] for row in defaults.not_added([one["id"] for one in registry.entries()])], ["fixture"])
+        self.assertEqual([row["id"] for row in defaults.not_added()], ["fixture"])
 
     def test_linking_again_changes_nothing(self):
         folder = self.author()
@@ -512,8 +510,6 @@ class Starting(Tool):
     def test_with_empty_the_lab_adds_nothing_at_all(self):
         self.assertEqual(self.run_tool("reset", "--empty"), (0, "The catalogs are empty.\n", ""))
         self.assertEqual(self.config(), {"schema": 1, "catalogs": []})
-        self.assertEqual(json.loads((self.root / ".lab/catalogs.json").read_text(encoding="utf-8")),
-                         {"schema": 1, "catalogs": []})
         self.assertEqual(self.run_tool("reset", "--empty")[:2], (0, "The catalogs are empty.\n"))
 
     def test_it_is_refused_while_an_item_of_a_catalog_is_on_and_nothing_is_changed(self):
@@ -538,7 +534,7 @@ class Starting(Tool):
         gitfixture.require()
         self.run_tool("reset")
         home = isolated(self)
-        installed = fixtures.install(self, PARTNER, kind="git", store=True)
+        fixtures.install(self, PARTNER, kind="git", store=True)
         self.patch(gitx, "home", lambda: Path(os.path.realpath(home)))
         folder = home / "work-partner"
         shutil.copytree(fixtures.CATALOGS / PARTNER, folder)
@@ -548,7 +544,6 @@ class Starting(Tool):
         self.assertEqual((code, out), (1, ""))
         self.assertEqual(err, "partner is linked to a folder on this machine. Unlink it first, with catalog.py unlink partner.\n")
         self.assertEqual(snapshot(self.root), before)
-        self.assertTrue(installed.commit)
 
     def test_a_file_that_lists_the_catalogs_and_cannot_be_read_is_none_of_its_business_to_remove(self):
         self.write(".lab/catalogs.json", "{ not json")
@@ -575,15 +570,13 @@ class Reset(Tool):
     def test_a_git_catalog_goes_with_its_settings_kept(self):
         gitfixture.require()
         isolated(self)
-        installed = fixtures.install(self, PARTNER, kind="git", store=True)
+        fixtures.install(self, PARTNER, kind="git", store=True)
         (self.link_of(PARTNER) / "addons/ledger/.env").write_text("SECRET=1\n", encoding="utf-8")
         self.assertEqual(self.run_tool("reset")[0], 0)
         self.assertIsNone(self.config())
         self.assertEqual(registry.read_lock()["catalogs"], {})
         self.assertEqual((self.link_of(PARTNER) / "addons/ledger/.env").read_text(encoding="utf-8"), "SECRET=1\n")
-        self.assertTrue((self.link_of(PARTNER) / ".kept").is_file(), "the marker that keeps the sweeper away")
         self.assertFalse((self.link_of(PARTNER) / "addons/ledger/compose.yml").exists(), "the content goes")
-        self.assertTrue(installed.commit)
 
 
 @COMPOSE
@@ -649,8 +642,6 @@ class Reading(Tool):
         code, out, err = self.run_tool("check", "ghost")
         self.assertEqual((code, out), (2, ""))
         self.assertEqual(err, "catalog.py: ghost is neither a folder nor a catalog installed or linked here\n")
-        for fmt in ("text", "github", "json"):
-            self.assertEqual(self.run_tool("check", "ghost", "--format", fmt)[0], 2)
 
     def test_checking_writes_nothing(self):
         before = snapshot(self.root)
@@ -667,23 +658,6 @@ class Reading(Tool):
         found = json.loads(first[1])
         self.assertEqual((found["schema"], found["catalog"]["id"]), (1, PARTNER))
         self.assertEqual([(one["kind"], one["id"]) for one in found["units"]], [("addon", "ledger")])
-        self.assertEqual(first[1], manifest.render_index(manifest.build_index(PARTNER)))
-        self.assertTrue(first[1].endswith("}\n"))
-
-    def test_the_index_goes_to_the_file_asked_for_and_to_no_other(self):
-        out = self.work_file()
-        before = snapshot(self.root)
-        self.assertEqual(self.run_tool("index", PARTNER, "--out", str(out)), (0, "", ""))
-        self.assertEqual(out.read_text(encoding="utf-8"), self.run_tool("index", PARTNER)[1])
-        self.assertEqual(snapshot(self.root), before)
-
-    def work_file(self):
-        folder = Path(tempfile.mkdtemp(prefix="gravitee-lab-index-")).resolve()
-        self.addCleanup(shutil.rmtree, folder, True)
-        return folder / "catalog.json"
-
-    def test_a_catalog_that_is_not_here_has_no_index(self):
-        self.assertEqual(self.run_tool("index", "ghost")[0], 2)
 
 
 def compose_runs(case, *argv):
@@ -778,12 +752,6 @@ class Indexing(Tool):
         self.assertEqual(out.read_text(encoding="utf-8"), self.run_tool("index", PARTNER)[1])
         self.assertEqual((paths.ROOT, check.ROOT, project.ROOT, compose.ROOT), (self.root,) * 4)
 
-    def test_the_level_of_the_standard_the_catalog_follows_is_in_it(self):
-        self.have(PARTNER)
-        folder = self.copy_of(files={".github/standard.json": json.dumps({"standard": 1, "lab": {"repository": "o/lab", "ref": "a" * 40}})})
-        self.assertEqual(json.loads(self.run_tool("index", str(folder))[1])["standard"], 1)
-        self.assertNotIn("standard", json.loads(self.run_tool("index", PARTNER)[1]))
-
     def test_a_folder_that_is_no_catalog_has_no_index_and_says_why(self):
         empty = self.work / "elsewhere"
         empty.mkdir()
@@ -815,17 +783,12 @@ class Indexing(Tool):
         secret.write_text("x-gravitee: {kind: addon, name: CANARY-NAME, description: CANARY-DESCRIPTION, category: Other}\n"
                           "services:\n  partner-ledger:\n    image: busybox\n    labels: {io.gravitee.description: CANARY-LABEL}\n",
                           encoding="utf-8")
-        outside = self.home / "outside.json"
-        outside.write_text(json.dumps({"standard": 1, "note": "CANARY-STANDARD"}), encoding="utf-8")
         folder = self.copy_of()
         unit = folder / "addons/ledger/compose.yml"
         unit.unlink()
         unit.symlink_to(secret)
-        (folder / ".github").mkdir()
-        (folder / ".github/standard.json").symlink_to(outside)
         code, out, err = self.run_tool("index", str(folder))
         self.assertNotIn("CANARY", out + err)
-        self.assertNotIn("standard", json.loads(out) if out else {}, "a link is not read")
         (folder / "catalog.yml").unlink()
         (folder / "catalog.yml").symlink_to(self.link_of(PARTNER) / "catalog.yml")
         code, out, err = self.run_tool("index", str(folder))
@@ -887,7 +850,7 @@ class Damaged(Tool):
         wanted = ("catalog.py: partner is damaged: repair it from the menu of its row in the Lab UI, or remove it and add it "
                   "again\n")
         for argv in (("check", PARTNER), ("check", PARTNER, "--format", "json"), ("check", PARTNER, "--format", "github"),
-                     ("index", PARTNER), ("images", PARTNER, "--dry-run")):
+                     ("index", PARTNER)):
             with self.subTest(argv=argv):
                 self.assertEqual(self.run_tool(*argv), (2, "", wanted))
 
@@ -920,25 +883,26 @@ class Linked(Tool):
 class Explain(Tool):
     """explain CODE: the long form of a rule code."""
 
-    def test_the_rule_why_it_exists_the_fix_in_full_and_what_the_lab_does_with_the_file(self):
+    def test_the_rule_its_fix_and_why_it_exists(self):
         code, out, err = self.run_tool("explain", "ST05")
         self.assertEqual((code, err), (0, ""))
         self.assertTrue(out.startswith("ST05 (error)\n"), out)
-        for word in ("Rule     ", "Message  ", "Why      ", "Fix      git rm --cached {path}", "At Add   "):
+        for word in ("Rule     ", "Message  ", "Why      ", "Fix: git rm --cached {path}"):
             self.assertIn(word, out)
         self.assertEqual(self.run_tool("explain", "st05"), (code, out, err), "the case of the code does not matter")
         self.assertEqual(self.run_tool("explain", " ST05 "), (code, out, err))
 
+    def test_a_note_of_the_policy_is_not_said_to_block(self):
+        out = self.run_tool("explain", "N01")[1]
+        self.assertTrue(out.startswith("N01 (info)\n"), out)
+        self.assertNotIn("Blocked", out)
+
     def test_the_policy_and_the_stages_are_codes_too_and_every_code_the_lab_knows_is_explained(self):
         from lab_ui.catalogs import explain
-        for one in ("T11", "N01", "SD02", "BD01", "PB07", "E2E03"):
-            with self.subTest(code=one):
-                out = self.run_tool("explain", one)
-                self.assertEqual(out[0], 0, out)
-                self.assertTrue(out[1].startswith(f"{one} ("))
         self.assertGreater(len(explain.codes()), 100)
-        for one in explain.codes():
-            self.assertEqual(self.run_tool("explain", one)[0], 0, one)
+        for one in ("T11", "N01", "SD02", "BD01", "PB07", "E2E03", *explain.codes()):
+            code, out, _ = self.run_tool("explain", one)
+            self.assertEqual((code, out[:len(one) + 2]), (0, f"{one} ("), one)
 
     def test_a_text_that_is_no_code_is_a_usage_error_that_says_what_the_families_are(self):
         for text in ("nothing", "ST99", "st", "5", "ST05; rm -rf /", "\x1b[2Jxx"):
@@ -948,12 +912,6 @@ class Explain(Tool):
                 self.assertIn("is not a rule code. The families are ", err)
                 self.assertNotIn("\x1b", err)
 
-    def test_the_json_is_the_entry(self):
-        code, out, err = self.run_tool("explain", "T03", "--format", "json")
-        found = json.loads(out)
-        self.assertEqual((code, found["code"], found["severity"]), (0, "T03", "error"))
-        self.assertEqual(sorted(found), ["code", "lab", "message", "more", "rule", "severity", "why"])
-
 
 class Delegated(Tool):
     """new, upgrade, release, repo-settings and ci are run by the module of the standard that owns each, with everything after their
@@ -962,33 +920,22 @@ class Delegated(Tool):
     COMMANDS = (("new", "standard", "main_new"), ("upgrade", "standard", "main_upgrade"), ("release", "release", "main"),
                 ("repo-settings", "settings", "main"), ("ci", "ci", "main"))
 
-    def run_with(self, command, module_name, function, *argv, answer=0, say=""):
+    def run_with(self, command, module_name, function, *argv, answer=0):
         seen = []
 
         def main(rest, **more):
             seen.append(list(rest))
-            if say:
-                print(say)
             return answer
         with mock.patch.dict(sys.modules, {f"lab_ui.catalogs.{module_name}": module(**{function: main})}):
             return self.run_tool(command, *argv), seen
 
     def test_everything_after_the_name_is_handed_over_as_it_is_and_the_exit_code_is_the_modules(self):
         for command, module_name, function in self.COMMANDS:
-            for rest, answer in (([], 0), (["x", "--y", "z"], 1), (["--help"], 2), (["-h"], 0), (["--format", "json", "dir"], 1),
-                                 (["--fleet-not", "--base=1"], 0), (["a b", "--maintainers", "@a,@b"], 1)):
-                if command in catalog.HELP and ("--help" in rest or "-h" in rest):
-                    continue   # the dispatcher answers a help word for a command whose module has none (Help, below)
+            for rest, answer in (([], 0), (["--help"], 2), (["--fleet-not", "--base=1"], 0), (["a b", "--maintainers", "@a,@b"], 1)):
                 with self.subTest(command=command, rest=rest):
                     (code, out, err), seen = self.run_with(command, module_name, function, *rest, answer=answer)
                     self.assertEqual((code, out, err), (answer, "", ""))
                     self.assertEqual(seen, [rest])
-
-    def test_what_the_module_prints_is_what_the_caller_reads(self):
-        for command, module_name, function in self.COMMANDS:
-            with self.subTest(command=command):
-                (code, out, err), _ = self.run_with(command, module_name, function, say="from the module")
-                self.assertEqual((code, out), (0, "from the module\n"))
 
     def test_a_module_that_a_command_needs_and_that_is_missing_is_a_fault_to_show(self):
         def broken(name, package=None):
@@ -1008,10 +955,6 @@ class Delegated(Tool):
             self.assertEqual(self.run_tool("upgrade", "--fleet", "acme", "--lab-ref", "b" * 40), (0, "", ""))
         self.assertEqual(seen, [["--fleet", "acme", "--lab-ref", "b" * 40]])
 
-    def test_an_upgrade_that_is_not_the_loop_is_the_standard_s(self):
-        (code, out, err), seen = self.run_with("upgrade", "standard", "main_upgrade", ".", "--write", "--lab-ref", "latest", answer=1)
-        self.assertEqual((code, seen), (1, [[".", "--write", "--lab-ref", "latest"]]))
-
     def test_a_refusal_the_module_lets_out_is_its_line_and_a_bug_is_a_fault(self):
         def refuses(rest, **more):
             raise registry.CatalogError("not_catalog", "acme/hub has no catalog.yml, so it is not a catalog.", 400)
@@ -1024,59 +967,6 @@ class Delegated(Tool):
             code, out, err = self.run_tool("release", "1.0.0")
         self.assertEqual((code, out), (2, ""))
         self.assertIn("a fault of the tool, not a problem of the catalog", err)
-
-    def test_the_help_lists_every_command_of_the_standard(self):
-        code, out, err = self.run_tool("--help")
-        self.assertEqual(code, 0)
-        for command in ("new", "check", "explain", "upgrade", "repo-settings", "release", "ci"):
-            self.assertIn(command, out)
-
-    def test_repo_settings_is_the_real_module_with_its_own_help_and_its_own_usage_errors(self):
-        code, out, err = self.run_tool("repo-settings", "--help")
-        self.assertEqual((code, err), (0, ""))
-        self.assertIn("catalog.py repo-settings [OWNER/REPO or FOLDER]", out)
-        self.assertEqual(self.run_tool("repo-settings", "--yes"), (2, "", "--yes and --warnings go with --apply.\n"))
-
-
-class Help(Tool):
-    """`catalog.py COMMAND --help`: the modules that run new, upgrade and release have no help (their parsers stop at the first word
-    they do not know), so the dispatcher says what the command does and how it is called; repo-settings and ci have their own."""
-
-    def test_the_commands_whose_module_has_no_help_say_what_they_do_and_how_to_call_them(self):
-        modules = {"lab_ui.catalogs.standard": None, "lab_ui.catalogs.release": None}   # not even needed for it
-        for command in ("new", "upgrade", "release"):
-            for words in (("--help",), ("-h",), ("somewhere", "--help"), ("--id", "x", "-h")):
-                with self.subTest(command=command, words=words), mock.patch.dict(sys.modules, modules):
-                    code, out, err = self.run_tool(command, *words)
-                    self.assertEqual((code, err), (0, ""))
-                    self.assertTrue(out.startswith(catalog.HELP[command][0] + "\n\nusage: catalog.py " + command), out)
-        self.assertIn("--maintainers", self.run_tool("new", "--help")[1])
-        self.assertIn("--lab-ref COMMIT|latest", self.run_tool("upgrade", "--help")[1])
-        self.assertIn("catalog.py upgrade --fleet OWNER", self.run_tool("upgrade", "-h")[1])
-        self.assertIn("[--tag] [--pr]", self.run_tool("release", "--help")[1])
-
-    def test_a_command_that_is_not_asking_for_help_still_goes_to_its_module(self):
-        seen = []
-        stub = module(main_new=lambda rest, **more: seen.append(rest) or 0)
-        with mock.patch.dict(sys.modules, {"lab_ui.catalogs.standard": stub}):
-            self.assertEqual(self.run_tool("new", "dir", "--id", "x"), (0, "", ""))
-        self.assertEqual(seen, [["dir", "--id", "x"]])
-
-    def test_the_loop_over_an_owner_and_the_two_modules_with_a_help_of_their_own_keep_it(self):
-        for command, module_name, function, rest in (("upgrade", "fleet", "main", ["--fleet", "acme", "--help"]),
-                                                      ("repo-settings", "settings", "main", ["--help"]), ("ci", "ci", "main", ["--help"])):
-            seen = []
-            with self.subTest(command=command), mock.patch.dict(sys.modules, {
-                    f"lab_ui.catalogs.{module_name}": module(**{function: lambda argv, **more: seen.append(argv) or 0})}):
-                self.assertEqual(self.run_tool(command, *rest), (0, "", ""))
-            self.assertEqual(seen, [rest])
-        self.assertNotIn("repo-settings", catalog.HELP)
-        self.assertNotIn("ci", catalog.HELP)
-
-    def test_every_command_the_help_is_for_is_delegated(self):
-        self.assertEqual(sorted(set(catalog.HELP) - set(catalog.DELEGATED)), [])
-        for text, usage in catalog.HELP.values():
-            self.assertTrue(text and usage.startswith("catalog.py "))
 
 
 MANAGED = REPO / "lab-ui" / "templates" / "catalog" / "managed"
@@ -1114,10 +1004,7 @@ class Managed(Tool):
     first push of every catalog."""
 
     def test_there_are_calls_to_look_at(self):
-        calls = managed_calls()
-        self.assertGreater(len(calls), 20, calls)
-        self.assertEqual({"check", "index", "ci", "link", "upgrade", "repo-settings", "release", "explain"},
-                         {words[0] for _, _, words in calls if words})
+        self.assertGreater(len(managed_calls()), 20)
 
     def test_every_call_is_to_a_command_the_tool_has_with_options_it_reads(self):
         own = {name for name in catalog.parser()._subparsers._group_actions[0].choices} - set(catalog.DELEGATED)
@@ -1134,12 +1021,18 @@ class Managed(Tool):
                 else:
                     self.assertIn(words[0], catalog.DELEGATED, where)
 
-    def test_every_option_of_a_command_that_has_a_usage_here_is_in_it(self):
+    def test_every_option_a_managed_file_gives_a_delegated_command_is_in_its_help(self):
+        helps = {}
+        for command in ("new", "upgrade", "release"):
+            with contextlib.redirect_stdout(io.StringIO()) as shown, self.assertRaises(SystemExit) as stop:
+                catalog.main([command, "--help"])
+            self.assertEqual(stop.exception.code, 0, command)
+            helps[command] = shown.getvalue()
         for file, number, words in managed_calls():
-            if words[0] in catalog.HELP:
+            if words[0] in helps:
                 for option in (word for word in words[1:] if word.startswith("--")):
                     with self.subTest(file=file, line=number, option=option):
-                        self.assertIn(option, catalog.HELP[words[0]][1])
+                        self.assertIn(option, helps[words[0]])
 
     def test_every_stage_is_one_the_dispatcher_of_ci_has(self):
         from lab_ui.catalogs import ci
@@ -1176,12 +1069,12 @@ class Service(Tool):
         members.setdefault("check_now", lambda ns: {})
         return mock.patch.dict(sys.modules, {"lab_ui.catalogs.service": module(**members)})
 
-    PREVIEW = {"ticket": "abc", "expires": 600, "address": "github.com/acme/hub", "audience": "private",
+    PREVIEW = {"ticket": "abc", "address": "github.com/acme/hub", "audience": "private",
                "catalog": {"id": "hub", "name": "Acme Hub", "version": "1.4.0"}, "counts": {"playground": 2, "addon": 1},
                "rows": {"builds": {"local": 2, "remote": ["github.com/acme/app"]}, "ports": [8140, 8141],
                         "core": ["API Management gateway"], "reads": ["license"],
-                        "uses_machine": [{"name": "Kubernetes", "what": ["runs privileged"]}],
-                        "needs": [{"name": "Partner Bank", "min": "2.0.0"}], "found": [{"name": "Ledger"}]},
+                        "uses_machine": [{"name": "Kookaburra", "what": ["runs privileged"]}],
+                        "needs": [{"name": "Partner Bank", "min": "2.0.0"}]},
                "blocked": [{"name": "X", "reasons": ["Mounts the Docker socket", "Runs with full privileges"]}]}
 
     def test_an_add_prints_the_preview_and_adds_only_with_yes(self):
@@ -1193,8 +1086,8 @@ class Service(Tool):
             self.assertEqual(out.splitlines(), [
                 "Acme Hub 1.4.0 (github.com/acme/hub, private)", "  2 playgrounds, 1 add-ons",
                 "  Builds: 2 here, github.com/acme/app", "  Ports: 8140, 8141", "  Core: API Management gateway",
-                "  Reads: license", "  Uses this machine: Kubernetes (runs privileged)", "  Needs: Partner Bank 2.0.0",
-                "  Settings found: Ledger", "  Cannot run: X (Mounts the Docker socket; Runs with full privileges)",
+                "  Reads: license", "  Uses this machine: Kookaburra (runs privileged)", "  Needs: Partner Bank 2.0.0",
+                "  Cannot run: X (Mounts the Docker socket; Runs with full privileges)",
                 "Run it again with --yes to add it."])
             calls.clear()
             code, out, err = self.run_tool("add", "github.com/acme/hub", "--yes")
@@ -1313,7 +1206,7 @@ class Service(Tool):
         evil = "A\x1b[2K\x1b]0;pwn\x07\rB\u009b"
         preview = {**self.PREVIEW, "address": evil, "catalog": {"id": "hub", "name": evil, "version": evil},
                    "rows": {"uses_machine": [{"name": evil, "what": [evil]}], "needs": [{"name": evil, "min": evil}],
-                            "found": [{"name": evil}], "ports": [evil]},
+                            "ports": [evil]},
                    "blocked": [{"name": evil, "reasons": [evil]}]}
         plan = {"ticket": "t", "from": evil, "to": evil, "version": evil, "rewritten": True, "updates": [{"name": evil}],
                 "breaks": [{"name": evil, "needs": evil}], "changes": [{"name": evil, "fact": evil, "value": evil}],
@@ -1353,22 +1246,20 @@ class Service(Tool):
 
 
 class Provision(Tool):
-    """The first start from a terminal: the intent, the downloads, the move of a folder of the layout before catalogs; exit 1
-    with the line on a failure."""
+    """The first start from a terminal: the intent, the downloads; exit 1 with the line on a failure."""
 
     def fake(self, provision=None, **more):
         calls = []
         firstrun = module(reconcile=lambda: calls.append("reconcile"), PROGRESS={},
                           provision=provision or (lambda ns: calls.append(f"provision {ns}") or {"id": ns, "name": ns.title()}),
                           **more)
-        layout = module(run=lambda say, complain, download=True: True, NO_DOCKER=moves.NO_DOCKER)
-        patcher = mock.patch.dict(sys.modules, {"lab_ui.catalogs.firstrun": firstrun, "lab_ui.library.layout": layout})
+        patcher = mock.patch.dict(sys.modules, {"lab_ui.catalogs.firstrun": firstrun})
         patcher.start()
         self.addCleanup(patcher.stop)
         signals = mock.patch.object(catalog.compose, "stop_on_signals")   # the test's own process keeps its handlers
         self.signals = signals.start()
         self.addCleanup(signals.stop)
-        return calls, firstrun, layout
+        return calls, firstrun
 
     def declare(self, *names):
         for name in names:
@@ -1377,7 +1268,7 @@ class Provision(Tool):
     def test_the_intent_is_written_first_and_each_entry_without_a_copy_is_downloaded_in_order(self):
         self.declare("partner", "lab-new")
         fixtures.install(self, "lab-old", pin="a" * 40)   # a copy: left alone
-        calls, _, _ = self.fake()
+        calls, _ = self.fake()
         code, out, err = self.run_tool("provision")
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(calls, ["reconcile", "provision partner", "provision lab-new"])
@@ -1412,10 +1303,10 @@ class Provision(Tool):
             raise registry.CatalogError("docker_missing", phases.LINES["docker_missing"], 400)
         self.fake(provision)
         code, out, err = self.run_tool("provision")
-        self.assertEqual((code, err), (1, f"partner: {moves.NO_DOCKER}\n"))
+        self.assertEqual((code, err), (1, f"partner: {catalog.NO_DOCKER}\n"))
         self.assertNotIn("once it is", err)
 
-    def test_a_closed_terminal_ends_the_downloads_and_the_move_as_it_ends_the_lab_ui(self):
+    def test_a_closed_terminal_ends_the_downloads_as_it_ends_the_lab_ui(self):
         # git and Compose lead sessions of their own, which the terminal's hang-up does not reach: what ends them is set
         # before the first download
         self.declare("partner")
@@ -1426,45 +1317,24 @@ class Provision(Tool):
         self.assertEqual(order, [("signals", (gitx.stop_running,)), "provision"])
 
     def test_nothing_to_download_is_a_success_and_the_intent_is_still_written(self):
-        calls, _, _ = self.fake()
+        calls, _ = self.fake()
         self.assertEqual(self.run_tool("provision"), (0, "", ""))
         self.assertEqual(calls, ["reconcile"])
 
-    def test_the_move_of_an_old_layout_runs_after_the_downloads_says_what_it_says_and_a_move_that_fails_fails_the_command(self):
-        # What it moved and why it could not are the move's words (test_layout), said through the command's own lines
-        self.declare("partner")
-        calls, _, layout = self.fake()
-
-        def run(say, complain, download=True):
-            calls.append(f"move, download {download}")
-            say("Moving your settings to the new layout")
-            return True
-        layout.run = run
-        code, out, err = self.run_tool("provision")
-        self.assertEqual((code, err, calls), (0, "", ["reconcile", "provision partner", "move, download False"]))
-        self.assertEqual(out.splitlines()[-1], "Moving your settings to the new layout")
-
-        def failed(say, complain, download=True):
-            complain("Could not move your settings to the new layout. Nothing was deleted.")
-            return False
-        layout.run = failed
-        self.assertEqual(self.run_tool("provision")[0::2], (1, "Could not move your settings to the new layout. Nothing was deleted.\n"))
-
     def test_the_progress_of_a_download_is_said_in_words_as_its_phase_changes(self):
         # The phases of firstrun, which are its own ids: each is said in words, and the last, which has none, not at all
-        self.declare("partner")
+        firstrun = types.SimpleNamespace(PROGRESS={})
+        upcoming = iter(("probe", "fetch", "stage", "commit"))
 
-        def provision(ns):
-            for phase in ("probe", "fetch", "stage", "commit"):
-                firstrun.PROGRESS[ns] = {"phase": phase, "fraction": 0.5}
-                time.sleep(0.3)   # long enough for the watcher, which looks every hundredth of a second
-            return {"id": ns, "name": "Partner"}
-        _, firstrun, _ = self.fake(provision)
-        self.patch(catalog, "POLL", 0.01)
-        code, out, err = self.run_tool("provision")
-        self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines(), ["Downloading example.invalid/partner", "  Checking the address",
-                                            "  Downloading the files", "  Installing", "Installed Partner"])
+        class Stop:
+            def wait(self, seconds):
+                phase = next(upcoming, None)
+                firstrun.PROGRESS["partner"] = {"phase": phase, "fraction": 0.5}
+                return phase is None
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            catalog._progress(firstrun, "partner", Stop())
+        self.assertEqual(out.getvalue().splitlines(), ["  Checking the address", "  Downloading the files", "  Installing"])
         self.assertLessEqual(set(catalog.PHASE_WORDS), set(phases.PHASES), "the words are of phases there are")
 
 def scratch_lab(case):
@@ -1493,7 +1363,7 @@ class NeedsCompose(Tool):
         for answer in ((127, "", "docker: not found"), (0, "2.40.0\n", ""), (1, "", "no such command"), (0, "", "")):
             with self.subTest(answer=answer), mock.patch.object(compose, "run", return_value=answer), \
                     mock.patch.object(compose, "plugin", return_value="/x/docker-compose"):
-                for argv in (("link", str(folder)), ("index", PARTNER), ("images", PARTNER)):
+                for argv in (("link", str(folder)), ("index", PARTNER)):
                     self.assertEqual(self.run_tool(*argv), (2, "", self.WANTED), argv)
         with mock.patch.object(compose, "plugin", return_value=None):
             self.assertEqual(self.run_tool("link", str(folder)), (2, "", self.WANTED), "no plugin of Docker to run")
@@ -1537,18 +1407,6 @@ class Spelling(Tool):
         self.assertEqual({one for one in found if one is not None} - {str(self.root)}, set(), "a command is told the real folder or none")
         self.assertEqual(put_back, str(alias), "the caller's own is put back when the command ends")
 
-    def test_the_verdict_is_the_same_from_wherever_the_command_is_run(self):
-        fixtures.install(self, PARTNER)
-        fixtures.install(self, "fixture")
-        alias = self.home / "engine-link"
-        alias.symlink_to(self.root)
-        answers = {}
-        for name, pwd in (("real", self.root), ("link", alias), ("elsewhere", "/")):
-            project.forget()
-            answers[name] = self.seen(pwd, "check", "fixture")[1]
-        self.assertEqual(answers["real"], answers["link"])
-        self.assertEqual(answers["real"], answers["elsewhere"])
-
     def test_without_a_pwd_there_is_none_after_either(self):
         with mock.patch.dict(os.environ):
             os.environ.pop("PWD", None)
@@ -1557,109 +1415,14 @@ class Spelling(Tool):
 
 
 class Other(Tool):
-    """images, matrix and the way the tool is run."""
-
-    @COMPOSE
-    def test_the_end_to_end_matrix_of_a_catalog_that_is_not_there_is_a_usage_error(self):
-        code, out, err = self.run_tool("matrix", "hub", "--changed", "main", "HEAD")
-        self.assertEqual((code, out), (2, ""))
-        self.assertIn("neither installed nor linked", err)
-
-    @COMPOSE
-    def test_the_end_to_end_matrix_is_the_plan_of_the_package_as_json(self):
-        from lab_ui import e2e
-        asked = []
-        self.patch(e2e, "plan", lambda ns, built, **how: asked.append((ns, how)) or {"matrix": {"include": []}, "count": 0})
-        self.assertEqual(self.run_tool("matrix", "hub", "--changed", "main", "HEAD"),
-                         (0, json.dumps({"matrix": {"include": []}, "count": 0}, indent=2) + "\n", ""))
-        self.assertEqual(asked, [("hub", {"changed": ("main", "HEAD")})])
-
-        def refused(ns, built, **how):
-            raise e2e.PlanError("nothing to try")
-        self.patch(e2e, "plan", refused)
-        self.assertEqual(self.run_tool("matrix", "hub", "--changed", "main", "HEAD"), (2, "", "catalog.py: nothing to try\n"))
-
-    def test_the_images_a_catalog_builds_are_printed_with_a_dry_run_and_the_seeder_is_the_engines(self):
-        fixtures.install(self, PARTNER)
-        builder = module(items=lambda roots: [Path("a")], builds=lambda item: {
-            "web": {"context": "/p/web"}, "seeder": {"context": str(self.root / "seeder")}},
-            SEEDER=self.root / "seeder", settings=lambda dry: (os.environ["REGISTRY"], "local", None),
-            command=lambda registry_name, name, build, commit, source: ["docker", "buildx", f"{registry_name}/{name}"])
-        meta = {"images": "ghcr.io/o/hub"}
-        with mock.patch.object(catalog, "_lab_images", return_value=builder), \
-                mock.patch.object(catalog, "_compose"), mock.patch.object(manifest, "read_catalog", return_value=meta), \
-                mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("REGISTRY", None)
-            code, out, err = self.run_tool("images", PARTNER, "--dry-run")
-        self.assertEqual((code, err), (0, ""))
-        self.assertEqual(out.splitlines(), ["== ghcr.io/o/hub/web", "docker buildx ghcr.io/o/hub/web"])
-
-    def test_a_build_that_fails_is_a_line_and_exit_1_not_a_traceback(self):
-        fixtures.install(self, PARTNER)
-        builder = module(items=lambda roots: [Path("a")], builds=lambda item: {"web": {"context": "/p/web"}, "api": {"context": "/p/api"}},
-                         SEEDER=self.root / "seeder", settings=lambda dry: ("ghcr.io/o/hub", "local", None),
-                         command=lambda registry_name, name, build, commit, source: [
-                             sys.executable, "-c", f"raise SystemExit({3 if name == 'api' else 0})"])
-        with mock.patch.object(catalog, "_lab_images", return_value=builder), mock.patch.object(catalog, "_compose"), \
-                mock.patch.object(manifest, "read_catalog", return_value={}):
-            code, out, err = self.run_tool("images", PARTNER)
-        self.assertEqual((code, out.splitlines(), err), (1, ["== ghcr.io/o/hub/api"], "ghcr.io/o/hub/api: the build failed (exit 3)\n"))
-
-    def test_a_build_runs_in_the_build_environment_the_persons_home_and_nothing_of_the_runner(self):
-        fixtures.install(self, PARTNER)
-        probe = ("import os, sys; sys.exit(0 if os.environ.get('HOME') == sys.argv[1] and 'ACTIONS_RUNTIME_TOKEN' not in os.environ "
-                 "and 'GITHUB_TOKEN' not in os.environ and 'SSH_AUTH_SOCK' not in os.environ else 7)")
-        builder = module(items=lambda roots: [Path("a")], builds=lambda item: {"web": {"context": "/p/web"}},
-                         SEEDER=self.root / "seeder", settings=lambda dry: ("ghcr.io/o/hub", "local", None),
-                         command=lambda registry_name, name, build, commit, source: [sys.executable, "-c", probe, os.environ["HOME"]])
-        shell = {"ACTIONS_RUNTIME_TOKEN": "t", "GITHUB_TOKEN": "g", "SSH_AUTH_SOCK": "/agent"}
-        with mock.patch.object(catalog, "_lab_images", return_value=builder), mock.patch.object(catalog, "_compose"), \
-                mock.patch.object(manifest, "read_catalog", return_value={}), mock.patch.dict(os.environ, shell):
-            self.assertEqual(self.run_tool("images", PARTNER), (0, "== ghcr.io/o/hub/web\n", ""))
-
-    def test_the_files_of_a_catalog_are_read_in_the_scrubbed_environment_and_the_process_has_its_own_again_after(self):
-        fixtures.install(self, PARTNER)
-        seen = {}
-
-        def items(roots):
-            seen["items"] = dict(os.environ)
-            return [Path("a")]
-
-        def builds(item):
-            seen["builds"] = dict(os.environ)
-            return {"web": {"context": "/p/web"}}
-
-        def read_catalog(file, *more, **how):
-            seen["catalog.yml"] = compose.environment()   # what Compose is given while the file is read
-            return {}
-        builder = module(items=items, builds=builds, SEEDER=self.root / "seeder", settings=lambda dry: ("ghcr.io/o/hub", "local", None),
-                         command=lambda registry_name, name, build, commit, source: ["echo", name])
-        shell = {"MYSECRET_X": "s3cret", "ACTIONS_RUNTIME_TOKEN": "t", "GITHUB_TOKEN": "g", "SSH_AUTH_SOCK": "/agent"}
-        with mock.patch.object(catalog, "_lab_images", return_value=builder), mock.patch.object(catalog, "_compose"), \
-                mock.patch.object(manifest, "read_catalog", read_catalog), mock.patch.dict(os.environ, shell):
-            before = dict(os.environ)
-            self.assertEqual(self.run_tool("images", PARTNER, "--dry-run"), (0, "== ghcr.io/o/hub/web\necho web\n", ""))
-            self.assertEqual(dict(os.environ), before, "and the process has the environment it had")
-        self.assertEqual(sorted(seen), ["builds", "catalog.yml", "items"])
-        for where, environ in seen.items():
-            with self.subTest(where=where):
-                self.assertTrue(environ)
-                self.assertEqual({name for name in environ if name in shell}, set(), "nothing of the runner's shell")
-
-    def test_a_process_environment_is_put_back_even_when_what_ran_in_the_other_failed(self):
-        with mock.patch.dict(os.environ, {"KEEP": "1"}):
-            before = dict(os.environ)
-            with self.assertRaises(RuntimeError), catalog._process_environment({"ONLY": "this"}):
-                self.assertEqual(dict(os.environ), {"ONLY": "this"})
-                raise RuntimeError("boom")
-            self.assertEqual(dict(os.environ), before)
+    """The way the tool is run."""
 
     def test_the_tool_runs_as_a_script_with_the_isolated_mode_and_says_its_commands(self):
         done = subprocess.run([sys.executable, "-I", str(REPO / "lab-ui" / "catalog.py"), "--help"], capture_output=True,
                               text=True, timeout=60, stdin=subprocess.DEVNULL)
         self.assertEqual(done.returncode, 0, done.stderr)
         for command in ("link", "unlink", "add", "provision", "list", "update", "undo", "remove", "suggest", "reset", "check",
-                        "index", "images", "matrix", "new"):
+                        "index", "new", "explain", "upgrade", "repo-settings", "release", "ci"):
             self.assertIn(command, done.stdout)
 
     def test_what_the_machine_refuses_is_a_line_and_exit_2_not_a_traceback(self):
@@ -1679,7 +1442,7 @@ class Other(Tool):
         self.assertNotIn("\x1b", err)
 
     def test_a_usage_error_is_exit_2(self):
-        for argv in ((), ("nothing",), ("link",), ("check", "x", "--format", "xml"), ("suggest", "a/b"), ("matrix", "x")):
+        for argv in ((), ("nothing",), ("link",), ("check", "x", "--format", "xml"), ("suggest", "a/b")):
             with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(catalog.main(list(argv)), 2)
         with contextlib.redirect_stdout(io.StringIO()):

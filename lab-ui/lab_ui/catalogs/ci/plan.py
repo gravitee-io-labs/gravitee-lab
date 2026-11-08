@@ -35,7 +35,7 @@ from typing import Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
 
 from .. import gitx, report, tree as trees, trust
 from ..report import ERROR, Problem
-from . import PLATFORMS, Unavailable, Usage, entry, json_line, parsed, parser, problem, write_outputs, write_summary
+from . import PLATFORMS, Unavailable, Usage, entry, json_line, parsed, parser, problem, write_outputs
 
 NAME = re.compile(r"[a-z0-9-]+")
 EVENT = re.compile(r"[a-z_]{1,40}")
@@ -71,9 +71,7 @@ class Plan(NamedTuple):
     compile: bool
     matrix: dict
     scope: str
-    apps: int
     problems: List[Problem]
-    changed: int = 0
 
     def outputs(self) -> Dict[str, str]:
         """The four lines of `$GITHUB_OUTPUT`."""
@@ -254,7 +252,7 @@ def compute(tree, event: str, changed: Optional[List[str]], base: str = "", plat
     own_tests = found.tests and (touches_tests or bool(ordered))
     return Plan([unit.key for unit in ordered], bool(seeds or own_tests),
                 bool(more_than_readme and any(found.dockerfiles.get(unit) for unit in ordered)), grid or {"include": []},
-                scope or "change", apps, problems, len(paths_changed))
+                scope or "change", problems)
 
 
 def lines_of(plan: Plan) -> List[str]:
@@ -269,8 +267,7 @@ def lines_of(plan: Plan) -> List[str]:
 @entry
 def main(argv, out, err, **seams) -> int:
     """`ci plan`. Exit 1 for BD06 or SD04 (and nothing is written to the outputs), 2 for a usage error."""
-    found = parser("plan", "What a change touches: the units, whether to seed, whether to build, on which architectures.",
-                   ci=True)
+    found = parser("plan", "What a change touches: the units, whether to seed, whether to build, on which architectures.", ci=False)
     found.add_argument("--event", default="pull_request", help="the event: push, pull_request, workflow_dispatch, schedule")
     found.add_argument("--base", default="", help="the commit the change is measured from (default: origin/main)")
     found.add_argument("--head", default="", help="the commit the change ends at (default: the files as they are)")
@@ -279,33 +276,21 @@ def main(argv, out, err, **seams) -> int:
     if not EVENT.fullmatch(args.event):
         raise Usage("--event is the name of a GitHub event, for example pull_request")
     root = os.path.abspath(args.path)
-    if not os.path.isdir(root):
-        raise Usage(f"{args.path} is not a folder")
     if args.github_output and not os.environ.get("GITHUB_OUTPUT"):
         raise Unavailable("--github-output needs $GITHUB_OUTPUT, which only a workflow step has")
     tree = trees.FolderTree(root)
-    base, reason = args.base, ""
+    base = args.base
     if args.event not in EVERYTHING:
         if not base and not args.head and trees.is_repository(root):
             base = trees.default_base(root) or ""
         changed = None if (not base or ZEROS.fullmatch(base)) else changed_files(root, base, args.head or None)
-        if changed is None and base and not ZEROS.fullmatch(base):
-            reason = "git could not say what changed"
     else:
         changed = None
-    plan = compute(tree, args.event, changed, base, reason=reason)
+    plan = compute(tree, args.event, changed, base)
     failed = [each for each in plan.problems if each.severity == ERROR]
-    if args.format == "json":
-        document = {"units": plan.units, "seed": plan.seed, "compile": plan.compile, "matrix": plan.matrix,
-                    "scope": plan.scope, "problems": [each._asdict() for each in plan.problems]}
-        out.write(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=True) + "\n")
-    else:
-        out.write("\n".join(lines_of(plan)) + "\n")
-        if plan.problems:
-            out.write(report.render(plan.problems, args.format))
-    if args.ci:
-        write_summary("### What the change touches\n\n" + "\n".join(f"- {line}" for line in lines_of(plan)) + "\n"
-                      + ("\n" + report.summary(plan.problems, "make ci") if plan.problems else ""))
+    out.write("\n".join(lines_of(plan)) + "\n")
+    if plan.problems:
+        out.write(report.render(plan.problems, "text"))
     if failed:
         return 1
     if args.github_output:

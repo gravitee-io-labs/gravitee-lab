@@ -2,7 +2,7 @@
 // place that says it; the chip at the right of the Lab's name opens it. An update is a job, which the dialog follows; the Lab UI then starts
 // again on its new code, the page reloads by itself, and says once what is new.
 
-import { $, esc, icon, api, store, recall, remember, setHTML, ago } from "../core.js";
+import { $, esc, icon, api, store, recall, remember, setHTML, ago, compareVersions } from "../core.js";
 import { toast, actionButton, paintActions } from "../components/ui.js";
 import { busy } from "../activity/jobs.js";
 
@@ -26,13 +26,7 @@ document.body.append(dialog);
 
 let shown = null;   // what the dialog draws: {releases, since}, `since` the version what is new is said after
 
-// Numbers of a version, to compare two
-const numbers = (version) => String(version || "").split(".").map(Number);
-const newer = (a, b) => {
-  const [x, y] = [numbers(a), numbers(b)];
-  for (let i = 0; i < 3; i += 1) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
-  return false;
-};
+const newer = (a, b) => compareVersions(a, b) < 0;
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "");
 const dated = (versions, version) => day(versions.find((v) => v.version === version)?.date);
 
@@ -200,7 +194,6 @@ export function followLab() {
 // the menu is collapsed
 export function paintLab() {
   const lab = store.state?.lab, button = $("#lab"), dot = $("#lab-dot");
-  if (!button) return;
   const waiting = !!lab?.update && !store.offline;
   const version = lab?.version || (lab?.commit ? "dev" : "");
   button.hidden = !lab;
@@ -210,10 +203,8 @@ export function paintLab() {
     : lab?.commit ? `Development version ${lab.commit}` : "Gravitee Lab";
   button.dataset.tip = tip;
   button.setAttribute("aria-label", tip);
-  if (dot) {
-    dot.hidden = !waiting;
-    dot.dataset.tip = tip;
-    dot.setAttribute("aria-label", tip);
-  }
+  dot.hidden = !waiting;
+  dot.dataset.tip = tip;
+  dot.setAttribute("aria-label", tip);
   if (dialog.open) draw();
 }

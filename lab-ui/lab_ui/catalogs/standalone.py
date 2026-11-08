@@ -30,8 +30,10 @@ pulls from a registry that asks for a login is said too (`exports._registries`).
 
 import base64
 import json
+import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -56,10 +58,6 @@ NEVER = ["__pycache__", "*.pyc", "node_modules", ".state", ".env", ".env.*", ".g
 KEEP = (".env.example",)   # what NEVER's patterns would take and an archive needs
 ORDER = ["image", "build", "pull_policy", "restart", "command", "entrypoint", "depends_on", "environment", "volumes", "ports",
          "extra_hosts", "networks", "healthcheck", "labels"]
-
-
-def _fail(code, message, status=400):
-    return exports._fail(code, message, status)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -137,7 +135,7 @@ def _resolve(gathered, kept):
         except compose.ComposeError as error:
             refused = [key for key in keys if MARK.format(key) in str(error)]
             if not refused:
-                raise _fail("standalone_compose", f"Compose cannot read it: {error}", 409) from None
+                raise exports._fail("standalone_compose", f"Compose cannot read it: {error}", 409) from None
             keys = [key for key in keys if key not in refused]
 
 
@@ -198,7 +196,7 @@ def _place(source, places):
             return to / source.relative_to(root)
         except ValueError:
             continue
-    raise _fail("standalone_path", f"It uses {source}, which is not part of it.", 409)
+    raise exports._fail("standalone_path", f"It uses {source}, which is not part of it.", 409)
 
 
 def _ignore(folder: Path):
@@ -226,12 +224,18 @@ def _ignore(folder: Path):
     return ignore
 
 
+def _writable(source, target):
+    """A copy that another service with the same file can write over: what a catalog installs is read-only here."""
+    shutil.copy2(source, target)
+    os.chmod(target, os.stat(target).st_mode | stat.S_IWUSR)
+
+
 def _copy(source: Path, target: Path):
     if source.is_dir():
-        shutil.copytree(source, target, ignore=_ignore(source), dirs_exist_ok=True)
+        shutil.copytree(source, target, ignore=_ignore(source), copy_function=_writable, dirs_exist_ok=True)
     elif source.is_file() and not (source.is_symlink() and not source.resolve().is_relative_to(paths.ROOT.resolve())):
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
+        _writable(source, target)
 
 
 def _plugins(unit, product, target: Path):
@@ -389,7 +393,7 @@ def _certificates(root: Path):
                                                                       KEYSTORE: "gravitee"},
                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
     if done.returncode != 0:
-        raise _fail("standalone_certs", "The demo certificates could not be made: openssl is needed.", 409)
+        raise exports._fail("standalone_certs", "The demo certificates could not be made: openssl is needed.", 409)
 
 
 # What YAML reads as something else than the text: a word it knows, a number, an empty text
@@ -448,7 +452,7 @@ def _settled(value, defaults):
     return value
 
 
-def _compose_text(name, unit, services, config, keys, kept):
+def _compose_text(name, unit, services, config, kept):
     named = {volume.split(":")[0] if isinstance(volume, str) else volume.get("source") for service in services.values()
              for volume in service.get("volumes") or []
              if (isinstance(volume, str) and ":" in volume and not volume.startswith((".", "/")))
@@ -624,26 +628,24 @@ def _build(pid, root: Path):
     unit = gathered["unit"]
     kept = _kept(gathered)
     config, keys = _resolve(gathered, kept)
-    pristine = json.loads(json.dumps(config))   # the labels, before the archive drops them
     keep = _keep(config, gathered, _products(gathered))
     dropped = sorted(set(config["services"]) - keep)
+    consoles = _consoles(config, keep, unit)   # the labels, before the archive drops them
     services, missing = _services(config, keep, gathered, root)
     _certificates(root)
     raw = compose.raw(str(paths.ROOT / unit["file"]))   # as written: an account's password is its setting and its default
     name = exports._slug(pid)
-    (root / "docker-compose.yml").write_text(_compose_text(name, unit, services, config, keys, kept), encoding="utf-8")
+    (root / "docker-compose.yml").write_text(_compose_text(name, unit, services, config, kept), encoding="utf-8")
     groups = {group["id"]: group["name"] for group in gathered["found"]["groups"]}
     owners = {name: (service.get("owner") or {}).get("id") for name, service in gathered["found"]["services"].items()}
     gone = sorted({groups.get(owners.get(name), name) for name in dropped})
     runs = [groups[id_] for id_ in groups if any(owners.get(name) == id_ for name in services)] + [unit["name"]]
     (root / ".env.example").write_text(_env_text(kept, keys, gone), encoding="utf-8")
     seed = unit.get("seed") if unit.get("seed") in services else None
-    (root / "README.md").write_text(_readme(gathered, raw, services, _consoles(pristine, keep, unit), seed, missing),
-                                    encoding="utf-8")
-    nodes = [node for node in gathered["nodes"] if node[1] in gathered["units"][node[0]]]
-    origins, private = exports._origins(nodes, gathered["units"], exports.copies_of(nodes))
+    (root / "README.md").write_text(_readme(gathered, raw, services, consoles, seed, missing), encoding="utf-8")
+    origins, private = exports._origins(gathered["nodes"], gathered["units"], exports.copies_of(gathered["nodes"]))
     return {"name": unit["name"], "file": f"{name}-docker-compose.zip", "services": list(services), "runs": runs, "leaves_out": gone,
-            "settings": [key for key in keys], "license": (unit.get("requires") or {}).get("license") or [],
+            "settings": list(keys), "license": (unit.get("requires") or {}).get("license") or [],
             "host": [host["name"] for host in (unit.get("requires") or {}).get("host") or []], "plugins_missing": missing,
             "private": private, "registries": exports._registries(gathered["found"], gathered["nodes"], gathered["units"])}
 

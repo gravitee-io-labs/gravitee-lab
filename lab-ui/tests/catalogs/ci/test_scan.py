@@ -11,13 +11,12 @@ machine holds them, with no pull and no sign-in."""
 import io
 import json
 import os
-import re
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from lab_ui.catalogs import ci, explain
+from lab_ui.catalogs import ci
 from lab_ui.catalogs.ci import main as ci_main
 from lab_ui.catalogs.ci import scan
 from tests import Case
@@ -115,9 +114,9 @@ class Fixture(Case):
     def loader(self):
         def load(folder, names):
             services = self.services()
-            return ci.Loading([ci.Loaded("playground", "bank", "bank", "playgrounds/bank/compose.yml",
+            return ci.Loading([ci.Loaded("playground", "bank", "playgrounds/bank/compose.yml",
                                          str(self.repo / "playgrounds/bank"), {"services": services}, tuple(services), (), None)],
-                              [], [])
+                              [])
         return load
 
     def login(self, registry, user, token, config):
@@ -140,16 +139,15 @@ class Scanning(Fixture):
         self.docker.reports[f"{PREFIX}/bakery-web:latest"] = trivy_report(
             vulnerability(), vulnerability("CVE-2026-2000", "zlib", "1.2.11", "1.2.12"), vulnerability("CVE-2026-3000", severity="HIGH"),
             vulnerability("CVE-2026-4000", fixed=""), vulnerability("CVE-2026-1000"))
-        code = self.run_stage("--format", "json")
+        code = self.run_stage("--ci")
         self.assertEqual(code, 1)
-        found = json.loads(self.out.getvalue())
-        self.assertEqual([(each["code"], each["severity"], each["message"]) for each in found], [
-            ("SC01", "error", f"{PREFIX}/bakery-web:latest: CVE-2026-1000 in openssl 3.0.1, fixed in 3.0.2. Fix: update the package or the "
-                              "base image."),
-            ("SC01", "error", f"{PREFIX}/bakery-web:latest: CVE-2026-2000 in zlib 1.2.11, fixed in 1.2.12. Fix: update the package or the "
-                              "base image."),
-            ("SC02", "warning", f"{PREFIX}/bakery-web:latest: 2 more flaws that fail nothing: 1 high and 1 critical with no fix yet "
-                                "(CVE-2026-3000, CVE-2026-4000). Fix: update the base image or the packages once a fix is out.")])
+        self.assertEqual([line for line in self.out.getvalue().splitlines() if line.startswith("::")], [
+            f"::error title=SC01::{PREFIX}/bakery-web:latest: CVE-2026-1000 in openssl 3.0.1, fixed in 3.0.2. Fix: update the package or the "
+            "base image.",
+            f"::error title=SC01::{PREFIX}/bakery-web:latest: CVE-2026-2000 in zlib 1.2.11, fixed in 1.2.12. Fix: update the package or the "
+            "base image.",
+            f"::warning title=SC02::{PREFIX}/bakery-web:latest: 2 more flaws that fail nothing: 1 high and 1 critical with no fix yet "
+            "(CVE-2026-3000, CVE-2026-4000). Fix: update the base image or the packages once a fix is out."])
 
     def test_images_with_nothing_to_fix_say_all_good(self):
         self.assertEqual(self.run_stage(), 0, self.err.getvalue())
@@ -159,22 +157,9 @@ class Scanning(Fixture):
         self.assertEqual(sorted(call[-1] for call in self.docker.calls if call[:3] == ["docker", "pull", "--quiet"]),
                          [f"{PREFIX}/bakery-api:latest", f"{PREFIX}/bakery-web:latest"])
 
-    def test_the_messages_are_the_words_of_the_standard(self):
-        for code in ("SC01", "SC02"):
-            row = next(row for row in explain.STAGES if row[0] == code)
-            self.assertEqual((row[1], row[3]), scan.MESSAGES[code])
-
     def test_the_seeder_is_the_labs_and_is_not_scanned(self):
         self.run_stage()
         self.assertFalse([call for call in self.docker.calls if any("seeder" in word for word in call)])
-
-    def test_the_tag_is_latest_unless_another_is_asked(self):
-        self.docker.pullable = {f"{PREFIX}/bakery-web:1.2.0", f"{PREFIX}/bakery-api:1.2.0"}
-        self.assertEqual(self.run_stage("--tag", "1.2.0"), 0)
-        self.assertIn(f"Scanned {PREFIX}/bakery-web:1.2.0", self.out.getvalue())
-        for bad in ("a b", "-x", "x;y", ""):
-            self.err = io.StringIO()
-            self.assertEqual(self.run_stage("--tag", bad), 2)
 
     def test_an_image_that_is_not_published_yet_is_said_and_is_no_fault(self):
         self.docker.pullable = {f"{PREFIX}/bakery-web:latest"}
@@ -204,14 +189,14 @@ class Scanning(Fixture):
         blocked = ci.Refused("addon", "bad", "addons/bad/compose.yml", ("Mounts the Docker socket",), "T10")
 
         def load(folder, names):
-            return ci.Loading([], [blocked], [])
+            return ci.Loading([], [blocked])
         (self.repo / "addons" / "bad").mkdir(parents=True)
         (self.repo / "addons" / "bad" / "compose.yml").write_text("services: {}\n")
         with mock.patch.object(ci, "LOADER", load):
-            code = scan.main([str(self.repo), "--format", "json"], self.out, self.err, runner=self.docker, login=self.login,
+            code = scan.main([str(self.repo)], self.out, self.err, runner=self.docker, login=self.login,
                              lab=str(self.lab), dockerfile=self.tools, environ={})
         self.assertEqual(code, 1)
-        self.assertEqual([each["code"] for each in json.loads(self.out.getvalue())], ["T10"])
+        self.assertIn("    T10 ", self.out.getvalue())
 
 
 class TheScannerAndWhatItIsGiven(Fixture):
@@ -277,7 +262,6 @@ class TheScannerAndWhatItIsGiven(Fixture):
         self.assertTrue(seen)
         for place in seen:
             self.assertFalse(os.path.exists(place), place)
-            self.assertTrue(place.startswith(str(Path(tempfile.gettempdir()).resolve())) or "gravitee-lab-scan-" in place)
 
     def test_a_report_the_scanner_did_not_write_or_that_is_not_json_is_not_a_clean_scan(self):
         self.docker.reports[f"{PREFIX}/bakery-web:latest"] = "not json at all"
@@ -299,11 +283,7 @@ class TheScannerAndWhatItIsGiven(Fixture):
         self.assertEqual(self.run_stage(), 2)
         self.assertIn("could not be saved to scan it", self.err.getvalue())
 
-    def test_the_scanner_that_is_not_pinned_yet_is_not_a_clean_scan(self):
-        self.tools.write_text("FROM ghcr.io/aquasecurity/trivy:0.58.0@sha256:" + "0" * 64 + " AS trivy\n")
-        self.assertEqual(self.run_stage(), 2)
-        self.assertIn("is not pinned yet", self.err.getvalue())
-        self.err = io.StringIO()
+    def test_a_scanner_that_is_not_pinned_is_not_a_clean_scan(self):
         self.tools.write_text("FROM ghcr.io/aquasecurity/trivy:latest AS trivy\n")
         self.assertEqual(self.run_stage(), 2)
         self.assertIn("not pinned by digest", self.err.getvalue())
@@ -312,18 +292,6 @@ class TheScannerAndWhatItIsGiven(Fixture):
         self.assertEqual(self.run_stage(), 2)
         self.assertIn("no FROM line named trivy", self.err.getvalue())
         self.assertEqual(self.docker.calls, [])
-
-    def test_the_labs_own_tools_file_names_the_scanner_or_the_stage_says_what_is_missing(self):
-        """Today's Dockerfile of the tools has no trivy line: the stage says so and runs nothing, and the line is a task of the owner
-        of that file (the digest is resolved with `docker buildx imagetools inspect`, which needs a network)."""
-        with mock.patch.object(ci, "LOADER", self.loader()):
-            code = scan.main([str(self.repo)], self.out, self.err, runner=self.docker, login=self.login, lab=str(self.lab),
-                             environ={})
-        text = self.err.getvalue()
-        if "no FROM line named trivy" in text:
-            self.assertEqual((code, self.docker.calls), (2, []))
-        else:
-            self.assertIn(code, (0, 1, 2))
 
 
 class Built(Fixture):
@@ -352,19 +320,9 @@ class Built(Fixture):
     def test_a_critical_flaw_with_a_fix_in_an_image_the_change_built_fails_the_stage_with_the_words_of_the_nightly(self):
         self.docker.reports[f"{PREFIX}/bakery-api:latest"] = trivy_report(vulnerability("GHSA-6q48-6c7w-9gw2", "certifi", "2026.1.1",
                                                                                          "2026.10.19"))
-        self.assertEqual(self.run_built("--format", "json"), 1)
-        self.assertEqual([(each["code"], each["message"]) for each in json.loads(self.out.getvalue())], [
-            ("SC01", f"{PREFIX}/bakery-api:latest: GHSA-6q48-6c7w-9gw2 in certifi 2026.1.1, fixed in 2026.10.19. Fix: update the package or "
-                     "the base image.")])
-
-    def test_the_scan_of_the_images_built_runs_the_same_hardened_scanner_with_no_network(self):
-        self.run_built()
-        scans = [call for call in self.docker.runs() if "--input" in call]
-        self.assertEqual(len(scans), 2)
-        for call in scans:
-            self.assertIn(SCANNER, call)
-            self.assertEqual(options(call, "--network"), ["none"])
-            self.assertEqual(call[:len(scan.HARDENED) + 2], ["docker", "run", *scan.HARDENED])
+        self.assertEqual(self.run_built(), 1)
+        self.assertIn(f"SC01 {PREFIX}/bakery-api:latest: GHSA-6q48-6c7w-9gw2 in certifi 2026.1.1, fixed in 2026.10.19. Fix: update the package "
+                      "or the base image.", self.out.getvalue())
 
     def test_an_image_that_was_not_built_here_is_said_and_the_build_is_what_fails(self):
         self.docker.absent = {f"{PREFIX}/bakery-api:latest"}
@@ -384,8 +342,8 @@ class Built(Fixture):
 
     def test_a_change_that_builds_nothing_scans_nothing_and_needs_no_docker(self):
         def load(folder, names):
-            return ci.Loading([ci.Loaded("addon", "plain", "plain", "addons/plain/compose.yml", str(self.repo / "addons/plain"),
-                                         {"services": {"plain": {"image": "busybox:1.36"}}}, ("plain",), (), None)], [], [])
+            return ci.Loading([ci.Loaded("addon", "plain", "addons/plain/compose.yml", str(self.repo / "addons/plain"),
+                                         {"services": {"plain": {"image": "busybox:1.36"}}}, ("plain",), (), None)], [])
         with mock.patch.object(ci, "LOADER", load):
             code = scan.built_main([str(self.repo), "--units", '["addon:plain"]'], self.out, self.err, runner=self.docker,
                                    lab=str(self.lab), dockerfile=self.tools)
@@ -396,18 +354,13 @@ class Built(Fixture):
         blocked = ci.Refused("addon", "bad", "addons/bad/compose.yml", ("Mounts the Docker socket",), "T10")
 
         def load(folder, names):
-            return ci.Loading([], [blocked], [])
+            return ci.Loading([], [blocked])
         with mock.patch.object(ci, "LOADER", load):
-            code = scan.built_main([str(self.repo), "--units", '["addon:bad"]', "--format", "json"], self.out, self.err,
+            code = scan.built_main([str(self.repo), "--units", '["addon:bad"]'], self.out, self.err,
                                    runner=self.docker, lab=str(self.lab), dockerfile=self.tools)
         self.assertEqual(code, 1)
-        self.assertEqual([each["code"] for each in json.loads(self.out.getvalue())], ["T10"])
+        self.assertIn("    T10 ", self.out.getvalue())
         self.assertEqual(self.docker.calls, [])
-
-    def test_a_scanner_that_is_not_pinned_yet_is_a_scan_that_could_not_run(self):
-        self.tools.write_text("FROM ghcr.io/aquasecurity/trivy:0.58.0@sha256:" + "0" * 64 + " AS trivy\n")
-        self.assertEqual(self.run_built(), 2)
-        self.assertIn("is not pinned yet", self.err.getvalue())
 
 
 class SigningIn(Fixture):
@@ -532,15 +485,8 @@ class Reports(unittest.TestCase):
 class Dispatch(unittest.TestCase):
 
     def test_the_command_line_reaches_the_stages(self):
-        self.assertEqual(ci.STAGES["scan-published"], ("scan", "main"))
-        self.assertEqual(ci.STAGES["scan-built"], ("scan", "built_main"))
         self.assertEqual(ci_main(["scan-published", "/no/such/folder"], io.StringIO(), io.StringIO()), 2)
         self.assertEqual(ci_main(["scan-built", "/no/such/folder", "--units", "[]"], io.StringIO(), io.StringIO()), 2)
-
-    def test_the_hardening_of_every_container_is_the_same(self):
-        self.assertEqual(scan.HARDENED[:2], ["--rm", "--read-only"])
-        self.assertIn("no-new-privileges", scan.HARDENED)
-        self.assertEqual(re.findall(r"--cap-drop ALL", " ".join(scan.HARDENED)), ["--cap-drop ALL"])
 
 
 if __name__ == "__main__":

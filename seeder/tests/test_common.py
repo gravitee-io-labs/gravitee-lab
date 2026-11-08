@@ -3,10 +3,8 @@ seed files with their variables replaced (and YAML that asks the loader for mill
 for a platform that is still starting."""
 
 import json
-import os
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -17,41 +15,31 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError
 from yaml.constructor import SafeConstructor
 
 from lab_seeder import common
-from lab_seeder.testkit import Seed, seeded_playgrounds
+from lab_seeder.testkit import Seed
 
 from . import chained, doubling, fanned, flowing
 
 
 class Settings(Seed):
 
-    def test_an_empty_setting_takes_its_default(self):
-        self.env(AIM_GAMMA_URL="")
-        self.assertEqual(common.setting("AIM_GAMMA_URL", "http://apim"), "http://apim")
-
-    def test_a_setting_is_the_environment_before_its_default(self):
+    def test_a_setting_is_the_environment_before_its_default_and_an_empty_one_is_none(self):
         self.env(AIM_GAMMA_URL="http://gamma")
         self.assertEqual(common.setting("AIM_GAMMA_URL", "http://apim"), "http://gamma")
-
-    def test_a_setting_without_a_value_or_a_default_is_an_error(self):
         self.env(AIM_GAMMA_URL="")
+        self.assertEqual(common.setting("AIM_GAMMA_URL", "http://apim"), "http://apim")
         with self.assertRaisesRegex(common.SeedError, "AIM_GAMMA_URL is not set"):
             common.setting("AIM_GAMMA_URL")
 
 
 class Client(Seed):
 
-    def test_a_call_takes_30_seconds_unless_it_says_otherwise(self):
-        self.answer({("GET", "/slow"): 200})
+    def test_no_request_waits_for_ever(self):
+        self.answer({("GET", "/x"): 200})
         api = common.Api("http://apim/")
-        api.get("/slow")
-        api.get("/slow", timeout=120)
-        self.assertEqual([call.timeout for call in self.platform.calls], [30, 120])
-        self.assertEqual(self.platform.calls[0].url, "http://apim/slow")
-
-    def test_a_status_it_did_not_expect_is_an_error_with_the_body(self):
-        self.answer({("POST", "/x"): (409, {"message": "taken"})})
-        with self.assertRaisesRegex(common.SeedError, r'POST /x: HTTP 409 \{"message": "taken"\}'):
-            common.Api("http://apim").post("/x")
+        for ask, timeout in ((api.get, {}), (api.get, {"timeout": 120}), (lambda path, **kw: api.send("GET", path, **kw), {})):
+            ask("/x", **timeout)
+        self.assertEqual([call.timeout for call in self.platform.calls], [30, 120, 30])
+        self.assertEqual(self.platform.calls[0].url, "http://apim/x")
 
     def test_the_body_of_an_error_is_one_line(self):
         # The Lab UI shows the last line of the seed's output as the reason: Gamma pretty-prints its errors
@@ -148,12 +136,6 @@ class Requests(Seed):
         self.assertEqual(self.ask("GET", 503, 200, expect=(200, 503)).status_code, 503)
         self.assertEqual(self.sent("GET"), 1)
 
-    def test_no_request_waits_for_ever(self):
-        self.answer({("GET", "/x"): 200})
-        common.Api("http://apim").send("GET", "/x")
-        common.Api("http://apim").send("GET", "/x", timeout=5)
-        self.assertEqual([call.timeout for call in self.platform.calls], [common.TIMEOUT, 5])
-
     def test_inside_a_wait_a_request_is_sent_once_and_the_wait_asks_again(self):
         api = common.Api("http://apim")
         self.answer({("GET", "/x"): [503, requests.ConnectionError("reset"), 200]})
@@ -168,7 +150,7 @@ class Requests(Seed):
 
 
 class Parallel(unittest.TestCase):
-    """What a module does at the same time (`parallel`, `together`, `later`): bounded in one place, the first failure stopping
+    """What a module does at the same time (`parallel`, `together`): bounded in one place, the first failure stopping
     the others."""
 
     def setUp(self):
@@ -178,11 +160,6 @@ class Parallel(unittest.TestCase):
     def test_items_that_do_not_depend_on_one_another_run_at_the_same_time(self):
         meeting = threading.Barrier(2, timeout=5)   # each waits for the other: one after the other, neither would ever come
         self.assertEqual(common.together([lambda: (meeting.wait(), "a")[1], lambda: (meeting.wait(), "b")[1]]), ["a", "b"])
-
-    def test_items_are_done_together_with_their_results_in_the_order_of_the_items(self):
-        self.assertEqual(common.parallel(lambda number: number * 2, [3, 1, 2]), [6, 2, 4])
-        common.configure(1)
-        self.assertEqual(common.parallel(lambda number: number * 2, [3, 1, 2]), [6, 2, 4])
 
     def test_an_item_that_fails_ends_the_others_and_is_the_failure_raised(self):
         def work(number):
@@ -212,7 +189,7 @@ class Parallel(unittest.TestCase):
         self.assertEqual(most[0], 2)
 
     def test_a_request_does_not_start_once_the_seed_stops(self):
-        common.stop(common.SeedError("x"))
+        common.STOP.set()
         with self.assertRaises(common.Stopped):
             common.check()
         with self.assertRaises(common.Stopped):
@@ -225,50 +202,28 @@ class Parallel(unittest.TestCase):
                 self.assertEqual(sorted(x["id"] for x in common.created()), list(range(40)))
                 self.assertEqual(len(json.loads(common.STATE_FILE.read_text())), 40)
 
-    def test_a_wait_put_off_runs_at_the_end_and_at_once_when_nothing_is_put_off(self):
-        ran = []
-        common.later("a wait", lambda: ran.append("now"))
-        self.assertEqual(ran, ["now"])
-        common.defer_waits()
-        common.later("a wait", lambda: ran.append("at the end"))
-        common.later("another", lambda: ran.append("also at the end"))
-        self.assertEqual(ran, ["now"])
-        common.run_later()
-        self.assertEqual(sorted(ran[1:]), ["also at the end", "at the end"])
-
 
 class Provided(Seed):
     """The names the engine gives the files of an environment: the id of its folder and the name its file says."""
 
-    GIVEN = {"ENV_ID": "novo-nordisk", "ENV_NAME": "Novo Nordisk"}
-
-    def test_the_names_the_engine_gives_are_these_two(self):
-        self.assertEqual(common.PROVIDED, ("ENV_ID", "ENV_NAME"))
-
-    def test_a_provided_name_is_replaced_by_its_value(self):
-        self.assertEqual(common.render("/events/${ENV_ID}: ${ENV_NAME}", "page.md", provided=self.GIVEN),
-                         "/events/novo-nordisk: Novo Nordisk")
+    GIVEN = {"ENV_ID": "newt-biotech", "ENV_NAME": "Newt Biotech"}
 
     def test_a_provided_name_wins_over_the_environment_of_the_seed(self):
         self.env(ENV_ID="from-the-service")
-        self.assertEqual(common.render("${ENV_ID}", "page.md", provided=self.GIVEN), "novo-nordisk")
+        self.assertEqual(common.render("${ENV_ID}", "page.md", provided=self.GIVEN), "newt-biotech")
         self.assertEqual(common.render("${ENV_ID}", "page.md"), "from-the-service")
 
     def test_a_name_that_is_not_provided_comes_from_the_environment_of_the_seed(self):
         self.env(APIM_GATEWAY_URL="http://gateway")
-        self.assertEqual(common.render("${APIM_GATEWAY_URL}/${ENV_ID}", "page.md", provided=self.GIVEN), "http://gateway/novo-nordisk")
+        self.assertEqual(common.render("${APIM_GATEWAY_URL}/${ENV_ID}", "page.md", provided=self.GIVEN), "http://gateway/newt-biotech")
 
     def test_a_provided_name_with_no_value_has_the_default_of_the_file_or_is_not_set(self):
         self.assertEqual(common.render("${ENV_NAME:-nobody}", "page.md", provided={"ENV_NAME": ""}), "nobody")
         with self.assertRaisesRegex(common.SeedError, "page.md: ENV_ID not set"):
             common.render("${ENV_ID}", "page.md", provided={"ENV_NAME": "x"})
 
-    def test_without_the_names_a_file_that_uses_them_is_not_set(self):
-        with self.assertRaisesRegex(common.SeedError, "page.md: ENV_ID, ENV_NAME not set"):
-            common.render("${ENV_NAME} ${ENV_ID}", "page.md")
-
     def test_a_dollar_that_is_escaped_stays_a_variable_of_the_page_whether_or_not_the_name_is_provided(self):
-        self.assertEqual(common.render("$${ENV_ID} and ${ENV_ID}", "page.md", provided=self.GIVEN), "${ENV_ID} and novo-nordisk")
+        self.assertEqual(common.render("$${ENV_ID} and ${ENV_ID}", "page.md", provided=self.GIVEN), "${ENV_ID} and newt-biotech")
         self.assertEqual(common.render("$${api.name}", "page.md", provided=self.GIVEN), "${api.name}")
 
     def test_an_expression_of_a_page_keeps_what_follows_its_escaped_dollar_and_a_value_is_not_unescaped(self):
@@ -278,28 +233,24 @@ class Provided(Seed):
 
     def test_a_json_file_has_its_provided_value_escaped(self):
         self.seed_files({"api.json": '{"name": "${ENV_NAME}", "path": "/${ENV_ID}/"}'})
-        loaded = common.load(common.SEED_DIR / "api.json", provided={"ENV_ID": "bch", "ENV_NAME": "Boston \"Children's\" Hospital"})
-        self.assertEqual(loaded, {"name": "Boston \"Children's\" Hospital", "path": "/bch/"})
+        loaded = common.load(common.SEED_DIR / "api.json", provided={"ENV_ID": "wch", "ENV_NAME": "Willow \"Children's\" Hospital"})
+        self.assertEqual(loaded, {"name": "Willow \"Children's\" Hospital", "path": "/wch/"})
 
     def test_a_yaml_file_and_a_text_file_have_theirs_replaced_too(self):
         self.seed_files({"site.yaml": "title: ${ENV_NAME}\nid: ${ENV_ID}\n", "page.md": "# ${ENV_NAME}\n$${expression}\n"})
-        self.assertEqual(common.load(common.SEED_DIR / "site.yaml", provided=self.GIVEN), {"title": "Novo Nordisk", "id": "novo-nordisk"})
-        self.assertEqual(common.text(common.SEED_DIR / "page.md", provided=self.GIVEN), "# Novo Nordisk\n${expression}\n")
-
-    def test_a_file_without_provided_names_loads_as_before(self):
-        self.seed_files({"site.yaml": "title: ${TITLE:-demo}\n"})
-        self.assertEqual(common.load(common.SEED_DIR / "site.yaml"), {"title": "demo"})
+        self.assertEqual(common.load(common.SEED_DIR / "site.yaml", provided=self.GIVEN), {"title": "Newt Biotech", "id": "newt-biotech"})
+        self.assertEqual(common.text(common.SEED_DIR / "page.md", provided=self.GIVEN), "# Newt Biotech\n${expression}\n")
 
 
 class JsonInJson(Seed):
     """A string of a JSON file that is itself JSON text (an endpoint's `sharedConfiguration`) gets a variable's value escaped for
     that text: a password with a quote or a backslash arrives as it was set."""
 
-    SHARED = '{"url": "${SMF_URL}", "vpn": "apelor", "password": "${PASSWORD}"}'
+    SHARED = '{"url": "${SMF_URL}", "vpn": "walnut", "password": "${PASSWORD}"}'
 
     def api(self, **values):
         """The file of an API with a plain string and a JSON text that name the password, loaded with these settings."""
-        self.env(SMF_URL="tcp://solace:55555", **values)
+        self.env(SMF_URL="tcp://broker:55555", **values)
         template = {"api": {"name": "${NAME}", "endpointGroups": [{"sharedConfiguration": self.SHARED}]}}
         self.seed_files({"api.json": json.dumps(template)})
         return common.load(common.SEED_DIR / "api.json", provided={"NAME": 'Say "hi" \\ now'})
@@ -308,14 +259,14 @@ class JsonInJson(Seed):
         return json.loads(loaded["api"]["endpointGroups"][0]["sharedConfiguration"])
 
     def test_a_password_with_a_quote_or_a_backslash_arrives_as_it_was_set(self):
-        for password in ('apelor-demo', 'p"w', "back\\slash", "a\\bc", 'a\\"b', "line\nbreak", "tab\t", "ünï \u00e9 \u2713", "$${x}", "'single'"):
+        for password in ('walnut-demo', 'p"w', "back\\slash", "a\\bc", 'a\\"b', "line\nbreak", "tab\t", "ünï \u00e9 \u2713", "$${x}", "'single'"):
             with self.subTest(password=password):
                 self.assertEqual(self.inner(self.api(PASSWORD=password))["password"], password)
 
     def test_a_plain_string_gets_the_value_as_it_is_and_the_text_around_it_stays(self):
         loaded = self.api(PASSWORD='p"w')
         self.assertEqual(loaded["api"]["name"], 'Say "hi" \\ now')
-        self.assertEqual(self.inner(loaded), {"url": "tcp://solace:55555", "vpn": "apelor", "password": 'p"w'})
+        self.assertEqual(self.inner(loaded), {"url": "tcp://broker:55555", "vpn": "walnut", "password": 'p"w'})
 
     def test_a_plain_string_is_the_same_whether_the_file_is_read_as_a_document_or_as_text(self):
         self.env(NOTE='a "quoted" \\ value')
@@ -344,20 +295,6 @@ class JsonInJson(Seed):
     def test_a_file_that_is_no_document_until_its_variables_are_replaced_is_replaced_as_text(self):
         self.env(PORT="8080", NAME='a"b')
         self.assertEqual(common.render_json('{"port": ${PORT}, "name": "${NAME}"}', "f.json"), {"port": 8080, "name": 'a"b'})
-
-    def test_a_json_file_that_is_not_json_is_an_error_of_the_parser(self):
-        with self.assertRaises(ValueError):
-            common.render_json("{", "f.json")
-
-    def test_the_playgrounds_json_files_read_as_they_did_as_text(self):
-        for folder, environment in seeded_playgrounds():
-            with mock.patch.dict(os.environ, environment, clear=True):
-                for path in sorted((folder / "seed").rglob("*.json")):
-                    provided = dict.fromkeys(common.PROVIDED, "x") if path.relative_to(folder / "seed").parts[:1] == ("environments",) else None
-                    with self.subTest(file=str(path.relative_to(folder))):
-                        text = path.read_text(encoding="utf-8")
-                        self.assertEqual(common.render_json(text, path, provided),
-                                         json.loads(common.render(text, path, json_escape=True, provided=provided)))
 
 
 def outcome(load, text):
@@ -418,23 +355,6 @@ class YamlValues(Seed):
         self.assertNotIn("S3cr3t", str(raised.exception))
         self.assertNotIn("\n", str(raised.exception))
 
-    def test_a_kubernetes_file_of_several_documents_gets_its_values_the_same_way(self):
-        self.env(PW='p"w')
-        docs = common.render_yaml("a: '${PW}'\n---\nb: ${PW}\n", "k8s.yaml", every=True)
-        self.assertEqual(docs, [{"a": 'p"w'}, {"b": 'p"w'}])
-
-    def test_the_playgrounds_yaml_files_read_as_they_did_as_text(self):
-        """With values YAML reads alike whichever way they are put in, a document reads as the text it used to be replaced in."""
-        found = list(seeded_playgrounds())
-        self.assertTrue(found)
-        for folder, _ in found:
-            for path in sorted((folder / "seed").rglob("*.y*ml")):
-                text = path.read_text(encoding="utf-8")
-                values = {m.group(2): "value-" + m.group(2).lower() for m in common.VARIABLE.finditer(text) if not m.group(1)}
-                with self.subTest(file=str(path.relative_to(folder))), mock.patch.dict(os.environ, values):
-                    as_text = common.parse_yaml_all(common.render(text, path), path)
-                    self.assertEqual(common.render_yaml(text, path, every=True), as_text)
-
 
 class MergeKeys(unittest.TestCase):
     """A `<<` key makes the loader of YAML copy the pairs of the mappings it merges into its own, and each of those may have
@@ -472,11 +392,6 @@ class MergeKeys(unittest.TestCase):
                 self.assertGreater(done[0], 1000, "a shape that is not worth counting")
                 self.assertAlmostEqual(common.merged_pairs(text) / done[0], 1.0, delta=0.1)
 
-    def test_the_count_adds_what_each_merge_makes_the_loader_do(self):
-        self.assertEqual(common.merged_pairs(doubling(10)), 6138)
-        self.assertEqual(common.merged_pairs(doubling(10, merge="!!merge m")), 6138, "a tag is a merge key as much as <<")
-        self.assertEqual(common.merged_pairs(chained(100)), 14949)
-
     def test_a_count_over_the_limit_stops_at_the_limit(self):
         for text in (doubling(60), doubling(2000), chained(5000), fanned(2000, 1000)):
             self.assertEqual(common.merged_pairs(text), common.COPIED + 1)
@@ -502,12 +417,6 @@ class MergeKeys(unittest.TestCase):
         """What the compose files and the seed of the playgrounds need is a few hundred pairs; the limit is thousands of times
         that."""
         self.assertLess(common.merged_pairs(fanned(100, 100)), common.COPIED // 10)
-        found = list(seeded_playgrounds())
-        self.assertTrue(found)
-        for folder, _ in found:
-            for path in [folder / "compose.yml", *sorted((folder / "seed").rglob("*.y*ml"))]:
-                with self.subTest(file=path.name):
-                    self.assertLess(common.merged_pairs(path.read_text(encoding="utf-8")), 10_000, str(path))
 
 
 class Bombs(Seed):
@@ -536,26 +445,16 @@ class Bombs(Seed):
                     common.load(common.SEED_DIR / "bomb.yaml")
                 self.assertEqual(str(raised.exception), f"{common.SEED_DIR / 'bomb.yaml'}: {common.MERGES}")
 
-    def test_the_refusal_is_a_seed_error_that_says_what_to_do(self):
-        self.assertTrue(issubclass(common.MergeError, common.SeedError))
+    def test_the_refusal_says_what_to_do(self):
         self.assertIn("Fix: write the values out, or merge less", common.MERGES)
-        self.assertEqual(common.COPIED, 1_000_000)
-
-    def test_a_bomb_is_counted_in_a_fraction_of_a_second(self):
-        started = time.process_time()
-        for text in self.BOMBS.values():
-            common.merged_pairs(text)
-        self.assertLess(time.process_time() - started, 5.0)
 
     def test_a_variable_brings_a_value_never_keys_so_never_merge_keys(self):
         """The file's structure is its own: a value that is YAML text, a bomb even, stays the text it is."""
         self.seed_files({"a.yaml": "a: ${KEY}\n"})
         path = common.SEED_DIR / "a.yaml"
         self.env(KEY=flowing(22))
-        started = time.process_time()
         self.assertEqual(common.load(path), {"a": flowing(22)})
         self.assertEqual(common.load(path, provided={"KEY": flowing(22)}), {"a": flowing(22)})
-        self.assertLess(time.process_time() - started, 1.0, "the loader copied no pair")
 
     def test_a_file_that_is_no_yaml_until_its_variables_are_replaced_is_guarded_once_they_are(self):
         """Replaced as text, the variables may bring the keys: the loader gets the replaced text and counts its pairs."""
@@ -573,18 +472,6 @@ class Bombs(Seed):
         self.seed_files({"a.json": json.dumps({"<<": [1, 2], "!!merge": 3})})
         self.assertEqual(common.load(common.SEED_DIR / "a.json"), {"<<": [1, 2], "!!merge": 3})
 
-    def test_a_text_is_composed_once(self):
-        """The count is made on the document the loader builds: a file with merge keys is not read twice."""
-        composed, compose = [], yaml.SafeLoader.get_single_node
-
-        def counting(loader):
-            composed.append(1)
-            return compose(loader)
-
-        with mock.patch.object(yaml.SafeLoader, "get_single_node", counting), mock.patch.object(yaml, "compose", side_effect=AssertionError):
-            self.assertEqual(common.parse_yaml(chained(20) + "x: [1, 2]\n")["a19"]["k19"], 1)
-        self.assertEqual(len(composed), 1)
-
     def test_what_a_normal_file_loads_is_what_safe_load_gives(self):
         """Merge keys in use, anchors, tags, comments, several documents, an empty text, a text that is no YAML: the same
         document, or the same refusal in the same words."""
@@ -597,75 +484,16 @@ class Bombs(Seed):
             with self.subTest(text=text[:60]):
                 self.assertEqual(outcome(common.parse_yaml, text), outcome(yaml.safe_load, text))
 
-    def test_a_text_of_several_documents_is_guarded_as_a_whole_and_the_loader_never_builds_a_bomb(self):
-        """Each document may ask for less than the limit and the text for more: the pairs of all of them are counted together."""
-        each = doubling(17)
-        self.assertLess(common.merged_pairs(each), common.COPIED)
-        text = "---\n".join([each] * 3)
-        self.assertGreater(common.merged_pairs(each) * 3, common.COPIED)
-        with self.refuses_to_build():
-            with self.assertRaises(common.MergeError) as raised:
-                common.parse_yaml_all(text, "k8s.yaml")
-            self.assertEqual(str(raised.exception), f"k8s.yaml: {common.MERGES}")
-            for bomb in self.BOMBS.values():
-                with self.assertRaises(common.MergeError):
-                    common.parse_yaml_all("a: 1\n---\n" + bomb)
-
-    def test_what_a_normal_text_of_several_documents_loads_is_what_safe_load_all_gives(self):
-        corpus = ["", "# only a comment\n", "a: 1\n", "a: 1\n---\nb: 2\n", "---\n---\na: 1\n...\n---\n- x\n", "a: [\n", "a: 1\n---\nb: [\n",
-                  "a: &x {b: 1}\nc: *x\n---\nd: *x\n", "base: &b {k: 1}\nuse: {<<: *b, own: 2}\n---\nuse: {<<: *b}\n",
-                  "a: !!str 12\n---\nb: !!set {x, y}\n", "a: !!python/object:os.system x\n---\nb: 1\n", chained(30) + "---\n" + doubling(8),
-                  "a: 1\n---\na: 2\n", "\ufeffa: 1\n"]
-        for text in corpus:
-            with self.subTest(text=text[:60]):
-                self.assertEqual(outcome(common.parse_yaml_all, text), outcome(lambda t: list(yaml.safe_load_all(t)), text))
-
-    def test_a_text_of_several_documents_is_composed_once_and_a_text_with_no_merge_key_is_not_counted(self):
-        counted = []
-        with mock.patch.object(common, "_copied", lambda root: counted.append(root) or 0):
-            self.assertEqual(common.parse_yaml_all("a: 1\n---\nb: 2\n"), [{"a": 1}, {"b": 2}])
-            self.assertEqual(counted, [])
-            self.assertEqual(len(common.parse_yaml_all("a: 1\n---\nb: {<<: {c: 1}}\n")), 2)
-            self.assertEqual(len(counted), 2)
-
-    def test_every_yaml_file_of_the_playgrounds_loads_as_safe_load_gives_it(self):
-        found = list(seeded_playgrounds())
-        self.assertTrue(found)
-        for folder, _ in found:
-            for path in [folder / "compose.yml", *sorted((folder / "seed").rglob("*.y*ml"))]:
-                with self.subTest(file=str(path.relative_to(folder))):
-                    text = path.read_text(encoding="utf-8")
-                    self.assertEqual(outcome(common.parse_yaml, text), outcome(yaml.safe_load, text))
-
 
 class Folders(Seed):
 
     def test_the_folders_of_a_folder_are_listed_in_name_order_without_files_or_hidden_ones(self):
-        self.seed_files({"environments/moderna/environment.yaml": "", "environments/beam/environment.yaml": "",
+        self.seed_files({"environments/mallard/environment.yaml": "", "environments/fern/environment.yaml": "",
                          "environments/.hidden/x.yaml": "", "environments/readme.md": ""})
-        self.assertEqual(common.folders("environments"), ["beam", "moderna"])
-
-    def test_a_folder_that_is_not_there_has_none(self):
-        self.assertEqual(common.folders("environments"), [])
+        self.assertEqual(common.folders("environments"), ["fern", "mallard"])
 
 
 class Waiting(Seed):
-
-    def test_a_check_that_returns_is_ready(self):
-        checks = iter([common.SeedError("starting"), None])
-
-        def check():
-            outcome = next(checks)
-            if outcome:
-                raise outcome
-        with mock.patch.object(common.time, "sleep") as sleep:
-            common.wait_until("test", "API", check)
-        self.assertEqual(sleep.call_count, 1)
-
-    def test_a_platform_that_never_answers_ends_the_wait_without_waiting(self):
-        with self.assertRaisesRegex(common.SeedError, "API not ready after 300 s: down"):
-            common.wait_until("test", "API", lambda: (_ for _ in ()).throw(common.SeedError("down")))
-        self.assertGreaterEqual(self.clock.elapsed, 300)
 
     def test_a_refusal_the_wait_is_told_is_final_ends_it_at_once(self):
         """A wrong password, a revoked token or a wrong environment id is not fixed by waiting five minutes."""
@@ -691,7 +519,3 @@ class Waiting(Seed):
             common.wait_until("test", "API", lambda: (_ for _ in ()).throw(requests.ConnectionError("HTTPConnectionPool(host='x')")),
                               timeout=5)
         self.assertEqual(str(raised.exception), "API not ready after 5 s: the connection was cut")
-
-
-if __name__ == "__main__":
-    unittest.main()

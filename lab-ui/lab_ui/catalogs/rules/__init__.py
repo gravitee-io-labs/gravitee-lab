@@ -1,36 +1,29 @@
 """The rules of the catalog repository standard, one module for each family: `structure` (ST), `secrets` (SE),
-`commits` (CR), `guides` (GD), `dockerfiles` (DF), `images` (IM), and, from other packages, `workflows` (WF) and `codeowners`
-(CO). A rule module is pure: `check(tree, ctx) -> [Problem]` reads a `Tree` (and the commits of a change through `ctx`), never
-writes, runs nothing of what it reads and takes no longer than a second for a line of a megabyte. Each module also exports
-`RULES`, its table of `Rule(code, severity, rule, message)`: the message is the text of with `{field}` places, the
-one text CI, `make check`, Share and `explain` all use.
+`commits` (CR), `guides` (GD), `dockerfiles` (DF), `images` (IM), `workflows` (WF) and `codeowners` (CO). A rule module is pure:
+`check(tree, ctx) -> [Problem]` reads a `Tree` (and the commits of a change through `ctx`), never writes, runs nothing of what it
+reads and takes no longer than a second for a line of a megabyte. Each module also exports `RULES`, its table of
+`Rule(code, severity, rule, message)`: the message is the text with `{field}` places, the one text CI, `make check`, Share and
+`explain` all use.
 
 This file holds what the families share:
 
 - `Rule`, `say` and `problem`: the table row and how a message is made of it. Only a lower-case `{field}` that the rule names
   is replaced, so a message can hold `${NAME:-}` or `${PREFIX_NAME}` as they are.
-- `Context` and `context(tree)`: what a rule knows besides the tree (the catalog's `catalog.yml` and `standard.json`, the
-  commits of the change, the Lab's seeder), read once.
+- `Context` and `context(tree)`: what a rule knows besides the tree (the catalog's `catalog.yml`, the commits of the change, the
+  Lab's seeder), read once.
 - `outline(text)`: the block-style YAML of a Compose file as a tree of keys and values, with no YAML library and no
   recursion, for the rules that must know where in a file a key is (SE04, IM).
 - The places of a catalog: its units and its Compose files."""
 
 import bisect
-import json
 import re
-from typing import Callable, Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, NamedTuple, Optional, Tuple
 
-from ..report import ERROR, WARNING, Problem
+from ..report import Problem
+from ..store import OTHER_FILE as OTHER_LIMIT, TEXT_FILE as TEXT_LIMIT, TEXT_SUFFIXES, _unit_of
 
-# The most a rule reads of a file, which is what ST09 lets it be: 1 MB for the files the Lab reads as text (`TEXT_SUFFIXES`), 2 MB
-# for any other. A file over its limit is an error of its own, so no file is left unread without a finding
-TEXT_LIMIT = 1024 * 1024
-OTHER_LIMIT = 2 * 1024 * 1024
-TEXT_SUFFIXES = (".yml", ".yaml", ".md", ".json")
 # A rule reports at most this many findings of one code in one file
 PER_FILE = 100
-# The folders of a catalog that hold units , and the kind of each
-AREAS = {"addons": "addon", "setups": "setup", "playgrounds": "playground"}
 # The Compose files of a unit and of the catalog
 COMPOSE_NAMES = ("compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml")
 FAMILIES = ("SD", "ST", "SE", "CR", "WF", "DF", "GD", "CO", "IM")
@@ -77,36 +70,26 @@ class Context(NamedTuple):
     """What the rules are given besides the `Tree`. Every field has a default, so a rule works with `Context()`.
 
     catalog        the scalars of the `x-gravitee-catalog` block of `catalog.yml` (`id`, `license`, `images`, ...)
-    standard       `.github/standard.json` as a mapping, or None
     git            whether this is a repository with the standard (it has `.github/`); a folder catalog needs less
     history        a `tree.History` (or anything with `commits()` and `added()`): the commits of the change, or None
     units          the resolved units of the project (`images.units_of`), when the caller has loaded them with Compose
     seeder_images  the repositories (no tag) of `x-gravitee.seeder.image` of the Lab's core file
     seeder_paths   where the Lab's seeder is from the root of a catalog (an installed catalog is three folders below the Lab)
-    is_seeder      `f(unit_folder, context) -> bool` instead of seeder_paths, for a caller that knows the Lab's real folders
-    private        identifiers of private catalogs (SE06, when Share targets a Public catalog)
     online         the checks that need GitHub were asked for
     ci             the run is CI's
     repository     OWNER/REPO of this repository, when known (IM04)
-    base           the commit the change is measured from, or ""
     partial        the tree is a part of a catalog (the files Share staged), so the files a whole catalog has are not asked for
-    notes          a list a rule appends a sentence to for each thing it could not read (it becomes `Result.skipped`), or None
     """
     catalog: Optional[dict] = None
-    standard: Optional[dict] = None
     git: bool = True
     history: Optional[object] = None
     units: Optional[list] = None
     seeder_images: Tuple[str, ...] = ()
     seeder_paths: Tuple[str, ...] = ("../../../seeder",)
-    is_seeder: Optional[Callable] = None
-    private: Tuple[str, ...] = ()
     online: bool = False
     ci: bool = False
     repository: str = ""
-    base: str = ""
     partial: bool = False
-    notes: Optional[list] = None
 
     def meta(self, key: str) -> str:
         """A scalar of `catalog.yml`, or ""."""
@@ -128,23 +111,13 @@ def catalog_meta(text: str) -> dict:
 
 
 def context(tree, **given) -> Context:
-    """The Context of a tree: `catalog` from its `catalog.yml`, `standard` from `.github/standard.json` and `git` from whether
-    the tree has a `.github/`, each unless `given`. Anything else in `given` is a field of Context."""
+    """The Context of a tree: `catalog` from its `catalog.yml` and `git` from whether the tree has a `.github/`, each unless
+    `given`. Anything else in `given` is a field of Context."""
     if "catalog" not in given:
         data = tree.read("catalog.yml", TEXT_LIMIT)
         given["catalog"] = catalog_meta(data.decode("utf-8", "replace")) if data is not None else {}
-    paths = [each.path for each in tree.entries()]
-    if "standard" not in given:
-        data = tree.read(".github/standard.json", 4097)
-        standard = None
-        if data is not None and len(data) <= 4096:
-            try:
-                standard = json.loads(data.decode("utf-8"))
-            except (ValueError, RecursionError):
-                standard = None
-        given["standard"] = standard if isinstance(standard, dict) else None
     if "git" not in given:
-        given["git"] = given["standard"] is not None or any(path.startswith(".github/") for path in paths)
+        given["git"] = any(each.path.startswith(".github/") for each in tree.entries())
     return Context(**given)
 
 
@@ -157,20 +130,15 @@ def basename(path: str) -> str:
 
 
 def read_limit(path: str) -> int:
-    """The most a rule reads of the file at `path`: what ST09 lets it be (a test keeps this equal to the Lab's own limits)."""
+    """The most a rule reads of the file at `path`, which is what ST09 lets it be: a file over its limit is an error of its own, so
+    no file is left unread without a finding."""
     return TEXT_LIMIT if path.lower().endswith(TEXT_SUFFIXES) else OTHER_LIMIT
 
 
 def unit_of(path: str) -> Optional[Tuple[str, str]]:
     """(kind, name) of the unit a path belongs to, or None: `addons/<name>/...` and `playgrounds/<name>/...` below the folder
     and `setups/<name>.yml`. The guides directly under a kind folder belong to no unit."""
-    parts = path.split("/")
-    kind = AREAS.get(parts[0])
-    if kind == "setup":
-        return (kind, parts[1][:-4]) if len(parts) == 2 and parts[1].endswith(".yml") else None
-    if kind and len(parts) >= 3:
-        return kind, parts[1]
-    return None
+    return _unit_of(path.split("/"))
 
 
 def is_compose(path: str) -> bool:
@@ -206,19 +174,6 @@ def garbled(text: str) -> bool:
     return text.count("�") * 4 >= len(text) > 0
 
 
-def texts(tree, limit: Optional[int] = None) -> Iterator[Tuple[str, str]]:
-    """(path, text) of every regular file of a tree that is at most `limit` bytes (by default what `read_limit` says of its
-    name), in the order of the listing, as `text_of` reads it. A file that is larger or cannot be read is not given."""
-    for entry in tree.entries():
-        wanted = limit if limit is not None else read_limit(entry.path)
-        if entry.mode not in ("100644", "100755") or entry.size > wanted:
-            continue
-        data = tree.read(entry.path, wanted)
-        if data is None:
-            continue
-        yield entry.path, text_of(data)
-
-
 def line_of(offsets: List[int], position: int) -> int:
     """The number (from 1) of the line that holds the character at `position`, given the offsets of the line feeds."""
     return bisect.bisect_left(offsets, position) + 1
@@ -246,21 +201,18 @@ _BLOCK = re.compile(r"[|>][+-]?[0-9]?[+-]?")
 class Node:
     """A line of a YAML file: its `key` (None for a list item that is a plain value), the `value` text after the colon
     (comment removed, quotes kept; "" when the value is the block below), its `line`, its `indent` (the column of the key) and
-    its `children`. `anchor` is the `&name` it carries, `item` whether it came from a list item."""
-    __slots__ = ("key", "value", "line", "indent", "children", "anchor", "item")
+    its `children`. `item` is whether it came from a list item."""
+    __slots__ = ("key", "value", "line", "indent", "children", "item")
 
-    def __init__(self, key, value, line, indent, anchor=None, item=False):
+    def __init__(self, key, value, line, indent, item=False):
         self.key, self.value, self.line, self.indent = key, value, line, indent
-        self.anchor, self.item, self.children = anchor, item, []
+        self.item, self.children = item, []
 
     def get(self, key: str) -> Optional["Node"]:
         for child in self.children:
             if child.key == key:
                 return child
         return None
-
-    def __repr__(self):
-        return f"Node({self.key!r}, {self.value!r}, line {self.line}, {len(self.children)} children)"
 
 
 class Outline(NamedTuple):
@@ -411,7 +363,7 @@ def outline(text: str) -> Outline:
                         break
                 elif _balanced(value):
                     break
-        node = Node(key, value, number, indent if key is not None else dash, anchor, item)
+        node = Node(key, value, number, indent if key is not None else dash, item)
         _attach(stack, node, indent if key is not None else dash, key is None)
         if anchor:
             anchors[anchor] = node
@@ -463,9 +415,3 @@ def merged(node: Node, anchors: Dict[str, Node]) -> Dict[str, Node]:
                     out[child.key] = child
         depth += 1
     return out
-
-
-__all__ = ["AREAS", "COMPOSE_NAMES", "Context", "ERROR", "FAMILIES", "HYGIENE", "Node", "Outline", "PER_FILE", "Problem", "Rule",
-           "OTHER_LIMIT", "TEXT_LIMIT", "TEXT_SUFFIXES", "WARNING", "basename", "catalog_meta", "context", "garbled",
-           "is_binary", "is_compose", "line_of", "merged", "newlines", "outline", "problem", "read_limit", "say", "scalar",
-           "strip_comment", "table", "text_of", "texts", "unit_of", "walk"]

@@ -131,8 +131,8 @@ export function dialogOf(id, panels, { large = false, steps = [], closed = () =>
 
 // A dialog of one form, the size of the create form. Answers what opens it: a title, `fill`, which sets the fields, and the word of the
 // button when it is not its own.
-export function formDialog(id, fields, action, submit, after, lacks = () => "", closed = () => {}) {
-  const { open } = dialogOf(id, [{ fields, action, submit, after, lacks }], { closed });
+export function formDialog(id, fields, action, submit, after, lacks = () => "") {
+  const { open } = dialogOf(id, [{ fields, action, submit, after, lacks }]);
   return (title, fill, said) => open(title, { fill, said });
 }
 
@@ -142,4 +142,4 @@ export const field = (id, label, control, term = null) => `<div class="field"><s
   term ? tipHtml(icon("info"), term[0] === label ? term.slice(1) : term, "plat-info", label) : ""}</span>${control}</div>`;
 
 // A line under the fields: where a value comes from, or what the action does to what runs. Hidden while it has nothing to say.
-export const note = (id, html = "", hidden = false) => `<p class="field-note" id="${id}" ${hidden ? "hidden" : ""}>${html}</p>`;
+export const note = (id) => `<p class="field-note" id="${id}" hidden></p>`;

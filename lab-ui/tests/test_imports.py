@@ -5,12 +5,10 @@ paths and products, then docker, then the library and gravitee, then the server,
 import ast
 import importlib
 import pkgutil
+import sys
 import unittest
 
 import lab_ui
-
-# A stage of the standard that a later level ships: standard._reusable reads its absence and says so
-LATER = {("lab_ui.catalogs.standard", "workflows")}
 
 # The packages of the engine, in the order they import each other. The catalogs (catalogs/) and the commands at the root (e2e.py,
 # compat.py) are not in it
@@ -80,13 +78,27 @@ class Imports(unittest.TestCase):
                     continue
                 home = importlib.import_module(target)
                 for each in node.names:
-                    if each.name == "*" or hasattr(home, each.name) or (name, each.name) in LATER:
+                    if each.name == "*" or hasattr(home, each.name):
                         continue
                     try:
                         importlib.import_module(f"{target}.{each.name}")
                     except ImportError:
                         unresolved.append(f"{name}:{node.lineno} imports {each.name} from {target}")
         self.assertEqual([], unresolved)
+
+    @unittest.skipUnless(hasattr(sys, "stdlib_module_names"), "Python 3.9 does not list its standard library")
+    def test_every_import_at_any_depth_is_the_lab_or_the_standard_library(self):
+        """A run with no package installed fails on an import at the top of a file, and not on one a function makes."""
+        foreign = []
+        for found in pkgutil.walk_packages(lab_ui.__path__, "lab_ui."):
+            with open(importlib.import_module(found.name).__file__, encoding="utf-8") as handle:
+                tree = ast.parse(handle.read())
+            for node in ast.walk(tree):
+                names = [each.name for each in node.names] if isinstance(node, ast.Import) else \
+                    [node.module] if isinstance(node, ast.ImportFrom) and not node.level else []
+                foreign += [f"{found.name}:{node.lineno} imports {name}" for name in names
+                            if name.partition(".")[0] not in {"lab_ui", *sys.stdlib_module_names}]
+        self.assertEqual([], foreign)
 
 
 class OneWay(unittest.TestCase):

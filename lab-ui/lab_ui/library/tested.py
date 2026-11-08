@@ -11,8 +11,8 @@ from ..docker import compose
 from . import layers, moves
 from .. import paths
 
-FILE = f"{paths.LAB_DIR}/tested.json"   # relative to the project
-KEPT = 20   # per playground: the latest ones
+FILE = moves.TESTED   # relative to the project
+KEPT = moves.TESTED_KEPT
 
 
 def read():
@@ -88,14 +88,9 @@ def _write(held):
     paths.write_atomic(target, json.dumps(held, indent=2, sort_keys=True), mode=0o600)
 
 
-def moved(kind, old, new=None):
-    """A playground that became a catalog's, or was renamed, takes what started well on this machine with it to the id `new`
-    (`moves.rekey`: where `new` has sets already the two are joined, the same versions once); one deleted without `new` loses
-    its sets. Only a playground has tested sets: any other kind is no business of this file."""
+def moved(kind, old):
+    """A playground deleted loses its sets. Only a playground has tested sets: any other kind is no business of this file."""
     if kind != "playground":
-        return
-    if new:
-        moves.rekey({f"{kind}:{old}": new})
         return
     held = read()
     if old in held:

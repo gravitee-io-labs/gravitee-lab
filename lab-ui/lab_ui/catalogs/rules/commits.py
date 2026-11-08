@@ -16,7 +16,7 @@ import re
 from typing import List, Optional, Tuple
 
 from ..report import ERROR, WARNING, Problem
-from . import Context, context, problem, table
+from . import Context, problem, table
 
 RULES = table([
     ("CR01", ERROR, "A commit of BASE..HEAD whose author, committer or Co-authored-by trailer names a tool",
@@ -73,9 +73,8 @@ def trailers(message: str) -> List[Tuple[str, str]]:
     return found
 
 
-def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
+def check(tree, ctx: Context) -> List[Problem]:
     """CR01 and CR02 over the commits of `ctx.history`; nothing without one."""
-    ctx = ctx if ctx is not None else context(tree)
     if ctx.history is None:
         return []
     found: List[Problem] = []
@@ -92,6 +91,3 @@ def check(tree, ctx: Optional[Context] = None) -> List[Problem]:
         if credited(commit.message):
             found.append(problem(RULES, "CR02", "", 0, sha7=short))
     return found
-
-
-__all__ = ["ADDRESSES", "CREDITS", "NAMES", "RULES", "check", "credited", "is_tool", "trailers"]

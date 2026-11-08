@@ -3,7 +3,7 @@
 // is left. Its height and whether it is folded are kept in this browser, one for every playground. The rules are in split.js.
 
 import { $, esc, icon, recall, remember } from "../core.js";
-import { termHeight, termLimits, termEdge, termNudge } from "./split.js";
+import { termHeight, termLimits, edge, termNudge } from "./split.js";
 import { Shell } from "./terminal.js";
 
 const KEPT = "term:height";    // the height the person chose
@@ -57,7 +57,7 @@ export const TermPane = {
     const bar = $(".pg-term-divider", pane), at = now(), { min, max } = termLimits(room());
     pane.style.setProperty("--term-h", `${at}px`);
     for (const [name, value] of [["min", min], ["max", max], ["now", at], ["text", `${at} px`]]) bar.setAttribute(`aria-value${name}`, value);
-    bar.dataset.edge = termEdge(at, room());
+    bar.dataset.edge = edge(at, { min, max });
     shell?.refit();
   },
 
@@ -91,7 +91,6 @@ export const TermPane = {
   // Opens the panel if it is folded, and runs the command at the shell's prompt
   async run(text) {
     if (folded()) fold(false);
-    shell ||= new Shell($(".pg-term-screen", pane), item.id, () => {});
     await shell.run(text);
   },
 
