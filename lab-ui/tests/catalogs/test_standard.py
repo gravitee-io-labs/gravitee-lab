@@ -651,7 +651,8 @@ class Drift(Case):
             "platforms": ("platforms is a list of linux/amd64, linux/arm64 or both", [[], ["linux/riscv64"], "linux/amd64", ["linux/amd64"] * 2]),
             "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}",
                       [[], "hub", {"Hub": {"repository": "a/b", "ref": LAB_COMMIT}}, {"hub": {"repository": "a/b", "ref": "main"}},
-                       {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}]),
+                       {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"},
+                       {"hub": {"repository": "a/b", "ref": LAB_COMMIT, "public": "true"}}]),
         }
         for key, (problem, values) in bad.items():
             for value in values:
@@ -661,8 +662,9 @@ class Drift(Case):
 
     def test_a_need_at_a_full_commit_is_good(self):
         base = json.loads(render()[".github/standard.json"])
-        files = {**render(), ".github/standard.json": json.dumps({**base, "needs": {"hub": {"repository": "acme/hub", "ref": LAB_COMMIT}}}).encode()}
-        self.assertEqual([each for each in self.check(files) if each.code == "SD04"], [])
+        for more in ({}, {"public": True}, {"public": False}):
+            files = {**render(), ".github/standard.json": json.dumps({**base, "needs": {"hub": {"repository": "acme/hub", "ref": LAB_COMMIT, **more}}}).encode()}
+            self.assertEqual([each for each in self.check(files) if each.code == "SD04"], [])
 
     def test_a_lab_that_is_not_an_address_and_a_commit(self):
         base = json.loads(render()[".github/standard.json"])

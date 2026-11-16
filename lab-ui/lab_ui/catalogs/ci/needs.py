@@ -1,8 +1,9 @@
 """`ci needs`: the catalogs a catalog requires, fetched at the commit its standard.json names and linked, so that `check` and
 `index` read the catalog together with what it includes.
 
-A catalog that includes another one cannot be read alone (`check` says so and stops). While that other catalog is private,
-CI reads it with a read-only deploy key of its own repository, the secret NEEDS_DEPLOY_KEY, which this stage writes to a file
+A catalog that includes another one cannot be read alone (`check` says so and stops). A public dependency (`public: true`)
+is fetched over HTTPS without credentials. A private one uses a read-only deploy key of its own repository, the secret
+NEEDS_DEPLOY_KEY, which this stage writes to a file
 of its own for the length of the fetch and nothing else. `.github/standard.json` names what is needed:
 
     "needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>"}}
@@ -36,7 +37,7 @@ LIMIT = 4096   # a standard.json is under 4 KB
 Runner = Callable[[List[str], Dict[str, str]], Tuple[int, str]]
 
 
-def declared(folder: str) -> Dict[str, Dict[str, str]]:
+def declared(folder: str) -> Dict[str, dict]:
     """{id: {repository, ref}} of `.github/standard.json` in `folder`: empty when it asks for nothing, a Usage when it asks
     for something that is not a catalog at a full commit."""
     path = Path(folder) / ".github" / "standard.json"
@@ -60,6 +61,10 @@ def declared(folder: str) -> Dict[str, Dict[str, str]]:
                 or not isinstance(what.get("ref"), str) or not COMMIT.fullmatch(what["ref"]):
             raise Usage(f"needs.{report.printable(str(name)[:40])} is {{repository: OWNER/NAME, ref: a full commit}}")
         found[name] = {"repository": what["repository"], "ref": what["ref"]}
+        if "public" in what:
+            if type(what["public"]) is not bool:
+                raise Usage(f"needs.{name}.public is true or false")
+            found[name]["public"] = what["public"]
     return found
 
 
@@ -74,14 +79,19 @@ def run(command: List[str], env: Dict[str, str]) -> Tuple[int, str]:
     return done.returncode, done.stdout
 
 
-def fetch(what: Dict[str, str], key: str, runner: Runner, into: Path) -> Optional[str]:
+def fetch(what: dict, key: Optional[str], runner: Runner, into: Path) -> Optional[str]:
     """The reason a catalog could not be fetched, or None: `what["ref"]` of `what["repository"]` in `into`."""
-    ssh = f"ssh -i {shlex.quote(key)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
+    if what.get("public"):
+        address = f"https://github.com/{what['repository']}.git"
+        environment = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    else:
+        address = f"git@github.com:{what['repository']}.git"
+        environment = {"GIT_SSH_COMMAND": f"ssh -i {shlex.quote(key)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes"}
     steps = [["git", "init", "-q", str(into)],
-             ["git", "-C", str(into), "fetch", "-q", "--depth", "1", f"git@github.com:{what['repository']}.git", what["ref"]],
+             ["git", "-C", str(into), "fetch", "-q", "--depth", "1", address, what["ref"]],
              ["git", "-C", str(into), "checkout", "-q", "--detach", "FETCH_HEAD"]]
     for step in steps:
-        code, output = runner(step, {"GIT_SSH_COMMAND": ssh})
+        code, output = runner(step, environment)
         if code:
             last = [line for line in output.strip().splitlines() if line.strip()][-1:] or [f"exit {code}"]
             return report.printable(last[0])[:200]
@@ -100,23 +110,25 @@ def main(argv, out, err, **seams) -> int:
     environment = seams.get("environ", os.environ)
     secret = environment.get(KEY, "")
     problems = []
-    if not secret.strip():
-        problems.append(problem("ND01", ".github/standard.json", ids=", ".join(sorted(needs))))
+    private = sorted(name for name, what in needs.items() if not what.get("public"))
+    if private and not secret.strip():
+        problems.append(problem("ND01", ".github/standard.json", ids=", ".join(private)))
         return conclude(problems, args, out, "make ci", title="Catalogs it needs")
     runner: Runner = seams.get("runner") or run
     linker = seams.get("linker") or link
     where = Path(seams.get("into") or paths.ROOT / ".needs")
-    folder = Path(tempfile.mkdtemp(prefix="needs-"))
+    folder = Path(tempfile.mkdtemp(prefix="needs-")) if private else None
     try:
-        keyfile = folder / "key"
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        with os.fdopen(os.open(keyfile, flags, 0o600), "w", encoding="utf-8") as handle:
-            handle.write(secret.rstrip("\n") + "\n")
+        keyfile = folder / "key" if folder else None
+        if keyfile:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            with os.fdopen(os.open(keyfile, flags, 0o600), "w", encoding="utf-8") as handle:
+                handle.write(secret.rstrip("\n") + "\n")
         for name in sorted(needs):
             into = where / name
             shutil.rmtree(into, ignore_errors=True)
             into.mkdir(parents=True)
-            why = fetch(needs[name], str(keyfile), runner, into)
+            why = fetch(needs[name], str(keyfile) if keyfile else None, runner, into)
             if why is None:
                 why = linker(into)
             if why is not None:
@@ -124,7 +136,8 @@ def main(argv, out, err, **seams) -> int:
             else:
                 out.write(f"Needs: {name} at {needs[name]['ref'][:7]}\n" if not args.ci else "")
     finally:
-        shutil.rmtree(folder, ignore_errors=True)   # the key goes with it
+        if folder:
+            shutil.rmtree(folder, ignore_errors=True)   # the key goes with it
     return conclude(problems, args, out, "make ci", title="Catalogs it needs")
 
 

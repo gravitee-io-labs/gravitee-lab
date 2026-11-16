@@ -1,4 +1,4 @@
-"""`catalog.py ci needs`: the catalogs a catalog requires are fetched with the key of the secret NEEDS_DEPLOY_KEY and linked."""
+"""`catalog.py ci needs`: public catalogs use anonymous HTTPS, private catalogs use a read-only key, and both pin commits."""
 
 import io
 import json
@@ -7,6 +7,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from lab_ui.catalogs.ci import main, needs
 
@@ -43,6 +44,7 @@ class Needs(unittest.TestCase):
         bad = [{"needs": []}, {"needs": {"Gravitee": {"repository": "a/b", "ref": COMMIT}}},
                {"needs": {"g": {"repository": "a/b", "ref": "main"}}}, {"needs": {"g": {"repository": "ab", "ref": COMMIT}}},
                {"needs": {"g": {"repository": "a/b;rm", "ref": COMMIT}}}, {"needs": {"g": "x"}}, "not json", "[1]"]
+        bad += [{"needs": {"g": {"repository": "a/b", "ref": COMMIT, "public": value}}} for value in ("true", 1, None)]
         for data in bad:
             with self.subTest(data=data):
                 folder, into = self.catalog(data)
@@ -57,6 +59,33 @@ class Needs(unittest.TestCase):
         self.assertEqual((code, ran), (1, []))
         self.assertIn("NEEDS_DEPLOY_KEY is not set", out)
         self.assertIn("gravitee", out)
+
+    def test_public_dependencies_use_https_without_a_key_even_when_a_secret_is_available(self):
+        for environment in ({}, {needs.KEY: KEY}):
+            with self.subTest(secret=bool(environment)):
+                folder, into = self.catalog({"needs": {"hub": {"repository": "acme/hub", "ref": COMMIT, "public": True}}})
+                calls, linked = [], []
+                def runner(command, env):
+                    calls.append(command)
+                    self.assertNotIn("GIT_SSH_COMMAND", env)
+                    self.assertEqual(env, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+                    return 0, ""
+                with mock.patch.object(needs.tempfile, "mkdtemp", side_effect=AssertionError("No key file is needed")):
+                    code, out, err = self.stage(folder, into, environment, runner, linked.append)
+                self.assertEqual((code, err), (0, ""), out)
+                fetch = next(call for call in calls if "fetch" in call)
+                self.assertEqual(fetch[-2:], ["https://github.com/acme/hub.git", COMMIT])
+                self.assertEqual([path.name for path in linked], ["hub"])
+
+    def test_a_mixed_set_uses_the_key_only_for_private_repositories(self):
+        folder, into = self.catalog({"needs": {"public": {"repository": "acme/public", "ref": COMMIT, "public": True},
+                                              "private": {"repository": "acme/private", "ref": COMMIT}}})
+        calls = []
+        code, out, err = self.stage(folder, into, {needs.KEY: KEY}, lambda cmd, env: calls.append((cmd, env)) or (0, ""))
+        self.assertEqual((code, err), (0, ""), out)
+        for command, environment in calls:
+            if "fetch" in command:
+                self.assertEqual("GIT_SSH_COMMAND" in environment, command[-2].startswith("git@"))
 
     def test_each_need_is_fetched_by_its_commit_with_the_key_in_a_private_file_that_is_gone_after(self):
         folder, into = self.catalog({"standard": 1, "needs": {"b": {"repository": "acme/b", "ref": "b" * 40},
@@ -88,6 +117,13 @@ class Needs(unittest.TestCase):
         code, out, _ = self.stage(folder, into, {needs.KEY: KEY}, linker=lambda path: "it has no catalog.yml")
         self.assertEqual(code, 1)
         self.assertIn("it has no catalog.yml", out)
+
+    def test_a_public_fetch_failure_does_not_ask_for_a_key(self):
+        folder, into = self.catalog({"needs": {"hub": {"repository": "acme/hub", "ref": COMMIT, "public": True}}})
+        code, out, _ = self.stage(folder, into, runner=lambda cmd, env: (128, "fatal: network unavailable"))
+        self.assertEqual(code, 1)
+        self.assertIn("network unavailable", out)
+        self.assertNotIn("NEEDS_DEPLOY_KEY", out)
 
 
 if __name__ == "__main__":

@@ -425,7 +425,7 @@ def parse_standard(raw: bytes) -> Tuple[Optional[dict], List[Tuple[str, str]]]:
         if not isinstance(needs, dict) or len(needs) > 10 or any(
                 not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,38}", name) or not isinstance(what, dict)
                 or not lab_repository_ok(what.get("repository")) or not isinstance(what.get("ref"), str)
-                or not _COMMIT.fullmatch(what["ref"]) for name, what in needs.items()):
+                or not _COMMIT.fullmatch(what["ref"]) or type(what.get("public", False)) is not bool for name, what in needs.items()):
             found.append((ERROR, "needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}"))
     for key in sorted(set(data) - {"standard", "form", "lab", "platforms", "needs"}, key=str)[:5]:
         found.append((WARNING, f"{printable(str(key))[:40]} is not a key of the standard"))

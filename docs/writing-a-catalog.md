@@ -135,14 +135,15 @@ who adds the catalog decides ([Items that use your machine](catalogs.md#items-th
 ## A catalog that needs another
 
 An item can include an item of another catalog, and `catalog.yml` says which catalog it needs (`requires.catalogs`). `check`
-reads such a catalog together with the one it needs, and refuses to read it alone. In CI, while that other catalog is private,
-`.github/standard.json` names it and the commit to read:
+reads such a catalog together with the one it needs, and refuses to read it alone. In CI, `.github/standard.json` names it
+and the commit to read. Set `public` to `true` for a public repository:
 
 ```json
-"needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>"}}
+"needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>", "public": true}}
 ```
 
-The **Checks** job fetches it with `catalog.py ci needs`, using the secret `NEEDS_DEPLOY_KEY`: a read-only deploy key of that
+The **Checks** job fetches public dependencies over HTTPS without credentials. For a private dependency, leave `public`
+out or set it to `false`. `catalog.py ci needs` then uses the secret `NEEDS_DEPLOY_KEY`: a read-only deploy key of that
 repository, stored like `LAB_DEPLOY_KEY` in the Actions and the Dependabot stores. `make settings` audits both. Move the commit
 by hand when the other catalog moves.
 
