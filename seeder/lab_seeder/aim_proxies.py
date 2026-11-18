@@ -15,9 +15,10 @@ An MCP proxy is set up in three steps, each writing only what differs from its f
 
 A studio is only seeded when a file of seed/aim/studios says so: it needs the tools of the catalog (MCP servers and APIs
 imported before it) and a gateway whose MCP libraries can serve a studio. Its file has one of two shapes, told apart by
-its keys. A file with `plan` and `fga` is created with its plan and has its authorization check switched. Either shape gives
-its protocol versions with the key its build takes: one `protocolVersion` on the amp-demo build, the list
-`supportedProtocolVersions` on a release, which gets the list from either key. A file with `access` is built in steps, each
+its keys. A file with `plan` and `fga` is created with its plan and has its authorization check switched. Either shape sends
+each API of its tools the key its `upstreamAuth` lists, and gives its protocol versions with the key its build takes: one
+`protocolVersion` on the amp-demo build, the list `supportedProtocolVersions` on a release, which gets the list from either
+key. A file with `access` is built in steps, each
 writing only what differs:
 
     1. It is created with the registration plan (the platform registers the studio in Access Management with it), the
@@ -445,6 +446,12 @@ class McpProxies:
             entries.append({"id": catalog[entity], **({"alias": spec["alias"]} if "alias" in spec else {})})
         return entries
 
+    def upstream_auth(self, spec):
+        """The key the studio sends to each API of its tools: `upstreamAuth` of its file, [{api, type, ...}], each by the
+        catalog source of its API, for either shape of studio."""
+        return [{"catalogSourceId": self.api_source(u["api"]), "upstreamAuth": {k: v for k, v in u.items() if k != "api"}}
+                for u in spec.get("upstreamAuth") or []]
+
     def api_source(self, name):
         """The catalog source an API of API Management gave its tools: a studio holds the key it calls that API with by it."""
         api = next((a for a in self.g.aim.rows("/catalog/api-tools/sources", gamma.CATALOG, q=name) if a["name"] == name), None)
@@ -478,6 +485,8 @@ class McpProxies:
         body = {"name": name, "description": spec.get("description"), "contextPath": path, **protocol_versions(spec),
                 "plans": [spec["plan"]],
                 "specification": {"tools": self.tools(spec["tools"]), "promptIds": [], "resourceIds": []}}
+        if spec.get("upstreamAuth"):
+            body["upstreamAuth"] = self.upstream_auth(spec)
         wanted = digest_of(body)
         found, recomposed = self.kept(name, path, wanted, body)
         if found is None:
@@ -599,8 +608,7 @@ class McpProxies:
                 "plans": [{"name": access["registration"]["name"], "security": {
                     "type": access["registration"]["type"], "configuration": access["registration"].get("configuration", {"scopes": []})}}],
                 "fgaEnabled": False,
-                "upstreamAuth": [{"catalogSourceId": self.api_source(u["api"]), "upstreamAuth": {k: v for k, v in u.items() if k != "api"}}
-                                 for u in spec.get("upstreamAuth") or []]}
+                "upstreamAuth": self.upstream_auth(spec)}
         if "description" in spec:
             body["description"] = spec["description"]
         wanted = digest_of(body)

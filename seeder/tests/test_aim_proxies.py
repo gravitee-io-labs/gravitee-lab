@@ -57,6 +57,8 @@ class World:
             ("PUT", re.compile(AIM + "/mcp-studios/[^/]+/fga")): self.set_fga,
             ("GET", AIM + "/catalog/mcp-servers"): lambda call: self.paged(self.servers),
             ("GET", AIM + "/catalog/mcp-tools"): lambda call: self.paged([{"id": i, "entityId": e} for e, i in self.tools.items()]),
+            ("GET", AIM + "/catalog/api-tools/sources"): lambda call: self.paged([{"id": "api-open", "name": "Acme Bakery Open API"}]),
+            ("GET", AIM + "/catalog/sources"): lambda call: self.paged([{"id": "source-open", "definition": {"apiId": "api-open"}}]),
             ("GET", re.compile(AUTOMATION + "/[^/]+")): self.get_proxy,
             ("PUT", AUTOMATION): self.put_proxy,
             ("DELETE", re.compile(AUTOMATION + "/[^/]+")): self.delete_automation_proxy,
@@ -564,6 +566,13 @@ class Studios(WithStudio):
         self.assertEqual(studio["plans"][0]["security"]["type"], "OAUTH2_GENERIC")
         self.assertEqual(studio["plans"][0]["security"]["configuration"]["clientSecret"], "mcp-secret")
         self.assertIn("2026-07-28", studio["supportedProtocolVersions"])
+
+    def test_a_studio_made_in_one_go_sends_each_api_the_key_its_file_lists(self):
+        self.seed_files({"aim/studios/acme-bakery-toolkit.yaml": STUDIO_UNCHECKED + (
+            "\nupstreamAuth:\n  - {api: Acme Bakery Open API, type: api-key, apiKeyHeader: X-Gravitee-Api-Key, apiKey: tool-key}\n")})
+        self.seed()
+        self.assertEqual(self.the_studio()["upstreamAuth"], [{"catalogSourceId": "source-open", "upstreamAuth": {
+            "type": "api-key", "apiKeyHeader": "X-Gravitee-Api-Key", "apiKey": "tool-key"}}])
 
     def test_a_tool_is_found_by_the_id_the_catalog_gives_it_accents_dropped(self):
         self.seed_files({"aim/studios/acme-bakery-toolkit.yaml": STUDIO_UNCHECKED.replace(
