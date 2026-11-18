@@ -6,6 +6,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, suppress
@@ -118,6 +119,13 @@ def together(jobs):
     """Calls each of `jobs`, no argument, at the same time as SEED_WORKERS allows: steps of different kinds that do not depend on
     one another."""
     return parallel(lambda job: job(), jobs)
+
+
+def slugify(name):
+    """What the platform makes of a name in an entity id (a policy, a tool of the catalog): accents dropped, lower case,
+    a-z 0-9 _ -."""
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9_-]+", "-", ascii_name).strip("-")
 
 
 def excerpt(text, limit=500):

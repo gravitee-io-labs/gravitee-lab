@@ -30,14 +30,13 @@ draft while it does not, whatever its file says and whoever deployed or took it 
 import hashlib
 import json
 import re
-import unicodedata
 import uuid
 from contextlib import nullcontext
 from urllib.parse import quote
 
 from . import controls
 from .common import (HttpError, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, items, load, log, making, notes, owned,
-                     record, recorded, seed_file, unmade)
+                     record, recorded, seed_file, slugify, unmade)
 from .gamma import CATALOG, LISTS, Gamma
 
 SECTION = "authz"
@@ -357,11 +356,6 @@ def remember(source, saved):
 
 
 # --- Policies -------------------------------------------------------------------------------
-
-def slugify(name):
-    """What the platform makes of a policy name in the entity id of the policy: accents dropped, lower case, a-z 0-9 _ -."""
-    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
-    return re.sub(r"[^a-z0-9_-]+", "-", ascii_name).strip("-")
 
 
 def policy(api, spec, slug, policies):

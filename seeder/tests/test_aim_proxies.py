@@ -565,6 +565,12 @@ class Studios(WithStudio):
         self.assertEqual(studio["plans"][0]["security"]["configuration"]["clientSecret"], "mcp-secret")
         self.assertIn("2026-07-28", studio["supportedProtocolVersions"])
 
+    def test_a_tool_is_found_by_the_id_the_catalog_gives_it_accents_dropped(self):
+        self.seed_files({"aim/studios/acme-bakery-toolkit.yaml": STUDIO_UNCHECKED.replace(
+            "{api: Acme Bakery Open API, tool: getRate", "{api: Acmé Bakery Open API, tool: getRate")})
+        self.seed()
+        self.assertIn({"id": "tool-getRate", "alias": "get_rate"}, self.the_studio()["specification"]["tools"])
+
     def test_a_check_that_stays_off_is_not_written(self):
         self.with_the_check_off()
         self.seed()

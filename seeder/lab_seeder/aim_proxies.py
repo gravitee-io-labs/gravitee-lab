@@ -43,14 +43,13 @@ already (accepted, pending or paused) is left as it is, but for one the seed mad
 
 import json
 import os
-import re
 
 from . import controls
 from . import gamma
 from . import versions
 from .apim import ENDED, UNSUPPORTED, accept, digest_of, find_application, held_subscription, merge, subscribe
 from .common import (OK, Api, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, load, log, making, owned, record,
-                     recorded, setting, wait_until, waits_for_gateway)
+                     recorded, setting, slugify, wait_until, waits_for_gateway)
 
 SECTION = "aim-proxies"
 # The folders of the seed it owns
@@ -116,11 +115,6 @@ def protocol_versions(spec):
 def server_name(server):
     """The name an MCP server gave itself when it was discovered."""
     return ((server.get("definition") or {}).get("serverInfo") or {}).get("name")
-
-
-def slugify(text):
-    """How the catalog writes a name into an entity id."""
-    return re.sub(r"[^a-z0-9_-]+", "-", text.lower()).strip("-")
 
 
 def jsonrpc(answer):
