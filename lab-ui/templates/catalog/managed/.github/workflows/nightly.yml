@@ -1,8 +1,8 @@
 # Managed by the Lab catalog standard 12: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the
 # newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were
-# published have no fixable critical flaw. The newest Lab is code nobody has read yet, so its job gets no deploy keys or package
-# access; its checkout token only reads the catalog. A run that fails opens an issue, or adds to the one that is open.
+# published have no fixable critical flaw. The newest Lab has no package access. Read keys for a private Lab and its catalog
+# dependencies are passed only to their checkout and setup steps. A run that fails opens an issue, or adds to the one that is open.
 name: Nightly
 
 on:
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The newest Lab: a compatibility signal, with no deploy key or package access
+  # The newest Lab: a compatibility signal, with read keys only for checkout and dependency setup
   verify-latest:
     name: Newest Lab
     if: ${{ !github.event.repository.fork }}
@@ -36,9 +36,12 @@ jobs:
       - name: Check out the newest Lab
         uses: ./catalog/.github/actions/lab
         with:
+          key: ${{ secrets.LAB_DEPLOY_KEY }}
           latest: "true"
       - id: catalogs
         name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
         run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       # A standard that fell behind counts as a failure here (SD03), where a pull request only warns
       - name: The newest Lab reads the catalog

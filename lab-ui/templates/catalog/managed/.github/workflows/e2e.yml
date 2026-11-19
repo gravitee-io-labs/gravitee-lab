@@ -66,6 +66,10 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       # The pull request, as data: its files are read by the plan and tried from a folder of their own, and never run as a workflow
       - name: Check out the pull request
         if: ${{ inputs.pr != '' }}
@@ -133,6 +137,10 @@ jobs:
         env:
           SHA: ${{ inputs.sha }}
         run: python3 -I lab/lab-ui/catalog.py ci e2e-gate catalog --change change --sha "$SHA"
+      - name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       # The images of the platform and a database take the room a runner has: what it comes with and the lab does not use goes
       - name: Make room
         run: |

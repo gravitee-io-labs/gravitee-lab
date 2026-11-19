@@ -5,7 +5,7 @@
 # every Lab sees it at its next check. Every set tried, working or not, goes in the matrix, docs/compatibility.md. A set that does not
 # work opens an issue for its playground and minor version of Gravitee, closed when one works, and is not tried again until the
 # playground or the Lab changes. A run whose plan or record fails opens an issue too, closed by the next run that finishes.
-#   plan     what each playground is tried on: no secret
+#   plan     what each playground is tried on: read keys only for checkout and dependency setup
 #   try      one job a playground and a set of versions, in the environment e2e-nightly, which holds the license. What is on main was
 #            reviewed: its items may use this machine, each for the reason its x-gravitee.host_access gives
 #   record   the one job that writes: the Lab writes the sets that passed, the results being data that the plan checks and the Lab
@@ -57,6 +57,10 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       - name: Plan the jobs
         id: plan
         run: |
@@ -84,6 +88,10 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       # The images of the platform and a database take the room a runner has: what it comes with and the lab does not use goes
       - name: Make room
         run: |
@@ -152,6 +160,10 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       - name: Fetch the results
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

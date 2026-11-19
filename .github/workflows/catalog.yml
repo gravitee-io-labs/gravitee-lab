@@ -38,6 +38,9 @@ jobs:
           ref: ${{ vars.CATALOG_REF }}
           path: catalog
           persist-credentials: false
+      # Pull request code gets no dependency key; public dependencies use HTTPS.
+      - name: Catalogs it needs
+        run: python3 -I lab-ui/catalog.py ci needs catalog
       # The catalog is checked as the repository it is: the registry path of its images (IM04) is its own, not this one's
       - name: Check the catalog
         run: env GITHUB_REPOSITORY="$CATALOG_REPOSITORY" python3 lab-ui/catalog.py check catalog --ci

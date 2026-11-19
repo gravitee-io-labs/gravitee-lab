@@ -95,7 +95,7 @@
       "settings": []
     },
     "12": {
-      "summary": "CI's Apps job, Nightly and Publish fetch and link catalog dependencies on each runner that reads the catalog. Dependencies marked public use anonymous HTTPS. Newest Lab holds no deploy key; the other jobs use NEEDS_DEPLOY_KEY only for dependency setup, before build, test or runtime steps.",
+      "summary": "CI, Nightly, Publish, E2E and Gravitee versions fetch and link catalog dependencies on each runner that reads catalog units. Private Labs use LAB_DEPLOY_KEY only for checkout, and private catalog dependencies use NEEDS_DEPLOY_KEY only for setup, including Newest Lab. Public dependencies use anonymous HTTPS.",
       "manual": [],
       "settings": []
     }

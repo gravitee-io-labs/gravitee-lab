@@ -142,16 +142,16 @@ and the commit to read. Set `public` to `true` for a public repository:
 "needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>", "public": true}}
 ```
 
-The **Checks** and **Apps** jobs of CI, both **Nightly** jobs, and **Publish**'s **Plan**, **Images** and **Release** jobs fetch
-and link dependencies on their own runner with `catalog.py ci needs`, before reading the catalog. Public dependencies use
-anonymous HTTPS. For a private dependency, leave `public` out or set it to `false`: the setup step uses `NEEDS_DEPLOY_KEY`,
-a read-only deploy key of that repository, stored like `LAB_DEPLOY_KEY` in the Actions and the Dependabot stores.
-`make settings` audits both. Build, test and runtime steps receive no dependency key. Move the pinned commit by hand when
-the other catalog moves.
+Each runner that reads catalog units fetches and links its dependencies first with `catalog.py ci needs`: CI, Nightly,
+Publish, E2E and Gravitee versions. Public dependencies use anonymous HTTPS. For a private dependency, leave `public` out
+or set it to `false`: the setup step uses `NEEDS_DEPLOY_KEY`, a read-only deploy key of that repository, stored like
+`LAB_DEPLOY_KEY` in the Actions and the Dependabot stores. `make settings` audits both. Build, test and runtime steps
+receive no dependency key. Move the pinned commit by hand when the other catalog moves.
 
-**Newest Lab** is an early compatibility warning and holds no deploy key, including for the Lab checkout. It can fetch only
-public dependencies; a private dependency reports `ND01`. After a Lab release ships this change, upgrade the Lab pin and the
-managed files together with `catalog.py upgrade --lab-ref latest --write` before adding `public: true`.
+All generated catalog workflows, including **Newest Lab**, support private dependencies. A private Lab uses `LAB_DEPLOY_KEY`
+only for its checkout; leave that secret empty for a public Lab. After a Lab release ships this change, upgrade the Lab pin
+and managed files together with `catalog.py upgrade --lab-ref latest --write`. The Lab's own verification of proposed engine
+code stays keyless and requires public dependencies ([End-to-end runs](maintaining.md#end-to-end-runs)).
 
 ## Try it in the Lab
 
