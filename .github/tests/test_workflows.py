@@ -68,6 +68,41 @@ def step_with(body, marker):
 
 
 class WorkflowsTest(unittest.TestCase):
+    def test_each_engine_catalog_reader_fetches_public_dependencies_without_a_key(self):
+        readers = {"catalog": {"check": "Check the catalog"},
+                   "e2e": {"plan": "Link the catalog into the engine", "manifests": "Link the catalog into the engine",
+                           "e2e": "Link the catalog into the engine"}}
+        reads_units = re.compile(r"\b(?:catalog\.py\s+(?:check|index|link|ci\s+(?:plan|manifests|build|test|smoke|scan-built|"
+                                 r"scan-published|publish-plan|publish|release-notes|e2e-plan|versions-plan|versions-record|versions-release))\b|"
+                                 r"e2e_matrix\.py|image_manifests\.py|server\.py\s+--e2e)")
+        found = set()
+        for file in (ROOT / ".github/workflows").glob("*.yml"):
+            for job, body in jobs(file.read_text(encoding="utf-8")).items():
+                if any(reads_units.search(step) for step in steps(body)):
+                    found.add((file.stem, job))
+        self.assertEqual(found, {(workflow, job) for workflow, consumers in readers.items() for job in consumers})
+        for workflow, consumers in readers.items():
+            text = (ROOT / ".github/workflows" / (workflow + ".yml")).read_text(encoding="utf-8")
+            self.assertNotIn("NEEDS_DEPLOY_KEY", text)
+            for job, consumer in consumers.items():
+                with self.subTest(workflow=workflow, job=job):
+                    body = jobs(text)[job]
+                    setup = step_with(body, "name: Catalogs it needs")
+                    cli = "lab-ui/catalog.py" if workflow == "catalog" else "lab/lab-ui/catalog.py"
+                    code = [line.strip() for line in setup.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+                    self.assertEqual(code, ["- name: Catalogs it needs", "run: python3 -I " + cli + " ci needs catalog"])
+                    listed = steps(body)
+                    position = listed.index(setup)
+                    self.assertLess(listed.index(step_with(body, "name: Check out the catalog")), position)
+                    self.assertLess(listed.index(step_with(body, "name: Install Compose")), position)
+                    self.assertLess(position, listed.index(step_with(body, "name: " + consumer)))
+                    if workflow == "e2e":
+                        self.assertLess(listed.index(step_with(body, "name: Check out the engine")), position)
+                        if job == "e2e":
+                            self.assertLess(position, listed.index(step_with(body, "name: Make the lab's files and give it the license")))
+                        if job != "manifests":
+                            self.assertLess(listed.index(step_with(body, "name: The change is the one that was read")), position)
+
     def test_every_workflow_and_action_keeps_the_rules_of_any_workflow(self):
         """No pull_request_target, every action pinned to a commit, the token read-only, no `${{ }}` in a script, a timeout and a
         concurrency group, every checkout forgets its credentials, no cache, no hidden construct."""

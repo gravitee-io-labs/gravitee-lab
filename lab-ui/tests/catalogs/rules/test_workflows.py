@@ -557,6 +557,70 @@ class Passing(unittest.TestCase):
                 with self.subTest(file=name, form=form):
                     self.assertEqual([], [each.message for each in wf.problems(path_of(name), make(text_of(name)))])
 
+    def test_catalog_readers_fetch_dependencies_before_running(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+        readers = {
+            "ci": {"static": ("Check", "index catalog --out catalog.json"), "compile": ("Build the apps", None)},
+            "nightly": {"verify-latest": ("The newest Lab reads the catalog", "ci links catalog"),
+                        "verify-pinned": ("The published images have no fixable critical flaw", "ci scan-published catalog")},
+            "publish": {"plan": ("Whether this ref may publish, and what to build", None),
+                        "images": ("Build and push the images", None), "release": ("The notes and the index", None)},
+            "e2e": {"plan": ("Plan the jobs", None), "e2e": ("Try it", None)},
+            "versions": {"plan": ("Plan the jobs", None), "try": ("Try it", None),
+                         "record": ("Write the versions that passed", None)},
+        }
+        cli = "python3 -I lab/lab-ui/catalog.py "
+        command = cli + "ci needs catalog"
+        reads_units = re.compile(r"\bcatalog\.py\s+(?:check|index|link|ci\s+(?:plan|manifests|build|test|smoke|scan-built|"
+                                 r"scan-published|publish-plan|publish|release-notes|e2e-plan|versions-plan|versions-record|versions-release))\b")
+        for file, jobs in readers.items():
+            workflow = yaml.load(text_of(file), Loader=yaml.BaseLoader)
+            for job, (consumer, best_effort) in jobs.items():
+                with self.subTest(file=file, job=job):
+                    reader = workflow["jobs"][job]
+                    steps = reader["steps"]
+                    checkout, = [i for i, step in enumerate(steps) if step.get("uses") == "./catalog/.github/actions/lab"]
+                    setup, = [i for i, step in enumerate(steps)
+                              if step.get("name") == "Catalogs it needs" or command in step.get("run", "")]
+                    self.assertLess(checkout, setup)
+                    if file == "e2e" and job == "e2e":
+                        gate, = [i for i, step in enumerate(steps) if step.get("name") == "The change is the one that was read"]
+                        self.assertLess(gate, setup)
+                    else:
+                        self.assertEqual(setup, checkout + 1)
+                    first_reader = next(i for i, step in enumerate(steps) if reads_units.search(step.get("run", "")))
+                    self.assertLess(setup, first_reader)
+                    self.assertLess(setup, next(i for i, step in enumerate(steps) if step.get("name") == consumer))
+                    self.assertEqual(steps[checkout].get("with", {}).get("key"), "${{ secrets.LAB_DEPLOY_KEY }}")
+                    self.assertEqual(steps[setup]["name"], "Catalogs it needs")
+                    self.assertEqual(steps[setup]["run"], command)
+                    self.assertNotIn("if", steps[setup])
+                    self.assertNotIn("continue-on-error", steps[setup])
+                    if job == "verify-latest":
+                        self.assertEqual(steps[checkout].get("with"), {"key": "${{ secrets.LAB_DEPLOY_KEY }}", "latest": "true"})
+                    else:
+                        self.assertEqual(steps[checkout].get("with", {}).get("latest", "false"), "false")
+                    self.assertNotIn("needs_deploy_key", repr(workflow.get("env", {})).lower())
+                    self.assertNotIn("needs_deploy_key", repr(reader.get("env", {})).lower())
+                    self.assertEqual(steps[setup].pop("env"), {"NEEDS_DEPLOY_KEY": "${{ secrets.NEEDS_DEPLOY_KEY }}"})
+                    for step in steps[:setup] + steps[setup + 1:]:
+                        self.assertNotIn("needs_deploy_key", repr(step).lower())
+                    if best_effort:
+                        step, = [step for step in steps[setup + 1:] if step.get("run") == cli + best_effort]
+                        condition = "${{ !cancelled() && steps.%s.outcome == 'success' }}" % steps[setup]["id"]
+                        self.assertEqual(step.get("if"), condition)
+                    if file == "ci" and job == "static":
+                        plan, = [step for step in steps if step.get("name") == "What the change touches"]
+                        self.assertEqual(plan.get("if"), condition)
+                        manifests, = [step for step in steps if step.get("name") == "Every image exists in its registry"]
+                        self.assertEqual(manifests.get("if"), "${{ !cancelled() && steps.check.outcome == 'success' "
+                                         "&& steps.plan.outcome == 'success' }}")
+            with self.subTest(file=file):
+                self.assertNotIn("needs_deploy_key", repr(workflow).lower())
+
     def test_a_name_that_is_not_one_of_the_standards_has_the_rights_of_none(self):
         other = wf.problems(".github/workflows/other.yml", text_of("publish"))
         self.assertEqual(sorted({each.code for each in other}), ["WF13"])

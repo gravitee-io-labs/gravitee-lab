@@ -125,6 +125,60 @@ class Template(unittest.TestCase):
                         self.assertIsNotNone(found, line)
                         self.assertRegex(found[3], r"^# v\d+\.\d+\.\d+$", line)
 
+    def test_each_ci_runner_fetches_dependencies_before_reading_catalog_units(self):
+        try:
+            import yaml
+        except ImportError:
+            support.skip("PyYAML is not installed, the workflow dependency setup was not parsed")
+        files = render(**EVERYTHING)
+        cases = {
+            "ci": {"static": "Check", "compile": "Build the apps"},
+            "nightly": {"verify-latest": "The newest Lab reads the catalog",
+                        "verify-pinned": "The published images have no fixable critical flaw"},
+            "publish": {"plan": "Whether this ref may publish, and what to build", "images": "Build and push the images",
+                        "release": "The notes and the index"},
+            "e2e": {"plan": "Plan the jobs", "e2e": "Try it"},
+            "versions": {"plan": "Plan the jobs", "try": "Try it", "record": "Write the versions that passed"},
+        }
+        # These commands resolve catalog units; metadata-only commands (the PR gate, release guard, and seed lint) do not.
+        reads_units = re.compile(r"\bcatalog\.py\s+(?:check|index|link|ci\s+(?:plan|manifests|build|test|smoke|scan-built|"
+                                 r"scan-published|publish-plan|publish|release-notes|e2e-plan|versions-plan|versions-record|versions-release))\b")
+        found = set()
+        for path, data in files.items():
+            if path.startswith(".github/workflows/") and path.endswith(".yml"):
+                for job, runner in yaml.safe_load(data)["jobs"].items():
+                    if any(reads_units.search(step.get("run", "")) for step in runner.get("steps", [])):
+                        found.add((Path(path).stem, job))
+        self.assertEqual(found, {(workflow, job) for workflow, consumers in cases.items() for job in consumers})
+        for workflow, consumers in cases.items():
+            document = yaml.safe_load(files[f".github/workflows/{workflow}.yml"])
+            for job, consumer in consumers.items():
+                with self.subTest(workflow=workflow, job=job):
+                    latest = job == "verify-latest"
+                    runner = document["jobs"][job]
+                    steps = runner["steps"]
+                    names = [step.get("name") for step in steps]
+                    self.assertEqual(names.count("Catalogs it needs"), 1)
+                    fetch = names.index("Catalogs it needs")
+                    checkout = names.index("Check out the newest Lab" if latest else "Check out the Lab")
+                    self.assertLess(checkout, fetch)
+                    self.assertLess(fetch, names.index(consumer))
+                    if workflow == "e2e" and job == "e2e":
+                        self.assertLess(names.index("The change is the one that was read"), fetch)
+                    self.assertEqual(steps[checkout].get("with", {}).get("key"), "${{ secrets.LAB_DEPLOY_KEY }}")
+                    self.assertEqual(steps[fetch]["run"], "python3 -I lab/lab-ui/catalog.py ci needs catalog")
+                    self.assertNotIn("if", steps[fetch])
+                    self.assertNotIn("continue-on-error", steps[fetch])
+                    self.assertNotIn("NEEDS_DEPLOY_KEY", json.dumps(document.get("env", {})))
+                    self.assertNotIn("NEEDS_DEPLOY_KEY", json.dumps(runner.get("env", {})))
+                    for step in steps[:fetch] + steps[fetch + 1:]:
+                        self.assertNotIn("NEEDS_DEPLOY_KEY", json.dumps(step))
+                    if latest:
+                        self.assertEqual(steps[checkout].get("with"), {"key": "${{ secrets.LAB_DEPLOY_KEY }}", "latest": "true"})
+                    else:
+                        self.assertEqual(steps[checkout].get("with", {}).get("latest", "false"), "false")
+                    self.assertEqual(steps[fetch].get("env"), {"NEEDS_DEPLOY_KEY": "${{ secrets.NEEDS_DEPLOY_KEY }}"})
+
 
 class Golden(Case):
     """The engine's test renders the template, compares it with golden.json, and fails a change without a bump."""
@@ -649,9 +703,11 @@ class Drift(Case):
             "standard": ("standard is a whole number from 1: the level of the managed files in this repository", [0, -1, "1", True, 1.5, 1000]),
             "form": ("form is inline", ["sideways", "reusable", 1, None]),
             "platforms": ("platforms is a list of linux/amd64, linux/arm64 or both", [[], ["linux/riscv64"], "linux/amd64", ["linux/amd64"] * 2]),
-            "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}",
+            "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}, with an optional boolean public",
                       [[], "hub", {"Hub": {"repository": "a/b", "ref": LAB_COMMIT}}, {"hub": {"repository": "a/b", "ref": "main"}},
-                       {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}]),
+                       {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}] +
+                      [{"hub": {"repository": "a/b", "ref": LAB_COMMIT, "public": value}}
+                       for value in (None, 0, 1, "true", "false", [], {})]),
         }
         for key, (problem, values) in bad.items():
             for value in values:
@@ -661,8 +717,11 @@ class Drift(Case):
 
     def test_a_need_at_a_full_commit_is_good(self):
         base = json.loads(render()[".github/standard.json"])
-        files = {**render(), ".github/standard.json": json.dumps({**base, "needs": {"hub": {"repository": "acme/hub", "ref": LAB_COMMIT}}}).encode()}
-        self.assertEqual([each for each in self.check(files) if each.code == "SD04"], [])
+        for more in ({}, {"public": False}, {"public": True}):
+            with self.subTest(more=more):
+                need = {"repository": "acme/hub", "ref": LAB_COMMIT, **more}
+                files = {**render(), ".github/standard.json": json.dumps({**base, "needs": {"hub": need}}).encode()}
+                self.assertEqual([each for each in self.check(files) if each.code == "SD04"], [])
 
     def test_a_lab_that_is_not_an_address_and_a_commit(self):
         base = json.loads(render()[".github/standard.json"])

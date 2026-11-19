@@ -64,6 +64,12 @@ what the checks cannot: that the thing works. Its jobs and what they prove are i
 6. **The catalog to try**: the repository variable `CATALOG_REPOSITORY` (`owner/name`), without which nothing is tried, and `CATALOG_REF`
    for a known-good commit. While that catalog is private, the repository secret `CATALOG_DEPLOY_KEY`, a read-only deploy key of it.
 
+The Lab's own **Default catalog** and **E2E** verification jobs fetch the dependencies declared in the catalog's
+`.github/standard.json` before reading its units. These jobs execute proposed engine code and receive no `NEEDS_DEPLOY_KEY`: all
+dependencies must be marked `public: true`. A private dependency fails setup before any fetch. Generated catalog workflows support
+private dependencies with a setup-only read key; Newest Lab deliberately uses the Lab's main for its compatibility check.
+The public-dependency restriction applies to engine verification alone.
+
 A runner has 4 CPUs and 16 GB of memory in a public repository, enough for the playgrounds that ask for 10 GB. Disk is the tighter limit:
 the job removes what the runner comes with and the lab does not use before it starts. If a job runs out of one or the other, use a larger
 runner for the `e2e` job (`runs-on`).
