@@ -1,7 +1,8 @@
-# Managed by the Lab catalog standard 11: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 12: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # The untrusted lane. It runs the code of every pull request, forks included, so its token only reads and it writes nothing. It
-# holds no secret but the read key of the Lab, which exists only while the Lab is private (a fork never gets it). In the order it
-# fails fastest:
+# uses read-only deploy keys during setup for a private Lab or private dependencies. Fork pull requests receive no secrets
+# under GitHub's default settings.
+# In the order it fails fastest:
 #   Checks       the shape of the tree, the secrets, the files, the Lab's own check with its trust policy, what the change touches,
 #                whether every image it pulls exists, and on a push to main what is merged and not released yet
 #   Seed files   the seed files of the playgrounds that changed, read as the seeder reads them, and the catalog's own tests when it
@@ -47,7 +48,8 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
-      - name: Catalogs it needs
+      - id: catalogs
+        name: Catalogs it needs
         env:
           NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
         run: python3 -I lab/lab-ui/catalog.py ci needs catalog
@@ -76,7 +78,7 @@ jobs:
           UNITS: ${{ steps.plan.outputs.units }}
         run: python3 -I lab/lab-ui/catalog.py ci manifests catalog --units "$UNITS"
       - name: Index
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.catalogs.outcome == 'success' }}
         run: python3 -I lab/lab-ui/catalog.py index catalog --out catalog.json
       - name: Keep the index
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -125,7 +127,8 @@ jobs:
           PYTHONPATH: lab/seeder
         run: python -m unittest discover -s catalog/tests
 
-  # Build, test, start, scan. The Dockerfiles of the change run here, so no secret and no registry login reaches this job
+  # Build, test, start, scan. Setup alone uses read-only deploy keys. The build, tests and containers receive no keys
+  # or registry login
   compile:
     name: Apps
     needs: static
@@ -145,6 +148,10 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       - id: build
         name: Build the apps
         env:

@@ -537,6 +537,18 @@ class Audit(Case):
         scene.sets_standard(needs={})
         self.assertEqual(WARN, scene.finding("actions.secrets").status, "without a need, the second key is one secret too many")
 
+    def test_only_public_dependencies_need_no_second_read_key(self):
+        for more, status in (({}, WARN), ({"public": False}, WARN), ({"public": True}, OK), ({"public": 1}, WARN)):
+            with self.subTest(more=more):
+                scene = Scene("org-private")
+                need = {"repository": "acme/hub", "ref": "b" * 40, **more}
+                scene.sets_standard(needs={"hub": need})
+                self.assertEqual(status, scene.finding("actions.secrets").status)
+        scene = Scene("org-private")
+        scene.sets_standard(needs={"hub": {"repository": "acme/hub", "ref": "b" * 40, "public": True},
+                                  "internal": {"repository": "acme/internal", "ref": "c" * 40}})
+        self.assertEqual(WARN, scene.finding("actions.secrets").status)
+
     def test_a_public_lab_needs_no_key_and_the_go_public_gate_fails_on_it(self):
         scene = Scene("org-private")
         scene.table["GET repos/acme-labs/lab"] = Reply(200, {"private": False})

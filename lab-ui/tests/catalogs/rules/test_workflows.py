@@ -557,6 +557,50 @@ class Passing(unittest.TestCase):
                 with self.subTest(file=name, form=form):
                     self.assertEqual([], [each.message for each in wf.problems(path_of(name), make(text_of(name)))])
 
+    def test_catalog_readers_fetch_dependencies_before_running(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+        readers = {
+            "ci": {"static": ("Check", "index catalog --out catalog.json"), "compile": ("Build the apps", None)},
+            "nightly": {"verify-latest": ("The newest Lab reads the catalog", "ci links catalog"),
+                        "verify-pinned": ("The published images have no fixable critical flaw", "ci scan-published catalog")},
+            "publish": {"plan": ("Whether this ref may publish, and what to build", None),
+                        "images": ("Build and push the images", None), "release": ("The notes and the index", None)},
+        }
+        cli = "python3 -I lab/lab-ui/catalog.py "
+        command = cli + "ci needs catalog"
+        for file, jobs in readers.items():
+            workflow = yaml.load(text_of(file), Loader=yaml.BaseLoader)
+            for job, (consumer, best_effort) in jobs.items():
+                with self.subTest(file=file, job=job):
+                    reader = workflow["jobs"][job]
+                    steps = reader["steps"]
+                    checkout, = [i for i, step in enumerate(steps) if step.get("uses") == "./catalog/.github/actions/lab"]
+                    setup, = [i for i, step in enumerate(steps)
+                              if step.get("name") == "Catalogs it needs" or command in step.get("run", "")]
+                    self.assertEqual(setup, checkout + 1)
+                    first_command = next(i for i, step in enumerate(steps) if cli in step.get("run", ""))
+                    self.assertEqual(first_command, setup)
+                    self.assertLess(setup, next(i for i, step in enumerate(steps) if step.get("name") == consumer))
+                    self.assertEqual(steps[setup]["name"], "Catalogs it needs")
+                    self.assertEqual(steps[setup]["run"], command)
+                    self.assertNotIn("if", steps[setup])
+                    self.assertNotIn("continue-on-error", steps[setup])
+                    if job == "verify-latest":
+                        self.assertNotIn("env", steps[setup])
+                        self.assertNotIn("secrets", repr(reader).lower())
+                        self.assertNotIn("secrets", repr(workflow.get("env", {})).lower())
+                    else:
+                        self.assertEqual(steps[setup].pop("env"), {"NEEDS_DEPLOY_KEY": "${{ secrets.NEEDS_DEPLOY_KEY }}"})
+                    if best_effort:
+                        step, = [step for step in steps[setup + 1:] if step.get("run") == cli + best_effort]
+                        condition = "${{ !cancelled() && steps.%s.outcome == 'success' }}" % steps[setup]["id"]
+                        self.assertEqual(step.get("if"), condition)
+            with self.subTest(file=file):
+                self.assertNotIn("needs_deploy_key", repr(workflow).lower())
+
     def test_a_name_that_is_not_one_of_the_standards_has_the_rights_of_none(self):
         other = wf.problems(".github/workflows/other.yml", text_of("publish"))
         self.assertEqual(sorted({each.code for each in other}), ["WF13"])

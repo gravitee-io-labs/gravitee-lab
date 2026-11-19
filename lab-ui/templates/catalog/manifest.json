@@ -1,5 +1,5 @@
 {
-  "level": 11,
+  "level": 12,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -91,6 +91,11 @@
     },
     "11": {
       "summary": "versions.yml closes the issue of a run that did not finish, The workflow Gravitee versions did not finish, once a run finishes: a run that failed on the network does not leave it open.",
+      "manual": [],
+      "settings": []
+    },
+    "12": {
+      "summary": "CI's Apps job, Nightly and Publish fetch and link catalog dependencies on each runner that reads the catalog. Dependencies marked public use anonymous HTTPS. Newest Lab holds no deploy key; the other jobs use NEEDS_DEPLOY_KEY only for dependency setup, before build, test or runtime steps.",
       "manual": [],
       "settings": []
     }

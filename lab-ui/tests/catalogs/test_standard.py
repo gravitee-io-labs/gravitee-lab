@@ -649,9 +649,11 @@ class Drift(Case):
             "standard": ("standard is a whole number from 1: the level of the managed files in this repository", [0, -1, "1", True, 1.5, 1000]),
             "form": ("form is inline", ["sideways", "reusable", 1, None]),
             "platforms": ("platforms is a list of linux/amd64, linux/arm64 or both", [[], ["linux/riscv64"], "linux/amd64", ["linux/amd64"] * 2]),
-            "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}",
+            "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}, with an optional boolean public",
                       [[], "hub", {"Hub": {"repository": "a/b", "ref": LAB_COMMIT}}, {"hub": {"repository": "a/b", "ref": "main"}},
-                       {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}]),
+                       {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}] +
+                      [{"hub": {"repository": "a/b", "ref": LAB_COMMIT, "public": value}}
+                       for value in (None, 0, 1, "true", "false", [], {})]),
         }
         for key, (problem, values) in bad.items():
             for value in values:
@@ -661,8 +663,11 @@ class Drift(Case):
 
     def test_a_need_at_a_full_commit_is_good(self):
         base = json.loads(render()[".github/standard.json"])
-        files = {**render(), ".github/standard.json": json.dumps({**base, "needs": {"hub": {"repository": "acme/hub", "ref": LAB_COMMIT}}}).encode()}
-        self.assertEqual([each for each in self.check(files) if each.code == "SD04"], [])
+        for more in ({}, {"public": False}, {"public": True}):
+            with self.subTest(more=more):
+                need = {"repository": "acme/hub", "ref": LAB_COMMIT, **more}
+                files = {**render(), ".github/standard.json": json.dumps({**base, "needs": {"hub": need}}).encode()}
+                self.assertEqual([each for each in self.check(files) if each.code == "SD04"], [])
 
     def test_a_lab_that_is_not_an_address_and_a_commit(self):
         base = json.loads(render()[".github/standard.json"])

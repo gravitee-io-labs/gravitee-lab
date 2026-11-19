@@ -1,8 +1,8 @@
-# Managed by the Lab catalog standard 11: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 12: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the
 # newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were
-# published have no fixable critical flaw. The newest Lab is code nobody has read yet, so the job that runs it holds nothing: no token,
-# no package access. A run that fails opens an issue, or adds to the one that is open.
+# published have no fixable critical flaw. The newest Lab is code nobody has read yet, so its job gets no deploy keys or package
+# access; its checkout token only reads the catalog. A run that fails opens an issue, or adds to the one that is open.
 name: Nightly
 
 on:
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The newest Lab: a compatibility signal, with nothing to steal
+  # The newest Lab: a compatibility signal, with no deploy key or package access
   verify-latest:
     name: Newest Lab
     if: ${{ !github.event.repository.fork }}
@@ -36,13 +36,15 @@ jobs:
       - name: Check out the newest Lab
         uses: ./catalog/.github/actions/lab
         with:
-          key: ${{ secrets.LAB_DEPLOY_KEY }}
           latest: "true"
+      - id: catalogs
+        name: Catalogs it needs
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       # A standard that fell behind counts as a failure here (SD03), where a pull request only warns
       - name: The newest Lab reads the catalog
         run: python3 -I lab/lab-ui/catalog.py check catalog --ci --error SD03
       - name: The links of the guides and the READMEs answer
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.catalogs.outcome == 'success' }}
         run: python3 -I lab/lab-ui/catalog.py ci links catalog
 
   # The Lab at the commit the catalog pins, with the read access to packages that the audit and the scan need
@@ -64,13 +66,18 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+      - id: catalogs
+        name: Catalogs it needs
+        env:
+          NEEDS_DEPLOY_KEY: ${{ secrets.NEEDS_DEPLOY_KEY }}
+        run: python3 -I lab/lab-ui/catalog.py ci needs catalog
       - name: The rules of the main branch are the standard's
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: python3 -I lab/lab-ui/catalog.py repo-settings "$REPOSITORY" --effective-only
       - name: The published images have no fixable critical flaw
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.catalogs.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I lab/lab-ui/catalog.py ci scan-published catalog

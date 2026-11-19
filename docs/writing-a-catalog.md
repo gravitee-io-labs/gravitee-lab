@@ -135,16 +135,23 @@ who adds the catalog decides ([Items that use your machine](catalogs.md#items-th
 ## A catalog that needs another
 
 An item can include an item of another catalog, and `catalog.yml` says which catalog it needs (`requires.catalogs`). `check`
-reads such a catalog together with the one it needs, and refuses to read it alone. In CI, while that other catalog is private,
-`.github/standard.json` names it and the commit to read:
+reads such a catalog together with the one it needs, and refuses to read it alone. In CI, `.github/standard.json` names it
+and the commit to read. Set `public` to `true` for a public repository:
 
 ```json
-"needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>"}}
+"needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>", "public": true}}
 ```
 
-The **Checks** job fetches it with `catalog.py ci needs`, using the secret `NEEDS_DEPLOY_KEY`: a read-only deploy key of that
-repository, stored like `LAB_DEPLOY_KEY` in the Actions and the Dependabot stores. `make settings` audits both. Move the commit
-by hand when the other catalog moves.
+The **Checks** and **Apps** jobs of CI, both **Nightly** jobs, and **Publish**'s **Plan**, **Images** and **Release** jobs fetch
+and link dependencies on their own runner with `catalog.py ci needs`, before reading the catalog. Public dependencies use
+anonymous HTTPS. For a private dependency, leave `public` out or set it to `false`: the setup step uses `NEEDS_DEPLOY_KEY`,
+a read-only deploy key of that repository, stored like `LAB_DEPLOY_KEY` in the Actions and the Dependabot stores.
+`make settings` audits both. Build, test and runtime steps receive no dependency key. Move the pinned commit by hand when
+the other catalog moves.
+
+**Newest Lab** is an early compatibility warning and holds no deploy key, including for the Lab checkout. It can fetch only
+public dependencies; a private dependency reports `ND01`. After a Lab release ships this change, upgrade the Lab pin and the
+managed files together with `catalog.py upgrade --lab-ref latest --write` before adding `public: true`.
 
 ## Try it in the Lab
 
