@@ -56,6 +56,84 @@ class Files(Seed):
         self.assertNotIn("accounts", tina["attributes"])
 
 
+class Sync(Seed):
+    """`sync: access-management`: the sync the Entities page sends, waited for, what it brought recorded groups first, and
+    a group named in a policy by the id Access Management gave it."""
+
+    class Api:
+        """Authorization Management as the sync leaves it: the principals before, then after."""
+
+        def __init__(self, before, after, statuses=("PENDING", "SUCCESS"), jobs=None):
+            self.lists, self.statuses, self.posted = [before, after], list(statuses), []
+            self.jobs = list(jobs or ["job-1"] * len(self.statuses))
+
+        def post(self, path, **kw):
+            self.posted.append(path)
+            return mock.Mock(json=lambda: {"jobId": "job-1", "status": "PENDING"})
+
+        def get(self, path, **kw):
+            said = {"jobId": self.jobs.pop(0), "status": self.statuses.pop(0), "entitiesUpserted": 3}
+            return mock.Mock(json=lambda: said)
+
+        def rows(self, path, paging, **params):
+            return self.lists.pop(0)
+
+    @staticmethod
+    def principal(kind, entity_id, name=None):
+        return {"entityType": kind, "entityId": entity_id, "attributes": {"name": name} if name else {}}
+
+    def test_no_sync_asks_nothing(self):
+        self.assertEqual(authz.synced_groups(self.Api([], []), None), {})
+
+    def test_the_sync_is_waited_for_and_what_it_brought_is_recorded_groups_first(self):
+        old = self.principal("User", "u-0")
+        api = self.Api([old], [old, self.principal("User", "u-1"), self.principal("Group", "g-1", "Support")])
+        with mock.patch.object(common.time, "sleep"), mock.patch.object(authz, "remember") as remember:
+            groups = authz.synced_groups(api, "access-management")
+        self.assertEqual(api.posted, ["/users/sync"])
+        self.assertEqual(groups, {"Support": "g-1"})
+        source, brought = remember.call_args.args
+        self.assertEqual((source, [x["entityId"] for x in brought]), ("gravitee_am", ["g-1", "u-1"]))
+
+    def test_a_group_name_two_groups_share_names_neither(self):
+        api = self.Api([], [self.principal("Group", "g-1", "Support"), self.principal("Group", "g-2", "Support")])
+        with mock.patch.object(common.time, "sleep"), mock.patch.object(authz, "remember"):
+            self.assertEqual(authz.synced_groups(api, "access-management"), {})
+
+    def test_a_sync_that_fails_stops_the_seed_and_what_it_brought_is_recorded(self):
+        api = self.Api([], [self.principal("User", "u-1")], statuses=("PENDING", "FAILED"))
+        with mock.patch.object(common.time, "sleep"), mock.patch.object(authz, "remember") as remember, \
+                self.assertRaisesRegex(common.SeedError, "ended as FAILED"):
+            authz.synced_groups(api, "access-management")
+        self.assertEqual([x["entityId"] for x in remember.call_args.args[1]], ["u-1"])
+
+    def test_the_status_of_an_earlier_sync_is_not_taken_for_this_one(self):
+        api = self.Api([], [self.principal("Group", "g-1", "Support")], statuses=("SUCCESS", "PENDING", "SUCCESS"),
+                       jobs=("job-0", "job-1", "job-1"))
+        with mock.patch.object(common.time, "sleep"), mock.patch.object(authz, "remember"):
+            self.assertEqual(authz.synced_groups(api, "access-management"), {"Support": "g-1"})
+        self.assertEqual(api.statuses, [], "asked until this sync ended")
+
+    def test_a_sync_still_running_after_its_wait_stops_the_seed(self):
+        api = self.Api([], [], statuses=["PENDING"] * 3)
+        clock = itertools.count(0, authz.SYNC_WAIT / 2)   # each look at the clock is half the wait later
+        with mock.patch.object(common.time, "sleep"), mock.patch.object(common.time, "time", lambda: next(clock)), \
+                self.assertRaisesRegex(common.SeedError, "the sync of Access Management not ready .*the sync is PENDING"):
+            authz.synced_groups(api, "access-management")
+
+    def test_another_directory_stops_the_seed(self):
+        with self.assertRaisesRegex(common.SeedError, "sync is one of access-management"):
+            authz.synced_groups(self.Api([], []), "ldap")
+
+    def test_a_policy_names_a_group_by_the_id_access_management_gave_it(self):
+        text = authz.fill('principal in Group::"<group:Support>"', None, "Policy 'p'", {"Support": "g-1"})
+        self.assertEqual(text, 'principal in Group::"g-1"')
+
+    def test_a_group_the_sync_did_not_bring_stops_the_seed(self):
+        with self.assertRaisesRegex(common.SeedError, "names the group 'Support'"):
+            authz.fill('principal in Group::"<group:Support>"', None, "Policy 'p'", {})
+
+
 class World:
     """Authorization Management and the AI catalog, keeping what they are given and answering from it."""
 
@@ -204,6 +282,22 @@ class Authorization(Case):
         self.assertEqual(self.platform.changes(), [("PUT", f"{AUTHZ}/policies/{policy['id']}")])
         self.assertIn("> 10000", policy["policyText"])
         self.assertEqual(policy["status"], "DEPLOYED")
+
+    def test_a_policy_whose_kind_changed_is_made_again_since_an_update_keeps_the_old_one(self):
+        self.seeded()
+        old = self.by_name("No transfer above 10,000")
+        old["kind"] = "GLOBAL"
+        authz.seed()
+        made = self.by_name("No transfer above 10,000")
+        self.assertNotIn(old["id"], self.world.policies)
+        self.assertEqual((made["kind"], made["status"]), ("RESOURCE", "DEPLOYED"))
+        self.assertEqual([x["id"] for x in common.created() if (x["kind"], x["name"]) == ("policy", made["name"])], [made["id"]])
+
+    def test_a_kind_the_platform_does_not_have_stops_the_seed_before_the_policy_is_touched(self):
+        api = mock.Mock()
+        with self.assertRaisesRegex(common.SeedError, "Policy 'p': kind is RESOURCE or GLOBAL, not 'TOOL'"):
+            authz.policy(api, {"name": "p", "kind": "TOOL", "policy": "permit (principal, action, resource);"}, None, {})
+        self.assertEqual(api.mock_calls, [])
 
     def test_policies_with_slug_ids_get_the_readable_ids_back_and_keep_their_status(self):
         self.seeded()

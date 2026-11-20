@@ -450,7 +450,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
 | `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
-| `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about, GAPL policies, the schema of the editor | Gamma API |
+| `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management), GAPL policies, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
 | `seed/refills.yaml` | What the lessons spend, given back on every run | The counters the gateway keeps in the core's Redis |
@@ -475,6 +475,25 @@ serve the lessons:
   back in place, with the keys of the APIs, and the flow of the authorization check is written again after them.
 - A studio file of either shape gives its protocol versions with the key its build takes:
   [What differs from one build to another](#what-differs-from-one-build-to-another).
+
+The files of `seed/authz/` give Authorization Management what a person would set up in it:
+
+- **Principals come from Access Management.** `sync: access-management` in `entities.yaml` sends what *Import*, *Sync
+  from Gravitee Access Management* sends on the Entities page: the users, groups and agents of the domain become
+  principals, each user under its groups. The seed records what the sync brought, so that a delete removes it. Give the
+  rights to groups of the domain (`groups` in `seed/am/domain.yaml`) rather than to a claim of the token. The seed waits
+  a minute for the sync: what a sync still running then brings later is not recorded, and what a sync started in the
+  console during that minute brings is recorded as the seed's.
+- **Resources are the MCP server and its tools**: an `MCPServer` entity and one `MCPTool` per tool, whose id is the tool's
+  name, which the studio sends as the resource of each call.
+- **The schema declares the actions**, one per tool, with the context each reads (`context.agent`, an argument of the call).
+  The Actions page cannot hold them: it refuses an id a tool already has.
+- **A policy is written as *Create policy* writes it**: one statement per tool, `principal in Group::"<group:NAME>"`,
+  `action == Action::"<tool>"`, `resource == MCPTool::"<tool>"`, and the agent in the condition. `<group:NAME>` stands for
+  the id Access Management gave the group, and `<agent:CLIENT_ID>` for the agent's. Only the first statement carries an
+  `@id`, the name of the policy: [How APIM and Gamma behave](#how-apim-and-gamma-behave-what-the-seeder-relies-on) says why.
+  Open each policy in its *Visual* and *Classic* views once it is seeded. `kind` is `RESOURCE`, the default, or `GLOBAL`:
+  a policy keeps the kind it was made with, so a file that changes it makes the policy again.
 
 Seed files use `${VAR}` for everything that depends on the target: service URLs, the Redis password of a vector store
 resource, the gateway and AM addresses shown to clients. Acme Shop's seed files use, among others, `${AM_GATEWAY_URL}`,
@@ -940,6 +959,14 @@ in `.env`, then run `make all`.
   router shows the step's own name.
 - An API's tracing is `analytics.tracing` (`enabled`, `verbose`), with `analytics.logging` and `analytics.otelLogs` for
   the payloads of the spans. The Automation API has no field for them: an MCP proxy's are set on its API entity.
+- Authorization Management, as of 4.13.4:
+  - *Create policy* writes `principal == Group::"..."` for a group, which permits none of its members. `principal in
+    Group::"..."`, the editor's *Includes*, permits them.
+  - An `@id` before any statement but the first leaves the policy in the *Code* view only. Decisions then names the other
+    statements `<policy>#1`, `#2`.
+  - The Policy Simulator runs in the browser and cannot evaluate a `when` condition: it marks such a cell uncertain and
+    may show Forbid where the engine permits. *Verify against engine* says what the engine decides.
+  - A domain deleted in Access Management leaves its synced principals, so a domain made again brings a second set.
 - Gamma has no upsert and keeps no name unique. A module looks each object up by name, slug or id, writes it only when it
   differs, records only what it created, and stops, naming it, when it finds one it did not create.
 
