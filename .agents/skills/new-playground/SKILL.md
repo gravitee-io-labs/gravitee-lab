@@ -29,7 +29,16 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
      lesson at a time".
    - **Where it is kept**: Personal, on this machine only, or a catalog that is a folder of the person's (a folder
      catalog: the Lab UI's New catalog, or the `new-catalog` skill). Personal unless the person names a catalog.
-3. Write its folder where it belongs:
+3. Design it from the customer's seat, with the rules of
+   [What makes a good playground](../../../docs/playgrounds.md#what-makes-a-good-playground):
+   - Each lesson shows the request, where the rule is set in the console and a result the person can check. No script
+     that hides the request.
+   - Do each setup once by hand in the console, read what it stores, and make the seed store the same: every page a
+     lesson opens is filled, every reference has a name, every view of an object opens.
+   - The product's own features first, a workaround last, said in the README.
+   - Every name, number and list makes sense to the customer, and what is simulated says so.
+   - A fact about the customer or the product comes from a source you read, not from memory or a meeting note.
+4. Write its folder where it belongs:
 
    | Kept | Folder |
    |---|---|
@@ -44,15 +53,16 @@ The rules are in `docs/units.md`, and the authoring reference in `docs/playgroun
    - `guide.md`: a title, an introduction, then one `## 1. Title` section per lesson, in order.
    - `apps/<app>/`, with its `Dockerfile`: only when it ships an app.
    - `seed/`, with the seed service that reads it: only when it creates something in Gravitee.
-4. An add-on it needs is missing: create it first, with the `new-addon` skill.
-5. Check it. For an item of a folder catalog, run `python3 -I lab-ui/catalog.py check <catalog id>` from the project's
+5. An add-on it needs is missing: create it first, with the `new-addon` skill.
+6. Check it. For an item of a folder catalog, run `python3 -I lab-ui/catalog.py check <catalog id>` from the project's
    folder and fix what it says until it prints "All good". A personal item is read by Compose when the Lab UI shows
    it: the page says why one does not load. Run the tests of an app it ships, in its image, when Docker runs.
-6. In a catalog, write `README.md` in its folder for what a user needs to know before and after. Ask the person which
+7. In a catalog, write `README.md` in its folder for what a user needs to know before and after. Ask the person which
    versions they built it and checked it on, and write them as `x-gravitee.tested`: CI starts the playground on each set.
    Never write versions nobody ran it on.
-7. Tell the person where the folder is, and that the playground shows on the Playgrounds page of the Lab UI
+8. Tell the person where the folder is, and that the playground shows on the Playgrounds page of the Lab UI
    (`make ui`). Ask them to start it from its page and go through the guide: starting changes their lab, so do not start
-   it yourself.
+   it yourself. When they ask you to check it: stop it with *Delete what it created*, start it again, go through every
+   lesson, open each screen it names, then leave it as a first reader finds it.
 
 To share a personal playground later, use the `share-item` skill.

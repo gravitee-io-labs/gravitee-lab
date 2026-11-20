@@ -22,6 +22,32 @@ the playground.
 
 A playground declares what it needs from the layers below. It never redefines them.
 
+## What makes a good playground
+
+A playground is shown to someone who does not know the product yet. They believe what they see work, in the product's
+own screens, and nothing else.
+
+- **Show, do not tell.** Each lesson shows the request (address, key, headers, body), where the rule that acts on it is
+  defined in the console, and a result the person can check. Send a request from an API client that shows it, in a tab of
+  the playground, rather than from a script that hides it. Keep the terminal for what has no screen.
+- **Build it the way a person would.** Set it up once by hand in the console, read what the product stores, then write
+  the seed so that it stores the same. Nothing exists only through a call a person would not make. Every page a lesson
+  opens is filled and every reference on it has a name: a policy names its principal and its target, a list of entities
+  is not empty, and each view the product offers for an object opens.
+- **Use the product's own features first.** Its provider types, its catalog, the groups of the identity provider, an
+  add-on of the Lab. A workaround is the last resort, and the README says why under its known limits.
+- **Look at each screen as the customer.** Every name, number and list makes sense to them: nothing listed twice, no
+  placeholder price, no name they would not recognize. What is simulated says so. Check a word of their trade before you
+  use it.
+- **Let real users sign in.** A person signs in through Access Management to a client of the playground, and the same
+  rule applies to them, so the lesson shows who is allowed what. Each actor is what it says it is: a demo agent in a
+  script is not presented as one running in production.
+- **Check every claim on its source.** A fact about a customer, a number, a release or a feature, in the guide or on a
+  slide, comes from what you read: the product, its documentation, a public document. A meeting note is a lead.
+- **Verify each item, not a sample.** "Every policy opens in the visual editor" means each one was opened. Before you
+  call it done, stop it with *Delete what it created*, start it again, go through the whole guide, then leave it as a
+  first reader finds it: protections off, demo data and caches reset.
+
 ## The folder
 
 ```text
@@ -788,6 +814,8 @@ hackathon:                          # lesson 6: a click on "Spend the Hackathon 
 - The page lists the lessons and shows the guide a page per section: the introduction, each lesson, then the other
   sections, with previous and next and a picker of every page. Keep each section readable on its own.
 - Each page has an address (`#/playgrounds/acme-shop/4`), and the guide opens on the page read last.
+- A lesson reads best in one order: what happens without the gateway, what Gravitee changes, the steps, then what to
+  remember. Each step that changes something names where it is set in the console.
 - A diagram is a ```` ```mermaid ```` block, never drawn with characters. The page draws it in its own colors, light and
   dark alike, and so does GitHub.
 - What only matters before a start, such as memory, the first start's time and what to fix, is not in the guide. The
