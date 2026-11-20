@@ -8,6 +8,7 @@
     skills/<name>/        a skill: SKILL.md and the files next to it, zipped here
     agents/*.yaml         an A2A agent, registered from its card, with the `metadata` the file gives it
     api-tools/*.yaml      the tools of an API of API Management that publishes an OpenAPI page
+    workflow-tools/*.yaml a workflow tool: an Arazzo document over APIs of API Management, published as one MCP tool
 
 An agent file may carry `metadata`, stored with the card: `riskClassification` (negligible, limited, moderate or
 high) and any key the catalog keeps about an agent. The keys `identity` and `access` are read by aim_agents and ignored
@@ -25,6 +26,22 @@ what the file writes in place of what the page gave, to tailor the tool for a mo
         description: ...         # description, inputSchema and annotations replace those of the generated definition
         inputSchema: {...}
         annotations: {...}
+
+A workflow-tools file is what Gamma's "Import Arazzo specification" makes, then publishes:
+
+    name: refund_order        # the name of the MCP tool: a studio takes only letters, digits, _ and -
+    description: ...
+    sources:                 # per sourceDescription of the document: its API, and the key the workflow sends it, if any
+      - {source: orders_api, api: Orders API, headerName: X-Gravitee-Api-Key, apiKey: "${ORDERS_TOOL_KEY}"}
+    arazzo: |                # the Arazzo document; a source is apim://api/<api:Orders API>
+      ...
+    canvas: |                # the canvas the builder draws (graphState), as the import writes it: without it the
+      ...                    # builder shows the document alone
+
+`<api:NAME>` stands for the id of that API of API Management, in the document and the canvas. Each source's key becomes a
+credential named "<workflow> · <source>", as the console names the one it makes; a source without `apiKey` (a keyless plan)
+has none. A workflow that changed is deleted with its
+credentials and made again, as the tools of an API are: a studio keeps a copy of each tool it was made with.
 
 A file may say `needs: NAME`: the seed skips it, and says so, while the environment variable NAME is empty. A provider of a
 service that lists its models (Gemini, Anthropic) is tested against the service with its real key as it is created, so
@@ -57,15 +74,15 @@ SECTION = "aim-catalog"
 LISTED = 60   # seconds the catalog has to list an API that API Management has just made
 # The folders of the seed it owns
 FOLDERS = ("aim/credentials", "aim/providers", "aim/models", "aim/mcp-servers", "aim/knowledge", "aim/skills",
-           "aim/agents", "aim/api-tools")
+           "aim/agents", "aim/api-tools", "aim/workflow-tools")
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything
 GAMMA = ("aim",)
 # What it records, dependents first
-ORDER = ["api-tools", "agent", "skill", "knowledge", "mcp-server", "model", "provider", "credential"]
+ORDER = ["workflow-tool", "workflow-credential", "api-tools", "agent", "skill", "knowledge", "mcp-server", "model", "provider", "credential"]
 # What the Lab UI calls each kind when it asks whether to delete them: plural, ending in an s
-LABELS = {"api-tools": "API tools", "agent": "A2A agents", "skill": "skills", "knowledge": "knowledge documents",
+LABELS = {"workflow-tool": "workflow tools", "workflow-credential": "workflow credentials", "api-tools": "API tools", "agent": "A2A agents", "skill": "skills", "knowledge": "knowledge documents",
           "mcp-server": "MCP servers", "model": "AI models", "provider": "AI providers", "credential": "credentials"}
-PATHS = {"api-tools": "/catalog/sources", "agent": "/catalog/agents", "skill": "/catalog/skills",
+PATHS = {"workflow-tool": "/workflow-tools", "workflow-credential": "/auth-profiles", "api-tools": "/catalog/sources", "agent": "/catalog/agents", "skill": "/catalog/skills",
          "knowledge": "/catalog/knowledge", "mcp-server": "/catalog/mcp-servers", "model": "/catalog/models",
          "provider": "/providers", "credential": "/auth-profiles"}
 MANUAL = ("agent", "knowledge", "model")   # the kinds a manual source holds
@@ -79,6 +96,8 @@ RISKS = ("negligible", "limited", "moderate", "high")   # what the catalog accep
 TAILORED = {"description": ("text", lambda v: isinstance(v, str) and bool(v.strip())),
             "inputSchema": ("a JSON schema", lambda v: isinstance(v, dict)),
             "annotations": ("a mapping of hints", lambda v: isinstance(v, dict))}
+API_ID = re.compile(r"<api:([^<>]+)>")   # an API of API Management, in a workflow's document and canvas
+TOOL_NAME = re.compile(r"[a-zA-Z0-9_-]+")   # what a studio takes as the name of a tool: a workflow is named as its tool
 # What the catalog keeps of an agent card: it drops the rest
 CARD_FIELDS = ("name", "description", "url", "provider", "version", "documentationUrl", "capabilities",
                "defaultInputModes", "defaultOutputModes", "skills", "securitySchemes", "security")
@@ -588,6 +607,113 @@ def seed_api_tools(aim):
         say("api-tools", "replaced" if found else "imported", f"{name} ({len(imported)} tools)")
 
 
+# --- Workflow tools -------------------------------------------------------------------------
+
+def workflow_text(text, ids, name, what):
+    """A workflow's document or canvas with each <api:NAME> replaced by the id of that API."""
+    def api_id(match):
+        if match.group(1) not in ids:
+            raise SeedError(f"Workflow '{name}': the {what} names the API '{match.group(1)}', which no source of the file is")
+        return ids[match.group(1)]
+    return API_ID.sub(api_id, text)
+
+
+def workflow_sources(spec, ids, document):
+    """The sources of a workflow file, each one of the document's sourceDescriptions and read from the API it names."""
+    name = spec["name"]
+    try:
+        parsed = common.parse_yaml(document, f"The document of the workflow '{name}'")
+    except (yaml.YAMLError, ValueError) as e:   # ValueError: a value that YAML reads as a date that is none
+        raise SeedError(common.unreadable(f"The document of the workflow '{name}'", e)) from None
+    if not isinstance(parsed, dict):
+        raise SeedError(f"Workflow '{name}': its arazzo is no Arazzo document")
+    listed = parsed.get("sourceDescriptions") or []
+    if not isinstance(listed, list) or not all(isinstance(s, dict) and isinstance(s.get("name"), str) for s in listed):
+        raise SeedError(f"Workflow '{name}': sourceDescriptions is a list of sources, each with its name and url")
+    described = {s["name"]: s.get("url") for s in listed}
+    for source in spec["sources"]:
+        if not isinstance(source, dict):
+            raise SeedError(f"Workflow '{name}': each source is a mapping (source, api, headerName, apiKey)")
+        missing = [key for key in ("source", "api", *(("headerName",) if source.get("apiKey") else ())) if not source.get(key)]
+        if missing:
+            raise SeedError(f"Workflow '{name}': a source lacks {', '.join(missing)}")
+        if described.get(source["source"]) != f"apim://api/{ids[source['api']]}":
+            raise SeedError(f"Workflow '{name}': the document has no source '{source['source']}' at apim://api/<api:{source['api']}>")
+    return spec["sources"]
+
+
+def seed_workflow_tools(aim):
+    """A workflow tool is made as the console makes one from an Arazzo document: its credentials, then the tool with its
+    document and canvas, validated, then published to the catalog, where a studio picks it as `{workflow: NAME}`."""
+    for spec in specs("workflow-tools", "name", "sources", "arazzo"):
+        name = spec["name"]
+        if not TOOL_NAME.fullmatch(name):
+            raise SeedError(f"Workflow '{name}': its name is the name of its MCP tool, which a studio refuses unless it is "
+                            "made of letters, digits, _ and - (refund_order)")
+        if not all(isinstance(spec.get(key, ""), str) for key in ("arazzo", "canvas")) or not isinstance(spec["sources"], list):
+            raise SeedError(f"Workflow '{name}': arazzo and canvas are texts (a | block) and sources a list")
+        ids = {s["api"]: api_source(aim, s["api"])["id"] for s in spec["sources"] if isinstance(s, dict) and s.get("api")}
+        document = workflow_text(spec["arazzo"], ids, name, "document")
+        canvas = workflow_text(spec["canvas"], ids, name, "canvas") if spec.get("canvas") else None
+        sources = workflow_sources(spec, ids, document)
+        digest = digest_of({"name": name, "description": spec.get("description"), "arazzo": document, "canvas": canvas,
+                            "sources": sources})
+        rows = [w for w in aim.rows(PATHS["workflow-tool"], CATALOG) if w["name"] == name]
+        found, ours = own("workflow-tool", rows, f"The workflow tool '{name}'", name)
+        if found and ours.get("digest") == digest:
+            if found.get("status") != "ACTIVE":   # made, but its publication was not answered
+                aim.post(f"{PATHS['workflow-tool']}/{found['id']}/publish", json={}, idempotent=True)
+            say("workflow-tool", "up to date", name)
+            continue
+        checked = aim.post(f"{PATHS['workflow-tool']}/validate", json={"draftArazzo": document}).json()
+        if not checked.get("valid"):
+            issues = "; ".join(f"{i.get('path')}: {i.get('message')}" for i in checked.get("issues") or [])
+            raise SeedError(f"Workflow '{name}': the platform refuses its document: {issues}")
+        if found:
+            release_studios(aim)
+            drop_workflow(aim, found["id"])
+        auth = [{"sourceRef": s["source"], "apiEntityId": ids[s["api"]],
+                 **({"authProfileId": workflow_credential(aim, f"{name} · {s['source']}", s)} if s.get("apiKey") else {})}
+                for s in sources]
+        body = {"name": name, "draftArazzo": document, "sourceAuth": auth,
+                **({"description": spec["description"]} if spec.get("description") else {}),
+                **({"graphState": canvas} if canvas else {})}
+        with common.making(SECTION, "workflow-tool", LABELS["workflow-tool"], name, missing=True):
+            made = aim.post(PATHS["workflow-tool"], json=body).json()
+            record(SECTION, "workflow-tool", LABELS["workflow-tool"], name, made["id"], digest=digest)
+        aim.post(f"{PATHS['workflow-tool']}/{made['id']}/publish", json={}, idempotent=True)
+        say("workflow-tool", "replaced" if found else "published", name)
+
+
+def workflow_credential(aim, name, source):
+    """The key a workflow sends one of its APIs, as the console keeps it: a credential of the product's own (SYSTEM). It is
+    made with its workflow, which drops the earlier one, so one found under its name is left by a workflow that was not made
+    (refused, or its answer lost): it is the seed's, or taken as the seed's when a lost answer made it, and goes, since the
+    key it holds may have changed. One the seed did not create stops the seed."""
+    rows = [c for c in aim.rows(PATHS["workflow-credential"], CATALOG) if c["name"] == name]
+    found, ours = own("workflow-credential", rows, f"The workflow credential '{name}'", name)
+    if found:
+        aim.delete(f"{PATHS['workflow-credential']}/{found['id']}")
+        common.forget(ours)
+    body = {"name": name, "strategy": "API_KEY", "origin": "SYSTEM", "allowedUsageSurfaces": ["WORKFLOW_TOOL"],
+            "credentials": {"type": "api-key", "headerName": source["headerName"], "value": source["apiKey"]}}
+    with common.making(SECTION, "workflow-credential", LABELS["workflow-credential"], name, missing=True):
+        made = aim.post(PATHS["workflow-credential"], json=body).json()
+        record(SECTION, "workflow-credential", LABELS["workflow-credential"], name, made["id"])
+    return made["id"]
+
+
+def drop_workflow(aim, workflow_id):
+    """A workflow of the seed and the credentials it was made with, each record dropped as its object goes."""
+    workflow = aim.get(f"{PATHS['workflow-tool']}/{workflow_id}").json()
+    aim.delete(f"{PATHS['workflow-tool']}/{workflow_id}")
+    common.forget(*[x for x in common.created() if (x["product"], x["kind"], x["id"]) == (SECTION, "workflow-tool", workflow_id)])
+    profiles = {a.get("authProfileId") for a in workflow.get("sourceAuth") or []}
+    for x in [x for x in common.created() if (x["product"], x["kind"]) == (SECTION, "workflow-credential") and x["id"] in profiles]:
+        aim.delete(f"{PATHS['workflow-credential']}/{x['id']}")
+        common.forget(x)
+
+
 # --- The module -----------------------------------------------------------------------------
 
 def connect():
@@ -601,7 +727,7 @@ def seed():
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
     aim = connect()
     for step in (seed_credentials, seed_providers, seed_models, seed_mcp_servers, seed_knowledge, seed_skills, seed_agents,
-                 seed_api_tools):
+                 seed_api_tools, seed_workflow_tools):
         step(aim)
 
 

@@ -475,13 +475,15 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
-| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
 | `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management), GAPL policies, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
 | `seed/refills.yaml` | What the lessons spend, given back on every run | The counters the gateway keeps in the core's Redis |
 
-A studio file (`seed/aim/studios/`) says its tools, its plan or its `access`, and its authorization check. Three keys
+A studio file (`seed/aim/studios/`) says its tools, its plan or its `access`, and its authorization check. A tool is
+`{server, tool}` for an MCP server's, `{api, tool}` for one made from an API and `{workflow}` for a workflow tool, each with
+an optional `alias`. These keys
 serve the lessons:
 
 - `subscriptions` subscribes applications of `seed/apim/applications` to a published plan of the studio, with the
@@ -497,6 +499,10 @@ serve the lessons:
 - In a file with `access`, `authorization.agentIdentityResolution: true` makes the authorization check put the agent the
   token names in the context (`context.agent`), which authz-pep 3.0.2 leaves out by default. A file with `plan` switches
   its check with `fga` and takes no `authorization`.
+- In a file with `access`, `responseTemplates` says what a client reads when a step of the studio refuses, by the key the
+  step gives (`GAPL_AUTHZ` for the authorization check), then by media type. LibreChat, for one, shows a JSON-RPC result
+  with `isError` as the tool's answer, and takes a 403 for a sign-in that failed. Each media type it names replaces the platform's, the
+  others stay. An MCP proxy file takes the same key.
 - The tools come back to the file on every run. Tools a person adds or removes with *Edit tools* in Gamma are written
   back in place, with the keys of the APIs, and the flow of the authorization check is written again after them.
 - A studio file of either shape gives its protocol versions with the key its build takes:

@@ -1,4 +1,4 @@
-"""The AI catalog: credentials, providers, models, MCP servers, documents, skills, agents and the tools of an API, seeded
+"""The AI catalog: credentials, providers, models, MCP servers, documents, skills, agents, the tools of an API and workflow tools, seeded
 against a memory that behaves like Gamma where it matters: one manual source, a duplicate entity id refused, an object
 stored with less and more than it was sent, a secret never given back."""
 
@@ -55,6 +55,7 @@ class World:
         self.ids = itertools.count(1)
         self.credentials, self.secrets, self.providers, self.sources, self.items = {}, {}, {}, {}, {}
         self.apis = {}   # id -> {"name": ..., "operations": [...], "errors": [...]}
+        self.workflows = {}
         self.mcp = {"name": "Acme Bakery MCP", "protocol": "2025-11-25", "pages": 1, "sse": False, "session": None,
                     "tools": [{"name": "get_balance", "description": "Balance", "title": "Get balance",
                                "inputSchema": {"type": "object"}, "annotations": {"readOnlyHint": True}},
@@ -261,6 +262,33 @@ class World:
             created.append(self.add_item("mcp-tool", entity_id, source["id"], tool["definition"]))
         return 201, {"data": created}
 
+    def create_workflow(self, call):
+        workflow = {"id": self.new(), "status": "DRAFT", "entityId": f"workflow-tool.{slug(call.json['name'])}", **call.json}
+        self.workflows[workflow["id"]] = workflow
+        return 201, workflow
+
+    @staticmethod
+    def validate_workflow(call):
+        if "not arazzo" in call.json["draftArazzo"]:
+            return 200, {"valid": False, "issues": [{"path": "workflows[0]", "message": "steps is required"}]}
+        return 200, {"valid": True, "issues": []}
+
+    def publish_workflow(self, call):
+        workflow = self.workflows[call.path.split("/")[-2]]
+        workflow["status"] = "ACTIVE"
+        tool = self.add_item("mcp-tool", f"mcp-tool.{slug(workflow['name'])}", "workflow-source", {},
+                             metadata={"workflowToolId": workflow["id"]})
+        workflow["publishedMcpToolId"] = tool["id"]
+        return 200, {"tool": workflow, "deployedToGateway": False, "mustBeResavedIn": []}
+
+    def delete_workflow(self, call):
+        workflow = self.workflows.pop(last(call), None)
+        if workflow is None:
+            return 404
+        for item in [i for i in self.items.values() if i.get("metadata", {}).get("workflowToolId") == workflow["id"]]:
+            del self.items[item["id"]]
+        return 204
+
     # --- The routes -----------------------------------------------------------------------------
 
     def routes(self):
@@ -287,6 +315,12 @@ class World:
             ("POST", SCOPE + "/catalog/api-tools/_generateCapabilities"): self.generate,
             ("POST", SCOPE + "/catalog/mcp-tools/_importFromApis"): self.import_tools,
             ("DELETE", path("/mcp-proxies/*")): lambda call: (204, None),
+            ("GET", SCOPE + "/workflow-tools"): lambda call: listing(self.workflows.values()),
+            ("POST", SCOPE + "/workflow-tools"): self.create_workflow,
+            ("POST", SCOPE + "/workflow-tools/validate"): self.validate_workflow,
+            ("POST", path("/workflow-tools/*/publish")): self.publish_workflow,
+            ("GET", path("/workflow-tools/*")): lambda call: (200, self.workflows[last(call)]),
+            ("DELETE", path("/workflow-tools/*")): self.delete_workflow,
             ("POST", MCP): self.rpc,
             ("GET", CARD): lambda call: (200, self.card),
         }
@@ -1036,6 +1070,155 @@ class ApiTools(Catalog):
         self.assertEqual(self.sent("GET", "/catalog/api-tools/sources"), [])
 
 
+WORKFLOW = """\
+name: order_cake
+description: Checks the shop, then places the order
+sources:
+  - {source: bakery, api: Acme Bakery Open API, headerName: X-Gravitee-Api-Key, apiKey: "${BAKERY_TOOL_KEY}"}
+arazzo: |
+  arazzo: 1.1.0
+  info: {title: Order a cake, version: 1.0.0}
+  sourceDescriptions:
+    - {name: bakery, url: "apim://api/<api:Acme Bakery Open API>", type: openapi}
+  workflows:
+    - workflowId: order
+      steps:
+        - {stepId: shop, operationId: getBranch}
+canvas: |
+  {"version": 1, "meta": {"sources": [{"apiId": "<api:Acme Bakery Open API>", "sourceRef": "bakery"}]}}
+"""
+
+
+class WorkflowTools(Catalog):
+    """A workflow tool is made as the console makes one from an Arazzo document, then published to the catalog."""
+
+    def setUp(self):
+        super().setUp()
+        self.world.apis["api-1"] = {"name": "Acme Bakery Open API", "operations": ["getBranch"]}
+        self.env(BAKERY_TOOL_KEY="bakery-key")
+        self.seed_files({"aim/workflow-tools/order.yaml": WORKFLOW})
+
+    def made(self):
+        [workflow] = self.world.workflows.values()
+        return workflow
+
+    def test_it_is_made_with_a_credential_per_source_its_document_and_canvas_then_published(self):
+        changes = self.run_seed()
+        self.assertEqual(changes, [("POST", "/workflow-tools/validate"), ("POST", "/auth-profiles"),
+                                   ("POST", "/workflow-tools"), ("POST", f"/workflow-tools/{self.made()['id']}/publish")])
+        [credential] = self.world.credentials.values()
+        self.assertEqual((credential["name"], credential["strategy"]), ("order_cake · bakery", "API_KEY"))
+        self.assertEqual(self.world.secrets[credential["id"]], {"type": "api-key", "headerName": "X-Gravitee-Api-Key", "value": "bakery-key"})
+        workflow = self.made()
+        self.assertIn("apim://api/api-1", workflow["draftArazzo"])
+        self.assertEqual(json.loads(workflow["graphState"])["meta"]["sources"][0]["apiId"], "api-1")
+        self.assertEqual(workflow["sourceAuth"], [{"sourceRef": "bakery", "apiEntityId": "api-1", "authProfileId": credential["id"]}])
+        self.assertEqual(workflow["status"], "ACTIVE")
+        self.assertEqual([i["entityId"] for i in self.world.of_kind("mcp-tool")], ["mcp-tool.order_cake"])
+        self.assertEqual(sorted(x["kind"] for x in self.records()), ["workflow-credential", "workflow-tool"])
+
+    def test_a_second_run_writes_nothing(self):
+        self.run_seed()
+        self.assertEqual(self.run_seed(), [])
+
+    def test_one_made_but_not_published_is_published(self):
+        self.run_seed()
+        self.made()["status"] = "DRAFT"
+        self.assertEqual(self.run_seed(), [("POST", f"/workflow-tools/{self.made()['id']}/publish")])
+
+    def test_a_document_that_changed_releases_the_studios_and_is_made_again_with_new_credentials(self):
+        self.run_seed()
+        common.record("aim-proxies", "studio", "MCP studios", "Acme Bakery Toolkit", "studio-1", digest="x")
+        old, [old_credential] = self.made()["id"], list(self.world.credentials)
+        self.seed_files({"aim/workflow-tools/order.yaml": WORKFLOW.replace("Checks the shop", "Checks the branch")})
+        self.assertEqual(self.run_seed()[:4], [("POST", "/workflow-tools/validate"), ("DELETE", "/mcp-proxies/studio-1"),
+                                               ("DELETE", f"/workflow-tools/{old}"), ("DELETE", f"/auth-profiles/{old_credential}")])
+        self.assertEqual(self.made()["description"], "Checks the branch, then places the order")
+        self.assertEqual(len(self.world.credentials), 1)
+        self.assertEqual(len(self.records()), 2)
+
+    def test_a_document_the_platform_refuses_stops_the_seed_with_its_issues_before_anything_is_made(self):
+        self.seed_files({"aim/workflow-tools/order.yaml": WORKFLOW.replace("arazzo: 1.1.0", "arazzo: 1.1.0\n  x-note: not arazzo")})
+        with self.assertRaisesRegex(common.SeedError, "Workflow 'order_cake': the platform refuses its document: workflows\\[0\\]: steps is required"):
+            self.run_seed()
+        self.assertEqual((self.world.workflows, self.world.credentials), ({}, {}))
+
+    def test_a_name_a_studio_would_refuse_stops_the_seed_before_anything_is_made(self):
+        self.seed_files({"aim/workflow-tools/order.yaml": WORKFLOW.replace("name: order_cake", "name: Order a cake")})
+        with self.assertRaisesRegex(common.SeedError, "Workflow 'Order a cake': its name is the name of its MCP tool"):
+            self.run_seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_a_source_the_document_does_not_describe_stops_the_seed(self):
+        self.seed_files({"aim/workflow-tools/order.yaml": WORKFLOW.replace("{source: bakery,", "{source: shop,")})
+        with self.assertRaisesRegex(common.SeedError, "the document has no source 'shop' at apim://api/<api:Acme Bakery Open API>"):
+            self.run_seed()
+
+    def test_an_api_no_source_names_stops_the_seed(self):
+        self.seed_files({"aim/workflow-tools/order.yaml": WORKFLOW.replace('"<api:Acme Bakery Open API>", "sourceRef"', '"<api:Other API>", "sourceRef"')})
+        with self.assertRaisesRegex(common.SeedError, "the canvas names the API 'Other API', which no source of the file is"):
+            self.run_seed()
+
+    def test_a_document_that_is_no_yaml_or_no_mapping_stops_the_seed_on_one_line(self):
+        for arazzo, why in (("arazzo: |\n  arazzo: 1.1.0\n  info: [unclosed\n", "The document of the workflow 'order_cake': it is not valid YAML"),
+                            ("arazzo: |\n  - just a list\n", "Workflow 'order_cake': its arazzo is no Arazzo document"),
+                            ("arazzo: [not, a, text]\n", "Workflow 'order_cake': arazzo and canvas are texts"),
+                            ("arazzo: |\n  sourceDescriptions: 5\n", "sourceDescriptions is a list of sources"),
+                            ("arazzo: |\n  sourceDescriptions: [{name: [x], url: y}]\n", "sourceDescriptions is a list of sources")):
+            with self.subTest(why=why):
+                self.seed_files({"aim/workflow-tools/order.yaml": WORKFLOW.split("arazzo: |")[0] + arazzo})
+                with self.assertRaisesRegex(common.SeedError, why):
+                    self.run_seed()
+                self.assertEqual(self.platform.changes(), [])
+
+    def test_a_credential_left_by_a_workflow_the_platform_refused_goes_and_is_made_again(self):
+        self.platform.add({("POST", SCOPE + "/workflow-tools"): lambda call: (400, {"message": "sourceAuth refused"})})
+        with self.assertRaises(common.HttpError):
+            self.run_seed()
+        [left] = self.world.credentials
+        self.platform.add({("POST", SCOPE + "/workflow-tools"): self.world.create_workflow})
+        self.assertIn(("DELETE", f"/auth-profiles/{left}"), self.run_seed())
+        [credential] = self.world.credentials
+        self.assertEqual(self.made()["sourceAuth"][0]["authProfileId"], credential)
+        self.assertEqual(sorted((x["kind"], x["id"]) for x in self.records()),
+                         [("workflow-credential", credential), ("workflow-tool", self.made()["id"])])
+
+    def test_a_credential_whose_answer_was_lost_is_the_seeds_at_the_next_run_and_is_made_again(self):
+        def made(call):
+            self.world.create_credential(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", SCOPE + "/auth-profiles"): made})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        [lost] = self.world.credentials
+        self.platform.add({("POST", SCOPE + "/auth-profiles"): self.world.create_credential})
+        self.run_seed()
+        self.assertNotIn(lost, self.world.credentials)
+        self.assertEqual(len(self.world.credentials), 1)
+        self.assertIn("! order_cake · bakery: made by an earlier seed that lost the platform's answer", self.output())
+
+    def test_a_credential_of_that_name_that_the_seed_did_not_create_stops_the_seed_and_is_left_alone(self):
+        self.world.credentials["theirs"] = {"id": "theirs", "name": "order_cake · bakery", "strategy": "API_KEY"}
+        with self.assertRaisesRegex(common.SeedError, "The workflow credential 'order_cake · bakery' exists and was not created by this playground"):
+            self.run_seed()
+        self.assertIn("theirs", self.world.credentials)
+        self.assertEqual(self.world.workflows, {})
+
+    def test_a_workflow_of_that_name_that_the_seed_did_not_create_stops_the_seed_and_is_left_alone(self):
+        self.world.workflows["theirs"] = {"id": "theirs", "name": "order_cake", "status": "ACTIVE"}
+        with self.assertRaisesRegex(common.SeedError, "The workflow tool 'order_cake' exists and was not created by this playground"):
+            self.run_seed()
+        self.assertIn("theirs", self.world.workflows)
+
+    def test_a_removal_deletes_the_workflow_then_its_credential(self):
+        self.run_seed()
+        self.platform.calls.clear()
+        aim_catalog.remove(common.created())
+        self.assertEqual([re.sub(r"/[^/]+$", "", p.replace(SCOPE, "")) for m, p in self.platform.changes() if m == "DELETE"],
+                         ["/workflow-tools", "/auth-profiles"])
+        self.assertEqual((self.world.workflows, self.world.credentials, self.world.of_kind("mcp-tool")), ({}, {}, []))
+
+
 class Removal(Catalog):
     """What a removal deletes: what the records say, dependents first, and nothing else."""
 
@@ -1054,10 +1237,10 @@ class Removal(Catalog):
         records = common.created()
         aim_catalog.remove(records)
         kinds = [x["kind"] for x in common.owned(records, aim_catalog.SECTION, aim_catalog.ORDER)]
-        self.assertEqual(kinds, ["api-tools", "agent", "skill", "knowledge", "knowledge", "mcp-server", "model", "model",
-                                 "provider", "provider", "credential", "credential"])
+        self.assertEqual(kinds, ["workflow-tool", "api-tools", "agent", "skill", "knowledge", "knowledge", "mcp-server", "model",
+                                 "model", "provider", "provider", "credential", "credential"])
         self.assertEqual(self.deleted(), [
-            "/catalog/sources", "/catalog/agents", "/catalog/skills", "/catalog/knowledge", "/catalog/knowledge",
+            "/workflow-tools", "/catalog/sources", "/catalog/agents", "/catalog/skills", "/catalog/knowledge", "/catalog/knowledge",
             "/catalog/sources", "/catalog/models", "/catalog/models", "/providers", "/providers", "/auth-profiles", "/auth-profiles",
             "/catalog/sources"])
         self.assertTrue(self.world.empty())
@@ -1069,7 +1252,7 @@ class Removal(Catalog):
         self.assertEqual([p.replace(SCOPE, "") for _, p in self.platform.changes()],
                          [f"/catalog/sources/{server['sourceId']}"])
         self.assertEqual(self.world.children(server), [])
-        self.assertEqual(len(self.world.of_kind("mcp-tool")), 1)   # the tool of the API is another source's
+        self.assertEqual(len(self.world.of_kind("mcp-tool")), 2)   # the tool of the API and the workflow's are other sources
 
     def test_what_is_gone_already_counts_as_deleted(self):
         self.seeded()
@@ -1127,7 +1310,8 @@ class Playground(Catalog):
 
     def test_the_seed_makes_every_kind_of_the_catalog(self):
         self.run_seed()
-        self.assertEqual({x["kind"] for x in self.records()}, set(aim_catalog.ORDER))
+        # the sample's workflow calls a keyless API, so it has no credential (WorkflowTools makes one)
+        self.assertEqual({x["kind"] for x in self.records()}, set(aim_catalog.ORDER) - {"workflow-credential"})
 
     def test_without_a_key_there_is_no_gemini_provider_to_test_and_the_rest_is_seeded(self):
         self.env(GEMINI_API_KEY="")
