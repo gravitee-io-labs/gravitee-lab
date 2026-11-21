@@ -97,7 +97,7 @@ class Gamma:
         org_v1          API Management of the organization (platform users)
         automation      the Automation API of the environment (/aim/mcp-proxies...)
         aim, authz,     the Gamma modules of the environment (/gamma/.../modules/<name>)
-        platform
+        platform, edge
         observability   the dashboards and logs (/gamma/.../observability, not under /modules)
     """
 
@@ -113,6 +113,7 @@ class Gamma:
         self.org_v1 = self._client(management, f"/management/organizations/{self.org}")
         self.automation = self._client(setting("AIM_AUTOMATION_URL", management), f"/automation{self.scope}")
         self.observability = self._client(self.gamma_url, f"/gamma{self.scope}/observability")
+        self.edge = self._client(self.gamma_url, f"/gamma{self.scope}/modules/edge")
         self.aim, self.authz, self.platform = (self._client(self.gamma_url, f"/gamma{self.scope}/modules/{name}")
                                                for name in ("aim", "authz", "platform"))
 

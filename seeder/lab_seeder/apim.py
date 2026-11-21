@@ -6,6 +6,11 @@ environment, from seed/environments/<id>/.
                                      its plans are fixed in the file when something else refers to them
     seed/apim/applications/*.yaml    name, description, settings
     seed/apim/subscriptions/*.yaml   subscriptions: [{application, api, plan, apiKey}] by name
+    seed/apim/shared-policy-groups/*.json
+                                     a shared policy group (crossId, name, apiType, phase; optional description,
+                                     prerequisiteMessage and steps). An API step names it with sharedPolicyGroupCrossId
+                                     in its configuration. The seed deploys the group, then imports that step
+                                     with the crossId, which is the id the gateway has.
 
     seed/environments/<id>/          one folder for each extra environment, which is its id (lowercase letters, digits, dashes)
         environment.yaml             id (the folder's), name, description
@@ -69,7 +74,7 @@ from .common import (OK, REFUSED, Api, HttpError, SeedError, adopted, contains, 
                      owned, parallel, pause, together, record, recorded, seed_file, setting, unmade, wait_until)
 
 SECTION = "apim"
-ORDER = ["subscription", "application", "api", "group", "user", "membership"]   # what depends on what: removed first
+ORDER = ["subscription", "application", "api", "shared-policy-group", "group", "user", "membership"]   # what depends on what: removed first
 ENVIRONMENTS = "environments"   # the folder of seed/ that holds one folder for each extra environment
 ENVIRONMENT = re.compile(r"[a-z0-9-]+")
 # What the platform answers when it is asked to register a user of a source it holds no provider for: a memory user is no such
@@ -82,7 +87,7 @@ DEFAULTS = {"roles": "roles", "lockApiRole": "lock_api_role", "lockApplicationRo
 GROUP_UPDATE = ("name", "roles", "max_invitation", "lock_api_role", "lock_application_role", "system_invitation",
                 "email_invitation", "disable_membership_notifications", "event_rules")   # what the update of a group takes
 ENDED = (200, 202, 204, 400, 404)   # _stop and _close: done, or stopped or closed already (400), or gone (404)
-IN_ENVIRONMENT = ("subscription", "application", "api", "group", "membership")   # the records of what an environment holds: users are the organization's
+IN_ENVIRONMENT = ("subscription", "application", "api", "shared-policy-group", "group", "membership")   # the records of what an environment holds: users are the organization's
 
 NO_API = "No context-path matches"   # what the gateway answers for a path no API serves
 LOOK_AGAIN = 1   # seconds between two looks at the gateway
@@ -109,6 +114,201 @@ def merge(base, extra):
 def digest_of(definition):
     """What identifies what the seed sends once its variables are replaced: of an API, the plans, flows and resources too."""
     return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
+
+
+POLICY_GROUP_FIELDS = ("crossId", "name", "description", "prerequisiteMessage", "apiType", "phase", "steps")
+POLICY_GROUP_TYPES = ("PROXY", "MESSAGE")
+POLICY_GROUP_PHASES = ("REQUEST", "RESPONSE", "PUBLISH", "SUBSCRIBE")
+FLOW_PHASES = ("request", "response", "subscribe", "publish")
+
+
+def shared_policy_group(spec, where):
+    """The writable fields of a group export, checked before any request. Platform ids and stamps are not instructions."""
+    if not isinstance(spec, dict):
+        raise SeedError(f"{where}: a shared policy group is an object")
+    for key in ("crossId", "name"):
+        if not isinstance(spec.get(key), str) or not spec[key].strip():
+            raise SeedError(f"{where}: {key} is nonempty text")
+    if spec.get("apiType") not in POLICY_GROUP_TYPES:
+        raise SeedError(f"{where}: apiType is {' or '.join(POLICY_GROUP_TYPES)}")
+    if spec.get("phase") not in POLICY_GROUP_PHASES or (spec["apiType"] == "PROXY" and spec["phase"] not in ("REQUEST", "RESPONSE")):
+        raise SeedError(f"{where}: phase is REQUEST or RESPONSE for PROXY, also PUBLISH or SUBSCRIBE for MESSAGE")
+    wanted = {key: copy.deepcopy(spec[key]) for key in POLICY_GROUP_FIELDS if key in spec}
+    for key in ("description", "prerequisiteMessage"):
+        value = wanted.setdefault(key, "")
+        if not isinstance(value, str):
+            raise SeedError(f"{where}: {key} is text")
+    steps = wanted.setdefault("steps", [])
+    if not isinstance(steps, list):
+        raise SeedError(f"{where}: steps is a list of policy objects")
+    for step in steps:
+        if not isinstance(step, dict) or any(not isinstance(step.get(key), str) or not step[key].strip() for key in ("name", "policy")):
+            raise SeedError(f"{where}: each step needs a name and a policy as nonempty text")
+        if not isinstance(step.setdefault("enabled", True), bool):
+            raise SeedError(f"{where}: a step's enabled is true or false")
+        if not isinstance(step.setdefault("configuration", {}), dict):
+            raise SeedError(f"{where}: a step's configuration is an object")
+        for key in ("condition", "description"):
+            if key in step and not isinstance(step[key], str):
+                raise SeedError(f"{where}: a step's {key} is text")
+    return wanted
+
+
+def read_shared_policy_group(path, provided=None):
+    return shared_policy_group(load(path, provided), str(path))
+
+
+def policy_flow_steps(definition, where):
+    """The policy steps in common and plan flows, with their execution phase."""
+    if not isinstance(definition, dict):
+        raise SeedError(f"{where}: API export is an object")
+    api = definition.get("api", {})
+    if not isinstance(api, dict):
+        raise SeedError(f"{where}: api is an object")
+    plans = definition.get("plans")
+    plans = [] if plans is None else plans
+    if not isinstance(plans, list) or not all(isinstance(plan, dict) for plan in plans):
+        raise SeedError(f"{where}: plans is a list of objects")
+    for owner in [api, *plans]:
+        flows = owner.get("flows")
+        flows = [] if flows is None else flows
+        if not isinstance(flows, list) or not all(isinstance(flow, dict) for flow in flows):
+            raise SeedError(f"{where}: flows is a list of objects")
+        for flow in flows:
+            for phase in FLOW_PHASES:
+                steps = flow.get(phase)
+                steps = [] if steps is None else steps
+                if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
+                    raise SeedError(f"{where}: {phase} steps is a list of objects")
+                for step in steps:
+                    yield step, phase
+
+
+def policy_group_steps(definition, where="API export"):
+    """The seed references to groups by crossId."""
+    api_owner(definition, where)
+    for step, phase in policy_flow_steps(definition, where):
+        configuration = step.get("configuration")
+        if not isinstance(configuration, dict) or "sharedPolicyGroupCrossId" not in configuration:
+            continue
+        cross = configuration["sharedPolicyGroupCrossId"]
+        if not isinstance(cross, str) or not cross.strip():
+            raise SeedError(f"{where}: sharedPolicyGroupCrossId is nonempty text")
+        if step.get("policy") != "shared-policy-group-policy":
+            raise SeedError(f"{where}: sharedPolicyGroupCrossId belongs to shared-policy-group-policy")
+        yield step, phase, cross
+
+
+def exported_policy_groups(definition, where):
+    """Read the stored group IDs from an APIM v4 definition export."""
+    if not isinstance(definition, dict) or not isinstance(definition.get("api"), dict):
+        raise SeedError(f"{where}: expected a v4 API definition export")
+    for step, _ in policy_flow_steps(definition, where):
+        if step.get("policy") != "shared-policy-group-policy":
+            continue
+        configuration = step.get("configuration")
+        if isinstance(configuration, str):
+            configuration = json.loads(configuration)
+        cross = configuration.get("sharedPolicyGroupId") if isinstance(configuration, dict) else None
+        if not isinstance(cross, str) or not cross:
+            raise SeedError(f"{where}: a shared policy group reference has no stored id")
+        yield cross
+
+
+def bind_policy_groups(definition, groups):
+    """The gateway identifies a group by crossId, not its environment-local management id."""
+    imported = copy.deepcopy(definition)
+    for step, _, cross in policy_group_steps(imported):
+        if cross not in groups:
+            raise SeedError("API export: sharedPolicyGroupCrossId names no shared policy group of this environment's seed")
+        configuration = step["configuration"]
+        configuration.pop("sharedPolicyGroupCrossId")
+        configuration["sharedPolicyGroupId"] = cross
+    return imported
+
+
+def check_policy_groups(groups, definitions, where="seed/apim"):
+    """All group identities and references are local to one environment and checked before the first platform request."""
+    seen, names = {}, set()
+    for spec in groups:
+        if spec["crossId"] in seen:
+            raise SeedError(f"{where}/shared-policy-groups: two groups have the same crossId")
+        if spec["name"] in names:
+            raise SeedError(f"{where}/shared-policy-groups: two groups have the same name")
+        seen[spec["crossId"]] = spec
+        names.add(spec["name"])
+    for definition, file_name in definitions:
+        path = f"{where}/apis/{file_name}"
+        for _, phase, cross in policy_group_steps(definition, path):
+            if cross not in seen:
+                raise SeedError(f"{path}: {cross} is no shared policy group of this environment's seed")
+            group = seen[cross]
+            if group["phase"] != phase.upper() or group["apiType"] != (definition["api"].get("type") or "PROXY"):
+                raise SeedError(f"{path}: shared policy group apiType and phase must match the API and the flow phase")
+
+
+def primary_owner(spec, where):
+    """The seed's user reference, never the primaryOwner object of a product export."""
+    if not isinstance(spec, dict):
+        raise SeedError(f"{where}: seed file is an object")
+    if "primaryOwner" not in spec:
+        return None
+    owner = spec["primaryOwner"]
+    if (not isinstance(owner, dict) or set(owner) != {"source", "sourceId"}
+            or not all(isinstance(owner[key], str) and owner[key].strip() for key in ("source", "sourceId"))):
+        raise SeedError(f"{where}: primaryOwner needs only source and sourceId, both nonempty text")
+    return owner
+
+
+def api_owner(definition, where):
+    """Seeder metadata beside the product export: stripped before importing or computing its digest."""
+    if not isinstance(definition, dict):
+        raise SeedError(f"{where}: API export is an object")
+    metadata = definition.get("x-gravitee", {})
+    if not isinstance(metadata, dict) or set(metadata) - {"primaryOwner"}:
+        raise SeedError(f"{where}: x-gravitee takes only primaryOwner")
+    return primary_owner(metadata, where)
+
+
+def users_named(api, source_id, path="/users"):
+    """Live organization users with this exact sourceId, across every search page."""
+    page = 1
+    while True:
+        body = api.get(path, params={"q": source_id, "page": page, "size": 100}).json()
+        for user in body.get("data", []):
+            if user.get("sourceId") == source_id and user.get("status") != "ARCHIVED":
+                yield user
+        if page >= body.get("page", {}).get("total_pages", 1):
+            return
+        page += 1
+
+
+def find_user(api, source, source_id, path="/users"):
+    """The live organization user with this source and sourceId, or None."""
+    return next((user for user in users_named(api, source_id, path) if user.get("source") == source), None)
+
+
+def owner_user(api, wanted, name, path="/users"):
+    """Resolve the owner without creating a user: a memory user may have no platform row yet."""
+    if wanted is None:
+        return None
+    user = find_user(api, wanted["source"], wanted["sourceId"], path)
+    if user is None:
+        raise SeedError(excerpt(f"API {name}: no live primary owner for source {wanted['source']} and sourceId {wanted['sourceId']}; "
+                                "a memory user needs a first sign-in or group membership"))
+    return user
+
+
+def transfer_ownership(api, path, user, name, section):
+    """Use the environment's existing v2 client, including when the definition needs no write."""
+    if user is None:
+        return
+    live = api.get(path, what=f"API {name}").json()
+    if (live.get("primaryOwner") or {}).get("id") == user["id"]:
+        return
+    api.post(f"{path}/_transfer-ownership", json={"userId": user["id"], "userType": "USER"},
+             what=f"API {name}: transfer primary owner", idempotent=True)
+    log(section, f"✓ Primary owner of {name}: {user['source']}/{user['sourceId']}")
 
 
 def made_by_seed(api_id):
@@ -199,6 +399,7 @@ class ApiManagement:
 
     def __init__(self):
         self.api = Api(setting("APIM_MANAGEMENT_URL"), SECTION)
+        self.policy_groups = {}   # the crossIds deployed in this environment
         self.org = setting("APIM_ORG", "DEFAULT")
         self.path = setting("APIM_MANAGEMENT_PATH", "/management")   # /apim/rest on the Cloud Gate of Gravitee Cloud
         self.own, self.env = True, setting("APIM_ENV", "DEFAULT")
@@ -228,6 +429,7 @@ class ApiManagement:
         other = copy.copy(self)
         other.own, other.env = False, env
         other.bind()
+        other.policy_groups = {}
         return other
 
     def scoped(self, name):
@@ -289,15 +491,7 @@ class ApiManagement:
 
     def find_user(self, source, source_id):
         """The user of the platform with this source and id, None for none. An archived one (a user that was deleted) is none."""
-        page = 1
-        while True:
-            body = self.api.get(f"{self.org_v1}/users", params={"q": source_id, "page": page, "size": 100}).json()
-            for user in body.get("data", []):
-                if (user.get("source"), user.get("sourceId")) == (source, source_id) and user.get("status") != "ARCHIVED":
-                    return user
-            if page >= body.get("page", {}).get("total_pages", 1):
-                return None
-            page += 1
+        return find_user(self.api, source, source_id, f"{self.org_v1}/users")
 
     def appears(self, source, source_id):
         """The user the platform has just made from a group, which its search may list a moment later; None when it never does."""
@@ -463,9 +657,159 @@ class ApiManagement:
         address = self.address(api)
         return next((a for a in self.all_apis() if address and self.address(a) == address), None)
 
+    def ensure_shared_policy_groups(self, groups):
+        """Deploy owned groups before their APIs. A changed crossId, phase or API type needs an explicit removal first."""
+        rows = self._policy_group_rows() if groups else []
+        by_cross = {}
+        for row in rows:
+            cross = row["crossId"]
+            if cross in by_cross:
+                raise SeedError("Shared policy groups: the platform returned duplicate crossIds")
+            by_cross[cross] = row
+        prepared = []
+        for spec in groups:
+            name = self.scoped(spec["name"])
+            found = by_cross.get(spec["crossId"])
+            note = common.pending(SECTION, "shared-policy-group", name)
+            if note and note.get("crossId", spec["crossId"]) != spec["crossId"]:
+                raise SeedError(f"Shared policy group {name}: finish recovering the original crossId before changing it")
+            previous = next((x for x in created() if (x["product"], x["kind"], x["name"]) ==
+                             (SECTION, "shared-policy-group", name) and x["id"]), None)
+            if previous and (not found or found["id"] != previous["id"]):
+                old = next((row for row in rows if row["id"] == previous["id"]), None)
+                if old:
+                    raise SeedError(f"Shared policy group {name}: crossId changed; remove the recorded group before changing its identity")
+            if found:
+                group_id = found["id"]
+                note = common.pending(SECTION, "shared-policy-group", name)
+                if not recorded(SECTION, "shared-policy-group", group_id) and (not note or note.get("crossId", spec["crossId"]) != spec["crossId"]):
+                    raise SeedError(f"Shared policy group {name}: the crossId is taken by one the seed did not create")
+                current = self.api.get(f"{self.v2}/shared-policy-groups/{group_id}").json()
+                if not isinstance(current, dict) or current.get("id") != group_id or not isinstance(current.get("steps"), list):
+                    raise SeedError(f"Shared policy group {name}: the platform returned no group with steps")
+                if any(current.get(key) != spec[key] for key in ("crossId", "apiType", "phase")):
+                    raise SeedError(f"Shared policy group {name}: crossId, apiType and phase are immutable; remove the recorded group first")
+            else:
+                current = None
+            prepared.append((spec, found, current))
+        bound = {}
+        for spec, found, current in prepared:
+            name, digest = self.scoped(spec["name"]), digest_of(spec)
+            if found is None:
+                with making(SECTION, "shared-policy-group", "shared policy groups", name, missing=True, crossId=spec["crossId"], **self.scope()):
+                    answer = self.api.post(f"{self.v2}/shared-policy-groups", json=spec, what=f"Shared policy group {name}").json()
+                    if not isinstance(answer, dict) or not isinstance(answer.get("id"), str) or not answer["id"]:
+                        raise SeedError(f"Shared policy group {name}: the platform returned no id; Re-seed to recover the create")
+                    group_id = answer["id"]
+                    record(SECTION, "shared-policy-group", "shared policy groups", name, group_id, digest=digest, crossId=spec["crossId"], **self.scope())
+                self._deploy_policy_group(group_id, name)
+                log(SECTION, f"✓ Shared policy group created: {name}")
+            else:
+                group_id = found["id"]
+                adopted(SECTION, "shared-policy-group", name, group_id, **self.scope())
+                previous = next(x for x in created() if (x["product"], x["kind"], x["id"]) ==
+                                (SECTION, "shared-policy-group", group_id))
+                changed = previous.get("digest", digest) != digest or not self._policy_group_same(current, spec)
+                if changed:
+                    body = {key: spec[key] for key in ("name", "description", "prerequisiteMessage", "steps")}
+                    self.api.put(f"{self.v2}/shared-policy-groups/{group_id}", json=body, what=f"Shared policy group {name}")
+                if changed or current.get("lifecycleState") != "DEPLOYED":
+                    self._deploy_policy_group(group_id, name)
+                    log(SECTION, f"✓ Shared policy group deployed: {name}")
+                else:
+                    log(SECTION, f"Shared policy group exists: {name}")
+                if previous["name"] != name or previous.get("digest") != digest:
+                    record(SECTION, "shared-policy-group", "shared policy groups", name, group_id, digest=digest, crossId=spec["crossId"], **self.scope())
+                    if previous["name"] != name:
+                        forget(previous)
+            bound[spec["crossId"]] = group_id
+        self.policy_groups = bound
+        return bound
+
+    def _verified_rows(self, resource, fields):
+        """Read a complete, paginated list before deciding that an object is absent."""
+        found, page = [], 1
+        while True:
+            body = self.api.get(f"{self.v2}/{resource}", params={"page": page, "perPage": 100}).json()
+            rows = body.get("data") if isinstance(body, dict) else None
+            pagination = body.get("pagination") if isinstance(body, dict) else None
+            pages = pagination.get("pageCount") if isinstance(pagination, dict) else None
+            if (not isinstance(rows, list)
+                    or not all(isinstance(row, dict) and all(isinstance(row.get(key), str) and row[key] for key in fields)
+                               for row in rows)
+                    or type(pages) is not int or (pages < page and not (page == 1 and pages == 0 and not rows))):
+                raise SeedError(f"{resource}: the platform returned an invalid paginated listing")
+            found.extend(rows)
+            if page >= pages:
+                if len({row["id"] for row in found}) != len(found):
+                    raise SeedError(f"{resource}: the platform returned duplicate ids")
+                return found
+            page += 1
+
+    def _policy_group_rows(self):
+        return self._verified_rows("shared-policy-groups", ("id", "crossId"))
+
+    def recover_policy_group(self, note):
+        """Resolve an incomplete create from its crossId and name before any destructive request."""
+        if not note.get("crossId"):
+            raise SeedError(f"Shared policy group {note['name']}: missing crossId in its creation record")
+        matches = [row for row in self._policy_group_rows() if row["crossId"] == note["crossId"]]
+        if not matches:
+            log(SECTION, f"! Shared policy group '{note['name']}' has no confirmed create yet; its recovery note was kept")
+            return None
+        if len(matches) != 1 or not isinstance(matches[0].get("name"), str) or self.scoped(matches[0]["name"]) != note["name"]:
+            raise SeedError(f"Shared policy group {note['name']}: cannot confirm the identity from the incomplete create")
+        group_id = matches[0]["id"]
+        adopted(SECTION, "shared-policy-group", note["name"], group_id, **self.scope())
+        return {**note, "id": group_id}
+
+    def policy_groups_in_use(self):
+        """Group identities in the remaining v4 APIs, including the flows of each plan."""
+        uses = {}
+        for row in self._verified_rows("apis", ("id",)):
+            if row.get("definitionVersion") in ("V1", "V2", "V3") or row.get("type") in ("FEDERATED", "NATIVE"):
+                continue
+            path = f"{self.v2}/apis/{row['id']}"
+            what = f"API {self.scoped(row.get('name') or row['id'])}"
+            try:
+                result = self.api.get(f"{path}/_export/definition", expect=(200, 404))
+                if result.status_code == 404:
+                    # An API may disappear after the list. A hidden export alone does not establish that it is gone.
+                    if self.api.get(path, expect=(200, 404)).status_code == 404:
+                        continue
+                    raise SeedError(f"{what}: definition export is unavailable")
+                definition = result.json()
+                for cross in exported_policy_groups(definition, what):
+                    uses.setdefault(cross, what)
+                if row.get("state") == "STARTED":
+                    live = self.api.get(path).json()
+                    if not isinstance(live, dict) or live.get("deploymentState") != "DEPLOYED":
+                        raise SeedError(f"{what}: cannot verify the running policy groups while the API needs deployment")
+            except (HttpError, ValueError):
+                raise SeedError(f"{what}: cannot verify its shared policy group references") from None
+        return uses
+
+    @staticmethod
+    def _policy_group_same(live, spec):
+        comparable = copy.deepcopy(live)
+        for key in ("description", "prerequisiteMessage"):
+            comparable[key] = comparable.get(key) or ""
+        for step in comparable["steps"]:
+            if not isinstance(step, dict):
+                return False
+            step.setdefault("enabled", True)
+            step.setdefault("configuration", {})
+        return contains(comparable, spec)
+
+    def _deploy_policy_group(self, group_id, name):
+        self.api.post(f"{self.v2}/shared-policy-groups/{group_id}/_deploy", what=f"Shared policy group {name}", idempotent=True)
+
     def import_api(self, definition, file_name):
+        wanted_owner = api_owner(definition, file_name)
+        definition = bind_policy_groups({key: value for key, value in definition.items() if key != "x-gravitee"}, self.policy_groups)
         api = definition.get("api", {})
         plain = api.get("name", file_name)
+        owner = owner_user(self.api, wanted_owner, self.scoped(plain), f"{self.org_v1}/users")
         name, digest = self.scoped(plain), digest_of(definition)   # the file's: the mode is not part of it
         found = controls.of("api", plain) if self.own else None   # the controls name an API of seed/apim/
         wanted = self.as_mode_says(definition, found)
@@ -490,12 +834,14 @@ class ApiManagement:
                 log(SECTION, f"✓ API up to date: {name}")
             else:
                 self.start(live["id"])   # the definition has not changed, but the API does not run: no new import
+            transfer_ownership(self.api, f"{self.v2}/apis/{live['id']}", owner, name, SECTION)
             return
         else:
             api_id = self.update(live, imported, name, digest)   # someone edited it beyond what a control puts back
             self.said(name, found)
         self.restrict(api_id, groups, name)
         self.start(api_id)
+        transfer_ownership(self.api, f"{self.v2}/apis/{api_id}", owner, name, SECTION)
 
     def groups_of(self, hrids):
         """The live ids of the groups an API or an application of an environment names by hrid, in the order it names them.
@@ -866,10 +1212,12 @@ def read_environment(folder):
     wanted = {"id": folder, "name": identity["name"], "settings": load(settings, provided) if settings else None,
               "users": (load(users, provided).get("users") or []) if users else [],
               "groups": [load(f, provided) for f in files(*parts, "groups")],
+              "policy_groups": [read_shared_policy_group(f, provided) for f in files(*parts, "shared-policy-groups", suffixes=(".json",))],
               "apis": [(load(f, provided), f.name) for f in files(*parts, "apis", suffixes=(".json",))],
               "applications": [load(f, provided) for f in files(*parts, "applications")],
               "subscriptions": [spec for f in files(*parts, "subscriptions") for spec in load(f, provided).get("subscriptions") or []]}
     check_environment(where, wanted)
+    check_policy_groups(wanted["policy_groups"], wanted["apis"], where)
     return wanted
 
 
@@ -893,6 +1241,7 @@ def check_environment(where, wanted):
             raise SeedError(f"{where}/groups/{hrid}: defaults has {', '.join(sorted(unknown))}, which the platform has no field for")
     names = set()
     for definition, file_name in wanted["apis"]:
+        api_owner(definition, f"{where}/apis/{file_name}")
         api = definition.get("api") or {}
         name = api.get("name", file_name)
         if name in names:
@@ -924,11 +1273,12 @@ def check_environment(where, wanted):
             raise SeedError(f"{where}/subscriptions: the consumerConfiguration of {spec['application']} → {spec['api']} needs an entrypointId")
 
 
-def seed_own(apim, settings, loaded, applications, subscriptions):
+def seed_own(apim, settings, loaded, applications, subscriptions, policy_groups):
     """The platform's own environment, from seed/apim/ (`loaded`: its API files, read). The APIs and the applications do not
     depend on one another, so they are made at the same time (SEED_WORKERS), and the subscriptions, which name both, after them."""
     if settings:
         apim.settings(load(settings))
+    apim.ensure_shared_policy_groups(policy_groups)
     together([lambda each=each: apim.import_api(*each) for each in loaded]
              + [lambda path=path: apim.application(load(path)) for path in applications])
     parallel(apim.subscription, [spec for path in subscriptions for spec in load(path).get("subscriptions", [])])
@@ -944,6 +1294,7 @@ def seed_environment(apim, wanted):
     if wanted["settings"]:
         apim.settings(wanted["settings"])
     parallel(apim.group, wanted["groups"])
+    apim.ensure_shared_policy_groups(wanted["policy_groups"])
     imports = [lambda each=each: apim.import_api(*each) for each in wanted["apis"]]
     together(imports + [lambda spec=spec: apim.application(spec) for spec in wanted["applications"]])
     parallel(apim.subscription, wanted["subscriptions"])
@@ -953,22 +1304,24 @@ def seed():
     settings = seed_file("apim", "settings.yaml")
     apis = files("apim", "apis", suffixes=(".json",))
     applications, subscriptions = files("apim", "applications"), files("apim", "subscriptions")
+    groups = [read_shared_policy_group(path) for path in files("apim", "shared-policy-groups", suffixes=(".json",))]
     environments = [read_environment(folder) for folder in folders(ENVIRONMENTS)]   # nothing is changed before they are all read
-    if not (settings or apis or applications or subscriptions or environments):
+    if not (settings or apis or applications or subscriptions or environments or groups):
         return
+    loaded = [(load(path), path.name) for path in apis]
+    check_policy_groups(groups, loaded)   # before the platform is asked: a missing group creates nothing
     apim = ApiManagement()
     apim.connect()
     apim.watch()
     scopes = [apim.at(wanted["id"]) for wanted in environments]
     for scope in scopes:
         scope.require_environment()   # all of them, before anything is changed in any
-    loaded = [(load(path), path.name) for path in apis]
     # What the gateway is waited for, in this order: the platform's own APIs, then those of each environment, whose names say it
     definitions = [definition for definition, _ in loaded] + [
         {**definition, "api": {**definition.get("api", {}), "name": scope.scoped(definition.get("api", {}).get("name", file_name))}}
         for scope, wanted in zip(scopes, environments) for definition, file_name in wanted["apis"]]
     # The environments do not depend on one another either: each is one step, and the platform's own is another
-    together([lambda: seed_own(apim, settings, loaded, applications, subscriptions)]
+    together([lambda: seed_own(apim, settings, loaded, applications, subscriptions, groups)]
              + [lambda each=each: seed_environment(*each) for each in zip(scopes, environments)])
     if common.waits_for_gateway():
         wait_for_gateway(apim, definitions)
@@ -979,22 +1332,63 @@ def remove(records):
     record: a user that owns an API or an application of its own cannot be deleted, and that stops neither the removal of the
     rest nor the record of that one."""
     mine = owned(records, SECTION, ORDER)
-    if not mine:
+    incomplete = common.notes(SECTION, "shared-policy-group")
+    if not (mine or incomplete):
         return
     platform = ApiManagement()
     platform.connect()
     present = {}   # environment -> whether the platform still has it
 
+    def environment_exists(apim, x):
+        if not x.get("env") or x["kind"] not in IN_ENVIRONMENT:
+            return True
+        if x["env"] not in present:
+            present[x["env"]] = apim.has_environment()
+        if present[x["env"]]:
+            return True
+        forget(x)
+        log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}': its environment is gone")
+        return False
+
+    def remove_policy_groups(batch):
+        uses_by_env = {}
+        for x in [*batch, *incomplete]:
+            apim = platform.at(x["env"]) if x.get("env") else platform
+            if not environment_exists(apim, x):
+                continue
+            if x["id"] is None:
+                x = apim.recover_policy_group(x)
+                if x is None:
+                    continue
+            path = f"{apim.v2}/shared-policy-groups/{x['id']}"
+            result = apim.api.get(path, expect=(200, 404))
+            if result.status_code == 404:
+                forget(x)
+                continue
+            group = result.json()
+            if not isinstance(group, dict) or group.get("id") != x["id"]:
+                raise SeedError(f"Shared policy group {x['name']}: cannot confirm the management id")
+            cross = group.get("crossId")
+            if not isinstance(cross, str) or not cross or x.get("crossId", cross) != cross:
+                raise SeedError(f"Shared policy group {x['name']}: cannot confirm the crossId")
+            if apim.env not in uses_by_env:
+                uses_by_env[apim.env] = apim.policy_groups_in_use()
+            uses = uses_by_env[apim.env]
+            user_api = uses.get(cross) or uses.get(x["id"])
+            if user_api:
+                log(SECTION, f"! Shared policy group '{x['name']}' kept: still referenced by {user_api}")
+                continue
+            if group.get("lifecycleState") != "UNDEPLOYED":
+                apim.api.post(f"{path}/_undeploy", expect=(200, 202, 204, 404), idempotent=True)
+            apim.api.delete(path)
+            forget(x)
+            log(SECTION, f"✓ Deleted shared policy group '{x['name']}'")
+
     def delete(x):
         """Deletes the object of one record and forgets the record, unless the platform keeps the object."""
         apim = platform.at(x["env"]) if x.get("env") else platform   # where the record says it was made
-        if x.get("env") and x["kind"] in IN_ENVIRONMENT:
-            if x["env"] not in present:
-                present[x["env"]] = apim.has_environment()
-            if not present[x["env"]]:   # an environment that is gone has nothing left in it to delete
-                forget(x)
-                log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}': its environment is gone")
-                return
+        if not environment_exists(apim, x):
+            return
         if x["kind"] == "subscription":
             apim.api.post(f"{apim.v2}/apis/{x['api']}/subscriptions/{x['id']}/_close", expect=ENDED, idempotent=True)
         elif x["kind"] == "application":
@@ -1019,7 +1413,9 @@ def remove(records):
     for kind in ORDER:   # what depends on what is removed first, kind by kind; the records of one kind do not depend on one another
         batch = [x for x in mine if x["kind"] == kind]
         # The users and the seed's roles are the organization's: one at a time, as they were made
-        if kind in ("user", "membership"):
+        if kind == "shared-policy-group":
+            remove_policy_groups(batch)
+        elif kind in ("user", "membership"):
             for x in batch:
                 delete(x)
         else:

@@ -31,7 +31,7 @@ changed them since, and switches the frameworks off. The answers and the attesta
 aim_catalog deletes.
 """
 
-from .apim import digest_of
+from .apim import digest_of, users_named
 from .common import SeedError, adopted, created, forget, has_seed, items, load, log, making, owned, record, seed_file
 from .gamma import CATALOG, Gamma
 
@@ -235,8 +235,7 @@ class Governance:
         return found
 
     def user(self, name, source):
-        users = self.g.org_v1.get("/users", params={"q": name, "size": 100}).json().get("data", [])
-        found = [u for u in users if u.get("sourceId") == name and source in (None, u.get("source"))]
+        found = [u for u in users_named(self.g.org_v1, name) if source in (None, u.get("source"))]
         if not found:
             raise SeedError(f"The user '{name}' is not known to API Management: it signs in once first")
         if len(found) > 1:

@@ -48,7 +48,7 @@ import zipfile
 import yaml
 
 from . import aim_proxies
-from . import common
+from . import common, versions
 from .apim import digest_of
 from .common import Api, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
 from .gamma import CATALOG, Gamma
@@ -152,8 +152,9 @@ def seed_credentials(aim):
             record(SECTION, "credential", LABELS["credential"], name, found["id"], digest=digest)
             say("credential", "updated", name)
             continue
-        body = {"name": name, "strategy": secret["type"].upper().replace("-", "_"), "credentials": secret,
-                "allowedUsageSurfaces": USAGE_SURFACES, **service}
+        body = {"name": name, "strategy": secret["type"].upper().replace("-", "_"), "credentials": secret, **service}
+        if not versions.released(versions.APIM):   # the demo build requires this field; releases removed it
+            body["allowedUsageSurfaces"] = USAGE_SURFACES
         with common.making(SECTION, "credential", LABELS["credential"], name, missing=True):
             created = aim.post(PATHS["credential"], json=body).json()
             record(SECTION, "credential", LABELS["credential"], name, created["id"], digest=digest)

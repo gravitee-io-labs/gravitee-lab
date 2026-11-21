@@ -66,7 +66,7 @@ def since(name):
 
 def read():
     """The versions of the products the seed fills, once at its start. A refusal of the question is no version."""
-    if has_seed("apim", "environments", "aim", "authz"):   # what API Management fills, or Gamma, which it serves
+    if has_seed("apim", "environments", "aim", "authz", "edge"):   # what API Management fills, or Gamma, which it serves
         platform = apim.ApiManagement()
         platform.connect()
         note(APIM, _said(platform.api, f"{platform.v1}/instances", lambda row: row.get("state") == "STARTED"))

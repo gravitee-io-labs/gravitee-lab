@@ -4,6 +4,7 @@ a platform that keeps what it is given: made once, left alone by a second run (n
 missing, never taking over what the seed did not make, and removed with only what it made."""
 
 import itertools
+import json
 import os
 import re
 from unittest import mock
@@ -568,10 +569,21 @@ class WhatItNeeds(Agents):
                               (AGENT.replace("- {studio: Customer desk, plan: Agents}", "- Customer desk"), access),
                               (AGENT.replace(", plan: Agents", ""), access),
                               (AGENT.replace("{studio: Customer desk,", "{studio: Customer desk, api: Orchid models,"), access),
-                              (AGENT.replace("plan: Agents}", "plan: Agents, apiKey: k}"), access)):
+                              (AGENT.replace("plan: Agents}", "plan: Agents, apiKey: k}"), access),
+                              (AGENT.replace("plan: Agents}", "plan: 42}"), access),
+                              (AGENT.replace("plan: Agents}", "plan: Agents, typo: x}"), access),
+                              (AGENT.replace("clientId: desk-copilot", "clientId: true"),
+                               "desk-copilot.yaml: identity needs a clientId")):
             with self.subTest(problem=problem):
                 self.seed_files({"aim/agents/desk-copilot.yaml": text})
                 self.fails(problem)
+                self.assertEqual(self.platform.calls, [])
+
+        for value in (42, ["not an object"], "text"):
+            with self.subTest(root=value):
+                self.seed_files({"aim/agents/desk-copilot.yaml": json.dumps(value)})
+                with self.assertRaisesRegex(common.SeedError, "seed file is an object"):
+                    aim_agents.seed()
                 self.assertEqual(self.platform.calls, [])
 
 

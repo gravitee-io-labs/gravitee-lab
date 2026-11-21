@@ -2,7 +2,7 @@
 
 The seeder is the engine every playground runs to create its data in Gravitee: OpenFGA stores, an Access Management
 domain, APIs, applications, subscriptions, groups and developer portals in API Management (in its own environment and in
-those a playground adds), the objects of Gamma, and the Kubernetes resources that the Gravitee Kubernetes Operator turns into API Management objects. It talks to the platform only
+those a playground adds), the objects of Gamma, Edge Management configuration, and the Kubernetes resources that the Gravitee Kubernetes Operator turns into API Management objects. It talks to the platform only
 through its management APIs, and records what it creates so that it can delete exactly that later.
 
 ## How a playground runs it

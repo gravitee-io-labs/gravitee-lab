@@ -33,6 +33,12 @@ class Reading(Seed):
         self.assertEqual((versions.since("gamma"), versions.released(versions.APIM), self.platform.sent(*REPORTERS)), (False, True, []))
         self.assertIn("[versions] API Management 4.12.3: a release, seeded by its version", self.output())
 
+    def test_an_edge_only_seed_also_reads_the_api_management_version(self):
+        self.seed_files({"edge/configuration.yaml": "{}"})
+        self.answer({INSTANCES: gateways(("4.13.0", "STARTED"))})
+        versions.read()
+        self.assertTrue(versions.released(versions.APIM))
+
     def test_gateways_that_disagree_or_say_nothing_are_no_version_and_the_seed_adapts(self):
         for answer in (gateways(("4.12.3", "STARTED"), ("4.13.3", "STARTED")), (200, {"content": []}), (404, {})):
             with self.subTest(answer=answer):

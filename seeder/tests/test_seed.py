@@ -219,7 +219,7 @@ class Modules(Seed):
         self.run_modules()
         self.assertEqual(self.main(), 0)
         self.assertEqual([name for _, name in self.order],
-                         ["openfga", "am", "apim", "apim_portal", "am_link", "aim_catalog", "aim_workspaces", "aim_proxies",
+                         ["openfga", "am", "apim", "apim_portal", "edge", "am_link", "aim_catalog", "aim_workspaces", "aim_proxies",
                           "aim_agents", "aim_governance", "authz", "aim_dashboards", "k8s"])
 
     def test_the_gamma_modules_to_fill_follow_the_folders_of_the_seed(self):
@@ -228,6 +228,8 @@ class Modules(Seed):
         self.assertEqual(seed.gamma_modules(), {"aim"})
         self.seed_files({"authz/entities.yaml": "entities: []", "am/gamma-link.yaml": "domain: d"})
         self.assertEqual(seed.gamma_modules(), {"aim", "authz", "platform"})
+        self.seed_files({"edge/configuration.yaml": "proxy: {routes: []}"})
+        self.assertEqual(seed.gamma_modules(), {"aim", "authz", "platform", "edge"})
 
     def test_a_platform_that_lacks_a_module_the_seed_fills_stops_it_before_any_module_runs(self):
         self.run_modules()

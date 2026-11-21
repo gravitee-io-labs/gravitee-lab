@@ -436,11 +436,12 @@ is safe. [`seeder/README.md`](../seeder/README.md) describes the engine.
 ### Files
 
 Seed files use each product's own format, so they come from an export and go back the same way. They are `.yaml`,
-except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.json` of an environment).
+except API exports and shared policy groups, which are `.json` (in `apis/` and `shared-policy-groups/` of `seed/apim/` or an environment).
 
 | Folder | Format | Created through |
 |---|---|---|
 | `seed/apim/apis/*.json` | APIM API export (v4 definition) | `_import/definition` |
+| `seed/apim/shared-policy-groups/*.json`, `seed/environments/<id>/shared-policy-groups/*.json` | Shared policy groups deployed before their APIs | APIM v2 Management API |
 | `seed/apim/settings.yaml`, `applications/*.yaml`, `subscriptions/*.yaml` | Environment settings, applications, subscriptions | APIM Management API |
 | `seed/environments/<id>/environment.yaml` | The id, name and description of an environment of its own | Nothing: the seed [never creates it](#environments-of-its-own) |
 | `seed/environments/<id>/settings.yaml`, `apis/*.json`, `applications/*.yaml`, `subscriptions/*.yaml` | As `seed/apim/`, for that environment | APIM Management API |
@@ -450,10 +451,75 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
 | `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/edge/configuration.yaml` | Shared environment configuration: gateway and reactor URLs, proxy DNS domains and ordered routes, Shadow AI domains and reporting interval | Edge Management Gamma API |
 | `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about, GAPL policies, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
 | `seed/refills.yaml` | What the lessons spend, given back on every run | The counters the gateway keeps in the core's Redis |
+
+Set an optional primary owner by the user's `source` and `sourceId`, as in `users.yaml`. For an imported API,
+add `x-gravitee` beside the export's `api` and `plans`:
+
+```json
+"x-gravitee": {
+  "primaryOwner": {"source": "memory", "sourceId": "api1"}
+}
+```
+
+Keep Gravitee's exported `primaryOwner` object as product data; do not use it as a seed instruction or add a
+machine-specific user id. The seeder strips `x-gravitee` before `_import/definition` and excludes it from the definition's
+digest. For either shape of studio in `seed/aim/studios/*.yaml`, add the reference directly:
+
+```yaml
+primaryOwner:
+  source: memory
+  sourceId: api1
+```
+
+Use an existing, non-archived organization user. A memory user has no platform row until its first sign-in or group
+membership; the seeder reports a missing row and never creates the owner or signs in as that user. Keep the seed login's
+environment admin role: the seed login keeps managing the API through that role after ownership transfers.
+
+Leave the key out to keep the current owner. With the key present, let the seeder transfer ownership after creation,
+update or replacement, and when the definition is already up to date; an owner that already matches needs no transfer.
+Changing only the owner replaces no API or studio. Removing the key transfers nothing back, and the ownership transfer
+adds nothing to `created.json`.
+
+A shared policy group lives in `shared-policy-groups/*.json` beside the APIs that use it. Keep its `crossId` stable:
+this is the gateway identity, while its management id belongs to one environment. For example:
+
+```json
+{
+  "crossId": "subscriber-controls",
+  "name": "Subscriber controls",
+  "apiType": "PROXY",
+  "phase": "REQUEST",
+  "steps": [{"name": "Rate limit", "policy": "rate-limit", "enabled": true,
+             "configuration": {"rate": {"limit": 60, "periodTime": 1, "periodTimeUnit": "MINUTES"}}}]
+}
+```
+
+`description`, `prerequisiteMessage` and `steps` are optional; omitted descriptions are empty, omitted steps are an empty
+list, and an omitted step `enabled` is true. A step may carry its policy's `configuration`, `condition` and `description`.
+Use `PROXY` with `REQUEST` or `RESPONSE`, or `MESSAGE` with those phases, `PUBLISH` or `SUBSCRIBE`.
+In an API common flow or plan flow of the matching phase, refer to the group with:
+
+```json
+{"name": "Subscriber controls", "policy": "shared-policy-group-policy", "enabled": true,
+ "configuration": {"sharedPolicyGroupCrossId": "subscriber-controls"}}
+```
+
+The seed checks every reference before changes, deploys the group before importing its APIs, and sends that crossId as
+`sharedPolicyGroupId`. Each environment needs its own group file; the same crossId may be used in several environments.
+An undeployed or pending group is deployed on Re-seed. Changed steps update and deploy the group in place without
+reimporting unchanged APIs. Platform-added step defaults do not cause repeated writes. A group with that crossId that the
+seed did not create is an error. Changing `crossId`, `apiType` or `phase` requires removing the recorded group first;
+removal checks the remaining v4 API definitions and plan flows in that environment before undeploying an owned group.
+A group still referenced by another API stays deployed and retains its ownership record. If definitions cannot be
+verified, removal stops before touching the group. The seed login needs visibility into the environment's APIs and read
+access to their definitions. Removal also recovers an incomplete group create by its recorded crossId and name.
+If the create cannot yet be confirmed, it keeps the recovery note for a later run. Omitting the folder makes no group
+request when seeding.
 
 A studio file (`seed/aim/studios/`) says its tools, its plan or its `access`, and its authorization check. Three keys
 serve the lessons:
@@ -476,6 +542,86 @@ serve the lessons:
 - A studio file of either shape gives its protocol versions with the key its build takes:
   [What differs from one build to another](#what-differs-from-one-build-to-another).
 
+Set optional API fields directly on either studio shape. Use existing category ids, supplied by the seed service's
+variables when they differ between platforms. Leave a field out to preserve it; use an empty list to clear it. Changing
+these fields updates the existing API and does not recreate the studio:
+
+```yaml
+visibility: PUBLIC
+labels: [assistant, tools]
+categories: ['${DEMO_CATEGORY_ID}']
+```
+
+A plain studio (`plan` and `tools`, without `access`) can also carry `upstreamAuth` and `flows`:
+
+```yaml
+upstreamAuth:
+  - api: Acme Customers API
+    type: api-key
+    apiKeyHeader: X-Gravitee-Api-Key
+    apiKey: '${ACME_CUSTOMERS_TOOL_KEY}'
+flows:
+  - name: Tool calls
+    enabled: true
+    selectors: [{type: MCP, methods: [tools/call]}]
+    request:
+      - policy: authz-pep
+        enabled: true
+        configuration:
+          subjectType: User
+          subjectExpr: "{#context.attributes['user']}"
+          resourceType: MCPTool
+          resourceExpr: "{#context.attributes['mcp_tool_name']}"
+          actionExpr: "{#context.attributes['mcp_tool_name']}"
+          denyStatus: 403
+    response: []
+```
+
+`upstreamAuth` uses the same shape as a studio with `access`: each entry names an API whose tools were imported into the
+catalog and supplies its `type: api-key`, `apiKeyHeader` and quoted `apiKey`. All four fields are required; unknown fields,
+unknown APIs and incomplete keys stop the seed before its first change. The key is sent when the studio is created and
+when *Edit tools* changes are brought back to the file. Changing a key or plan replaces the studio.
+
+`flows` is the full list of flow objects stored by the v2 API. Changing only flows updates the existing API without
+replacing the studio; `flows: []` clears them. Leave either key out to keep the existing behavior. The seeder corrects a
+loopback tool target to `GATEWAY_INTERNAL_URL`, preserving its API path and query, after saving the specification and
+before writing flows. The gateway address comes from the seed service's environment, never from the studio file. Both
+studio shapes get this target correction, followed by one deployment when needed. A matching key, flow list and target
+make the next run write nothing.
+
+Add `tags` to an `aim/workspaces/*.yaml` file to set its workspace tags. Leave the key out to preserve existing tags,
+or set `tags: []` to clear them:
+
+```yaml
+tags: [demo, support]
+```
+
+Configure Edge Management with `seed/edge/configuration.yaml`. Set both URLs on the first save; omit them on later saves
+or keep the same values, because the platform does not allow changing them. Keep every endpoint in a variable:
+
+```yaml
+gatewayUrl: '${EDGE_GATEWAY_URL}'
+reactorUrl: '${EDGE_REACTOR_URL}'
+proxy:
+  dnsDomains:
+    - {name: api.example.com}
+  routes:
+    - {pathPrefix: /v1/messages, apiPath: /interception/claude, provider: anthropic}
+    - {pathPrefix: /, apiPath: /interception/passthrough}
+shadowAi:
+  domains:
+    - {name: api.example.com}
+  reportInterval: PT2M
+```
+
+Keep routes in first-match order, and create their proxy APIs through `seed/apim/apis/` as usual. Set `reportInterval`
+to an ISO 8601 duration of at least 10 seconds, using hours, minutes, or seconds; oversized values stop the seed before
+it connects. Leave sections or fields out to preserve
+them; use empty lists to clear domains or routes. On creation, omit lists to default them to empty and omit the interval
+to use `PT2M`. Save and deploy only when the configuration differs. Treat this as shared environment configuration:
+removing the playground leaves it in place, as with APIM environment settings, and adds no entry to `created.json`.
+Install and enroll Edge devices through the platform's existing process.
+
 Seed files use `${VAR}` for everything that depends on the target: service URLs, the Redis password of a vector store
 resource, the gateway and AM addresses shown to clients. Acme Shop's seed files use, among others, `${AM_GATEWAY_URL}`,
 `${SHOP_MCP_URL}`, `${OLLAMA_URL}` and `${REDIS_URL}`. The API definitions are JSON objects: the checks read the plugins
@@ -496,6 +642,7 @@ seed/environments/<id>/
   users.yaml            the users that groups name
   groups/<hrid>.yaml    one group each
   apis/*.json           API exports
+  shared-policy-groups/*.json  Shared policy groups of this environment
   applications/*.yaml
   subscriptions/*.yaml
   portal/               theme.yaml, portal.yaml, pages/*.yaml, content/*, listings/*.yaml, api-overview.md,
@@ -562,12 +709,19 @@ seed/environments/<id>/
   publish-only feed) and its messages, each with its payload schema and its example. Write the document in AsyncAPI 3.0: the
   viewer labels an operation `RECEIVE` or `SEND`, where a 2.x `subscribe` shows as `SUB`. The page is made, written, then
   published, so that the platform's sample document is never shown. A document that is gone from the folder takes its page.
-  An OpenAPI document gets an OpenAPI page in the same place, which the viewer draws as the paths and their operations.
+  An OpenAPI document gets an OpenAPI page in the same place, with Swagger **Try it out** enabled. Calls use the gateway
+  entrypoints as servers and the API context path as the server path; a saved manual server URL is cleared. Anonymous
+  Try it out is off; the caller supplies the credentials its API plan requires. This configures the viewer, without changing
+  API plans, subscriptions or gateway access.
 - **The page of an API itself is the other way to it.** `/catalog/api/<id>` is not the menu: its Details tab shows the page of
   the API that is its homepage, and its Documentation tab the others, which the Console keeps in the API's Documentation. The
   seed makes there a Markdown homepage from `api-details.md` and an AsyncAPI page (a `SWAGGER` page for an OpenAPI document) from the document, each published and found
   again by its type and name. A catalog card of an API that a listing shows opens the menu's page, not this one, so these two
   matter for the direct address and for a link to it.
+  OpenAPI pages use the same Try it out settings in both locations. The seed puts these switches back on each run, keeps
+  unrelated viewer options (such as expansion and PKCE), and makes no write when the settings already match. Removing an
+  API document removes its generated pages as before. These defaults apply to listed API documents in `portal/api-docs/`;
+  standalone pages in `portal/pages/` keep their own configuration.
 - **The pages are recorded with their listing** (`API pages`, one record that counts the pages of the menu and those of the
   APIs) and removed with it: the pages of the menu go with their API items, and the pages of an API are deleted by id. A page
   of an API that someone else made under the same type and name stops the seed: it never takes it.
@@ -615,6 +769,8 @@ not set`, and a variable a seed file uses with no value stops it with the file's
 The seed records what it creates, never what existed, in `.state/created.json` of its folder (git-ignored). It
 replaces or deletes only what that record says it created:
 
+- A shared policy group is recorded by its management id and environment; its crossId identifies it to the gateway.
+  A removal undeploys and deletes it after the APIs that reference it.
 - An API at the same path as one of its own, an APIM application, a Gamma object, a policy or a dashboard with the same
   name as one of its own, that it did not create, is an error. So is an authorization engine configured otherwise,
   which is a warning when the engine is marked `optional`.
@@ -973,6 +1129,7 @@ with the code it names once no build that the Lab runs needs it.
 |---|---|---|---|
 | A studio's protocol versions | A list on every release, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends a release the list, from either key, and a build the key the file gives (`aim_proxies.protocol_versions`) |
 | A studio's keyless plan | The amp-demo build makes it from `KEYLESS`, the name of Agent Management, and its plans read it back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`) |
+| Credential usage surfaces | Required by the amp-demo build; removed from the release API | Nothing | Omits `allowedUsageSurfaces` on releases and keeps the legacy default on builds (`aim_catalog`) |
 | The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | Nothing | Asks again with the module when the answer holds that code (`aim_dashboards`) |
 | An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again, or makes the studio again (`apim.UNSUPPORTED`) |
 | Models of an AI workspace with an endpoint of their own | The only kind the amp-demo build takes | A component with `target` and a price on each model | Makes the component the file describes (`aim_workspaces`) |

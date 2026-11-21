@@ -14,7 +14,7 @@ import requests
 import yaml
 
 from lab_seeder import aim_catalog
-from lab_seeder import common
+from lab_seeder import common, versions
 from lab_seeder.testkit import PLAYGROUNDS, Response, Seed
 from tests import doubling
 
@@ -53,6 +53,7 @@ class World:
 
     def __init__(self):
         self.ids = itertools.count(1)
+        self.legacy_surfaces = True
         self.credentials, self.secrets, self.providers, self.sources, self.items = {}, {}, {}, {}, {}
         self.apis = {}   # id -> {"name": ..., "operations": [...], "errors": [...]}
         self.mcp = {"name": "Acme Bakery MCP", "protocol": "2025-11-25", "pages": 1, "sse": False, "session": None,
@@ -92,7 +93,9 @@ class World:
     # --- Credentials and providers -------------------------------------------------------------
 
     def create_credential(self, call):
-        if not call.json.get("allowedUsageSurfaces"):   # Gamma refuses a credential that may be used from nowhere
+        if not self.legacy_surfaces and "allowedUsageSurfaces" in call.json:
+            return 400, {"message": "Unknown field: allowedUsageSurfaces"}
+        if self.legacy_surfaces and not call.json.get("allowedUsageSurfaces"):   # the demo build requires it
             return 400, {"message": "must not be empty", "path": "create.arg0.allowedUsageSurfaces"}
         credential = {"id": self.new(), **{k: call.json.get(k) for k in ("name", "strategy", "serviceId")}}
         self.credentials[credential["id"]] = credential
@@ -398,6 +401,19 @@ class Credentials(Catalog):
                          {"type": "api-key", "headerName": "x-goog-api-key", "value": "placeholder"})
         self.assertEqual([(x["kind"], x["label"], x["name"]) for x in self.records()],
                          [("credential", "credentials", "Gemini key")])
+
+    def test_a_release_does_not_receive_the_removed_usage_surfaces_field(self):
+        versions.note(versions.APIM, ["4.13.0"])
+        self.world.legacy_surfaces = False
+        self.run_seed()
+        [call] = self.platform.sent("POST", SCOPE + "/auth-profiles")
+        self.assertNotIn("allowedUsageSurfaces", call.json)
+
+    def test_the_demo_build_keeps_its_required_usage_surfaces(self):
+        versions.note(versions.APIM, ["4.13.0-amp-demo-SNAPSHOT"])
+        self.run_seed()
+        [call] = self.platform.sent("POST", SCOPE + "/auth-profiles")
+        self.assertEqual(call.json["allowedUsageSurfaces"], aim_catalog.USAGE_SURFACES)
 
     def test_a_credential_type_is_sent_as_the_strategy_the_platform_names_it(self):
         for kind, strategy in (("service-account", "SERVICE_ACCOUNT"), ("oauth2", "OAUTH2"), ("api_key", "API_KEY")):

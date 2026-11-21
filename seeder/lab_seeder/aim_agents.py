@@ -65,22 +65,36 @@ DETACHED = (200, 404, 409, 502)
 
 # --- What the files ask ---------------------------------------------------------------------
 
+def agent_fields(spec, where):
+    """Validate the existing identity and access keys without connecting to either platform."""
+    if not isinstance(spec, dict):
+        raise SeedError(f"{where}: seed file is an object")
+    if not {"identity", "access"} & set(spec):
+        return None
+
+    def text(value):
+        return isinstance(value, str) and bool(value.strip())
+
+    if not text(spec.get("entityId")):
+        raise SeedError(f"{where}: entityId missing")
+    if "identity" in spec:
+        identity = spec["identity"]
+        if not isinstance(identity, dict) or set(identity) != {"clientId"} or not text(identity.get("clientId")):
+            raise SeedError(f"{where}: identity needs a clientId")
+    access = [] if spec.get("access") is None else spec["access"]
+    if not isinstance(access, list) or not all(_access(entry) for entry in access):
+        raise SeedError(f"{where}: access is a list of {{studio, plan}} or {{api, plan, apiKey}}")
+    return {**spec, "access": access}
+
+
 def wanted():
     """The agent files that give an identity or access, checked before any call. The other files of the folder are
     aim_catalog's alone."""
     found = []
     for path in files("aim", "agents"):
-        spec = load(path)
-        if not {"identity", "access"} & set(spec):
-            continue
-        if not spec.get("entityId"):
-            raise SeedError(f"{path.name}: entityId missing")
-        if "identity" in spec and not (isinstance(spec["identity"], dict) and spec["identity"].get("clientId")):
-            raise SeedError(f"{path.name}: identity needs a clientId")
-        access = spec.get("access") or []
-        if not isinstance(access, list) or not all(_access(a) for a in access):
-            raise SeedError(f"{path.name}: access is a list of {{studio, plan}} or {{api, plan, apiKey}}")
-        found.append({**spec, "access": access})
+        spec = agent_fields(load(path), path.name)
+        if spec is not None:
+            found.append(spec)
     if any("identity" in spec for spec in found) and not seed_file("am", "gamma-link.yaml"):
         raise SeedError("An agent's identity is an application of Access Management: seed/am/gamma-link.yaml names the "
                         "domain that holds it")
@@ -88,10 +102,13 @@ def wanted():
 
 
 def _access(entry):
-    """Whether an entry of `access` names a plan of a studio, or of an API with an optional key: one or the other."""
-    if not isinstance(entry, dict) or not entry.get("plan") or bool(entry.get("studio")) == bool(entry.get("api")):
+    """Whether an entry names one target and plan, with an optional text API key on an API only."""
+    if not isinstance(entry, dict) or set(entry) - {"studio", "api", "plan", "apiKey"}:
         return False
-    return not (entry.get("studio") and "apiKey" in entry)
+    target = set(entry) & {"studio", "api"}
+    if len(target) != 1 or not all(isinstance(entry.get(key), str) and entry[key].strip() for key in (*target, "plan")):
+        return False
+    return "apiKey" not in entry or ("api" in target and isinstance(entry["apiKey"], str) and bool(entry["apiKey"].strip()))
 
 
 # --- Access Management ----------------------------------------------------------------------
