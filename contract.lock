@@ -1,4 +1,4 @@
-contract 5
+contract 7
 contract_min 1
 core.service alert-engine health=yes networks=internal since=1
 core.service am-gateway port=8092 health=yes networks=edge,internal since=1
@@ -114,10 +114,12 @@ seed.folder am/protected-resources since=1
 seed.folder apim since=1
 seed.folder apim/apis since=1
 seed.folder apim/applications since=1
+seed.folder apim/shared-policy-groups since=7
 seed.folder apim/subscriptions since=1
 seed.folder authz since=1
 seed.folder authz/policies since=1
 seed.folder authz/schemas since=1
+seed.folder edge since=6
 seed.folder environments since=1
 seed.folder k8s since=1
 seed.folder openfga since=1
@@ -129,6 +131,7 @@ seed.file apim/settings.yaml since=1
 seed.file authz/entities.yaml since=1
 seed.file authz/schema.yaml since=1
 seed.file controls.yaml since=1
+seed.file edge/configuration.yaml since=6
 seed.file refills.yaml since=1
 seed.setting AIM_AUTOMATION_URL since=1
 seed.setting AIM_GAMMA_URL since=1

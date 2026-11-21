@@ -964,7 +964,7 @@ class Deployable(AsOwn):
         # management API creates an environment, and what else a seed holds only this machine reads
         for names, wanted in ((("apim",), []), (("am", "apim"), []), (("am",), []), (("apim", "openfga"), []),
                               (("apim", "am", "openfga"), []),
-                              (("aim", "apim"), [GAMMA, MORE]), (("apim", "authz"), [GAMMA, MORE]),
+                              (("aim", "apim"), [GAMMA, MORE]), (("edge", "apim"), [GAMMA, MORE]), (("apim", "authz"), [GAMMA, MORE]),
                               (("aim", "apim", "authz"), [GAMMA, MORE]),   # one reason for a product
                               (("authz", "am", "apim", "aim"), [GAMMA, MORE]),
                               (("apim", "controls.yaml"), [MORE]), (("apim", "notes.txt"), [MORE]),

@@ -514,6 +514,26 @@ class Answers(Governance):
         aim_governance.seed()
         self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], "user-gravitee")
 
+    def test_archived_users_are_ignored_and_later_pages_are_read(self):
+        self.answer({("GET", USERS): (200, {"data": [{**ADMIN, "id": "archived", "status": "ARCHIVED"}],
+                                                     "page": {"total_pages": 2}}),
+                     ("GET", USERS + "?page=2"): (200, {"data": [ADMIN]})})
+        aim_governance.seed()
+        self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], ADMIN["id"])
+
+    def test_an_archived_user_is_not_selected_as_an_accountable_human(self):
+        self.world.users = [{**ADMIN, "status": "ARCHIVED"}]
+        self.fails("The user 'admin' is not known to API Management: it signs in once first")
+        self.assertEqual(self.platform.sent("PUT", AGENT + "/metadata"), [])
+
+    def test_ambiguity_is_detected_across_pages_and_an_explicit_source_resolves_it(self):
+        self.answer({("GET", USERS): (200, {"data": [ADMIN], "page": {"total_pages": 2}}),
+                     ("GET", USERS + "?page=2"): (200, {"data": [{**ADMIN, "id": "user-other", "source": "gravitee"}]})})
+        self.fails("The user 'admin' is in more than one source (gravitee, memory): write it {user: admin, source: ...}")
+        self.file(compliance=COMPLIANCE.replace("{user: admin}", "{user: admin, source: memory}"))
+        aim_governance.seed()
+        self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], ADMIN["id"])
+
     def test_an_agent_that_is_not_in_the_catalog_stops_it(self):
         self.world.agents.clear()
         self.fails("The agent 'agent.desk-copilot' is not in the catalog: seed/aim/agents registers it before")

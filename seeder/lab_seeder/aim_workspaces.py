@@ -24,6 +24,7 @@ from urllib.parse import quote
 from . import controls
 from . import gamma
 from . import refills
+from .apim import find_user
 from .common import (Api, HttpError, SeedError, adopted, contains, excerpt, files, forget, has_seed, load, log, making, owned, record,
                      recorded, setting, wait_until, waits_for_gateway)
 
@@ -34,6 +35,16 @@ FOLDERS = ("aim/workspaces",)
 GAMMA = ("aim",)
 # What it records, dependents first
 ORDER = ["workspace", "workspace-user"]
+
+
+def workspace_fields(spec, where):
+    """Optional workspace fields checked before any workspace is changed."""
+    if not isinstance(spec, dict):
+        raise SeedError(f"{where}: seed file is an object")
+    if "tags" in spec and (not isinstance(spec["tags"], list)
+                           or not all(isinstance(tag, str) and tag.strip() for tag in spec["tags"])
+                           or len(set(spec["tags"])) != len(spec["tags"])):
+        raise SeedError(f"{where}: tags is a list of distinct, nonempty strings")
 
 
 def budget_body(spec):
@@ -91,7 +102,8 @@ class AiWorkspaces:
         found = next((w for w in self.aim.rows("/ai-workspaces", gamma.WORKSPACES, q=name) if w["name"] == name), None)
         if found and not recorded(SECTION, "workspace", found["id"]) and not adopted(SECTION, "workspace", name, found["id"]):
             raise SeedError(f"AI workspace {name} exists and the seed did not create it")
-        if found is None:
+        missing = found is None
+        if missing:
             body = {"name": name, "version": version, "defaultBudget": budget_body(spec["budgets"][0])}
             if description:
                 body["description"] = description
@@ -100,8 +112,9 @@ class AiWorkspaces:
                 record(SECTION, "workspace", "AI workspaces", name, found["id"])
             controls.touched()
             log(SECTION, f"✓ AI workspace created: {name}")
-        elif (found.get("version"), found.get("description")) != (version, description):
-            body = {"name": name, "version": version, "tags": found.get("tags", [])}
+        if ((not missing and (found.get("version"), found.get("description")) != (version, description))
+                or ("tags" in spec and set(found.get("tags") or []) != set(spec["tags"]))):
+            body = {"name": name, "version": version, "tags": spec.get("tags", found.get("tags", []))}
             if description:
                 body["description"] = description
             self.aim.put(f"/ai-workspaces/{found['id']}", json=body)
@@ -224,8 +237,7 @@ class AiWorkspaces:
         """The id of a platform user, created in the Gravitee directory (no password: nobody signs in as them, but they
         own an application and a key like anyone) unless it belongs to another source, which is only found."""
         source, source_id = spec.get("source", "gravitee"), spec["sourceId"]
-        users = self.g.org_v1.get("/users", params={"q": source_id, "size": 100}).json().get("data", [])
-        found = next((u for u in users if u.get("source") == source and u.get("sourceId") == source_id), None)
+        found = find_user(self.g.org_v1, source, source_id)
         if found:
             adopted(SECTION, "workspace-user", source_id, found["id"])   # one an earlier seed made and lost the answer of, if any
             return found["id"]
@@ -318,10 +330,13 @@ class AiWorkspaces:
 def seed():
     if not has_seed(*FOLDERS):
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
+    asked = [(path, load(path)) for path in files("aim", "workspaces")]
+    for path, spec in asked:
+        workspace_fields(spec, str(path))
     workspaces = AiWorkspaces()
     workspaces.connect()
-    for path in files("aim", "workspaces"):
-        workspaces.apply(load(path))
+    for _, spec in asked:
+        workspaces.apply(spec)
 
 
 def remove(records):

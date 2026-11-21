@@ -35,6 +35,7 @@ from lab_seeder.seedlint import Problem, Report
 from lab_seeder.testkit import PLAYGROUNDS
 
 from . import chained, doubling, fanned, flowing
+from .test_apim import GROUP, NOTICES
 
 SEEDER = Path(seedlint.__file__).resolve().parents[1]
 SERVICE = ("services:\n  seed:\n    labels: {io.gravitee.role: seed}\n    environment:\n      APIM_URL: http://apim\n"
@@ -273,6 +274,19 @@ class Studios(Made):
     def test_a_file_of_another_folder_is_not_read_as_a_studio(self):
         folder = self.playground({**GOOD, "seed/aim/mcp-proxies/desk.yaml": STUDIO + "subscriptions: [{plan: 3}]\n"})
         self.assertEqual(seedlint.problems(folder), [])
+
+    def test_tool_keys_and_flows_use_the_same_validation_as_the_seed(self):
+        auth = "upstreamAuth: [{api: Clients API, type: api-key, apiKeyHeader: X-Tool-Key, apiKey: demo}]\n"
+        self.assertEqual(self.studio(auth + "flows: [{name: Tools, request: []}]\n"), [])
+        self.assertEqual(self.studio("upstreamAuth: []\nflows: []\n"), [])
+        for text in (auth.replace("apiKeyHeader: X-Tool-Key, ", ""), auth.replace("type: api-key", "type: unknown"),
+                     auth.replace("apiKey: demo", "apiKey: ''"), auth.replace("apiKey: demo", "apiKey: 123"),
+                     auth.replace("apiKey: demo", "apiKey: demo, unknown: value"), "upstreamAuth: {}\n",
+                     "flows: {}\n", "flows: [not-a-flow]\n"):
+            with self.subTest(text=text):
+                found = self.studio(text)
+                self.assertEqual(len(found), 1, found)
+                self.assertEqual(found[0][:2], ("studio", "desk.yaml"))
 
 
 class Documents(Made):
@@ -966,3 +980,126 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(STUDIO + "subscriptions:\n"), [])
+
+
+class PrimaryOwners(Made):
+    def test_owner_references_are_checked_in_both_studio_shapes_and_api_locations(self):
+        owner = {"source": "memory", "sourceId": "api1"}
+        case = 0
+        for value in (owner, None, {}, {"source": "memory"}, {**owner, "sourceId": 1}, {**owner, "id": "machine-id"}):
+            for path, text in (
+                    ("seed/aim/studios/desk.yaml", STUDIO + "\nprimaryOwner: " + json.dumps(value)),
+                    ("seed/aim/studios/desk.yaml", AGENTS_STUDIO + "\nprimaryOwner: " + json.dumps(value)),
+                    ("seed/apim/apis/open.json", json.dumps({"api": {"name": "Open"}, "x-gravitee": {"primaryOwner": value}})),
+                    ("seed/environments/newt/apis/open.json", json.dumps({"api": {"name": "Open"}, "x-gravitee": {"primaryOwner": value}}))):
+                with self.subTest(path=path, owner=value):
+                    case += 1
+                    folder = self.playground({**GOOD, path: text,
+                                              "seed/environments/newt/environment.yaml": "id: newt\nname: Newt\n"}, name=f"owner-{case}")
+                    problems = seedlint.problems(folder)
+                    if value == owner:
+                        self.assertEqual(problems, [])
+                    else:
+                        self.assertEqual(len(problems), 1)
+                        self.assertIn("primaryOwner", problems[0].message)
+                        self.assertTrue(problems[0].path.endswith(path))
+
+    def test_unknown_export_metadata_is_named_but_the_product_owner_is_ignored(self):
+        for metadata, count in (({"owner": {}}, 1), (None, 1), ({}, 0)):
+            with self.subTest(metadata=metadata):
+                document = {"api": {"name": "Open", "primaryOwner": {"id": "exported"}}, "x-gravitee": metadata}
+                folder = self.playground({**GOOD, "seed/apim/apis/open.json": json.dumps(document)})
+                problems = seedlint.problems(folder)
+                self.assertEqual(len(problems), count)
+                if count:
+                    self.assertIn("x-gravitee", problems[0].message)
+
+
+class OptionalFields(Made):
+    def test_shared_policy_group_files_and_references_are_checked_per_environment(self):
+        for index, root in enumerate(("apim", "environments/newt")):
+            for broken in (False, True):
+                files = {f"seed/{root}/shared-policy-groups/controls.json": json.dumps(GROUP),
+                         f"seed/{root}/apis/notices.json": json.dumps(NOTICES)}
+                if root.startswith("environments"):
+                    files["seed/environments/newt/environment.yaml"] = "id: newt\nname: Newt\n"
+                    definition = json.loads(files[f"seed/{root}/apis/notices.json"])
+                    definition["api"].pop("id")
+                    files[f"seed/{root}/apis/notices.json"] = json.dumps(definition)
+                if broken:
+                    files[f"seed/{root}/shared-policy-groups/controls.json"] = json.dumps({**GROUP, "crossId": "other"})
+                problems = seedlint.problems(self.playground(files, name=f"policy-{index}-{broken}"))
+                self.assertEqual(len(problems), int(broken), problems)
+                if broken:
+                    self.assertIn("no shared policy group", problems[0].message)
+
+    def test_malformed_shared_policy_group_documents_are_findings_not_crashes(self):
+        for index, group in enumerate((None, [], 1, {**GROUP, "crossId": []}, {**GROUP, "name": {}},
+                                       {**GROUP, "steps": "bad"}, {**GROUP, "phase": "PUBLISH"})):
+            folder = self.playground({"seed/apim/shared-policy-groups/controls.json": json.dumps(group)}, name=f"bad-policy-{index}")
+            problems = seedlint.problems(folder)
+            self.assertEqual(len(problems), 1, problems)
+            self.assertEqual(problems[0].check, "policy-group")
+
+    def test_shared_policy_group_duplicates_and_phase_mismatches_are_reported(self):
+        for index, other in enumerate((GROUP, {**GROUP, "crossId": "other"})):
+            files = {"seed/apim/shared-policy-groups/a.json": json.dumps(GROUP),
+                     "seed/apim/shared-policy-groups/b.json": json.dumps(other)}
+            problems = seedlint.problems(self.playground(files, name=f"duplicate-policy-{index}"))
+            self.assertEqual(len(problems), 1)
+            self.assertIn("two groups", problems[0].message)
+        files = {"seed/apim/shared-policy-groups/a.json": json.dumps({**GROUP, "phase": "RESPONSE"}),
+                 "seed/apim/apis/notices.json": json.dumps(NOTICES)}
+        problems = seedlint.problems(self.playground(files, name="wrong-policy-phase"))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("phase", problems[0].message)
+
+    def test_optional_fields_use_the_seeders_validation(self):
+        cases = [
+            ("aim/agents/desk.yaml", {"entityId": "desk", "access": [{"api": "Models", "plan": "Agents", "apiKey": "demo"}]},
+             {"entityId": "desk", "access": [{"api": "Models", "plan": "Agents", "apiKey": 123}]}, "access"),
+            ("aim/workspaces/desk.yaml", {"tags": ["demo"]}, {"tags": ["demo", "demo"]}, "tags"),
+            ("edge/configuration.yaml", {"shadowAi": {"reportInterval": "PT10S"}},
+             {"shadowAi": {"reportInterval": "PT9S"}}, "reportInterval"),
+            ("edge/configuration.yaml", {"shadowAi": {"reportInterval": "PT2M"}},
+             {"shadowAi": {"reportInterval": "PT" + "9" * 5000 + "S"}}, "reportInterval"),
+        ]
+        for index, (path, valid, invalid, field) in enumerate(cases):
+            for good, value in ((True, valid), (False, invalid)):
+                with self.subTest(path=path, good=good):
+                    folder = self.playground({"seed/" + path: json.dumps(value)}, name=f"fields-{index}-{good}")
+                    problems = seedlint.problems(folder)
+                    self.assertEqual(len(problems), 0 if good else 1)
+                    if not good:
+                        self.assertIn(field, problems[0].message)
+
+    def test_non_object_files_are_reported_without_crashing(self):
+        for index, path in enumerate(("aim/agents/desk.yaml", "aim/workspaces/desk.yaml", "aim/studios/desk.yaml",
+                                      "apim/apis/desk.json", "environments/newt/apis/desk.json")):
+            for shape, value in enumerate((42, ["not an object"], "text")):
+                with self.subTest(path=path, value=value):
+                    folder = self.playground({"seed/" + path: json.dumps(value),
+                                              "seed/environments/newt/environment.yaml": "id: newt\nname: Newt\n"},
+                                             name=f"shape-{index}-{shape}")
+                    problems = seedlint.problems(folder)
+                    self.assertEqual(len(problems), 1)
+                    self.assertIn("object", problems[0].message)
+
+    def test_malformed_studio_plan_names_are_findings_instead_of_exceptions(self):
+        text = AGENTS_STUDIO + "\naccess: {agents: {name: []}}\nsubscriptions: [{application: Desk}]\n"
+        folder = self.playground({"seed/aim/studios/desk.yaml": text})
+        problems = seedlint.problems(folder)
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0].check, "studio")
+
+    def test_studio_fields_are_checked_for_both_shapes(self):
+        for index, text in enumerate((STUDIO, AGENTS_STUDIO)):
+            for good, fields in ((True, {"visibility": "PUBLIC", "labels": ["tools"], "categories": []}),
+                                 (False, {"categories": [False]})):
+                with self.subTest(shape=index, good=good):
+                    suffix = "\n".join(key + ": " + json.dumps(value) for key, value in fields.items())
+                    folder = self.playground({"seed/aim/studios/desk.yaml": text + "\n" + suffix}, name=f"studio-{index}-{good}")
+                    problems = seedlint.problems(folder)
+                    self.assertEqual(len(problems), 0 if good else 1)
+                    if not good:
+                        self.assertIn("categories", problems[0].message)

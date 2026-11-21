@@ -35,6 +35,7 @@ from . import apim
 from . import apim_portal
 from . import authz
 from . import controls
+from . import edge
 from . import k8s
 from . import openfga
 from . import refills
@@ -50,7 +51,7 @@ from .gamma import require_modules
 # the Kubernetes operator come last, so that a removal deletes them first: the operator deletes their APIs and
 # applications from API Management while that still holds what they use. The portals of the environments come right after
 # the APIs their listings name, and a removal deletes them first.
-AFTER_AM = (apim, apim_portal, am_link, aim_catalog, aim_workspaces, aim_proxies, aim_agents, aim_governance, authz, aim_dashboards,
+AFTER_AM = (apim, apim_portal, edge, am_link, aim_catalog, aim_workspaces, aim_proxies, aim_agents, aim_governance, authz, aim_dashboards,
             k8s)
 MODULES = (openfga, am) + AFTER_AM   # a seed runs them in this order, one after the other, and a removal in the reverse
 

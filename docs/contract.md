@@ -219,6 +219,7 @@ returns before it reads a setting or connects.
 | `apim` | API Management |
 | `apim/settings.yaml` | Environment settings |
 | `apim/apis` | API exports, `.json` |
+| `apim/shared-policy-groups` | Shared policy group exports, `.json`, deployed before their APIs |
 | `apim/applications` | Applications |
 | `apim/subscriptions` | Subscriptions |
 | `aim` | Agent Management, in Gamma |
@@ -237,6 +238,8 @@ returns before it reads a setting or connects.
 | `aim/governance` | Governance |
 | `aim/governance/approvals.yaml` | Approvals |
 | `aim/governance/compliance.yaml` | Compliance |
+| `edge` | Edge Management, in Gamma |
+| `edge/configuration.yaml` | Shared Edge Management configuration, in Gamma |
 | `authz` | Authorization Management, in Gamma |
 | `authz/entities.yaml` | What the policies are about |
 | `authz/policies` | Policies |

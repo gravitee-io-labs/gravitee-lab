@@ -44,11 +44,13 @@ already (accepted, pending or paused) is left as it is, but for one the seed mad
 import json
 import os
 import re
+from urllib.parse import urlsplit
 
 from . import controls
 from . import gamma
 from . import versions
-from .apim import ENDED, UNSUPPORTED, accept, digest_of, find_application, held_subscription, merge, subscribe
+from .apim import (ENDED, UNSUPPORTED, accept, digest_of, find_application, held_subscription, merge, owner_user, primary_owner,
+                   subscribe, transfer_ownership)
 from .common import (OK, Api, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, load, log, making, owned, record,
                      recorded, setting, wait_until, waits_for_gateway)
 
@@ -80,6 +82,56 @@ KINDS = {"mcp-proxy": "MCP proxy", "studio": "MCP studio"}
 VERSION_KEYS = ("supportedProtocolVersions", "protocolVersion")
 # What a subscription of a studio's file may say
 SUBSCRIPTION_KEYS = ("application", "plan", "apiKey")
+
+
+STUDIO_FIELDS = ("visibility", "labels", "categories", "flows")
+
+
+def gateway_target(target, internal):
+    """The tools-http address the gateway can call, keeping the API path when Gravitee copied a loopback portal port."""
+    url = urlsplit(target)
+    if url.hostname not in ("localhost", "127.0.0.1"):
+        return target
+    suffix = url.path or ""
+    if url.query:
+        suffix += "?" + url.query
+    return internal.rstrip("/") + suffix
+
+
+def read_upstream_auth(spec, where):
+    """Tool API keys are validated before any studio or proxy is changed; values never appear in a refusal."""
+    entries = spec.get("upstreamAuth", [])
+    keys = ("api", "type", "apiKeyHeader", "apiKey")
+    if not isinstance(entries, list):
+        raise SeedError(f"{where}: upstreamAuth is a list of API keys")
+    seen = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != set(keys):
+            raise SeedError(f"{where}: upstreamAuth entries give only {', '.join(keys)}, all required")
+        if any(not isinstance(entry[key], str) or not entry[key].strip() for key in keys):
+            raise SeedError(f"{where}: upstreamAuth api, type, apiKeyHeader and apiKey are nonempty text")
+        if entry["type"] != "api-key":
+            raise SeedError(f"{where}: upstreamAuth type is api-key")
+        if entry["api"] in seen:
+            raise SeedError(f"{where}: upstreamAuth gives one key per API")
+        seen.add(entry["api"])
+    return entries
+
+
+def studio_fields(spec, where):
+    """Optional writable API fields, kept outside the studio's creation digest."""
+    wanted = {key: spec[key] for key in STUDIO_FIELDS if key in spec}
+    if "visibility" in wanted and wanted["visibility"] not in ("PUBLIC", "PRIVATE"):
+        raise SeedError(f"{where}: visibility is PUBLIC or PRIVATE")
+    for key in ("labels", "categories"):
+        if key in wanted and (not isinstance(wanted[key], list)
+                              or not all(isinstance(value, str) and value.strip() for value in wanted[key])
+                              or len(set(wanted[key])) != len(wanted[key])):
+            raise SeedError(f"{where}: {key} is a list of distinct, nonempty strings")
+    if "flows" in wanted and (not isinstance(wanted["flows"], list)
+                              or not all(isinstance(flow, dict) for flow in wanted["flows"])):
+        raise SeedError(f"{where}: flows is a list of flow objects")
+    return wanted
 
 
 def fill(value, slug):
@@ -470,7 +522,23 @@ class McpProxies:
 
     def studio(self, spec):
         """A studio made in one go, or in steps (`access` present): its keys tell apart."""
-        (self.agents_studio if "access" in spec else self.plain_studio)(spec)
+        studio_fields(spec, f"MCP studio {spec['name']}")
+        read_upstream_auth(spec, f"MCP studio {spec['name']}")
+        owner = owner_user(self.g.org_v1, primary_owner(spec, f"MCP studio {spec['name']}"), spec["name"])
+        api_id = (self.agents_studio if "access" in spec else self.plain_studio)(spec)
+        transfer_ownership(self.g.v2, f"/apis/{api_id}", owner, spec["name"], SECTION)
+
+    def studio_api_fields(self, api_id, name, wanted):
+        if not wanted:
+            return False
+        live = self.g.v2.get(f"/apis/{api_id}").json()
+        if all((set(live.get(key) or []) == set(value) if key in ("labels", "categories") else live.get(key) == value)
+               for key, value in wanted.items()):
+            return False
+        body = {key: value for key, value in live.items() if key not in STUDIO_API_READ_ONLY}
+        self.g.v2.put(f"/apis/{api_id}", json={**body, **wanted}, what=f"MCP studio {name}")
+        log(SECTION, f"✓ API settings of MCP studio {name}")
+        return True
 
     def plain_studio(self, spec):
         """Created from the catalog's tools, and replaced when its file changed: its plan cannot be edited in place. Tools
@@ -484,6 +552,8 @@ class McpProxies:
         body = {"name": name, "description": spec.get("description"), "contextPath": path, **protocol_versions(spec),
                 "plans": [spec["plan"]],
                 "specification": {"tools": self.tools(spec["tools"]), "promptIds": [], "resourceIds": []}}
+        if "upstreamAuth" in spec:
+            body["upstreamAuth"] = self.upstream_auth(spec)
         wanted = digest_of(body)
         found, recomposed = self.kept(name, path, wanted, body)
         if found is None:
@@ -495,11 +565,13 @@ class McpProxies:
         toggled = self.g.aim.get(f"/mcp-proxies/{found['id']}").json().get("fgaEnabled", False) != enabled
         if toggled:
             self.g.aim.put(f"/mcp-studios/{found['id']}/fga", json={"enabled": enabled})
-        if toggled or recomposed:
-            self.g.v2.post(f"/apis/{found['id']}/deployments", json=DEPLOYMENT)
+        routed = self.route_http_backends(found["id"])
+        settings_changed = self.studio_api_fields(found["id"], name, studio_fields(spec, f"MCP studio {name}"))
+        self.deploy(found["id"], toggled or recomposed or routed or settings_changed)
         if toggled:
             log(SECTION, f"  ✓ Authorization check {'on' if enabled else 'off'}")
         self.subscribe(found["id"], name, subscriptions)
+        return found["id"]
 
     def kept(self, name, path, wanted, body):
         """The studio at this path, as the seed keeps it: (None, False) when there is none, or when it was made from another
@@ -536,6 +608,34 @@ class McpProxies:
         if answer.status_code in UNSUPPORTED:
             return None
         log(SECTION, f"  ✓ Tools brought back to the file: {len(wanted)} in {name}")
+        return True
+
+    def upstream_auth(self, spec):
+        """Resolve the API names to the catalog source ids the studio specification takes."""
+        return [{"catalogSourceId": self.api_source(entry["api"]),
+                 "upstreamAuth": {key: value for key, value in entry.items() if key != "api"}}
+                for entry in read_upstream_auth(spec, f"MCP studio {spec['name']}")]
+
+    def route_http_backends(self, api_id):
+        """Correct loopback tool targets after the specification save derives them from the portal entrypoint."""
+        internal = os.getenv("GATEWAY_INTERNAL_URL", "").strip()
+        if not internal:
+            return False
+        api = self.g.v2.get(f"/apis/{api_id}").json()
+        changed = False
+        for group in api.get("endpointGroups") or []:
+            for endpoint in group.get("endpoints") or []:
+                configuration = endpoint.get("configuration")
+                if not isinstance(configuration, dict) or not isinstance(configuration.get("target"), str):
+                    continue
+                updated = gateway_target(configuration["target"], internal)
+                if updated != configuration["target"]:
+                    configuration["target"] = updated
+                    changed = True
+        if not changed:
+            return False
+        self.g.v2.put(f"/apis/{api_id}", json={key: value for key, value in api.items() if key not in STUDIO_API_READ_ONLY})
+        log(SECTION, "  ✓ API tools call this runtime's gateway")
         return True
 
     def subscribe(self, api_id, studio, subscriptions):
@@ -605,8 +705,7 @@ class McpProxies:
                 "plans": [{"name": access["registration"]["name"], "security": {
                     "type": access["registration"]["type"], "configuration": access["registration"].get("configuration", {"scopes": []})}}],
                 "fgaEnabled": False,
-                "upstreamAuth": [{"catalogSourceId": self.api_source(u["api"]), "upstreamAuth": {k: v for k, v in u.items() if k != "api"}}
-                                 for u in spec.get("upstreamAuth") or []]}
+                "upstreamAuth": self.upstream_auth(spec)}
         if "description" in spec:
             body["description"] = spec["description"]
         wanted = digest_of(body)
@@ -618,11 +717,14 @@ class McpProxies:
             log(SECTION, f"✓ MCP studio created: {name}")
             changed = True
         api_id = found["id"]
+        changed = self.route_http_backends(api_id) or changed
         changed = self.access(api_id, access) or changed
         changed = self.checks(api_id, name, spec) or changed   # after the tools: writing them may rebuild the check's flow
+        changed = self.studio_api_fields(api_id, name, studio_fields(spec, f"MCP studio {name}")) or changed
         self.deploy(api_id, changed)
         self.subscribe(api_id, name, subscriptions)
         self.wait_served(spec)
+        return api_id
 
     def access(self, api_id, access):
         """The plan of the agents is published, then the registration plan is closed. The registration plan is what the
@@ -707,12 +809,19 @@ class McpProxies:
 def seed():
     if not has_seed(*FOLDERS):
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
+    studios = [(path, load(path)) for path in files("aim", "studios")]
+    for path, spec in studios:
+        primary_owner(spec, str(path))
+        studio_fields(spec, str(path))
+        read_upstream_auth(spec, str(path))
     proxies = McpProxies()
     proxies.connect()
+    for _, spec in studios:
+        proxies.upstream_auth(spec)   # an unknown API stops the seed before even a proxy is changed
     for path in files("aim", "mcp-proxies"):
         proxies.proxy(load(path))
-    for path in files("aim", "studios"):
-        proxies.studio(load(path))
+    for _, spec in studios:
+        proxies.studio(spec)
 
 
 def remove(records):
