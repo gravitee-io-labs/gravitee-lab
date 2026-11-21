@@ -81,6 +81,10 @@ class Apim:
             entity["failover"] = copy.deepcopy(api["failover"])
         return 200, entity
 
+    def export_api(self, call):
+        api = self.apis.get(self.id_in(call))
+        return (200, api["definition"]) if api else 404
+
     def import_api(self, call):
         api = call.json["api"]
         api_id = api.get("id") or self.new("api")
@@ -200,6 +204,7 @@ class Apim:
             ("GET", V1 + "/settings"): lambda call: (200, self.settings),
             ("POST", V1 + "/settings"): lambda call: self.settings.update(call.json) or 200,
             ("GET", V2 + "/apis"): self.list_apis,
+            ("GET", re.compile(V2 + "/apis/[^/]+/_export/definition")): self.export_api,
             ("POST", V2 + "/apis/_import/definition"): self.import_api,
             ("GET", re.compile(api)): self.get_api,
             ("PUT", re.compile(api + "/_import/definition")): self.update_api,
@@ -1499,6 +1504,7 @@ class Estate(Apim):
             ("DELETE", re.compile(group)): self.delete_group,
             ("POST", re.compile(group + "/members")): self.add_members,
             ("GET", re.compile(ENV_V2 + "/apis")): self.list_apis,
+            ("GET", re.compile(ENV_V2 + "/apis/[^/]+/_export/definition")): self.export_api,
             ("POST", re.compile(ENV_V2 + "/apis/_import/definition")): self.import_api,
             ("GET", re.compile(api)): self.get_api,
             ("PUT", re.compile(api + "/_import/definition")): self.update_api,
@@ -2564,6 +2570,86 @@ class SharedPolicyGroups(Playground):
             apim.remove(common.created())
         self.assertEqual(self.record("Subscriber controls")["id"], "group-1")
         self.assertNotIn(("DELETE", V2 + "/shared-policy-groups/group-1"), self.platform.changes())
+
+    def leftover_api(self, flows, on_plan=False):
+        definition = {"api": {"id": "outside", "name": "Other API", "type": "PROXY",
+                              "listeners": [{"paths": [{"path": "/outside/"}]}]}, "plans": []}
+        if on_plan:
+            definition["plans"] = [{"name": "Open", "flows": flows}]
+        else:
+            definition["api"]["flows"] = flows
+        self.apim.apis["outside"] = {"id": "outside", "name": "Other API", "type": "PROXY",
+                                     "listeners": definition["api"]["listeners"], "state": "STARTED",
+                                     "lifecycleState": "PUBLISHED", "definition": definition, "flows": [],
+                                     "deploymentState": "DEPLOYED"}
+
+    def test_removal_keeps_a_group_used_by_another_api_or_plan_on_a_later_page(self):
+        self.given()
+        self.run_seed()
+        for on_plan, value in ((False, "subscriber-controls"), (True, "group-1")):
+            with self.subTest(on_plan=on_plan):
+                self.leftover_api([{"request": [{"policy": "shared-policy-group-policy",
+                                                 "configuration": {"sharedPolicyGroupId": value}}]}], on_plan=on_plan)
+                self.platform.add({("GET", V2 + "/apis?page=1"): (200, {"data": [], "pagination": {"pageCount": 2}}),
+                                   ("GET", V2 + "/apis?page=2"): (200, {"data": [self.apim.row(self.apim.apis["outside"])],
+                                                                      "pagination": {"pageCount": 2}})})
+                self.assertEqual(self.main("--remove"), 0)
+                self.assertEqual(self.record("Subscriber controls")["id"], "group-1")
+                self.assertEqual(self.apim.groups["group-1"]["lifecycleState"], "DEPLOYED")
+                self.assertIn("still referenced by API Other API", self.output())
+                self.assertNotIn(("POST", V2 + "/shared-policy-groups/group-1/_undeploy"), self.platform.changes())
+                self.assertNotIn(("DELETE", V2 + "/shared-policy-groups/group-1"), self.platform.changes())
+        self.apim.apis["outside"]["definition"]["plans"] = []
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertEqual(set(self.apim.apis), {"outside"})
+        self.assertEqual((self.apim.groups, common.created()), ({}, []))
+
+    def test_removal_retains_group_when_a_surviving_definition_is_unverifiable(self):
+        self.given()
+        self.run_seed()
+        self.leftover_api([])
+        export = V2 + "/apis/outside/_export/definition"
+        for bad in (403, 404, (200, {"api": {}, "plans": "invalid"})):
+            with self.subTest(bad=bad):
+                self.platform.add({("GET", export): bad})
+                with self.assertRaises(common.SeedError):
+                    apim.remove(common.created())
+                self.assertEqual(self.record("Subscriber controls")["id"], "group-1")
+        self.platform.add({("GET", export): self.apim.export_api})
+        self.apim.apis["outside"]["deploymentState"] = "NEED_REDEPLOY"
+        with self.assertRaisesRegex(common.SeedError, "needs deployment"):
+            apim.remove(common.created())
+        self.assertNotIn(("POST", V2 + "/shared-policy-groups/group-1/_undeploy"), self.platform.changes())
+        self.assertNotIn(("DELETE", V2 + "/shared-policy-groups/group-1"), self.platform.changes())
+
+    def test_remove_recovers_the_group_from_a_lost_create_reply_without_reseeding(self):
+        self.given()
+
+        def lost(call):
+            self.apim.create_group(call)
+            raise requests.exceptions.ReadTimeout()
+
+        self.platform.add({("POST", V2 + "/shared-policy-groups"): lost})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.assertEqual(common.created(), [])
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertEqual((self.apim.groups, common.notes("apim", "shared-policy-group")), ({}, []))
+        self.assertNotIn(("POST", V2 + "/shared-policy-groups/group-1/_undeploy"), self.platform.changes())
+        self.assertIn(("DELETE", V2 + "/shared-policy-groups/group-1"), self.platform.changes())
+
+    def test_remove_keeps_recovery_note_if_the_create_is_unconfirmed_or_ambiguous(self):
+        name = GROUP["name"]
+        with self.assertRaises(common.SeedError):
+            with common.making("apim", "shared-policy-group", "shared policy groups", name, crossId=GROUP["crossId"]):
+                raise common.SeedError("reply lost")
+        apim.remove(common.created())
+        self.assertTrue(common.notes("apim", "shared-policy-group"))
+        self.apim.groups["foreign"] = {**GROUP, "id": "foreign", "name": "Different"}
+        with self.assertRaisesRegex(common.SeedError, "cannot confirm the identity"):
+            apim.remove(common.created())
+        self.assertTrue(common.notes("apim", "shared-policy-group"))
+        self.assertEqual(self.platform.changes(), [])
 
     def test_pagination_finds_an_owned_group_on_a_later_page(self):
         self.given()

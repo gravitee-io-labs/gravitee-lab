@@ -514,7 +514,12 @@ The seed checks every reference before changes, deploys the group before importi
 An undeployed or pending group is deployed on Re-seed. Changed steps update and deploy the group in place without
 reimporting unchanged APIs. Platform-added step defaults do not cause repeated writes. A group with that crossId that the
 seed did not create is an error. Changing `crossId`, `apiType` or `phase` requires removing the recorded group first;
-removal undeploys and deletes owned groups after their APIs. Omitting the folder makes no group request.
+removal checks the remaining v4 API definitions and plan flows in that environment before undeploying an owned group.
+A group still referenced by another API stays deployed and retains its ownership record. If definitions cannot be
+verified, removal stops before touching the group. The seed login needs visibility into the environment's APIs and read
+access to their definitions. Removal also recovers an incomplete group create by its recorded crossId and name.
+If the create cannot yet be confirmed, it keeps the recovery note for a later run. Omitting the folder makes no group
+request when seeding.
 
 A studio file (`seed/aim/studios/`) says its tools, its plan or its `access`, and its authorization check. Three keys
 serve the lessons:
