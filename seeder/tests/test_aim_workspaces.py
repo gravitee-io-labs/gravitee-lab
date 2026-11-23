@@ -60,7 +60,6 @@ class World:
             ("POST", re.compile(ws + "/models/_bulk")): self.add_models,
             ("PUT", re.compile(ws + "/models/[^/]+")): self.replace_models,
             ("DELETE", re.compile(ws + "/models/[^/]+/[^/]+")): self.remove_model,
-            ("DELETE", re.compile(ws + "/models/[^/]+")): self.remove_component,
             ("GET", re.compile(ws + "/router")): lambda call: (200, self.workspace(call)["router"]),
             ("PUT", re.compile(ws + "/router")): self.save_router,
             ("GET", re.compile(ws + "/analytics")): self.get_analytics,
@@ -167,16 +166,15 @@ class World:
         have.update(self.component(call.json))
         return 200, workspace["models"]
 
-    def remove_component(self, call):
-        """Removes a component with an endpoint of its own, by its name."""
-        workspace = self.workspace(call)
-        workspace["models"] = [c for c in workspace["models"] if c.get("name") != unquote(call.path.rsplit("/", 1)[1])]
-        return 204
-
     def remove_model(self, call):
-        have = next(c for c in self.workspace(call)["models"] if c.get("providerId") == ids(call)[1])
-        have["models"] = [m for m in have["models"] if m["name"] != unquote(call.path.rsplit("/", 1)[1])]
-        return 200, self.workspace(call)["models"]
+        """Removes one model of a component, named by its provider or, for one with an endpoint of its own, by its name; a
+        component left with no model goes (amp-demo has no route that deletes a component whole)."""
+        workspace = self.workspace(call)
+        key, name = (unquote(part) for part in call.path.rsplit("/", 2)[1:])
+        have = next(c for c in workspace["models"] if key in (c.get("providerId"), c.get("name")))
+        have["models"] = [m for m in have["models"] if m["name"] != name]
+        workspace["models"] = [c for c in workspace["models"] if c["models"]]
+        return 200, workspace["models"]
 
     def save_router(self, call):
         workspace = self.workspace(call)
@@ -727,8 +725,9 @@ class OwnEndpoint(Workspaces):
         component["models"][0]["inputPrice"] = 1.0
         self.platform.calls.clear()
         self.seed()
-        [removed] = self.platform.sent("DELETE", re.compile(AIM + "/ai-workspaces/[^/]+/models/.+"))
-        self.assertTrue(removed.path.endswith("/models/bakery-on-prem"))
+        removed = self.platform.sent("DELETE", re.compile(AIM + "/ai-workspaces/[^/]+/models/.+"))
+        self.assertEqual([call.path.rsplit("/", 2)[1:] for call in removed],
+                         [["bakery-on-prem", "qwen3%3A1.7b"], ["bakery-on-prem", "qwen3%3A0.6b"]])
         self.assertEqual(len(self.bulk()), 1)
         [component] = self.the_workspace()["models"]
         self.assertEqual(component["models"][0]["inputPrice"], 50.0)
