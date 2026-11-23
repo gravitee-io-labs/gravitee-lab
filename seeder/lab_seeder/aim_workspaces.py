@@ -36,6 +36,16 @@ GAMMA = ("aim",)
 ORDER = ["workspace", "workspace-user"]
 
 
+def workspace_fields(spec, where):
+    """Optional workspace fields checked before any workspace is changed."""
+    if not isinstance(spec, dict):
+        raise SeedError(f"{where}: seed file is an object")
+    if "tags" in spec and (not isinstance(spec["tags"], list)
+                           or not all(isinstance(tag, str) and tag.strip() for tag in spec["tags"])
+                           or len(set(spec["tags"])) != len(spec["tags"])):
+        raise SeedError(f"{where}: tags is a list of distinct, nonempty strings")
+
+
 def budget_body(spec):
     """Budgets are kept in millionths of a dollar: 5 dollars are 5,000,000."""
     return {"costBudget": round(float(spec["dollars"]) * 1_000_000), "period": spec["period"],
@@ -91,7 +101,8 @@ class AiWorkspaces:
         found = next((w for w in self.aim.rows("/ai-workspaces", gamma.WORKSPACES, q=name) if w["name"] == name), None)
         if found and not recorded(SECTION, "workspace", found["id"]) and not adopted(SECTION, "workspace", name, found["id"]):
             raise SeedError(f"AI workspace {name} exists and the seed did not create it")
-        if found is None:
+        missing = found is None
+        if missing:
             body = {"name": name, "version": version, "defaultBudget": budget_body(spec["budgets"][0])}
             if description:
                 body["description"] = description
@@ -100,8 +111,9 @@ class AiWorkspaces:
                 record(SECTION, "workspace", "AI workspaces", name, found["id"])
             controls.touched()
             log(SECTION, f"✓ AI workspace created: {name}")
-        elif (found.get("version"), found.get("description")) != (version, description):
-            body = {"name": name, "version": version, "tags": found.get("tags", [])}
+        if ((not missing and (found.get("version"), found.get("description")) != (version, description))
+                or ("tags" in spec and set(found.get("tags") or []) != set(spec["tags"]))):
+            body = {"name": name, "version": version, "tags": spec.get("tags", found.get("tags", []))}
             if description:
                 body["description"] = description
             self.aim.put(f"/ai-workspaces/{found['id']}", json=body)
@@ -320,10 +332,13 @@ class AiWorkspaces:
 def seed():
     if not has_seed(*FOLDERS):
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
+    asked = [(path, load(path)) for path in files("aim", "workspaces")]
+    for path, spec in asked:
+        workspace_fields(spec, str(path))
     workspaces = AiWorkspaces()
     workspaces.connect()
-    for path in files("aim", "workspaces"):
-        workspaces.apply(load(path))
+    for _, spec in asked:
+        workspaces.apply(spec)
 
 
 def remove(records):
@@ -351,3 +366,8 @@ def remove(records):
             continue
         forget(x)
         log(SECTION, f"✓ Deleted workspace user '{x['name']}'")
+
+
+def check():
+    for path in files("aim", "workspaces"):
+        workspace_fields(load(path), str(path))

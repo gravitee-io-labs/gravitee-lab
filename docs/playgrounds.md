@@ -614,6 +614,14 @@ they use, to tell which license features the playground needs and where it can b
 environment of its own: the entrypoints, endpoints and resources, the policy of every flow step and the security of every
 plan.
 
+Add `tags` to an `aim/workspaces/*.yaml` file to set its workspace tags. Leave the key out to preserve existing tags,
+or set `tags: []` to clear them:
+
+```yaml
+tags: [demo, support]
+```
+
+
 ### Environments of its own
 
 A playground for several tenants gives each one an environment of API Management, with its own APIs, applications, groups,

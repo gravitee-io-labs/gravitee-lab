@@ -731,3 +731,49 @@ class OwnEndpoint(Workspaces):
         self.assertEqual(len(self.bulk()), 1)
         [component] = self.the_workspace()["models"]
         self.assertEqual(component["models"][0]["inputPrice"], 50.0)
+
+
+class WorkspaceFields(Workspaces):
+    def file(self, tags=None):
+        text = FILE.read_text(encoding="utf-8")
+        self.seed_files({"aim/workspaces/acme-bakery-teams.yaml": text + ("\ntags: " + json.dumps(tags) if tags is not None else "")})
+
+    def test_tags_are_applied_after_creation_and_changes_do_not_replace_the_workspace(self):
+        self.file(["demo", "finance"])
+        self.seed()
+        workspace = self.the_workspace()
+        self.assertEqual(workspace["tags"], ["demo", "finance"])
+        wid = workspace["id"]
+        self.platform.calls.clear()
+        self.file(["finance", "demo"])
+        self.seed()
+        self.assertEqual(self.platform.changes(), [])
+        self.file([])
+        self.seed()
+        self.assertEqual(workspace["tags"], [])
+        self.assertEqual(list(self.world.workspaces), [wid])
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_omitting_tags_preserves_live_tags_even_when_other_details_change(self):
+        self.seed()
+        self.the_workspace()["tags"] = ["console"]
+        self.seed_files({"aim/workspaces/acme-bakery-teams.yaml": FILE.read_text(encoding="utf-8") + "\nversion: '2.0'\n"})
+        self.seed()
+        self.assertEqual(self.the_workspace()["tags"], ["console"])
+
+    def test_bad_tags_are_refused_before_any_workspace_change(self):
+        for value in (False, "demo", [1], [""], ["demo", "demo"], [{}]):
+            with self.subTest(value=value):
+                self.file(value)
+                with self.assertRaisesRegex(common.SeedError, "tags"):
+                    self.seed()
+                self.assertEqual(self.platform.changes(), [])
+
+        for value in (42, ["not an object"], "text"):
+            with self.subTest(root=value):
+                self.seed_files({"aim/workspaces/acme-bakery-teams.yaml": json.dumps(value)})
+                with self.assertRaisesRegex(common.SeedError, "seed file is an object"):
+                    self.seed()
+                self.assertEqual(self.platform.changes(), [])
