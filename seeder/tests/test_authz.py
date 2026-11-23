@@ -355,6 +355,37 @@ class Authorization(Case):
         self.assertEqual((made["kind"], made["status"]), ("RESOURCE", "DEPLOYED"))
         self.assertEqual([x["id"] for x in common.created() if (x["kind"], x["name"]) == ("policy", made["name"])], [made["id"]])
 
+    def test_a_policy_of_another_type_is_made_with_it_so_that_its_page_lists_it(self):
+        spec = {"name": "Everyone uses the small model", "type": "MODEL",
+                "policy": 'permit (principal, action == Action::"invoke", resource in Model::"small");'}
+        authz.policy(authz.Gamma().authz, spec, None, {})
+        self.assertEqual(self.platform.sent("POST", AUTHZ + "/policies")[0].json["policyType"], "MODEL")
+        authz.policy(authz.Gamma().authz, spec, None, {p["entityId"]: p for p in self.world.policies.values()})
+        self.assertEqual(len(self.world.policies), 1, "the same type: kept")
+
+    def test_a_policy_whose_type_changed_is_made_again_since_an_update_keeps_the_old_one(self):
+        self.seeded()
+        old = self.by_name("No transfer above 10,000")
+        old["policyType"] = "MODEL"
+        authz.seed()
+        made = self.by_name("No transfer above 10,000")
+        self.assertNotIn(old["id"], self.world.policies)
+        self.assertEqual((made["policyType"], made["status"]), ("MCP", "DEPLOYED"))
+        self.assertIn("is RESOURCE MODEL, its file says RESOURCE MCP: made again", self.output())
+
+    def test_a_policy_the_platform_gives_no_type_is_taken_as_the_one_of_its_file(self):
+        self.seeded()
+        for policy in self.world.policies.values():
+            del policy["policyType"]
+        authz.seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_a_type_the_platform_does_not_have_stops_the_seed_before_the_policy_is_touched(self):
+        api = mock.Mock()
+        with self.assertRaisesRegex(common.SeedError, "Policy 'p': type is one of MCP, MODEL, API, AGENT, CUSTOM, not 'TOOL'"):
+            authz.policy(api, {"name": "p", "type": "TOOL", "policy": "permit (principal, action, resource);"}, None, {})
+        self.assertEqual(api.mock_calls, [])
+
     def test_a_kind_the_platform_does_not_have_stops_the_seed_before_the_policy_is_touched(self):
         api = mock.Mock()
         with self.assertRaisesRegex(common.SeedError, "Policy 'p': kind is RESOURCE or GLOBAL, not 'TOOL'"):
