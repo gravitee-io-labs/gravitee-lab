@@ -8,8 +8,9 @@ For each unit the trust policy judged OK (`ci.load`, the same reading the build 
 1. Its own services are the services it defines that neither the core nor an included unit defines (`Loaded.own`, which is
    `project._own`). Left out: the seed service (`io.gravitee.role: seed`), a service that exits without a license
    (`io.gravitee.license: required`) and every service whose `depends_on` reaches, through own services, a service of the core or
-   of another unit (also `links`, `volumes_from` and `service:` modes). That is standard Compose and no new label: in a bank, the MCP
-   server with no dependency is started and the agent that needs both gateways is left to the end-to-end run.
+   of another unit (also `links`, `volumes_from` and `service:` modes), then a service that runs once for services that are all left
+   out (they wait for it with `service_completed_successfully`): alone it would only exit. That is standard Compose and no new label:
+   in a bank, the MCP server with no dependency is started and the agent that needs both gateways is left to the end-to-end run.
 2. A unit that needs settings (Compose cannot read it without a setting that has no default), a license
    (`x-gravitee.requires.license`) or a remote platform (`x-gravitee.gateway`: it runs the gateway of a platform, and works only
    with that platform's token) is **not tried**: said (SM03, a warning) and never taken for a pass, the convention of the
@@ -154,6 +155,18 @@ def select(unit: Loaded) -> Selection:
         left[name] = ("it depends on " + ", ".join(report.printable(each) for each in missing[:5]) +
                       (", which this unit does not run" if outside else ", which is left out"))
         pending.extend(needed_by.get(name, ()))
+    # A service that runs once for others (they wait for it to complete) prepares what they need: when every one of them is left out
+    # and no service started here depends on it, it would exit alone, which is no verdict on the unit, so it is left out with them
+    waiters: Dict[str, List[str]] = {}
+    for name in own:
+        for tie in completed(services[name]) if isinstance(services.get(name), dict) else ():
+            waiters.setdefault(tie, []).append(name)
+    for name in sorted(set(kept) & set(waiters)):
+        if not any(name in ties for other, ties in kept.items() if other != name):
+            kept.pop(name)
+            shown = sorted(waiters[name])
+            left[name] = ("it runs once for " + ", ".join(report.printable(each) for each in shown[:5]) +
+                          (", which is left out" if len(shown) == 1 else ", which are left out"))
     waves: List[List[str]] = []
     degree = {name: len(ties) for name, ties in kept.items()}
     ready = [name for name in kept if degree[name] == 0]
