@@ -99,6 +99,7 @@ class World:
         self.store = {}                                   # (env, kind, portal, hrid) -> what the platform answers
         self.items = {env: {} for env in self.environments}
         self.contents = {env: {} for env in self.environments}   # env -> {id: the text of a page, as the platform keeps it}
+        self.viewers = {env: {} for env in self.environments}   # env -> {content id: OpenAPI viewer configuration}
         self.own = {env: {} for env in self.environments}   # env -> {api id: {page id: a page of the API itself}}
         self.active = {}                                  # env -> hrid of the theme the portal shows
         self.made = 0                                     # pages made, which gives each its id
@@ -121,6 +122,8 @@ class World:
             ("PUT", re.compile(nav + "/[^/]+")): self.known(self.put_item),
             ("DELETE", re.compile(nav + "/[^/]+")): self.known(self.delete_item),
             ("GET", re.compile(contents)): self.known(self.get_content), ("PUT", re.compile(contents)): self.known(self.put_content),
+            ("GET", re.compile(contents + "/configuration")): (405, {"message": "Method Not Allowed"}),
+            ("PATCH", re.compile(contents + "/configuration")): self.known(self.patch_viewer),
             ("GET", re.compile(pages)): self.known(self.list_own), ("POST", re.compile(pages)): self.known(self.create_own),
             ("PUT", re.compile(pages + "/[^/]+")): self.known(self.put_own), ("DELETE", re.compile(pages + "/[^/]+")): self.known(self.delete_own),
             ("POST", re.compile(pages + "/[^/]+/_publish")): self.known(self.publish_own),
@@ -284,8 +287,15 @@ class World:
         return 204
 
     def get_content(self, call):
-        found = self.contents[self.env(call)].get(call.path.rsplit("/", 1)[1])
-        return (200, found) if found else (404, {"message": "Portal page content not found"})
+        content = call.path.rsplit("/", 1)[1]
+        found = self.contents[self.env(call)].get(content)
+        if not found:
+            return 404, {"message": "Portal page content not found"}
+        viewer = self.viewers[self.env(call)].get(content)
+        body = dict(found)
+        if viewer:
+            body["configuration"] = viewer
+        return 200, body
 
     def put_content(self, call):
         """The platform renders a text before it keeps it: an expression it cannot evaluate is a 400."""
@@ -303,6 +313,16 @@ class World:
                 return 400, {"httpStatus": 400, "message": f"Invalid expression or value is missing for {expression}"}
         self.contents[env][content] = {"id": content, "type": call.json["type"], "content": text}
         return 200, self.contents[env][content]
+
+    def content_id(self, call):
+        return call.path.rsplit("/", 2)[-2] if call.path.endswith("/configuration") else call.path.rsplit("/", 1)[1]
+
+    def patch_viewer(self, call):
+        env, content = self.env(call), self.content_id(call)
+        if content not in self.contents[env]:
+            return 404, {"message": "Portal page content not found"}
+        self.viewers[env][content] = dict(call.json)
+        return 200, self.viewers[env][content]
 
     # --- The pages of an API itself (the Console's Documentation of the API) ---
 
@@ -341,6 +361,8 @@ class World:
         page = {"id": ident("page", str(self.made)), "name": body["name"], "type": body["type"], "content": body.get("content", ""),
                 "order": 1 + max([p["order"] for p in pages.values()], default=0), "published": False, "visibility": body["visibility"],
                 "homepage": body.get("homepage", False)}
+        if "configuration" in body:
+            page["configuration"] = body["configuration"]
         pages[page["id"]] = page
         return 201, copy.deepcopy(page)
 
@@ -354,6 +376,8 @@ class World:
             return self.refused(body)
         page.update({"type": body["type"], "name": body["name"], "visibility": body["visibility"], "content": body.get("content", ""),
                      "order": body.get("order", 0), "homepage": body.get("homepage", False)})
+        if "configuration" in body:
+            page["configuration"] = body["configuration"]
         return 200, copy.deepcopy(page)
 
     def publish_own(self, call):
@@ -833,6 +857,7 @@ components:
       payload: {type: object, properties: {note: {type: string, description: 'Write $${api.name} as it is'}}}
 """
 DOC_RENDERED = DOC.replace("${ENV_NAME}", "Mallard").replace("${ENV_ID}", "mallard").replace("$${", "${")
+OPENAPI_DOC = "openapi: 3.0.3\ninfo: {title: Batch status, version: '1.0'}\npaths:\n  /batches: {get: {responses: {'200': {description: OK}}}}\n"
 DETAILS = "# $${api.name}\n\n$${api.description}\n\nVersion $${api.version} of an event feed of ${ENV_NAME}.\n"
 DETAILS_RENDERED = "# ${api.name}\n\n${api.description}\n\nVersion ${api.version} of an event feed of Mallard.\n"
 MORE = "hrid: mallard-more\napis:\n  - {apiHrid: mallard-batch-status, location: Guides}\n"
@@ -886,13 +911,165 @@ class Documents(Portals):
                                    "contentType": "ASYNCAPI", "order": 1})
 
     def test_an_openapi_document_gets_an_openapi_page_and_a_swagger_page_of_the_api(self):
-        self.document(text="openapi: 3.0.3\ninfo: {title: Batch status, version: '1.0'}\npaths:\n  /batches: {get: {responses: {'200': {description: OK}}}}\n")
+        self.document(text=OPENAPI_DOC)
         self.run_seed()
         page = self.child(0, "OpenAPI")
         self.assertEqual((page["published"], page["order"]), (True, 1))
         self.assertEqual(self.stored(page)["type"], "OPENAPI")
         self.assertEqual(self.titles(0), ["Overview", "OpenAPI"])
         self.assertEqual(self.own(0)["OpenAPI"]["type"], "SWAGGER")
+        self.assertEqual(self.own(0)["OpenAPI"]["configuration"], apim_portal.SWAGGER_VIEWER)
+        self.assertEqual(self.world.viewers["mallard"][page["portalPageContentId"]], apim_portal.OPENAPI_VIEWER)
+        self.assertEqual(self.run_seed(), [])
+
+    def test_openapi_configuration_is_written_after_the_document_and_before_publication(self):
+        self.document(text=OPENAPI_DOC)
+        changes = self.run_seed()
+        page = self.child(0, "OpenAPI")
+        content = f"{V2}/mallard/portal-page-contents/{page['portalPageContentId']}"
+        self.assertLess(changes.index(("PUT", content)), changes.index(("PATCH", content + "/configuration")))
+        self.assertLess(changes.index(("PATCH", content + "/configuration")), changes.index(("PUT", ITEMS + "/" + page["id"])))
+        [configured] = self.sent("PATCH", content + "/configuration")
+        self.assertEqual(configured, {"viewer": "SWAGGER", "tryIt": True, "tryItAnonymous": False,
+                                      "entrypointsAsServers": True, "contextPathAsServerPath": True, "tryItURL": ""})
+        own = self.own(0)["OpenAPI"]["configuration"]
+        self.assertEqual(own, {"viewer": "Swagger", "tryIt": "true", "tryItAnonymous": "false",
+                              "entrypointsAsServers": "true", "contextPathAsServerPath": "true", "tryItURL": ""})
+        self.assertFalse(any(c.method == "GET" and c.path.endswith("/configuration") for c in self.platform.calls))
+
+    def test_openapi_options_survive_a_configuration_repair_and_a_document_update(self):
+        self.document(text=OPENAPI_DOC)
+        self.seeded()
+        page = self.child(0, "OpenAPI")
+        content_id = page["portalPageContentId"]
+        navigation = self.world.viewers["mallard"][content_id]
+        own = self.own(0)["OpenAPI"]
+        navigation.update({"docExpansion": "full", "usePkce": True, "showExtensions": True, "tryIt": False})
+        own["configuration"].update({"docExpansion": "list", "usePkce": "true", "showExtensions": "true", "tryIt": "false"})
+        own_id, before = own["id"], json.dumps(common.created())
+        self.assertEqual(self.run_seed(), [("PATCH", f"{V2}/mallard/portal-page-contents/{content_id}/configuration"),
+                                          ("PUT", self.address(0, "OpenAPI"))])
+        self.assertEqual({k: self.world.viewers["mallard"][content_id][k] for k in ("docExpansion", "usePkce", "showExtensions")},
+                         {"docExpansion": "full", "usePkce": True, "showExtensions": True})
+        self.assertEqual({k: own["configuration"][k] for k in ("docExpansion", "usePkce", "showExtensions")},
+                         {"docExpansion": "list", "usePkce": "true", "showExtensions": "true"})
+        self.assertEqual((own["id"], json.dumps(common.created())), (own_id, before))
+        self.assertEqual(self.run_seed(), [])
+        self.document(text=OPENAPI_DOC + "# updated\n")
+        self.assertEqual(self.run_seed(), [("PUT", f"{V2}/mallard/portal-page-contents/{content_id}"),
+                                          ("PUT", self.address(0, "OpenAPI"))])
+        self.assertEqual(self.world.viewers["mallard"][content_id]["usePkce"], True)
+        self.assertEqual(own["configuration"]["usePkce"], "true")
+        self.assertEqual(self.run_seed(), [])
+
+    def test_additional_platform_defaults_do_not_cause_repeat_openapi_writes(self):
+        self.document(text=OPENAPI_DOC)
+        self.seeded()
+        page = self.child(0, "OpenAPI")
+        self.world.viewers["mallard"][page["portalPageContentId"]].update({"docExpansion": "none", "displayOperationId": False})
+        self.own(0)["OpenAPI"]["configuration"].update({"docExpansion": "none", "displayOperationId": "false"})
+        self.assertEqual(self.run_seed(), [])
+
+    def test_each_managed_openapi_switch_is_repaired_only_on_the_page_that_changed(self):
+        self.document(text=OPENAPI_DOC)
+        self.seeded()
+        page = self.child(0, "OpenAPI")
+        content_id = page["portalPageContentId"]
+        for side, fields in (("navigation", ("viewer", "tryIt", "tryItAnonymous", "entrypointsAsServers", "contextPathAsServerPath", "tryItURL")),
+                             ("api", ("viewer", "tryIt", "tryItAnonymous", "entrypointsAsServers", "contextPathAsServerPath", "tryItURL"))):
+            for field in fields:
+                with self.subTest(side=side, field=field):
+                    settings = (self.world.viewers["mallard"][content_id] if side == "navigation"
+                                else self.own(0)["OpenAPI"]["configuration"])
+                    settings.pop(field)
+                    wanted = (("PATCH", f"{V2}/mallard/portal-page-contents/{content_id}/configuration")
+                              if side == "navigation" else ("PUT", self.address(0, "OpenAPI")))
+                    self.assertEqual(self.run_seed(), [wanted])
+                    self.assertEqual(self.run_seed(), [])
+
+    def test_gateway_entrypoints_clear_a_previously_saved_manual_server_url(self):
+        self.document(text=OPENAPI_DOC)
+        self.seeded()
+        page = self.child(0, "OpenAPI")
+        content_id = page["portalPageContentId"]
+        navigation = self.world.viewers["mallard"][content_id]
+        own = self.own(0)["OpenAPI"]["configuration"]
+        navigation["tryItURL"] = own["tryItURL"] = "https://old.example.test/manual"
+        self.assertEqual(self.run_seed(), [("PATCH", f"{V2}/mallard/portal-page-contents/{content_id}/configuration"),
+                                          ("PUT", self.address(0, "OpenAPI"))])
+        self.assertEqual((self.world.viewers["mallard"][content_id]["tryItURL"],
+                          self.own(0)["OpenAPI"]["configuration"]["tryItURL"]), ("", ""))
+        self.assertEqual(self.run_seed(), [])
+
+    def test_missing_configuration_is_upgraded_without_recreating_pages(self):
+        self.document(text=OPENAPI_DOC)
+        self.seeded()
+        page = self.child(0, "OpenAPI")
+        content_id = page["portalPageContentId"]
+        self.world.viewers["mallard"].pop(content_id)
+        self.own(0)["OpenAPI"].pop("configuration")
+        self.assertEqual(self.run_seed(), [("PATCH", f"{V2}/mallard/portal-page-contents/{content_id}/configuration"),
+                                          ("PUT", self.address(0, "OpenAPI"))])
+        self.assertEqual(self.run_seed(), [])
+
+    def test_malformed_configuration_stops_instead_of_discarding_it(self):
+        self.document(text=OPENAPI_DOC)
+        self.seeded()
+        page = self.child(0, "OpenAPI")
+        content_id = page["portalPageContentId"]
+        for side in ("navigation", "api"):
+            for value in (["bad"], "bad", 42):
+                with self.subTest(side=side, value=value):
+                    target, key = ((self.world.viewers["mallard"], content_id) if side == "navigation"
+                                   else (self.own(0)["OpenAPI"], "configuration"))
+                    previous = target[key]
+                    target[key] = value
+                    with self.assertRaisesRegex(SeedError, "OpenAPI viewer configuration is not an object"):
+                        self.run_seed()
+                    self.assertEqual(self.platform.changes(), [])
+                    self.assertEqual(target[key], value)
+                    target[key] = previous
+
+    def test_a_refused_viewer_update_stops_and_the_next_run_resumes_in_place(self):
+        self.document(text=OPENAPI_DOC)
+        self.seeded()
+        page = self.child(0, "OpenAPI")
+        content_id = page["portalPageContentId"]
+        self.world.viewers["mallard"][content_id]["tryIt"] = False
+        route = ("PATCH", f"{V2}/mallard/portal-page-contents/{content_id}/configuration")
+        self.platform.add({route: (403, {"message": "Forbidden"})})
+        with self.assertRaisesRegex(SeedError, "HTTP 403"):
+            self.run_seed()
+        self.assertEqual(self.platform.changes(), [route])
+        self.platform.add({route: self.world.known(self.world.patch_viewer)})
+        self.assertEqual(self.run_seed(), [route])
+        self.assertEqual(self.child(0, "OpenAPI")["id"], page["id"])
+        self.assertEqual(self.run_seed(), [])
+
+    def test_a_lost_viewer_update_reply_is_retried_and_the_next_run_writes_nothing(self):
+        self.document(text=OPENAPI_DOC)
+        self.seeded()
+        page = self.child(0, "OpenAPI")
+        content_id = page["portalPageContentId"]
+        self.world.viewers["mallard"][content_id]["tryIt"] = False
+        route = ("PATCH", f"{V2}/mallard/portal-page-contents/{content_id}/configuration")
+        def lost(call):
+            self.world.patch_viewer(call)
+            raise requests.ReadTimeout("lost reply")
+        self.platform.add({route: lost})
+        with self.assertRaisesRegex(SeedError, "no answer"):
+            self.run_seed()
+        self.assertEqual(self.platform.changes(), [route] * (common.RETRIES + 1))
+        self.platform.add({route: self.world.known(self.world.patch_viewer)})
+        self.assertEqual(self.run_seed(), [])
+
+    def test_asyncapi_and_markdown_pages_get_no_openapi_configuration(self):
+        self.document()
+        self.file("portal/api-details.md", DETAILS)
+        self.run_seed()
+        self.assertEqual(self.world.viewers["mallard"], {})
+        self.assertTrue(all("configuration" not in p for p in self.own(0).values()))
+        self.assertFalse(any(c.method == "PATCH" for c in self.platform.calls))
 
     def test_the_calls_go_overview_then_the_asyncapi_page_made_written_and_published_in_that_order(self):
         self.document()
