@@ -224,7 +224,9 @@ returns before it reads a setting or connects.
 | `aim` | Agent Management, in Gamma |
 | `aim/credentials` | Credentials |
 | `aim/providers` | AI providers |
+| `aim/model-sources` | Model sources, where models are served (AI Models > Add models) |
 | `aim/models` | AI models |
+| `aim/llm-proxies` | The providers of an LLM proxy of `apim/apis`, taken from model sources (From catalog) |
 | `aim/mcp-servers` | MCP servers |
 | `aim/knowledge` | Knowledge |
 | `aim/skills` | Skills |

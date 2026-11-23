@@ -475,11 +475,57 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
-| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, model sources (`model-sources`, one of each kind), models (in a model source or the manual one), the providers of an LLM proxy of `seed/apim` taken from model sources (`llm-proxies`), MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one whose backend asks for one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
 | `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management), GAPL policies, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
 | `seed/refills.yaml` | What the lessons spend, given back on every run | The counters the gateway keeps in the core's Redis |
+
+A model source file (`seed/aim/model-sources/`) is what the console's AI Models > Add models makes: where a provider serves
+its models. A models file whose `source` is the name of a model source goes into it, and any other into the manual source.
+An LLM proxy file (`seed/aim/llm-proxies/`) gives an LLM proxy of `seed/apim/apis` its providers, each taken from a model
+source, as the console's "From catalog" provider does:
+
+```yaml
+# seed/aim/model-sources/anthropic.yaml
+name: Anthropic
+kind: anthropic                  # the source is llm.provider.<kind>: Gamma keeps one source of each kind
+baseUrl: ${ANTHROPIC_URL}
+format: ANTHROPIC                # OPEN_AI, OPEN_AI_COMPATIBLE, GEMINI, ANTHROPIC, BEDROCK or VERTEX_AI
+auth: {type: API_KEY, headerName: x-api-key}   # NONE, API_KEY, BEARER or SERVICE_ACCOUNT; headerName for API_KEY only
+
+# seed/aim/models/claude-haiku.yaml
+entityId: claude-haiku
+source: Anthropic
+definition: {name: Claude Haiku, queryName: claude-haiku-5-5, pricing: {inputPer1M: 1, outputPer1M: 5, currency: USD}}
+
+# seed/aim/llm-proxies/company-llm-proxy.yaml
+api: Company LLM proxy           # the name of the API in seed/apim/apis
+providers:
+  - source: Anthropic
+    credentials: {apiKey: "${ANTHROPIC_API_KEY}"}   # apiKey for API_KEY, bearer for BEARER, none for NONE
+    models:
+      - {model: claude-haiku, aliases: [fast]}    # the entityId of a models file of that source
+    governance: {aliasOnly: false, prefixPolicy: {policy: NO_PREFIX}, modelPattern: ""}
+    secondary: false             # true for the endpoint the failover of the API goes to
+```
+
+Gamma writes one endpoint for each provider, named after the id of its source: a policy that names an endpoint cannot name
+it in the API's file. A candidate of `ai-routing` leaves its `provider` empty instead, which resolves the model across every
+endpoint. Every endpoint Gamma writes is primary until the seed sets the `secondary` the file gives.
+
+A `governance` needs its `prefixPolicy` (`PREFIXED_BOTH`, `PREFIXED_ALIAS`, `PREFIXED_MODEL` or `NO_PREFIX`). Without a
+`modelPattern`, only the models the provider lists are served, by their aliases alone with `aliasOnly: true`. With one, any
+model whose name matches is served too, and `aliasOnly` cannot be set. Without `governance`, Gamma's default applies:
+callers prefix model names and aliases with the source.
+
+The seed checks these files before it changes anything. It saves the providers when what Gamma holds or the endpoints of
+the API differ from the file, then deploys the API, so a second run writes nothing. A removal deletes the LLM proxy through
+Gamma, which deletes the API and Gamma's own copy of its providers, credentials included; it then deletes each model source
+with its models.
+
+Gamma gives a workflow tool and a studio an id of its own each time the seed makes one, and takes none from the file: a guide
+links to the list that shows them, never to one of them.
 
 A studio file (`seed/aim/studios/`) says its tools, its plan or its `access`, and its authorization check. A tool is
 `{server, tool}` for an MCP server's, `{api, tool}` for one made from an API and `{workflow}` for a workflow tool, each with
