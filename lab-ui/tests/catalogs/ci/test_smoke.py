@@ -88,6 +88,17 @@ class Selection(unittest.TestCase):
         self.assertEqual(alone.waves, [["broker", "certs"]])
         self.assertEqual(self.chosen({"a": service(), "b": service(depends_on={"a": {"condition": "service_started"}})}).done, frozenset())
 
+    def test_a_service_that_runs_once_for_services_that_are_all_left_out_is_left_out_with_them(self):
+        done = {"condition": "service_completed_successfully"}
+        found = self.chosen({"certs": service(), "web": service(),
+                             "sso": service(depends_on={"certs": done, "am-gateway": {"condition": "service_healthy"}})})
+        self.assertEqual((found.waves, found.done), ([["web"]], frozenset()))
+        self.assertEqual(dict(found.left)["certs"], "it runs once for sso, which is left out")
+        # one that a service started here still waits for is started with it
+        kept = self.chosen({"certs": service(), "web": service(depends_on={"certs": done}),
+                            "sso": service(depends_on={"certs": done, "am-gateway": {"condition": "service_healthy"}})})
+        self.assertEqual((kept.waves, kept.done), ([["web", "certs"]], frozenset({"certs"})))
+
     def test_a_service_that_exits_without_a_license_is_left_out(self):
         found = self.chosen({"a": service(labels={"io.gravitee.license": "required"}), "b": service()})
         self.assertEqual((found.waves, found.left), ([["b"]], [("a", "it exits without a license")]))
