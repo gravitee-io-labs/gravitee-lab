@@ -45,7 +45,7 @@ from collections import namedtuple
 from pathlib import Path
 
 try:
-    from . import aim_proxies, common
+    from . import aim_proxies, common, edge
 except ImportError as e:
     raise ImportError("seedlint reads the seed as the seeder does and needs its requirements: pip install -r "
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
@@ -73,7 +73,7 @@ COMMANDS = ("::", "##[")
 Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
 TITLES = {"variable": "Seed variable", "read": "Seed file", "parse": "Seed file",
-          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
+          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio", "edge": "Seed Edge configuration"}
 
 
 class Unreadable(common.SeedError):
@@ -668,6 +668,13 @@ def _lint(folder):
             else:
                 told = studio_problems(spec)
             out.extend(Problem("studio", str(path), 0, _short(text)) for text in told)
+    edge_file = folder / "seed" / "edge" / "configuration.yaml"
+    if edge_file in found and edge_file not in unread:
+        try:
+            with _with_environment(environment):
+                edge.configuration(_load(edge_file), str(edge_file.name))
+        except common.SeedError as error:
+            out.append(Problem("edge", str(edge_file), 0, _short(_flat(error))))
     # The files of an environment agree with one another only once each of them can be read
     environments = folder / "seed" / "environments"
     if environments.is_dir() and not environments.is_symlink():

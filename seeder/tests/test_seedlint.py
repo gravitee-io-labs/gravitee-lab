@@ -946,6 +946,16 @@ class InTheEngine(unittest.TestCase):
         self.assertEqual((report.problems, report.playgrounds, report.files), ([], 1, 47))
 
 
+class EdgeConfiguration(Made):
+    def test_bad_configuration_is_a_finding_in_text_and_github_formats(self):
+        for value in ({"shadowAi": {"reportInterval": "PT9S"}}, {"proxy": {"routes": "bad"}}):
+            folder = self.playground({"seed/edge/configuration.yaml": json.dumps(value)})
+            problems = seedlint.problems(folder)
+            self.assertEqual(len(problems), 1)
+            self.assertEqual(problems[0].check, "edge")
+            self.assertIn("::error", seedlint.render(problems, "github"))
+
+
 class StudioShapes(Made):
     """The subscriptions of a studio's file, in a file of any shape: a finding or none, never a crash."""
 

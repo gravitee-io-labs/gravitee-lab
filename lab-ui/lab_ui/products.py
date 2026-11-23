@@ -12,7 +12,7 @@ VARIANTS = ("chainguard-fips", "chainguard", "debian", "noble", "jammy", "alpine
 # says gammaEnabled), which no gateway scope names
 APIM, AM, GAMMA = "API Management", "Access Management", "Gamma"
 # The folders of a playground's seed/, in the seeder's layout, and the product each fills, in the order a reason lists them
-SEEDED = {"apim": APIM, "am": AM, "aim": GAMMA, "authz": GAMMA}
+SEEDED = {"apim": APIM, "am": AM, "aim": GAMMA, "authz": GAMMA, "edge": GAMMA}
 # What a deploy to a platform seeds: the folder of API Management there, and here those of Access Management and OpenFGA,
 # which run on this machine whichever platform runs API Management, as for a start here
 DEPLOYED, SEEDED_HERE = "apim", ("am", "openfga")

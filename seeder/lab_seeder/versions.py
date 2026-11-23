@@ -193,7 +193,7 @@ def where(name, chosen):
 def read():
     """The versions of the products the seed fills, once at its start. A gateway that has just started may not be listed yet:
     API Management is asked again for STATED seconds before the seed takes it that none states its version."""
-    if has_seed("apim", "environments", "aim", "authz", "am/gamma-link.yaml"):   # what API Management fills, or Gamma
+    if has_seed("apim", "environments", "aim", "authz", "edge", "am/gamma-link.yaml"):   # what API Management fills, or Gamma
         platform = apim.ApiManagement()
         platform.connect()
         said = []
