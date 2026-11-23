@@ -137,6 +137,17 @@ async function withDiagrams(page) {
   return page.innerHTML;
 }
 
+// A quote that opens with `[!NOTE]`, GitHub's alert syntax, is a note: the marker goes and the quote takes the class `guide-note`
+function withNotes(page) {
+  for (const quote of page.content.querySelectorAll("blockquote")) {
+    const text = quote.firstElementChild?.firstChild;
+    const marker = text?.nodeType === 3 && /^\s*\[!NOTE\]\s*/.exec(text.textContent);
+    if (!marker) continue;
+    text.textContent = text.textContent.slice(marker[0].length);
+    quote.classList.add("guide-note");
+  }
+}
+
 // A fenced block whose info string is a language and then `run` (```bash run) is marked for withRuns, with the class `lab-run`; marked
 // keeps the language alone in its own class, so the block is written here. Any other block is marked's own (false).
 function runBlock({ text, lang }) {
@@ -161,6 +172,7 @@ export async function markdownHtml(markdown, { accounts = [] } = {}) {
   // A guide sits under the title of its page: its headings are one level below it for a screen reader, as they look
   for (const heading of page.content.querySelectorAll("h1, h2, h3, h4, h5, h6")) heading.setAttribute("aria-level", String(Math.min(6, Number(heading.tagName[1]) + 1)));
   withActions(page);
+  withNotes(page);
   withAccounts(page, accounts);
   withRuns(page);
   return withDiagrams(page);

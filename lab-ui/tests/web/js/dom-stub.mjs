@@ -13,6 +13,7 @@ const PAGE_IDS = [...readFileSync(new URL('../../../web/index.html', import.meta
 
 class Text {
   constructor(text) { this.data = String(text); this.parent = null; }
+  get nodeType() { return 3; }
   get textContent() { return this.data; }
   set textContent(value) { this.data = String(value); }
   get isConnected() { return Boolean(this.parent && this.parent.isConnected); }
@@ -158,6 +159,7 @@ export class El extends Target {
   get open() { return this.attrs.has('open'); }
   set open(value) { if (value) this.attrs.set('open', ''); else this.attrs.delete('open'); }
 
+  get nodeType() { return 1; }
   get parentElement() { return this.parent instanceof El ? this.parent : null; }
   get childNodes() { return this.children; }
   get firstChild() { return this.children[0] || null; }

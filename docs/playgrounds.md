@@ -931,6 +931,18 @@ a block as what a person would paste: one command a line, a long one continued w
 container (`$GATEWAY`), not `localhost`. A block meant to be read, such as
 a manifest or an output, is a plain fence.
 
+### A note in a guide
+
+A quote that opens with `[!NOTE]`, as GitHub writes an alert, is drawn as a note in the information color of the Lab UI,
+without the marker. Use it for what a step is worth, in a sentence the audience can read on the screen.
+
+```md
+> [!NOTE]
+> Each agent has its own identity and limits, so a faulty agent stays a small incident.
+```
+
+Any other quote stays a quote. GitHub and most viewers draw the same note.
+
 ### Accounts in a guide
 
 A link whose address is `account:` and a user name of the playground's `accounts` is drawn where it is written as that sign-in:
