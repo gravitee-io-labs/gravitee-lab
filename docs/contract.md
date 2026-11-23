@@ -230,6 +230,7 @@ returns before it reads a setting or connects.
 | `aim/skills` | Skills |
 | `aim/agents` | Agents |
 | `aim/api-tools` | API tools |
+| `aim/workflow-tools` | Workflow tools, from an Arazzo document |
 | `aim/workspaces` | AI workspaces |
 | `aim/mcp-proxies` | MCP proxies |
 | `aim/studios` | Studios |

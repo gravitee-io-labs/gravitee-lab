@@ -1,0 +1,37 @@
+# One MCP tool that the gateway runs as two calls to the open API: a branch, then the rate it applies. What Gamma's "Import
+# Arazzo specification" makes. <api:NAME> stands for the id of that API of API Management
+name: branch_rate
+description: Reads a branch, then the rate it applies
+sources:
+  - {source: bakery_open_api, api: Acme Bakery Open API}   # its plan is keyless: no key to send
+
+arazzo: |
+  arazzo: 1.1.0
+  info:
+    title: Branch and its rate
+    version: 1.0.0
+  sourceDescriptions:
+    - name: bakery_open_api
+      url: apim://api/<api:Acme Bakery Open API>
+      type: openapi
+  workflows:
+    - workflowId: Branch_and_its_rate
+      inputs:
+        type: object
+        required: [branchId, rateId]
+        properties:
+          branchId: {type: string}
+          rateId: {type: string}
+      steps:
+        - stepId: getBranch
+          operationId: getBranch
+          parameters:
+            - {name: branchId, in: path, value: $inputs.branchId}
+          successCriteria:
+            - condition: $statusCode == 200
+        - stepId: getRate
+          operationId: getRate
+          parameters:
+            - {name: rateId, in: path, value: $inputs.rateId}
+          successCriteria:
+            - condition: $statusCode == 200

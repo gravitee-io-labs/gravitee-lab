@@ -384,6 +384,14 @@ class Creation(Studios):
         [call] = self.platform.sent("POST", AIM + "/mcp-studios")
         self.assertEqual(call.json["specification"]["tools"][0], {"id": "tool-searchCustomers"})
 
+    def test_a_workflow_tool_is_found_by_the_entity_id_of_its_name(self):
+        self.world.tools["mcp-tool.refund_order"] = "tool-workflow"
+        self.file(STUDIO.replace("  - {api: Orchid Orders API, tool: createRefund, alias: create_refund}\n",
+                                 "  - {workflow: refund_order, alias: refund_order}\n"))
+        self.seed()
+        [call] = self.platform.sent("POST", AIM + "/mcp-studios")
+        self.assertEqual(call.json["specification"]["tools"][2], {"id": "tool-workflow", "alias": "refund_order"})
+
     def test_a_studio_without_a_description_is_made_without_one(self):
         self.file(STUDIO.replace("description: The tools of Orchid's customer desk team, made of three REST APIs\n", ""))
         self.seed()
@@ -469,6 +477,32 @@ class Flows(Studios):
         for key in ("id", "deploymentState", "createdAt", "updatedAt", "state", "definitionContext", "_links", "primaryOwner"):
             self.assertNotIn(key, call.json)
         self.assertEqual((call.json["name"], call.json["definitionVersion"]), ("Customer desk", "V4"))
+
+    def test_the_response_templates_of_the_file_are_written_with_the_flows_and_kept_on_the_next_run(self):
+        template = {"GAPL_AUTHZ": {"*/*": {"statusCode": 200, "body": '{"jsonrpc":"2.0","id":null,"error":{"code":-32001,"message":"Not allowed"}}'}}}
+        self.file(STUDIO + "responseTemplates:\n  GAPL_AUTHZ:\n    \"*/*\": {statusCode: 200, body: '"
+                  + template["GAPL_AUTHZ"]["*/*"]["body"] + "'}\n")
+        self.seed()
+        self.assertEqual(self.the_api()["responseTemplates"], template)
+        self.again()
+        self.assertEqual(self.changes(), [])
+
+    def test_templates_that_are_not_media_types_and_templates_stop_the_seed_before_anything_is_made(self):
+        for text in ("responseTemplates: [GAPL_AUTHZ]\n", "responseTemplates:\n  GAPL_AUTHZ: 403\n",
+                     "responseTemplates:\n  GAPL_AUTHZ: {\"*/*\": denied}\n"):
+            with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, "responseTemplates maps each key to its media types"):
+                self.file(STUDIO + text)
+                self.seed()
+            self.assertEqual(self.world.studios, {})
+
+    def test_a_template_of_the_file_replaces_only_its_own_media_type_of_what_the_platform_keeps(self):
+        self.file(STUDIO)
+        self.seed()
+        self.the_api()["responseTemplates"] = {"GAPL_AUTHZ": {"application/xml": {"statusCode": 403}}, "OTHER": {"*/*": {"statusCode": 500}}}
+        self.file(STUDIO + "responseTemplates:\n  GAPL_AUTHZ:\n    \"*/*\": {statusCode: 200}\n")
+        self.again()
+        self.assertEqual(self.the_api()["responseTemplates"], {"GAPL_AUTHZ": {"application/xml": {"statusCode": 403}, "*/*": {"statusCode": 200}},
+                                                               "OTHER": {"*/*": {"statusCode": 500}}})
 
     def test_an_authorization_check_without_attributes_adds_no_step(self):
         text = re.sub(r"  attributes:\n(    - .*\n)+", "", STUDIO)
@@ -1045,7 +1079,9 @@ class Subscriptions(Studios):
                 ("subscriptions: [{application: A, apiKey: ''}]", "the apiKey of A is empty"),
                 ("subscriptions: [{application: A, plan: 3}]", "the plan of A is the name of a plan"),
                 ("authorization: {agentIdentityResolution: true}",
-                 "^MCP studio Kazoo operations: authorization is read for a studio built in steps")):
+                 "^MCP studio Kazoo operations: authorization is read for a studio built in steps"),
+                ("responseTemplates: {GAPL_AUTHZ: {'*/*': {statusCode: 200}}}",
+                 "^MCP studio Kazoo operations: responseTemplates is written for a studio built in steps")):
             with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, message):
                 self.file(PLAIN[:PLAIN.index("subscriptions:")] + text + "\n")
                 self.seed()

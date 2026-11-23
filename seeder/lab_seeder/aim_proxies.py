@@ -302,6 +302,22 @@ def recorded_digest(studio_id):
     return next((x.get("digest") for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "studio", studio_id)), None)
 
 
+
+def response_templates(spec, what):
+    """The `responseTemplates` of a file: each key a mapping of media types to a template, as the platform keeps them."""
+    templates = spec.get("responseTemplates") or {}
+    if not isinstance(templates, dict) or not all(isinstance(media, dict) and all(isinstance(t, dict) for t in media.values())
+                                                  for media in templates.values()):
+        raise SeedError(f"{what}: responseTemplates maps each key to its media types, each to a template "
+                        "(GAPL_AUTHZ: {\"*/*\": {statusCode: 200, body: ...}})")
+    return templates
+
+
+def with_templates(live, templates):
+    """The platform's templates with the file's: a key's media types merge, and one the file names replaces its own."""
+    live = live or {}
+    return {**live, **{key: {**(live.get(key) or {}), **media} for key, media in templates.items()}}
+
 class McpProxies:
     def __init__(self):
         self.g = gamma.Gamma()
@@ -324,6 +340,7 @@ class McpProxies:
     def proxy(self, spec):
         automation = fill(spec["automation"], self.server_slug(spec["server"]))
         hrid, name = automation["hrid"], automation["name"]
+        response_templates(spec, f"MCP proxy {name}")   # read before anything is made, written on its API
         found_controls = controls.of("mcp-proxy", name)
         controls.align(automation.get("flows"), found_controls)   # written in both modes: a step someone switched is put back
         state = self.g.automation.get(f"/aim/mcp-proxies/{hrid}", expect=(200, 404))
@@ -363,7 +380,8 @@ class McpProxies:
         """The response template of a refusal, the read timeout of the endpoint and what the gateway records (tracing),
         written over the API as it was read."""
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        timeout, templates, analytics = spec["readTimeout"], spec["responseTemplates"], spec.get("analytics") or {}
+        timeout, analytics = spec["readTimeout"], spec.get("analytics") or {}
+        templates = response_templates(spec, f"MCP proxy {spec['automation']['name']}")
 
         def waits(group):
             return ((group.get("sharedConfiguration") or {}).get("http") or {}).get("readTimeout") == timeout
@@ -371,7 +389,7 @@ class McpProxies:
         if (contains(api.get("responseTemplates") or {}, templates) and all(waits(g) for g in api["endpointGroups"])
                 and contains(api.get("analytics") or {}, analytics)):
             return False
-        api["responseTemplates"] = {**(api.get("responseTemplates") or {}), **templates}
+        api["responseTemplates"] = with_templates(api.get("responseTemplates"), templates)
         api["analytics"] = merge(api.get("analytics") or {}, analytics)
         for group in api["endpointGroups"]:
             group["sharedConfiguration"] = group.get("sharedConfiguration") or {}
@@ -431,14 +449,16 @@ class McpProxies:
     # --- An MCP studio ------------------------------------------------------------------------
 
     def tools(self, specs):
-        """The catalog's tools a studio exposes, by their entity ids: `mcp-tool.<server slug>.<tool>` for an MCP server's
-        and `mcp-tool.<api>-<operation>` for the ones made from a REST API."""
+        """The catalog's tools a studio exposes, by their entity ids: `mcp-tool.<server slug>.<tool>` for an MCP server's,
+        `mcp-tool.<api>-<operation>` for the ones made from a REST API and `mcp-tool.<workflow>` for a workflow tool."""
         catalog = {t["entityId"]: t["id"] for t in self.g.aim.rows("/catalog/mcp-tools", gamma.CATALOG)}
         self.entities.update({i: e for e, i in catalog.items()})
         entries = []
         for spec in specs:
             if "server" in spec:
                 entity = f"mcp-tool.{self.server_slug(spec['server'])}.{slugify(spec['tool'])}"
+            elif "workflow" in spec:
+                entity = f"mcp-tool.{slugify(spec['workflow'])}"
             else:
                 entity = f"mcp-tool.{slugify(spec['api'])}-{slugify(spec['tool'])}"
             if entity not in catalog:
@@ -478,6 +498,9 @@ class McpProxies:
         someone changed are brought back to the file. Its authorization check is switched as its file says, then deployed,
         then its applications are subscribed."""
         name, path = spec["name"], spec["contextPath"]
+        if "responseTemplates" in spec:
+            raise SeedError(f"MCP studio {name}: responseTemplates is written for a studio built in steps (access), with the "
+                            "flows it writes: give this one its access")
         if "authorization" in spec:   # read by a studio built in steps, which writes its check's flow; this one only switches it
             raise SeedError(f"MCP studio {name}: authorization is read for a studio built in steps (access); this one switches "
                             "its check with fga")
@@ -597,6 +620,7 @@ class McpProxies:
         its plan cannot be edited in place. What the seed did not create is never touched."""
         name, path, access = spec["name"], spec["contextPath"], spec["access"]
         read_authorization(spec, name)
+        response_templates(spec, f"MCP studio {name}")   # read before anything is made, written with the flows
         subscriptions = read_subscriptions(spec, name)
         needs(access, name, "access", "registration", "agents")
         needs(access["registration"], name, "access.registration", "name", "type")
@@ -657,9 +681,10 @@ class McpProxies:
         return changed
 
     def checks(self, api_id, studio, spec):
-        """The switches of the studio, then the flows they wrote. A switch is turned only when it is not as the file says:
-        turning the authorization check on again erases what was written on its flow. The flows are written in one update
-        of the API, as it was read, so that nothing else of it is lost."""
+        """The switches of the studio, then the flows they wrote and the file's `responseTemplates` (what a client reads when
+        the check refuses, GAPL_AUTHZ). A switch is turned only when it is not as the file says: turning the authorization
+        check on again erases what was written on its flow. The flows and the templates are written in one update of the
+        API, as it was read, so that nothing else of it is lost."""
         authorization, approval, changed = spec.get("authorization"), spec.get("humanApproval"), False
         state = self.g.aim.get(f"/mcp-proxies/{api_id}").json()
         check = authorization is not None and bool(authorization.get("enabled", True))
@@ -672,10 +697,14 @@ class McpProxies:
             self.g.aim.put(f"/mcp-proxies/{api_id}/human-approval", json={"enabled": hold})
             log(SECTION, f"  ✓ Human approval {'on' if hold else 'off'}")
             changed = True
-        if not (check or hold):
+        templates = response_templates(spec, f"MCP studio {spec.get('name')}")
+        if not (check or hold or templates):
             return changed
         api = self.g.v2.get(f"/apis/{api_id}").json()
         written = []
+        if not contains(api.get("responseTemplates") or {}, templates):
+            api["responseTemplates"] = with_templates(api.get("responseTemplates"), templates)
+            written.append(True)
         if check:
             written.append(authorization_flow(api, authorization, studio))
         if hold and "holdWindowMs" in approval:
