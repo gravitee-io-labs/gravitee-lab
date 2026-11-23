@@ -26,16 +26,16 @@ The seed records the application and the subscriptions it makes, and changes not
 the agent and was not made by it stops the seed, as does an identity of another client id attached to the application.
 The AM application is seed/am's, which makes it.
 
-The keys need a platform that serves an agent's application in the catalog (`/catalog/agents/{id}/application`), which the
-amp-demo build does and API Management 4.13.1 does not: there the seed stops with a line that says so, and the agent
-reaches the gateway through an application of seed/apim/applications that carries its client ID.
+The keys need a platform that serves an agent's application in the catalog (`/catalog/agents/{id}/application`):
+versions.RELEASES says which do (agent-application). On another the seed stops before any call, with a line that says so, and
+the agent reaches the gateway through an application of seed/apim/applications that carries its client ID.
 
 Re-seed starts the lessons over, and the last of them is the kill switch: an agent whose access was revoked is put back
 in service before its subscriptions are looked at, with the platform's own restore, which resumes what revoking
 paused. A subscription that exists, whatever its status, is otherwise left as it is.
 """
 
-from . import am
+from . import am, versions
 from .common import (SeedError, adopted, excerpt, files, forget, has_seed, items, load, log, making, owned, record, recorded, seed_file,
                      unmade)
 from . import apim
@@ -52,12 +52,12 @@ ORDER = ["subscription", "agent-application"]
 LABELS = {"subscription": "agent subscriptions", "agent-application": "agent applications"}
 # The statuses of a subscription that holds the access: a closed or a rejected one is none
 HELD = ("PENDING", "ACCEPTED", "PAUSED")
-# What a platform that does not serve an agent's application says, every release of API Management among them (4.13.0 to
-# 4.13.3): the keys come from the amp-demo build, and a release links an agent to the gateway by its client ID instead
+# What the seed says on a platform that does not serve an agent's application (versions.RELEASES, agent-application): a
+# release links an agent to the gateway by its client ID instead
 UNSERVED = ("The agent '{name}': this platform has no application for an agent of the catalog "
-            "(/catalog/agents/{{id}}/application), which the keys identity and access of seed/aim/agents need: they work on the "
-            "amp-demo build, not on a release of API Management. There, give the agent an application of seed/apim/applications whose "
-            "client_id is its client ID in Access Management, and subscribe it to the plan of the studio")
+            "(/catalog/agents/{{id}}/application), which the keys identity and access of seed/aim/agents need: they work on "
+            "{served}. Here, give the agent an application of seed/apim/applications whose client_id is its client ID in "
+            "Access Management, and subscribe it to the plan of the studio")
 # What detaching an identity answers when there is nothing to do or to reach: no identity attached (409), the agent or
 # its application gone (404), Access Management out of reach (502)
 DETACHED = (200, 404, 409, 502)
@@ -172,7 +172,7 @@ class Agents:
                     return made
                 unmade(SECTION, "agent-application", name)
             if answer.status_code == 404:   # the agent is in the catalog, so the route is what the platform lacks
-                raise SeedError(UNSERVED.format(name=name))
+                raise SeedError(UNSERVED.format(name=name, served=versions.where("agent-application", "served")))
             found = self.read_application(agent["id"])   # one appeared since the first look
             if found is None:
                 raise SeedError(f"The application of the agent '{name}': HTTP 409 {excerpt(answer.text)}")
@@ -320,6 +320,16 @@ class Agents:
         elif answer.status_code == 200 and answer.json().get("result") == "PARTIAL":
             log(SECTION, f"! The identity of '{x['name']}' is detached and stays in Access Management: "
                          f"{excerpt(answer.json().get('error', ''), 200)}")
+
+
+def check():
+    """An agent file that gives an identity or access, on a platform with no application for an agent."""
+    if not has_seed(*FOLDERS):
+        return
+    asked = wanted()
+    if asked and versions.variant("agent-application") == "absent":
+        raise SeedError(UNSERVED.format(name=asked[0].get("name") or asked[0]["entityId"],
+                                        served=versions.where("agent-application", "served")))
 
 
 def seed():

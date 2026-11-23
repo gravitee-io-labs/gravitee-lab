@@ -47,11 +47,14 @@ SETTINGS = {"APIM_MANAGEMENT_URL": "http://apim", "APIM_USERNAME": "admin", "API
 # The playground the engine's tests read: an invented sample (a bakery), so that the engine holds no content of a catalog
 PLAYGROUNDS = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "samples"
 
-# What the platform answers at the start of a seed (versions.read) unless a test says otherwise: it is reachable and says no
-# version, so the seed adapts to what it answers
-UNSAID = {("GET", "/management/v2/organizations/DEFAULT/environments/DEFAULT/apis"): (200, {"data": [], "pagination": {"pageCount": 1}}),
-          ("GET", "/management/organizations/DEFAULT/environments/DEFAULT/instances"): (200, {"content": []}),
-          ("GET", "/management/platform/plugins/reporters"): (200, [])}
+# The release the fake platform states unless a test says otherwise (`version`): the tests run the path of a release
+TESTED = "4.13.4"
+# What the platform answers at the start of a seed (versions.read) unless a test says otherwise: it is reachable, a gateway of
+# TESTED reports to API Management and Access Management ships its plugins of TESTED
+STATED = {("GET", "/management/v2/organizations/DEFAULT/environments/DEFAULT/apis"): (200, {"data": [], "pagination": {"pageCount": 1}}),
+          ("GET", "/management/organizations/DEFAULT/environments/DEFAULT/instances"):
+              (200, {"content": [{"version": f"{TESTED} (build: 1) revision#abc", "state": "STARTED"}]}),
+          ("GET", "/management/platform/plugins/reporters"): (200, [{"id": "mongodb", "version": TESTED}])}
 
 
 # --- The platform -----------------------------------------------------------------------
@@ -241,7 +244,7 @@ class Seed(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.state = Path(folder.name) / "created.json"
-        self.platform, self.clock, self.stdout = Platform(UNSAID), Clock(), io.StringIO()
+        self.platform, self.clock, self.stdout = Platform(STATED), Clock(), io.StringIO()
         patches = [mock.patch.object(common, "STATE_FILE", self.state),
                    mock.patch.object(common, "SEED_DIR", Path(folder.name) / "seed"),
                    mock.patch.object(requests, "Session", self.platform.session),
@@ -253,8 +256,22 @@ class Seed(unittest.TestCase):
         controls.reset()
         refills.reset()
         versions._found.clear()
+        self.version(TESTED)
         common.configure(1)   # in order, with no earlier failure: a test that runs steps together asks for `workers` (below)
         self.addCleanup(common.configure, 1)
+
+    def version(self, text, product=None):
+        """The version the platform states, for both products or for `product`: in the answers versions.read reads and in what
+        the modules ask (versions.variant) when a test calls them without a seed."""
+        for name in [product] if product else [versions.APIM, versions.AM]:
+            versions.note(name, [text])
+        if product in (None, versions.APIM):
+            self.platform.add({("GET", "/management/organizations/DEFAULT/environments/DEFAULT/instances"):
+                               (200, {"content": [{"version": f"{text} (build: 1) revision#abc", "state": "STARTED"}]})})
+        if product in (None, versions.AM):
+            self.platform.add({("GET", "/management/platform/plugins/reporters"): (200, [{"id": "mongodb", "version": text}])})
+        self.stdout.seek(0)
+        self.stdout.truncate()
 
     def workers(self, count):
         """Lets `count` requests be in flight at once, as SEED_WORKERS does."""

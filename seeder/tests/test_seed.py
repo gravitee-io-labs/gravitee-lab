@@ -239,6 +239,17 @@ class Modules(Seed):
         self.assertEqual(self.order, [])
         self.assertEqual(self.platform.changes(), [])
 
+    def test_what_this_version_does_not_serve_stops_the_seed_before_any_module_runs(self):
+        """Each module's check() reads the files against the version: a release has no approvals, so a playground that seeds
+        them stops before AM or APIM is changed, not halfway through."""
+        self.run_modules()
+        self.seed_files({"aim/governance/approvals.yaml": "settings: {defaultTtlSeconds: 60}"})
+        self.answer({("GET", "/gamma/organizations/DEFAULT/modules"): (200, [{"id": "aim"}])})
+        self.assertEqual(self.main(), 1)
+        self.assertIn("[seed] ✗ Approvals and compliance of Agent Management", self.output())
+        self.assertEqual(self.order, [])
+        self.assertEqual(self.platform.changes(), [])
+
     def test_a_platform_that_serves_them_is_seeded(self):
         self.run_modules()
         self.seed_files({"aim/providers/p.yaml": "name: p", "authz/entities.yaml": "entities: []"})

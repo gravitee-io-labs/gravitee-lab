@@ -505,8 +505,9 @@ serve the lessons:
   others stay. An MCP proxy file takes the same key.
 - The tools come back to the file on every run. Tools a person adds or removes with *Edit tools* in Gamma are written
   back in place, with the keys of the APIs, and the flow of the authorization check is written again after them.
-- A studio file of either shape gives its protocol versions with the key its build takes:
-  [What differs from one build to another](#what-differs-from-one-build-to-another).
+- A studio file gives its protocol versions with `supportedProtocolVersions`, a list, or `protocolVersion`, one value. A
+  release gets the list from either key; a build that refuses the list takes `protocolVersion` only, and a file that gives
+  the list stops the seed there before any change ([Versions of Gravitee](#versions-of-gravitee)).
 
 The files of `seed/authz/` give Authorization Management what a person would set up in it:
 
@@ -1007,42 +1008,82 @@ in `.env`, then run `make all`.
 
 ### Versions of Gravitee
 
-The seed reads the versions of API Management and Access Management at its start, with its own credentials: API Management
-says it for the gateways that report to it, Access Management for the plugins it ships with. Its first line says each, and
-how the seed treats it:
+The seed reads the version of API Management and of Access Management at its start, with its own credentials: API Management
+states it for each gateway that reports to it, Access Management for the plugins it ships with. Its first lines say each,
+and the path the seed takes:
 
-- **A release** (`4.13.3`) is seeded by its version: what changed from one release to the next is in the table below, and
-  the seeder fills **4.12 and later** releases. Below 4.12 the seed stops before it changes anything.
-- **A build that is no release** (`4.13.0-amp-demo-SNAPSHOT`, a master build), or a platform that says no version (a Cloud
-  environment with no gateway yet, a platform whose gateway is not started), is seeded by what it answers: [What differs from one build to
-  another](#what-differs-from-one-build-to-another). Nothing is promised for it.
+- **A release** (`4.12.2`, `4.13.3`, `4.14.28`) is seeded by the table of releases below. Most of what a seed makes is
+  made the same way on every release and has no row. A behavior that changed has one row per variant, from the first release
+  that has it: a release takes the variant of the last row at or below it, so a new release takes the latest variant until a
+  row says otherwise. The seeder fills **4.12.0 and later** releases: below that the seed stops before it changes anything.
+- **A build off the release channel** (the amp-demo build, a master build) is seeded by the table of builds, by the exact
+  version it states: the release it is seeded like, and each behavior where it differs from that release.
+- **Anything else stops the seed**, with the reason: a version that is neither, a product that states none (API Management
+  with no gateway started, after a minute of waiting for one), or a build beside another version. Gateways of several
+  releases make the oldest, as the Lab counts an environment of Gravitee Cloud.
 
-| What changed | Product | First release |
+API Management's version is the one its gateways state, which the Lab runs from the same setting as the management API
+(`APIM_VERSION`): give `APIM_GATEWAY_VERSION` another release and the seed follows the gateway. The technical API of the
+management API states its own version too, but it also serves the whole configuration of the node, so the lab keeps it
+inside each container.
+
+Two images of Docker Hub state a later release than their tag, on the management API and on the gateway alike: `4.13.0`
+states `4.13.4`, and `4.13.1` states `4.13.5`. The seed takes the version stated, so no row of the table below starts
+between the two (from 4.13.1 to 4.13.5), which a test holds; a change that does is told apart another way first.
+
+| What differs | Product | From | Variant | What the seed does |
+|---|---|---|---|---|
+| The Gamma modules the seeder fills: AI Management, Authorization Management | API Management | 4.12.0 | early | The platform ships versions 1 of both, whose routes the seeder does not fill (AI Management has no AI providers): a playground that seeds `aim/` or `authz/` stops before anything is asked of Gamma |
+| The Gamma modules the seeder fills: AI Management, Authorization Management | API Management | 4.13.0 | served | The seed asks the platform which modules it serves |
+| The MCP protocol versions of a studio and of an MCP proxy | API Management | 4.13.0 | list | A studio is made with `supportedProtocolVersions`, a list, from either key of its file, and an MCP proxy takes the `supportedProtocolVersions` and `endpointProtocolVersions` of its file |
+| The application of an agent of the AI catalog (`identity` and `access` of an agent file) | API Management | 4.13.0 | absent | The seed stops on an agent file that gives them, before any call, with what to write instead |
+| The module of a dashboard | API Management | 4.13.0 | required | A dashboard is created with the module `aim` |
+| Named schema documents of Authorization Management (`seed/authz/schemas/`) | API Management | 4.13.0 | several | Each file of `seed/authz/schemas/` is a document of its own |
+| Approvals and compliance of Agent Management (`seed/aim/governance/`) | API Management | 4.13.0 | absent | A playground that seeds them stops before any change, with where they are served |
+| Human approval on a studio (`humanApproval` of a studio file) | API Management | 4.13.0 | absent | A studio file that gives it stops the seed before any change, with where it is served |
+
+| Build | Product | Seeded like | Where it differs | What its seed files write |
+|---|---|---|---|---|
+| `4.13.0-amp-demo-SNAPSHOT`: The amp-demo build of API Management | API Management | 4.13.0 | The MCP protocol versions of a studio and of an MCP proxy: single, a studio is made with `protocolVersion`, the one value its file gives, and the lists of an MCP proxy file are skipped with a warning: this build sets no protocol versions on an MCP proxy; The application of an agent of the AI catalog (`identity` and `access` of an agent file): served, the seed makes the application and subscribes it; The module of a dashboard: none, a dashboard is created with no module; Named schema documents of Authorization Management (`seed/authz/schemas/`): one, the files of `seed/authz/schemas/` are skipped with a warning: `seed/authz/schema.yaml` is the one document; Approvals and compliance of Agent Management (`seed/aim/governance/`): served, the seed writes the approval settings and rules, and the compliance answers; Human approval on a studio (`humanApproval` of a studio file): served, the seed switches it and writes the hold window of its flow | The models of an AI workspace are a component with an endpoint of its own (`target`, a price on each model) |
+| `4.14.0-SNAPSHOT`: A master build of Access Management, before 4.14.0 | Access Management | 4.13.6 | Nowhere | As on a release |
+
+The two tables are `RELEASES` and `BUILDS` in `seeder/lab_seeder/versions.py`, which writes them, and a test keeps this page
+equal to them. A module never compares versions: it asks the variant of a behavior and acts on it.
+
+Check each new release, and each build to seed, in two steps:
+
+1. **Measure it**: `make compat IMAGES="graviteeio/apim-management-api:4.14.0 graviteeio/am-management-api:4.14.0"` starts
+   each management API image alone, beside a throwaway database, and asks it what a seed meets there: the variant of each
+   behavior of the tables, the shape of each answer the seeder reads in more than one shape, and the other routes it calls
+   (`ROUTES`).
+   It prints `DIFFERS` where the tables, or the seeder, do not hold for the version the image states, and exits 1. The probes
+   are `seeder/compat.py`, one for each behavior of the tables, which a test holds.
+2. **Run the playgrounds on it** (`make e2e ID=playground:<id>` with its version in `.env`, or the *Gravitee versions*
+   workflow of a catalog, which runs them each night and moves their `x-gravitee.tested` forward): what the probes do not
+   ask, a playground that fails names.
+
+When a release changes something a seed makes, add a row to its behavior with that release and the new variant, keep the
+old variant for the releases before it, give the module the new case, and give `compat.py` the probe that measures it. When
+a build needs to be seeded, add it to `BUILDS` with its product, the exact version it states and the release it is closest
+to, and list where it differs. Read each row on the platform itself, never from memory.
+
+### What the seeder reads in either shape
+
+Some answers come in more than one shape, depending on the list, the release or the build, and the seeder reads each shape
+it meets, from the answer itself: no row of a version decides them. `make compat` checks on each image the shape of each row
+it has a probe for (`READS` in `seeder/compat.py`); the TLS row was read on imports into API Management 4.12. Measured on the images of API Management 4.13.0 to 4.13.5 and amp-demo (4.12 has no Gamma the seeder
+fills), and of Access Management 4.12.0, 4.12.14, 4.13.0 to 4.13.6 and master:
+
+| What comes in more than one shape | What the seed file writes | What the seeder does |
 |---|---|---|
-| The Gamma modules: AI Management, Authorization Management | API Management | 4.13.0 |
-
-A change between releases is a row here and an entry of `CHANGES` in `seeder/lab_seeder/versions.py`, which the modules ask
-by its name, and a test keeps the two equal. Which release a playground was tested on is its `x-gravitee.tested`, which
-the catalogs' *Gravitee versions* workflow moves forward each night.
-
-### What differs from one build to another
-
-For a build that is no release, the seeder does what the platform answers, and a seed file writes what its build takes:
-the playground says which build that is (`requires.images`). This table is what the seeder knows of them, and a row goes
-with the code it names once no build that the Lab runs needs it.
-
-| What differs | Builds | What the seed file writes | What the seeder does |
-|---|---|---|---|
-| A studio's protocol versions | A list on every release, one value on the amp-demo build, which refuses the list | `supportedProtocolVersions: ["2025-11-25"]` or `protocolVersion: "2025-11-25"` | Sends a release the list, from either key, and a build the key the file gives (`aim_proxies.protocol_versions`) |
-| A studio's keyless plan | The amp-demo build makes it from `KEYLESS`, the name of Agent Management, and its plans read it back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`) |
-| The module of a dashboard | Some platforms ask for it, with a 400 that holds the code `module_required` | Nothing | Asks again with the module when the answer holds that code (`aim_dashboards`) |
-| An update the platform does not offer | It answers 404, 405 or 501 | Nothing | Imports the API again, or makes the studio again (`apim.UNSUPPORTED`) |
-| Models of an AI workspace with an endpoint of their own | The only kind the amp-demo build takes | A component with `target` and a price on each model | Makes the component the file describes (`aim_workspaces`) |
-| The application of an agent of the catalog | Served by the amp-demo build, not by a release (4.13.0 to 4.13.3) | `identity` and `access` in `seed/aim/agents/` on amp-demo; on a release, an application of `seed/apim/applications` whose `client_id` is the agent's | Stops with a line that says what to write instead (`aim_agents`) |
-| Where a Gamma list starts | Page 0 or page 1, depending on the list and the build | Nothing | Reads from the other start when page 0 is refused, or when the pages from 1 hold fewer rows than the list announces (`gamma.ManagementApi.rows`) |
-| The shape of a Gamma list | `content`, `data`, `items`, with a total or a `pagination` | Nothing | Reads all of them (`gamma.page_of`) |
-| Deleting a protected resource of Access Management | 4.12 answers 500 without its type | Nothing | Sends `type=MCP_SERVER` (`am.remove`) |
-| A TLS key store or trust store that is "no store" | 4.12 names it `NONE` and refuses `{"type": ""}`, which a 4.11 export holds | Leave the store out | Nothing |
+| A studio's keyless plan: made from `KEYLESS`, the name of Agent Management, read back as `KEY_LESS` | `plan: {security: {type: KEYLESS}}` | Knows both names where it checks a subscription (`seedlint.studio_problems`, `aim_agents`) |
+| An update the platform does not offer: it answers 404, 405 or 501 (every image measured takes the update of an MCP API) | Nothing | Imports the API again, or makes the studio again (`apim.UNSUPPORTED`) |
+| Where a Gamma list starts: the access entities and policies refuse page 0, and so do the AI workspaces of a release; a list that answers `pagination` reads page 0 as page 1 | Nothing | Reads from page 1 when page 0 is refused, or from page 0 when the pages from 1 hold fewer rows than the list announces (`gamma.ManagementApi.rows`) |
+| The shape of a Gamma list: `data` with `pagination.totalCount` for most, `content` with `totalElements` for the MCP proxies (and the AI workspaces of amp-demo), `data` with `total` for access entities and policies | Nothing | Reads all of them (`gamma.page_of`) |
+| An access entity read back: amp-demo gives no `active` | Nothing | Takes an absent `active` as true (`authz`) |
+| Deleting a protected resource of Access Management: 4.12 answers 500 without its type, 4.13 and master take it either way | Nothing | Always sends `type=MCP_SERVER` (`am.remove`) |
+| Adding a member to a group of Access Management: a body on `/members` is refused (405) on every release | Nothing | Puts the member in the path (`am.py`) |
+| A TLS key store or trust store that is "no store": 4.12 names it `NONE` and refuses `{"type": ""}`, which a 4.11 export holds | Leave the store out | Nothing |
 
 ### Environments and developer portals
 

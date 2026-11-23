@@ -352,7 +352,7 @@ class Creation(Studios):
         [call] = self.platform.sent("POST", AIM + "/mcp-studios")
         self.assertEqual(call.json, {
             "name": "Customer desk", "description": "The tools of Orchid's customer desk team, made of three REST APIs",
-            "contextPath": "/mcp/customer-desk", "protocolVersion": "2025-11-25",
+            "contextPath": "/mcp/customer-desk", "supportedProtocolVersions": ["2025-11-25"],
             "specification": {"tools": [{"id": "tool-searchCustomers", "alias": "search_customers"},
                                         {"id": "tool-getCustomer", "alias": "get_customer"},
                                         {"id": "tool-createRefund", "alias": "create_refund"}]},
@@ -372,11 +372,32 @@ class Creation(Studios):
         self.assertEqual(self.world.gateway_calls[0].json["params"]["protocolVersion"], "2025-11-25")
 
     def test_a_release_gets_the_list_of_versions_from_a_file_that_gives_one(self):
-        versions.note(versions.APIM, ["4.13.3"])
+        self.version("4.13.3", versions.APIM)
         self.seed()
         [call] = self.platform.sent("POST", AIM + "/mcp-studios")
         self.assertEqual(call.json["supportedProtocolVersions"], ["2025-11-25"])
         self.assertNotIn("protocolVersion", call.json)
+
+    def test_the_amp_demo_build_takes_the_one_version_its_file_gives_and_refuses_a_list(self):
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
+        self.seed()
+        [call] = self.platform.sent("POST", AIM + "/mcp-studios")
+        self.assertEqual((call.json["protocolVersion"], "supportedProtocolVersions" in call.json), ("2025-11-25", False))
+
+    def test_the_amp_demo_build_gets_one_value_written_as_a_list_of_one_as_the_value(self):
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
+        self.env(SEED_WAIT_GATEWAY="1")
+        self.file(STUDIO.replace('protocolVersion: "2025-11-25"', 'protocolVersion: ["2025-11-25"]'))
+        self.seed()
+        [call] = self.platform.sent("POST", AIM + "/mcp-studios")
+        self.assertEqual(call.json["protocolVersion"], "2025-11-25")
+        self.assertEqual(self.world.gateway_calls[0].json["params"]["protocolVersion"], "2025-11-25")
+
+    def test_the_amp_demo_build_refuses_a_file_that_gives_a_list(self):
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
+        self.file(STUDIO.replace('protocolVersion: "2025-11-25"', 'supportedProtocolVersions: ["2025-11-25", "2025-06-18"]'))
+        with self.assertRaisesRegex(common.SeedError, "this platform takes one protocol version: write protocolVersion"):
+            self.seed()
 
     def test_a_tool_without_an_alias_goes_by_its_own_name(self):
         self.file(STUDIO.replace(", alias: search_customers", ""))
@@ -735,6 +756,34 @@ class Gateway(Studios):
         self.assertEqual(len(self.world.gateway_calls), 2)
 
 
+class WhatItNeeds(Studios):
+    """check(): what a studio file asks that the version does not serve stops the seed before any change."""
+
+    def test_a_release_has_no_human_approval_on_a_studio(self):
+        self.version("4.13.5", versions.APIM)
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_proxies.check()
+        for words in ("Customer desk", "humanApproval", "the build 4.13.0-amp-demo-SNAPSHOT"):
+            self.assertIn(words, str(stopped.exception))
+        self.assertEqual(self.platform.calls, [])
+
+    def test_a_release_takes_a_studio_without_it(self):
+        self.version("4.13.5", versions.APIM)
+        self.file(STUDIO.split("humanApproval:")[0])
+        aim_proxies.check()
+
+    def test_the_amp_demo_build_refuses_a_list_of_versions_before_any_change(self):
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
+        self.file(STUDIO.replace('protocolVersion: "2025-11-25"', 'supportedProtocolVersions: ["2025-11-25", "2025-06-18"]'))
+        with self.assertRaisesRegex(common.SeedError, "this platform takes one protocol version: write protocolVersion"):
+            aim_proxies.check()
+        self.assertEqual(self.platform.calls, [])
+
+    def test_the_amp_demo_build_takes_the_studio_with_human_approval(self):
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
+        aim_proxies.check()
+
+
 class Errors(Studios):
 
     def failing(self, pattern):
@@ -797,6 +846,7 @@ class OldShape(Studios):
         self.assertEqual(self.world.gateway_calls, [])
 
     def test_a_file_with_one_version_is_created_with_it_as_the_amp_demo_build_asks(self):
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
         self.file(OLD_STUDIO.replace('supportedProtocolVersions: ["2025-11-25"]', 'protocolVersion: "2025-11-25"'), "customer-desk")
         self.seed()
         [call] = self.platform.sent("POST", AIM + "/mcp-studios")

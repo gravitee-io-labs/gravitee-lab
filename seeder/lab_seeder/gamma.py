@@ -25,15 +25,16 @@ from .common import REFUSED, Api, Gone, HttpError, SeedError, setting, wait_unti
 
 SECTION = "gamma"
 UNSERVED = 30   # seconds a 404 lasts before it says the platform does not serve a module: its routes answer a moment after it is healthy
-NEEDS = "this playground needs the Gamma modules of API Management 4.13 or later and a license that includes them"
+NEEDS = (f"this playground needs the Gamma modules ({versions.where('gamma-modules', 'served')}) and a license that "
+         "includes them")
 
 
 # --- Paging -----------------------------------------------------------------------------
 
 class Paging:
     """Where a list starts and how many rows a page may hold: both depend on the endpoint, and a page size over its
-    maximum is a 400. A list counts from 0 or from 1, depending on the list and the build, and `first` is where the seed
-    starts: `ManagementApi.rows` reads a list from the other start when its answers show that this one is wrong."""
+    maximum is a 400. A list counts from 0 or from 1, depending on the list, the release or the build, and `first` is where
+    the seed starts: `ManagementApi.rows` reads a list from the other start when its answers show that this one is wrong."""
 
     def __init__(self, first, size):
         self.first, self.size = first, size
@@ -162,8 +163,8 @@ def require_modules(names):
     ready yet."""
     if not names:
         return
-    if versions.since("gamma") is False:
-        raise SeedError(f"This platform does not serve the Gamma modules: {NEEDS}")
+    if versions.variant("gamma-modules") == "early":
+        raise SeedError(f"This platform serves versions 1 of the Gamma modules, which the seeder does not fill: {NEEDS}")
     served, patience = [], time.time() + UNSERVED
 
     def look():

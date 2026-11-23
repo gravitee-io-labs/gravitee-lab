@@ -87,6 +87,8 @@ def main():
             log("seed", f"Protections {controls.mode()}: {controls.named(found)}")
         versions.read()
         require_modules(gamma_modules())
+        for module in MODULES:   # what this version cannot do of the seed's files stops it before any change
+            getattr(module, "check", lambda: None)()
         am.seed(openfga.seed())
         for module in AFTER_AM:
             module.seed()

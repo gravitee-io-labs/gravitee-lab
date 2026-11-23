@@ -10,6 +10,7 @@ from unittest import mock
 from lab_seeder import aim_governance
 from lab_seeder import common
 from lab_seeder import seed
+from lab_seeder import versions
 from lab_seeder.testkit import Seed
 
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
@@ -180,6 +181,7 @@ class Governance(Seed):
         self.world = World()
         self.platform.add(self.world.routes())
         self.seed_files({"aim/governance/approvals.yaml": APPROVALS, "aim/governance/compliance.yaml": COMPLIANCE})
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)   # the build that serves them (versions.BUILDS)
 
     def records(self, kind=None):
         return [x for x in common.created() if x["product"] == aim_governance.SECTION and kind in (None, x["kind"])]
@@ -202,6 +204,25 @@ class Governance(Seed):
         with self.assertRaises(common.SeedError) as stopped:
             aim_governance.seed()
         self.assertEqual(str(stopped.exception), problem)
+
+
+class WhatItNeeds(Governance):
+    def test_a_release_stops_the_seed_before_any_call_saying_where_they_are_served(self):
+        self.version("4.13.5", versions.APIM)
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_governance.check()
+        for words in ("seed/aim/governance/", "the build 4.13.0-amp-demo-SNAPSHOT"):
+            self.assertIn(words, str(stopped.exception))
+        self.assertEqual(self.platform.calls, [])
+
+    def test_the_build_that_serves_them_passes(self):
+        aim_governance.check()
+
+    def test_a_folder_without_its_files_passes_on_a_release(self):
+        self.version("4.13.5", versions.APIM)
+        for name in ("approvals", "compliance"):
+            (common.SEED_DIR / "aim" / "governance" / f"{name}.yaml").unlink()
+        aim_governance.check()
 
 
 class Settings(Governance):

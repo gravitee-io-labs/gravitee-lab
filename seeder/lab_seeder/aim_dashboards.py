@@ -6,8 +6,8 @@ differs from its file, so the seed also puts back a dashboard someone edited. It
 what the gateway reports.
 """
 
-from . import gamma
-from .common import HttpError, SeedError, adopted, contains, files, forget, has_seed, load, log, making, owned, record, recorded
+from . import gamma, versions
+from .common import SeedError, adopted, contains, files, forget, has_seed, load, log, making, owned, record, recorded
 
 SECTION = "aim-dashboards"
 # The folder of the seed it owns
@@ -45,14 +45,9 @@ class Dashboards:
             log(SECTION, f"✓ Dashboard updated: {title}")
 
     def create(self, body):
-        """A platform whose dashboards belong to a module says so, and is asked again with the module: another does not ask, and
-        is sent nothing more."""
-        try:
-            self.api.post("/dashboards", json=body)
-        except HttpError as e:
-            if e.status != 400 or "module_required" not in (e.body or ""):
-                raise
-            self.api.post("/dashboards", json={**body, "module": MODULE})
+        """A dashboard belongs to the module `aim` where the platform requires one (versions.RELEASES, dashboard-module)."""
+        module = {"module": MODULE} if versions.variant("dashboard-module") == "required" else {}
+        self.api.post("/dashboards", json={**body, **module})
 
 
 def seed():

@@ -16,9 +16,9 @@ An MCP proxy is set up in three steps, each writing only what differs from its f
 A studio is only seeded when a file of seed/aim/studios says so: it needs the tools of the catalog (MCP servers and APIs
 imported before it) and a gateway whose MCP libraries can serve a studio. Its file has one of two shapes, told apart by
 its keys. A file with `plan` and `fga` is created with its plan and has its authorization check switched. Either shape sends
-each API of its tools the key its `upstreamAuth` lists, and gives its protocol versions with the key its build takes: one
-`protocolVersion` on the amp-demo build, the list `supportedProtocolVersions` on a release, which gets the list from either
-key. A file with `access` is built in steps, each
+each API of its tools the key its `upstreamAuth` lists, and gives its protocol versions as the platform takes them
+(versions.RELEASES, mcp-protocol-versions): the list `supportedProtocolVersions`, from either key, or the one value of
+`protocolVersion`. A file with `access` is built in steps, each
 writing only what differs:
 
     1. It is created with the registration plan (the platform registers the studio in Access Management with it), the
@@ -78,6 +78,7 @@ KINDS = {"mcp-proxy": "MCP proxy", "studio": "MCP studio"}
 # The keys of a studio's file that give its protocol versions, one of the two: which one depends on the build, and a release
 # takes the first
 VERSION_KEYS = ("supportedProtocolVersions", "protocolVersion")
+PROXY_VERSION_KEYS = ("supportedProtocolVersions", "endpointProtocolVersions")   # of an MCP proxy file
 # What a subscription of a studio's file may say
 SUBSCRIPTION_KEYS = ("application", "plan", "apiKey")
 
@@ -101,8 +102,8 @@ def public(spec):
 
 
 def protocol_versions(spec):
-    """A studio's protocol versions, as a release takes them (a list) or else as its file gives them: one for the amp-demo
-    build, which refuses the list."""
+    """A studio's protocol versions as the platform takes them (versions.RELEASES, mcp-protocol-versions): the list, from
+    either key of the file, or the one value the file gives, which a build that refuses the list takes."""
     given = {key: spec[key] for key in VERSION_KEYS if key in spec}
     if len(given) != 1:
         raise SeedError(f"MCP studio {spec['name']}: it gives {' or '.join(VERSION_KEYS)}, one of the two")
@@ -110,7 +111,11 @@ def protocol_versions(spec):
     values = values if isinstance(values, list) else [values]
     if not all(isinstance(value, str) for value in values):
         raise SeedError(f"MCP studio {spec['name']}: a protocol version is text: quote it")
-    return {VERSION_KEYS[0]: values} if versions.released(versions.APIM) else given
+    if versions.variant("mcp-protocol-versions") == "list":
+        return {VERSION_KEYS[0]: values}
+    if "protocolVersion" not in given or len(values) != 1:
+        raise SeedError(f"MCP studio {spec['name']}: this platform takes one protocol version: write protocolVersion")
+    return {"protocolVersion": values[0]}
 
 
 def server_name(server):
@@ -398,7 +403,13 @@ class McpProxies:
         return True
 
     def versions(self, api_id, spec):
-        wanted = {key: spec[key] for key in ("supportedProtocolVersions", "endpointProtocolVersions")}
+        wanted = {key: spec[key] for key in PROXY_VERSION_KEYS if key in spec}
+        if not wanted:
+            return False
+        if versions.variant("mcp-protocol-versions") == "single":
+            log(SECTION, f"! MCP proxy {spec['automation']['name']}: {' and '.join(wanted)} left out, this platform sets no "
+                         "protocol versions on an MCP proxy")
+            return False
         if contains(self.g.aim.get(f"/mcp-proxies/{api_id}").json(), wanted):
             return False
         self.g.aim.put(f"/mcp-proxies/{api_id}/protocol-versions", json=wanted)
@@ -724,8 +735,9 @@ class McpProxies:
         if not gateway or not waits_for_gateway():
             return
         path = spec["contextPath"]
+        first = spec.get("protocolVersion") or spec["supportedProtocolVersions"]
         hello = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-            "protocolVersion": str(spec.get("protocolVersion") or spec["supportedProtocolVersions"][0]), "capabilities": {}, "clientInfo": {"name": "gravitee-lab-seed", "version": "1.0"}}}
+            "protocolVersion": str(first[0] if isinstance(first, list) else first), "capabilities": {}, "clientInfo": {"name": "gravitee-lab-seed", "version": "1.0"}}}
 
         def check():
             answer = Api(gateway).send("POST", path, json=hello, timeout=15, headers={"Accept": "application/json, text/event-stream"})
@@ -733,6 +745,18 @@ class McpProxies:
                 raise SeedError(f"HTTP {answer.status_code} without a token, 401 expected")
 
         wait_until(SECTION, f"{spec['name']} on the gateway ({path})", check, int(setting("GATEWAY_READY_TIMEOUT", "300")))
+
+
+def check():
+    """The studio files, against what this version serves: the protocol versions they give, and human approval."""
+    if not has_seed(*FOLDERS):
+        return
+    for path in files("aim", "studios"):
+        spec = load(path)
+        protocol_versions(spec)
+        if spec.get("humanApproval") is not None and versions.variant("studio-human-approval") == "absent":
+            raise SeedError(f"MCP studio {spec.get('name')}: this platform has no human approval on a studio, "
+                            f"{versions.where('studio-human-approval', 'served')} has: leave humanApproval out")
 
 
 def seed():

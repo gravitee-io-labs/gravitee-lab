@@ -17,6 +17,7 @@ A module is one file of `lab_seeder/`, registered in `lab_seeder/seed.py`.
 | `seed()` | Creates its objects. Returns before it reads a setting or connects when its folder of `seed/` is absent (`am.seed(stores)` takes the OpenFGA stores) |
 | `remove(records)` | Deletes what `owned(records, SECTION, ORDER)` returns, and `forget`s each record as soon as its object is deleted. What the platform refuses to delete (a user that owns an application) is not forgotten: it stays in the record, and the rest is removed |
 | `FOLDERS`, `GAMMA` | For a module that fills Gamma: the folders or files of `seed/` it reads, and the Gamma modules it needs (`aim`, `authz`, `platform`). `seed.py` checks that the platform serves them before it changes anything |
+| `check()` | Optional: stops the seed, before any module changes anything, on what its files ask that the platform's version does not serve (`versions.variant`). It reads files only, and returns at once when its folder of `seed/` is absent |
 | `PATHS` | Optional and local to a module: the API path of each kind it records. The engine does not read it |
 
 A new module is imported in `lab_seeder/seed.py` and added to `AFTER_AM`, which fixes where it runs; a removal runs the modules in
@@ -92,15 +93,17 @@ service sets.
 
 ## Behavior to keep
 
-- **Releases are read, builds are asked.** `versions.py` reads the versions at the start of a seed. A module never compares a
-  version itself: for a change between releases it asks `versions.since(name)` of a row of `CHANGES` (True, False, or None for
-  a build that is no release), and each row is one of [Versions of Gravitee](../docs/playgrounds.md#versions-of-gravitee),
-  with a test of both sides. A difference between builds that are no release is handled, in this
-  order of preference: the seed file writes what its build takes and the module sends it on; the module adapts to what the
-  platform answers (a status, a field, a code, what it serves), never to a sentence meant for a person; when neither can
-  work, the seed stops with a line that says what to write instead. Each difference is a row of
-  [What differs from one build to another](../docs/playgrounds.md#what-differs-from-one-build-to-another), added with its
-  code and removed with it. The code of a row has a test for each case the row names.
+- **Releases by a table, builds by their exact version, nothing guessed.** `versions.py` reads the version of each product at
+  the start of a seed. A release is seeded by `RELEASES`: a behavior that changed lists the first release of each of its
+  variants. A build off the release channel (amp-demo, a master build) is seeded by `BUILDS`: the release it is seeded like
+  and where it differs. Any other version, no version or a build beside another version stops the seed; gateways of
+  several releases are seeded as the oldest. A module never compares a version: it asks
+  `versions.variant(name)` and acts on the variant. A change between releases is a row of its behavior, with the release
+  that brought it; a build that differs names the behavior and its variant. Both tables are in
+  [Versions of Gravitee](../docs/playgrounds.md#versions-of-gravitee), which `versions.markdown()` writes and a test keeps
+  equal, the code of each variant has its test, and each behavior has its probe in `compat.py`, which measures an image (`make compat`). An answer that only comes in more than one shape, on any version, is
+  read in each and is a row of
+  [What the seeder reads in either shape](../docs/playgrounds.md#what-the-seeder-reads-in-either-shape).
 - **An import that fails after the platform made the API** ("API imported with error", the API kept, stopped) is recorded
   with no digest before the error is raised, so that the next run finds it as its own and updates it. The same for the
   import that follows a replacement.
