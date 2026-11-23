@@ -1259,3 +1259,5 @@ What a seed of [environments of its own](#environments-of-its-own) relies on, as
   `portal.next.access.enabled`, which the core sets from its environment (`metadata.readonly` lists them with `email.*`).
 - **One gateway serves every environment of the organization**: the lab sets no `organizations` or `environments` filter
   in the gateway's `gravitee.yml`.
+
+When the platform creates an MCP studio or rebuilds its tool specification, the seed replaces generated tools-http targets on `localhost` or `127.0.0.1` with `GATEWAY_INTERNAL_URL`, preserving the API path and query. Other targets, unchanged existing studios, and seeds without that internal address are left as they are. This runs in the existing API settings update before deployment.

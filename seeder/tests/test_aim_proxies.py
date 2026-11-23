@@ -5,6 +5,10 @@ import itertools
 import json
 import re
 
+import yaml
+
+from . import test_aim_studio as studio_test
+
 from lab_seeder import aim_proxies
 from lab_seeder import common
 from lab_seeder import versions
@@ -764,3 +768,88 @@ class ProxySubscriptions(Proxies):
         api_id = f"api-{HRID}"
         self.assertEqual(self.platform.changes(), [("POST", V2 + f"/apis/{api_id}/subscriptions/sub-1/_close"),
                                                    ("DELETE", f"{AUTOMATION}/{HRID}")])
+
+
+class GeneratedStudioTargets(Seed):
+    """Only newly generated studio targets are repaired; existing API settings remain under their owner's control."""
+
+    TARGET = "http://localhost:43182/customers?region=eu"
+
+    def setUp(self):
+        super().setUp()
+        self.world = studio_test.World(studio_test.Studios.OPERATIONS)
+        self.platform.add(self.world.routes())
+        self.platform.add({("POST", AIM + "/mcp-studios"): self.create,
+                           ("PUT", re.compile(AIM + "/mcp-studios/[^/]+/specification")): self.specification})
+        self.env(GATEWAY_INTERNAL_URL="http://gateway:8082/")
+        self.file()
+
+    def file(self, **extra):
+        self.seed_files({"aim/studios/tools.yaml": studio_test.OLD_STUDIO.replace("fga: true", "fga: false")
+                         + (yaml.safe_dump(extra) if extra else "")})
+
+    def seed(self):
+        aim_proxies.seed()
+
+    def reset_target(self, studio_id):
+        self.world.apis[studio_id]["endpointGroups"] = [{"type": "tools-http", "endpoints": [
+            {"configuration": {"target": self.TARGET}},
+            {"configuration": {"target": "https://tools.example.test/remote"}}]}]
+
+    def create(self, call):
+        response = self.world.create(call)
+        self.reset_target(response[1]["id"])
+        return response
+
+    def specification(self, call):
+        response = self.world.set_specification(call)
+        self.reset_target(ids(call)[0])
+        self.world.apis[ids(call)[0]]["flows"] = []
+        return response
+
+    def api(self):
+        [api] = self.world.apis.values()
+        return api
+
+    def rewrite_tools(self):
+        self.world.studios["studio-1"]["tools"].append({"id": "tool-searchCustomers", "alias": "extra"})
+        self.platform.calls.clear()
+        self.seed()
+
+    def test_loopback_hosts_keep_the_path_and_query_and_other_targets_stay_unchanged(self):
+        for target in ("http://localhost:43182/customers?region=eu", "http://127.0.0.1:8082/customers?region=eu"):
+            with self.subTest(target=target):
+                self.assertEqual(aim_proxies.gateway_target(target, "http://gateway:8082/"),
+                                 "http://gateway:8082/customers?region=eu")
+        for target in ("https://tools.example.test/remote", "http://gateway:8082/customers"):
+            self.assertEqual(aim_proxies.gateway_target(target, "http://gateway:8082"), target)
+
+    def test_a_missing_internal_address_leaves_the_target_alone(self):
+        self.env(GATEWAY_INTERNAL_URL="")
+        self.seed()
+        self.assertEqual(self.api()["endpointGroups"][0]["endpoints"][0]["configuration"]["target"], self.TARGET)
+
+    def test_the_access_path_routes_its_target_too_and_the_next_run_writes_nothing(self):
+        self.seed_files({"aim/studios/tools.yaml": studio_test.STUDIO})
+        self.env(**studio_test.SETTINGS)
+        self.seed()
+        self.assertEqual(self.api()["endpointGroups"][0]["endpoints"][0]["configuration"]["target"],
+                         "http://gateway:8082/customers?region=eu")
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_creation_and_specification_repair_write_once_then_preserve_existing_targets(self):
+        self.seed()
+        self.assertEqual(self.api()["endpointGroups"][0]["endpoints"][0]["configuration"]["target"],
+                         "http://gateway:8082/customers?region=eu")
+        self.assertEqual(len(self.platform.sent("PUT", V2 + "/apis/studio-1")), 1)
+        self.rewrite_tools()
+        self.assertEqual(self.api()["endpointGroups"][0]["endpoints"][0]["configuration"]["target"],
+                         "http://gateway:8082/customers?region=eu")
+        self.assertEqual(len(self.platform.sent("PUT", V2 + "/apis/studio-1")), 1)
+        self.reset_target("studio-1")
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.api()["endpointGroups"][0]["endpoints"][0]["configuration"]["target"], self.TARGET)
+        self.assertEqual(self.platform.changes(), [])

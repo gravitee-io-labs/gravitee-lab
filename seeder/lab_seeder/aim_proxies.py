@@ -51,6 +51,7 @@ seed/apim/subscriptions is: the kill switch of an agent reaches its tools too.
 import copy
 import json
 import os
+from urllib.parse import urlsplit
 
 from . import controls
 from . import gamma
@@ -89,6 +90,17 @@ VERSION_KEYS = ("supportedProtocolVersions", "protocolVersion")
 PROXY_VERSION_KEYS = ("supportedProtocolVersions", "endpointProtocolVersions")   # of an MCP proxy file
 # What a subscription of a studio's file may say
 SUBSCRIPTION_KEYS = ("application", "plan", "apiKey")
+
+
+def gateway_target(target, internal):
+    """The tools-http address the gateway can call, keeping the API path when Gravitee copied a loopback portal port."""
+    url = urlsplit(target)
+    if url.hostname not in ("localhost", "127.0.0.1"):
+        return target
+    suffix = url.path or ""
+    if url.query:
+        suffix += "?" + url.query
+    return internal.rstrip("/") + suffix
 
 
 def fill(value, slug):
@@ -552,6 +564,7 @@ class McpProxies:
             body["upstreamAuth"] = self.upstream_auth(spec)
         wanted = digest_of(body)
         found, recomposed = self.kept(name, path, wanted, body)
+        generated = found is None or recomposed
         if found is None:
             with making(SECTION, "studio", "MCP studios", name, missing=True):
                 found = self.g.aim.post("/mcp-studios", json=body).json()
@@ -561,22 +574,24 @@ class McpProxies:
         toggled = self.g.aim.get(f"/mcp-proxies/{found['id']}").json().get("fgaEnabled", False) != enabled
         if toggled:
             self.g.aim.put(f"/mcp-studios/{found['id']}/fga", json={"enabled": enabled})
-        recording = self.studio_analytics(found["id"], analytics)   # after the switch, which may rewrite the API
+        recording = self.studio_analytics(found["id"], analytics, generated)   # after the switch, which may rewrite the API
         if toggled or recomposed or recording:
             self.g.v2.post(f"/apis/{found['id']}/deployments", json=DEPLOYMENT)
         if toggled:
             log(SECTION, f"  ✓ Authorization check {'on' if enabled else 'off'}")
         self.subscribe(found["id"], name, subscriptions)
 
-    def studio_analytics(self, api_id, analytics):
+    def studio_analytics(self, api_id, analytics, generated=False):
         """The file's `analytics` on the API of a studio made in one go, written over it as it was read. Whether it wrote."""
-        if not analytics:
+        internal = os.getenv("GATEWAY_INTERNAL_URL", "").strip() if generated else ""
+        if not (analytics or internal):
             return False
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        if not with_analytics(api, analytics):
+        changed = route_http_backends(api, internal)
+        if not (with_analytics(api, analytics) or changed):
             return False
         self.g.v2.put(f"/apis/{api_id}", json={k: v for k, v in api.items() if k not in STUDIO_API_READ_ONLY})
-        log(SECTION, "  ✓ What the gateway records written")
+        log(SECTION, "  ✓ Studio API settings written")
         return True
 
     def kept(self, name, path, wanted, body):
@@ -721,8 +736,9 @@ class McpProxies:
             log(SECTION, f"✓ MCP studio created: {name}")
             changed = True
         api_id = found["id"]
+        generated = changed
         changed = self.access(api_id, access) or changed
-        changed = self.checks(api_id, name, spec) or changed   # after the tools: writing them may rebuild the check's flow
+        changed = self.checks(api_id, name, spec, generated) or changed   # after the tools: writing them may rebuild the check's flow
         self.deploy(api_id, changed)
         self.subscribe(api_id, name, subscriptions)
         self.wait_served(spec)
@@ -757,7 +773,7 @@ class McpProxies:
             changed = True
         return changed
 
-    def checks(self, api_id, studio, spec):
+    def checks(self, api_id, studio, spec, generated=False):
         """The switches of the studio, then the flows they wrote, the file's `responseTemplates` (what a client reads when
         the check refuses, GAPL_AUTHZ) and its `analytics`. A switch is turned only when it is not as the file says: turning
         the authorization check on again erases what was written on its flow. The flows, the templates and the analytics are
@@ -776,10 +792,11 @@ class McpProxies:
             changed = True
         templates = response_templates(spec, f"MCP studio {spec.get('name')}")
         analytics = read_analytics(spec, f"MCP studio {spec.get('name')}")
-        if not (check or hold or templates or analytics):
+        internal = os.getenv("GATEWAY_INTERNAL_URL", "").strip() if generated else ""
+        if not (check or hold or templates or analytics or internal):
             return changed
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        written = [with_analytics(api, analytics)]
+        written = [with_analytics(api, analytics), route_http_backends(api, internal)]
         if not contains(api.get("responseTemplates") or {}, templates):
             api["responseTemplates"] = with_templates(api.get("responseTemplates"), templates)
             written.append(True)
@@ -858,3 +875,23 @@ def remove(records):
             proxies.g.aim.delete(f"/mcp-proxies/{x['id']}")
         forget(x)
         log(SECTION, f"✓ Deleted {KINDS[x['kind']]} '{x['name']}'")
+
+
+def route_http_backends(api, internal):
+    """Repair generated loopback tools-http targets in an already loaded API."""
+    changed = False
+    if not internal:
+        return changed
+    for group in api.get("endpointGroups") or []:
+        if group.get("type") != "tools-http":
+            continue
+        for endpoint in group.get("endpoints") or []:
+            configuration = endpoint.get("configuration") or {}
+            target = configuration.get("target")
+            if not isinstance(target, str):
+                continue
+            updated = gateway_target(target, internal)
+            if updated != target:
+                configuration["target"] = updated
+                changed = True
+    return changed
