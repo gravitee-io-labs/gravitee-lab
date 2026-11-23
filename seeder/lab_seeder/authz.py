@@ -5,18 +5,23 @@
                                       parents}, where an attribute `{ref: [Type, id]}` points at another entity
                                     `server`: the MCP server (by its name in the AI catalog), with its `tools`,
                                       `groups`, `users` and `agents`
-    seed/authz/policies/*.yaml    name, status (DEPLOYED or DRAFT) and text, in GAPL, of one policy, of any number of
-                                  statements
+                                    `sync: access-management`: the users, groups and agents of Access Management, as the
+                                      Entities page's "Sync from Gravitee Access Management" brings them
+    seed/authz/policies/*.yaml    name, status (DEPLOYED or DRAFT), kind (RESOURCE, the default, or GLOBAL) and text, in
+                                  GAPL, of one policy, of any number of statements. A policy keeps the kind it was made
+                                  with, so a file that changes it makes the policy again
     seed/authz/schema.yaml        `schema`: the one schema document of the environment, for the editor
     seed/authz/schemas/*.yaml     name and text of a schema document, for a platform that keeps several: the editor
                                   reads them, decisions do not depend on them
 
 A policy or a schema names the MCP server and an agent without knowing their ids: `<server>` stands for the slug the
 catalog gave the server, which the seed reads back from the catalog, and `<agent:CLIENT_ID>` for the id of the agent
-entity that the gateway makes of that client id (`AgentIdentity::"<agent:desk-copilot>"`).
+entity that the gateway makes of that client id (`AgentIdentity::"<agent:desk-copilot>"`). A policy names a synced group
+by its name, `<group:NAME>` (`principal in Group::"<group:Support>"`): its id is the one Access Management gave it.
 
-Each statement of a policy starts with an `@id`, which Decisions shows as the reason of a decision ("Forbidden by policy
-'...'"): it is written as a name a person reads, the first statement of a policy carrying the policy's own name.
+The first statement of a policy starts with an `@id`, the policy's own name, which Decisions shows as the reason of a
+decision ("Forbidden by policy '...'"), and Decisions names the next ones `<name>#1`, `#2`. Only the first: an `@id` before
+another statement leaves the policy in the console's Code view only.
 
 What is there and the seed did not create is an error: it is never taken over. What the seed created is put back as the
 files say, a policy someone edited or undeployed as well as an entity whose attributes changed; what is right is not saved.
@@ -34,9 +39,9 @@ import uuid
 from contextlib import nullcontext
 from urllib.parse import quote
 
-from . import controls
-from .common import (HttpError, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, items, load, log, making, notes, owned,
-                     record, recorded, seed_file, slugify, unmade)
+from . import am, controls
+from .common import (Gone, HttpError, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, items, load, log, making, notes, owned,
+                     record, recorded, seed_file, slugify, unmade, wait_until)
 from .gamma import CATALOG, LISTS, Gamma
 
 SECTION = "authz"
@@ -49,6 +54,16 @@ ORDER = ["policy", "entities", "entity", "schema", "schema-document"]
 
 SERVER = "<server>"
 AGENT = re.compile(r"<agent:([^<>\s]+)>")
+GROUP = re.compile(r"<group:([^<>]+)>")
+# What `sync` may name, and how long the platform is given to finish it, in seconds
+DIRECTORIES = ("access-management",)
+# The source the platform gives what it synced from Access Management
+SYNCED = "gravitee_am"
+SYNC_WAIT = 60
+# How a sync that did not succeed ends: the final statuses of a job of the platform other than SUCCESS
+SYNC_FAILED = ("ERROR", "TIMEOUT")
+# The kinds the platform gives a policy
+POLICY_KINDS = ("RESOURCE", "GLOBAL")
 PATHS = {"policy": "/policies/{}", "entity": "/entities/{}", "schema": "/schemas/{}", "schema-document": "/schema"}
 
 ENTITIES = "seed/authz/entities.yaml"
@@ -79,9 +94,10 @@ def seed():
     for wanted in entities(spec, slug):
         entity(api, wanted)
     put_entities(api, spec)
+    groups = synced_groups(api, spec.get("sync"))
     policies = {p["entityId"]: p for p in api.rows("/policies", LISTS)}
     for path in files("authz", "policies"):
-        policy(api, load(path), slug, policies)
+        policy(api, load(path), slug, policies, groups)
 
 
 def server_slug(gamma, name):
@@ -94,9 +110,107 @@ def server_slug(gamma, name):
     raise SeedError(f"The MCP server '{name}' is not in the AI catalog: the policies are about its tools")
 
 
-def fill(text, slug, what):
+def synced_groups(api, directory):
+    """The ids of the groups by name, once Authorization Management has read the users, groups and agents of the directory
+    `sync` names: the request the Entities page sends, then its end waited for. The principals of what seed/am made are
+    recorded as the seed's, so that a removal deletes them: the platform keeps the principals of a domain that is gone."""
+    if not directory:
+        return {}
+    if directory not in DIRECTORIES:
+        raise SeedError(f"{ENTITIES}: sync is one of {', '.join(DIRECTORIES)}, not '{directory}'")
+    mine = am_principals()
+
+    def keep():
+        """Records the principals of what seed/am made that Authorization Management holds, a group before its members,
+        which a removal deletes first: also when the sync ended in an error after it upserted some."""
+        held = {x["entityId"]: x for x in api.rows("/entities", LISTS, kind="PRINCIPAL", source=SYNCED)}
+        brought = sorted((held[entity_id] for entity_id in mine if entity_id in held), key=lambda x: x["entityType"] != "Group")
+        if brought:
+            remember(SYNCED, brought)
+        return held, brought
+    try:
+        sync(api)
+    except SeedError:
+        try:
+            keep()
+        except SeedError as e:   # the sync's own error is the one to say
+            log(SECTION, f"! What the sync brought could not be read: {e}")
+        raise
+    held, brought = keep()
+    missed = [entity_id for entity_id in mine if entity_id not in held]
+    log(SECTION, f"✓ Access Management synced: {len(brought)} principals of this playground"
+                 + (f", {len(missed)} not synced: {', '.join(missed)}" if missed else ""))
+    # A group of the domain this seed made is known by the id Access Management gave it; another by its name, when one group has it
+    groups, twice = {}, set()
+    for found in held.values():
+        name = (found.get("attributes") or {}).get("name")
+        if found["entityType"] == "Group" and name:
+            if name in groups:
+                twice.add(name)
+            groups[name] = found["entityId"]
+    groups = {name: entity_id for name, entity_id in groups.items() if name not in twice}
+    groups.update({x["name"]: x["id"] for x in created() if (x["product"], x["kind"]) == ("am", "group") and x["id"] in held})
+    return groups
+
+
+def sync(api):
+    """Starts a sync of Access Management, as the Entities page does, and waits for its end. One that runs already (409) is
+    waited for, then this one starts. The sync is a job of the platform, whose status is PENDING until it ends as SUCCESS,
+    ERROR or TIMEOUT."""
+    for _ in range(2):
+        answer = api.post("/users/sync", expect=(202, 409, 503))
+        if answer.status_code == 503:
+            raise SeedError("Authorization Management cannot read Access Management: seed/am/gamma-link.yaml links Gamma to the "
+                            "domain")
+        job = (answer.json() or {}).get("jobId") if answer.status_code == 202 else None
+
+        def ended():
+            said = api.get("/users/sync").json()
+            if job and said.get("jobId") not in (None, job):   # the status of an earlier sync, until this one is listed
+                raise SeedError("the sync has not started")
+            status = said.get("status")
+            if status in SYNC_FAILED and answer.status_code == 202:
+                raise Gone(f"The sync of Access Management into Authorization Management ended as {status}: "
+                           f"{excerpt(said.get('error') or 'no reason given')}")
+            if status != "SUCCESS" and status not in SYNC_FAILED:   # another sync that ended, well or not, lets this one start
+                raise SeedError(f"the sync is {status or 'not started'}")
+        wait_until(SECTION, "the sync of Access Management", ended, timeout=SYNC_WAIT)
+        if answer.status_code == 202:
+            return
+    raise SeedError("The sync of Access Management into Authorization Management: another one kept running")
+
+
+def am_principals():
+    """The ids Authorization Management gives to what seed/am made, as its sync computes them: a group keeps its id, an agent
+    takes the name UUID of its client id, a user the name UUID of "sourceId:externalId" (its sub: the id of its identity
+    provider, which Access Management answers as `sourceId`, `source` being that provider's name), else its own id."""
+    made = [x for x in created() if x["product"] == "am" and x["kind"] in ("group", "user", "agent")]
+    ids = [x["id"] for x in made if x["kind"] == "group"]
+    agents = {x["name"] for x in made if x["kind"] == "agent"}
+    ids += [agent_id(spec["clientId"]) for spec in map(load, files("am", "applications"))
+            if spec.get("type") == "AGENT" and spec.get("name") in agents]
+    users = [x for x in made if x["kind"] == "user"]
+    if users:
+        manager = am.AccessManagement()
+        manager.connect()
+        for x in users:
+            found = manager.api.get(f"{manager.env_url}/domains/{x['domain']}/users/{x['id']}", expect=(200, 404))
+            if found.status_code == 404:   # deleted in the console: it has no principal of its own any more
+                continue
+            user = found.json()
+            source, external = user.get("sourceId"), user.get("externalId")
+            ids.append(agent_id(f"{source}:{external}") if source and external else user["id"])
+    return ids
+
+
+def fill(text, slug, what, groups=None):
     """A policy or a schema with its placeholders replaced: <server> by the slug of the MCP server, <agent:CLIENT_ID> by
-    the id of the agent entity."""
+    the id of the agent entity, <group:NAME> by the id of the synced group."""
+    def group_id(found):
+        if found.group(1) not in (groups or {}):
+            raise SeedError(f"{what} names the group '{found.group(1)}', which the sync did not bring")
+        return groups[found.group(1)]
+    text = GROUP.sub(group_id, text)
     if SERVER in text:
         if not slug:
             raise SeedError(f"{what} names <server>, and {ENTITIES} has no server")
@@ -121,7 +235,8 @@ def explain(what, error):
 # --- Entities of the MCP server -------------------------------------------------------------
 
 def agent_id(client_id):
-    """The id of an agent entity: what the gateway makes of the client id in a token (Java's UUID.nameUUIDFromBytes)."""
+    """The id of an agent entity: what the gateway makes of the client id in a token (Java's UUID.nameUUIDFromBytes). The sync
+    of Access Management names a user the same way, from "sourceId:externalId"."""
     digest = bytearray(hashlib.md5(client_id.encode()).digest())
     digest[6] = (digest[6] & 0x0F) | 0x30
     digest[8] = (digest[8] & 0x3F) | 0x80
@@ -358,19 +473,28 @@ def remember(source, saved):
 # --- Policies -------------------------------------------------------------------------------
 
 
-def policy(api, spec, slug, policies):
+def policy(api, spec, slug, policies, groups=None):
     name = spec["name"]
-    text = fill(spec["policy"], slug, f"Policy '{name}'")
+    kind = spec.get("kind", "RESOURCE")
+    if kind not in POLICY_KINDS:
+        raise SeedError(f"Policy '{name}': kind is {' or '.join(POLICY_KINDS)}, not '{kind}'")
+    text = fill(spec["policy"], slug, f"Policy '{name}'", groups)
     found = controls.of("policy", name)
     status = controls.status(found, spec.get("status", "DEPLOYED"))
     current = policies.get("policy." + slugify(name))
     if current and not recorded(SECTION, "policy", current["id"]) and not adopted(SECTION, "policy", name, current["id"]):
         raise SeedError(f"Policy '{name}' exists in Authorization Management and the seed did not create it: it is left alone")
+    # A policy keeps the kind it was made with: an update takes no other, so one whose kind changed is made again
+    if current and current.get("kind", kind) != kind:
+        api.delete(PATHS["policy"].format(current["id"]))
+        forget(*[x for x in created() if (x["product"], x["kind"], x["id"]) == (SECTION, "policy", current["id"])])
+        log(SECTION, f"Policy '{name}' is {current['kind']}, its file says {kind}: made again")
+        current = None
     # The platform reads a policy when it is saved: one it cannot read comes back with the line and the reason
     if not current:
         with making(SECTION, "policy", "access rules", name, missing=True):
             try:
-                current = api.post("/policies", json={"name": name, "kind": "RESOURCE", "policyType": "MCP",
+                current = api.post("/policies", json={"name": name, "kind": kind, "policyType": "MCP",
                                                       "policyText": text, "targets": []}).json()
             except HttpError as e:
                 if e.status < 500:
