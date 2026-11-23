@@ -460,6 +460,15 @@ class State(Built):
         item = self.item("addon", "kazoo-desk", missing=["kazoo"])
         self.assertEqual((item["note"], item["note_tone"], item["note_title"], item["note_target"]),
                          ("Needs settings", "warn", "Kazoo needs settings", {"kind": "addon", "id": "kazoo"}))
+        # A playground's own: its note names them, and its causes open its settings
+        self.project["playgrounds"]["welcome"].update(env_file=".lab/catalogs/fixture/playgrounds/welcome/.env",
+                                                      settings=[{"key": "WELCOME_API_KEY", "required": True}])
+        item = self.item("playground", "welcome")
+        self.assertEqual((item["note"], item["note_tone"], item["note_title"], item["note_target"], item["note_causes"]),
+                         ("Needs settings", "warn", "Not set: WELCOME_API_KEY", None,
+                          [{"kind": "unset", "settings": ["WELCOME_API_KEY"]}]))
+        # and its Start waits, saying so as an add-on's does (what the end-to-end run reads as not tried)
+        self.assertEqual((item["action"]["enabled"], item["action"]["reason"]), (False, "Needs settings: WELCOME_API_KEY"))
 
     def test_a_locked_on_file_is_not_a_note(self):
         # Said once in the banner (a problem of the state); the button carries the reason
