@@ -614,6 +614,19 @@ they use, to tell which license features the playground needs and where it can b
 environment of its own: the entrypoints, endpoints and resources, the policy of every flow step and the security of every
 plan.
 
+Set optional API fields directly on either studio shape. Use existing category ids, supplied by the seed service's
+variables when they differ between platforms. Leave a field out to preserve it; use an empty list to clear it. Changing
+these fields updates the existing API and does not recreate the studio:
+
+```yaml
+visibility: PUBLIC
+labels: [assistant, tools]
+categories: ['${DEMO_CATEGORY_ID}']
+```
+
+Use `flows` for the full ordered list of API flow objects. `flows: []` clears a plain studio's list. In a studio with `access`, retain the enabled checks required by its authorization and human-approval settings; a file that drops them is refused before any write. Configured check settings are applied after the raw fields. The seed combines these fields with analytics and, for access studios, response templates in one API update, without recreating the studio. An unchanged file causes no repeated update.
+
+
 ### Environments of its own
 
 A playground for several tenants gives each one an environment of API Management, with its own APIs, applications, groups,

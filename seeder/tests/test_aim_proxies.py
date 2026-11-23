@@ -10,6 +10,8 @@ from lab_seeder import common
 from lab_seeder import versions
 from lab_seeder.testkit import PLAYGROUNDS, Seed
 
+from . import test_aim_studio as studio_test
+
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
 AUTOMATION = "/automation/organizations/DEFAULT/environments/DEFAULT/aim/mcp-proxies"
 V2 = "/management/v2/organizations/DEFAULT/environments/DEFAULT"
@@ -764,3 +766,98 @@ class ProxySubscriptions(Proxies):
         api_id = f"api-{HRID}"
         self.assertEqual(self.platform.changes(), [("POST", V2 + f"/apis/{api_id}/subscriptions/sub-1/_close"),
                                                    ("DELETE", f"{AUTOMATION}/{HRID}")])
+
+
+class StudioFieldCases:
+    def settings_file(self, fields, text=None):
+        self.seed_files({self.studio_path: (self.studio_text if text is None else text) + "\n" +
+                         "\n".join(key + ": " + json.dumps(value) for key, value in fields.items()) + "\n"})
+
+
+    def test_optional_api_settings_update_in_place_and_repeat_without_writes(self):
+        fields = {"visibility": "PUBLIC", "labels": ["assistant", "tools"], "categories": ["category-1"],
+                  "analytics": {"logging": {"mode": {"entrypoint": True}, "content": {"payload": True}}}}
+        self.settings_file(fields)
+        self.seed()
+        [api_id] = self.world.studios
+        self.assertEqual({key: self.world.apis[api_id][key] for key in fields}, fields)
+        self.assertEqual(len(self.platform.sent("GET", V2 + f"/apis/{api_id}")), 1)
+        self.assertEqual(len(self.platform.sent("PUT", V2 + f"/apis/{api_id}")), 1)
+        [post] = self.platform.sent("POST", AIM + "/mcp-studios")
+        self.assertTrue(all(key not in post.json for key in fields))
+        self.assertEqual(self.world.apis[api_id]["deploymentState"], "DEPLOYED")
+        self.platform.calls.clear()
+        self.settings_file({**fields, "labels": list(reversed(fields["labels"]))})
+        self.seed()
+        self.assertEqual(self.platform.changes(), [])
+        self.settings_file({"visibility": "PRIVATE", "labels": [], "categories": []})
+        self.seed()
+        self.assertEqual(list(self.world.studios), [api_id])
+        self.assertEqual(self.world.apis[api_id]["labels"], [])
+        self.assertEqual(self.world.apis[api_id]["categories"], [])
+        self.assertEqual(self.world.apis[api_id]["visibility"], "PRIVATE")
+        self.assertEqual(self.platform.sent("DELETE", AIM + f"/mcp-proxies/{api_id}"), [])
+        self.settings_file({})
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.platform.changes(), [])
+
+
+    def test_replaced_studio_gets_api_settings_on_its_new_id(self):
+        fields = {"visibility": "PUBLIC", "labels": ["tools"]}
+        self.settings_file(fields)
+        self.seed()
+        [old_id] = self.world.studios
+        self.settings_file(fields, self.studio_text.replace("description: ", "description: Changed ", 1))
+        self.seed()
+        [new_id] = self.world.studios
+        self.assertNotEqual(old_id, new_id)
+        self.assertEqual({key: self.world.apis[new_id][key] for key in fields}, fields)
+
+
+    def test_flows_update_the_existing_api_once_and_repeat_without_writes(self):
+        self.seed()
+        [api_id] = self.world.studios
+        flows = json.loads(json.dumps(self.world.apis[api_id].get("flows") or []))
+        flows.append({"name": "Additional flow", "enabled": False, "selectors": [], "request": [], "response": []})
+        self.settings_file({"flows": flows})
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(list(self.world.studios), [api_id])
+        self.assertEqual(self.world.apis[api_id]["flows"], flows)
+        self.assertEqual(len(self.platform.sent("GET", V2 + f"/apis/{api_id}")), 1)
+        self.assertEqual(len(self.platform.sent("PUT", V2 + f"/apis/{api_id}")), 1)
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_bad_api_settings_stop_before_the_first_write(self):
+        for key, value in (("visibility", "public"), ("visibility", []), ("labels", None),
+                           ("labels", ["x", "x"]), ("categories", [{}]), ("categories", [""]), ("flows", None), ("flows", {}), ("flows", [1])):
+            with self.subTest(key=key, value=value):
+                self.settings_file({key: value})
+                with self.assertRaisesRegex(common.SeedError, key):
+                    self.seed()
+                self.assertEqual(self.platform.changes(), [])
+
+
+class PlainStudioFields(StudioFieldCases, WithStudio):
+    def setUp(self):
+        super().setUp()
+        self.studio_path, self.studio_text, self.studio_name = "aim/studios/acme-bakery-toolkit.yaml", STUDIO, "Acme Bakery Toolkit"
+
+
+class AgentsStudioFields(StudioFieldCases, studio_test.Studios):
+    def setUp(self):
+        super().setUp()
+        self.studio_path, self.studio_text, self.studio_name = "aim/studios/customer-desk.yaml", studio_test.STUDIO, "Customer desk"
+
+
+class RequiredStudioFlows(studio_test.Studios):
+    def test_raw_flows_cannot_drop_enabled_generated_checks(self):
+        for flows in ([], [{"name": "Other flow", "request": []}]):
+            with self.subTest(flows=flows):
+                self.seed_files({"aim/studios/customer-desk.yaml": studio_test.STUDIO + "\nflows: " + json.dumps(flows)})
+                with self.assertRaisesRegex(common.SeedError, "flows must retain"):
+                    aim_proxies.seed()
+                self.assertEqual(self.platform.changes(), [])
