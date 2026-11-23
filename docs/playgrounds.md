@@ -476,7 +476,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
 | `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, model sources (`model-sources`, one of each kind), models (in a model source or the manual one), the providers of an LLM proxy of `seed/apim` taken from model sources (`llm-proxies`), MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one whose backend asks for one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies and studios (with their `subscriptions` and `analytics`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
-| `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management), GAPL policies, the schema of the editor | Gamma API |
+| `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management, and with `catalog`, what the AI catalog holds), GAPL policies of each type, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
 | `seed/refills.yaml` | What the lessons spend, given back on every run | The counters the gateway keeps in the core's Redis |
@@ -571,16 +571,41 @@ The files of `seed/authz/` give Authorization Management what a person would set
   with the reason of one that ends in an error or a timeout. It records the principals of what seed/am made, which it
   knows by their ids: a group keeps its id, an agent takes the name UUID of its client id, a user that of its sub. A
   delete removes them, and never a principal of another domain.
-- **Resources are the MCP server and its tools**: an `MCPServer` entity and one `MCPTool` per tool, whose id is the tool's
-  name, which the studio sends as the resource of each call.
+- **Resources come from the AI catalog where it holds them.** `catalog` in `entities.yaml` names MCP servers, models and
+  agents of the catalog (`mcp-servers`, `models`, `agents`), each by its slug or a name the catalog shows, and the seed saves
+  what *Import from AI Catalog* on the Entities page saves: one read-only entity each, with the catalog's slug as its id, its
+  source `gravitee-catalog` and the catalog's id in `_catalogId`, and the tools of an MCP server under it (`crm.get_customer`,
+  the id a studio sends as the resource of a call). An entry someone imported already in the console is left as it is. What
+  the catalog lacks under the name the gateway sends goes in `entities`, which may name an imported entity as its parent: an
+  alias of an LLM proxy (`fast`) as a child of the models it routes to, so that a policy on a model covers it.
+
+  ```yaml
+  catalog:
+    mcp-servers: [CRM, Wiki]
+    models: [claude-haiku-5-5, claude-opus-5-5]
+  source: local
+  entities:
+    - {type: Model, id: fast, parents: [[Model, claude-haiku-5-5]], attributes: {_displayName: fast}}
+    - {type: Action, id: invoke, attributes: {_displayName: invoke}}
+  ```
+
+- **Resources of a file of its own** are an `MCPServer` entity and one `MCPTool` per tool (`server` and `tools`), whose id is
+  the tool's name, which the studio sends as the resource of each call.
 - **The schema declares the actions**, one per tool, with the context each reads (`context.agent`, an argument of the call).
   The Actions page cannot hold them: it refuses an id a tool already has.
-- **A policy is written as *Create policy* writes it**: one statement per tool, `principal in Group::"<group:NAME>"`,
-  `action == Action::"<tool>"`, `resource == MCPTool::"<tool>"`, and the agent in the condition. `<group:NAME>` stands for
+- **A policy is written as *Create policy* writes it**: one target, the MCP server or the model the wizard picks first and
+  the `// Target:` line names, whose *Visual* view offers no other resource. On MCPs, one statement per tool of that server,
+  `principal in Group::"<group:NAME>"`, `action == Action::"<tool>"`, `resource == MCPTool::"<tool>"`, and the agent in the
+  condition. `<group:NAME>` stands for
   the id Access Management gave the group, and `<agent:CLIENT_ID>` for the agent's. Only the first statement carries an
   `@id`, the name of the policy: [How APIM and Gamma behave](#how-apim-and-gamma-behave-what-the-seeder-relies-on) says why.
-  Open each policy in its *Visual* and *Classic* views once it is seeded. `kind` is `RESOURCE`, the default, or `GLOBAL`:
-  a policy keeps the kind it was made with, so a file that changes it makes the policy again.
+  Open each policy in its *Visual* and *Classic* views once it is seeded. `kind` is `RESOURCE`, the default, or `GLOBAL`.
+  `type` is the page of the console that lists the policy: `MCP`, the default, `MODEL` (AI Models), `API`, `AGENT` or
+  `CUSTOM`. A policy keeps the kind and the type it was made with, so a file that changes either makes the policy again.
+- **A policy on models** is written as the AI Models page writes it: one policy per model,
+  `action == Action::"invoke"` (a Local action, `{type: Action, id: invoke}` in `entities`, which the page's action list
+  reads) and `resource in Model::"<slug>"`, which covers the aliases that are its children. The engine takes one entity in
+  the resource scope, never a list.
 
 Seed files use `${VAR}` for everything that depends on the target: service URLs, the Redis password of a vector store
 resource, the gateway and AM addresses shown to clients. Acme Shop's seed files use, among others, `${AM_GATEWAY_URL}`,

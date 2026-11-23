@@ -601,6 +601,126 @@ class Server(Case):
             authz.seed()
 
 
+IMPORT = """\
+catalog:
+  mcp-servers: [Customer desk]
+  models: [haiku-9, Large model]
+source: orchid
+entities:
+  - {type: Model, id: quick, parents: [[Model, haiku-9]], attributes: {_displayName: quick}}
+"""
+ITEMS = {
+    "mcp-server": [{"id": "cat-s1", "slug": "desk", "kind": "mcp-server", "extensions": {"description": "The desk"},
+                    "definition": {"serverInfo": {"name": "Customer desk"}}},
+                   {"id": "cat-s2", "slug": "other", "kind": "mcp-server", "definition": {"serverInfo": {"name": "Other"}}}],
+    "model": [{"id": "cat-m1", "slug": "haiku-9", "kind": "model", "definition": {"name": "Haiku 9", "queryName": "haiku-9"}},
+              {"id": "cat-m2", "kind": "model", "definition": {"name": "Large model", "queryName": "big:7b", "description": "Big"}}],
+}
+TOOLS = {"cat-s1": [{"id": "cat-t1", "slug": "desk.get_customer", "parentId": "cat-s1",
+                     "definition": {"name": "get_customer", "description": "One customer"}},
+                    {"id": "cat-t2", "parentId": "cat-s1", "definition": {"name": "close ticket"}}]}
+
+
+class Catalog(Case):
+    """`catalog`: what "Import from AI Catalog" saves, one request for each entity and in the console's shape, before the
+    entities of the file, which may name it as a parent."""
+
+    def setUp(self):
+        super().setUp()
+        self.items = {kind: [dict(item) for item in rows] for kind, rows in ITEMS.items()}
+        self.platform.add({("GET", AIM + "/catalog/items"): lambda call: self.listing(self.items.get(call.params["kind"], [])),
+                           ("GET", AIM + "/catalog/mcp-tools"): lambda call: self.listing(TOOLS.get(call.params["parentId"], []))})
+        self.seed_files({"authz/entities.yaml": IMPORT})
+
+    @staticmethod
+    def listing(rows):
+        return 200, {"data": rows, "pagination": {"page": 1, "perPage": 200, "totalCount": len(rows)}}
+
+    def imports(self):
+        return [call.json for call in self.platform.sent("POST", AUTHZ + "/entities")]
+
+    def test_each_entry_is_saved_as_the_console_saves_it_a_server_before_its_tools(self):
+        authz.seed()
+        sent = self.imports()
+        self.assertEqual([(x["entityType"], x["entityId"]) for x in sent],
+                         [("MCPServer", "desk"), ("MCPTool", "desk.get_customer"), ("MCPTool", "close-ticket"),
+                          ("Model", "haiku-9"), ("Model", "big-7b")])
+        server, tool = sent[0], sent[1]
+        self.assertEqual({key: server[key] for key in ("kind", "source", "parents")}, {"kind": "RESOURCE", "source": "gravitee-catalog", "parents": []})
+        self.assertEqual({key: server["attributes"][key] for key in ("_displayName", "_catalogId", "description")},
+                         {"_displayName": "Customer desk", "_catalogId": "cat-s1", "description": "The desk"})
+        self.assertRegex(server["attributes"]["_importedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$")
+        self.assertEqual(tool["parents"], [{"entityType": "MCPServer", "entityId": "desk"}])
+        self.assertEqual((tool["attributes"]["_displayName"], tool["attributes"]["description"]), ("get_customer", "One customer"))
+        self.assertEqual(sent[4]["attributes"]["_displayName"], "Large model", "no slug: the id is made of the query name")
+
+    def test_the_entities_of_the_file_come_after_and_may_name_an_import_as_their_parent(self):
+        authz.seed()
+        self.assertEqual(self.world.bulks, [["quick"]])
+        self.assertEqual(self.world.entities["quick"]["parents"], [{"entityType": "Model", "entityId": "haiku-9"}])
+        records = {x["name"]: x["ids"] for x in self.records()}
+        self.assertEqual(records, {"gravitee-catalog": ["desk", "desk.get_customer", "close-ticket", "haiku-9", "big-7b"],
+                                   "orchid": ["quick"]})
+
+    def test_a_second_seed_saves_nothing_though_the_time_of_the_import_differs(self):
+        self.seeded()
+        authz.seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_an_entry_the_catalog_changed_is_imported_again_and_only_it(self):
+        self.seeded()
+        self.items["model"][1]["definition"]["description"] = "Bigger"
+        authz.seed()
+        self.assertEqual([x["entityId"] for x in self.imports()], ["big-7b"])
+        self.assertEqual(self.world.entities["big-7b"]["attributes"]["description"], "Bigger")
+
+    def test_an_entry_someone_imported_in_the_console_is_left_as_it_is_and_not_recorded(self):
+        self.world.entities["haiku-9"] = {"id": "x", "entityId": "haiku-9", "entityType": "Model", "kind": "RESOURCE",
+                                          "source": "gravitee-catalog", "parents": [],
+                                          "attributes": {"_displayName": "Haiku 9", "_catalogId": "cat-m1", "_importedAt": "earlier"}}
+        authz.seed()
+        self.assertNotIn("haiku-9", [x["entityId"] for x in self.imports()])
+        self.assertEqual(self.world.entities["haiku-9"]["attributes"]["_importedAt"], "earlier")
+        self.assertNotIn("haiku-9", next(x["ids"] for x in self.records() if x["name"] == "gravitee-catalog"))
+        authz.remove(common.created())
+        self.assertEqual(list(self.world.entities), ["haiku-9"])
+
+    def test_an_entity_of_another_source_with_the_id_of_an_entry_stops_the_seed_before_anything_is_saved(self):
+        self.world.entities["desk"] = {"id": "x", "entityId": "desk", "entityType": "MCPServer", "kind": "RESOURCE",
+                                       "source": "local", "parents": [], "attributes": {}}
+        with self.assertRaisesRegex(common.SeedError, "MCPServer 'desk' exists in Authorization Management and the seed did not create it"):
+            authz.seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_an_entry_the_catalog_lacks_or_a_name_two_entries_have_stops_the_seed_in_one_line(self):
+        self.items["model"].append({"id": "cat-m3", "slug": "large-2", "kind": "model", "definition": {"name": "Large model"}})
+        for models, why in ((["gpt-x"], "models: 'gpt-x' is not in the AI catalog"),
+                            (["Large model"], "models: 'Large model' is the name of 2 entries of the AI catalog: name it by its slug")):
+            with self.subTest(models=models):
+                self.seed_files({"authz/entities.yaml": f"catalog: {{models: {models}}}\n"})
+                with self.assertRaisesRegex(common.SeedError, "^seed/authz/entities.yaml: catalog, " + why + "$"):
+                    authz.seed()
+        self.seed_files({"authz/entities.yaml": "catalog: {apis: [Orders]}\n"})
+        with self.assertRaisesRegex(common.SeedError, "catalog names mcp-servers, models, agents"):
+            authz.seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_a_refusal_records_what_was_saved_before_it_and_says_which_entity(self):
+        self.platform.add({("POST", AUTHZ + "/entities"): [self.world.save_entity, self.world.save_entity,
+                                                           (400, {"message": "bad\nid"})]})
+        with self.assertRaisesRegex(common.SeedError, r"^MCPTool 'close-ticket' refused by Authorization Management \(HTTP 400\): bad id$"):
+            authz.seed()
+        self.assertEqual(next(x["ids"] for x in self.records() if x["name"] == "gravitee-catalog"), ["desk", "desk.get_customer"])
+        self.assertEqual(common.notes(authz.SECTION, "entities"), [])
+
+    def test_a_removal_deletes_a_tool_before_its_server(self):
+        self.seeded()
+        authz.remove(common.created())
+        deleted = [path.rsplit("/", 1)[1] for method, path in self.platform.changes() if method == "DELETE"]
+        self.assertLess(deleted.index("desk.get_customer"), deleted.index("desk"))
+        self.assertEqual(self.world.entities, {})
+
+
 class Agents(Case):
     """<agent:CLIENT_ID> in a policy is the id the gateway makes of the client id."""
 
