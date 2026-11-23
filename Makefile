@@ -179,6 +179,12 @@ e2e: docker-up init ## Start an add-on, setup or playground on a machine with no
 smoke: python-ok ## Check the Lab UI against the running stack (read-only)
 	@$(PYTHON) lab-ui/tests/smoke.py
 
+# Each image runs alone beside a throwaway database, then is removed: the lab is not touched
+compat: docker-running python-ok ## Measure what the seeder relies on, on management API images (IMAGES="graviteeio/apim-management-api:4.13.6")
+	@[ -n "$(IMAGES)" ] || { echo "Name the images: make compat IMAGES=\"graviteeio/apim-management-api:4.13.6 graviteeio/am-management-api:4.13.6\""; exit 2; }
+	@$(PYTHON) -c 'import requests, yaml' 2>/dev/null || { echo "make compat reads the seeder's tables: run make setup first"; exit 1; }
+	@$(PYTHON) seeder/compat.py $(IMAGES)
+
 .DEFAULT_GOAL := help
 .PHONY: help docker-cli compose-ok docker-running docker-up python-ok openssl-ok init ui all catalogs update start stop restart down \
-	reset ps logs config pull mongo certs urls setup check lint test e2e smoke
+	reset ps logs config pull mongo certs urls setup check lint test e2e smoke compat

@@ -7,6 +7,7 @@ import re
 
 from lab_seeder import aim_proxies
 from lab_seeder import common
+from lab_seeder import versions
 from lab_seeder.testkit import PLAYGROUNDS, Seed
 
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
@@ -334,6 +335,15 @@ class SecondRun(Proxies):
         self.seed()
         self.assertEqual(self.the_api()["supported"], ["2025-11-25", "2026-07-28"])
         self.assertEqual([m for m, _ in self.platform.changes()], ["PUT", "POST"])
+
+    def test_the_amp_demo_build_leaves_the_lists_of_versions_out_and_says_so(self):
+        """amp-demo has no route for the protocol versions of an MCP proxy (versions.BUILDS, mcp-protocol-versions)."""
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
+        self.the_api()["supported"] = ["2025-11-25"]
+        self.seed()
+        self.assertEqual(self.platform.sent("PUT", re.compile(AIM + "/mcp-proxies/[^/]+/protocol-versions")), [])
+        warning = next(line for line in self.output().splitlines() if "! MCP proxy Acme Bakery MCP" in line)
+        self.assertIn("supportedProtocolVersions and endpointProtocolVersions", warning)
 
     def test_an_api_that_waits_for_a_deployment_is_deployed_and_nothing_else_is_written(self):
         self.the_api()["deploymentState"] = "NEED_REDEPLOY"

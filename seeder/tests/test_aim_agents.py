@@ -11,11 +11,13 @@ from unittest import mock
 from lab_seeder import aim_agents
 from lab_seeder import common
 from lab_seeder import seed
+from lab_seeder import versions
 from lab_seeder.testkit import Seed
 
 AIM = "/gamma/organizations/DEFAULT/environments/DEFAULT/modules/aim"
 ENV = "/management/organizations/DEFAULT/environments/DEFAULT"
 AM = "http://am" + ENV
+AMP_DEMO = "4.13.0-amp-demo-SNAPSHOT"
 AGENTS = AIM + "/catalog/agents"
 APPLICATION = AGENTS + "/agent-1/application"
 IDENTITY = APPLICATION + "/identity"
@@ -211,6 +213,7 @@ class World:
 class Agents(Seed):
     def setUp(self):
         super().setUp()
+        self.version(AMP_DEMO, versions.APIM)   # the build that serves an agent's application (versions.RELEASES)
         self.env(**SETTINGS)
         self.world = World()
         self.platform.add(self.world.routes())
@@ -499,16 +502,27 @@ class WhatItDidNotMake(Agents):
 
 
 class WhatItNeeds(Agents):
-    def test_a_platform_that_serves_no_application_for_an_agent_stops_the_seed_saying_which_build_the_keys_need(self):
-        """API Management 4.13.1 has no /catalog/agents/{id}/application: the route answers 404 to the read and the creation
-        alike, and the seed says so in one line instead of an HTTP error."""
+    def test_a_release_stops_the_seed_before_any_call_saying_which_build_the_keys_need(self):
+        """No release serves /catalog/agents/{id}/application (versions.RELEASES, agent-application): the seed says so in one
+        line, before it asks anything."""
+        self.version("4.13.5", versions.APIM)
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_agents.check()
+        message = str(stopped.exception)
+        self.assertTrue(message.startswith("The agent 'desk-copilot': this platform has no application for an agent of the "
+                                           "catalog (/catalog/agents/{id}/application)"), message)
+        self.assertEqual(self.platform.calls, [])
+
+    def test_a_build_said_to_serve_it_that_answers_404_stops_the_seed_saying_which_build_the_keys_need(self):
+        """A build of versions.BUILDS that does not serve the route after all answers 404 to the read and the creation alike,
+        and the seed says so in one line instead of an HTTP error."""
         self.platform.add({("POST", re.compile(AGENTS + "/[^/]+/application")): (404, {"message": "HTTP 404 Not Found"})})
         with self.assertRaises(common.SeedError) as stopped:
             aim_agents.seed()
         message = str(stopped.exception)
         self.assertTrue(message.startswith("The agent 'Desk copilot': this platform has no application for an agent of the "
                                            "catalog (/catalog/agents/{id}/application)"), message)
-        for words in ("identity and access", "amp-demo build", "a release of API Management", "client_id"):
+        for words in ("identity and access", "the build 4.13.0-amp-demo-SNAPSHOT", "client_id"):
             self.assertIn(words, message)
         self.assertNotIn("\n", message)
         self.assertEqual(self.records(), [])

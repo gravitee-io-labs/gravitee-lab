@@ -31,6 +31,7 @@ changed them since, and switches the frameworks off. The answers and the attesta
 aim_catalog deletes.
 """
 
+from . import versions
 from .apim import digest_of
 from .common import SeedError, adopted, created, forget, has_seed, items, load, log, making, owned, record, seed_file
 from .gamma import CATALOG, Gamma
@@ -296,6 +297,14 @@ class Governance:
             return
         self.aim.put("/approval-settings", json={key: value for key, value in x["before"].items() if value is not None})
         log(SECTION, "✓ Approval settings put back")
+
+
+def check():
+    """Approvals or compliance, on a platform that serves neither (versions.RELEASES, governance)."""
+    if has_seed(*FOLDERS) and (seed_file("aim", "governance", "approvals.yaml") or seed_file("aim", "governance", "compliance.yaml")) \
+            and versions.variant("governance") == "absent":
+        raise SeedError(f"{versions.RELEASES['governance'].what}: this platform does not serve them, "
+                        f"{versions.where('governance', 'served')} does")
 
 
 def seed():

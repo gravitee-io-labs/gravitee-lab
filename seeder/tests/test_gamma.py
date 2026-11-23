@@ -263,7 +263,7 @@ class Connecting(Seed):
         g = gamma.Gamma()
         self.answer({("GET", f"/gamma{SCOPE}/modules/aim/providers"): (503, {"code": "not_configured"})})
         with self.assertRaisesRegex(common.Gone, "AI Management is not available on this platform \\(GET /providers: "
-                                                 "HTTP .*Gamma modules of API Management 4.13 or later"):
+                                                 "HTTP .*Gamma modules \\(API Management 4.13.0 and later\\)"):
             g.connect("aim-catalog", lambda: g.aim.get("/providers"), "AI Management")
         self.assertEqual(self.clock.sleeps, [])
         self.assertEqual(len(self.platform.sent("GET", f"/gamma{SCOPE}/modules/aim/providers")), 1)
@@ -316,7 +316,7 @@ class Modules(Seed):
     def test_a_missing_module_stops_the_seed_naming_it_and_what_to_choose(self):
         self.serve((200, [{"id": "edge"}, {"id": "aim"}]))
         with self.assertRaisesRegex(common.SeedError, "does not serve the Gamma module authz: this playground needs the Gamma "
-                                                      "modules of API Management 4.13 or later and a license that includes them"):
+                                                      "modules \\(API Management 4.13.0 and later\\) and a license that includes them"):
             gamma.require_modules({"aim", "authz"})
         self.serve(404)
         with self.assertRaisesRegex(common.SeedError, "Gamma modules aim, authz:"):

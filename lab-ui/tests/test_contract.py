@@ -104,7 +104,7 @@ CONSOLE_START = r"io\.gravitee\.console\."   # how the Lab UI's pattern for a co
 FRAME = re.compile(r"""["'`](gravitee-lab:[a-z][a-z0-9-]*)["'`]""")
 SETTING = re.compile(r"[A-Z][A-Z0-9_]*")
 SEED_FILES = (".yaml", ".yml", ".json")   # a path of the seed that ends so is a file; the others are folders
-NOT_MODULES = {"testkit.py"}   # the seeder's test harness reads the environment for the tests, not for a seed
+NOT_MODULES = {"testkit.py", "compat.py"}   # the test harness and the measure of an image read the environment, a seed does not
 SEED_CALLS = {"files": False, "seed_file": True, "has_seed": None}   # what each says its path is: folder, file, either
 
 
@@ -808,6 +808,7 @@ def go(kind, name):
     return common.SEED_DIR / "aim" / "skills"
 ''')
         self.write("seeder/testkit.py", 'import os\nos.getenv("HARNESS_ONLY")\n')
+        self.write("seeder/compat.py", 'import os\nos.getenv("MEASURE_ONLY")\n')
         self.write("seeder/tests/test_mod.py", 'import os\nos.getenv("IN_A_TEST")\n')
         found = seed_items(self.root / "seeder")
         self.assertEqual(sorted(name for kind, name in found if kind == "seed.setting"),

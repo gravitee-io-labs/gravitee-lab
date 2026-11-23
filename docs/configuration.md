@@ -30,6 +30,7 @@ Run `make help` to list them. A target that needs a tool the machine lacks stops
 | `make test` | Runs the unit tests of the Lab UI, of the tooling (`.github/tests`) and of the seeder | Python 3.9 or later |
 | `make e2e` | Starts an add-on, a setup or a playground from nothing, checks it works, and removes what it made: `make e2e ID=playground:acme-shop`, and `TESTED=0` for the first set of versions it was tested with. CI runs it; it refuses a machine that holds a lab | Docker running, a machine with no lab, the license in `.env` for what needs it |
 | `make smoke` | Checks the Lab UI against the running stack, read only | Python 3.9 or later, the platform running |
+| `make compat` | Starts each management API image alone, measures what the seeder relies on there and says where it differs from [the versions it knows](playgrounds.md#versions-of-gravitee): `make compat IMAGES="graviteeio/apim-management-api:4.13.6"`. Exits 1 on a difference, 2 on an image it cannot measure | Docker running, `make setup`, the license in `.env` for API Management |
 
 Notes:
 

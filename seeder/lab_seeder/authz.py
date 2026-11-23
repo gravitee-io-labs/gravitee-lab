@@ -39,7 +39,7 @@ import uuid
 from contextlib import nullcontext
 from urllib.parse import quote
 
-from . import am, controls
+from . import am, controls, versions
 from .common import (Gone, HttpError, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, items, load, log, making, notes, owned,
                      record, recorded, seed_file, slugify, unmade, wait_until)
 from .gamma import CATALOG, LISTS, Gamma
@@ -89,7 +89,12 @@ def seed():
         slug = server_slug(gamma, spec["server"])
         log(SECTION, f"MCP server '{spec['server']}' is '{slug}' in the catalog")
     schema_document(api, slug)
-    for path in files("authz", "schemas"):
+    named = files("authz", "schemas")
+    if named and versions.variant("authz-schema-documents") == "one":
+        log(SECTION, f"! {len(named)} schema documents of seed/authz/schemas skipped: this platform keeps one, "
+                     "seed/authz/schema.yaml")
+        named = []
+    for path in named:
         schema(api, load(path), slug)
     for wanted in entities(spec, slug):
         entity(api, wanted)

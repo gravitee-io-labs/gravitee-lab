@@ -5,6 +5,7 @@ import re
 
 from lab_seeder import aim_dashboards
 from lab_seeder import common
+from lab_seeder import versions
 from lab_seeder.testkit import PLAYGROUNDS, Seed
 
 OBSERVABILITY = "/gamma/organizations/DEFAULT/environments/DEFAULT/observability"
@@ -91,20 +92,21 @@ class FirstRun(Dashboard):
     def test_it_is_sent_without_the_notes_of_the_file(self):
         self.seed()
         [call] = self.platform.sent("POST", OBSERVABILITY + "/dashboards")
-        self.assertEqual(sorted(call.json), ["description", "filters", "id", "timeRange", "title", "widgets"])
+        self.assertEqual(sorted(call.json), ["description", "filters", "id", "module", "timeRange", "title", "widgets"])
 
 
 class ModuleRequired(Dashboard):
-    """A build whose dashboards belong to a module of Gamma: it says so, and is asked again with the module."""
+    """A release's dashboards belong to a module of Gamma (versions.RELEASES, dashboard-module): each is created with it. The
+    amp-demo build takes none."""
 
     def setUp(self):
         super().setUp()
         self.console.module_required = True
 
-    def test_it_is_created_with_the_module_of_the_console_once_the_platform_asks_for_it(self):
+    def test_a_release_creates_it_with_the_module_in_one_request(self):
         self.seed()
         sent = self.platform.sent("POST", OBSERVABILITY + "/dashboards")
-        self.assertEqual([call.json.get("module") for call in sent], [None, "aim"])
+        self.assertEqual([call.json.get("module") for call in sent], ["aim"])
         self.assertEqual(self.the_dashboard()["module"], "aim")
 
     def test_a_second_run_writes_nothing_and_an_edited_dashboard_is_put_back_with_its_module(self):
@@ -117,11 +119,12 @@ class ModuleRequired(Dashboard):
         [call] = self.platform.sent("PUT", OBSERVABILITY + f"/dashboards/{ID}")
         self.assertEqual((call.json["title"], call.json["module"]), (TITLE, "aim"))
 
-    def test_another_refusal_is_the_refusal(self):
-        self.console.create = lambda call: (400, {"message": "Invalid query"})
-        self.platform.add(self.console.routes())
-        with self.assertRaises(aim_dashboards.HttpError):
-            self.seed()
+    def test_the_amp_demo_build_creates_it_with_no_module(self):
+        self.console.module_required = False
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
+        self.seed()
+        [call] = self.platform.sent("POST", OBSERVABILITY + "/dashboards")
+        self.assertNotIn("module", call.json)
 
 
 class SecondRun(Dashboard):

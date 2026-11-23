@@ -16,7 +16,7 @@ project, people and AI agents alike. The process (branches, pull requests, CI) i
 | `install.ps1` | Windows from nothing to the Lab UI: WSL, a distribution and its user, Docker Desktop serving it, the network as Windows sees it, a Start menu shortcut; then `install.sh` in the distribution |
 | `bin/gravitee-lab` | The command `install.sh` links into `~/.local/bin`: alone it opens the Lab UI, with a word it runs that target of the Makefile |
 | `.lab/catalogs/<id>/` | Machine-local. A catalog installed whole (`addons/`, `setups/`, `playgrounds/`, `catalog.yml`), read only: an update replaces it. The default one is Gravitee public; [Catalogs](docs/catalogs.md) |
-| `seeder/` | The engine that creates a playground's data in Gravitee: the `lab_seeder/` package, its image and its tests |
+| `seeder/` | The engine that creates a playground's data in Gravitee: the `lab_seeder/` package, its image, its tests and `compat.py`, which measures a release of Gravitee against what the engine knows (`make compat`) |
 | `lab-ui/` | The Lab UI: `server.py`, `catalog.py` (the command of the catalogs), the `lab_ui/` package (Python standard library), the page in `web/` (no build step), `templates/` (what a new catalog is made from) and `tests/` |
 | `certs/mtls/` | `generate.sh`, which makes the TLS and mTLS demo certificates (`make certs`); the files it writes are git-ignored |
 | `docs/` | For people: [installation.md](docs/installation.md) (prerequisites, first start, licenses, stop and remove), [lab-ui.md](docs/lab-ui.md), [configuration.md](docs/configuration.md), [playgrounds.md](docs/playgrounds.md) (writing a playground), [troubleshooting.md](docs/troubleshooting.md), [maintaining.md](docs/maintaining.md) (moving or forking the repository, the one-time GitHub settings), [cloud.md](docs/cloud.md) (using Gravitee Cloud with the Lab) |
@@ -134,6 +134,7 @@ and needs. These verify a change:
 | `make test` | The Lab UI's unit tests, then the tooling's (`.github/tests`), then the seeder's | Python 3.9 or later. Page tests: Node ([Set up your machine](CONTRIBUTING.md#set-up-your-machine)). Seeder tests: `make setup`. Each is skipped without its need |
 | `make e2e` | `ID=playground:acme-shop [TESTED=0]`: starts the item from nothing, checks it works, removes what it made. CI runs it | Docker, a machine with no lab: it refuses one that holds a lab |
 | `make smoke` | The Lab UI against the running stack, read only | The stack running |
+| `make compat` | `IMAGES="..."`: each management API image alone, against the seeder's tables of versions. Run it on each new release | Docker, `make setup`, the license in `.env` for API Management |
 
 `make check` prints what is wrong file by file; `lab-ui/lab_ui/library/check.py` is the list of what it enforces. A skip line in
 a test run is not a pass. Try what runs from the Lab UI (`make ui`) on a fresh clone, as a new user would:

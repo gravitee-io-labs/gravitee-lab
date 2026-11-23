@@ -9,6 +9,7 @@ from unittest import mock
 from lab_seeder import authz
 from lab_seeder import common
 from lab_seeder import controls
+from lab_seeder import versions
 from lab_seeder.testkit import PLAYGROUNDS, Seed
 
 ACME_SEED = PLAYGROUNDS / "acme-bakery" / "seed"
@@ -433,6 +434,13 @@ class Authorization(Case):
         self.assertIn("! Schema 'Acme Bakery' skipped", self.output())
         self.assertEqual((len(self.world.entities), len(self.world.policies)), (15, 10))
         self.assertEqual([x["kind"] for x in common.created() if x["kind"] == "schema"], [])
+
+    def test_the_amp_demo_build_keeps_one_schema_and_the_named_documents_are_skipped_without_a_call(self):
+        self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
+        authz.seed()
+        self.assertIn("schema documents of seed/authz/schemas skipped: this platform keeps one", self.output())
+        self.assertEqual((self.platform.sent("GET", AUTHZ + "/schemas"), self.world.schemas), ([], {}))
+        self.assertEqual((len(self.world.entities), len(self.world.policies)), (15, 10))
 
     def test_a_schema_of_that_name_the_seed_did_not_create_is_left_alone(self):
         self.world.schemas["m"] = {"id": "m", "name": "Acme Bakery", "schema": "entity Mine {};", "targets": []}
