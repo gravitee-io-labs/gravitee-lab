@@ -475,7 +475,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
-| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, model sources (`model-sources`, one of each kind), models (in a model source or the manual one), the providers of an LLM proxy of `seed/apim` taken from model sources (`llm-proxies`), MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one whose backend asks for one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies and studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, model sources (`model-sources`, one of each kind), models (in a model source or the manual one), the providers of an LLM proxy of `seed/apim` taken from model sources (`llm-proxies`), MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one whose backend asks for one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies and studios (with their `subscriptions` and `analytics`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
 | `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management), GAPL policies, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
@@ -545,6 +545,9 @@ serve the lessons:
   An MCP proxy file takes the same key, and its subscriptions are made once the proxy is deployed. An MCP proxy lets in any
   valid token by default: `requireSubscription: true` in its plan's `securityConfiguration` lets in only the token of a
   subscribed application, found by its client id, so the logs name the application and a control can pause it.
+- `analytics` says what the gateway records of the calls: `logging` (`mode`, `phase`, `content`), `tracing` and
+  `otelLogs`, as the API keeps them. It is written over what the platform made, on every run. An MCP proxy file takes the
+  same key.
 
 - In a file with `access`, `authorization.agentIdentityResolution: true` makes the authorization check put the agent the
   token names in the context (`context.agent`), which authz-pep 3.0.2 leaves out by default. A file with `plan` switches
@@ -1060,7 +1063,8 @@ in `.env`, then run `make all`.
   step's panel, under the name of its policy. A workspace's router step has no such field: the platform drops it, and the
   router shows the step's own name.
 - An API's tracing is `analytics.tracing` (`enabled`, `verbose`), with `analytics.logging` and `analytics.otelLogs` for
-  the payloads of the spans. The Automation API has no field for them: an MCP proxy's are set on its API entity.
+  the payloads of the spans. The Automation API has no field for them, and a studio is made without them: an MCP proxy's
+  and a studio's are set on its API entity.
 - Authorization Management, as of 4.13.4:
   - *Create policy* writes `principal == Group::"..."` for a group, which permits none of its members. `principal in
     Group::"..."`, the editor's *Includes*, permits them.

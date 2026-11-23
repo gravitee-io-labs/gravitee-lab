@@ -1185,3 +1185,65 @@ class Subscriptions(Studios):
         [sub] = self.world.subscriptions.values()
         self.assertEqual(sub["status"], "ACCEPTED", "the key of the file works")
         self.assertIn("✓ Subscription accepted: Steward on 13 tools → Kazoo operations (Copilots)", self.output())
+
+
+ANALYTICS = """\
+analytics:
+  logging:
+    mode: {entrypoint: true, endpoint: true}
+    phase: {request: true, response: true}
+    content: {headers: false, payload: true}
+  tracing: {enabled: true, verbose: true}
+"""
+
+
+class Analytics(Studios):
+    """`analytics` of a studio's file: what the gateway records of each tool call (the arguments and the answer, and as
+    traces), written on the studio's API over what the platform made, as an MCP proxy's is."""
+
+    def setUp(self):
+        super().setUp()
+        self.file(STUDIO + ANALYTICS)
+
+    def made_with_the_defaults(self):
+        """The studio the platform makes records the calls, without their payloads and with no traces."""
+        create = self.world.create
+
+        def made(call):
+            answer = create(call)
+            self.world.apis[answer[1]["id"]]["analytics"] = {"enabled": True, "connectionEvents": []}
+            return answer
+        self.platform.add({("POST", AIM + "/mcp-studios"): made})
+
+    def test_a_studio_built_in_steps_records_the_payloads_and_traces_in_the_update_of_its_flows(self):
+        self.made_with_the_defaults()
+        self.seed()
+        analytics = self.the_api()["analytics"]
+        self.assertEqual((analytics["enabled"], analytics["logging"]["content"], analytics["tracing"]),
+                         (True, {"headers": False, "payload": True}, {"enabled": True, "verbose": True}))
+        self.assertEqual(len(self.platform.sent("PUT", V2 + "/apis/studio-1")), 1, "one update with the flows")
+        self.assertEqual(self.the_api()["deploymentState"], "DEPLOYED")
+
+    def test_a_second_run_writes_nothing_and_what_someone_switched_off_is_put_back(self):
+        self.made_with_the_defaults()
+        self.run_twice()
+        self.assertEqual(self.changes(), [])
+        self.the_api()["analytics"]["logging"]["content"]["payload"] = False
+        self.again()
+        self.assertEqual(self.changes(), [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
+        self.assertIs(self.the_api()["analytics"]["logging"]["content"]["payload"], True)
+
+    def test_a_studio_made_in_one_go_records_them_too_then_is_deployed(self):
+        self.file(OLD_STUDIO + ANALYTICS)
+        self.made_with_the_defaults()
+        self.seed()
+        self.assertEqual(self.the_api()["analytics"]["tracing"], {"enabled": True, "verbose": True})
+        self.assertEqual(self.changes()[-2:], [("PUT", "/apis/studio-1"), ("POST", "/apis/studio-1/deployments")])
+        self.again()
+        self.assertEqual(self.changes(), [])
+
+    def test_analytics_that_are_no_mapping_stop_the_seed_before_anything_is_made(self):
+        self.file(STUDIO + "analytics: [logging]\n")
+        with self.assertRaisesRegex(common.SeedError, "^MCP studio Customer desk: analytics is a mapping"):
+            self.seed()
+        self.assertEqual(self.world.studios, {})
