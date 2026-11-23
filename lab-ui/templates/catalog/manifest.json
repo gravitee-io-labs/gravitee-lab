@@ -1,5 +1,5 @@
 {
-  "level": 12,
+  "level": 13,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -96,6 +96,11 @@
     },
     "12": {
       "summary": "The lab action fetches and links the catalogs this one requires in every job that runs Compose, not in Checks alone: Apps, the end-to-end runs, Nightly, Publish and Gravitee versions read the catalog with what it includes.",
+      "manual": [],
+      "settings": []
+    },
+    "13": {
+      "summary": "Public catalog dependencies can be fetched anonymously. The newest-Lab job holds no deployment secrets and skips private dependencies.",
       "manual": [],
       "settings": []
     }

@@ -26,6 +26,7 @@ from lab_ui.catalogs.tree import FolderTree, ListTree
 from tests import Case
 from tests.data.standard import support
 from tests.data.standard.support import LAB_COMMIT, NEWER_COMMIT, params, render
+from tests.workflow_helpers import READS_UNITS
 
 LEVEL = standard.LEVEL   # the level this Lab ships: what a test of the current level reads
 
@@ -124,6 +125,60 @@ class Template(unittest.TestCase):
                     if "uses:" in line and not line.strip().startswith("#") and "uses: ./" not in line:
                         self.assertIsNotNone(found, line)
                         self.assertRegex(found[3], r"^# v\d+\.\d+\.\d+$", line)
+
+    def test_catalog_readers_use_the_composite_dependency_setup_and_latest_stays_keyless(self):
+        try:
+            import yaml
+        except ImportError:
+            support.skip("PyYAML is not installed, workflow dependency setup was not parsed")
+        files = render(**EVERYTHING)
+        readers = 0
+        for path, content in files.items():
+            if not (path.startswith(".github/workflows/") and path.endswith(".yml")):
+                continue
+            for name, job in yaml.safe_load(content)["jobs"].items():
+                steps = job.get("steps", [])
+                consumes = [i for i, step in enumerate(steps) if READS_UNITS.search(step.get("run", ""))]
+                if not consumes:
+                    continue
+                readers += 1
+                setups = [(i, step) for i, step in enumerate(steps) if step.get("uses") == "./catalog/.github/actions/lab"]
+                self.assertEqual(len(setups), 1, (path, name))
+                position, setup = setups[0]
+                self.assertLess(position, min(consumes), (path, name))
+                self.assertNotEqual(setup.get("with", {}).get("compose"), "false")
+                if name == "verify-latest":
+                    self.assertNotIn("secrets.", json.dumps(job))
+                    self.assertEqual(setup["with"], {"latest": "true"})
+                    self.assertEqual(setup["if"], "${{ steps.compatible.outputs.public == 'true' }}")
+                else:
+                    self.assertEqual(setup["with"]["needs-key"], "${{ secrets.NEEDS_DEPLOY_KEY }}")
+        self.assertGreaterEqual(readers, 10)
+
+    def test_newest_lab_checks_public_dependencies_and_skips_private_ones_without_secrets(self):
+        bash = support.need("bash")
+        support.need("jq")
+        script = blank(render(**EVERYTHING)[".github/workflows/nightly.yml"].decode(),
+                       "name: Whether the newest Lab can read the catalog")
+        cases = [({}, "true"), ({"needs": {}}, "true"),
+                 ({"needs": {"public": {"public": True}}}, "true"),
+                 ({"needs": {"private": {}}}, "false"),
+                 ({"needs": {"public": {"public": True}, "private": {"public": False}}}, "false"),
+                 ({"needs": []}, None)]
+        for settings, expected in cases:
+            with self.subTest(settings=settings), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                support.write(root, {"catalog/.github/standard.json": json.dumps(settings).encode()})
+                output = root / "outputs"
+                done = subprocess.run([bash, "-e", "-c", script], cwd=root,
+                                      env={**os.environ, "GITHUB_OUTPUT": str(output)}, capture_output=True, text=True)
+                if expected is None:
+                    self.assertNotEqual(done.returncode, 0)
+                else:
+                    self.assertEqual(done.returncode, 0, done.stderr)
+                    self.assertEqual(output.read_text(), "public=" + expected + "\n")
+                    if expected == "false":
+                        self.assertIn("Newest Lab skipped", done.stdout)
 
 
 class Golden(Case):
@@ -649,9 +704,11 @@ class Drift(Case):
             "standard": ("standard is a whole number from 1: the level of the managed files in this repository", [0, -1, "1", True, 1.5, 1000]),
             "form": ("form is inline", ["sideways", "reusable", 1, None]),
             "platforms": ("platforms is a list of linux/amd64, linux/arm64 or both", [[], ["linux/riscv64"], "linux/amd64", ["linux/amd64"] * 2]),
-            "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}",
+            "needs": ("needs is a map of catalog ids to {repository: OWNER/NAME, ref: a full commit}, with an optional boolean public",
                       [[], "hub", {"Hub": {"repository": "a/b", "ref": LAB_COMMIT}}, {"hub": {"repository": "a/b", "ref": "main"}},
-                       {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}]),
+                       {"hub": {"repository": "ab", "ref": LAB_COMMIT}}, {"hub": "x"}] +
+                      [{"hub": {"repository": "a/b", "ref": LAB_COMMIT, "public": value}}
+                       for value in (None, 0, 1, "true", "false", [], {})]),
         }
         for key, (problem, values) in bad.items():
             for value in values:
@@ -661,8 +718,11 @@ class Drift(Case):
 
     def test_a_need_at_a_full_commit_is_good(self):
         base = json.loads(render()[".github/standard.json"])
-        files = {**render(), ".github/standard.json": json.dumps({**base, "needs": {"hub": {"repository": "acme/hub", "ref": LAB_COMMIT}}}).encode()}
-        self.assertEqual([each for each in self.check(files) if each.code == "SD04"], [])
+        for more in ({}, {"public": False}, {"public": True}):
+            with self.subTest(more=more):
+                need = {"repository": "acme/hub", "ref": LAB_COMMIT, **more}
+                files = {**render(), ".github/standard.json": json.dumps({**base, "needs": {"hub": need}}).encode()}
+                self.assertEqual([each for each in self.check(files) if each.code == "SD04"], [])
 
     def test_a_lab_that_is_not_an_address_and_a_commit(self):
         base = json.loads(render()[".github/standard.json"])
@@ -1459,7 +1519,7 @@ class Rules(unittest.TestCase):
             if path.startswith(".github/workflows/"):
                 text = data.decode("utf-8")
                 uses, without = text.count("uses: ./catalog/.github/actions/lab"), text.count('compose: "false"')
-                self.assertEqual(text.count("needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}"), uses - without, path)
+                self.assertEqual(text.count("needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}"), uses - without - text.count('latest: "true"'), path)
                 self.assertNotIn("catalog.py ci needs", text, path)
         action = render()[".github/actions/lab/action.yml"].decode("utf-8")
         self.assertIn("NEEDS_DEPLOY_KEY: ${{ inputs.needs-key }}", action)

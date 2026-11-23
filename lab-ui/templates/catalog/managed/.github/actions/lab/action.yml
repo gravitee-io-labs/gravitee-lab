@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 12: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 13: change it with catalog.py upgrade, in a pull request a maintainer reads.
 name: Lab
 description: Checks out the Lab this catalog is written for, at the release .github/standard.json names, checks that it is a release of the Lab, and installs Compose 5
 
@@ -16,7 +16,7 @@ inputs:
     required: false
     default: "true"
   needs-key:
-    description: The read-only deploy key of the catalogs this one requires (requires.catalogs), NEEDS_DEPLOY_KEY; empty when it requires none
+    description: The read-only deploy key for private catalog dependencies, NEEDS_DEPLOY_KEY; public dependencies need no key
     required: false
     default: ""
 
