@@ -550,11 +550,17 @@ def studio_problems(spec):
     plan each names, which its file holds: the `plan` of a studio made in one go, or the plan of the agents (JWT) of one built
     in steps (`access`), whose registration plan is closed."""
     if not isinstance(spec, dict):
-        return []
+        return ["MCP studio: seed file is an object"]
+    auth_errors = []
+    try:
+        aim_proxies.read_upstream_auth(spec, "MCP studio")
+    except common.SeedError as e:
+        auth_errors.append(str(e))
     given = [spec[key] for key in aim_proxies.VERSION_KEYS if key in spec]
     found = [] if len(given) == 1 else [f"it gives {' or '.join(aim_proxies.VERSION_KEYS)}, one of the two"]
     if len(given) == 1 and not all(isinstance(v, str) for v in (given[0] if isinstance(given[0], list) else [given[0]])):
         found.append("a protocol version is text: quote it")
+    found.extend(auth_errors)
     listed = spec.get("subscriptions")
     if listed is None:   # no `subscriptions`, or `subscriptions:` with nothing under it, which the seed reads as none
         return found

@@ -764,3 +764,25 @@ class ProxySubscriptions(Proxies):
         api_id = f"api-{HRID}"
         self.assertEqual(self.platform.changes(), [("POST", V2 + f"/apis/{api_id}/subscriptions/sub-1/_close"),
                                                    ("DELETE", f"{AUTOMATION}/{HRID}")])
+
+
+class UpstreamAuthValidation(WithStudio):
+    def file(self, value):
+        self.seed_files({"aim/studios/acme-bakery-toolkit.yaml": STUDIO + "\nupstreamAuth: " + json.dumps(value) + "\n"})
+
+    def test_bad_tool_keys_stop_before_any_proxy_or_studio_changes(self):
+        good = {"api": "Acme Bakery Open API", "type": "api-key", "apiKeyHeader": "X-Api-Key", "apiKey": "private-demo-key"}
+        for value in (None, {}, [None], [{**good, "apiKey": 123}], [{**good, "apiKey": ""}],
+                      [{**good, "extra": True}], [{k: v for k, v in good.items() if k != "apiKeyHeader"}], [good, good]):
+            with self.subTest(value=value):
+                self.file(value)
+                with self.assertRaisesRegex(common.SeedError, "upstreamAuth"):
+                    self.seed()
+                self.assertEqual(self.platform.changes(), [])
+                self.assertNotIn("private-demo-key", self.output())
+
+    def test_an_unknown_api_is_refused_before_another_proxy_is_created(self):
+        self.file([{"api": "Not imported", "type": "api-key", "apiKeyHeader": "X-Key", "apiKey": "demo"}])
+        with self.assertRaisesRegex(common.SeedError, "Not imported.*no tools"):
+            self.seed()
+        self.assertEqual(self.platform.changes(), [])
