@@ -9,7 +9,7 @@ An MCP proxy is set up in three steps, each writing only what differs from its f
        seed/controls.yaml name (controls.py) are in it enabled or disabled as the mode says, and put back so on every run.
     2. What that API cannot carry is set through APIM and Gamma: the keys of a plan's security (`securityConfiguration`:
        `requireSubscription`, `propagateAuthHeader`...), the response template of a refusal, the read timeout of the
-       endpoint, the tracing and the protocol versions. One deployment follows when anything changed.
+       endpoint, what the gateway records and the protocol versions. One deployment follows when anything changed.
     3. Its `subscriptions` are made once it is deployed, as a studio's are (below): an MCP proxy plan with
        `requireSubscription` lets in only the token of an application subscribed to it.
     4. The gateway must serve it: each person is offered the tools their role allows, which the mode decides: the tools of
@@ -20,7 +20,8 @@ imported before it) and a gateway whose MCP libraries can serve a studio. Its fi
 its keys. A file with `plan` and `fga` is created with its plan and has its authorization check switched. Either shape sends
 each API of its tools the key its `upstreamAuth` lists, and gives its protocol versions as the platform takes them
 (versions.RELEASES, mcp-protocol-versions): the list `supportedProtocolVersions`, from either key, or the one value of
-`protocolVersion`. A file with `access` is built in steps, each
+`protocolVersion`. Either shape writes the file's `analytics` (what the gateway records: logs, their payloads, traces) on
+the API of the studio, as an MCP proxy's. A file with `access` is built in steps, each
 writing only what differs:
 
     1. It is created with the registration plan (the platform registers the studio in Access Management with it), the
@@ -47,6 +48,7 @@ made and left pending, which it accepts. A subscription a control of seed/contro
 seed/apim/subscriptions is: the kill switch of an agent reaches its tools too.
 """
 
+import copy
 import json
 import os
 
@@ -330,6 +332,22 @@ def with_templates(live, templates):
     live = live or {}
     return {**live, **{key: {**(live.get(key) or {}), **media} for key, media in templates.items()}}
 
+
+def read_analytics(spec, what):
+    """The `analytics` of a file: what the gateway records of its API (logging, tracing, otelLogs), as the API keeps it."""
+    analytics = spec.get("analytics") or {}
+    if not isinstance(analytics, dict):
+        raise SeedError(f"{what}: analytics is a mapping, as the API keeps it (logging, tracing, otelLogs)")
+    return analytics
+
+
+def with_analytics(api, analytics):
+    """The file's `analytics` written over the API's, as it was read. Whether anything changed."""
+    if not analytics or contains(api.get("analytics") or {}, analytics):
+        return False
+    api["analytics"] = merge(api.get("analytics") or {}, copy.deepcopy(analytics))
+    return True
+
 class McpProxies:
     def __init__(self):
         self.g = gamma.Gamma()
@@ -353,6 +371,7 @@ class McpProxies:
         automation = fill(spec["automation"], self.server_slug(spec["server"]))
         hrid, name = automation["hrid"], automation["name"]
         response_templates(spec, f"MCP proxy {name}")   # read before anything is made, written on its API
+        read_analytics(spec, f"MCP proxy {name}")
         subscriptions = read_subscriptions(spec, name, "MCP proxy")
         found_controls = controls.of("mcp-proxy", name)
         controls.align(automation.get("flows"), found_controls)   # written in both modes: a step someone switched is put back
@@ -394,7 +413,7 @@ class McpProxies:
         """The response template of a refusal, the read timeout of the endpoint and what the gateway records (tracing),
         written over the API as it was read."""
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        timeout, analytics = spec["readTimeout"], spec.get("analytics") or {}
+        timeout, analytics = spec["readTimeout"], read_analytics(spec, f"MCP proxy {spec['automation']['name']}")
         templates = response_templates(spec, f"MCP proxy {spec['automation']['name']}")
 
         def waits(group):
@@ -525,6 +544,7 @@ class McpProxies:
             raise SeedError(f"MCP studio {name}: authorization is read for a studio built in steps (access); this one switches "
                             "its check with fga")
         subscriptions = read_subscriptions(spec, name)
+        analytics = read_analytics(spec, f"MCP studio {name}")
         body = {"name": name, "description": spec.get("description"), "contextPath": path, **protocol_versions(spec),
                 "plans": [spec["plan"]],
                 "specification": {"tools": self.tools(spec["tools"]), "promptIds": [], "resourceIds": []}}
@@ -541,11 +561,23 @@ class McpProxies:
         toggled = self.g.aim.get(f"/mcp-proxies/{found['id']}").json().get("fgaEnabled", False) != enabled
         if toggled:
             self.g.aim.put(f"/mcp-studios/{found['id']}/fga", json={"enabled": enabled})
-        if toggled or recomposed:
+        recording = self.studio_analytics(found["id"], analytics)   # after the switch, which may rewrite the API
+        if toggled or recomposed or recording:
             self.g.v2.post(f"/apis/{found['id']}/deployments", json=DEPLOYMENT)
         if toggled:
             log(SECTION, f"  ✓ Authorization check {'on' if enabled else 'off'}")
         self.subscribe(found["id"], name, subscriptions)
+
+    def studio_analytics(self, api_id, analytics):
+        """The file's `analytics` on the API of a studio made in one go, written over it as it was read. Whether it wrote."""
+        if not analytics:
+            return False
+        api = self.g.v2.get(f"/apis/{api_id}").json()
+        if not with_analytics(api, analytics):
+            return False
+        self.g.v2.put(f"/apis/{api_id}", json={k: v for k, v in api.items() if k not in STUDIO_API_READ_ONLY})
+        log(SECTION, "  ✓ What the gateway records written")
+        return True
 
     def kept(self, name, path, wanted, body):
         """The studio at this path, as the seed keeps it: (None, False) when there is none, or when it was made from another
@@ -665,6 +697,7 @@ class McpProxies:
         name, path, access = spec["name"], spec["contextPath"], spec["access"]
         read_authorization(spec, name)
         response_templates(spec, f"MCP studio {name}")   # read before anything is made, written with the flows
+        read_analytics(spec, f"MCP studio {name}")
         subscriptions = read_subscriptions(spec, name)
         needs(access, name, "access", "registration", "agents")
         needs(access["registration"], name, "access.registration", "name", "type")
@@ -725,10 +758,10 @@ class McpProxies:
         return changed
 
     def checks(self, api_id, studio, spec):
-        """The switches of the studio, then the flows they wrote and the file's `responseTemplates` (what a client reads when
-        the check refuses, GAPL_AUTHZ). A switch is turned only when it is not as the file says: turning the authorization
-        check on again erases what was written on its flow. The flows and the templates are written in one update of the
-        API, as it was read, so that nothing else of it is lost."""
+        """The switches of the studio, then the flows they wrote, the file's `responseTemplates` (what a client reads when
+        the check refuses, GAPL_AUTHZ) and its `analytics`. A switch is turned only when it is not as the file says: turning
+        the authorization check on again erases what was written on its flow. The flows, the templates and the analytics are
+        written in one update of the API, as it was read, so that nothing else of it is lost."""
         authorization, approval, changed = spec.get("authorization"), spec.get("humanApproval"), False
         state = self.g.aim.get(f"/mcp-proxies/{api_id}").json()
         check = authorization is not None and bool(authorization.get("enabled", True))
@@ -742,10 +775,11 @@ class McpProxies:
             log(SECTION, f"  ✓ Human approval {'on' if hold else 'off'}")
             changed = True
         templates = response_templates(spec, f"MCP studio {spec.get('name')}")
-        if not (check or hold or templates):
+        analytics = read_analytics(spec, f"MCP studio {spec.get('name')}")
+        if not (check or hold or templates or analytics):
             return changed
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        written = []
+        written = [with_analytics(api, analytics)]
         if not contains(api.get("responseTemplates") or {}, templates):
             api["responseTemplates"] = with_templates(api.get("responseTemplates"), templates)
             written.append(True)
