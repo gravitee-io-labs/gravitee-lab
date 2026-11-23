@@ -7,10 +7,12 @@ An MCP proxy is set up in three steps, each writing only what differs from its f
 
     1. The Automation API creates it, by its hrid, with its sign-in, plan and flows. The steps the controls of
        seed/controls.yaml name (controls.py) are in it enabled or disabled as the mode says, and put back so on every run.
-    2. What that API cannot carry is set through APIM and Gamma: the plan's `extractPayload`, the response template of a
-       refusal, the read timeout of the endpoint, the tracing and the protocol versions. One deployment follows when
-       anything changed.
-    3. The gateway must serve it: each person is offered the tools their role allows, which the mode decides: the tools of
+    2. What that API cannot carry is set through APIM and Gamma: the keys of a plan's security (`securityConfiguration`:
+       `requireSubscription`, `propagateAuthHeader`...), the response template of a refusal, the read timeout of the
+       endpoint, what the gateway records and the protocol versions. One deployment follows when anything changed.
+    3. Its `subscriptions` are made once it is deployed, as a studio's are (below): an MCP proxy plan with
+       `requireSubscription` lets in only the token of an application subscribed to it.
+    4. The gateway must serve it: each person is offered the tools their role allows, which the mode decides: the tools of
        a role are unrestricted while their control is off.
 
 A studio is only seeded when a file of seed/aim/studios says so: it needs the tools of the catalog (MCP servers and APIs
@@ -18,7 +20,8 @@ imported before it) and a gateway whose MCP libraries can serve a studio. Its fi
 its keys. A file with `plan` and `fga` is created with its plan and has its authorization check switched. Either shape sends
 each API of its tools the key its `upstreamAuth` lists, and gives its protocol versions as the platform takes them
 (versions.RELEASES, mcp-protocol-versions): the list `supportedProtocolVersions`, from either key, or the one value of
-`protocolVersion`. A file with `access` is built in steps, each
+`protocolVersion`. Either shape writes the file's `analytics` (what the gateway records: logs, their payloads, traces) on
+the API of the studio, as an MCP proxy's. A file with `access` is built in steps, each
 writing only what differs:
 
     1. It is created with the registration plan (the platform registers the studio in Access Management with it), the
@@ -35,13 +38,17 @@ studio of either shape are brought back to its file, with the keys of the APIs, 
 platform does not take has the studio made again). The checks and their flows follow that write, because saving the tools may
 rebuild the flow of the authorization check.
 
-A file of either shape may list `subscriptions`: [{application, plan, apiKey}], each an application of API Management (by its
-name) subscribed to a published plan of the studio (by its name; `plan` may be left out when the studio has one), with the
-custom key `apiKey` on a plan of API keys. They are made once the studio is deployed, through the management API (a studio is
-an API: apim.subscribe, the one way that takes a custom key), and again for a studio made again. One that holds the access
-already (accepted, pending or paused) is left as it is, but for one the seed made and left pending, which it accepts.
+A file of either shape, and an MCP proxy file, may list `subscriptions`: [{application, plan, apiKey}], each an application of
+API Management (by its name) subscribed to a published plan of the studio or the proxy (by its name; `plan` may be left out
+when it has one), with the custom key `apiKey` on a plan of API keys. They are made once the studio or the proxy is
+deployed, through the management API (both are APIs: apim.subscribe, the one way that takes a custom key), and again for a
+studio made again. One that holds the access already (accepted, pending or paused) is left as it is, but for one the seed
+made and left pending, which it accepts. A subscription a control of seed/controls.yaml names
+(`<application> → <studio or proxy> (<plan>)`) is paused while the control is on and resumed while it is off, as one of
+seed/apim/subscriptions is: the kill switch of an agent reaches its tools too.
 """
 
+import copy
 import json
 import os
 
@@ -75,6 +82,7 @@ V4_PLAN_READ_ONLY = ("id", "apiId", "createdAt", "updatedAt", "publishedAt", "cl
 FGA_FLOW, APPROVAL_FLOW = "FGA Authorization", "Human approval"
 PEP, ASSIGN, APPROVAL = "authz-pep", "policy-assign-attributes", "human-approval"
 KINDS = {"mcp-proxy": "MCP proxy", "studio": "MCP studio"}
+KINDS_PLURAL = {"MCP proxy": "MCP proxies", "MCP studio": "MCP studios"}   # of the label of a subscription's record
 # The keys of a studio's file that give its protocol versions, one of the two: which one depends on the build, and a release
 # takes the first
 VERSION_KEYS = ("supportedProtocolVersions", "protocolVersion")
@@ -244,12 +252,13 @@ def of_studio(api_id):
             and ((x["kind"], x["id"]) == ("studio", api_id) or (x["kind"], x.get("api")) == ("subscription", api_id))]
 
 
-def read_subscriptions(spec, studio):
-    """The `subscriptions` of a studio's file, checked before anything is made: [{application, plan, apiKey}]."""
+def read_subscriptions(spec, studio, kind="MCP studio"):
+    """The `subscriptions` of a studio's file, or of an MCP proxy's (`kind`), checked before anything is made:
+    [{application, plan, apiKey}]."""
     listed = spec.get("subscriptions")
     if listed is None:
         return []
-    where = f"MCP studio {studio}: subscriptions"
+    where = f"{kind} {studio}: subscriptions"
     if not isinstance(listed, list) or not all(isinstance(s, dict) for s in listed):
         raise SeedError(f"{where} is a list of {{application, plan, apiKey}}")
     for sub in listed:
@@ -259,7 +268,7 @@ def read_subscriptions(spec, studio):
         if not (isinstance(sub.get("application"), str) and sub["application"]):
             raise SeedError(f"{where}: each names its application")
         if "plan" in sub and not (isinstance(sub["plan"], str) and sub["plan"]):
-            raise SeedError(f"{where}: the plan of {sub['application']} is the name of a plan of the studio")
+            raise SeedError(f"{where}: the plan of {sub['application']} is the name of a plan of the {kind.split()[-1]}")
         if "apiKey" in sub and not isinstance(sub["apiKey"], str):
             # An unquoted ${NAME} whose value YAML reads as a number or a boolean would send the key changed
             raise SeedError(f"{where}: the apiKey of {sub['application']} is read as {type(sub['apiKey']).__name__}, not as "
@@ -323,6 +332,22 @@ def with_templates(live, templates):
     live = live or {}
     return {**live, **{key: {**(live.get(key) or {}), **media} for key, media in templates.items()}}
 
+
+def read_analytics(spec, what):
+    """The `analytics` of a file: what the gateway records of its API (logging, tracing, otelLogs), as the API keeps it."""
+    analytics = spec.get("analytics") or {}
+    if not isinstance(analytics, dict):
+        raise SeedError(f"{what}: analytics is a mapping, as the API keeps it (logging, tracing, otelLogs)")
+    return analytics
+
+
+def with_analytics(api, analytics):
+    """The file's `analytics` written over the API's, as it was read. Whether anything changed."""
+    if not analytics or contains(api.get("analytics") or {}, analytics):
+        return False
+    api["analytics"] = merge(api.get("analytics") or {}, copy.deepcopy(analytics))
+    return True
+
 class McpProxies:
     def __init__(self):
         self.g = gamma.Gamma()
@@ -346,6 +371,8 @@ class McpProxies:
         automation = fill(spec["automation"], self.server_slug(spec["server"]))
         hrid, name = automation["hrid"], automation["name"]
         response_templates(spec, f"MCP proxy {name}")   # read before anything is made, written on its API
+        read_analytics(spec, f"MCP proxy {name}")
+        subscriptions = read_subscriptions(spec, name, "MCP proxy")
         found_controls = controls.of("mcp-proxy", name)
         controls.align(automation.get("flows"), found_controls)   # written in both modes: a step someone switched is put back
         state = self.g.automation.get(f"/aim/mcp-proxies/{hrid}", expect=(200, 404))
@@ -361,10 +388,11 @@ class McpProxies:
             found = self.g.automation.put("/aim/mcp-proxies", json=automation).json()
             log(SECTION, f"✓ MCP proxy updated: {name}")
         api_id = found["id"]
-        written = [self.plans(api_id, spec["securityConfiguration"]), self.api(api_id, spec), self.versions(api_id, spec)]
+        written = [self.plans(api_id, spec.get("securityConfiguration") or {}), self.api(api_id, spec), self.versions(api_id, spec)]
         self.deploy(api_id, any(written))
         if found_controls:
             log(SECTION, f"Controls of {name} are {'on' if controls.protected() else 'off'}: {controls.named(found_controls)}")
+        self.subscribe(api_id, name, subscriptions, "MCP proxy")   # before the wait: a plan may let in subscribed callers only
         self.wait_live(spec)
 
     def plans(self, api_id, wanted):
@@ -385,7 +413,7 @@ class McpProxies:
         """The response template of a refusal, the read timeout of the endpoint and what the gateway records (tracing),
         written over the API as it was read."""
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        timeout, analytics = spec["readTimeout"], spec.get("analytics") or {}
+        timeout, analytics = spec["readTimeout"], read_analytics(spec, f"MCP proxy {spec['automation']['name']}")
         templates = response_templates(spec, f"MCP proxy {spec['automation']['name']}")
 
         def waits(group):
@@ -516,6 +544,7 @@ class McpProxies:
             raise SeedError(f"MCP studio {name}: authorization is read for a studio built in steps (access); this one switches "
                             "its check with fga")
         subscriptions = read_subscriptions(spec, name)
+        analytics = read_analytics(spec, f"MCP studio {name}")
         body = {"name": name, "description": spec.get("description"), "contextPath": path, **protocol_versions(spec),
                 "plans": [spec["plan"]],
                 "specification": {"tools": self.tools(spec["tools"]), "promptIds": [], "resourceIds": []}}
@@ -532,11 +561,23 @@ class McpProxies:
         toggled = self.g.aim.get(f"/mcp-proxies/{found['id']}").json().get("fgaEnabled", False) != enabled
         if toggled:
             self.g.aim.put(f"/mcp-studios/{found['id']}/fga", json={"enabled": enabled})
-        if toggled or recomposed:
+        recording = self.studio_analytics(found["id"], analytics)   # after the switch, which may rewrite the API
+        if toggled or recomposed or recording:
             self.g.v2.post(f"/apis/{found['id']}/deployments", json=DEPLOYMENT)
         if toggled:
             log(SECTION, f"  ✓ Authorization check {'on' if enabled else 'off'}")
         self.subscribe(found["id"], name, subscriptions)
+
+    def studio_analytics(self, api_id, analytics):
+        """The file's `analytics` on the API of a studio made in one go, written over it as it was read. Whether it wrote."""
+        if not analytics:
+            return False
+        api = self.g.v2.get(f"/apis/{api_id}").json()
+        if not with_analytics(api, analytics):
+            return False
+        self.g.v2.put(f"/apis/{api_id}", json={k: v for k, v in api.items() if k not in STUDIO_API_READ_ONLY})
+        log(SECTION, "  ✓ What the gateway records written")
+        return True
 
     def kept(self, name, path, wanted, body):
         """The studio at this path, as the seed keeps it: (None, False) when there is none, or when it was made from another
@@ -575,52 +616,76 @@ class McpProxies:
         log(SECTION, f"  ✓ Tools brought back to the file: {len(wanted)} in {name}")
         return True
 
-    def subscribe(self, api_id, studio, subscriptions):
-        """Subscribes each application of the file to its plan of the studio, unless it holds a subscription to it."""
+    def subscribe(self, api_id, name, subscriptions, kind="MCP studio"):
+        """Subscribes each application of the file to its plan of the studio or the proxy (`kind`), unless it holds a
+        subscription to it, then pauses or resumes one a control names as the mode says."""
         if not subscriptions:
             return
         plans = [p for p in self.g.v2.rows(f"/apis/{api_id}/plans", gamma.LISTS) if p.get("status") == "PUBLISHED"]
+        plural = f"subscriptions to {KINDS_PLURAL[kind]}"
         for sub in subscriptions:
-            plan = self.plan_of(plans, studio, sub)
+            plan = self.plan_of(plans, name, sub, kind)
             application = find_application(self.g.v1, "", sub["application"])
             if application is None:
-                raise SeedError(f"MCP studio {studio}: no application is named '{sub['application']}': seed/apim/applications makes it")
-            label = f"{sub['application']} → {studio} ({plan['name']})"
+                raise SeedError(f"{kind} {name}: no application is named '{sub['application']}': seed/apim/applications makes it")
+            label = f"{sub['application']} → {name} ({plan['name']})"
+            found = controls.of("subscription", label)
             held = held_subscription(self.g.v2, "", api_id, application["id"], plan["id"])
             if held:
                 if not recorded(SECTION, "subscription", held["id"]):   # one an earlier seed made and lost the answer of, if any
                     adopted(SECTION, "subscription", label, held["id"], api=api_id)
                 if held.get("status") == "PENDING" and recorded(SECTION, "subscription", held["id"]):
                     accept(self.g.v2, "", api_id, held["id"], sub.get("apiKey"))
+                    held["status"] = "ACCEPTED"
                     log(SECTION, f"  ✓ Subscription accepted: {label}")
                 else:
                     log(SECTION, f"  Subscription exists: {label}")
+                self.paused_as_mode_says(api_id, held, found, label)
                 continue
-            with making(SECTION, "subscription", "subscriptions to MCP studios", label, missing=True, api=api_id):
+            with making(SECTION, "subscription", plural, label, missing=True, api=api_id):
                 made = subscribe(self.g.v2, "", api_id, application["id"], plan["id"], sub.get("apiKey"))
-                record(SECTION, "subscription", "subscriptions to MCP studios", label, made["id"], api=api_id)
+                record(SECTION, "subscription", plural, label, made["id"], api=api_id)
             if made.get("status") == "PENDING":
                 accept(self.g.v2, "", api_id, made["id"], sub.get("apiKey"))
             log(SECTION, f"  ✓ Subscribed: {label}")
+            self.paused_as_mode_says(api_id, {**made, "status": "ACCEPTED"}, found, label)
+
+    def paused_as_mode_says(self, api_id, sub, found, label):
+        """A subscription the controls name, paused while they are on and resumed while they are off, with the routes the
+        Console calls: a paused subscription lets no call of its application through and keeps its keys. Only one the
+        seed made is changed."""
+        route = controls.align_subscription(sub.get("status"), found)
+        state = "on" if controls.protected() else "off"
+        if found and not route:
+            log(SECTION, f"  Controls of {label} are {state}: {controls.named(found)}")
+        if not route:
+            return
+        if not recorded(SECTION, "subscription", sub["id"]):
+            log(SECTION, f"! Subscription {label} is not one the seed made: control {controls.named(found)} leaves it as it is")
+            return
+        self.g.v2.post(f"/apis/{api_id}/subscriptions/{sub['id']}/{route}", what=f"Subscription {label}")
+        controls.touched()
+        log(SECTION, f"  ✓ Controls of {label} put back, {state}: {controls.named(found)} "
+                     f"(subscription {'paused' if route == '_pause' else 'resumed'})")
 
     @staticmethod
-    def plan_of(plans, studio, sub):
-        """The published plan of the studio a subscription of its file names, or its only one."""
+    def plan_of(plans, name, sub, kind="MCP studio"):
+        """The published plan of the studio or the proxy a subscription of its file names, or its only one."""
         if "plan" in sub:
             plan = next((p for p in plans if p["name"] == sub["plan"]), None)
             if plan is None:
-                raise SeedError(f"MCP studio {studio}: no published plan is named '{sub['plan']}'")
+                raise SeedError(f"{kind} {name}: no published plan is named '{sub['plan']}'")
         elif len(plans) == 1:
             plan = plans[0]
         else:
-            raise SeedError(f"MCP studio {studio}: {len(plans)} plans are published: the subscription of "
+            raise SeedError(f"{kind} {name}: {len(plans)} plans are published: the subscription of "
                             f"{sub['application']} names its plan")
-        kind = (plan.get("security") or {}).get("type")
-        if kind == "KEY_LESS":
-            raise SeedError(f"MCP studio {studio}: the plan {plan['name']} is keyless, which takes no subscription")
-        if sub.get("apiKey") and kind != "API_KEY":
-            raise SeedError(f"MCP studio {studio}: the subscription of {sub['application']} has an apiKey, which needs a plan "
-                            f"of API keys, and {plan['name']} is {kind}")
+        security = plan.get("security") or {}
+        if security.get("type") == "KEY_LESS":
+            raise SeedError(f"{kind} {name}: the plan {plan['name']} is keyless, which takes no subscription")
+        if sub.get("apiKey") and security.get("type") != "API_KEY":
+            raise SeedError(f"{kind} {name}: the subscription of {sub['application']} has an apiKey, which needs a plan "
+                            f"of API keys, and {plan['name']} is {security.get('type')}")
         return plan
 
     # --- A studio built in steps (a file with `access`) ----------------------------------------
@@ -632,6 +697,7 @@ class McpProxies:
         name, path, access = spec["name"], spec["contextPath"], spec["access"]
         read_authorization(spec, name)
         response_templates(spec, f"MCP studio {name}")   # read before anything is made, written with the flows
+        read_analytics(spec, f"MCP studio {name}")
         subscriptions = read_subscriptions(spec, name)
         needs(access, name, "access", "registration", "agents")
         needs(access["registration"], name, "access.registration", "name", "type")
@@ -672,7 +738,7 @@ class McpProxies:
         if plan is None:
             plan = self.g.v2.post(f"/apis/{api_id}/plans", json={
                 "definitionVersion": "V4", "name": agents["name"], "mode": "STANDARD", "validation": "AUTO",
-                "description": agents.get("description", "Agents signed in by Access Management, one subscription each"),
+                "description": agents.get("description", "Callers signed in with Access Management, one subscription each"),
                 "characteristics": [], "tags": [], "excludedGroups": [], "commentRequired": False, "flows": [],
                 "security": security}).json()
             self.g.v2.post(f"/apis/{api_id}/plans/{plan['id']}/_publish")
@@ -692,10 +758,10 @@ class McpProxies:
         return changed
 
     def checks(self, api_id, studio, spec):
-        """The switches of the studio, then the flows they wrote and the file's `responseTemplates` (what a client reads when
-        the check refuses, GAPL_AUTHZ). A switch is turned only when it is not as the file says: turning the authorization
-        check on again erases what was written on its flow. The flows and the templates are written in one update of the
-        API, as it was read, so that nothing else of it is lost."""
+        """The switches of the studio, then the flows they wrote, the file's `responseTemplates` (what a client reads when
+        the check refuses, GAPL_AUTHZ) and its `analytics`. A switch is turned only when it is not as the file says: turning
+        the authorization check on again erases what was written on its flow. The flows, the templates and the analytics are
+        written in one update of the API, as it was read, so that nothing else of it is lost."""
         authorization, approval, changed = spec.get("authorization"), spec.get("humanApproval"), False
         state = self.g.aim.get(f"/mcp-proxies/{api_id}").json()
         check = authorization is not None and bool(authorization.get("enabled", True))
@@ -709,10 +775,11 @@ class McpProxies:
             log(SECTION, f"  ✓ Human approval {'on' if hold else 'off'}")
             changed = True
         templates = response_templates(spec, f"MCP studio {spec.get('name')}")
-        if not (check or hold or templates):
+        analytics = read_analytics(spec, f"MCP studio {spec.get('name')}")
+        if not (check or hold or templates or analytics):
             return changed
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        written = []
+        written = [with_analytics(api, analytics)]
         if not contains(api.get("responseTemplates") or {}, templates):
             api["responseTemplates"] = with_templates(api.get("responseTemplates"), templates)
             written.append(True)

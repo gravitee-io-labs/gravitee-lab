@@ -2,7 +2,9 @@
 
     credentials/*.yaml    a credential of the vault: name, service and the secret
     providers/*.yaml      an AI provider with its declared models and their prices
-    models/*.yaml         a model of the catalog: context window, capabilities, price
+    model-sources/*.yaml  a model source, what the console's "AI Models > Add models" makes: where its models are served
+    models/*.yaml         a model of the catalog: context window, capabilities, price; in a model source or the manual source
+    llm-proxies/*.yaml    the providers of an LLM proxy of seed/apim/apis, taken from model sources ("From catalog")
     mcp-servers/*.yaml    an MCP server, discovered from here and imported
     knowledge/*.yaml      an inline document
     skills/<name>/        a skill: SKILL.md and the files next to it, zipped here
@@ -43,7 +45,48 @@ credential named "<workflow> · <source>", as the console names the one it makes
 has none. A workflow that changed is deleted with its
 credentials and made again, as the tools of an API are: a studio keeps a copy of each tool it was made with.
 
-A file may say `needs: NAME`: the seed skips it, and says so, while the environment variable NAME is empty. A provider of a
+A model-sources file names a source of models and how they are reached; a models file whose `source` is the name of one
+goes into it, any other into the manual source:
+
+    name: Anthropic           # what the console shows
+    kind: anthropic           # the source is llm.provider.<kind>: Gamma keeps one source of each kind in an environment
+    baseUrl: ${ANTHROPIC_URL}
+    format: ANTHROPIC         # OPEN_AI, OPEN_AI_COMPATIBLE, GEMINI, ANTHROPIC, BEDROCK or VERTEX_AI
+    auth: {type: API_KEY, headerName: x-api-key}   # NONE, API_KEY (with its header), BEARER or SERVICE_ACCOUNT
+
+Gamma keeps of an auth its type and the header of an API_KEY, drops any other key and refuses a header with any other type:
+the seed refuses both before it writes anything.
+
+An llm-proxies file gives an LLM proxy that seed/apim/apis imports its providers, in order, each from a model source:
+
+    api: LLM Gateway          # the name of the API
+    providers:
+      - source: Anthropic     # a model source of the seed
+        credentials: {apiKey: "${ANTHROPIC_API_KEY}"}   # apiKey for API_KEY, bearer for BEARER, none for NONE
+        models:               # models of that source, by the entity id of their file in aim/models
+          - {model: claude-haiku, aliases: [fast]}
+          - {model: claude-sonnet, aliases: [smart], parametersOverride: '{"temperature": 0}'}
+        governance: {aliasOnly: false, prefixPolicy: {policy: NO_PREFIX}, modelPattern: ""}   # what Gamma calls modelGovernance
+        secondary: true       # the endpoint is a secondary one, which the failover of the API goes to
+
+Gamma writes one endpoint for each provider, named after the id of its source, whatever routing name it is sent: a policy of
+the API that names an endpoint (the candidates of ai-routing) names that id, or names no provider at all. Every endpoint it
+writes is primary, and it keeps the `secondary` of an endpoint of that name: the seed sets the one the file gives.
+
+A governance needs its `prefixPolicy` (PREFIXED_BOTH, PREFIXED_ALIAS, PREFIXED_MODEL or NO_PREFIX): Gamma fails on one
+without. It keeps two shapes: with no `modelPattern` (none, or blank) only the models of the provider are served, by their
+aliases alone when `aliasOnly`, and it gives the pattern back as ""; with one, any model that matches is served too, and it
+drops `aliasOnly`, which the seed then refuses. The seed sends and compares the governance in the shape Gamma keeps, so a
+second run writes nothing. Without `governance` Gamma's default applies (PREFIXED_BOTH), and the seed leaves what the
+platform holds.
+
+The API is apim.py's, which records it. Gamma keeps a copy of the providers of its own from their first save, with the
+credentials in clear, which a delete of the API through API Management leaves behind: the seed records that copy under the
+API's id (`llm-proxy`, counted as nothing, the API being counted already), and a removal deletes the proxy as the console
+does, through Gamma, which deletes the API and its copy. apim.py then finds the API gone, which it counts as deleted.
+
+A file may say `needs: NAME`: the seed skips it, and says so, while the environment variable NAME is empty. A model or a
+provider of a model source that is skipped is skipped too, rather than seeded elsewhere. A provider of a
 service that lists its models (Gemini, Anthropic) is tested against the service with its real key as it is created, so
 a placeholder key cannot stand in for one.
 
@@ -52,8 +95,11 @@ gives it. What the seed finds and did not create is never adopted, changed or de
 
 The platform keeps the fields it knows, adds its own and never gives a secret back, so what it stores cannot be compared
 with what the seed sends. The record of an object keeps a fingerprint of what the seed sent last (`digest`): the same
-fingerprint writes nothing. A provider is the exception: the platform keeps what it is sent, so it is compared with what
-it holds. A credential's secret is sent when it is created and again when the file gives another (a key fixed or rotated in
+fingerprint writes nothing. A provider and a model source are the exception: the platform keeps what it is sent, so they are
+compared with what it holds. So are the providers of an LLM proxy, credentials included, with the endpoints of its API as
+well: Gamma keeps a copy of the providers of its own, which an API deleted and imported again under its id (apim.py
+replaces an LLM proxy so) leaves as it was, and a model source that changed reaches the endpoints only with the next save
+of the providers. A credential's secret is sent when it is created and again when the file gives another (a key fixed or rotated in
 the playground's settings): its record keeps the fingerprint of the secret, never the secret.
 """
 
@@ -66,25 +112,37 @@ import yaml
 
 from . import aim_proxies
 from . import common
-from .apim import digest_of
-from .common import Api, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
+from . import controls
+from .apim import ENDED, SECTION as APIM, digest_of
+from .common import Api, HttpError, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
 from .gamma import CATALOG, Gamma
 
 SECTION = "aim-catalog"
 LISTED = 60   # seconds the catalog has to list an API that API Management has just made
 # The folders of the seed it owns
-FOLDERS = ("aim/credentials", "aim/providers", "aim/models", "aim/mcp-servers", "aim/knowledge", "aim/skills",
-           "aim/agents", "aim/api-tools", "aim/workflow-tools")
+FOLDERS = ("aim/credentials", "aim/providers", "aim/model-sources", "aim/models", "aim/llm-proxies", "aim/mcp-servers",
+           "aim/knowledge", "aim/skills", "aim/agents", "aim/api-tools", "aim/workflow-tools")
 # The Gamma modules it fills: seed.py checks that the platform serves them before it changes anything
 GAMMA = ("aim",)
-# What it records, dependents first
-ORDER = ["workflow-tool", "workflow-credential", "api-tools", "agent", "skill", "knowledge", "mcp-server", "model", "provider", "credential"]
+# What it records, dependents first. An LLM proxy goes first: it takes models of the catalog. A model source goes before the
+# models: its delete takes its models with it, even one an LLM proxy uses, whose own delete the platform refuses (409), so the
+# records of its models are dropped with it
+ORDER = ["llm-proxy", "workflow-tool", "workflow-credential", "api-tools", "agent", "skill", "knowledge", "mcp-server",
+         "model-source", "model", "provider", "credential"]
 # What the Lab UI calls each kind when it asks whether to delete them: plural, ending in an s
-LABELS = {"workflow-tool": "workflow tools", "workflow-credential": "workflow credentials", "api-tools": "API tools", "agent": "A2A agents", "skill": "skills", "knowledge": "knowledge documents",
-          "mcp-server": "MCP servers", "model": "AI models", "provider": "AI providers", "credential": "credentials"}
-PATHS = {"workflow-tool": "/workflow-tools", "workflow-credential": "/auth-profiles", "api-tools": "/catalog/sources", "agent": "/catalog/agents", "skill": "/catalog/skills",
-         "knowledge": "/catalog/knowledge", "mcp-server": "/catalog/mcp-servers", "model": "/catalog/models",
-         "provider": "/providers", "credential": "/auth-profiles"}
+LABELS = {"llm-proxy": "LLM proxies", "workflow-tool": "workflow tools", "workflow-credential": "workflow credentials", "api-tools": "API tools", "agent": "A2A agents", "skill": "skills", "knowledge": "knowledge documents",
+          "mcp-server": "MCP servers", "model-source": "model sources", "model": "AI models", "provider": "AI providers",
+          "credential": "credentials"}
+PATHS = {"llm-proxy": "/deployable", "workflow-tool": "/workflow-tools", "workflow-credential": "/auth-profiles", "api-tools": "/catalog/sources", "agent": "/catalog/agents", "skill": "/catalog/skills",
+         "knowledge": "/catalog/knowledge", "mcp-server": "/catalog/mcp-servers", "model-source": "/catalog/sources",
+         "model": "/catalog/models", "provider": "/providers", "credential": "/auth-profiles"}
+# What a model source may say of how its models are reached, as Gamma names it
+FORMATS = ("OPEN_AI", "OPEN_AI_COMPATIBLE", "GEMINI", "ANTHROPIC", "BEDROCK", "VERTEX_AI")
+AUTHS = ("NONE", "API_KEY", "BEARER", "SERVICE_ACCOUNT")
+PROVIDER_KEYS = ("source", "credentials", "models", "governance", "secondary")   # what a provider of an llm-proxies file says
+MODEL_KEYS = ("model", "aliases", "parametersOverride")                          # and each of its models
+GOVERNANCE_KEYS = ("aliasOnly", "prefixPolicy", "modelPattern")                  # and its governance
+PREFIX_POLICIES = ("PREFIXED_BOTH", "PREFIXED_ALIAS", "PREFIXED_MODEL", "NO_PREFIX")
 MANUAL = ("agent", "knowledge", "model")   # the kinds a manual source holds
 # Where a credential may be used from: Gamma asks for at least one and only records them, so the seed allows them all
 USAGE_SURFACES = ["LLM_PROXY", "AI_WORKSPACE", "AGENT", "MCP_PROXY", "WORKFLOW_TOOL"]
@@ -117,12 +175,13 @@ def say(kind, did, name):
     log(SECTION, f"✓ {noun(kind)[0].upper()}{noun(kind)[1:]} {did}: {name}")
 
 
-def specs(folder, *keys):
-    """The files of a folder of the seed, read, each with the keys it must have."""
+def specs(folder, *keys, quiet=False):
+    """The files of a folder of the seed, read, each with the keys it must have. A file skipped is said, unless `quiet`."""
     for path in files("aim", folder):
         spec = load(path)
         if spec.get("needs") and not os.getenv(spec["needs"]):
-            log(SECTION, f"Skipped {spec.get('name', path.stem)}: {spec['needs']} is not set")
+            if not quiet:
+                log(SECTION, f"Skipped {spec.get('name', path.stem)}: {spec['needs']} is not set")
             continue
         missing = [key for key in keys if key not in spec]
         if missing:
@@ -243,10 +302,12 @@ def manual_source(aim, name):
     return found or aim.post("/catalog/sources", json={"sourceKind": "manual", "definition": {"type": "manual", "name": name}}).json()
 
 
-def seed_item(aim, kind, spec, name, body, source):
+def seed_item(aim, kind, spec, name, body, source, **extra):
     """Creates the item when it is missing, and replaces it when what the seed sends changed. A PUT is a full replace, so it
     sends the file's `metadata` over what the platform holds, which Compliance also writes. The fingerprint is of the body
-    alone: metadata that someone else wrote does not make the item differ."""
+    alone: metadata that someone else wrote does not make the item differ. The body names the source, so an item whose
+    source changed is moved by the same PUT, and keeps its id: an LLM proxy that uses a model still finds it. `extra` goes
+    into the record."""
     slug = spec["entityId"]
     if not SLUG.fullmatch(slug):
         raise SeedError(f"{slug}: an entity id is made of lower case letters, digits, - and _")
@@ -256,13 +317,13 @@ def seed_item(aim, kind, spec, name, body, source):
     found, ours = own(kind, rows, f"The {noun(kind)} '{wanted}'", name)
     digest = digest_of(body)
     if found is None:
-        with common.making(SECTION, kind, LABELS[kind], name, missing=True, source=spec["source"]):
+        with common.making(SECTION, kind, LABELS[kind], name, missing=True, source=spec["source"], **extra):
             found, did = aim.post(PATHS[kind], json={**body, "entityId": slug}).json(), "created"
-            record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
+            record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest, **extra)
     elif ours.get("digest") != digest:
         metadata = {**(found.get("metadata") or {}), **body.get("metadata", {})}
         aim.put(f"{PATHS[kind]}/{found['id']}", json={**body, **({"metadata": metadata} if metadata else {})})
-        record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest)
+        record(SECTION, kind, LABELS[kind], name, found["id"], source=spec["source"], digest=digest, **extra)
         did = "updated"
     else:
         did = "up to date"
@@ -270,9 +331,18 @@ def seed_item(aim, kind, spec, name, body, source):
 
 
 def seed_models(aim):
+    """A model whose `source` is the name of a model source of the seed goes into it, and its record says which
+    (`modelSource`); any other goes into the manual source."""
+    sources, skipped = model_sources()
     for spec in specs("models", "entityId", "source", "definition"):
-        seed_item(aim, "model", spec, spec["definition"]["name"], {"definition": spec["definition"]},
-                  manual_source(aim, spec["source"]))
+        name = spec["definition"]["name"]
+        if spec["source"] in skipped:
+            log(SECTION, f"Skipped {name}: its model source {spec['source']} is skipped")
+        elif spec["source"] not in sources:
+            seed_item(aim, "model", spec, name, {"definition": spec["definition"]}, manual_source(aim, spec["source"]))
+        else:
+            source = existing_source(aim, sources[spec["source"]])
+            seed_item(aim, "model", spec, name, {"definition": spec["definition"]}, source, modelSource=source["id"])
 
 
 def seed_knowledge(aim):
@@ -329,6 +399,320 @@ def seed_agents(aim):
     for spec, metadata, definition in zip(asked, metadata_of, cards):
         body = {"definition": definition, **({"metadata": metadata} if metadata else {})}
         seed_item(aim, "agent", spec, definition["name"], body, manual_source(aim, spec["source"]))
+
+
+# --- Model sources: where the models an LLM proxy takes from the catalog are served ---------
+
+def model_sources():
+    """The model sources the files give, by name, each with the name of its file (`file`), and the setting each one that is
+    skipped (`needs`) waits for, by name: a model or a provider that names one is skipped too, rather than seeded elsewhere.
+    check() reads them before any module changes anything."""
+    found, skipped, kinds = {}, {}, {}
+    for path in files("aim", "model-sources"):
+        spec = load(path)
+        name = spec.get("name", path.stem)
+        if spec.get("needs") and not os.getenv(spec["needs"]):
+            skipped[name] = spec["needs"]
+            continue
+        missing = [key for key in ("name", "kind", "baseUrl", "format", "auth") if key not in spec]
+        if missing:
+            raise SeedError(f"{path.name}: {', '.join(missing)} missing")
+        auth = spec["auth"]
+        if not isinstance(spec["kind"], str) or not SLUG.fullmatch(spec["kind"]):
+            raise SeedError(f"The model source '{name}': its kind is made of lower case letters, digits, - and _ (anthropic)")
+        if spec["format"] not in FORMATS:
+            raise SeedError(f"The model source '{name}': format {excerpt(spec['format'], 40)!r} is not one of {', '.join(FORMATS)}")
+        if not isinstance(auth, dict) or auth.get("type") not in AUTHS:
+            raise SeedError(f"The model source '{name}': auth is {{type, headerName}}, its type one of {', '.join(AUTHS)}")
+        unknown = [str(key) for key in auth if key not in ("type", "headerName")]
+        if unknown:   # Gamma drops them, so the source would differ from the file at every run
+            raise SeedError(f"The model source '{name}': auth cannot say {', '.join(unknown)}: only type, and headerName for API_KEY")
+        if auth["type"] == "API_KEY" and not (isinstance(auth.get("headerName"), str) and auth["headerName"].strip()):
+            raise SeedError(f"The model source '{name}': an API_KEY auth names the header of the key (headerName)")
+        if auth["type"] != "API_KEY" and "headerName" in auth:
+            raise SeedError(f"The model source '{name}': only an API_KEY auth names a header, a {auth['type']} one does not")
+        if spec["kind"] in kinds:   # a create of a second source of a kind gives back the first one
+            raise SeedError(f"The model sources '{kinds[spec['kind']]}' and '{name}' are both of kind {spec['kind']}: "
+                            "Gamma keeps one source of each kind in an environment")
+        kinds[spec["kind"]] = name
+        found[name] = {**spec, "file": path.name}
+    return found, skipped
+
+
+def source_kind(spec):
+    return f"llm.provider.{spec['kind']}"
+
+
+def source_definition(spec):
+    return {"type": "llm-provider", "name": spec["name"], "baseUrl": spec["baseUrl"], "format": spec["format"],
+            "authMethod": spec["auth"]}
+
+
+def find_model_source(aim, spec):
+    """The source of the seed of that kind, with its record, (None, None) when there is none. It is looked up by its kind,
+    not its name: Gamma keeps one source of each kind, and a create of another answers with the one it has, unchanged."""
+    rows = aim.rows("/catalog/sources", CATALOG, sourceKind=source_kind(spec))
+    return own("model-source", rows, f"The model source {source_kind(spec)} ({spec['name']})", spec["name"])
+
+
+def existing_source(aim, spec):
+    found, _ = find_model_source(aim, spec)
+    if found is None:
+        raise SeedError(f"The model source '{spec['name']}' is not there: aim/model-sources makes it")
+    return found
+
+
+def seed_model_sources(aim):
+    """The platform keeps the definition it is sent, so it is compared with what it holds, and replaced whole (a PUT)
+    when it differs. A source that changed reaches the endpoints of an LLM proxy with the next save of its providers,
+    which seed_llm_proxies makes when they differ."""
+    sources, skipped = model_sources()
+    for name, needs in skipped.items():
+        log(SECTION, f"Skipped {name}: {needs} is not set")
+    for name, spec in sources.items():
+        kind, definition, file = source_kind(spec), source_definition(spec), spec["file"]
+        found, ours = find_model_source(aim, spec)
+        if found is None:
+            # The one this file or this name made before, of another kind, goes: its models are made again in the new one
+            for x in [x for x in common.created() if (x["product"], x["kind"]) == (SECTION, "model-source")
+                      and (x["name"] == name or x.get("file") == file)]:
+                drop_model_source(aim, x)
+            with common.making(SECTION, "model-source", LABELS["model-source"], name, missing=True, file=file):
+                made = aim.post(PATHS["model-source"], json={"sourceKind": kind, "definition": definition}).json()
+                record(SECTION, "model-source", LABELS["model-source"], name, made["id"], file=file)
+            say("model-source", "created", name)
+            continue
+        if found["definition"] == definition:
+            if ours.get("file") != file:   # recorded before the record named its file
+                record(SECTION, "model-source", LABELS["model-source"], name, found["id"], file=file)
+            say("model-source", "up to date", name)
+            continue
+        aim.put(f"{PATHS['model-source']}/{found['id']}", json={"sourceKind": kind, "definition": definition})
+        if ours["name"] != name:   # renamed: its record goes under the new name
+            common.forget(ours)
+        record(SECTION, "model-source", LABELS["model-source"], name, found["id"], file=file)
+        say("model-source", "updated", name)
+
+
+def drop_model_source(aim, x):
+    """A model source of the seed, deleted with its models (Gamma deletes them with it, even one an LLM proxy uses), each
+    record dropped as its object goes."""
+    aim.delete(f"{PATHS['model-source']}/{x['id']}")
+    common.forget(x, *[m for m in common.created() if (m["product"], m.get("modelSource")) == (SECTION, x["id"])])
+
+
+# --- LLM proxies: their providers, taken from the model sources -----------------------------
+
+def checked_governance(api, source, governance):
+    """The governance of a provider, which Gamma fails on without a prefix policy (a 500), and keeps without `aliasOnly`
+    when it has a `modelPattern`."""
+    where = f"The provider {source} of '{api}': governance"
+    if not isinstance(governance, dict):
+        raise SeedError(f"{where} is a mapping ({', '.join(GOVERNANCE_KEYS)})")
+    unknown = [str(key) for key in governance if key not in GOVERNANCE_KEYS]
+    if unknown:
+        raise SeedError(f"{where} cannot say {', '.join(unknown)}: only {', '.join(GOVERNANCE_KEYS)}")
+    prefix = governance.get("prefixPolicy")
+    if not isinstance(prefix, dict) or list(prefix) != ["policy"] or prefix["policy"] not in PREFIX_POLICIES:
+        raise SeedError(f"{where} needs its prefixPolicy, {{policy: one of {', '.join(PREFIX_POLICIES)}}}")
+    if not isinstance(governance.get("aliasOnly", False), bool) or not isinstance(governance.get("modelPattern") or "", str):
+        raise SeedError(f"{where}: aliasOnly is true or false, and modelPattern a text")
+    if governance.get("aliasOnly") and (governance.get("modelPattern") or "").strip():
+        raise SeedError(f"{where}: aliasOnly and a modelPattern do not go together, Gamma drops aliasOnly when it serves "
+                        "the models that match a pattern")
+    return governance
+
+
+def stored_governance(governance):
+    """A governance in the shape Gamma keeps it: a blank or missing pattern is "", and aliasOnly is false unless given."""
+    pattern = governance.get("modelPattern") or ""
+    return {"aliasOnly": bool(governance.get("aliasOnly", False)), "prefixPolicy": {"policy": governance["prefixPolicy"]["policy"]},
+            "modelPattern": pattern if pattern.strip() else ""}
+
+
+def provider_entries(spec, sources, skipped):
+    """The providers of an llm-proxies file that the seed saves, checked: those of a model source that is skipped are left
+    out. check() reads them before any module changes anything."""
+    api, listed = spec["api"], spec["providers"]
+    if not isinstance(listed, list) or not listed:
+        raise SeedError(f"The LLM proxy '{api}': providers is a list of providers, and it lists none")
+    kept = []
+    for entry in listed:
+        if not isinstance(entry, dict) or not isinstance(entry.get("source"), str):
+            raise SeedError(f"The LLM proxy '{api}': each provider is a mapping with the source it takes its models from")
+        source = entry["source"]
+        unknown = [str(key) for key in entry if key not in PROVIDER_KEYS]
+        if unknown:   # a routing name above all: Gamma names the endpoint after the source, whatever it is sent
+            raise SeedError(f"The provider {source} of '{api}' cannot say {', '.join(unknown)}: only {', '.join(PROVIDER_KEYS)}")
+        if any(source == done["source"] for done in kept):   # Gamma refuses a source declared twice
+            raise SeedError(f"The provider {source} of '{api}' is listed twice: one provider takes every model of a source")
+        if source in skipped:
+            continue
+        if source not in sources:
+            raise SeedError(f"The provider {source} of '{api}' names no model source of aim/model-sources")
+        credentials, models = entry.get("credentials") or {}, entry.get("models")
+        if not isinstance(credentials, dict) or not all(isinstance(v, str) for v in credentials.values()):
+            raise SeedError(f"The provider {source} of '{api}': credentials maps each key to a text (quote a variable)")
+        if not isinstance(models, list) or not models or not all(isinstance(m, dict) and isinstance(m.get("model"), str) for m in models):
+            raise SeedError(f"The provider {source} of '{api}': models is a list of {{model, aliases, parametersOverride}}")
+        for model in models:
+            unknown = [str(key) for key in model if key not in MODEL_KEYS]
+            if unknown or not isinstance(model.get("aliases", []), list) or not isinstance(model.get("parametersOverride", ""), str):
+                raise SeedError(f"The model {model['model']} of the provider {source} of '{api}': only a model, its aliases "
+                                "(a list) and its parametersOverride (JSON text)")
+        if "governance" in entry:
+            checked_governance(api, source, entry["governance"])
+        if "secondary" in entry and not isinstance(entry["secondary"], bool):
+            raise SeedError(f"The provider {source} of '{api}': secondary is true or false")
+        kept.append(entry)
+    return kept
+
+
+def llm_proxy(aim, name):
+    """The LLM proxy that apim.py imported under this name, with the providers Gamma holds of it, read by the id of apim.py's
+    record: a copy a console makes under the same name is left alone. It is not looked for in Gamma's list, whose count
+    still holds, for seconds, an API that was just deleted (apim.py replaces an LLM proxy so), and which then refuses the
+    page it announces (400)."""
+    found = next((x["id"] for x in common.created() if (x["product"], x["kind"], x["name"]) == (APIM, "api", name)), None)
+    try:
+        if found:
+            return aim.get(f"/llm-proxies/{found}").json()
+    except HttpError as e:
+        if e.status != 404:
+            raise
+    raise SeedError(f"No LLM proxy named '{name}' was imported by this seed: aim/llm-proxies gives its providers to an "
+                    "LLM proxy of seed/apim/apis")
+
+
+def model_fits(api, source, model, put):
+    """Stops the seed on a model of a provider that aim/models does not put into the provider's source: `put` is the source
+    it is in, None when the seed makes no such model."""
+    if put is None:
+        raise SeedError(f"The LLM proxy '{api}' uses the model {model}, which aim/models does not make")
+    if put != source:
+        raise SeedError(f"The LLM proxy '{api}' takes the model {model} from {source}, and its file in aim/models puts it in "
+                        "another source")
+
+
+def catalog_models(aim, sources, entries, api):
+    """The catalog model of each model an entry names, by entity id: one of the seed's, in the source of the entry."""
+    rows = {m["entityId"]: m for m in aim.rows(PATHS["model"], CATALOG)}
+    found = {}
+    for entry in entries:
+        for model in entry["models"]:
+            row = rows.get(f"model.{model['model']}")
+            mine = row is not None and common.recorded(SECTION, "model", row["id"])
+            put = next((n for n, s in sources.items() if s["id"] == row["sourceId"]), "another source") if mine else None
+            model_fits(api, entry["source"], model["model"], put)
+            found[model["model"]] = row
+    return found
+
+
+def wanted_providers(entries, sources, models):
+    """What PUT /llm-proxies/{id}/providers takes, in the order of the file, the governance in the shape Gamma keeps it. No
+    routing name: Gamma names each endpoint after its source's id, whatever it is sent."""
+    return [{"kind": "catalog", "catalogSourceId": sources[entry["source"]]["id"], "credentials": entry.get("credentials") or {},
+             "models": [{"catalogId": models[m["model"]]["id"], "aliases": m.get("aliases") or [],
+                         **({"parametersOverride": m["parametersOverride"]} if m.get("parametersOverride") is not None else {})}
+                        for m in entry["models"]],
+             **({"modelGovernance": stored_governance(entry["governance"])} if "governance" in entry else {})}
+            for entry in entries]
+
+
+def compared(provider, governance):
+    """A provider as Gamma gives it back, with what the seed sends of it: a parametersOverride it has none of is left out,
+    and the governance only when the file gives one."""
+    return {"kind": provider.get("kind"), "catalogSourceId": provider.get("catalogSourceId"),
+            "credentials": provider.get("credentials") or {},
+            "models": [{"catalogId": m.get("catalogId"), "aliases": m.get("aliases") or [],
+                        **({"parametersOverride": m["parametersOverride"]} if m.get("parametersOverride") is not None else {})}
+                       for m in provider.get("models") or []],
+            **({"modelGovernance": provider.get("modelGovernance")} if governance else {})}
+
+
+def endpoints_of(api):
+    return [endpoint for group in api.get("endpointGroups") or [] for endpoint in group.get("endpoints") or []]
+
+
+def endpoints_differ(api, wanted, sources, models, entries):
+    """Whether the endpoints of the API are not those the providers make: one for each, named after its source's id, with
+    the source's address, format and authentication, the credentials, and the name each model is asked under."""
+    endpoints = endpoints_of(api)
+    if [e["name"] for e in endpoints] != [p["catalogSourceId"] for p in wanted]:
+        return True
+    for endpoint, provider, entry in zip(endpoints, wanted, entries):
+        source, configuration = sources[entry["source"]], endpoint.get("configuration") or {}
+        auth = {**{k: v for k, v in source["auth"].items() if k in ("type", "headerName")}, **provider["credentials"]}
+        queried = [models[m["model"]]["definition"].get("queryName") for m in entry["models"]]
+        if ((configuration.get("provider"), configuration.get("target")) != (source["format"], source["baseUrl"])
+                or not contains(configuration.get("authentication") or {}, auth)
+                or [m.get("name") for m in configuration.get("models") or []] != queried):
+            return True
+    return False
+
+
+def align_secondary(v2, api_id, entries, wanted):
+    """Gamma writes every endpoint of a provider as a primary one, and keeps the `secondary` of an endpoint of that name:
+    the one a provider of the file gives is written over the API as it was read. True when it was."""
+    wanted = {p["catalogSourceId"]: entry["secondary"] for entry, p in zip(entries, wanted) if "secondary" in entry}
+    if not wanted:
+        return False
+    api = v2.get(f"/apis/{api_id}").json()
+    off = [e for e in endpoints_of(api) if e["name"] in wanted and bool(e.get("secondary")) != wanted[e["name"]]]
+    if not off:
+        return False
+    for endpoint in off:
+        endpoint["secondary"] = wanted[endpoint["name"]]
+    v2.put(f"/apis/{api_id}", json=api)
+    return True
+
+
+def keep_proxy(name, api_id):
+    """The record of an LLM proxy whose providers the seed saves: one for each API, under its name. It counts as nothing (the
+    API is counted by apim.py's record)."""
+    ours = [x for x in common.created() if (x["product"], x["kind"]) == (SECTION, "llm-proxy")]
+    if any((x["name"], x["id"]) == (name, api_id) for x in ours):
+        return
+    common.forget(*[x for x in ours if x["id"] == api_id])   # renamed: one record under the new name
+    record(SECTION, "llm-proxy", LABELS["llm-proxy"], name, api_id, count=0)
+
+
+def seed_llm_proxies(gamma):
+    """The providers of an LLM proxy are saved whole (PUT), and only when what Gamma holds of them, or the endpoints of the
+    API, differ from what the file asks: Gamma rewrites the endpoints of the API from them and keeps its flows. What it
+    writes, and an API that waits for a deployment, reach the gateway with one deployment. The proxy is recorded before its
+    first save, which makes Gamma's copy of the providers, so that a removal deletes it."""
+    sources, skipped = model_sources()
+    aim, v2 = gamma.aim, gamma.v2
+    for spec in specs("llm-proxies", "api", "providers"):
+        name = spec["api"]
+        entries = provider_entries(spec, sources, skipped)
+        for source in [entry["source"] for entry in spec["providers"] if entry["source"] in skipped]:
+            log(SECTION, f"Skipped the provider {source} of {name}: its model source is skipped")
+        if not entries:
+            log(SECTION, f"Skipped the providers of {name}: every model source they take from is skipped")
+            continue
+        live_sources = {entry["source"]: existing_source(aim, sources[entry["source"]]) for entry in entries}
+        proxy = llm_proxy(aim, name)
+        models = catalog_models(aim, live_sources, entries, name)
+        keep_proxy(name, proxy["id"])
+        wanted = wanted_providers(entries, live_sources, models)
+        held = proxy.get("providers") or []
+        api = v2.get(f"/apis/{proxy['id']}").json()
+        same = (len(held) == len(wanted)
+                and all(compared(h, "modelGovernance" in w) == compared(w, "modelGovernance" in w) for h, w in zip(held, wanted)))
+        written = False
+        if not same or endpoints_differ(api, wanted, sources, models, entries):
+            aim.put(f"/llm-proxies/{proxy['id']}/providers", json={"providers": wanted})
+            log(SECTION, f"✓ Providers of the LLM proxy {name} saved: {', '.join(e['source'] for e in entries)}")
+            written = True
+        else:
+            log(SECTION, f"✓ Providers of the LLM proxy {name} up to date")
+        written = align_secondary(v2, proxy["id"], entries, wanted) or written
+        if written or api.get("deploymentState") != "DEPLOYED":
+            v2.post(f"/apis/{proxy['id']}/deployments", json=aim_proxies.DEPLOYMENT, idempotent=True)
+            controls.touched()
+            log(SECTION, "  ✓ Deployed")
 
 
 # --- MCP servers: discovered from here, because the platform's own discovery refuses private addresses ---------
@@ -719,16 +1103,30 @@ def drop_workflow(aim, workflow_id):
 def connect():
     gamma = Gamma()
     gamma.connect(SECTION, lambda: gamma.aim.get("/providers", params={"perPage": 1}), "AI Management")
-    return gamma.aim
+    return gamma
+
+
+def check():
+    """The files of the model sources, the models and the LLM proxies, read before any module changes anything: what Gamma
+    would refuse of them comes after the objects they need were written."""
+    if not has_seed(*FOLDERS):
+        return
+    sources, skipped = model_sources()
+    models = {spec["entityId"]: spec["source"] for spec in specs("models", "entityId", "source", "definition", quiet=True)}
+    for spec in specs("llm-proxies", "api", "providers", quiet=True):
+        for entry in provider_entries(spec, sources, skipped):
+            for model in entry["models"]:
+                model_fits(spec["api"], entry["source"], model["model"], models.get(model["model"]))
 
 
 def seed():
     if not has_seed(*FOLDERS):
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
-    aim = connect()
-    for step in (seed_credentials, seed_providers, seed_models, seed_mcp_servers, seed_knowledge, seed_skills, seed_agents,
-                 seed_api_tools, seed_workflow_tools):
-        step(aim)
+    gamma = connect()
+    for step in (seed_credentials, seed_providers, seed_model_sources, seed_models, seed_mcp_servers, seed_knowledge,
+                 seed_skills, seed_agents, seed_api_tools, seed_workflow_tools):
+        step(gamma.aim)
+    seed_llm_proxies(gamma)   # an LLM proxy takes models of the catalog, and its API is deployed through API Management
 
 
 def delete(aim, x):
@@ -748,14 +1146,33 @@ def release_sources(aim, names):
                 aim.delete(f"/catalog/sources/{source['id']}")
 
 
+def drop_llm_proxy(gamma, x):
+    """An LLM proxy whose providers the seed saved, deleted as the console deletes one: through Gamma, which deletes the API
+    (its plans closed) and its own copy of the providers. The API is stopped first, as apim.py stops one, and one that is gone
+    already counts as deleted. The record of the API stays apim.py's, which then finds the API gone."""
+    gamma.v2.post(f"/apis/{x['id']}/_stop", expect=ENDED, idempotent=True)
+    gamma.aim.delete(f"{PATHS['llm-proxy']}/{x['id']}", params={"kind": "LLM"})
+    common.forget(x)
+
+
 def remove(records):
     """Deletes what the records say the seed created, dependents first, and nothing else."""
     mine = owned(records, SECTION, ORDER)
     if not mine:
         return
-    aim = connect()
+    gamma, gone = connect(), set()
+    aim = gamma.aim
     for x in mine:
-        delete(aim, x)
-        common.forget(x)
+        if x.get("modelSource") in gone:
+            log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}' with its model source")
+            continue   # forgotten with it
+        if x["kind"] == "llm-proxy":
+            drop_llm_proxy(gamma, x)
+        elif x["kind"] == "model-source":   # its models go with it
+            drop_model_source(aim, x)
+            gone.add(x["id"])
+        else:
+            delete(aim, x)
+            common.forget(x)
         log(SECTION, f"✓ Deleted {x['kind']} '{x['name']}'")
-    release_sources(aim, {x["source"] for x in mine if x["kind"] in MANUAL})
+    release_sources(aim, {x["source"] for x in mine if x["kind"] in MANUAL and "modelSource" not in x})

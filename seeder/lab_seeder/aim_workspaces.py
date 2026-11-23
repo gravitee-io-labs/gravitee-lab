@@ -175,8 +175,10 @@ class AiWorkspaces:
         found = next((c for c in live if c.get("kind") == "inline" and c.get("name") == spec["name"]), None)
         if found is not None and contains(found, wanted):
             return
-        if found is not None:
-            self.aim.delete(f"{base}/models/{quote(spec['name'], safe='')}")
+        if found is not None:   # no route deletes a component whole: it goes with its last model
+            name = quote(spec["name"], safe="")
+            for model in found["models"]:
+                self.aim.delete(f"{base}/models/{name}/{quote(model['name'], safe='')}")
         self.aim.post(f"{base}/models/_bulk", json=[wanted])
         controls.touched()
         log(SECTION, f"  ✓ Models of {spec['name']}: {', '.join(m['name'] for m in spec['models'])}")

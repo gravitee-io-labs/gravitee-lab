@@ -1,4 +1,4 @@
-contract 6
+contract 7
 contract_min 1
 core.service alert-engine health=yes networks=internal since=1
 core.service am-gateway port=8092 health=yes networks=edge,internal since=1
@@ -101,8 +101,10 @@ seed.folder aim/credentials since=1
 seed.folder aim/dashboards since=1
 seed.folder aim/governance since=1
 seed.folder aim/knowledge since=1
+seed.folder aim/llm-proxies since=7
 seed.folder aim/mcp-proxies since=1
 seed.folder aim/mcp-servers since=1
+seed.folder aim/model-sources since=7
 seed.folder aim/models since=1
 seed.folder aim/providers since=1
 seed.folder aim/skills since=1

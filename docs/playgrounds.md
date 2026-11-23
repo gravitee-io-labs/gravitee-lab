@@ -472,14 +472,60 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/environments/<id>/settings.yaml`, `apis/*.json`, `applications/*.yaml`, `subscriptions/*.yaml` | As `seed/apim/`, for that environment | APIM Management API |
 | `seed/environments/<id>/users.yaml`, `groups/*.yaml` | The users that groups name, and groups with their members | APIM Management API, Automation API |
 | `seed/environments/<id>/portal/`, `seed/apim/portal/` | The developer portal of the environment: theme, structure, pages, API listings, and the text of the page of each listed API. Images in `assets/` | Automation API, and the Console's navigation items for the listings and the pages of their APIs |
-| `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
+| `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers. An application or agent that signs in with its own key and no secret gives `oauth.tokenEndpointAuthMethod: private_key_jwt` and `oauth.jwksUri` (where AM fetches its public keys) or `oauth.jwks` (the keys), as Gamma's Agent Identity sets an agent in JWKS mode; an agent's `scopes: []` takes away any scope it holds | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
-| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, models, MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
-| `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management), GAPL policies, the schema of the editor | Gamma API |
+| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, model sources (`model-sources`, one of each kind), models (in a model source or the manual one), the providers of an LLM proxy of `seed/apim` taken from model sources (`llm-proxies`), MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one whose backend asks for one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies and studios (with their `subscriptions` and `analytics`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management, and with `catalog`, what the AI catalog holds), GAPL policies of each type, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
 | `seed/refills.yaml` | What the lessons spend, given back on every run | The counters the gateway keeps in the core's Redis |
+
+A model source file (`seed/aim/model-sources/`) is what the console's AI Models > Add models makes: where a provider serves
+its models. A models file whose `source` is the name of a model source goes into it, and any other into the manual source.
+An LLM proxy file (`seed/aim/llm-proxies/`) gives an LLM proxy of `seed/apim/apis` its providers, each taken from a model
+source, as the console's "From catalog" provider does:
+
+```yaml
+# seed/aim/model-sources/anthropic.yaml
+name: Anthropic
+kind: anthropic                  # the source is llm.provider.<kind>: Gamma keeps one source of each kind
+baseUrl: ${ANTHROPIC_URL}
+format: ANTHROPIC                # OPEN_AI, OPEN_AI_COMPATIBLE, GEMINI, ANTHROPIC, BEDROCK or VERTEX_AI
+auth: {type: API_KEY, headerName: x-api-key}   # NONE, API_KEY, BEARER or SERVICE_ACCOUNT; headerName for API_KEY only
+
+# seed/aim/models/claude-haiku.yaml
+entityId: claude-haiku
+source: Anthropic
+definition: {name: Claude Haiku, queryName: claude-haiku-5-5, pricing: {inputPer1M: 1, outputPer1M: 5, currency: USD}}
+
+# seed/aim/llm-proxies/company-llm-proxy.yaml
+api: Company LLM proxy           # the name of the API in seed/apim/apis
+providers:
+  - source: Anthropic
+    credentials: {apiKey: "${ANTHROPIC_API_KEY}"}   # apiKey for API_KEY, bearer for BEARER, none for NONE
+    models:
+      - {model: claude-haiku, aliases: [fast]}    # the entityId of a models file of that source
+    governance: {aliasOnly: false, prefixPolicy: {policy: NO_PREFIX}, modelPattern: ""}
+    secondary: false             # true for the endpoint the failover of the API goes to
+```
+
+Gamma writes one endpoint for each provider, named after the id of its source: a policy that names an endpoint cannot name
+it in the API's file. A candidate of `ai-routing` leaves its `provider` empty instead, which resolves the model across every
+endpoint. Every endpoint Gamma writes is primary until the seed sets the `secondary` the file gives.
+
+A `governance` needs its `prefixPolicy` (`PREFIXED_BOTH`, `PREFIXED_ALIAS`, `PREFIXED_MODEL` or `NO_PREFIX`). Without a
+`modelPattern`, only the models the provider lists are served, by their aliases alone with `aliasOnly: true`. With one, any
+model whose name matches is served too, and `aliasOnly` cannot be set. Without `governance`, Gamma's default applies:
+callers prefix model names and aliases with the source.
+
+The seed checks these files before it changes anything. It saves the providers when what Gamma holds or the endpoints of
+the API differ from the file, then deploys the API, so a second run writes nothing. A removal deletes the LLM proxy through
+Gamma, which deletes the API and Gamma's own copy of its providers, credentials included; it then deletes each model source
+with its models.
+
+Gamma gives a workflow tool and a studio an id of its own each time the seed makes one, and takes none from the file: a guide
+links to the list that shows them, never to one of them.
 
 A studio file (`seed/aim/studios/`) says its tools, its plan or its `access`, and its authorization check. A tool is
 `{server, tool}` for an MCP server's, `{api, tool}` for one made from an API and `{workflow}` for a workflow tool, each with
@@ -495,6 +541,13 @@ serve the lessons:
   subscriptions:
     - {application: Acme Shop copilot, apiKey: '${ACME_SHOP_COPILOT_KEY}'}
   ```
+
+  An MCP proxy file takes the same key, and its subscriptions are made once the proxy is deployed. An MCP proxy lets in any
+  valid token by default: `requireSubscription: true` in its plan's `securityConfiguration` lets in only the token of a
+  subscribed application, found by its client id, so the logs name the application and a control can pause it.
+- `analytics` says what the gateway records of the calls: `logging` (`mode`, `phase`, `content`), `tracing` and
+  `otelLogs`, as the API keeps them. It is written over what the platform made, on every run. An MCP proxy file takes the
+  same key.
 
 - In a file with `access`, `authorization.agentIdentityResolution: true` makes the authorization check put the agent the
   token names in the context (`context.agent`), which authz-pep 3.0.2 leaves out by default. A file with `plan` switches
@@ -518,16 +571,41 @@ The files of `seed/authz/` give Authorization Management what a person would set
   with the reason of one that ends in an error or a timeout. It records the principals of what seed/am made, which it
   knows by their ids: a group keeps its id, an agent takes the name UUID of its client id, a user that of its sub. A
   delete removes them, and never a principal of another domain.
-- **Resources are the MCP server and its tools**: an `MCPServer` entity and one `MCPTool` per tool, whose id is the tool's
-  name, which the studio sends as the resource of each call.
+- **Resources come from the AI catalog where it holds them.** `catalog` in `entities.yaml` names MCP servers, models and
+  agents of the catalog (`mcp-servers`, `models`, `agents`), each by its slug or a name the catalog shows, and the seed saves
+  what *Import from AI Catalog* on the Entities page saves: one read-only entity each, with the catalog's slug as its id, its
+  source `gravitee-catalog` and the catalog's id in `_catalogId`, and the tools of an MCP server under it (`crm.get_customer`,
+  the id a studio sends as the resource of a call). An entry someone imported already in the console is left as it is. What
+  the catalog lacks under the name the gateway sends goes in `entities`, which may name an imported entity as its parent: an
+  alias of an LLM proxy (`fast`) as a child of the models it routes to, so that a policy on a model covers it.
+
+  ```yaml
+  catalog:
+    mcp-servers: [CRM, Wiki]
+    models: [claude-haiku-5-5, claude-opus-5-5]
+  source: local
+  entities:
+    - {type: Model, id: fast, parents: [[Model, claude-haiku-5-5]], attributes: {_displayName: fast}}
+    - {type: Action, id: invoke, attributes: {_displayName: invoke}}
+  ```
+
+- **Resources of a file of its own** are an `MCPServer` entity and one `MCPTool` per tool (`server` and `tools`), whose id is
+  the tool's name, which the studio sends as the resource of each call.
 - **The schema declares the actions**, one per tool, with the context each reads (`context.agent`, an argument of the call).
   The Actions page cannot hold them: it refuses an id a tool already has.
-- **A policy is written as *Create policy* writes it**: one statement per tool, `principal in Group::"<group:NAME>"`,
-  `action == Action::"<tool>"`, `resource == MCPTool::"<tool>"`, and the agent in the condition. `<group:NAME>` stands for
+- **A policy is written as *Create policy* writes it**: one target, the MCP server or the model the wizard picks first and
+  the `// Target:` line names, whose *Visual* view offers no other resource. On MCPs, one statement per tool of that server,
+  `principal in Group::"<group:NAME>"`, `action == Action::"<tool>"`, `resource == MCPTool::"<tool>"`, and the agent in the
+  condition. `<group:NAME>` stands for
   the id Access Management gave the group, and `<agent:CLIENT_ID>` for the agent's. Only the first statement carries an
   `@id`, the name of the policy: [How APIM and Gamma behave](#how-apim-and-gamma-behave-what-the-seeder-relies-on) says why.
-  Open each policy in its *Visual* and *Classic* views once it is seeded. `kind` is `RESOURCE`, the default, or `GLOBAL`:
-  a policy keeps the kind it was made with, so a file that changes it makes the policy again.
+  Open each policy in its *Visual* and *Classic* views once it is seeded. `kind` is `RESOURCE`, the default, or `GLOBAL`.
+  `type` is the page of the console that lists the policy: `MCP`, the default, `MODEL` (AI Models), `API`, `AGENT` or
+  `CUSTOM`. A policy keeps the kind and the type it was made with, so a file that changes either makes the policy again.
+- **A policy on models** is written as the AI Models page writes it: one policy per model,
+  `action == Action::"invoke"` (a Local action, `{type: Action, id: invoke}` in `entities`, which the page's action list
+  reads) and `resource in Model::"<slug>"`, which covers the aliases that are its children. The engine takes one entity in
+  the resource scope, never a list.
 
 Seed files use `${VAR}` for everything that depends on the target: service URLs, the Redis password of a vector store
 resource, the gateway and AM addresses shown to clients. Acme Shop's seed files use, among others, `${AM_GATEWAY_URL}`,
@@ -649,7 +727,7 @@ not set`, and a variable a seed file uses with no value stops it with the file's
 | `AIM_AUTOMATION_URL` | Where `/automation` is served: Gamma's objects, and the groups and portals of an environment of its own | `APIM_MANAGEMENT_URL` |
 | `GAMMA_AM_URL` | The AM management API, as the APIM management API reaches it | `AM_MANAGEMENT_URL` |
 | `AM_PUBLIC_URL` | The AM gateway, as a browser reaches it | Required for `seed/am/gamma-link.yaml` |
-| `AM_GATEWAY_URL` | The AM gateway, as the API gateway and the seed reach it. Used by seed files, and the seed ends once it serves the domain and knows each application that has a `clientSecret`: a service that starts after the seed signs in at once | Unset: no wait |
+| `AM_GATEWAY_URL` | The AM gateway, as the API gateway and the seed reach it. Used by seed files, and the seed ends once it serves the domain and knows each application that has a `clientSecret`: a service that starts after the seed signs in at once. One that signs in with a key is not waited for, since only its key can sign in | Unset: no wait |
 | `APIM_GATEWAY_URL` | The API gateway, as a user reaches it. Used by seed files | |
 | `GATEWAY_INTERNAL_URL` | The API gateway, as the seed reaches it. With `SEED_WAIT_GATEWAY=1` the seed waits until it serves what was imported, in every environment; without it, it only uses it to wait for a replaced API to leave it | Unset: no wait |
 | `SEED_WAIT_GATEWAY` | `1` makes the seed wait for the gateway to take what it deployed: every API served, the protections and the budgets in force, a chat through every LLM proxy (`LLM_PROBE_KEY`). By default it does not: the seed ends when the management API holds everything, and the gateway takes it within seconds (an AI model downloads at its first deployment, which takes longer) | `0` |
@@ -735,9 +813,24 @@ outage:                             # lesson 2: an outage of the cloud provider 
   failover: true
 ```
 
+```yaml
+kill-switch:                        # lesson 6: the agent keeps calling the model until its subscription is paused
+  subscription: {application: Shop agent, api: Acme Shop LLM, plan: Agents}
+```
+
+```yaml
+kill-switch:                        # lesson 6: the agent keeps calling the model and its tools until both are paused
+  subscription:
+    - {application: Shop agent, api: Acme Shop LLM, plan: Agents}
+    - {application: Shop agent, api: Acme Shop MCP, plan: Agents}
+```
+
 A control targets an `api` (the steps of a flow, by phase, `request` or `response`, or with `failover: true` the API's failover,
-switched on or off), an `mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), or a `policy`. A failover control needs a
-`failover` block in the API's file, which says how it fails over once it is on.
+switched on or off), an `mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), a `policy`, or a
+`subscription`, named by its application, API and plan, which is paused while the control is on and resumed while it is
+off: one of `seed/apim/subscriptions/`, or of the `subscriptions` of an MCP proxy or a studio file, whose `api` is the
+name of the proxy or the studio. A list of subscriptions pauses them together. A failover control needs a `failover` block in the API's file, which says how it fails over
+once it is on. A subscription control names one that the platform accepts, never one that stays `pending`.
 
 - **Names are those of the seed files**, not always the console's. A step is named by its `name` in the file, a policy
   by its `name`, a target by the name of its API, proxy or workspace.
@@ -759,7 +852,8 @@ switched on or off), an `mcp-proxy` (the steps of a flow), a `workspace` (the st
 - **Re-seed starts the lessons over.** Every run brings each control to the state of the mode, even one the person
   switched or edited in the console, and only the controls. An LLM proxy is updated in place, its steps and its failover and then a
   deployment, because an import would replace it, drop its keys and make the gateway reload. An MCP proxy and a
-  workspace's router are written with the mode. A policy is deployed or taken out of service. The rest of an API stays
+  workspace's router are written with the mode. A policy is deployed or taken out of service. A subscription is paused
+  or resumed (`_pause` and `_resume` of the management API v2), and keeps its id and its key. The rest of an API stays
   imported once, with its digest recorded. The digest is the file's, never the mode's.
 - **A busy platform does not replace an API, and neither does a wrong update.** The API is imported again from its file
   only when the platform says it lacks the in-place update of an LLM proxy (404, 405 or 501). A platform that cannot
@@ -1006,7 +1100,8 @@ in `.env`, then run `make all`.
   step's panel, under the name of its policy. A workspace's router step has no such field: the platform drops it, and the
   router shows the step's own name.
 - An API's tracing is `analytics.tracing` (`enabled`, `verbose`), with `analytics.logging` and `analytics.otelLogs` for
-  the payloads of the spans. The Automation API has no field for them: an MCP proxy's are set on its API entity.
+  the payloads of the spans. The Automation API has no field for them, and a studio is made without them: an MCP proxy's
+  and a studio's are set on its API entity.
 - Authorization Management, as of 4.13.4:
   - *Create policy* writes `principal == Group::"..."` for a group, which permits none of its members. `principal in
     Group::"..."`, the editor's *Includes*, permits them.

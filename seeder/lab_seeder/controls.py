@@ -9,21 +9,28 @@ A control is one protection, named once and found in the seed files that carry i
     mcp-proxy: <name>     steps of a flow of an MCP proxy of seed/aim/mcp-proxies
     workspace: <name>     steps of the router of an AI workspace of seed/aim/workspaces (no `flow`)
     policy: <name>        an authorization policy of seed/authz/policies (no `flow`, no `steps`)
+    subscription: {application: <name>, api: <name>, plan: <name>}, or a list of them
+                          a subscription of seed/apim/subscriptions, or of an MCP proxy or a studio of seed/aim (its
+                          `subscriptions`), with no `flow` and no `steps`: paused while the control is on, the kill switch of
+                          the application that holds it. A list pauses them together: an agent's access to the model and to
+                          its tools
 
 The seed files say the protected state: their steps are enabled, their failover on and their policies deployed. SEED_PROTECTIONS sets the
 state each run brings the controls to, whatever someone did in the console since:
 
-    on      as the files say (the default: a seed that sets nothing protects everything)
-    off     their steps are disabled, their failover off and their policy is not deployed: a lesson switches them on
+    on      as the files say (the default: a seed that sets nothing protects everything), and the subscriptions paused
+    off     their steps are disabled, their failover off, their policy is not deployed and their subscriptions are
+            resumed: a lesson switches them on
 
 Only what a control names is brought back; the rest of an API, a proxy or a workspace is left as it is. What a control
 names must exist: a step, a flow or a target that matches nothing is an error, in the seed files (a typo, a step
 renamed in the console and exported) as in what the platform holds when a run aligns it. A module asks `of()` for the
-controls of what it seeds, aligns the steps (`align`, `align_router`), the failover (`align_failover`) or the policy
-(`status`), and calls `touched()`
+controls of what it seeds, aligns the steps (`align`, `align_router`), the failover (`align_failover`), the policy
+(`status`) or the subscription (`align_subscription`), and calls `touched()`
 when it deploys; `finish()` ends the seed, and fails on a control no module found its target for.
 """
 
+import copy
 import os
 import time
 
@@ -31,12 +38,13 @@ from .common import SeedError, load, pause, seed_file, setting, waits_for_gatewa
 
 MODE = "SEED_PROTECTIONS"
 MODES = ("on", "off")
-TARGETS = ("api", "mcp-proxy", "workspace", "policy")
+TARGETS = ("api", "mcp-proxy", "workspace", "policy", "subscription")
 STEPPED = ("api", "mcp-proxy")   # the targets whose steps are in a flow
 PHASES = ("request", "response")
+SUBSCRIPTION = ("application", "api", "plan")   # what names the subscription of a control
 FILE = "controls.yaml"
 
-_matched = set()    # the controls whose target a module has found
+_matched = set()    # (control, target): the targets a module has found, each of a control that names several
 _changed = []       # when the seed last wrote something the gateway has to pick up
 
 
@@ -60,7 +68,20 @@ class Control:
             raise SeedError(f"{where}: one target is needed, one of {', '.join(TARGETS)}")
         self.id, self.kind = name, targets[0]
         self.target = spec[self.kind]
+        self.targets = [self.target]   # what it names: one, but for a list of subscriptions
         self.failover = False
+        if self.kind == "subscription":
+            listed = self.target if isinstance(self.target, list) else [self.target]
+            if not listed:
+                raise SeedError(f"{where}: subscription names one subscription or a list of them")
+            self.targets = [self.read_subscription(where, one) for one in listed]
+            if len(set(self.targets)) != len(self.targets):
+                raise SeedError(f"{where}: a subscription is named twice")
+            self.target = self.targets[0]
+            if set(spec) & {"flow", "steps", "failover"}:
+                raise SeedError(f"{where}: a subscription has no flow, no steps and no failover")
+            self.flow, self.steps = None, {}
+            return
         if not isinstance(self.target, str) or not self.target:
             raise SeedError(f"{where}: {self.kind} is the name of the {self.kind}")
         if "failover" in spec:
@@ -85,6 +106,14 @@ class Control:
         self.steps = self.read_steps(where, spec.get("steps"))
 
     @staticmethod
+    def read_subscription(where, spec):
+        """The name of a subscription as the seed's messages and records give it: `<application> → <api> (<plan>)`."""
+        if not (isinstance(spec, dict) and set(spec) == set(SUBSCRIPTION)
+                and all(isinstance(spec[key], str) and spec[key] for key in SUBSCRIPTION)):
+            raise SeedError(f"{where}: subscription is {{{', '.join(SUBSCRIPTION)}}}, each a name, or a list of them")
+        return f"{spec['application']} → {spec['api']} ({spec['plan']})"
+
+    @staticmethod
     def read_steps(where, steps):
         if not isinstance(steps, dict) or not steps or set(steps) - set(PHASES):
             raise SeedError(f"{where}: steps are {' and/or '.join(PHASES)}, each a list of step names")
@@ -92,6 +121,14 @@ class Control:
             if not (isinstance(names, list) and names and all(isinstance(n, str) and n for n in names)):
                 raise SeedError(f"{where}: steps.{phase} is a list of step names")
         return {phase: list(names) for phase, names in steps.items()}
+
+    def at(self, target):
+        """The control as it applies to one of its targets: `target` is that one, for its messages."""
+        if target == self.target:
+            return self
+        one = copy.copy(self)
+        one.target = target
+        return one
 
     def describe(self):
         """What it is applied to, for a message."""
@@ -128,9 +165,10 @@ def declared():
 
 
 def of(kind, target):
-    """The controls of what a module is about to seed (a kind and a name), which it marks as found."""
-    found = [control for control in declared() if (control.kind, control.target) == (kind, target)]
-    _matched.update(control.id for control in found)
+    """The controls of what a module is about to seed (a kind and a name), which it marks as found, each as it applies to
+    that target."""
+    found = [control.at(target) for control in declared() if control.kind == kind and target in control.targets]
+    _matched.update((control.id, target) for control in found)
     return found
 
 
@@ -152,10 +190,10 @@ def begin():
 def finish():
     """Ends a seed that changed nothing it should not have: every control found its target. With SEED_WAIT_GATEWAY=1, it then
     waits until the gateway has taken what the controls deployed."""
-    left = [control for control in declared() if control.id not in _matched]
+    left = [(control, target) for control in declared() for target in control.targets if (control.id, target) not in _matched]
     if left:
-        raise SeedError("; ".join(f"{FILE}: {control.id} names {control.kind} '{control.target}', which no seed file has"
-                                  for control in left))
+        raise SeedError("; ".join(f"{FILE}: {control.id} names {control.kind} '{target}', which no seed file has"
+                                  for control, target in left))
     settle()
 
 
@@ -216,6 +254,20 @@ def align_router(router, controls, enabled=None):
     for control in controls:
         changed = _steps(router, control, enabled) or changed
     return changed
+
+
+def align_subscription(status, controls, enabled=None):
+    """What a subscription the controls name needs to be as the mode says, from its status: `_pause` (the controls are on),
+    `_resume` (they are off), or None when it is so already. Only an accepted or a paused subscription is either."""
+    if not controls:
+        return None
+    paused = protected() if enabled is None else enabled
+    if status not in ("ACCEPTED", "PAUSED"):
+        raise Missing(f"control {named(controls)}: subscription '{controls[0].target}' is {str(status).lower()}, "
+                      "only an accepted subscription is paused")
+    if paused == (status == "PAUSED"):
+        return None
+    return "_pause" if paused else "_resume"
 
 
 def status(controls, wanted):

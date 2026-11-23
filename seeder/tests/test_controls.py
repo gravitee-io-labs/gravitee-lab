@@ -61,6 +61,12 @@ class Declaration(Seed):
                 ("x: {api: A, flow: F, steps: {request: [1]}}", "x: steps.request is a list of step names"),
                 ("x: {workspace: W, flow: F, steps: {request: [S]}}", "x: the router of a workspace is not in a flow"),
                 ("x: {policy: P, steps: {request: [S]}}", "x: a policy has no flow and no steps"),
+                ("x: {subscription: Dev}", r"x: subscription is \{application, api, plan\}, each a name"),
+                ("x: {subscription: {application: A, api: B}}", r"x: subscription is \{application, api, plan\}"),
+                ("x: {subscription: {application: A, api: B, plan: ''}}", r"x: subscription is \{application, api, plan\}"),
+                ("x: {subscription: {application: A, api: B, plan: P, apiKey: K}}", r"x: subscription is \{application, api, plan\}"),
+                ("x: {subscription: {application: A, api: B, plan: P}, flow: F}", "x: a subscription has no flow, no steps and no failover"),
+                ("x: {subscription: {application: A, api: B, plan: P}, failover: true}", "x: a subscription has no flow"),
                 ("[a, b]", "controls.yaml: expected the controls, by name")):
             with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, message):
                 self.declare(text)
@@ -71,6 +77,69 @@ class Declaration(Seed):
         self.assertEqual([c.id for c in controls.of("api", "LLM")], ["a"])
         self.assertEqual([c.id for c in controls.of("mcp-proxy", "LLM")], ["b"])
         self.assertEqual(controls.of("api", "Other"), [])
+
+
+class Subscription(Seed):
+    """A control may name a subscription (`subscription: {application, api, plan}`): on, it is paused, the kill switch of an
+    application."""
+
+    def declare(self, text):
+        self.seed_files({"controls.yaml": text})
+        return controls.declared()
+
+    def test_a_subscription_is_named_as_the_seed_names_it_by_its_application_its_api_and_its_plan(self):
+        [control] = self.declare("kill: {subscription: {application: Agent, api: LLM, plan: Agents}}\n")
+        self.assertEqual((control.id, control.kind, control.target, control.flow, control.steps),
+                         ("kill", "subscription", "Agent → LLM (Agents)", None, {}))
+        self.assertEqual(control.describe(), "subscription 'Agent → LLM (Agents)'")
+        self.assertEqual([c.id for c in controls.of("subscription", "Agent → LLM (Agents)")], ["kill"])
+        self.assertEqual(controls.of("api", "LLM"), [])
+
+    def test_a_list_names_several_subscriptions_each_found_and_told_as_its_own(self):
+        """The kill switch of an agent pauses its access to the model and to its tools together."""
+        [control] = self.declare("kill: {subscription: [{application: Agent, api: LLM, plan: Agents},\n"
+                                 "                       {application: Agent, api: Tools, plan: Accounts}]}\n")
+        self.assertEqual(control.targets, ["Agent → LLM (Agents)", "Agent → Tools (Accounts)"])
+        [tools] = controls.of("subscription", "Agent → Tools (Accounts)")
+        self.assertEqual((tools.id, tools.target, tools.describe()), ("kill", "Agent → Tools (Accounts)",
+                                                                       "subscription 'Agent → Tools (Accounts)'"))
+        with self.assertRaisesRegex(controls.Missing, r"subscription 'Agent → Tools \(Accounts\)' is pending"):
+            controls.align_subscription("PENDING", [tools], True)
+        with self.assertRaisesRegex(common.SeedError, r"^controls.yaml: kill names subscription 'Agent → LLM \(Agents\)', which no seed file has$"):
+            controls.finish()
+        controls.of("subscription", "Agent → LLM (Agents)")
+        controls.finish()
+
+    def test_a_list_declared_wrongly_is_an_error_that_names_the_control(self):
+        for text, message in (
+                ("kill: {subscription: []}", "kill: subscription names one subscription or a list of them"),
+                ("kill: {subscription: [{application: A, api: B}]}", r"kill: subscription is \{application, api, plan\}"),
+                ("kill: {subscription: [{application: A, api: B, plan: C}, {application: A, api: B, plan: C}]}",
+                 "kill: a subscription is named twice")):
+            with self.subTest(text=text), self.assertRaisesRegex(common.SeedError, f"^controls.yaml: {message}"):
+                self.declare(text + "\n")
+
+    def test_on_it_is_paused_and_off_it_is_resumed_and_a_subscription_so_already_needs_nothing(self):
+        [control] = self.declare("kill: {subscription: {application: Agent, api: LLM, plan: Agents}}\n")
+        for status, enabled, route in (("ACCEPTED", True, "_pause"), ("PAUSED", True, None),
+                                       ("PAUSED", False, "_resume"), ("ACCEPTED", False, None)):
+            with self.subTest(status=status, enabled=enabled):
+                self.assertEqual(controls.align_subscription(status, [control], enabled), route)
+        self.assertIsNone(controls.align_subscription("ACCEPTED", [], True), "no control: nothing to do")
+
+    def test_the_mode_decides_when_the_state_is_not_given(self):
+        [control] = self.declare("kill: {subscription: {application: Agent, api: LLM, plan: Agents}}\n")
+        self.assertEqual(controls.align_subscription("ACCEPTED", [control]), "_pause", "the default mode is on")
+        self.env(SEED_PROTECTIONS="off")
+        self.assertEqual(controls.align_subscription("PAUSED", [control]), "_resume")
+
+    def test_a_subscription_that_is_neither_accepted_nor_paused_is_an_error(self):
+        [control] = self.declare("kill: {subscription: {application: Agent, api: LLM, plan: Agents}}\n")
+        for status in ("PENDING", "CLOSED", None):
+            with self.subTest(status=status), self.assertRaisesRegex(
+                    controls.Missing, f"^control kill: subscription 'Agent → LLM \\(Agents\\)' is {str(status).lower()}, "
+                                      "only an accepted subscription is paused$"):
+                controls.align_subscription(status, [control], True)
 
 
 class Failover(Seed):
@@ -226,12 +295,19 @@ class Ending(Seed):
     def setUp(self):
         super().setUp()
         self.seed_files({"controls.yaml": write("pii: {api: LLM, flow: Prompt, steps: {request: [Guard]}}",
-                                                "cap: {policy: A rule}")})
+                                                "cap: {policy: A rule}",
+                                                "kill: {subscription: {application: Agent, api: LLM, plan: Agents}}")})
 
     def test_a_control_no_module_found_a_target_for_stops_the_seed_naming_it(self):
         controls.begin()
         controls.of("api", "LLM")
+        controls.of("subscription", "Agent → LLM (Agents)")
         with self.assertRaisesRegex(common.SeedError, "^controls.yaml: cap names policy 'A rule', which no seed file has$"):
+            controls.finish()
+        controls.begin()
+        controls.of("api", "LLM")
+        controls.of("policy", "A rule")
+        with self.assertRaisesRegex(common.SeedError, r"^controls.yaml: kill names subscription 'Agent → LLM \(Agents\)', which no seed file has$"):
             controls.finish()
 
     def test_a_new_seed_forgets_what_the_last_one_found(self):
@@ -239,7 +315,7 @@ class Ending(Seed):
         controls.of("api", "LLM")
         controls.of("policy", "A rule")
         controls.begin()
-        with self.assertRaisesRegex(common.SeedError, "pii names api 'LLM'.*cap names policy 'A rule'"):
+        with self.assertRaisesRegex(common.SeedError, "pii names api 'LLM'.*cap names policy 'A rule'.*kill names subscription"):
             controls.finish()
 
 
