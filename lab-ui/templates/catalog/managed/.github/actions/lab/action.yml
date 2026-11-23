@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 11: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 12: change it with catalog.py upgrade, in a pull request a maintainer reads.
 name: Lab
 description: Checks out the Lab this catalog is written for, at the release .github/standard.json names, checks that it is a release of the Lab, and installs Compose 5
 
@@ -15,6 +15,10 @@ inputs:
     description: "false: a job that runs no Compose"
     required: false
     default: "true"
+  needs-key:
+    description: The read-only deploy key of the catalogs this one requires (requires.catalogs), NEEDS_DEPLOY_KEY; empty when it requires none
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -66,3 +70,11 @@ runs:
     - name: Install Compose
       if: ${{ inputs.compose == 'true' }}
       uses: ./lab/.github/actions/compose
+    # The catalogs this one requires, each at the commit standard.json names under needs, linked into the Lab: every job that reads
+    # the catalog with Compose reads it with what it includes. It runs before any code of the change, and the key leaves with the step
+    - name: Catalogs it needs
+      if: ${{ inputs.compose == 'true' }}
+      shell: bash
+      env:
+        NEEDS_DEPLOY_KEY: ${{ inputs.needs-key }}
+      run: python3 -I lab/lab-ui/catalog.py ci needs catalog

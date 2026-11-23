@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 11: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 12: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # End to end, for the maintainers: each item a change touches starts on a machine with no lab, with the platform and a license, and
 # has to work, as `make e2e` does in the Lab. It is the one workflow that holds the license, and it is always the workflow of main:
 # a pull request is data for it, never code.
@@ -66,6 +66,7 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+          needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}
       # The pull request, as data: its files are read by the plan and tried from a folder of their own, and never run as a workflow
       - name: Check out the pull request
         if: ${{ inputs.pr != '' }}
@@ -119,6 +120,7 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+          needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}
       - name: Check out the pull request
         if: ${{ inputs.pr != '' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

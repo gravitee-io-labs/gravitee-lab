@@ -1443,13 +1443,27 @@ class DayOne(Case):
 
 class Rules(unittest.TestCase):
 
-    def test_the_lab_key_goes_to_the_lab_action_alone_called_from_the_checkout_of_the_catalog(self):
+    def test_the_read_keys_go_to_the_lab_action_alone_called_from_the_checkout_of_the_catalog(self):
         for path, data in render(**EVERYTHING).items():
             for line in data.decode("utf-8").split("\n"):
                 if "LAB_DEPLOY_KEY" in line and "secrets." in line:
                     self.assertIn("key: ${{ secrets.LAB_DEPLOY_KEY }}", line, path)
+                if "NEEDS_DEPLOY_KEY" in line and "secrets." in line:
+                    self.assertEqual(line.strip(), "needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}", path)
         text = render()[".github/workflows/ci.yml"].decode()
         self.assertEqual(text.count("uses: ./catalog/.github/actions/lab"), 3)
+
+    def test_every_job_that_runs_compose_reads_the_catalog_with_the_catalogs_it_requires(self):
+        # The lab action links them where Compose runs; the seed job runs none and gets no key
+        for path, data in render(**EVERYTHING).items():
+            if path.startswith(".github/workflows/"):
+                text = data.decode("utf-8")
+                uses, without = text.count("uses: ./catalog/.github/actions/lab"), text.count('compose: "false"')
+                self.assertEqual(text.count("needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}"), uses - without, path)
+                self.assertNotIn("catalog.py ci needs", text, path)
+        action = render()[".github/actions/lab/action.yml"].decode("utf-8")
+        self.assertIn("NEEDS_DEPLOY_KEY: ${{ inputs.needs-key }}", action)
+        self.assertIn("run: python3 -I lab/lab-ui/catalog.py ci needs catalog", action)
 
 
 class Hostile(unittest.TestCase):

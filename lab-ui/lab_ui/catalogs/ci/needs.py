@@ -1,9 +1,9 @@
 """`ci needs`: the catalogs a catalog requires, fetched at the commit its standard.json names and linked, so that `check` and
 `index` read the catalog together with what it includes.
 
-A catalog that includes another one cannot be read alone (`check` says so and stops). While that other catalog is private,
-CI reads it with a read-only deploy key of its own repository, the secret NEEDS_DEPLOY_KEY, which this stage writes to a file
-of its own for the length of the fetch and nothing else. `.github/standard.json` names what is needed:
+A catalog that includes another one cannot be read alone (`check` says so and stops). CI reads that other catalog, public or
+private, with a read-only deploy key of its own repository, the secret NEEDS_DEPLOY_KEY, which this stage writes to a file of
+its own for the length of the fetch and nothing else. The managed `lab` action runs it in every job that runs Compose. `.github/standard.json` names what is needed:
 
     "needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>"}}
 
