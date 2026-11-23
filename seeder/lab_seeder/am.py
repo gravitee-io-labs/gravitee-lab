@@ -17,9 +17,12 @@ With AM_GATEWAY_URL set, the seed ends once the gateway serves the domain and si
 `clientSecret`, so that a service that starts after it and signs in at once finds them there.
 
 An agent keeps what its kind gives it (grant types, response types, validities): the file adds its `scopes` (the ones it
-may ask a person for), its claims and its redirect URIs. A hosted or autonomous agent starts with a key pair to sign in
-with, which nothing here holds: when the file gives it a `clientSecret`, it signs in with that secret. The secret is the
-file's: it is never generated, read back or logged.
+may ask a person for; `scopes: []` takes away any it holds), its claims and its redirect URIs. A hosted or autonomous
+agent starts with a key pair to sign in with: `oauth.tokenEndpointAuthMethod: private_key_jwt` with `oauth.jwksUri`
+(where AM fetches the agent's public keys) or `oauth.jwks` (the keys themselves) registers it, as Gamma's Agent
+Identity does in JWKS mode. When the file gives it a `clientSecret` and no method, it signs in with that secret. The
+secret is the file's: it is never generated, read back or logged. An application that signs in with a key is not
+signed in at the end of the seed: only its own key can.
 """
 
 import json
@@ -232,13 +235,15 @@ class AccessManagement:
         validity = oauth.get("tokenValidity", {})
         claims = [{"tokenType": c.get("tokenType", "access_token"), "claimName": c["claimName"], "claimValue": c["claimValue"]}
                   for c in oauth.get("tokenCustomClaims", [])]
+        # Where the application's public keys are, for `private_key_jwt`: the address AM fetches them from, or the keys
+        keys = {key: oauth[key] for key in ("jwksUri", "jwks") if oauth.get(key)}
         if spec.get("kind"):
             # An agent keeps what its kind gives it (grant types, response types, validity): the file adds what it may
             # ask a person for, what its tokens say, where it is sent back to and how it proves who it is
             settings = {}
             if spec.get("oauth"):
                 settings["tokenCustomClaims"] = claims
-            if spec.get("scopes"):
+            if spec.get("scopes") is not None:
                 settings["scopeSettings"] = scope_settings(spec["scopes"])
             if spec.get("redirectUris") and spec["kind"] != "AUTONOMOUS":   # it has no one to send back
                 settings["redirectUris"] = spec["redirectUris"]
@@ -247,7 +252,7 @@ class AccessManagement:
                 method = "client_secret_basic"
             if method:
                 settings["tokenEndpointAuthMethod"] = method
-            return settings
+            return {**settings, **keys}
         settings = {
             "grantTypes": oauth.get("grantTypes", []),
             "responseTypes": oauth.get("responseTypes", ["code", "code id_token token", "code id_token", "code token"]),
@@ -260,6 +265,7 @@ class AccessManagement:
             "idTokenValiditySeconds": validity.get("idToken", 14400),
             "scopeSettings": scope_settings(spec.get("scopes", [])),
             "tokenCustomClaims": claims,
+            **keys,
         }
         if oauth.get("tokenExchange"):
             settings["tokenExchangeOAuthSettings"] = {"inherited": oauth["tokenExchange"].get("inherited", True),

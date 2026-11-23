@@ -18,6 +18,7 @@ SYSTEM_SCOPES = ("openid", "profile", "email")
 SECRET = "desk-copilot-secret"
 CALLBACK = "http://localhost:8130/auth/callback"
 CLAIM = "{#context.attributes['user']['additionalInformation']['region']}"
+JWKS_URI = "http://desk-copilot:8000/.well-known/jwks.json"
 
 DOMAIN_FILE = """\
 name: orchid
@@ -415,6 +416,46 @@ class Agent(Case):
         self.assertEqual(oauth["grantTypes"], ["client_credentials", "urn:ietf:params:oauth:grant-type:token-exchange"])
         self.assertIsNone(oauth["redirectUris"], "AM gives an autonomous agent none, and the file's are not sent as settings")
         self.assertTrue(all("redirectUris" not in patch.get("settings", {}).get("oauth", {}) for patch in self.patches()))
+
+    def test_an_autonomous_agent_with_a_jwks_uri_signs_in_with_its_key_and_holds_no_secret(self):
+        self.files(agent=agent_file(**{"kind: HOSTED_DELEGATED": "kind: AUTONOMOUS", f"clientSecret: {SECRET}\n": None,
+                                       "oauth:\n": f"oauth:\n  tokenEndpointAuthMethod: private_key_jwt\n  jwksUri: {JWKS_URI}\n"}))
+        self.seed()
+        self.assertEqual((self.oauth()["tokenEndpointAuthMethod"], self.oauth()["jwksUri"]), ("private_key_jwt", JWKS_URI))
+        self.assertNotIn("clientSecret", self.platform.sent("POST", APPLICATIONS)[0].json)
+        self.settle()
+        self.again()
+        self.assertEqual(self.writes(), [], "a second seed saves nothing")
+
+    def test_a_jwks_uri_that_moved_is_sent_again_and_nothing_else(self):
+        keyed = {"kind: HOSTED_DELEGATED": "kind: AUTONOMOUS", f"clientSecret: {SECRET}\n": None,
+                 "oauth:\n": f"oauth:\n  tokenEndpointAuthMethod: private_key_jwt\n  jwksUri: {JWKS_URI}\n"}
+        self.files(agent=agent_file(**keyed))
+        self.seed()
+        self.settle()
+        self.files(agent=agent_file(**keyed).replace(JWKS_URI, "http://desk-copilot:9000/jwks.json"))
+        self.again()
+        self.assertEqual([patch["settings"]["oauth"] for patch in self.patches()], [{"jwksUri": "http://desk-copilot:9000/jwks.json"}])
+
+    def test_the_keys_themselves_may_be_given_and_are_compared_as_a_document(self):
+        jwks = {"keys": [{"kty": "EC", "crv": "P-256", "x": "eA", "y": "eQ", "kid": "k1", "use": "sig"}]}
+        self.files(agent=agent_file(**{f"clientSecret: {SECRET}\n": None,
+                                       "oauth:\n": "oauth:\n  tokenEndpointAuthMethod: private_key_jwt\n"
+                                                   "  jwks: {keys: [{kty: EC, crv: P-256, x: eA, y: eQ, kid: k1, use: sig}]}\n"}))
+        self.seed()
+        self.assertEqual(self.oauth()["jwks"], jwks)
+        self.settle()
+        self.oauth()["jwks"]["keys"][0]["alg"] = "ES256"   # a field AM adds is no difference
+        self.again()
+        self.assertEqual(self.writes(), [])
+
+    def test_an_agent_whose_file_says_no_scopes_loses_the_ones_it_holds(self):
+        self.seed()
+        self.settle()
+        self.files(agent=agent_file(**{"scopes: [openid, profile, email, searchCustomers, getCustomer, createRefund]\n": "scopes: []\n"}))
+        self.again()
+        self.assertEqual([set(patch["settings"]["oauth"]) for patch in self.patches()], [{"scopeSettings"}])
+        self.assertEqual(self.oauth()["scopeSettings"], [])
 
     def test_an_agent_that_lives_in_an_application_keeps_the_method_it_was_given(self):
         self.files(agent=agent_file(**{"kind: HOSTED_DELEGATED": "kind: USER_EMBEDDED", f"clientSecret: {SECRET}\n": None}))
