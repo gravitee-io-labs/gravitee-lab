@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 11: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 12: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # Every 30 minutes, on the main branch: each playground is tried on the releases of Gravitee it does not say it was tested with yet (the newest
 # release of each of the five newest minor versions, and a pre-release above them), on a machine with no lab and with the license, as
 # `make e2e` does. What works is written in its x-gravitee.tested, committed to main and released as the next patch version, so that
@@ -57,6 +57,7 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+          needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}
       - name: Plan the jobs
         id: plan
         run: |
@@ -84,6 +85,7 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+          needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}
       # The images of the platform and a database take the room a runner has: what it comes with and the lab does not use goes
       - name: Make room
         run: |
@@ -152,6 +154,7 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+          needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}
       - name: Fetch the results
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

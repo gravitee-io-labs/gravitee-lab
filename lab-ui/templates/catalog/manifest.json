@@ -1,5 +1,5 @@
 {
-  "level": 11,
+  "level": 12,
   "files": [
     {"path": ".catalog/standard.mk", "class": "managed", "since": 1, "when": "always", "scope": "full"},
     {"path": ".github/dependabot.yml", "class": "managed", "since": 1, "when": "always", "scope": "full"},
@@ -91,6 +91,11 @@
     },
     "11": {
       "summary": "versions.yml closes the issue of a run that did not finish, The workflow Gravitee versions did not finish, once a run finishes: a run that failed on the network does not leave it open.",
+      "manual": [],
+      "settings": []
+    },
+    "12": {
+      "summary": "The lab action fetches and links the catalogs this one requires in every job that runs Compose, not in Checks alone: Apps, the end-to-end runs, Nightly, Publish and Gravitee versions read the catalog with what it includes.",
       "manual": [],
       "settings": []
     }

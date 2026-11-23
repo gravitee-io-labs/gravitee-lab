@@ -1,4 +1,4 @@
-# Managed by the Lab catalog standard 11: change it with catalog.py upgrade, in a pull request a maintainer reads.
+# Managed by the Lab catalog standard 12: change it with catalog.py upgrade, in a pull request a maintainer reads.
 # Every night, on the main branch: what changes while nobody pushes. The newest Lab still reads the catalog, the standard files are the
 # newest Lab's, the links of the guides answer, the rules of the main branch are still the standard's, and the images that were
 # published have no fixable critical flaw. The newest Lab is code nobody has read yet, so the job that runs it holds nothing: no token,
@@ -38,6 +38,7 @@ jobs:
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
           latest: "true"
+          needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}
       # A standard that fell behind counts as a failure here (SD03), where a pull request only warns
       - name: The newest Lab reads the catalog
         run: python3 -I lab/lab-ui/catalog.py check catalog --ci --error SD03
@@ -64,6 +65,7 @@ jobs:
         uses: ./catalog/.github/actions/lab
         with:
           key: ${{ secrets.LAB_DEPLOY_KEY }}
+          needs-key: ${{ secrets.NEEDS_DEPLOY_KEY }}
       - name: The rules of the main branch are the standard's
         env:
           GH_TOKEN: ${{ github.token }}
