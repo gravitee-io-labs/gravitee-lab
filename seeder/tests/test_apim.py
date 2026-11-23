@@ -149,9 +149,10 @@ class Apim:
         return 200, {}
 
     def subscriptions_of(self, call):
+        statuses = call.params.get("statuses", "ACCEPTED").split(",")
         return 200, {"data": [s for s in self.subscriptions.values() if s["apiId"] == self.id_in(call)
                               and s["planId"] == call.params["planIds"] and s["applicationId"] == call.params["applicationIds"]
-                              and s["status"] == "ACCEPTED"]}
+                              and s["status"] in statuses]}
 
     def subscribe(self, call):
         subscription = {"id": self.new("subscription"), "apiId": self.id_in(call), "status": "ACCEPTED", **call.json}
@@ -161,6 +162,16 @@ class Apim:
     def close_subscription(self, call):
         self.subscriptions[call.path.split("/")[-2]]["status"] = "CLOSED"
         return 204
+
+    def pause_or_resume(self, before, after):
+        """_pause and _resume: the platform refuses a subscription that is not in the status it changes."""
+        def change(call):
+            subscription = self.subscriptions[call.path.split("/")[-2]]
+            if subscription["status"] != before:
+                return 400, {"message": f"Subscription [{subscription['id']}] is not {before.lower()}"}
+            subscription["status"] = after
+            return 200, subscription
+        return change
 
     def routes(self):
         api = V2 + "/apis/[^/]+"
@@ -180,6 +191,8 @@ class Apim:
             ("GET", re.compile(api + "/subscriptions")): self.subscriptions_of,
             ("POST", re.compile(api + "/subscriptions")): self.subscribe,
             ("POST", re.compile(api + "/subscriptions/[^/]+/_close")): self.close_subscription,
+            ("POST", re.compile(api + "/subscriptions/[^/]+/_pause")): self.pause_or_resume("ACCEPTED", "PAUSED"),
+            ("POST", re.compile(api + "/subscriptions/[^/]+/_resume")): self.pause_or_resume("PAUSED", "ACCEPTED"),
             ("GET", V1 + "/applications"): self.applications_named,
             ("POST", V1 + "/applications"): self.create_application,
             ("PUT", re.compile(V1 + "/applications/[^/]+")): self.update_application,
@@ -878,6 +891,92 @@ class StartingTheLessonsOver(ControlledConverged):
                 self.run_seed()
                 controls.settle()
                 self.assertAlmostEqual(self.clock.elapsed - slept, seconds, delta=1)
+
+
+KILL_SWITCH = "kill: {subscription: {application: Dev, api: ACME LLM, plan: Developers}}\n"
+DEV = "Dev → ACME LLM (Developers)"
+
+
+class SubscriptionControlled(Playground):
+    """A control names the subscription of Dev to the LLM proxy: on, it is paused, the kill switch of an application. The
+    mode is off."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed_files({"apim/settings.yaml": SETTINGS, "controls.yaml": KILL_SWITCH})
+        self.env(SEED_PROTECTIONS="off")
+
+    def dev(self):
+        """The status of each subscription of Dev to the LLM proxy, as APIM holds them."""
+        return [s["status"] for s in self.apim.subscriptions.values() if s["planId"] == "llm-id-Developers"]
+
+    def route(self, name):
+        return ("POST", V2 + f"/apis/llm-id/subscriptions/{self.record(DEV)['id']}/{name}")
+
+    def test_off_the_subscription_is_made_accepted_and_a_second_run_asks_for_no_change(self):
+        self.run_seed()
+        self.assertEqual(self.dev(), ["ACCEPTED"])
+        self.assertIn(f"Controls of {DEV} are off: kill", self.output())
+        self.assertEqual(self.run_seed(), [])
+
+    def test_on_the_subscription_is_made_then_paused_with_its_key_and_a_second_run_asks_for_no_change(self):
+        self.env(SEED_PROTECTIONS="on")
+        changes = self.run_seed()
+        self.assertEqual(self.dev(), ["PAUSED"])
+        self.assertLess(changes.index(("POST", V2 + "/apis/llm-id/subscriptions")), changes.index(self.route("_pause")))
+        self.assertEqual(list(self.keys().values()), ["dev-key-0001"])
+        self.assertIn(f"✓ Controls of {DEV} put back, on: kill (subscription paused)", self.output())
+        self.assertEqual(self.run_seed(), [])
+
+    def test_a_subscription_someone_paused_is_resumed_by_the_next_run_and_keeps_its_id_and_key(self):
+        self.run_seed()
+        before = (self.record(DEV)["id"], self.keys())
+        next(s for s in self.apim.subscriptions.values() if s["planId"] == "llm-id-Developers")["status"] = "PAUSED"
+        self.assertEqual(self.run_seed(), [self.route("_resume")])
+        self.assertEqual(self.dev(), ["ACCEPTED"])
+        self.assertEqual((self.record(DEV)["id"], self.keys()), before)
+        self.assertIn(f"✓ Controls of {DEV} put back, off: kill (subscription resumed)", self.output())
+
+    def test_the_other_mode_pauses_it_and_the_first_resumes_it(self):
+        self.run_seed()
+        self.env(SEED_PROTECTIONS="on")
+        self.assertEqual(self.run_seed(), [self.route("_pause")])
+        self.assertEqual(self.dev(), ["PAUSED"])
+        self.env(SEED_PROTECTIONS="off")
+        self.assertEqual(self.run_seed(), [self.route("_resume")])
+        self.assertEqual(self.dev(), ["ACCEPTED"])
+
+    def test_the_subscription_of_a_replaced_api_is_made_again_and_paused_again(self):
+        self.env(SEED_PROTECTIONS="on")
+        self.run_seed()
+        first = self.record(DEV)["id"]
+        self.env(TARGET="http://another:11434")   # a new digest: the LLM proxy is replaced, which closes its subscriptions
+        changes = self.run_seed()
+        self.assertNotEqual(self.record(DEV)["id"], first)
+        self.assertIn(self.route("_pause"), changes)
+        self.assertEqual(self.dev(), ["PAUSED"])
+        self.assertEqual(self.run_seed(), [])
+
+    def test_a_subscription_the_seed_did_not_make_is_left_as_it_is(self):
+        self.run_seed()
+        common.forget(self.record(DEV))
+        next(s for s in self.apim.subscriptions.values() if s["planId"] == "llm-id-Developers")["status"] = "PAUSED"
+        self.assertEqual(self.run_seed(), [])
+        self.assertEqual(self.dev(), ["PAUSED"])
+        self.assertIn(f"! Subscription {DEV} is not one the seed made: control kill leaves it as it is", self.output())
+
+    def test_a_control_on_a_subscription_that_stays_pending_stops_the_seed_before_it_is_asked_for(self):
+        self.edit("apim/subscriptions/all.yaml", lambda text: text.replace("plan: Developers, apiKey: '${DEV_KEY}'", "plan: Developers, pending: true"))
+        with self.assertRaisesRegex(common.SeedError, f"^Subscription {re.escape(DEV)}: control kill pauses it, and a subscription that stays pending is never paused$"):
+            self.run_seed()
+        self.assertEqual(self.dev(), [])
+
+    def test_a_control_that_names_a_subscription_no_file_has_stops_the_seed(self):
+        self.seed_files({"controls.yaml": KILL_SWITCH.replace("plan: Developers", "plan: Agents")})
+        controls.begin()
+        self.run_seed()
+        with self.assertRaisesRegex(common.SeedError, r"kill names subscription 'Dev → ACME LLM \(Agents\)', which no seed file has$"):
+            controls.finish()
 
 
 FAILOVER = {"enabled": True, "maxRetries": 1, "slowCallDuration": 30000, "openStateDuration": 10000, "maxFailures": 5,

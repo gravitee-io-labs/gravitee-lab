@@ -30,7 +30,8 @@ the update (it answers 404, 405 or 501). A platform that does not answer (a conn
 asked again a few times, and any other refusal stops the seed with the platform's message: the API is never replaced because the
 platform was busy or because the seed sent something it found wrong.
 Applications are found by name: one the seed did not create holds that name, and the seed stops there as well.
-Subscriptions are found by application and plan, on the API the seed made under that name. A subscription with an apiKey
+Subscriptions are found by application and plan, on the API the seed made under that name, and a subscription a control
+names is paused or resumed as the mode says (accepted, it is paused while the control is on). A subscription with an apiKey
 asks for that custom key, which the environment settings must allow. A `consumerConfiguration` is the callback of a push plan,
 which an existing subscription is updated to when it differs. A `comment` is the message of the request and `pending: true`
 leaves the subscription for someone to accept: only the Portal API creates those (the management API accepts at once what it
@@ -696,10 +697,14 @@ class ApiManagement:
     # --- Subscriptions --------------------------------------------------------------------
 
     def subscription(self, spec):
-        label = self.scoped(f"{spec['application']} → {spec['api']} ({spec['plan']})")
+        plain = f"{spec['application']} → {spec['api']} ({spec['plan']})"
+        label = self.scoped(plain)
         key, comment, pending = spec.get("apiKey"), spec.get("comment"), spec.get("pending")
         if pending and key:
             raise SeedError(f"Subscription {label}: a subscription that stays pending takes no apiKey, the one who accepts it chooses")
+        found = controls.of("subscription", plain) if self.own else []   # the controls name a subscription of seed/apim/
+        if pending and found:
+            raise SeedError(f"Subscription {label}: control {controls.named(found)} pauses it, and a subscription that stays pending is never paused")
         app, api = find_application(self.api, self.v1, spec["application"]), made_under(self.scoped(spec["api"]))
         if not app:
             raise SeedError(f"Subscription {label}: application not found")
@@ -717,6 +722,7 @@ class ApiManagement:
                 log(SECTION, f"✓ Subscription updated: {label}")
             else:
                 log(SECTION, f"Subscription exists: {label}")
+            self.paused_as_mode_says(api["id"], existing, found, label)
             return
         by_itself = plan.get("validation") == "AUTO"   # a plan that accepts what is asked for as soon as it is asked
         if pending and by_itself:
@@ -739,6 +745,25 @@ class ApiManagement:
         if sub.get("status") == "PENDING" and not pending:
             accept(self.api, self.v2, api["id"], sub["id"], key)
         log(SECTION, f"✓ Subscription: {label}" + (" (pending)" if pending else ""))
+        self.paused_as_mode_says(api["id"], {**sub, "status": "PENDING" if pending else "ACCEPTED"}, found, label)
+
+    def paused_as_mode_says(self, api_id, sub, found, label):
+        """Pauses the subscription while its controls are on, and resumes it while they are off, with the routes the Console
+        calls: a paused subscription lets no call of its application through, and keeps its keys. Only one the seed made is
+        changed."""
+        route = controls.align_subscription(sub.get("status"), found)
+        state = "on" if controls.protected() else "off"
+        if found and not route:
+            log(SECTION, f"  Controls of {label} are {state}: {controls.named(found)}")
+        if not route:
+            return
+        if not recorded(SECTION, "subscription", sub["id"]):
+            log(SECTION, f"! Subscription {label} is not one the seed made: control {controls.named(found)} leaves it as it is")
+            return
+        self.api.post(f"{self.v2}/apis/{api_id}/subscriptions/{sub['id']}/{route}", what=f"Subscription {label}")
+        controls.touched()
+        log(SECTION, f"  ✓ Controls of {label} put back, {state}: {controls.named(found)} "
+                     f"(subscription {'paused' if route == '_pause' else 'resumed'})")
 
     def callback(self, found, api_id, spec, label):
         """The callback of a push subscription that is not what its file says: the update of the subscription, which the Console

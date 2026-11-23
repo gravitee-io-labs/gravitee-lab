@@ -475,7 +475,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/domain.yaml`, `applications/*.yaml`, `protected-resources/*.yaml` | Domain with its scopes, users, applications, MCP servers | AM Management API |
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
-| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, model sources (`model-sources`, one of each kind), models (in a model source or the manual one), the providers of an LLM proxy of `seed/apim` taken from model sources (`llm-proxies`), MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one whose backend asks for one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies, studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, model sources (`model-sources`, one of each kind), models (in a model source or the manual one), the providers of an LLM proxy of `seed/apim` taken from model sources (`llm-proxies`), MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one whose backend asks for one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies and studios (with their `subscriptions`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
 | `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management), GAPL policies, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
@@ -541,6 +541,10 @@ serve the lessons:
   subscriptions:
     - {application: Acme Shop copilot, apiKey: '${ACME_SHOP_COPILOT_KEY}'}
   ```
+
+  An MCP proxy file takes the same key, and its subscriptions are made once the proxy is deployed. An MCP proxy lets in any
+  valid token by default: `requireSubscription: true` in its plan's `securityConfiguration` lets in only the token of a
+  subscribed application, found by its client id, so the logs name the application and a control can pause it.
 
 - In a file with `access`, `authorization.agentIdentityResolution: true` makes the authorization check put the agent the
   token names in the context (`context.agent`), which authz-pep 3.0.2 leaves out by default. A file with `plan` switches
@@ -781,9 +785,24 @@ outage:                             # lesson 2: an outage of the cloud provider 
   failover: true
 ```
 
+```yaml
+kill-switch:                        # lesson 6: the agent keeps calling the model until its subscription is paused
+  subscription: {application: Shop agent, api: Acme Shop LLM, plan: Agents}
+```
+
+```yaml
+kill-switch:                        # lesson 6: the agent keeps calling the model and its tools until both are paused
+  subscription:
+    - {application: Shop agent, api: Acme Shop LLM, plan: Agents}
+    - {application: Shop agent, api: Acme Shop MCP, plan: Agents}
+```
+
 A control targets an `api` (the steps of a flow, by phase, `request` or `response`, or with `failover: true` the API's failover,
-switched on or off), an `mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), or a `policy`. A failover control needs a
-`failover` block in the API's file, which says how it fails over once it is on.
+switched on or off), an `mcp-proxy` (the steps of a flow), a `workspace` (the steps of its router), a `policy`, or a
+`subscription`, named by its application, API and plan, which is paused while the control is on and resumed while it is
+off: one of `seed/apim/subscriptions/`, or of the `subscriptions` of an MCP proxy or a studio file, whose `api` is the
+name of the proxy or the studio. A list of subscriptions pauses them together. A failover control needs a `failover` block in the API's file, which says how it fails over
+once it is on. A subscription control names one that the platform accepts, never one that stays `pending`.
 
 - **Names are those of the seed files**, not always the console's. A step is named by its `name` in the file, a policy
   by its `name`, a target by the name of its API, proxy or workspace.
@@ -805,7 +824,8 @@ switched on or off), an `mcp-proxy` (the steps of a flow), a `workspace` (the st
 - **Re-seed starts the lessons over.** Every run brings each control to the state of the mode, even one the person
   switched or edited in the console, and only the controls. An LLM proxy is updated in place, its steps and its failover and then a
   deployment, because an import would replace it, drop its keys and make the gateway reload. An MCP proxy and a
-  workspace's router are written with the mode. A policy is deployed or taken out of service. The rest of an API stays
+  workspace's router are written with the mode. A policy is deployed or taken out of service. A subscription is paused
+  or resumed (`_pause` and `_resume` of the management API v2), and keeps its id and its key. The rest of an API stays
   imported once, with its digest recorded. The digest is the file's, never the mode's.
 - **A busy platform does not replace an API, and neither does a wrong update.** The API is imported again from its file
   only when the platform says it lacks the in-place update of an LLM proxy (404, 405 or 501). A platform that cannot

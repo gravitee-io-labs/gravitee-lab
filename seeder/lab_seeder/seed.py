@@ -46,7 +46,8 @@ from .gamma import require_modules
 # Each module finds what it needs, by name or id, in what the modules before it made; OpenFGA's stores for AM's
 # authorization engine are the one thing handed over. A removal goes the other way: APIM's subscriptions use AM's
 # applications, and Gamma's objects use APIM's. The link to Access Management comes before what Gamma registers in it
-# (a studio's MCP server, an agent's identity); the agents come after the studios they subscribe to. The resources of
+# (a studio's MCP server, an agent's identity); the agents come after the studios they subscribe to. A subscription to an MCP
+# proxy or a studio is made by aim_proxies once that API exists: apim's subscriptions run before Gamma makes it. The resources of
 # the Kubernetes operator come last, so that a removal deletes them first: the operator deletes their APIs and
 # applications from API Management while that still holds what they use. The portals of the environments come right after
 # the APIs their listings name, and a removal deletes them first.
