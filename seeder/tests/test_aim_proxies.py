@@ -664,3 +664,103 @@ class Removal(WithStudio):
     def test_a_proxy_that_is_gone_is_not_an_error(self):
         self.world.proxies.clear()
         aim_proxies.remove(common.created())
+
+
+V1 = "/management/organizations/DEFAULT/environments/DEFAULT"
+SUBSCRIBED = PROXY + "\nsubscriptions:\n  - {application: Bakery agent}\n"
+KILL_SWITCH = "kill: {subscription: [{application: Bakery agent, api: Acme Bakery MCP, plan: Bank users}]}\n"
+
+
+class ProxySubscriptions(Proxies):
+    """`subscriptions` of an MCP proxy file: an application subscribed to the proxy's plan once the proxy is deployed, the
+    way a plan with `requireSubscription` lets its token in, and paused or resumed by a control (the kill switch of an
+    agent, which reaches its tools too)."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed_files({"aim/mcp-proxies/acme-bakery-mcp.yaml": SUBSCRIBED})
+        self.subscriptions, self.next_sub = {}, itertools.count(1)
+        every = re.compile
+        self.platform.add({
+            ("GET", V1 + "/applications"): lambda call: (200, [{"id": "app-agent", "name": "Bakery agent"}]),
+            ("GET", every(V2 + "/apis/[^/]+/subscriptions")): self.list_subscriptions,
+            ("POST", every(V2 + "/apis/[^/]+/subscriptions")): self.subscribe,
+            ("POST", every(V2 + "/apis/[^/]+/subscriptions/[^/]+/_accept")): lambda call: self.settle(call, "ACCEPTED"),
+            ("POST", every(V2 + "/apis/[^/]+/subscriptions/[^/]+/_pause")): lambda call: self.settle(call, "PAUSED"),
+            ("POST", every(V2 + "/apis/[^/]+/subscriptions/[^/]+/_resume")): lambda call: self.settle(call, "ACCEPTED"),
+            ("POST", every(V2 + "/apis/[^/]+/subscriptions/[^/]+/_close")): lambda call: self.settle(call, "CLOSED"),
+        })
+
+    def list_subscriptions(self, call):
+        statuses = call.params["statuses"].split(",")
+        rows = [dict(s) for s in self.subscriptions.values() if s["apiId"] == ids(call)[0] and s["planId"] == call.params["planIds"]
+                and s["applicationId"] == call.params["applicationIds"] and s["status"] in statuses]
+        return 200, {"data": rows}
+
+    def subscribe(self, call):   # the plan of an MCP proxy validates by hand: the subscription waits to be accepted
+        sub = {"id": f"sub-{next(self.next_sub)}", "apiId": ids(call)[0], "status": "PENDING", **call.json}
+        self.subscriptions[sub["id"]] = sub
+        return 201, dict(sub)
+
+    def settle(self, call, status):
+        sub = self.subscriptions[call.path.split("/")[-2]]
+        sub["status"] = status
+        return 200, dict(sub)
+
+    def statuses(self):
+        return [s["status"] for s in self.subscriptions.values()]
+
+    def test_the_application_is_subscribed_to_the_plan_once_the_proxy_is_deployed_and_accepted(self):
+        self.seed()
+        [call] = self.platform.sent("POST", V2 + f"/apis/{self.the_proxy()['id']}/subscriptions")
+        self.assertEqual(call.json, {"applicationId": "app-agent", "planId": "plan-1"})
+        self.assertEqual(self.statuses(), ["ACCEPTED"])
+        writes = [path for _, path in self.writes()]
+        self.assertLess(max(i for i, p in enumerate(writes) if p.endswith("/deployments")),
+                        writes.index(V2 + f"/apis/{self.the_proxy()['id']}/subscriptions"), "the subscription follows the deployment")
+        [record] = [x for x in common.created() if x["kind"] == "subscription"]
+        self.assertEqual((record["product"], record["label"], record["name"], record["api"]),
+                         ("aim-proxies", "subscriptions to MCP proxies", "Bakery agent → Acme Bakery MCP (Bank users)",
+                          self.the_proxy()["id"]))
+        self.assertIn("✓ Subscribed: Bakery agent → Acme Bakery MCP (Bank users)", self.output())
+
+    def test_a_second_run_writes_nothing(self):
+        self.seed()
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.writes(), [])
+        self.assertIn("Subscription exists: Bakery agent → Acme Bakery MCP (Bank users)", self.output())
+
+    def test_a_control_pauses_it_while_on_and_resumes_it_while_off(self):
+        self.seed_files({"controls.yaml": KILL_SWITCH})
+        self.seed()
+        self.assertEqual(self.statuses(), ["PAUSED"], "the default mode is on")
+        self.assertIn("✓ Controls of Bakery agent → Acme Bakery MCP (Bank users) put back, on: kill (subscription paused)", self.output())
+        self.platform.calls.clear()
+        self.seed()
+        self.assertEqual(self.writes(), [], "paused already")
+        self.env(SEED_PROTECTIONS="off")
+        self.seed()
+        self.assertEqual(self.statuses(), ["ACCEPTED"])
+
+    def test_a_subscription_someone_made_is_never_paused(self):
+        self.seed()
+        common.forget(*[x for x in common.created() if x["kind"] == "subscription"])
+        self.seed_files({"controls.yaml": KILL_SWITCH})
+        self.seed()
+        self.assertEqual(self.statuses(), ["ACCEPTED"])
+        self.assertIn("! Subscription Bakery agent → Acme Bakery MCP (Bank users) is not one the seed made", self.output())
+
+    def test_a_file_that_lists_them_wrongly_stops_the_seed_before_the_proxy_is_made(self):
+        self.seed_files({"aim/mcp-proxies/acme-bakery-mcp.yaml": PROXY + "\nsubscriptions: [{plan: Bank users}]\n"})
+        with self.assertRaisesRegex(common.SeedError, "^MCP proxy Acme Bakery MCP: subscriptions: each names its application$"):
+            self.seed()
+        self.assertEqual(self.world.proxies, {})
+
+    def test_the_removal_closes_the_subscription_before_it_deletes_the_proxy(self):
+        self.seed()
+        self.platform.calls.clear()
+        aim_proxies.remove(common.created())
+        api_id = f"api-{HRID}"
+        self.assertEqual(self.platform.changes(), [("POST", V2 + f"/apis/{api_id}/subscriptions/sub-1/_close"),
+                                                   ("DELETE", f"{AUTOMATION}/{HRID}")])

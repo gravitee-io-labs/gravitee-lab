@@ -436,7 +436,7 @@ class Creation(Studios):
         [call] = self.platform.sent("POST", V2 + "/apis/studio-1/plans")
         self.assertEqual(call.json, {
             "definitionVersion": "V4", "name": "Agents", "mode": "STANDARD", "validation": "AUTO",
-            "description": "Agents signed in by Access Management, one subscription each",
+            "description": "Callers signed in with Access Management, one subscription each",
             "characteristics": [], "tags": [], "excludedGroups": [], "commentRequired": False, "flows": [],
             "security": {"type": "JWT", "configuration": {
                 "signature": "RSA_RS256", "publicKeyResolver": "JWKS_URL",
