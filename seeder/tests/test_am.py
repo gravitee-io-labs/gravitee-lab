@@ -336,6 +336,16 @@ class Settings(Case):
             "idTokenValiditySeconds": 14400, "scopeSettings": [{"scope": "openid", "defaultScope": False, "scopeApproval": 300}],
             "tokenCustomClaims": [{"tokenType": "access_token", "claimName": "email", "claimValue": "{x}"}]})
 
+    def test_an_application_that_signs_in_with_a_key_says_where_its_public_keys_are(self):
+        spec = {"name": "Batch", "type": "SERVICE", "clientId": "batch",
+                "oauth": {"grantTypes": ["client_credentials"], "tokenEndpointAuthMethod": "private_key_jwt",
+                          "jwksUri": "http://batch:8000/.well-known/jwks.json"}}
+        oauth = am.AccessManagement._oauth(spec)
+        self.assertEqual((oauth["tokenEndpointAuthMethod"], oauth["jwksUri"]),
+                         ("private_key_jwt", "http://batch:8000/.well-known/jwks.json"))
+        self.assertNotIn("jwks", oauth, "a key the file does not give is not sent")
+        self.assertNotIn("jwksUri", am.AccessManagement._oauth(self.SPEC))
+
     def test_an_application_is_made_then_given_its_settings_and_its_identity_provider(self):
         self.seed_files({"am/domain.yaml": "name: example\n", "am/applications/site.yaml": json.dumps(self.SPEC)})   # JSON is YAML
         self.seed()
