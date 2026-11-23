@@ -45,7 +45,7 @@ from collections import namedtuple
 from pathlib import Path
 
 try:
-    from . import aim_proxies, common
+    from . import aim_agents, aim_proxies, common
 except ImportError as e:
     raise ImportError("seedlint reads the seed as the seeder does and needs its requirements: pip install -r "
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
@@ -73,7 +73,7 @@ COMMANDS = ("::", "##[")
 Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
 TITLES = {"variable": "Seed variable", "read": "Seed file", "parse": "Seed file",
-          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
+          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio", "fields": "Seed fields"}
 
 
 class Unreadable(common.SeedError):
@@ -668,6 +668,13 @@ def _lint(folder):
             else:
                 told = studio_problems(spec)
             out.extend(Problem("studio", str(path), 0, _short(text)) for text in told)
+        if not blocked and path.suffix in (".yaml", ".yml") and path.parent == folder / "seed" / "aim" / "agents":
+            try:
+                with _with_environment(environment):
+                    spec = _load(path)
+                aim_agents.agent_fields(spec, str(path.name))
+            except Exception as e:  # noqa: BLE001 - malformed fields are findings, never a crash
+                out.append(Problem("fields", str(path), 0, _short(_flat(e))))
     # The files of an environment agree with one another only once each of them can be read
     environments = folder / "seed" / "environments"
     if environments.is_dir() and not environments.is_symlink():
