@@ -480,10 +480,11 @@ The files of `seed/authz/` give Authorization Management what a person would set
 
 - **Principals come from Access Management.** `sync: access-management` in `entities.yaml` sends what *Import*, *Sync
   from Gravitee Access Management* sends on the Entities page: the users, groups and agents of the domain become
-  principals, each user under its groups. The seed records what the sync brought, so that a delete removes it. Give the
-  rights to groups of the domain (`groups` in `seed/am/domain.yaml`) rather than to a claim of the token. The seed waits
-  a minute for the sync: what a sync still running then brings later is not recorded, and what a sync started in the
-  console during that minute brings is recorded as the seed's.
+  principals, each user under its groups. Give the rights to groups of the domain (`groups` in `seed/am/domain.yaml`)
+  rather than to a claim of the token. The seed waits a minute for the sync, after one already running ends, and stops
+  with the reason of one that ends in an error or a timeout. It records the principals of what seed/am made, which it
+  knows by their ids: a group keeps its id, an agent takes the name UUID of its client id, a user that of its sub. A
+  delete removes them, and never a principal of another domain.
 - **Resources are the MCP server and its tools**: an `MCPServer` entity and one `MCPTool` per tool, whose id is the tool's
   name, which the studio sends as the resource of each call.
 - **The schema declares the actions**, one per tool, with the context each reads (`context.agent`, an argument of the call).

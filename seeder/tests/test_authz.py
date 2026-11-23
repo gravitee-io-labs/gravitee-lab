@@ -57,73 +57,135 @@ class Files(Seed):
 
 
 class Sync(Seed):
-    """`sync: access-management`: the sync the Entities page sends, waited for, what it brought recorded groups first, and
-    a group named in a policy by the id Access Management gave it."""
+    """`sync: access-management`: the sync the Entities page sends, waited for until its job ends, the principals of what
+    seed/am made recorded groups first and those of another domain left alone, and a group named in a policy by the id
+    Access Management gave it."""
 
-    class Api:
-        """Authorization Management as the sync leaves it: the principals before, then after."""
+    AM_USERS = "/management/organizations/DEFAULT/environments/DEFAULT/domains/d-1/users"
+    OTHER = {"entityType": "User", "entityId": "u-of-another-domain", "attributes": {"name": "someone else"}}
 
-        def __init__(self, before, after, statuses=("PENDING", "SUCCESS"), jobs=None):
-            self.lists, self.statuses, self.posted = [before, after], list(statuses), []
-            self.jobs = list(jobs or ["job-1"] * len(self.statuses))
-
-        def post(self, path, **kw):
-            self.posted.append(path)
-            return mock.Mock(json=lambda: {"jobId": "job-1", "status": "PENDING"})
-
-        def get(self, path, **kw):
-            said = {"jobId": self.jobs.pop(0), "status": self.statuses.pop(0), "entitiesUpserted": 3}
-            return mock.Mock(json=lambda: said)
-
-        def rows(self, path, paging, **params):
-            return self.lists.pop(0)
+    def setUp(self):
+        super().setUp()
+        self.seed_files({"am/applications/desk.yaml": "name: Desk agent\ntype: AGENT\nclientId: desk-agent\n"})
+        common.record("am", "group", "groups", "Support", "g-1", domain="d-1")
+        common.record("am", "user", "users", "claire", "am-user-1", domain="d-1")
+        common.record("am", "agent", "AM agents", "Desk agent", "am-agent-1", domain="d-1")
+        self.claire = authz.agent_id("idp-1:ext-1")   # the sub of a user: the name UUID of sourceId:externalId
+        self.held = [self.principal("Group", "g-1", "Support"), self.principal("User", self.claire),
+                     self.principal("AgentIdentity", authz.agent_id("desk-agent")), self.OTHER]
+        self.jobs = [(202, {"jobId": "job-1", "status": "PENDING"})]
+        self.statuses = [{"jobId": "job-1", "status": "PENDING"}, {"jobId": "job-1", "status": "SUCCESS"}]
+        self.platform.add({
+            ("POST", AUTHZ + "/users/sync"): lambda call: self.jobs.pop(0),
+            ("GET", AUTHZ + "/users/sync"): lambda call: (200, self.statuses.pop(0)),
+            ("GET", AUTHZ + "/entities"): lambda call: (200, {"data": self.held, "total": len(self.held)}),
+            ("POST", "/management/auth/token"): (200, {"access_token": "t"}),
+            ("GET", "/management/organizations/DEFAULT/environments/DEFAULT/domains"): (200, []),
+            # Access Management answers the name of the identity provider as `source`, its id as `sourceId`
+            ("GET", self.AM_USERS + "/am-user-1"): (200, {"id": "am-user-1", "source": "Company directory", "sourceId": "idp-1",
+                                                       "externalId": "ext-1"})})
 
     @staticmethod
     def principal(kind, entity_id, name=None):
         return {"entityType": kind, "entityId": entity_id, "attributes": {"name": name} if name else {}}
 
+    def synced(self):
+        return authz.synced_groups(authz.Gamma().authz, "access-management")
+
+    def recorded(self):
+        return next((x["ids"] for x in common.created() if (x["product"], x["kind"], x["name"]) == ("authz", "entities", "gravitee_am")), [])
+
     def test_no_sync_asks_nothing(self):
-        self.assertEqual(authz.synced_groups(self.Api([], []), None), {})
+        self.assertEqual(authz.synced_groups(authz.Gamma().authz, None), {})
+        self.assertEqual(self.platform.calls, [])
 
-    def test_the_sync_is_waited_for_and_what_it_brought_is_recorded_groups_first(self):
-        old = self.principal("User", "u-0")
-        api = self.Api([old], [old, self.principal("User", "u-1"), self.principal("Group", "g-1", "Support")])
-        with mock.patch.object(common.time, "sleep"), mock.patch.object(authz, "remember") as remember:
-            groups = authz.synced_groups(api, "access-management")
-        self.assertEqual(api.posted, ["/users/sync"])
-        self.assertEqual(groups, {"Support": "g-1"})
-        source, brought = remember.call_args.args
-        self.assertEqual((source, [x["entityId"] for x in brought]), ("gravitee_am", ["g-1", "u-1"]))
+    def test_the_sync_is_waited_for_and_the_principals_of_what_seed_am_made_are_recorded_groups_first(self):
+        self.assertEqual(self.synced(), {"Support": "g-1"})
+        self.assertEqual(len(self.platform.sent("POST", AUTHZ + "/users/sync")), 1)
+        self.assertEqual((self.recorded()[0], set(self.recorded())), ("g-1", {"g-1", self.claire, authz.agent_id("desk-agent")}))
+        self.assertNotIn("u-of-another-domain", self.recorded())
 
-    def test_a_group_name_two_groups_share_names_neither(self):
-        api = self.Api([], [self.principal("Group", "g-1", "Support"), self.principal("Group", "g-2", "Support")])
-        with mock.patch.object(common.time, "sleep"), mock.patch.object(authz, "remember"):
-            self.assertEqual(authz.synced_groups(api, "access-management"), {})
+    def test_a_principal_of_what_seed_am_made_that_the_sync_did_not_bring_is_said(self):
+        self.held.remove(self.principal("User", self.claire))
+        self.synced()
+        self.assertIn(f"1 not synced: {self.claire}", self.output())
 
-    def test_a_sync_that_fails_stops_the_seed_and_what_it_brought_is_recorded(self):
-        api = self.Api([], [self.principal("User", "u-1")], statuses=("PENDING", "FAILED"))
-        with mock.patch.object(common.time, "sleep"), mock.patch.object(authz, "remember") as remember, \
-                self.assertRaisesRegex(common.SeedError, "ended as FAILED"):
-            authz.synced_groups(api, "access-management")
-        self.assertEqual([x["entityId"] for x in remember.call_args.args[1]], ["u-1"])
+    def test_a_group_of_another_domain_is_named_by_its_name_when_one_group_has_it(self):
+        self.held += [self.principal("Group", "g-x", "Auditors"), self.principal("Group", "g-y", "Ops"),
+                      self.principal("Group", "g-z", "Ops")]
+        self.assertEqual(self.synced(), {"Support": "g-1", "Auditors": "g-x"})
+
+    def test_a_sync_that_runs_already_is_waited_for_then_this_one_starts(self):
+        self.jobs = [(409, {"message": "SyncAlreadyRunning"}), (202, {"jobId": "job-2", "status": "PENDING"})]
+        self.statuses = [{"jobId": "job-1", "status": "PENDING"}, {"jobId": "job-1", "status": "SUCCESS"},
+                         {"jobId": "job-2", "status": "SUCCESS"}]
+        self.assertEqual(self.synced(), {"Support": "g-1"})
+        self.assertEqual(len(self.platform.sent("POST", AUTHZ + "/users/sync")), 2)
+
+    def test_a_platform_whose_gamma_is_not_linked_to_access_management_stops_the_seed(self):
+        self.jobs = [(503, {"message": "am_not_configured"})]
+        with self.assertRaisesRegex(common.SeedError, "seed/am/gamma-link.yaml links Gamma to the domain"):
+            self.synced()
+
+    def test_a_sync_that_ends_in_error_still_records_the_principals_it_upserted(self):
+        self.statuses = [{"jobId": "job-1", "status": "ERROR", "error": "AM unreachable"}]
+        with self.assertRaisesRegex(common.SeedError, "ended as ERROR"):
+            self.synced()
+        self.assertEqual(self.recorded()[0], "g-1")
+        self.assertNotIn("u-of-another-domain", self.recorded())
+
+    def test_another_sync_that_fails_lets_this_one_start(self):
+        self.jobs = [(409, {"message": "SyncAlreadyRunning"}), (202, {"jobId": "job-2", "status": "PENDING"})]
+        self.statuses = [{"jobId": "job-1", "status": "ERROR"}, {"jobId": "job-2", "status": "SUCCESS"}]
+        self.assertEqual(self.synced(), {"Support": "g-1"})
+        self.assertEqual(len(self.platform.sent("POST", AUTHZ + "/users/sync")), 2)
+
+    def test_a_sync_that_runs_again_after_the_one_awaited_stops_the_seed(self):
+        self.jobs = [(409, {"message": "SyncAlreadyRunning"}), (409, {"message": "SyncAlreadyRunning"})]
+        self.statuses = [{"jobId": "job-1", "status": "SUCCESS"}, {"jobId": "job-3", "status": "SUCCESS"}]
+        with self.assertRaisesRegex(common.SeedError, "another one kept running"):
+            self.synced()
+
+    def test_the_seeds_own_sync_that_fails_stops_it_even_when_the_platform_gives_no_job_id(self):
+        self.jobs = [(202, {"status": "PENDING"})]
+        self.statuses = [{"status": "ERROR", "error": "AM unreachable"}]
+        with self.assertRaisesRegex(common.SeedError, "ended as ERROR: AM unreachable"):
+            self.synced()
+
+    def test_a_user_deleted_in_access_management_is_left_out(self):
+        self.platform.add({("GET", self.AM_USERS + "/am-user-1"): (404, {"message": "User not found"})})
+        self.synced()
+        self.assertNotIn(self.claire, self.recorded())
+        self.assertEqual(self.recorded()[0], "g-1")
+
+    def test_a_user_with_no_source_or_external_id_is_known_by_its_own_id(self):
+        self.platform.add({("GET", self.AM_USERS + "/am-user-1"): (200, {"id": "am-user-1"})})
+        self.held.append(self.principal("User", "am-user-1"))
+        self.synced()
+        self.assertIn("am-user-1", self.recorded())
+
+    def test_a_sync_that_ends_in_error_or_timeout_stops_the_seed_with_its_reason(self):
+        for status in ("ERROR", "TIMEOUT"):
+            with self.subTest(status=status):
+                self.jobs = [(202, {"jobId": "job-1", "status": "PENDING"})]
+                self.statuses = [{"jobId": "job-1", "status": status, "error": "AM unreachable"}]
+                with self.assertRaisesRegex(common.SeedError, f"ended as {status}: AM unreachable"):
+                    self.synced()
 
     def test_the_status_of_an_earlier_sync_is_not_taken_for_this_one(self):
-        api = self.Api([], [self.principal("Group", "g-1", "Support")], statuses=("SUCCESS", "PENDING", "SUCCESS"),
-                       jobs=("job-0", "job-1", "job-1"))
-        with mock.patch.object(common.time, "sleep"), mock.patch.object(authz, "remember"):
-            self.assertEqual(authz.synced_groups(api, "access-management"), {"Support": "g-1"})
-        self.assertEqual(api.statuses, [], "asked until this sync ended")
+        self.statuses = [{"jobId": "job-0", "status": "SUCCESS"}, {"jobId": "job-1", "status": "PENDING"},
+                         {"jobId": "job-1", "status": "SUCCESS"}]
+        self.assertEqual(self.synced(), {"Support": "g-1"})
+        self.assertEqual(self.statuses, [], "asked until this sync ended")
 
     def test_a_sync_still_running_after_its_wait_stops_the_seed(self):
-        api = self.Api([], [], statuses=["PENDING"] * 3)
-        clock = itertools.count(0, authz.SYNC_WAIT / 2)   # each look at the clock is half the wait later
-        with mock.patch.object(common.time, "sleep"), mock.patch.object(common.time, "time", lambda: next(clock)), \
-                self.assertRaisesRegex(common.SeedError, "the sync of Access Management not ready .*the sync is PENDING"):
-            authz.synced_groups(api, "access-management")
+        self.statuses = [{"jobId": "job-1", "status": "PENDING"}] * 200
+        with self.assertRaisesRegex(common.SeedError, "the sync of Access Management not ready .*the sync is PENDING"):
+            self.synced()
 
     def test_another_directory_stops_the_seed(self):
         with self.assertRaisesRegex(common.SeedError, "sync is one of access-management"):
-            authz.synced_groups(self.Api([], []), "ldap")
+            authz.synced_groups(authz.Gamma().authz, "ldap")
 
     def test_a_policy_names_a_group_by_the_id_access_management_gave_it(self):
         text = authz.fill('principal in Group::"<group:Support>"', None, "Policy 'p'", {"Support": "g-1"})
@@ -132,7 +194,6 @@ class Sync(Seed):
     def test_a_group_the_sync_did_not_bring_stops_the_seed(self):
         with self.assertRaisesRegex(common.SeedError, "names the group 'Support'"):
             authz.fill('principal in Group::"<group:Support>"', None, "Policy 'p'", {})
-
 
 class World:
     """Authorization Management and the AI catalog, keeping what they are given and answering from it."""
