@@ -202,3 +202,11 @@ test("a block to run becomes a block with a Run button, disabled until a page en
   assert.ok(wrap, "in a wrapper of its own");
   assert.equal(wrap.querySelector("pre code").textContent, "k get pods\n", "the block it runs is the one beside it");
 });
+
+test("a quote that opens with [!NOTE] is a note without its marker, and any other quote stays a quote", async () => {
+  const out = await render("<blockquote><p>[!NOTE]\nOne door to every model.</p></blockquote><blockquote><p>A plain quote.</p></blockquote>");
+  const [note, plain] = out.querySelectorAll("blockquote");
+  assert.ok(note.classList.contains("guide-note"));
+  assert.equal(note.textContent.trim(), "One door to every model.");
+  assert.ok(!plain.classList.contains("guide-note"));
+});

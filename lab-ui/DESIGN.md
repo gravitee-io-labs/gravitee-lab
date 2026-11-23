@@ -508,6 +508,9 @@ What the person sees is in [docs/lab-ui.md](../docs/lab-ui.md#the-guide-and-the-
     page it is on) and when its UI goes away, which also drops the queue.
   - The button says why it is disabled (`actionReason`: not running, no UI, the UI itself), and the workspace repaints
     it whenever any of that changes. Nothing the app does is read back: the guide is as good as the app is.
+- **A note** is a quote that opens with `[!NOTE]` (GitHub's alert syntax; the syntax is in
+  [docs/playgrounds.md](../docs/playgrounds.md#a-note-in-a-guide)). `markdown.js` drops the marker (`withNotes`) and the quote
+  takes `guide-note`, drawn with the status role of information (`--info`, `--info-soft`).
 - **A guide reads as a page** (`.guide` in `pages.css`, one style for its page, the details before a start and the
   editor's preview).
   - Text of 15 px on a 1.7 line that takes the whole width of its panel (no measure: padding keeps it comfortable; only

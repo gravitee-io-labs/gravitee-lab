@@ -565,6 +565,8 @@
   border-radius: 4px 10px 10px 4px; color: var(--text-2); }
 .guide blockquote > * { margin: 0; }
 .guide blockquote > * + * { margin-top: 8px; }
+/* A note ([!NOTE]): the status role of information, not the brand red of an action */
+.guide blockquote.guide-note { border-left-color: var(--info); background: var(--info-soft); color: var(--text); }
 /* A table is for reference: a header, light rules, cells that wrap */
 .guide table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13.5px; line-height: 1.5; border: 1px solid var(--border);
   border-radius: 10px; overflow: hidden; }
