@@ -331,6 +331,10 @@ literal, the `password` and `key` of an account included ([the rule](../AGENTS.m
   environment (the shell that ran `make ui`), else from the root `.env`, else from the `.env` of its folder, else the
   default. This is the order Compose uses, which gives the root `.env` precedence over the `.env` of an included
   playground. A `${NAME}` that is set nowhere shows as written.
+- **A setting the person must give is `${NAME}`, with no default**, such as a provider's API key the guide cannot do without.
+  Until its `.env` or the root one gives it a value, the playground's Start waits and reads *Needs settings*, with the names
+  and a button that opens its settings, so a start never ends on a seed that lacks it. An optional one carries an empty
+  default, `${NAME:-}`.
 - **Say in the README** which settings to set before the first start: the seed writes a password, a secret or a key into
   the products when it creates them, and keeps what it finds on later runs.
 

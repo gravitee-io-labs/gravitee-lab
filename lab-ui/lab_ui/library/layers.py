@@ -73,19 +73,20 @@ def conflicts(project, ids):
     return found
 
 
+def unset_settings(unit):
+    """The required settings of an add-on or a playground left without a value in its .env or the root one, which Compose
+    gives precedence. The .env of a catalog's item is read as a catalog's file is (project._dotenv): one that is a link or a
+    pipe holds none."""
+    required = [setting["key"] for setting in unit.get("settings") or () if setting["required"]]
+    if not required:
+        return []
+    values = {**_dotenv(unit["env_file"]), **_dotenv(paths.ENV_FILE)}
+    return [key for key in required if not values.get(key)]
+
+
 def _unset(project):
-    """The add-ons with a required setting left without a value in their .env or the root one, which Compose gives
-    precedence: {id: [the names of those settings]}. The .env of a catalog's add-on is read as a catalog's file is
-    (project._dotenv): one that is a link or a pipe holds none."""
-    found = {}
-    for aid, addon in sorted(project["addons"].items()):
-        required = [setting["key"] for setting in addon["settings"] if setting["required"]]
-        if required:
-            values = {**_dotenv(addon["env_file"]), **_dotenv(paths.ENV_FILE)}
-            lacking = [key for key in required if not values.get(key)]
-            if lacking:
-                found[aid] = lacking
-    return found
+    """The add-ons with a required setting left without a value: {id: [the names of those settings]}."""
+    return {aid: found for aid, addon in sorted(project["addons"].items()) if (found := unset_settings(addon))}
 
 
 def _effective(project, playground, explicit):
@@ -707,7 +708,7 @@ def taken(project, names):
 def _blocked(project, state, kind, unit, do, gateway=None, up=None, going=frozenset()):
     """Why the action cannot run, or None: the on file is locked; the policy blocks
     the item or something it brings, or it lacks a catalog; the twin of the item or of something it brings is on
-    (_twins_on); an add-on it brings lacks a setting; a playground is on images older than it needs, which would end on its
+    (_twins_on); an add-on it brings lacks a setting, or a playground one of its own; a playground is on images older than it needs, which would end on its
     seed, after the whole setup, so its Start waits for them; a host port it publishes is taken. A stop is refused
     only by a locked file: a unit that is blocked never keeps anything from stopping. `gateway`: the add-on of a remote place's gateway, whose token the job writes, so it
     is not asked for; the images are the core's, which a remote place does not run, and the gateway is judged with the
@@ -726,6 +727,9 @@ def _blocked(project, state, kind, unit, do, gateway=None, up=None, going=frozen
     names = sorted(project["addons"][aid]["name"] for aid in lacking)
     if names:
         return f"{names[0]} needs settings"
+    # Its own: its seed would stop on them at the end of the whole start
+    if kind == "playground" and unset_settings(unit):
+        return f"{unit['name']} needs settings"
     old = too_old(project, unit) if kind == "playground" and not gateway and not switch(project, unit) else None
     return old or _port_clash(project, state, up, kind, unit, going)
 

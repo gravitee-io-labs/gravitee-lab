@@ -478,6 +478,10 @@ def _note(c, unit, state, on, is_up, plan, failure, services, offer=None):
         lacking = [aid for aid, addon in c["project"]["addons"].items() if plan["blocked"] == f"{addon['name']} needs settings"]
         if lacking:
             return _said(SETTINGS, "warn", plan["blocked"], target={"kind": "addon", "id": lacking[0]})
+        # The playground's own: its note names them, and opens its settings
+        unset = layers.unset_settings(unit) if unit["kind"] == "playground" else []
+        if unset and plan["blocked"] == f"{unit['name']} needs settings":
+            return {**_said(SETTINGS, "warn", "Not set: " + ", ".join(unset)), "note_causes": [{"kind": "unset", "settings": unset}]}
         return _said(plan["blocked"])
     if plan is None:   # an add-on that lacks settings: its note names them, and opens them
         unset = c["state"].get("unset", {}).get(unit["id"], [])
@@ -652,6 +656,9 @@ def _item(c, unit, state, on, is_up, services):
     blocked = layers.why_not(unit) if do == "start" else None
     if blocked is None and lacking and do == "start":
         blocked = gateway["note"] if gateway else f"{SETTINGS}: {', '.join(unset)}" if unset else SETTINGS
+    own = layers.unset_settings(unit) if kind == "playground" and do == "start" and blocked is None else []
+    if own:   # a playground's own, which its seed would stop on
+        blocked = f"{SETTINGS}: {', '.join(own)}"
     if blocked is None and do == "start":   # what would not work without the license is not started
         blocked = _license_block(c, unit)
     members_on = kind == "setup" and any(aid in c["state"]["effective"] for aid in unit["members"])

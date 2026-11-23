@@ -93,7 +93,7 @@ services:
 - **Secrets and settings**: each is described by a comment on its line or heading its block; the settings form shows
   it, and puts a name with `TOKEN`, `SECRET`, `PASSWORD`, `LICENSE` or `_KEY` under Secrets
   ([settings and secrets](configuration.md#settings-and-secrets)). Their names follow
-  [the naming rule](../AGENTS.md#rules). `${VAR}` with no default is required: the add-on's Start waits and says which
+  [the naming rule](../AGENTS.md#rules). `${VAR}` with no default is required: the add-on's Start (a playground's too) waits and says which
   until its `.env` gives it a value, and its key button opens them. An optional one carries an empty default, `${VAR:-}`. The core's
   `GRAVITEE_LICENSE`, `INTERNAL_API_PASSWORD` and `REDIS_PASSWORD` come from the core's `.env`: reference them with the
   core's defaults and never copy their values. A setting is never written into a `CMD-SHELL` test or a `command` written

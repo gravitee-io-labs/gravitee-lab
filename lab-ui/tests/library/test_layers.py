@@ -671,6 +671,13 @@ class Plans(Case):
         self.assertEqual(plan["blocked"], "Kazoo needs settings")
         plan = self.plan(on(self.project, missing=["hyssop"]), up(), "addon", "kazoo", "start")
         self.assertIsNone(plan["blocked"])
+        # A playground's own required setting, which its seed would stop on: its .env or the root one gives it
+        welcome = self.project["playgrounds"]["welcome"]
+        welcome.update(env_file=".lab/catalogs/fixture/playgrounds/welcome/.env",
+                       settings=[{"key": "WELCOME_API_KEY", "required": True}, {"key": "WELCOME_MODE", "required": False}])
+        self.assertEqual(self.plan(on(self.project), up(), "playground", "welcome", "start")["blocked"], "Welcome needs settings")
+        self.patch(layers, "_dotenv", lambda file: {"WELCOME_API_KEY": "key"} if file == paths.ENV_FILE else {})
+        self.assertIsNone(self.plan(on(self.project), up(), "playground", "welcome", "start")["blocked"])
 
     def test_retry_leaves_the_on_file(self):
         # On, it starts what of it does not run and what it needs: not the rest of what is on
