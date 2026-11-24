@@ -93,6 +93,7 @@ class World:
         self.applications = [{"id": "app-copilot", "name": "Steward on 13 tools"}, {"id": "app-desk", "name": "Steward on 6 tools"}]
         self.subscriptions, self.subscription_ids = {}, itertools.count(1)
         self.subscriptions_wait = False   # a plan that leaves a subscription pending for someone to accept
+        self.platform_flow = False   # human approval read on its own route, its step in a flow the API does not show
         self.specification_status = 200  # what a write of the tools of a studio answers: 405 on a platform without it
 
     def routes(self):
@@ -104,6 +105,8 @@ class World:
             ("POST", AIM + "/mcp-studios"): self.create,
             ("PUT", every(AIM + "/mcp-studios/[^/]+/fga")): self.set_fga,
             ("PUT", every(AIM + "/mcp-proxies/[^/]+/human-approval")): self.set_approval,
+            ("GET", every(AIM + "/mcp-proxies/[^/]+/human-approval")):
+                lambda call: (200, {"enabled": self.studios[ids(call)[0]]["approval"], "managedByAutomation": False}),
             ("GET", AIM + "/catalog/mcp-tools"): lambda call: self.paged([{"id": i, "entityId": e} for e, i in self.tools.items()]),
             ("GET", AIM + "/catalog/api-tools/sources"): self.api_tools,
             ("GET", AIM + "/catalog/sources?sourceKind=apim.api"): lambda call: self.paged(
@@ -147,8 +150,9 @@ class World:
         studio = self.studios[ids(call)[0]]
         groups = [{"name": "tools", "type": "tools-http", "endpoints": [{"name": "tools", "configuration": {
             "groupName": "Orchid", "specification": {"tools": copy.deepcopy(studio.get("tools", []))}}}]}]
-        return 200, {"id": ids(call)[0], "fgaEnabled": studio["fga"], "humanApprovalEnabled": studio["approval"],
-                     "mode": "STUDIO", "endpointGroups": groups}
+        switches = {"fgaEnabled": studio["fga"]} if self.platform_flow else \
+            {"fgaEnabled": studio["fga"], "humanApprovalEnabled": studio["approval"]}
+        return 200, {"id": ids(call)[0], **switches, "mode": "STUDIO", "endpointGroups": groups}
 
     def served(self, specification):
         entities = {i: e for e, i in self.tools.items()}
@@ -236,7 +240,7 @@ class World:
         self.studios[studio_id]["approval"] = call.json["enabled"]
         api = self.apis[studio_id]
         api["flows"] = [f for f in api["flows"] if f["name"] != "Human approval"]
-        if call.json["enabled"]:
+        if call.json["enabled"] and not self.platform_flow:
             step = {"name": "Human approval", "enabled": True, "policy": "human-approval",
                     "configuration": {"holdWindowMs": 40000, "guardSetRefreshSeconds": 30, "onBrokerUnavailable": "DENY"}}
             api["flows"].append({"name": "Human approval", "enabled": True, "selectors": [{"type": "MCP", "methods": ["tools/call"]}],
@@ -782,6 +786,32 @@ class WhatItNeeds(Studios):
     def test_the_amp_demo_build_takes_the_studio_with_human_approval(self):
         self.version("4.13.0-amp-demo-SNAPSHOT", versions.APIM)
         aim_proxies.check()
+
+
+class PlatformFlow(Studios):
+    """4.14.0-alpha.1: human approval is switched and read through its own route, its step in a flow the API does not show."""
+
+    def setUp(self):
+        super().setUp()
+        self.version("4.14.0-alpha.1", versions.APIM)
+        self.world.platform_flow = True
+        self.file(STUDIO.replace("  holdWindowMs: 60000\n", ""))
+
+    def test_it_is_switched_once_and_read_from_its_route(self):
+        aim_proxies.check()
+        self.seed()
+        self.assertEqual([call.json for call in self.platform.calls
+                          if call.method == "PUT" and call.path.endswith("/mcp-proxies/studio-1/human-approval")], [{"enabled": True}])
+        self.again()
+        self.assertEqual(self.changes(), [])
+
+    def test_a_hold_window_stops_the_seed_before_any_change(self):
+        self.file(STUDIO)
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_proxies.check()
+        for words in ("Customer desk", "holdWindowMs", "the build 4.13.0-amp-demo-SNAPSHOT"):
+            self.assertIn(words, str(stopped.exception))
+        self.assertEqual(self.platform.calls, [])
 
 
 class Errors(Studios):

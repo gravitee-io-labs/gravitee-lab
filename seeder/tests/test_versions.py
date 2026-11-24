@@ -12,6 +12,7 @@ INSTANCES = ("GET", "/management/organizations/DEFAULT/environments/DEFAULT/inst
 REPORTERS = ("GET", "/management/platform/plugins/reporters")
 MODULES = ("GET", "/gamma/organizations/DEFAULT/modules")
 AMP_DEMO = "4.13.0-amp-demo-SNAPSHOT"
+PREVIEW = "4.14.0-alpha.1"
 
 
 def gateways(*said):
@@ -70,18 +71,25 @@ class Reading(Seed):
         self.assertEqual((len(self.platform.sent(*INSTANCES)), versions.variant("gamma-modules")), (2, "served"))
 
     def test_a_build_of_builds_is_seeded_like_its_release_except_where_it_differs(self):
-        self.seed_files({"apim/settings.yaml": "{}"})
-        self.platform.add({INSTANCES: gateways((AMP_DEMO, "STARTED"))})
-        versions.read()
-        self.assertEqual({name: versions.variant(name) for name in versions.RELEASES},
-                         {"gamma-modules": "served", "mcp-protocol-versions": "single", "agent-application": "served",
-                          "dashboard-module": "none", "authz-schema-documents": "one", "governance": "served",
-                          "studio-human-approval": "served"})
-        self.assertIn(f"[versions] API Management {AMP_DEMO}: The amp-demo build of API Management, seeded like 4.13.0", self.output())
+        for text, what, like, wanted in (
+                (AMP_DEMO, "The amp-demo build of API Management", "4.13.0",
+                 {"gamma-modules": "served", "mcp-protocol-versions": "single", "agent-application": "served",
+                  "dashboard-module": "none", "authz-schema-documents": "one", "governance": "served",
+                  "studio-human-approval": "served"}),
+                (PREVIEW, "The first preview of API Management 4.14.0", "4.13.6",
+                 {"gamma-modules": "served", "mcp-protocol-versions": "list", "agent-application": "absent",
+                  "dashboard-module": "required", "authz-schema-documents": "several", "governance": "absent",
+                  "studio-human-approval": "switch"})):
+            with self.subTest(build=text):
+                self.seed_files({"apim/settings.yaml": "{}"})
+                self.platform.add({INSTANCES: gateways((text, "STARTED"))})
+                versions.read()
+                self.assertEqual({name: versions.variant(name) for name in versions.RELEASES}, wanted)
+                self.assertIn(f"[versions] API Management {text}: {what}, seeded like {like}", self.output())
 
     def test_a_version_that_is_neither_a_release_nor_a_known_build_stops_the_seed(self):
         with self.assertRaisesRegex(SeedError, "API Management 4.15.0-SNAPSHOT: neither a release nor a build the seeder knows "
-                                               rf"\(known builds: {AMP_DEMO}\)"):
+                                               rf"\(known builds: {AMP_DEMO}, {PREVIEW}\)"):
             versions.note(versions.APIM, ["4.15.0-SNAPSHOT"])
 
     def test_a_build_of_one_product_is_no_build_of_the_other(self):
