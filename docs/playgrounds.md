@@ -502,8 +502,7 @@ this is the gateway identity, while its management id belongs to one environment
 
 `description`, `prerequisiteMessage` and `steps` are optional; omitted descriptions are empty, omitted steps are an empty
 list, and an omitted step `enabled` is true. A step may carry its policy's `configuration`, `condition` and `description`.
-Use `PROXY`, `A2A_PROXY`, `LLM_PROXY`, or `MCP_PROXY` with `REQUEST` or `RESPONSE`, or `MESSAGE` with any of
-`REQUEST`, `RESPONSE`, `PUBLISH`, and `SUBSCRIBE`.
+Use `PROXY` with `REQUEST` or `RESPONSE`, or `MESSAGE` with those phases, `PUBLISH` or `SUBSCRIBE`.
 In an API common flow or plan flow of the matching phase, refer to the group with:
 
 ```json

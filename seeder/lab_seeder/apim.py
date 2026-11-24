@@ -118,7 +118,8 @@ def digest_of(definition):
 
 
 POLICY_GROUP_FIELDS = ("crossId", "name", "description", "prerequisiteMessage", "apiType", "phase", "steps")
-POLICY_GROUP_TYPES = ("PROXY", "A2A_PROXY", "LLM_PROXY", "MCP_PROXY", "MESSAGE")
+POLICY_GROUP_TYPES = ("PROXY", "MESSAGE")
+POLICY_GROUP_PHASES = ("REQUEST", "RESPONSE", "PUBLISH", "SUBSCRIBE")
 FLOW_PHASES = ("request", "response", "subscribe", "publish")
 
 
@@ -129,14 +130,10 @@ def shared_policy_group(spec, where):
     for key in ("crossId", "name"):
         if not isinstance(spec.get(key), str) or not spec[key].strip():
             raise SeedError(f"{where}: {key} is nonempty text")
-    api_type = spec.get("apiType")
-    if api_type not in POLICY_GROUP_TYPES:
+    if spec.get("apiType") not in POLICY_GROUP_TYPES:
         raise SeedError(f"{where}: apiType is {' or '.join(POLICY_GROUP_TYPES)}")
-    phases = ("REQUEST", "RESPONSE")
-    if api_type == "MESSAGE":
-        phases += ("PUBLISH", "SUBSCRIBE")
-    if spec.get("phase") not in phases:
-        raise SeedError(f"{where}: phase for {api_type} is {' or '.join(phases)}")
+    if spec.get("phase") not in POLICY_GROUP_PHASES or (spec["apiType"] == "PROXY" and spec["phase"] not in ("REQUEST", "RESPONSE")):
+        raise SeedError(f"{where}: phase is REQUEST or RESPONSE for PROXY, also PUBLISH or SUBSCRIBE for MESSAGE")
     wanted = {key: copy.deepcopy(spec[key]) for key in POLICY_GROUP_FIELDS if key in spec}
     for key in ("description", "prerequisiteMessage"):
         value = wanted.setdefault(key, "")
