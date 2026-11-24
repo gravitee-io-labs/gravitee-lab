@@ -45,7 +45,7 @@ from collections import namedtuple
 from pathlib import Path
 
 try:
-    from . import aim_proxies, common
+    from . import aim_proxies, apim, common
 except ImportError as e:
     raise ImportError("seedlint reads the seed as the seeder does and needs its requirements: pip install -r "
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
@@ -73,7 +73,7 @@ COMMANDS = ("::", "##[")
 Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
 TITLES = {"variable": "Seed variable", "read": "Seed file", "parse": "Seed file",
-          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
+          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio", "policy-group": "Seed shared policy group"}
 
 
 class Unreadable(common.SeedError):
@@ -668,6 +668,39 @@ def _lint(folder):
             else:
                 told = studio_problems(spec)
             out.extend(Problem("studio", str(path), 0, _short(text)) for text in told)
+    # Group references cannot cross environment boundaries. Use only files that the bounded reader accepted above.
+    scopes = [(folder / "seed" / "apim", {})]
+    environments = folder / "seed" / "environments"
+    if environments.is_dir() and not environments.is_symlink():
+        for each in _playgrounds(environments)[0]:
+            if any(each in path.parents for path in unread) or not _present(each / "environment.yaml"):
+                continue
+            with _with_environment(environment):
+                identity = _load(each / "environment.yaml", {"ENV_ID": each.name})
+            if isinstance(identity, dict):
+                scopes.append((each, {"ENV_ID": each.name, "ENV_NAME": identity.get("name") or ""}))
+    for root, given in scopes:
+        if any(root in path.parents for path in unread):
+            continue
+        groups, definitions, broken = [], [], False
+        for path in found:
+            if path.suffix != ".json" or path.parent not in (root / "shared-policy-groups", root / "apis"):
+                continue
+            try:
+                with _with_environment(environment):
+                    spec = _load(path, given)
+                if path.parent.name == "shared-policy-groups":
+                    groups.append(apim.shared_policy_group(spec, str(path)))
+                else:
+                    definitions.append((spec, path.name))
+            except Exception as e:  # noqa: BLE001 - a stranger's document is a finding, never a crash
+                out.append(Problem("policy-group", str(path), 0, _short(_flat(e))))
+                broken = True
+        if not broken:
+            try:
+                apim.check_policy_groups(groups, definitions, str(root))
+            except common.SeedError as e:
+                out.append(Problem("policy-group", str(root), 0, _short(str(e))))
     # The files of an environment agree with one another only once each of them can be read
     environments = folder / "seed" / "environments"
     if environments.is_dir() and not environments.is_symlink():

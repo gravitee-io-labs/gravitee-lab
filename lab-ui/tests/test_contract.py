@@ -83,6 +83,7 @@ UNREAD = {("lab_seeder/aim_catalog.py", "files('aim', folder)"): "the folder is 
           ("lab_seeder/apim.py", "files(*parts, 'apis', suffixes=('.json',))"): ENVIRONMENT,
           ("lab_seeder/apim.py", "files(*parts, 'applications')"): ENVIRONMENT,
           ("lab_seeder/apim.py", "files(*parts, 'groups')"): ENVIRONMENT,
+          ("lab_seeder/apim.py", "files(*parts, 'shared-policy-groups', suffixes=('.json',))"): ENVIRONMENT,
           ("lab_seeder/apim.py", "files(*parts, 'subscriptions')"): ENVIRONMENT,
           ("lab_seeder/apim.py", "seed_file(*parts, 'environment.yaml')"): ENVIRONMENT,
           ("lab_seeder/apim.py", "seed_file(*parts, 'settings.yaml')"): ENVIRONMENT,

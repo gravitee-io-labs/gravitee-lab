@@ -220,6 +220,7 @@ returns before it reads a setting or connects.
 | `apim/settings.yaml` | Environment settings |
 | `apim/apis` | API exports, `.json` |
 | `apim/applications` | Applications |
+| `apim/shared-policy-groups` | Shared policy group exports, `.json`, deployed before their APIs |
 | `apim/subscriptions` | Subscriptions |
 | `aim` | Agent Management, in Gamma |
 | `aim/credentials` | Credentials |
