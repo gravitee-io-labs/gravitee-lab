@@ -33,6 +33,8 @@ class Expected(unittest.TestCase):
     def test_a_build_is_held_to_where_it_differs(self):
         self.assertEqual(compat.expected(versions.APIM, AMP_DEMO, "governance"), {"served"})
         self.assertEqual(compat.expected(versions.APIM, AMP_DEMO, "mcp-protocol-versions"), {"single"})
+        self.assertEqual(compat.expected(versions.APIM, "4.14.0-alpha.1", "studio-human-approval"), {"switch"})
+        self.assertEqual(compat.expected(versions.APIM, "4.14.0-alpha.1", "governance"), {"absent"})
 
     def test_a_version_the_tables_do_not_seed_is_the_finding(self):
         [said] = compat.expected(versions.APIM, "4.15.0-SNAPSHOT", "governance")
@@ -40,6 +42,45 @@ class Expected(unittest.TestCase):
 
     def test_a_shape_is_held_to_those_the_seeder_reads(self):
         self.assertEqual(compat.expected(versions.APIM, "4.13.5", "authz-read-back"), {"as written", "without active"})
+
+
+class Platform:
+    """A management API that serves the routes `served` says, and gives a studio the flows `flows` says once human approval is
+    on. It notes what it is sent."""
+
+    def __init__(self, served=lambda path: True, flows=()):
+        self.served, self.flows, self.studio, self.sent = served, flows, None, []
+
+    def call(self, method, path, body=None):
+        self.sent.append((method, path, body))
+        if not self.served(path):
+            return 404, {"message": "HTTP 404 Not Found"}
+        if method == "POST" and path.endswith("/mcp-studios"):
+            return 200, {"id": "studio-1"}
+        if method == "GET" and path.endswith("/apis/studio-1"):
+            return 200, {"flows": [{"name": name} for name in self.flows]}
+        return 200, []
+
+
+class Probes(unittest.TestCase):
+    def test_governance_is_absent_where_only_some_of_its_routes_are_served(self):
+        rules = {path for _, path, name in compat.routes_of(compat.BEHAVIOR_ROUTES["governance"]) if "approval-rules" in name}
+        for served, wanted in ((lambda path: True, "served"), (lambda path: False, "absent"), (lambda path: path in rules, "absent")):
+            with self.subTest(wanted=wanted):
+                api = Platform(served)
+                self.assertEqual(compat.governance(api).measured, wanted)
+        self.assertIn("without GET aim /approval-settings", compat.governance(api).notes)
+
+    def test_human_approval_on_a_studio_is_measured_by_where_its_step_goes(self):
+        for flows, wanted in ((["Human approval"], "served"), ([], "switch")):
+            with self.subTest(wanted=wanted):
+                api = Platform(flows=flows)
+                api.studio = None
+                self.assertEqual(compat.studio_human_approval(api).measured, wanted)
+                switched = [body for method, path, body in api.sent if path.endswith("/studio-1/human-approval")]
+                self.assertEqual(switched, [{"enabled": True}, {"enabled": False}])
+        api = Platform(lambda path: "human-approval" not in path)
+        self.assertEqual(compat.studio_human_approval(api).measured, "absent")
 
 
 class Coverage(unittest.TestCase):

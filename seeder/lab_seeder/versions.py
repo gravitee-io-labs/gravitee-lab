@@ -93,7 +93,9 @@ RELEASES = {
         APIM, "Human approval on a studio (`humanApproval` of a studio file)",
         {"4.13.0": "absent"},
         {"absent": "A studio file that gives it stops the seed before any change, with where it is served",
-         "served": "The seed switches it and writes the hold window of its flow"}),
+         "served": "The seed switches it and writes the hold window of its flow",
+         "switch": "The seed switches it, and reads it, through its own route: the step is in a flow of the platform's that the "
+                   "API does not show, so a studio file that gives `holdWindowMs` stops the seed before any change"}),
 }
 
 # Builds off the release channel, by their product and the exact version they state. Each is seeded like a release, except
@@ -104,6 +106,8 @@ BUILDS = {
         {"mcp-protocol-versions": "single", "agent-application": "served", "dashboard-module": "none",
          "authz-schema-documents": "one", "governance": "served", "studio-human-approval": "served"},
         "The models of an AI workspace are a component with an endpoint of its own (`target`, a price on each model)"),
+    # approval rules are served, but neither the approval settings nor compliance, which the seed writes: governance is absent
+    (APIM, "4.14.0-alpha.1"): Build("The first preview of API Management 4.14.0", "4.13.6", {"studio-human-approval": "switch"}),
     (AM, "4.14.0-SNAPSHOT"): Build("A master build of Access Management, before 4.14.0", "4.13.6"),
 }
 

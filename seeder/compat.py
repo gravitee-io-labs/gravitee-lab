@@ -34,7 +34,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "seeder"), str(ROOT / "lab-ui")]
-from lab_seeder import gamma, versions  # noqa: E402
+from lab_seeder import aim_proxies, gamma, versions  # noqa: E402
 from lab_ui.docker import envfiles  # noqa: E402
 
 MONGO = "mongo:8.3.11"
@@ -203,12 +203,29 @@ def agent_application(api):
 
 @probe(versions.APIM, "governance")
 def governance(api):
-    return by_routes(api, "governance", "served", "absent")
+    """Absent where only some of its routes are served, as the approval rules alone of 4.14.0-alpha.1: the seed writes the
+    approval settings first and the compliance answers last. The notes say what is lacking."""
+    found = by_routes(api, "governance", "served", "absent")
+    return Found("absent", found.measured) if found.measured.startswith("partly served") else found
 
 
 @probe(versions.APIM, "studio-human-approval")
 def studio_human_approval(api):
-    return by_routes(api, "studio-human-approval", "served", "absent")
+    """Whether a studio has the switch, and where its step goes once it is on: a flow of the API, which the seed writes the
+    hold window on, or a flow of the platform's that the API does not show. Switched off again after."""
+    found = by_routes(api, "studio-human-approval", "served", "absent")
+    if found.measured != "served":
+        return found
+    made = studio(api)
+    if not made.id:
+        return Found(f"no studio: {refusal(made.answer)}")
+    answer = api.call("PUT", f"{AIM}/mcp-proxies/{made.id}/human-approval", {"enabled": True})
+    if answer[0] >= 300:
+        return Found(f"not switched: {refusal(answer)}")
+    _, live = api.call("GET", f"{V2}/apis/{made.id}")
+    api.call("PUT", f"{AIM}/mcp-proxies/{made.id}/human-approval", {"enabled": False})
+    flows = [flow.get("name") for flow in (live or {}).get("flows") or [] if isinstance(flow, dict)]
+    return Found("served" if aim_proxies.APPROVAL_FLOW in flows else "switch")
 
 
 @probe(versions.APIM, "authz-schema-documents")

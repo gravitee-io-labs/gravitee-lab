@@ -770,7 +770,7 @@ class McpProxies:
             self.g.aim.put(f"/mcp-studios/{api_id}/fga", json={"enabled": check})
             log(SECTION, f"  ✓ Authorization check {'on' if check else 'off'}")
             changed = True
-        if approval is not None and state.get("humanApprovalEnabled", False) != hold:
+        if approval is not None and self.approval_of(api_id, state) != hold:
             self.g.aim.put(f"/mcp-proxies/{api_id}/human-approval", json={"enabled": hold})
             log(SECTION, f"  ✓ Human approval {'on' if hold else 'off'}")
             changed = True
@@ -794,6 +794,13 @@ class McpProxies:
             log(SECTION, "  ✓ Flows written")
             changed = True
         return changed
+
+    def approval_of(self, api_id, state):
+        """Whether human approval is on: the studio says it, or its own route where the step is in a flow of the platform's
+        (versions.RELEASES, studio-human-approval)."""
+        if versions.variant("studio-human-approval") == "switch":
+            return bool(self.g.aim.get(f"/mcp-proxies/{api_id}/human-approval").json().get("enabled", False))
+        return state.get("humanApprovalEnabled", False)
 
     def wait_served(self, spec):
         """Waits until the gateway serves the studio and secures it: a call without a token is refused with a 401. A
@@ -824,6 +831,10 @@ def check():
         if spec.get("humanApproval") is not None and versions.variant("studio-human-approval") == "absent":
             raise SeedError(f"MCP studio {spec.get('name')}: this platform has no human approval on a studio, "
                             f"{versions.where('studio-human-approval', 'served')} has: leave humanApproval out")
+        if "holdWindowMs" in (spec.get("humanApproval") or {}) and versions.variant("studio-human-approval") == "switch":
+            raise SeedError(f"MCP studio {spec.get('name')}: this platform keeps the step of human approval in a flow of its "
+                            f"own, where no hold window is written, {versions.where('studio-human-approval', 'served')} "
+                            "writes one: leave holdWindowMs out")
 
 
 def seed():
