@@ -26,6 +26,7 @@ SECTIONS = (("Secrets", "secret"), ("Settings", "setting"))
 POSITION = re.compile(r"L(\d+)\.C(\d+)")
 UNKNOWN_KEY = re.compile(r"additional propert(?:y|ies) '([^']+)'")
 TOP = (CORE_FILE, ENV_FILE, ON_FILE)   # the files of the project as a whole: they show everything that is on
+PROJECT_FOLDER = "."   # the project's own folder, the core's, as a section names it
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -124,12 +125,15 @@ def _unit(project, kind, uid):
     return project[f"{kind}s"].get(uid) or {}
 
 
-def _section(title, on, runs, file, env_file=None, guide=None, reason=None):
+def _section(title, on, runs, file, env_file=None, guide=None, reason=None, folder=None):
     """A section of the pane. `reason`: why its compose file and guide are only read ("Part of Acme Hub"); then it is
-    marked `readonly`, and its .env, which is a form, is not."""
+    marked `readonly`, and its .env, which is a form, is not. `folder`: the folder that is its own, which Open in opens (the
+    project's, an add-on's, a playground's); None for a setup, a single file among others, and for the on file. A file not on
+    disk yet, a .env before its first save, is `missing`: no app opens it."""
     files = [(file, "compose")] + ([(guide, "guide")] if guide else []) + ([(env_file, "env")] if env_file else [])
-    return {"title": title, "on": on, "runs": runs, **({"readonly": True, "reason": reason} if reason else {}),
-            "files": [{"path": path, "name": path.split("/")[-1], "kind": kind} for path, kind in files]}
+    return {"title": title, "on": on, "runs": runs, "folder": folder, **({"readonly": True, "reason": reason} if reason else {}),
+            "files": [{"path": path, "name": path.split("/")[-1], "kind": kind,
+                       **({} if (ROOT / path).is_file() else {"missing": True})} for path, kind in files]}
 
 
 def _unit_section(project, on, running, kind, uid):
@@ -139,7 +143,7 @@ def _unit_section(project, on, running, kind, uid):
     is_on = _is_on(kind, uid, unit, on)
     return _section(unit.get("name") or uid, is_on, _runs(project, kind, unit, is_on, running),
                     paths.unit_file(kind, uid), unit.get("env_file") if unit.get("settings") else None,
-                    guide if guide and (ROOT / guide).is_file() else None, _part_of(uid))
+                    guide if guide and (ROOT / guide).is_file() else None, _part_of(uid), paths.unit_folder(kind, uid))
 
 
 def _running():
@@ -169,7 +173,7 @@ def sections(project, path):
                if name in running)
     on_section = [_section("What is on", True, core, ON_FILE)] \
         if path in TOP and (ROOT / ON_FILE).is_file() else []
-    return [_section("Core", True, core, CORE_FILE, ENV_FILE), *on_section,
+    return [_section("Core", True, core, CORE_FILE, ENV_FILE, folder=PROJECT_FOLDER), *on_section,
             *(_unit_section(project, on, running, *unit) for unit in units), *addons]
 
 
@@ -181,6 +185,21 @@ def _file(path):
     if not (ROOT / path).is_file():
         raise paths.NotFound(f"{path} does not exist")
     return ROOT / path
+
+
+def openable(path):
+    """(where it is on disk, whether it is a folder) of a path the pane shows, for Open in: the project's folder, a file of the
+    pane (the core's, the on file, an item's compose file, guide or .env) or the folder of an add-on or a playground. Any other
+    path is refused, one that would leave the project with it: each is a fixed name or matches the layout of an item, which
+    holds no `..`."""
+    if path == PROJECT_FOLDER:
+        return ROOT, True
+    folder = isinstance(path, str) and _owner(f"{path}/compose.yml") is not None
+    if not folder and path not in TOP and _owner(path) is None:
+        raise ValueError("Not a file or a folder of this project")
+    if not (ROOT / path).exists():
+        raise paths.NotFound(f"{path} does not exist")
+    return ROOT / path, folder
 
 
 def _version(path):

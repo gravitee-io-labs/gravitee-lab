@@ -387,6 +387,11 @@ The file button of a row opens its compose file in an editor. The editor checks 
 before it saves, marks an error on its line, and lists the files that go with it. A guide opens with *Code* and
 *Preview*.
 
+*Open in* opens the file on screen in an app of your machine, and the folder button of a section opens that item's
+folder: Finder on a Mac, File Explorer in WSL, your desktop's file manager on Linux, and the code editors installed (VS Code,
+Cursor, Windsurf, Zed, Sublime Text, IntelliJ IDEA). Only the apps found on your machine are listed. A file of a catalog
+opens there too, to read: an update of the catalog replaces what you change in it.
+
 The key button opens the settings of a `.env` as a form, with *Secrets* and *Settings* sections. Each field shows the
 comment that describes it in the compose file, and *Required* when it has no default. See
 [Images and versions](configuration.md#images-and-versions) for how the form is built.

@@ -1354,6 +1354,11 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 
 - The editor shows a file with the ones that go with it, by section, each saying whether it is on and whether something
   of it runs while it is on (`runs`): Save & apply only then, never for a setup or a guide.
+- *Open in* (a `.btn` with the chevron, before Discard) opens the file on screen in an app of this machine, and a section's
+  folder button (`folder` of the section: the project's for Core, an add-on's or a playground's, none for a setup or the on
+  file) opens its folder. The menu lists only the apps found here (`apps.found`), read once when the editor first opens: with
+  none, neither button is drawn. A file not on disk yet (`missing`, a .env before its first save) holds Open in, "Not saved
+  yet". The server opens only a path the pane shows (`files.openable`).
 - The on file is one of its files: a "What is on" section after Core, with the core's files. It opens from its problem
   line in the banner too, is checked on the core and saved like a compose file.
 - An on file with more than the Lab UI's `include` list, or with an entry whose file does not load, is never rewritten

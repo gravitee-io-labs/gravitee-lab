@@ -926,7 +926,10 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .compose-files { display: flex; flex-direction: column; overflow: hidden auto; border-right: 1px solid var(--border); background: var(--bg); }
 .file-list { list-style: none; margin: 0; padding: 0 8px 8px; display: grid; gap: 2px; }
 /* A section's name, then its files indented under it, closer to it than to the section above */
-.file-group { padding: 14px 10px 2px; }
+.file-group { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 10px 2px; }
+.file-group > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Its folder's Open in, a row's icon in the height of its line */
+.file-group .icon-btn { --btn-h: var(--h-inner); width: var(--h-inner); flex: none; margin: -5px -6px -5px 0; color: var(--muted); }
 .file-item {
   display: flex; align-items: center; gap: 9px; width: calc(100% - 8px); margin-left: 8px; padding: 6px 10px; border: 0; border-radius: 8px;
   background: none; color: var(--text-2); text-align: left; cursor: pointer;

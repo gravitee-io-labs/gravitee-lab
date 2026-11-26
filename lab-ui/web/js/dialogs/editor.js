@@ -2,9 +2,10 @@
 // the secrets and settings of a .env as a form. It opens on one file, next to the ones that go with it: the core's,
 // the on file, its own unit's, those of the setups a playground includes and of the add-ons it brings. A file of an item of a git catalog
 // is there to be read before it runs: it opens read only, by its path in the catalog, and its settings stay the person's to change.
+// Open in opens the file on screen, or the folder of a section, in an app of this machine: its file manager, a code editor installed.
 
 import { $, esc, icon, setHTML, loading, loadScript, api, store, drafts, theme, copyButton, catalogRows } from "../core.js";
-import { toast, confirmDialog, actionButton, paintActions, applyBadge, setOff } from "../components/ui.js";
+import { toast, confirmDialog, actionButton, paintActions, applyBadge, setOff, openMenu } from "../components/ui.js";
 import { runJob, runPlatform, busy, confirmApply, savedOnly } from "../activity/jobs.js";
 import { License } from "./license.js";
 import { markdownHtml } from "../components/markdown.js";
@@ -35,6 +36,7 @@ dialog.innerHTML = `
             <button role="radio" data-view="code">Code</button>
             <button role="radio" data-view="preview">Preview</button>
           </div>
+          <button class="btn" id="editor-open-in" aria-haspopup="true" hidden>Open in${icon("chevron")}</button>
           <button class="btn" id="editor-discard" aria-disabled="true" data-why="No changes">Discard</button>
           <span class="act-slot" id="editor-saves"></span>
           <button class="icon-btn" id="editor-close" aria-label="Close" data-tip="Close">${icon("close")}</button>
@@ -59,6 +61,10 @@ const envs = new Map();   // path -> {form, saved: {key: value}, values: {key: v
 let reveal = null;
 let closeAfter = null;   // the .env of an item that is off: once it is saved, the popup is done
 let view = "code";       // a markdown file shows as it is written ("code") or as it reads ("preview")
+// The apps of this machine that Open in offers, the file manager first: read when the editor first opens, and again on the next open
+// after a failure. With none, no Open in is drawn.
+let apps = [], appsRead = null;
+let pane = null;   // the file the popup was opened on, whose pane it shows
 
 // A .env opens as a form: the core's, or an add-on's own. A playground's guide is markdown: Compose does not check it,
 // and nothing runs from it
@@ -190,13 +196,32 @@ async function startEditor() {
 const kindOf = (path) => sections?.flatMap((s) => s.files).find((f) => f.path === path)?.kind
   || (isEnv(path) ? "env" : isGuide(path) ? "guide" : "compose");
 
-// The pane: a heading per section, then its compose file and its .env; the file on screen has its icon in the head too
+// A section's Open in, for its own folder: the project's for the core, an add-on's or a playground's; a setup has none
+function folderButton(s) {
+  if (!s.folder || !apps.length) return "";
+  const said = s.folder === "." ? "Open the lab's folder in" : `Open the folder of ${s.title} in`;
+  return `<button class="icon-btn" data-open-in="${esc(s.folder)}" aria-haspopup="true" aria-label="${esc(said)}" data-tip="Open folder in">${icon("folder")}</button>`;
+}
+
+// The pane: a heading per section with its folder's Open in, then its compose file and its .env; the file on screen has its icon in the
+// head too, and its Open in, which waits for a file not on disk yet (a .env before its first save)
 function renderList() {
   $(".editor-file use", dialog).setAttribute("href", `#i-${ICONS[kindOf(current)]}`);
   const row = (f) => `<li><button class="file-item ${f.path === current ? "active" : ""}" data-path="${esc(f.path)}" data-tip="${esc(shownPath(f.path))}">
     ${icon(ICONS[f.kind])}<span class="name">${esc(f.name)}</span>${unsavedDot(f.path)}</button></li>`;
   setHTML($("#file-list"), sections
-    ? sections.map((s) => `<li class="file-group">${esc(s.title)}</li>${s.files.map(row).join("")}`).join("") : LOADING);
+    ? sections.map((s) => `<li class="file-group"><span>${esc(s.title)}</span>${folderButton(s)}</li>${s.files.map(row).join("")}`).join("") : LOADING);
+  const button = $("#editor-open-in"), file = sections?.flatMap((s) => s.files).find((f) => f.path === current);
+  button.hidden = !apps.length;
+  setOff(button, !!file?.missing, "Not saved yet");
+}
+
+// The menu of the apps that open a path: a click opens it there
+function openIn(button, path) {
+  openMenu(button, apps.map((app) => ({
+    label: app.name,
+    onSelect: () => api("/api/open-in", { app: app.id, path }).catch((err) => toast(err.message, true)),
+  })));
 }
 
 // --- .env form ---
@@ -473,6 +498,7 @@ async function write(path, draft, apply) {
       Object.assign(doc, { saved: res.content, version: res.version, problems: res.problems, checked: res.content });
       if (current === path) renderProblems();
     }
+    readSections(pane);   // a .env is on disk once saved: its Open in no longer waits
     return true;
   } catch (err) {
     if (await reloadInstead(path, err)) open(path, true);
@@ -545,6 +571,8 @@ async function close() {
 dialog.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
 $("#editor-close").addEventListener("click", close);
 $("#file-list").addEventListener("click", (e) => {
+  const folder = e.target.closest("[data-open-in]");
+  if (folder) return openIn(folder, folder.dataset.openIn);
   const item = e.target.closest(".file-item");
   if (!item) return;
   open(item.dataset.path);
@@ -584,6 +612,7 @@ $("#editor-saves").addEventListener("click", (e) => {
   const button = e.target.closest("button");
   if (button && !button.disabled) save(button.id === "editor-apply");
 });
+$("#editor-open-in").addEventListener("click", () => openIn($("#editor-open-in"), current));
 $("#editor-view").addEventListener("click", (e) => {
   const b = e.target.closest("[data-view]");
   if (!b) return;
@@ -614,10 +643,19 @@ export async function openFile(path, options) {
   closeAfter = options?.off ? path : null;
   sections = null;
   if (!dialog.open) dialog.showModal();
+  appsRead ||= api("/api/open-in").then((found) => { apps = found.apps || []; renderList(); },
+    (err) => { appsRead = null; toast(err.message, true); });
+  pane = path;
   open(path);
-  let found = [];
+  readSections(path);
+}
+
+// The pane of the file the popup was opened on: once the popup is opened on another, what was asked for this one is not drawn. A read
+// that fails keeps the pane drawn, an empty one while it opens.
+async function readSections(path) {
+  let found = sections || [];
   try { found = (await api(`/api/files?path=${encodeURIComponent(path)}`)).sections; } catch (err) { toast(err.message, true); }
-  if (current !== path) return;   // another file was asked for meanwhile
+  if (pane !== path) return;
   sections = found;
   renderState();
 }

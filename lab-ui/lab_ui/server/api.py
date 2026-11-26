@@ -11,7 +11,6 @@ import queue
 import re
 import shutil
 import socket
-import subprocess
 import sys
 import textwrap
 import threading
@@ -21,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
-from ..library import check, drift, files, layers, machine, model, personal, playgrounds, plugins, project, starred, updates
+from ..library import apps, check, drift, files, layers, machine, model, personal, playgrounds, plugins, project, starred, updates
 from ..docker import compose, images, terminal
 from ..gravitee import core, license, places, platforms, probe
 from . import dashboard, personas, stack
@@ -722,6 +721,9 @@ ROUTES = [(method, re.compile(pattern), handler) for method, pattern, handler in
     ("GET", "/api/license", lambda r: license.info(project.load())),
     ("GET", "/api/machine", lambda r: machine.report(fresh=r.query.get("fresh") == "1")),
     ("POST", "/api/machine/act", lambda r: machine.act(r.body.get("id"))),
+    # The apps of this machine that open a file or a folder the editor shows, and the opening of one
+    ("GET", "/api/open-in", lambda r: {"apps": apps.found()}),
+    ("POST", "/api/open-in", lambda r: apps.open_in(r.body.get("app"), r.body.get("path"))),
     ("GET", f"/api/playgrounds/{UNIT}/check",
      lambda r, pid: playgrounds.check(project.load(), pid, **at(r.query.get("place")))),
     ("GET", f"/api/(addon|setup)s/{UNIT}/check", check_unit),
@@ -1042,8 +1044,7 @@ def open_browser(url):
     """The page in the person's browser. In WSL it is the browser of Windows, which explorer.exe opens: a browser of Linux
     is rarely there, and the one WSLg offers answers with an error"""
     if machine.system() == "wsl" and shutil.which("explorer.exe"):
-        subprocess.Popen(["explorer.exe", url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+        apps.detached(["explorer.exe", url])
     else:
         webbrowser.open(url)
 
