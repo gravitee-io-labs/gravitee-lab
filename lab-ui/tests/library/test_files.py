@@ -29,10 +29,10 @@ WARNING = 'time="2026-01-01T10:00:00Z" level=warning msg="The \\"FEDERATION_ALPH
 EDITED = "services:\n  kazoo:\n    imgae: kazoo\n"
 
 
-CORE = {"title": "Core", "on": True, "runs": True, "files": [
+CORE = {"title": "Core", "on": True, "runs": True, "folder": ".", "files": [
     {"path": "docker-compose.yml", "name": "docker-compose.yml", "kind": "compose"},
     {"path": ".env", "name": ".env", "kind": "env"}]}
-ON_SECTION = {"title": "What is on", "on": True, "runs": True, "files": [
+ON_SECTION = {"title": "What is on", "on": True, "runs": True, "folder": None, "files": [
     {"path": ".lab/on.yml", "name": "on.yml", "kind": "compose"}]}
 
 
@@ -48,6 +48,8 @@ class Sections(Case):
             for uid in self.project[f"{kind}s"]:
                 self.found(kind, uid)
         self.found("addon", "broken")
+        for path in ("docker-compose.yml", ".env"):
+            self.write(path, "")
         self.patch(layers, "current", lambda project: self.state)
         # What runs: the platform
         self.running = {name: {"state": "running"} for name in ("apim-gateway", "apim-management-api", "mongodb")}
@@ -146,8 +148,11 @@ class Sections(Case):
         hyssop = [("Hybrid gateway", False, [".lab/catalogs/fixture/addons/hyssop/compose.yml", ".lab/catalogs/fixture/addons/hyssop/.env"])]
         self.assertEqual(self.sections(".lab/catalogs/fixture/addons/hyssop/.env"), hyssop)
         self.assertEqual(self.sections(".lab/catalogs/fixture/addons/hyssop/compose.yml"), hyssop)
+        # Listed before its first save, which writes it: no app opens it until then
         self.assertEqual(files.sections(self.project, ".lab/catalogs/fixture/addons/hyssop/.env")[1]["files"][1],
-                         {"path": ".lab/catalogs/fixture/addons/hyssop/.env", "name": ".env", "kind": "env"})
+                         {"path": ".lab/catalogs/fixture/addons/hyssop/.env", "name": ".env", "kind": "env", "missing": True})
+        self.write(".lab/catalogs/fixture/addons/hyssop/.env", "HYSSOP_CLOUD_TOKEN=\n")
+        self.assertNotIn("missing", files.sections(self.project, ".lab/catalogs/fixture/addons/hyssop/.env")[1]["files"][1])
 
     def test_what_belongs_to_this_machine_shows_like_the_rest(self):
         own(self.project)
@@ -184,6 +189,37 @@ class Sections(Case):
                      None):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Not a file of this project"):
                 files.sections(self.project, path)
+
+    def test_each_section_names_its_own_folder_which_open_in_opens(self):
+        # The project's for the core, an add-on's or a playground's; a setup is a file among others, the on file too
+        self.state = on(self.project, ["kazoo"], "welcome")
+        self.write(".lab/on.yml", "include: []\n")
+        self.project["playgrounds"]["welcome"]["setups"] = ["events"]
+        found = {section["title"]: section["folder"] for section in files.sections(self.project, "docker-compose.yml")}
+        self.assertEqual(found, {"Core": ".", "What is on": None, "Welcome": ".lab/catalogs/fixture/playgrounds/welcome",
+                                 "Events": None, "AI Agent Lens": ".lab/catalogs/fixture/addons/agent-lens",
+                                 "Kazoo": ".lab/catalogs/fixture/addons/kazoo"})
+
+    def test_open_in_opens_what_the_pane_shows_and_nothing_else(self):
+        self.write(".lab/catalogs/fixture/playgrounds/welcome/guide.md", "# Welcome\n")
+        self.write(".lab/catalogs/fixture/addons/hyssop/.env", "")
+        self.write(".lab/on.yml", "include: []\n")
+        for path, folder in ((".", True), ("docker-compose.yml", False), (".env", False), (".lab/on.yml", False),
+                             (".lab/catalogs/fixture/addons/kazoo", True), (".lab/catalogs/fixture/addons/kazoo/compose.yml", False),
+                             (".lab/catalogs/fixture/addons/hyssop/.env", False), (".lab/catalogs/fixture/setups/events.yml", False),
+                             (".lab/catalogs/fixture/playgrounds/welcome", True),
+                             (".lab/catalogs/fixture/playgrounds/welcome/guide.md", False)):
+            with self.subTest(path=path):
+                self.assertEqual(files.openable(path), (self.root / path, folder))
+        # A path of the project the pane does not show, one that leaves it, the folder of the setups, an item not on disk
+        for path in (".lab", ".lab/catalogs", ".lab/catalogs/fixture/setups", ".lab/catalogs/fixture/addons/kazoo/",
+                     ".lab/catalogs/fixture/addons/kazoo/../../../../..", "..", "/etc", "lab-ui/server.py",
+                     ".lab/catalogs/fixture/addons/nothing", "", None, ["."]):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Not a file or a folder of this project"):
+                files.openable(path)
+        # A .env before its first save is shown and not opened: it is not on disk
+        with self.assertRaisesRegex(paths.NotFound, "does not exist"):
+            files.openable(".lab/catalogs/fixture/addons/agent-lens/.env")
 
 
 class Checked(Case):
@@ -655,8 +691,8 @@ class Held(Git, Case):
         echo = found[2]
         self.assertEqual([(file["kind"], file["path"]) for file in echo["files"]],
                          [("compose", ECHO), ("env", ECHO_ENV)])
-        self.assertEqual(sorted(echo), ["files", "on", "readonly", "reason", "runs", "title"])
-        self.assertEqual(sorted(found[1]), ["files", "on", "runs", "title"])   # nothing is added to an editable section
+        self.assertEqual(sorted(echo), ["files", "folder", "on", "readonly", "reason", "runs", "title"])
+        self.assertEqual(sorted(found[1]), ["files", "folder", "on", "runs", "title"])   # nothing is added to an editable section
 
     def test_a_project_with_no_catalog_has_nothing_held(self):
         self.folder(paths, compose, envfiles, files)

@@ -94,16 +94,22 @@ def _waiting(what, seconds=120):
     return at is not None and time.monotonic() - at < seconds
 
 
+def bundle(name):
+    """The path of an app of a Mac, by the name of its bundle, where apps are installed for everyone or for the person; None
+    without one. The path, not the name: an app just copied into Applications is not known by its name to `open -a` yet."""
+    for place in (Path("/Applications"), Path.home() / "Applications"):
+        if (place / name).is_dir():
+            return str(place / name)
+    return None
+
+
 def docker_app():
-    """The app that runs Docker on a Mac, by its path and the name people know; None elsewhere or without one. The path, not
-    the name: an app just copied into Applications is not known by its name to `open -a` yet."""
+    """The app that runs Docker on a Mac, by its path and the name people know; None elsewhere or without one"""
     if system() != "mac":
         return None
-    places = [Path("/Applications"), Path.home() / "Applications"]
-    for bundle, name in (("Docker.app", "Docker Desktop"), ("OrbStack.app", "OrbStack")):
-        for place in places:
-            if (place / bundle).is_dir():
-                return str(place / bundle), name
+    for name, said in (("Docker.app", "Docker Desktop"), ("OrbStack.app", "OrbStack")):
+        if bundle(name):
+            return bundle(name), said
     return None
 
 

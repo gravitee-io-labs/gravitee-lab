@@ -2,7 +2,7 @@
 // area that stands in for it) is read only, Save and Discard say why they cannot be used, a neutral "Read only" pill stands beside "Unsaved", the
 // path shown is the one in the catalog and never the one on this machine, and the file is not sent to be checked. The settings of the same item
 // are the person's and open as ever, and so does any file of a folder catalog or of this machine. The file buttons of an item read View for
-// a file that is only read.
+// a file that is only read. Open in offers the apps of this machine for the file on screen and for the folder of a section.
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
@@ -16,8 +16,8 @@ const FIRSTS = ".lab/catalogs/gravitee/addons/kazoo";
 const MINE = ".lab/catalogs/local/addons/mine";
 const FOLDER = ".lab/catalogs/my-catalog/addons/own";
 
-// What the server answers, and every call made
-const server = { calls: [], files: {} };
+// What the server answers, and every call made. The apps of this machine are read once, when the editor first opens.
+const server = { calls: [], files: {}, apps: [{ id: "files", name: "Finder" }, { id: "vscode", name: "VS Code" }] };
 const page = installDom({ fetch: async (path, options = {}) => {
   const [route, query = ""] = path.split("?");
   server.calls.push({ method: options.method || "GET", path, body: options.body ? JSON.parse(options.body) : undefined });
@@ -27,10 +27,12 @@ const page = installDom({ fetch: async (path, options = {}) => {
   if (route === "/api/files/validate") return reply({ problems: [] });
   if (route === "/api/files/save") return reply({ content: "saved", version: "v2", problems: [] });
   if (route === "/api/env") return reply({ version: "e1", sections: [{ title: "Settings", kind: "plain", groups: [{ description: "", vars: [{ key: "A_SETTING", value: "1", default: "" }] }] }] });
+  if (route === "/api/open-in") return reply(options.method ? {} : { apps: server.apps });
   if (route === "/api/files") {
     const unit = file.replace(/[^/]+$/, "");
-    return reply({ sections: [{ title: "Unit", on: false, runs: false, files: [{ path: file, name: file.split("/").pop(), kind: file.endsWith("guide.md") ? "guide" : "compose" },
-      { path: `${unit}.env`, name: ".env", kind: "env" }] }] });
+    return reply({ sections: [{ title: "Unit", on: false, runs: false, folder: unit.slice(0, -1), files: [
+      { path: file, name: file.split("/").pop(), kind: file.endsWith("guide.md") ? "guide" : "compose" },
+      { path: `${unit}.env`, name: ".env", kind: "env", ...(server.saved ? {} : { missing: true }) }] }] });
   }
   return reply({});
 } });
@@ -152,6 +154,47 @@ test("a file that no item of the state names opens as it always did", async () =
   await open("docker-compose.yml");
   assert.equal(shown().readonly, false, "before the state is read nothing is held");
   store.state = state();
+});
+
+// --- Open in -------------------------------------------------------------------------------------------------------------------------
+
+const menu = () => page.doc.querySelector("#menu");
+const press = (target) => page.doc.dispatchEvent(new Ev("click", { target }));
+const openedIn = () => posted("/api/open-in").filter((call) => call.method === "POST").map((call) => call.body);
+
+test("Open in offers the apps of this machine for the file on screen, a catalog's too, and opens it in the one chosen", async () => {
+  await open(`${HUB}/compose.yml`);
+  assert.equal($("#editor-open-in").hidden, false);
+  assert.equal(isOff($("#editor-open-in")), false, "a file only read here is still opened elsewhere, to be read");
+  $("#editor-open-in").click();
+  assert.deepEqual(menu().querySelectorAll(".menu-item").map((el) => text(el)), ["Finder", "VS Code"]);
+  press(menu().querySelectorAll(".menu-item")[1]);
+  await flush();
+  assert.deepEqual(openedIn(), [{ app: "vscode", path: `${HUB}/compose.yml` }], "by its path in the project, which the server checks");
+});
+
+test("a section opens its own folder, and a .env not on disk yet waits for its first save", async () => {
+  await open(`${MINE}/compose.yml`);
+  const folder = $("#file-list").querySelector("[data-open-in]");
+  assert.equal(folder.getAttribute("aria-label"), "Open the folder of Unit in");
+  $("#file-list").dispatchEvent(new Ev("click", { target: folder }));
+  press(menu().querySelectorAll(".menu-item")[0]);
+  await flush();
+  assert.deepEqual(openedIn(), [{ app: "files", path: MINE }]);
+  const env = $("#file-list").querySelectorAll(".file-item").find((el) => el.getAttribute("data-path") === `${MINE}/.env`);
+  $("#file-list").dispatchEvent(new Ev("click", { target: env }));
+  await flush();
+  assert.deepEqual([isOff($("#editor-open-in")), offWhy($("#editor-open-in"))], [true, "Not saved yet"]);
+  server.saved = true;
+  const input = $("#env-form input");
+  input.setAttribute("value", "2");
+  $("#env-form").dispatchEvent(Object.assign(new Ev("input"), { target: input }));
+  $("#editor-save").click();
+  await flush();
+  await flush();
+  await flush();
+  assert.equal(isOff($("#editor-open-in")), false, "saved, it is on disk: the pane is read again");
+  delete server.saved;
 });
 
 // --- The file buttons of an item -----------------------------------------------------------------------------------------------------

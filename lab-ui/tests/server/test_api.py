@@ -854,7 +854,7 @@ class Logs(Case):
     def test_what_is_followed_is_ended_with_the_stream(self):
         self.patch(api.project, "load", return_value=PROJECT)
         self.patch(api, "_started", return_value=(False, None))
-        popen = self.patch(api.subprocess, "Popen")
+        popen = self.patch(subprocess, "Popen")
         popen.return_value.stdout = iter([])
 
         def until_spawned(req, lines):
@@ -2192,7 +2192,7 @@ class Terminal(LabUI):
 
 class Browser(Case):
     def test_in_wsl_the_browser_of_windows_opens_the_page(self):
-        popen, opened = self.patch(api.subprocess, "Popen"), self.patch(api.webbrowser, "open")
+        popen, opened = self.patch(api.apps.subprocess, "Popen"), self.patch(api.webbrowser, "open")
         self.patch(api.shutil, "which", return_value="/mnt/c/WINDOWS/explorer.exe")
         self.patch(api.machine, "system", return_value="wsl")
         api.open_browser("http://localhost:9000")
