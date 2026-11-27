@@ -966,3 +966,14 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(STUDIO + "subscriptions:\n"), [])
+
+
+class FocusedFields(Made):
+    def test_invalid_fields_report_github_annotations(self):
+        for value in ['demo', [1], ['x', 'x']]:
+            with self.subTest(value=value):
+                folder = self.playground({"seed/aim/workspaces/example.yaml": json.dumps({"entityId": "example", "tags": value})})
+                code, out, err = run(str(folder), "--format", "github")
+                self.assertEqual(code, 1)
+                self.assertIn("title=Seed fields", out)
+                self.assertEqual(err, "")
