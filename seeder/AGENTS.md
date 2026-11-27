@@ -45,8 +45,10 @@ The seed runs when a Start sets the playground up, on Re-seed, and again with an
 ## Environments
 
 `apim.py` seeds the platform's own environment (`seed/apim/`, `APIM_ENV`) and each folder of `seed/environments/`, in that
-order. An environment of its own is looked up and never created or deleted, because no API does either: the playground's
-one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environments-of-its-own) and
+order. `seed/apim/` has `users.yaml` and `groups/` as an environment of its own has, read and checked before the first
+change with the same code, and recorded with plain names; its APIs name groups by name, as an import reads them, and its
+applications name none (the seed refuses one that does). An environment of its own is looked up and never created or
+deleted, because no API does either: the playground's one-shot service writes it. [The folder's layout](../docs/playgrounds.md#environments-of-its-own) and
 [what the platform does](../docs/playgrounds.md#environments-and-developer-portals) are in the playground reference.
 `apim_portal.py` follows `apim.py` and is removed before it, because portal objects name APIs.
 

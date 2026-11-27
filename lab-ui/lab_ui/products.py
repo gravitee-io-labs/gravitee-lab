@@ -16,6 +16,9 @@ SEEDED = {"apim": APIM, "am": AM, "aim": GAMMA, "authz": GAMMA}
 # What a deploy to a platform seeds: the folder of API Management there, and here those of Access Management and OpenFGA,
 # which run on this machine whichever platform runs API Management, as for a start here
 DEPLOYED, SEEDED_HERE = "apim", ("am", "openfga")
+# What the folder of API Management holds that only this machine's platform takes: the users and the groups of its own
+# environment, whose memory users are in the configuration of this machine's Management API
+APIM_HERE = ("apim/groups", "apim/users.yaml")
 LOCAL_PRODUCTS = (AM,)   # the products that a platform does not have to run: they run here
 APIM_FEATURES = "apim-"   # how the license features of API Management begin: those a platform that runs it must have
 

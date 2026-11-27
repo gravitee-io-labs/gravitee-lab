@@ -221,6 +221,8 @@ returns before it reads a setting or connects.
 | `apim/apis` | API exports, `.json` |
 | `apim/applications` | Applications |
 | `apim/subscriptions` | Subscriptions |
+| `apim/users.yaml` | Users of the platform's own environment |
+| `apim/groups` | Groups of the platform's own environment, with their members |
 | `aim` | Agent Management, in Gamma |
 | `aim/credentials` | Credentials |
 | `aim/providers` | AI providers |

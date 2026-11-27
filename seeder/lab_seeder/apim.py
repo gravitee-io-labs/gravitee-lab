@@ -1,11 +1,17 @@
-"""API Management: environment settings, APIs, applications and subscriptions, from seed/apim/ and, for each extra
-environment, from seed/environments/<id>/.
+"""API Management: users, groups, environment settings, APIs, applications and subscriptions, from seed/apim/ and, for each
+extra environment, from seed/environments/<id>/.
 
     seed/apim/settings.yaml          merged into the environment settings (Portal Next, custom API keys...)
     seed/apim/apis/*.json            API exports (v4 definition, as the Console exports them); the ids of the API and of
                                      its plans are fixed in the file when something else refers to them
     seed/apim/applications/*.yaml    name, description, settings
     seed/apim/subscriptions/*.yaml   subscriptions: [{application, api, plan, apiKey}] by name
+    seed/apim/users.yaml, groups/    written as those of an environment, below, with plain names in the records: a memory
+                                     user gets its row before its first sign-in, so that other seed files can name it. An
+                                     API of seed/apim/ names its groups by name, as an import reads them; an application of
+                                     it names none, and the seed refuses one that does. A memory user is one of this
+                                     machine's Management API configuration, so a playground with these files runs on This
+                                     machine only: the Lab UI does not deploy it to Gravitee Cloud
 
     seed/environments/<id>/          one folder for each extra environment, which is its id (lowercase letters, digits, dashes)
         environment.yaml             id (the folder's), name, description
@@ -900,7 +906,8 @@ def read_environment(folder):
     return wanted
 
 
-def check_environment(where, wanted):
+def check_people(where, wanted):
+    """The users and the groups of an environment, read: the hrids of its groups."""
     hrids = set()
     for spec in wanted["users"]:
         if not (spec.get("source") and spec.get("sourceId")):
@@ -918,6 +925,11 @@ def check_environment(where, wanted):
         unknown = set(spec.get("defaults") or {}) - set(DEFAULTS)
         if unknown:
             raise SeedError(f"{where}/groups/{hrid}: defaults has {', '.join(sorted(unknown))}, which the platform has no field for")
+    return hrids
+
+
+def check_environment(where, wanted):
+    hrids = check_people(where, wanted)
     names = set()
     for definition, file_name in wanted["apis"]:
         api = definition.get("api") or {}
@@ -951,13 +963,25 @@ def check_environment(where, wanted):
             raise SeedError(f"{where}/subscriptions: the consumerConfiguration of {spec['application']} → {spec['api']} needs an entrypointId")
 
 
-def seed_own(apim, settings, loaded, applications, subscriptions):
-    """The platform's own environment, from seed/apim/ (`loaded`: its API files, read). The APIs and the applications do not
-    depend on one another, so they are made at the same time (SEED_WORKERS), and the subscriptions, which name both, after them."""
+def own_people():
+    """The users and the groups of seed/apim/, read and checked."""
+    users = seed_file("apim", "users.yaml")
+    wanted = {"users": (load(users).get("users") or []) if users else [], "groups": [load(f) for f in files("apim", "groups")]}
+    check_people("seed/apim", wanted)
+    return wanted
+
+
+def seed_own(apim, settings, people, loaded, applications, subscriptions):
+    """The platform's own environment, from seed/apim/ (`loaded`: its API files, read; `people`: its users and groups, and
+    `applications`: its applications, read), in the order of an extra environment: its users, settings and groups, then the
+    APIs and the applications, which do not depend on one another, so they are made at the same time (SEED_WORKERS), then
+    the subscriptions, which name both."""
+    apim.users(people["users"])
     if settings:
         apim.settings(load(settings))
+    parallel(apim.group, people["groups"])
     together([lambda each=each: apim.import_api(*each) for each in loaded]
-             + [lambda path=path: apim.application(load(path)) for path in applications])
+             + [lambda spec=spec: apim.application(spec) for spec in applications])
     parallel(apim.subscription, [spec for path in subscriptions for spec in load(path).get("subscriptions", [])])
 
 
@@ -979,9 +1003,14 @@ def seed_environment(apim, wanted):
 def seed():
     settings = seed_file("apim", "settings.yaml")
     apis = files("apim", "apis", suffixes=(".json",))
-    applications, subscriptions = files("apim", "applications"), files("apim", "subscriptions")
+    applications, subscriptions = [load(path) for path in files("apim", "applications")], files("apim", "subscriptions")
+    people = own_people()
+    # The groups an application of seed/apim/ would name are refused, not left out: only an environment of its own reads them
+    named = [str(spec.get("name")) for spec in applications if spec.get("groups")]
+    if named:
+        raise SeedError(f"seed/apim/applications: {', '.join(named)} names groups, which an application of the platform's own environment does not take")
     environments = [read_environment(folder) for folder in folders(ENVIRONMENTS)]   # nothing is changed before they are all read
-    if not (settings or apis or applications or subscriptions or environments):
+    if not (settings or apis or applications or subscriptions or people["users"] or people["groups"] or environments):
         return
     apim = ApiManagement()
     apim.connect()
@@ -995,7 +1024,7 @@ def seed():
         {**definition, "api": {**definition.get("api", {}), "name": scope.scoped(definition.get("api", {}).get("name", file_name))}}
         for scope, wanted in zip(scopes, environments) for definition, file_name in wanted["apis"]]
     # The environments do not depend on one another either: each is one step, and the platform's own is another
-    together([lambda: seed_own(apim, settings, loaded, applications, subscriptions)]
+    together([lambda: seed_own(apim, settings, people, loaded, applications, subscriptions)]
              + [lambda each=each: seed_environment(*each) for each in zip(scopes, environments)])
     if common.waits_for_gateway():
         wait_for_gateway(apim, definitions)

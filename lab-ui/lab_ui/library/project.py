@@ -28,7 +28,7 @@ from ..docker import compose, envfiles
 from ..gravitee import license, platforms
 from .. import paths
 from ..catalogs import manifest, registry, renames, resolve, trust, understood
-from ..products import AM, APIM, APIM_FEATURES, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
+from ..products import AM, APIM, APIM_FEATURES, APIM_HERE, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
 SECRET = re.compile(r"TOKEN|SECRET|PASSWORD|LICENSE|_KEY")
@@ -133,15 +133,16 @@ def _seed_folder(kind, uid):
 
 def _seed_names(uid, safe=False):
     """What the seed folder of a playground holds, by name: a folder for each product it fills and the files of its
-    controls and refills. Names that start with a dot are not meant to be seen. `safe`: the playground is a catalog's, so
-    its seed folder is not listed if it is a link."""
+    controls and refills, and those of APIM_HERE it holds by their path. Names that start with a dot are not meant to be seen.
+    `safe`: the playground is a catalog's, so its seed folder is not listed if it is a link."""
     folder = ROOT / _seed_folder("playground", uid)
     try:
         if safe and folder.is_symlink():
             return []
-        return sorted(found.name for found in folder.iterdir() if not found.name.startswith("."))
+        names = [found.name for found in folder.iterdir() if not found.name.startswith(".")]
     except OSError:
         return []
+    return sorted(names + [path for path in APIM_HERE if os.path.lexists(folder / path)])
 
 
 def plugins_used(definition):
@@ -1376,9 +1377,10 @@ def asks(playground, project, raw, seed, uses=None):
     deploy; products: those its seed fills or its images name, in the order of SEEDED; versions: [product, version] of
     the images it requires; fills: the products its seed fills; plugins: it requires plugins; changes: it, or what it
     brings, changes the control plane of this machine (what it sets on the gateway goes to the gateway of the platform);
-    uses: its apps use a service of this machine's platform but its gateway; more: its seed
-    fills something that is no product}. The core's group names the product of an image. `seed` is what its seed folder
-    holds, `raw` the files as written, `uses` the plugins its seed's APIs need, by kind (_seed_uses): `needs`."""
+    uses: its apps use a service of this machine's platform but its gateway; more: its seed fills something that is no
+    product; people: its seed holds the users or the groups of API Management's own environment (APIM_HERE)}. The core's
+    group names the product of an image. `seed` is what its seed folder holds, `raw` the files as written, `uses` the plugins
+    its seed's APIs need, by kind (_seed_uses): `needs`."""
     asked, wanted = [SEEDED[name] for name in seed if name in SEEDED], []
     for variable, version in (playground["requires"].get("images") or {}).items():
         owner = next((service["owner"]["name"] for _, service in sorted(project["services"].items())
@@ -1396,7 +1398,8 @@ def asks(playground, project, raw, seed, uses=None):
             "plugins": any((playground["requires"].get("plugins") or {}).values()),
             "changes": bool(set(playground["restarts"]) & _control_plane(project) or any(changes for _, changes, _ in brought)),
             "uses": any(waits for _, _, waits in brought) or _uses_the_core(playground, project, raw),
-            "more": any(name not in (DEPLOYED, *SEEDED_HERE) for name in seed),
+            "more": any(name not in (DEPLOYED, *SEEDED_HERE, *APIM_HERE) for name in seed),
+            "people": any(name in APIM_HERE for name in seed),
             "features": _apim_features(playground["requires"]),
             "needs": {kind: list((uses or {}).get(kind, [])) for kind in PLUGIN_KINDS}}
 
@@ -1414,7 +1417,7 @@ def unit_asks(kind, unit, project):
     features = sorted({feature for uid in ids for feature in _apim_features((project["addons"].get(uid) or {}).get("requires"))})
     return {"deploys": True, "products": [], "versions": [], "fills": [], "plugins": False,
             "changes": any(changes for _, changes, _ in found), "uses": any(waits for _, _, waits in found),
-            "more": False, "features": features, "needs": {kind_: [] for kind_ in PLUGIN_KINDS}}
+            "more": False, "people": False, "features": features, "needs": {kind_: [] for kind_ in PLUGIN_KINDS}}
 
 
 def _lacks(asked, products):
@@ -1444,8 +1447,8 @@ def _lacks_plugins(asked, installed):
 def judge(asked, offers):
     """Why a playground that asks this (asks) cannot be deployed to an environment that offers this
     (platforms.capabilities: `products`, `plugins`), the most basic reason first: nothing to deploy, a product or a
-    version the environment does not run, a plugin, this machine's core changed or used, more than a deploy fills. []
-    when it can go. `products` None: what the environment runs is not known (it has no gateway, or its platform cannot
+    version the environment does not run, a plugin, this machine's core changed or used, more than a deploy fills, this
+    machine's memory users. [] when it can go. `products` None: what the environment runs is not known (it has no gateway, or its platform cannot
     be read), and nothing is compared to it. Every deploy to a platform leaves this machine's core alone, so the rules
     about the core hold for each kind."""
     products = offers.get("products")
@@ -1465,9 +1468,11 @@ def judge(asked, offers):
         found.append("Changes this machine's Management API")
     if asked["uses"]:
         found.append("Its apps use this machine's Management API")
-    # What only this machine's API Management serves: Gamma, controls, refills, a folder that is no product
+    # What only this machine's API Management serves: Gamma, controls, refills, a folder that is no product, memory users
     if asked["more"]:
         found.append(f"Seeds more than {APIM} and {AM}")
+    if asked.get("people"):
+        found.append("Seeds users of this machine's Management API")
     return found
 
 

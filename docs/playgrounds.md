@@ -276,6 +276,7 @@ gateway mounts what the Hybrid gateway add-on mounts. The Lab gives the first re
 | Changes this machine's Management API | The playground, or an add-on or a setup it brings, changes a service of API Management's control plane (its Management API, its consoles): Gravitee Cloud runs them | Nothing of the control plane can change in Cloud: put the change on the gateway, which is the platform's |
 | Its apps use this machine's Management API | An app, or a service of an add-on it brings, has `depends_on` the Management API or a console of API Management, or an app calls one in a URL of its `environment` or `command` | Make the apps backends, which the gateway of Gravitee Cloud calls |
 | Seeds more than API Management and Access Management | `seed/` holds another entry than `apim/`, `am/` and `openfga/`: `aim/`, `authz/`, `environments/`, `controls.yaml`, `refills.yaml` | The seed of a deploy fills API Management in the platform, and Access Management and OpenFGA here. No management API creates the [environments of its own](#environments-of-its-own) a seed names |
+| Seeds users of this machine's Management API | `seed/apim/` holds `users.yaml` or `groups/` | Nothing, when they are part of the use case: a memory user is set in the configuration of this machine's Management API, and the groups name such users |
 
 - What a playground needs of this machine's platform, other than API Management's gateway and control plane, starts with
   the deploy, with what it depends on (Access Management and its database): the apps and the seed use them as they do for a
@@ -472,6 +473,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 |---|---|---|
 | `seed/apim/apis/*.json` | APIM API export (v4 definition) | `_import/definition` |
 | `seed/apim/settings.yaml`, `applications/*.yaml`, `subscriptions/*.yaml` | Environment settings, applications, subscriptions | APIM Management API |
+| `seed/apim/users.yaml`, `groups/*.yaml` | The users and groups of the platform's own environment, written as those of an environment of its own: a memory user gets its row before its first sign-in, so that other seed files can name it. An API of `seed/apim/` names its groups by name, as an import reads them; an application of `seed/apim/` names none, and the seed refuses one that does. A memory user needs its username and a bcrypt hash of its password in the Management API's configuration, as [those of an environment](#environments-of-its-own) do, so a playground that has these files runs on *This machine* only | APIM Management API, Automation API |
 | `seed/environments/<id>/environment.yaml` | The id, name and description of an environment of its own | Nothing: the seed [never creates it](#environments-of-its-own) |
 | `seed/environments/<id>/settings.yaml`, `apis/*.json`, `applications/*.yaml`, `subscriptions/*.yaml` | As `seed/apim/`, for that environment | APIM Management API |
 | `seed/environments/<id>/users.yaml`, `groups/*.yaml` | The users that groups name, and groups with their members | APIM Management API, Automation API |

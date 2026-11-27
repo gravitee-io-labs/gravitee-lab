@@ -1,7 +1,7 @@
 """Lints the seed files of playgrounds, read as the seeder reads them: each ${VAR} they use is one the playground's seed
 service sets (or one the engine gives the files of an environment), each file parses once its variables are replaced, the
-folders of seed/environments agree with themselves, and the subscriptions of a studio (seed/aim/studios) name a plan of it that
-takes them, with an apiKey that is text.
+folders of seed/environments agree with themselves, so do the users and groups of seed/apim, and the subscriptions of a studio
+(seed/aim/studios) name a plan of it that takes them, with an apiKey that is text.
 
     python seedlint.py FOLDER... [--format text|github]
 
@@ -405,12 +405,10 @@ def _load(path, provided=None):
     return _loaded(path, provided)
 
 
-def _environment_findings(folder, variables, found=None):
-    """[(path under the folder, what is wrong)] in one folder of seed/environments, read as the seed reads it (its variables
-    replaced, ENV_ID and ENV_NAME given): the problems the files have with one another. They are added to `found` as they
-    come, so that a caller that stops on a file of a shape nobody expected keeps those that came before it."""
-    found = [] if found is None else found
-    id = folder.name
+def _reader(folder, variables, found):
+    """(rendered, says, specs) for one folder of the seed: a file of it read as the seed reads it, with these variables and
+    the names the engine gives; a problem of a file added to `found`, by its path under the folder; the files of a folder of
+    it, in name order."""
 
     def rendered(path, given):
         try:
@@ -430,19 +428,11 @@ def _environment_findings(folder, variables, found=None):
             return []
         return sorted(p for p in folders.iterdir() if p.name.endswith(suffixes)) if folders.is_dir() else []
 
-    path = folder / "environment.yaml"
-    if not _present(path):
-        found.append(("environment.yaml", "missing"))
-        return found
-    identity = rendered(path, {"ENV_ID": id})
-    if identity.get("id") != id:
-        says(path, f"id is {_brief(identity.get('id'), quoted=True)}, the folder is {id!r}")
-    if not identity.get("name"):
-        says(path, "name is missing")
-    if not re.fullmatch(r"[a-z0-9-]+", id) or id in ("default", "local"):
-        says(path, "an environment is named with lowercase letters, digits and dashes, and is not `local` or the platform's own")
-    given = {"ENV_ID": id, "ENV_NAME": identity.get("name") or ""}
+    return rendered, says, specs
 
+
+def _people(folder, given, rendered, says, specs):
+    """The users.yaml and groups/ of an environment's folder, checked against one another: the hrids of its groups."""
     users = set()
     if _present(folder / "users.yaml"):
         for user in rendered(folder / "users.yaml", given).get("users") or []:
@@ -460,6 +450,39 @@ def _environment_findings(folder, variables, found=None):
                 says(path, f"a member needs a source and a sourceId: {_brief(member)}")
             elif member["sourceId"] not in users and not member.get("external"):
                 says(path, f"{_brief(member['sourceId'])} is no user of users.yaml: add it there, or flag the member `external: true`")
+    return hrids
+
+
+def _own_findings(folder, variables, found=None):
+    """[(path under the folder, what is wrong)] in seed/apim, the platform's own environment: its users.yaml and groups/,
+    checked as those of a folder of seed/environments are. Its APIs name groups by name, as an import reads them, which may be
+    groups the platform holds already, so they are not checked against the folder. `found` is as for _environment_findings."""
+    found = [] if found is None else found
+    _people(folder, None, *_reader(folder, variables, found))
+    return found
+
+
+def _environment_findings(folder, variables, found=None):
+    """[(path under the folder, what is wrong)] in one folder of seed/environments, read as the seed reads it (its variables
+    replaced, ENV_ID and ENV_NAME given): the problems the files have with one another. They are added to `found` as they
+    come, so that a caller that stops on a file of a shape nobody expected keeps those that came before it."""
+    found = [] if found is None else found
+    id = folder.name
+    rendered, says, specs = _reader(folder, variables, found)
+
+    path = folder / "environment.yaml"
+    if not _present(path):
+        found.append(("environment.yaml", "missing"))
+        return found
+    identity = rendered(path, {"ENV_ID": id})
+    if identity.get("id") != id:
+        says(path, f"id is {_brief(identity.get('id'), quoted=True)}, the folder is {id!r}")
+    if not identity.get("name"):
+        says(path, "name is missing")
+    if not re.fullmatch(r"[a-z0-9-]+", id) or id in ("default", "local"):
+        says(path, "an environment is named with lowercase letters, digits and dashes, and is not `local` or the platform's own")
+    given = {"ENV_ID": id, "ENV_NAME": identity.get("name") or ""}
+    hrids = _people(folder, given, rendered, says, specs)
     apis, cross_ids = {}, set()
     for path in specs("apis", suffixes=(".json",)):
         definition = rendered(path, given)
@@ -668,19 +691,20 @@ def _lint(folder):
             else:
                 told = studio_problems(spec)
             out.extend(Problem("studio", str(path), 0, _short(text)) for text in told)
-    # The files of an environment agree with one another only once each of them can be read
-    environments = folder / "seed" / "environments"
+    # The files of an environment agree with one another only once each of them can be read: the platform's own, then the others
+    checked, environments = [(folder / "seed" / "apim", _own_findings)], folder / "seed" / "environments"
     if environments.is_dir() and not environments.is_symlink():
-        for each in _playgrounds(environments)[0]:
-            if any(each in path.parents for path in unread):
-                continue
-            told = []
-            try:
-                _environment_findings(each, environment, told)
-            except Exception as e:  # noqa: BLE001 - a stranger's file of any shape is a finding, never a crash
-                told.append(("", "cannot be checked: " + f"{type(e).__name__}: {_flat(e)}"))
-            out.extend(Problem("environment", str(each / relative) if relative else str(each), 0, _short(text))
-                       for relative, text in told)
+        checked += [(each, _environment_findings) for each in _playgrounds(environments)[0]]
+    for each, findings in checked:
+        if not each.is_dir() or each.is_symlink() or any(each in path.parents for path in unread):
+            continue
+        told = []
+        try:
+            findings(each, environment, told)
+        except Exception as e:  # noqa: BLE001 - a stranger's file of any shape is a finding, never a crash
+            told.append(("", "cannot be checked: " + f"{type(e).__name__}: {_flat(e)}"))
+        out.extend(Problem("environment", str(each / relative) if relative else str(each), 0, _short(text))
+                   for relative, text in told)
     return Report(sorted(out, key=lambda p: (p.path, p.line, p.check, p.message)), 1, read)
 
 
