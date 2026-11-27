@@ -133,9 +133,9 @@ with an information mark tells more on hover, focus or a tap. A long name is cut
 setting keeps its *Start*, which waits for it and says which (hover or focus it), or its *Stop* while it runs; its key button
 opens its settings, as the badge does. A button that cannot be used says why when you hover it, focus it or tap it.
 
-An explanation is one look everywhere: a short label is a dark tooltip on one line, anything longer a card under its button
-(a title, the sentence, rows with versions and settings' names in monospace, what the action does). You can move the pointer
-onto the card, scroll it when it is long, and Escape closes it.
+An explanation is one look everywhere: a short label, or a path or an address however long, is a dark tooltip on one line,
+anything longer a card under its button (a title, the sentence, rows with versions and settings' names in monospace, what the
+action does). You can move the pointer onto the card, scroll it when it is long, and Escape closes it.
 
 ## Start and stop an item
 
