@@ -135,6 +135,7 @@ export class El extends Target {
   getAttribute(name) { return this.attrs.has(name) ? this.attrs.get(name) : null; }
   hasAttribute(name) { return this.attrs.has(name); }
   removeAttribute(name) { this.attrs.delete(name); }
+  get attributes() { return [...this.attrs].map(([name, value]) => ({ name, value })); }
   toggleAttribute(name, force) {
     const on = force === undefined ? !this.hasAttribute(name) : !!force;
     if (on && !this.hasAttribute(name)) this.setAttribute(name, '');

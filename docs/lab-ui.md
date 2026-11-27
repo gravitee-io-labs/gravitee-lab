@@ -497,9 +497,11 @@ A playground that is on shows its guide beside its UIs. The page does not scroll
 - **Hide the guide**: the button at the left of the tabs hides the guide, and the UIs take the whole card; it shows the
   guide again. Whether it is hidden is kept in this browser, for every playground.
 - **The guide**: one page per section, with previous and next, a page picker, and its own address
-  (`#/playgrounds/acme-shop/4`). It opens on the page you read last. Diagrams are drawn from Mermaid blocks. A button
-  with a play icon runs an action in the playground's app. Where a step says to sign in, the account shows with its user and
-  password, each with a copy button.
+  (`#/playgrounds/acme-shop/4`). It opens on the page you read last. Diagrams are drawn from Mermaid blocks. A play icon
+  runs an action in the playground's app, and an eye opens a page of one of the UIs in its tab: in a sentence they read as
+  links, alone on their line as buttons.
+  Where a step says to sign in, the account shows with its user and password, each with a copy button, and a text to paste
+  (a question, an id) shows in a field with its own copy button.
 - **Tabs**: one per console the playground lists, then *Details*. A UI loads when you first open its tab, and stays
   loaded. *Reload* loads the page it is on again (a UI on another port does not let the Lab UI read its page, so it is
   told: the platform's consoles say it, any other loads the address the Lab UI loaded last), *Back to start* loads its start address, and *Open in a new

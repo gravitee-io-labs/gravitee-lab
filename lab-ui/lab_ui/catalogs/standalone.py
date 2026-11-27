@@ -17,7 +17,7 @@ share). Those stay variables, `${NAME:-default}`, listed in `.env.example` with 
 in the archive, the license least of all.
 
 The guide becomes Markdown any viewer shows (`_guide`): an action link is the name of the button of the app it runs, an account link
-the user and its password, a block to run a plain block. What to have before the start (Docker, the license and its features, what
+the user and its password, a copy field its text, a block to run a plain block. What to have before the start (Docker, the license and its features, what
 the playground asks of the machine) and how to start it come before its first step, and how to stop it after the last.
 
 What comes from a private catalog leaves with the file, and is said before it is made, as for an export (`exports._origins`), the
@@ -40,7 +40,7 @@ from pathlib import Path
 
 from .. import paths
 from ..docker import compose
-from ..library import plugins
+from ..library import check, plugins
 from ..library import project
 from . import exports, resolve
 
@@ -526,11 +526,16 @@ def _parts(text):
 
 def _guide(text, accounts):
     """The guide as Markdown any viewer shows: an action link is the name of the button of the app, an account link its user
-    and password (or key), a block to run a plain block."""
+    and password (or key), a copy field its text, a block to run a plain block. An account link takes its account as the page
+    does: the one of its user name, or when several have it, the one whose `for`, alone of theirs, is the link's title, else the user
+    name alone."""
     def account(match):
-        one = accounts.get(match.group(2))
+        same = [one for one in accounts if one.get("username") == match.group(2)]
+        title = (match.group(3) or "")[1:-1]
+        named = [one for one in same if one.get("for") == title]
+        one = same[0] if len(same) == 1 else named[0] if len(named) == 1 else None
         if not one:
-            return f"**{match.group(1)}**"
+            return f"**{match.group(1)}** (user `{match.group(2)}`)" if same else f"**{match.group(1)}**"
         secret = f"password `{_default(one['password'])}`" if one.get("password") else f"key `{_default(one.get('key'))}`"
         return f"**{match.group(1)}** (user `{one['username']}`, {secret})"
     out = []
@@ -538,8 +543,11 @@ def _guide(text, accounts):
         if inside:   # a block to run is a plain block; nothing else of a block changes
             out.append(re.sub(r"\A([ \t]{0,3}(?:`{3,}|~{3,}))([\w.+-]+)[ \t]+run[ \t]*$", r"\1\2", part, count=1, flags=re.M))
         else:
-            part = re.sub(r"\[([^\]]+)\]\(account:([^)\s]+)\)", account, part)
-            out.append(re.sub(r"\[([^\]]+)\]\(action:[^)]+\)", r"**\1**", part))
+            # A copy field as `make check` reads it: one in a code span shows its syntax, and one with more after `copy:` is none
+            part = re.sub(f"{check.CODE.pattern}|{check.COPY.pattern}", lambda m: m[0] if m[2] is None or m[3] else m[2], part,
+                          flags=re.M | re.S)
+            part = re.sub(rf"\[([^\]]+)\]\(account:([^)\s]+){check.TITLE}", account, part)
+            out.append(re.sub(rf"\[([^\]]+)\]\(action:[^)\s]+{check.TITLE}", r"**\1**", part))
     return "".join(out)
 
 
@@ -566,11 +574,7 @@ def _readme(gathered, raw, services, consoles, seed, missing):
             name = one.get("username")
             accounts.append({**one, "username": project.user_name(_default(name) if isinstance(name, str) else name)})
     guide_file = folder / "guide.md"
-    first = {}
-    for one in accounts:
-        if one.get("username"):
-            first.setdefault(one["username"], one)   # the first of a user name, as the page shows it
-    guide = _guide(guide_file.read_text(encoding="utf-8"), first) \
+    guide = _guide(guide_file.read_text(encoding="utf-8"), accounts) \
         if guide_file.is_file() else f"# {unit['name']}\n\n{unit.get('description') or ''}\n"
     cut = _first_step(guide)
     intro, steps = guide[:cut], guide[cut:]

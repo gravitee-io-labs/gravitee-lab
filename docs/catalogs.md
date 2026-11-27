@@ -274,8 +274,8 @@ says what it deletes and deletes them, and nothing else does.
 
 It never holds this machine's settings, keys or license: every setting has its default from the files, whatever this machine's `.env` says. What the containers write (what a seed recorded, keys and certificates made at a start) does not travel either: those folders are made at the first start, as on a new Lab. Nor do `.env` files, `.git` folders, or links that lead out of an item's folder. What only the Lab UI does is not in it: Start and Stop of one item,
 Re-seed, the change of versions and the updates. An action button of the guide is the name of the button of the playground's
-app; an account link is the user and its password. What comes from a private catalog leaves with the file, and the dialog says
-so under **Private**, as an export does.
+app; an account link is the user and its password, of the account the page shows; a field to copy is its text. What comes from a
+private catalog leaves with the file, and the dialog says so under **Private**, as an export does.
 
 ## Offline, privacy and starting over
 

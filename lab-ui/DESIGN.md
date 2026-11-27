@@ -512,6 +512,18 @@ What the person sees is in [docs/lab-ui.md](../docs/lab-ui.md#the-guide-and-the-
     page it is on) and when its UI goes away, which also drops the queue.
   - The button says why it is disabled (`actionReason`: not running, no UI, the UI itself), and the workspace repaints
     it whenever any of that changes. Nothing the app does is read back: the guide is as good as the app is.
+- **A link to a UI and a text to copy** (the syntax is in [docs/playgrounds.md](../docs/playgrounds.md#links-to-a-ui)).
+  - `markdown.js` draws a link under the origin of a tab (`inTab`, split.js) with the eye of an action that shows something,
+    and leaves it a link: a click is `Workspace.follow`, a key held is the browser's. The editor's preview has no tabs.
+  - An action and such a link are drawn by where they stand (`withLines`): alone in their paragraph, item or cell, or in a row
+    of them, the Lab's button (`btn guide-action`); in a sentence, drawn as a link of the text (`guide-action` alone), so the
+    line keeps its height. An action stays a button, which the browser lays out as one box: it moves to the next line whole. Only
+    a link to a UI flows as text, its icon glued to its first word (`guide-glue`) so the two move to the next line together.
+  - A link whose address is `copy:` alone is a field with the copy button of every dialog (`copyButton`), which copies the text
+    as it reads. It holds only what shows (code, bold, italics, without attributes), so nothing hidden is copied. The sanitizer
+    keeps `copy:` alone; `make check` refuses any other `copy:` and a field without text.
+  - The archive's README (`catalogs/standalone.py`) draws the same links as text: a copy field is its text, an account the
+    sign-in the page would show.
 - **A note** is a quote that opens with `[!NOTE]` (GitHub's alert syntax; the syntax is in
   [docs/playgrounds.md](../docs/playgrounds.md#a-note-in-a-guide)). `markdown.js` drops the marker (`withNotes`) and the quote
   takes `guide-note`, drawn with the status role of information (`--info`, `--info-soft`).
@@ -522,6 +534,7 @@ What the person sees is in [docs/lab-ui.md](../docs/lab-ui.md#the-guide-and-the-
   - The page's title with a lead under it, `###` sub-headings that open its parts, `####` as a quiet label, real
     bullets and numbers one item to a line, a quote as a calm callout (never a warning), tables for reference, links
     underlined, code in a box, images and diagrams spaced, nothing glued to what is above it.
+  - It is a container of its own (`guide`), so it adapts to its own width wherever it is: under 520 px the step count goes.
   - Check a long page at 600, 750 and 1000 px of guide, light and dark.
 
 ## The model

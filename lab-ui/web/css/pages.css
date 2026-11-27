@@ -479,9 +479,10 @@
 
 /* The guide: markdown, written for reading. Text of 15 px on a 1.7 line that takes the whole width of its panel (padding
    keeps it comfortable), one rhythm of space between blocks (--flow), a title that opens each page and sub-headings that
-   open its parts, bullets that read one action a line, calm callouts, and nothing glued to what is above it. */
+   open its parts, bullets that read one action a line, calm callouts, and nothing glued to what is above it. What it holds adapts to
+   its own width (`guide`), beside the UIs, before a start and in the editor's preview alike. */
 .guide { --flow: 16px; --media: 56em; padding: 20px 28px 36px; font-size: 15px; line-height: 1.7; color: var(--text-2); min-width: 0;
-  border-right: 1px solid var(--border); overflow-wrap: break-word; }
+  border-right: 1px solid var(--border); overflow-wrap: break-word; container: guide / inline-size; }
 .guide > :first-child { margin-top: 0; }
 .guide :is(p, ul, ol, blockquote, table, pre, figure, hr) { margin: 0 0 var(--flow); }
 /* A picture or a diagram is not text: it grows with the panel up to --media, not across a screen */
@@ -501,7 +502,7 @@
 .guide-nav .icon-btn { flex: none; }
 .guide-nav .combo-btn .value { font-family: inherit; font-size: var(--fs-2); }
 .guide-count { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
-@container (max-width: 520px) { .guide-count { display: none; } }   /* the picker says the step already */
+@container guide (max-width: 520px) { .guide-count { display: none; } }   /* the picker says the step already */
 .guide-prev svg { transform: rotate(90deg); }
 .guide-next svg { transform: rotate(-90deg); }
 .guide-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 40px; padding-top: 20px;
@@ -533,14 +534,33 @@
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 .guide a:hover { text-decoration-color: currentColor; }
 .guide strong { color: var(--text); font-weight: 650; }
-/* An action link: the Lab's button with its play icon, centered in the line it was written in. Its margins are part of the
-   line, which grows to hold the whole button (32px and 3px each side, for a 25.5px line of text): the button never touches
-   the lines around it, and has room beside it for its focus ring */
-.guide .guide-action { margin: 3px 4px; vertical-align: middle; }
-.guide .guide-action:focus-visible { outline-offset: 1px; }
-.guide-action svg { color: var(--accent); }
+/* An action, or a link to a page of a UI, alone on its line or in a row of them: the Lab's button with its icon, centered in its
+   line. Its margins are part of the line, which grows to hold the whole button (32px and 3px each side): the button never touches
+   the lines around it, and has room beside it for its focus ring. A link drawn so has the button's colors, and its words wrap in a
+   narrow guide */
+.guide .guide-action.btn { margin: 3px 4px 3px 0; vertical-align: middle; }
+.guide .guide-action.btn:focus-visible { outline-offset: 1px; }
+.guide-action.btn svg { color: var(--accent); }
 /* What only shows something: its eye is quiet, the play of what does something is the accent */
-.guide-action.look svg { color: var(--muted); }
+.guide-action.btn.look svg { color: var(--muted); }
+.guide a.guide-action.btn { --btn-color: var(--text); color: var(--btn-color); text-decoration: none; white-space: normal; height: auto;
+  min-height: var(--btn-h); padding-block: 4px; text-align: left; }
+.guide a.guide-action.btn > svg { flex: none; }
+/* In a sentence: a link of the text, in the height of its line, its icon before its text and in its color. An action is a button
+   all the same, drawn as that link, which the browser lays out as one box: it moves to the next line whole, and breaks inside only
+   when it is longer than a line. Only a link to a UI flows as text */
+.guide button.guide-action:not(.btn) { display: inline; max-width: 100%; overflow-wrap: anywhere; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink);
+  text-align: inherit; cursor: pointer; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+.guide button.guide-action:not(.btn):hover:not(:disabled, [aria-disabled="true"]) { text-decoration-color: currentColor; }
+.guide button.guide-action:not(.btn):is(:disabled, [aria-disabled="true"]) { color: var(--muted); cursor: default; text-decoration: none; }
+.guide .guide-action:not(.btn):focus-visible { outline-offset: 1px; border-radius: 3px; }
+/* In a link to a UI, its icon and the word glued to it, and a short name; an id in a copy field (markdown.js): one box, which moves
+   to the next line whole and breaks inside only when it is longer than a line */
+.guide :is(.guide-glue, .guide-action.short, .guide-word) { display: inline-block; max-width: 100%; white-space: normal;
+  overflow-wrap: anywhere; }
+.guide .guide-glue { text-decoration: inherit; }   /* a box takes no underline from its link: the first word keeps the link's own */
+.guide :is(.guide-glue, button.guide-action:not(.btn)) > svg { width: 1em; height: 1em; margin-right: .3em; vertical-align: -.15em; }
 /* A block to run: its button is in the corner of the block, which keeps its text clear of it */
 .guide-code { position: relative; margin: 0 0 var(--flow); }
 .guide-code pre { margin: 0; }
@@ -556,6 +576,12 @@
 .guide-account .pg-cred { display: inline-flex; }
 .guide-account .pg-cred-label { width: auto; }
 .guide .guide-account code { background: var(--surface); }
+/* A copy field: the text to copy in a field on its own line, under the link that sends it if there is one, with its copy button at
+   the end: the same place whether the text is short or long */
+.guide .guide-copy { display: flex; width: fit-content; align-items: center; gap: var(--sp-2); max-width: 100%; margin: 6px 0 2px;
+  padding: 2px var(--sp-1) 2px var(--sp-2); line-height: var(--lh-3); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-pop); }
+.guide-copy-text { min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+.guide .guide-copy code { background: var(--surface); }
 .guide :is(code, kbd) { font-size: .86em; color: var(--text); background: var(--surface-2); padding: .08em .38em; border: 1px solid var(--border);
   border-radius: 6px; overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .guide hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
@@ -581,6 +607,9 @@
 .diagram { margin: 8px 0 24px; overflow-x: auto; text-align: center; }
 .diagram svg { display: block; width: 100%; height: auto; margin: 0 auto; }   /* not an icon: its own size, up to the page's width */
 .diagram [class~="node"] :is(rect, polygon, circle, path) { fill: var(--surface-2) !important; stroke: var(--border-strong) !important; }
+.diagram rect[class~="actor"] { fill: var(--surface-2) !important; stroke: var(--border-strong) !important; }   /* a sequence's actors, as a flowchart's nodes */
+.diagram line[class~="actor-line"] { stroke: var(--border-strong) !important; }
+.diagram text[class~="actor"] > tspan { fill: var(--text) !important; }   /* Mermaid's own rule colors a sequence's names on their tspan */
 .diagram [class~="cluster"] rect { fill: none !important; stroke: var(--accent) !important; stroke-dasharray: 4 3; }
 .diagram :is(text, span, p) { fill: var(--text) !important; color: var(--text) !important; }
 .diagram [class~="cluster-label"] :is(text, span, p) { fill: var(--accent) !important; color: var(--accent) !important; }

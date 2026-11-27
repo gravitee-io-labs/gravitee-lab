@@ -58,10 +58,14 @@ AGENTS, CLAUDE = "AGENTS.md", "CLAUDE.md"   # what an agent reads, and the file 
 NOT_SCANNED = {"local", "plugins", "node_modules", "venv", "__pycache__"}   # folders without files of the project
 FEATURE = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)*")   # a license feature, as the license model writes it
 STEP = re.compile(r"^## (\d+)\.", re.M)   # a numbered section of a guide: one of its steps
-# An action link of a guide, [text](action:id), a title after it too
-ACTION = re.compile(r'\]\(action:([^)"]*?)\s*(?:"[^"]*")?\)')
+# The end of a link of a guide: the title marked reads after its address ("…", '…' or (…)), then the parenthesis that closes it
+TITLE = r"""(?:\s+("[^"]*"|'[^']*'|\([^)]*\)))?\s*\)"""
+ACTION = re.compile(r'\]\(action:([^)"]*?)' + TITLE)   # an action link of a guide, [text](action:id)
 ACTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")   # as split.js reads it
-ACCOUNT = re.compile(r'\]\(account:([^)"]*?)\s*(?:"[^"]*")?\)')   # an account link of a guide, [text](account:username)
+# An account link of a guide, [text](account:username), with the title that chooses among accounts of one username
+ACCOUNT = re.compile(r'\]\(account:([^)"]*?)' + TITLE)
+# A copy field of a guide, [the text to copy](copy:): its text (a bracket pair in it too), and what follows `copy:`, which is nothing
+COPY = re.compile(r'(?<!!)\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(copy:([^)"]*?)' + TITLE)
 # A fenced block or a code span: it shows a syntax, it is no link
 CODE = re.compile(r"^(```|~~~).*?^\1|`[^`\n]*`", re.M | re.S)
 SEEDER_IMAGE = re.compile(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?(?:/[a-z0-9][a-z0-9._-]*)+")   # host/path, no tag
@@ -361,20 +365,47 @@ def _requires(requires, project):
 def _guide(folder, accounts=()):
     """The guide's steps are numbered 1, 2, 3 in order: its page shows one at a time, at the address of its number,
     and the playground's details lead to each by its place. Its action links name an id the page can draw as a
-    button, and its account links a user of its `accounts`, whose sign-in the page draws. A guide that is no plain file,
-    or is over 1 MB, is not read (`_not_read` says so)."""
+    button, its account links a user of its `accounts`, whose sign-in the page draws (the title of the link says which of
+    several accounts of that user), and its copy fields a text to copy. A guide that is no plain file, or is over 1 MB, is
+    not read (`_not_read` says so)."""
     text = _read(folder / "guide.md") or ""
     numbers = [int(n) for n in STEP.findall(text)]
     if numbers != list(range(1, len(numbers) + 1)):
         yield f"guide.md: number its steps 1, 2, 3 in order, not {', '.join(map(str, numbers))}"
     # An action link whose id is none is shown as plain text: say so, before it is shared
-    for found in dict.fromkeys(ACTION.findall(CODE.sub("", text))):
+    for found in dict.fromkeys(found for found, _ in ACTION.findall(CODE.sub("", text))):
         if not ACTION_ID.fullmatch(found):
             yield f"guide.md: action:{found} is no action, an id is lowercase letters, digits and hyphens"
-    users = {a.get("username") for a in accounts or () if isinstance(a, dict)}
-    for found in dict.fromkeys(ACCOUNT.findall(CODE.sub("", text))):
-        if found not in users:
+    yield from dict.fromkeys(_account_links(CODE.sub("", text), accounts))
+    # A code span in the text to copy is text too; one that holds a whole copy field shows its syntax
+    yield from dict.fromkeys(_copy_fields(CODE.sub(lambda m: "" if m[1] else "code", text)))
+
+
+def _account_links(text, accounts):
+    """What is wrong with the account links of a guide: one names no user of its accounts, or a user of several without the
+    `for` of one in its title, where the page would show no password rather than another account's."""
+    accounts = [a for a in accounts or () if isinstance(a, dict)]
+    for found, title in ACCOUNT.findall(text):
+        same = [a for a in accounts if a.get("username") == found]
+        fors = [a.get("for") for a in same]
+        if not same:
             yield f"guide.md: account:{found} is no user of x-gravitee.accounts, so the page cannot show its sign-in"
+        elif len(same) > 1 and fors.count(title[1:-1]) != 1:
+            if None in fors or len(set(fors)) < len(fors):   # no title can name one of them
+                yield (f"guide.md: account:{found} is the user of {len(same)} accounts that no `for` tells apart, so the page shows "
+                       "none of their passwords: give each its own `for` in x-gravitee.accounts")
+            else:
+                yield (f"guide.md: account:{found} is the user of {len(same)} accounts, so its link's title must be the `for` of the "
+                       f"one to show: [Sign in](account:{found} \"{fors[0]}\")")
+
+
+def _copy_fields(text):
+    """What is wrong with the copy fields of a guide: an address with more than `copy:`, which the page drops, or no text to copy."""
+    for shown, rest, _ in COPY.findall(text):
+        if rest:
+            yield f"guide.md: copy:{rest} is no copy field, whose address is copy: alone: [the text to copy](copy:)"
+        elif not shown.strip():
+            yield "guide.md: [](copy:) has no text to copy"
 
 
 def _frameable(service):
