@@ -422,8 +422,10 @@ class ApiManagement:
     def settings(self, extra):
         current = self.api.get(f"{self.v1}/settings").json()
         wanted = merge(copy.deepcopy(current), extra)
-        if wanted != current:
-            self.api.post(f"{self.v1}/settings", json=wanted, idempotent=True)   # the whole settings, as they are to be
+        if wanted == current:
+            log(SECTION, f"Environment settings as the file says: {', '.join(extra)}")
+            return
+        self.api.post(f"{self.v1}/settings", json=wanted, idempotent=True)   # the whole settings, as they are to be
         log(SECTION, f"✓ Environment settings: {', '.join(extra)}")
 
     # --- APIs -----------------------------------------------------------------------------
