@@ -966,3 +966,13 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(STUDIO + "subscriptions:\n"), [])
+
+
+class UpstreamAuthValidation(Made):
+    def test_bad_keys_are_reported_in_both_output_formats(self):
+        spec = {"name": "Test", "protocolVersion": "2025-11-25", "tools": [],
+                "plan": {"name": "Open", "security": {"type": "KEYLESS"}}, "upstreamAuth": [{"api": "Test"}]}
+        problems = seedlint.problems(self.playground({"seed/aim/studios/test.yaml": json.dumps(spec)}))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("upstreamAuth", problems[0].message)
+        self.assertIn("::error", seedlint.render(problems, "github"))

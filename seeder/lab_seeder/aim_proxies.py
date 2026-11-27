@@ -91,6 +91,26 @@ PROXY_VERSION_KEYS = ("supportedProtocolVersions", "endpointProtocolVersions")  
 SUBSCRIPTION_KEYS = ("application", "plan", "apiKey")
 
 
+def read_upstream_auth(spec, where):
+    """Tool API keys are validated before any studio or proxy is changed; values never appear in a refusal."""
+    entries = spec.get("upstreamAuth", [])
+    keys = ("api", "type", "apiKeyHeader", "apiKey")
+    if not isinstance(entries, list):
+        raise SeedError(f"{where}: upstreamAuth is a list of API keys")
+    seen = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != set(keys):
+            raise SeedError(f"{where}: upstreamAuth entries give only {', '.join(keys)}, all required")
+        if any(not isinstance(entry[key], str) or not entry[key].strip() for key in keys):
+            raise SeedError(f"{where}: upstreamAuth api, type, apiKeyHeader and apiKey are nonempty text")
+        if entry["type"] != "api-key":
+            raise SeedError(f"{where}: upstreamAuth type is api-key")
+        if entry["api"] in seen:
+            raise SeedError(f"{where}: upstreamAuth gives one key per API")
+        seen.add(entry["api"])
+    return entries
+
+
 def fill(value, slug):
     """A file's `<slug>` replaced by the slug of the MCP server in the catalog, wherever it stands."""
     if isinstance(value, str):
@@ -530,6 +550,7 @@ class McpProxies:
 
     def studio(self, spec):
         """A studio made in one go, or in steps (`access` present): its keys tell apart."""
+        read_upstream_auth(spec, f"MCP studio {spec['name']}")
         (self.agents_studio if "access" in spec else self.plain_studio)(spec)
 
     def plain_studio(self, spec):
@@ -827,6 +848,7 @@ def check():
         return
     for path in files("aim", "studios"):
         spec = load(path)
+        read_upstream_auth(spec, str(path))
         protocol_versions(spec)
         if spec.get("humanApproval") is not None and versions.variant("studio-human-approval") == "absent":
             raise SeedError(f"MCP studio {spec.get('name')}: this platform has no human approval on a studio, "
@@ -840,12 +862,17 @@ def check():
 def seed():
     if not has_seed(*FOLDERS):
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
+    studios = [(path, load(path)) for path in files("aim", "studios")]
+    for path, spec in studios:
+        read_upstream_auth(spec, str(path))
     proxies = McpProxies()
     proxies.connect()
+    for _, spec in studios:
+        proxies.upstream_auth(spec)   # an unknown API stops the seed before even a proxy is changed
     for path in files("aim", "mcp-proxies"):
         proxies.proxy(load(path))
-    for path in files("aim", "studios"):
-        proxies.studio(load(path))
+    for _, spec in studios:
+        proxies.studio(spec)
 
 
 def remove(records):

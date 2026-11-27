@@ -618,6 +618,8 @@ they use, to tell which license features the playground needs and where it can b
 environment of its own: the entrypoints, endpoints and resources, the policy of every flow step and the security of every
 plan.
 
+Validate every `upstreamAuth` entry before a proxy or studio is changed: it gives exactly `api`, `type: api-key`, `apiKeyHeader` and a quoted `apiKey`, all nonempty text. Each API appears once and must already have its tools in the catalog. Malformed keys are reported without their values.
+
 ### Environments of its own
 
 A playground for several tenants gives each one an environment of API Management, with its own APIs, applications, groups,
