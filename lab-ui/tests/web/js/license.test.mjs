@@ -1,11 +1,12 @@
 // The packs of the License dialog (web/js/dialogs/license.js), which no other test draws. A feature is in several packs: a pack that
 // is not in the license may have every feature of it through others. Each pack says how many of its features the license includes,
 // a pack not in it whose features all are reads Covered, a feature of a pack not in it names the packs of the license that give it,
-// and Included and Not included sort the packs by what can be used: every feature of the pack, or not.
+// and Included and Not included sort the packs by what can be used: every feature of the pack, or not. A feature is a line that says
+// how many installed plugins need it, and shows them once it is opened, or while a search is typed.
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 
-import { flush, installDom, reply, text } from "./dom-stub.mjs";
+import { Ev, flush, installDom, reply, text } from "./dom-stub.mjs";
 
 mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 
@@ -19,9 +20,13 @@ const LICENSE = { present: true, readable: true, valid: true, expired: false, ex
   packs: ["agent-management", "enterprise-policy"], extra_features: ["white-label", "audit"],
   features: ["a2a-proxy", "audit", "llm-proxy", "mcp-proxy", "white-label", "xslt"], model: MODEL, model_error: null, pull: null };
 
-installDom({ fetch: async (path) => reply(path.startsWith("/api/license") ? LICENSE : {}) });
+// The plugins API Management loads that need a feature of the license, by the name of their file
+const PLUGINS = { "gravitee-apim-endpoint-a2a-proxy": "a2a-proxy", "gravitee-apim-entrypoint-a2a-proxy": "a2a-proxy", "gravitee-apim-policy-xslt": "xslt" };
+
+installDom({ fetch: async (path) => reply(path.startsWith("/api/license") ? LICENSE
+  : path.startsWith("/api/plugins/installed?product=apim") ? { features: PLUGINS } : {}) });
 const { store } = await import("../../../web/js/core.js");
-store.state = { license: { status: "valid", expires: LICENSE.expires, days_left: 399, applied: true }, products: [],
+store.state = { license: { status: "valid", expires: LICENSE.expires, days_left: 399, applied: true }, products: [{ id: "apim" }],
   platform: { license_var: "GRAVITEE_LICENSE", apply: { needed: false } } };
 const { License } = await import("../../../web/js/dialogs/license.js");
 const dialog = document.querySelector(".license-dialog");
@@ -34,6 +39,10 @@ const rows = () => $("#license-packs").querySelectorAll(".pack-row").map((row) =
   row.querySelector(".pack-meta").classList.contains("full")]);
 const filter = (value) => $(`#license-filter [data-filter="${value}"]`).click();
 const unfold = (name) => $("#license-packs").querySelectorAll(".pack-row").find((row) => text(row.querySelector(".pack-name")) === name).click();
+const packOf = (name) => $("#license-packs").querySelectorAll(".pack").find((li) => text(li.querySelector(".pack-name")) === name);
+// A feature of an open pack: its line and the plugins shown under it
+const line = (name, feature) => packOf(name).querySelectorAll(".feature").find((li) => text(li.querySelector("code")) === feature);
+const pluginsOf = (li) => li.querySelectorAll(".feature-plugins .pill").map(text);
 // The features of an open pack: its id, its mark, and the packs said to give it
 const features = (name) => {
   const pack = $("#license-packs").querySelectorAll(".pack").find((li) => text(li.querySelector(".pack-name")) === name);
@@ -66,6 +75,29 @@ test("a feature of a pack not in the license names the packs of the license that
   assert.deepEqual(features("Enterprise"), [["xslt", true, "via Enterprise policy"], ["secret-manager", false, ""]]);
   assert.deepEqual(features("OEM"), [["white-label", true, "added to the license"]]);
   assert.deepEqual(features("Agent management").map(([, , via]) => via), ["", "", ""]);
+});
+
+test("a feature is one line that says how many plugins need it; a click shows them under it, in that pack only, and a search shows them", () => {
+  const a2a = line("Agent management", "a2a-proxy");
+  assert.equal(text(a2a.querySelector(".feature-meta")), "2 plugins");
+  assert.deepEqual(pluginsOf(a2a), [], "folded at first");
+  assert.equal(a2a.querySelector(".feature-row").getAttribute("aria-expanded"), "false");
+  const llm = line("Agent management", "llm-proxy");
+  assert.deepEqual([llm.querySelector(".feature-meta"), llm.querySelector("[data-feature]")], [null, null], "no plugin needs it: nothing to open");
+  a2a.querySelector(".feature-row").click();
+  assert.deepEqual(pluginsOf(line("Agent management", "a2a-proxy")), ["APIM endpoint-a2a-proxy", "APIM entrypoint-a2a-proxy"]);
+  assert.equal(line("Agent management", "a2a-proxy").querySelector(".feature-row").getAttribute("aria-expanded"), "true");
+  assert.deepEqual(pluginsOf(line("Agent mesh", "a2a-proxy")), [], "the same feature in another pack stays folded");
+  line("Agent management", "a2a-proxy").querySelector(".feature-row").click();
+  assert.deepEqual(pluginsOf(line("Agent management", "a2a-proxy")), []);
+  // A search also reads the names of the plugins: what it finds is shown, with nothing to open
+  $("#license-search").value = "policy-xslt";
+  $("#license-search").dispatchEvent(new Ev("input"));
+  assert.deepEqual(rows().map(([, name]) => name), ["Enterprise policy", "Enterprise"]);
+  assert.deepEqual(pluginsOf(line("Enterprise", "xslt")), ["APIM policy-xslt"]);
+  assert.equal(line("Enterprise", "xslt").querySelector("[data-feature]"), null);
+  $("#license-search").value = "";
+  $("#license-search").dispatchEvent(new Ev("input"));
 });
 
 test("Included keeps the packs whose features all can be used, Not included those that lack one", () => {

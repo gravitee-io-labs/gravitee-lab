@@ -19,6 +19,7 @@ let info = null, pending = null, read = "";
 let filter = "all", showOwner = false;
 let plugins = {};                  // product id -> {plugin: the license feature it needs}, among the installed ones
 const open = new Set();            // the packs that are expanded
+const openFeatures = new Set();    // the features that show their plugins, as "<pack> <feature>": a feature is in several packs
 
 // The license saved, as the state says it every few seconds, without Docker: {status (none, unreadable, invalid,
 // expired, expiring, valid), expires, days_left, problem, tone, applied}; null without a variable that holds one
@@ -211,7 +212,8 @@ function renderFacts() {
 // The packs of the license model, with what the license includes: none without a readable license, or without the
 // model. A feature is in several packs: a pack that is not in the license may have all of its features through others
 // (`covered`). Each pack says how many of its features the license includes, and a feature of a pack that is not in it
-// the packs of the license that give it. Included and Not included sort by what can be used: every feature, or not.
+// the packs of the license that give it. Included and Not included sort by what can be used: every feature, or not. A feature
+// is a line: how many installed plugins need it, which it shows once it is opened, and always while a search is typed.
 function renderPacks() {
   const list = $("#license-packs");
   if (!info?.model) { setHTML(list, ""); return; }
@@ -246,11 +248,17 @@ function renderPacks() {
     // A search opens every pack: its row then has nothing to fold, and takes no click
     const fold = q ? "" : `data-pack="${esc(p.id)}" role="button" tabindex="0" aria-expanded="${isOpen}"`;
     const features = isOpen ? `<ul class="features">${p.hits.map((f) => {
-      const yes = allowed.has(f), from = yes && !on ? via(f) : [];
+      const yes = allowed.has(f), from = yes && !on ? via(f) : [], needs = used[f] || [], key = `${p.id} ${f}`;
+      const unfolded = needs.length > 0 && (openFeatures.has(key) || !!q);
+      const opens = needs.length && !q ? `data-feature="${esc(key)}" role="button" tabindex="0" aria-expanded="${unfolded}"` : "";
       return `<li class="feature">
-        <span class="lic ${yes ? "yes" : "no"}" role="img" aria-label="${yes ? "In the license" : "Not in the license"}" data-tip="${yes ? "In the license" : "Not in the license"}">${icon(yes ? "check" : "close")}</span>
-        <span class="feature-name"><code>${esc(f)}</code>${yes && !on ? ` <span class="feature-via">${esc(from.length ? `via ${from.join(", ")}` : "added to the license")}</span>` : ""}</span>
-        <span class="feature-plugins">${(used[f] || []).map((x) => `<span class="pill">${esc(x.product)} ${esc(x.name)}</span>`).join("")}</span>
+        <div class="feature-row" ${opens}>
+          <span class="s-toggle">${opens ? icon("chevron") : ""}</span>
+          <span class="lic ${yes ? "yes" : "no"}" role="img" aria-label="${yes ? "In the license" : "Not in the license"}" data-tip="${yes ? "In the license" : "Not in the license"}">${icon(yes ? "check" : "close")}</span>
+          <span class="feature-name"><code>${esc(f)}</code>${yes && !on ? ` <span class="feature-via">${esc(from.length ? `via ${from.join(", ")}` : "added to the license")}</span>` : ""}</span>
+          ${needs.length ? `<span class="feature-meta">${count(needs.length, "plugin")}</span>` : ""}
+        </div>
+        ${unfolded ? `<div class="feature-plugins">${needs.map((x) => `<span class="pill">${esc(x.product)} ${esc(x.name)}</span>`).join("")}</div>` : ""}
       </li>`;
     }).join("")}</ul>` : "";
     return `<li class="pack ${isOpen ? "open" : ""} ${on ? "" : "off"}">
@@ -457,18 +465,24 @@ $("#license-filter").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-filter]");
   if (b) setFilter(b.dataset.filter);
 });
-const toggle = (row) => { const id = row.dataset.pack; open.has(id) ? open.delete(id) : open.add(id); renderPacks(); };
+// A pack opens on its features, a feature on the plugins that need it
+const toggle = (row) => {
+  const [set, id] = row.dataset.pack ? [open, row.dataset.pack] : [openFeatures, row.dataset.feature];
+  set.has(id) ? set.delete(id) : set.add(id);
+  renderPacks();
+};
 $("#license-packs").addEventListener("click", (e) => {
   if (e.target.closest("[data-clear]")) { $("#license-search").value = ""; return setFilter("all"); }
-  const row = e.target.closest("[data-pack]");
+  const row = e.target.closest("[data-pack], [data-feature]");
   if (row) toggle(row);
 });
-// Enter and Space open or close a pack, as a click does. It is drawn again: the focus goes back to it.
+// Enter and Space open or close a pack or a feature, as a click does. It is drawn again: the focus goes back to it.
 $("#license-packs").addEventListener("keydown", (e) => {
-  if (!e.target.matches("[data-pack]") || (e.key !== "Enter" && e.key !== " ")) return;
+  if (!e.target.matches("[data-pack], [data-feature]") || (e.key !== "Enter" && e.key !== " ")) return;
   e.preventDefault();
   toggle(e.target);
-  $(`#license-packs [data-pack="${CSS.escape(e.target.dataset.pack)}"]`)?.focus();
+  const [attr, id] = e.target.dataset.pack ? ["data-pack", e.target.dataset.pack] : ["data-feature", e.target.dataset.feature];
+  $(`#license-packs [${attr}="${CSS.escape(id)}"]`)?.focus();
 });
 
 // Read again once another license is saved (here or in .env itself), and after a job, when it was not read or its

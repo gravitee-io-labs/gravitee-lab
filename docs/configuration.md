@@ -89,7 +89,8 @@ A feature is often in several packs, so a pack that is not in your license may s
 others. Each pack of the dialog says how many of its features your license includes (*11 of 11 included*). A pack that is
 not in the license but whose features all are reads *Covered*, and each of its features names the pack of your license
 that gives it (*via Agent management*). *Included* lists the packs whose features you can all use, *Not included* those
-that lack at least one.
+that lack at least one. A feature is one line that says how many plugins of your lab need it: open it to see them, by
+product (*APIM endpoint-a2a-proxy*). A search also finds a feature by the name of a plugin, and shows its plugins.
 
 The products enforce the license. The Lab UI uses what it reads to warn before a start: *Needs a license*,
 *License expired* or *Not in the license* on a row, with the packs that give the feature. Start waits when all of what

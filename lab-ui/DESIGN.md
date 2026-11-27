@@ -1603,7 +1603,8 @@ dark, at 1440 and 900 px wide.
       reads Running; once a license is saved, it is a group as any other and Start runs it. With a license, the License dialog keeps
       no empty cell for the ways to get one, and the packs stay beside the facts. Each pack says how many of its features the license
       includes, in green when all are; one not in the license whose features all are has the pill *Covered* (its tooltip names the
-      packs that give them), its features *via* those packs; *Not included* keeps only the packs that lack a feature.
+      packs that give them), its features *via* those packs; *Not included* keeps only the packs that lack a feature. A feature is
+      one line that opens as a pack does, on the plugins that need it ("3 plugins"); a search shows them, with nothing to open.
     - The platform stopped, an add-on running alone: the head has Stop, Restart and Update.
 12. **Apply needed.** A version saved on Images while its container runs: the rows and the banner's notice, on every page but Containers, show the badge "Apply needed" (the notice its count; no page has it beside its title); hover it, tab to it (its name for a screen reader holds
     the reason) and tap it on a touch screen: the popover is one table, the tags that run and those saved under *Running* and
