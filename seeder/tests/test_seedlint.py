@@ -181,6 +181,17 @@ class Problems(Made):
             "environment", str(folder / "seed/environments/newt/groups/g.yaml"), 0,
             "nobody is no user of users.yaml: add it there, or flag the member `external: true`")])
 
+    def test_the_users_and_groups_of_the_platforms_own_environment_are_checked_as_an_environments_are(self):
+        files = {"seed/apim/users.yaml": "users:\n  - {source: memory, sourceId: astrid.holm}\n",
+                 "seed/apim/groups/quality.yaml": ("hrid: quality\nname: Quality\nmembers:\n  - {source: memory, sourceId: astrid.holm}\n"
+                                                   "  - {source: memory, sourceId: nobody}\n  - {source: memory, sourceId: admin, external: true}\n"),
+                 "seed/apim/groups/support.yaml": "hrid: support\n",
+                 "seed/apim/apis/open.json": '{"api": {"name": "Open", "groups": ["Support"]}}'}   # a group by name, which the platform may hold
+        folder = self.playground(files)
+        self.assertEqual([(p.path, p.message) for p in seedlint.problems(folder)], [
+            (str(folder / "seed/apim/groups/quality.yaml"), "nobody is no user of users.yaml: add it there, or flag the member `external: true`"),
+            (str(folder / "seed/apim/groups/support.yaml"), "a group needs a hrid and a name")])
+
     def test_an_environment_folder_without_its_file_says_so(self):
         folder = self.playground({"seed/environments/newt/users.yaml": "users: []\n"})
         self.assertEqual(self.found(folder), [("environment", "seed/environments/newt/environment.yaml", 0)])

@@ -1831,6 +1831,74 @@ class UsersOfAnEnvironment(Estates):
         self.assertEqual(common.created(), [])
 
 
+class PeopleOfTheOwnEnvironment(Estates):
+    """users.yaml and groups/ of seed/apim/: the people of the platform's own environment, written as an environment's are,
+    with plain names in the records."""
+
+    FILES = {**OWN, "apim/settings.yaml": "portalNext: {siteTitle: Open}\n",
+             "apim/users.yaml": "users:\n  - {source: memory, sourceId: astrid.holm, firstname: Astrid, lastname: Holm}\n",
+             "apim/groups/quality.yaml": ("hrid: quality\nname: Quality\nmembers:\n"
+                                          "  - {source: memory, sourceId: astrid.holm, roles: {API: USER}}\n")}
+
+    def test_a_memory_user_gets_its_row_from_its_group_in_the_platforms_own_environment(self):
+        self.run_seed()
+        self.assertEqual([u["sourceId"] for u in self.estate.users.values()], ["astrid.holm"])
+        self.assertEqual((self.records("user"), self.records("group")), (["astrid.holm"], ["quality"]))
+        self.assertFalse([x for x in common.created() if "env" in x])
+        self.assertEqual(self.group("DEFAULT", "quality")["name"], "Quality")
+        self.assertIn("✓ User astrid.holm: made by its group", self.output())
+
+    def test_its_users_then_its_settings_then_its_groups_come_before_its_apis(self):
+        changes = self.run_seed()
+        first = {kind: next(i for i, c in enumerate(changes) if marker in c[1])
+                 for kind, marker in (("users", "/users"), ("settings", "/settings"), ("groups", "/groups"), ("apis", "/_import/definition"))}
+        self.assertEqual(sorted(first, key=first.get), ["users", "settings", "groups", "apis"])
+
+    def test_a_second_run_changes_nothing(self):
+        self.run_seed()
+        self.assertEqual(self.run_seed(), [])
+        self.assertIn("User exists: astrid.holm", self.output())
+        self.assertIn("Group exists: quality", self.output())
+
+    def test_a_removal_deletes_its_group_and_its_user_where_the_platforms_own_environment_is(self):
+        self.run_seed()
+        group, user = self.group("DEFAULT", "quality")["id"], self.record("astrid.holm")["id"]
+        calls = len(self.platform.calls)
+        self.assertEqual(self.main("--remove"), 0, self.output())
+        deleted = [c.path for c in self.platform.calls[calls:] if c.method == "DELETE" and "/apis/" not in c.path and "/applications/" not in c.path]
+        self.assertEqual(sorted(deleted), [f"{ORG}/environments/DEFAULT/configuration/groups/{group}", f"{ORG}/users/{user}"])
+        self.assertEqual(common.created(), [])
+
+    def test_a_member_neither_in_users_yaml_nor_on_the_platform_stops_the_seed(self):
+        self.edit("apim/groups/quality.yaml", lambda text: text + "  - {source: memory, sourceId: nobody, roles: {API: USER}}\n")
+        with self.assertRaisesRegex(common.SeedError, "^Group quality: nobody is not a user of the platform and no identity provider names exactly one"):
+            self.run_seed()
+
+    def test_a_seed_of_its_users_and_groups_alone_is_seeded(self):
+        for name in (*OWN, "apim/settings.yaml"):
+            (common.SEED_DIR / name).unlink()
+        self.run_seed()
+        self.assertEqual((self.group("DEFAULT", "quality")["name"], self.records("user")), ("Quality", ["astrid.holm"]))
+
+    def test_an_api_that_names_its_group_by_name_joins_the_group_the_seed_wrote(self):
+        self.seed_files({"apim/apis/open.json": definition("PROXY", "open-id", "Open API", "/open/", groups=["Quality"])})
+        self.run_seed()
+        self.assertEqual(self.api("DEFAULT", "Open API")["groups"], [self.group("DEFAULT", "quality")["id"]])
+        self.assertEqual(self.estate.groups_by_import, [])
+
+    def test_an_application_that_names_groups_stops_the_seed_before_any_call(self):
+        self.seed_files({"apim/applications/web.yaml": "name: Web\ngroups: [quality]\n"})
+        with self.assertRaisesRegex(common.SeedError, "^seed/apim/applications: Web names groups"):
+            self.run_seed()
+        self.assertEqual(self.platform.calls, [])
+
+    def test_a_group_without_a_name_stops_the_seed_before_any_call(self):
+        self.seed_files({"apim/groups/quality.yaml": "hrid: quality\n"})
+        with self.assertRaisesRegex(common.SeedError, "^seed/apim/groups: a group needs a hrid and a name$"):
+            self.run_seed()
+        self.assertEqual(self.platform.calls, [])
+
+
 class GroupsOfAnEnvironment(Estates):
 
     def test_a_group_is_written_with_its_members_and_recorded_with_its_hrid_and_environment(self):

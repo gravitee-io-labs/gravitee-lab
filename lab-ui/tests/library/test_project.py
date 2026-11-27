@@ -803,6 +803,7 @@ class Platforms(AsOwn):
 
 
 NOTHING, MORE = "Nothing to deploy", "Seeds more than API Management and Access Management"
+PEOPLE = "Seeds users of this machine's Management API"
 GAMMA, LATER = "Needs Gamma", "Needs API Management 4.13"
 PLUGINS = "Needs plugins on the gateway"
 CHANGES, USES = "Changes this machine's Management API", "Its apps use this machine's Management API"
@@ -873,7 +874,7 @@ class Deployable(AsOwn):
         self.assertEqual(self.why(), [])
         self.assertEqual(playground["asks"], {"deploys": True, "products": ["API Management"], "versions": [],
                                               "fills": ["API Management"], "plugins": False, "changes": False,
-                                              "uses": False, "more": False, "features": [],
+                                              "uses": False, "more": False, "people": False, "features": [],
                                               "needs": {"entrypoint": [], "endpoint": [], "policy": [], "resource": []}})
 
     # --- What its APIs need of the Management API ------------------------------------------------------------------
@@ -975,7 +976,10 @@ class Deployable(AsOwn):
                               (("authz", "am", "apim", "aim"), [GAMMA, MORE]),
                               (("apim", "controls.yaml"), [MORE]), (("apim", "notes.txt"), [MORE]),
                               (("am", "apim", "refills.yaml"), [MORE]), (("apim", "environments"), [MORE]),
-                              (("environments",), [MORE]), (("am", "apim", "environments", "openfga"), [MORE])):
+                              (("environments",), [MORE]), (("am", "apim", "environments", "openfga"), [MORE]),
+                              # The users and groups of the platform's own environment are this machine's memory users
+                              (("apim", "apim/users.yaml"), [PEOPLE]), (("am", "apim", "apim/groups"), [PEOPLE]),
+                              (("aim", "apim", "apim/groups"), [GAMMA, MORE, PEOPLE])):
             with self.subTest(seed=names):
                 self.seed(*names)
                 self.assertEqual(self.why(), wanted)
@@ -1462,9 +1466,10 @@ class Gathered(AsOwn):
             ".lab/catalogs/fixture/playgrounds/welcome/seed/apim/apis/one.json": "{}", ".lab/catalogs/fixture/playgrounds/welcome/seed/am/domain.yaml": "",
             ".lab/catalogs/fixture/playgrounds/welcome/seed/controls.yaml": "", ".lab/catalogs/fixture/playgrounds/welcome/seed/.DS_Store": "",
             ".lab/catalogs/local/playgrounds/sandbox/seed/aim/agents/one.yaml": "", ".lab/catalogs/fixture/playgrounds/empty/seed/.gitkeep": "",
-            ".lab/catalogs/fixture/playgrounds/none/compose.yml": "", ".lab/catalogs/fixture/playgrounds/file/seed": "not a folder"})
+            ".lab/catalogs/fixture/playgrounds/none/compose.yml": "", ".lab/catalogs/fixture/playgrounds/file/seed": "not a folder",
+            ".lab/catalogs/local/playgrounds/sandbox/seed/apim/users.yaml": "", ".lab/catalogs/local/playgrounds/sandbox/seed/apim/groups/g.yaml": ""})
         self.assertEqual([project._seed_names(uid) for uid in ("welcome", "local/sandbox", "empty", "none", "file")],
-                         [["am", "apim", "controls.yaml"], ["aim"], [], [], []])
+                         [["am", "apim", "controls.yaml"], ["aim", "apim", "apim/groups", "apim/users.yaml"], [], [], []])
 
     def test_what_the_apis_of_a_seed_use_is_read_in_the_platforms_folder_and_in_each_environment(self):
         def api(entrypoint, endpoint=None):
