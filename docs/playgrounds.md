@@ -697,12 +697,19 @@ seed/environments/<id>/
   publish-only feed) and its messages, each with its payload schema and its example. Write the document in AsyncAPI 3.0: the
   viewer labels an operation `RECEIVE` or `SEND`, where a 2.x `subscribe` shows as `SUB`. The page is made, written, then
   published, so that the platform's sample document is never shown. A document that is gone from the folder takes its page.
-  An OpenAPI document gets an OpenAPI page in the same place, which the viewer draws as the paths and their operations.
+  An OpenAPI document gets an OpenAPI page in the same place, with Swagger **Try it out** enabled. Calls use the gateway
+  entrypoints as servers and the API context path as the server path; a saved manual server URL is cleared. Anonymous
+  Try it out is off; the caller supplies the credentials its API plan requires. This configures the viewer, without changing
+  API plans, subscriptions or gateway access.
 - **The page of an API itself is the other way to it.** `/catalog/api/<id>` is not the menu: its Details tab shows the page of
   the API that is its homepage, and its Documentation tab the others, which the Console keeps in the API's Documentation. The
   seed makes there a Markdown homepage from `api-details.md` and an AsyncAPI page (a `SWAGGER` page for an OpenAPI document) from the document, each published and found
   again by its type and name. A catalog card of an API that a listing shows opens the menu's page, not this one, so these two
   matter for the direct address and for a link to it.
+  OpenAPI pages use the same Try it out settings in both locations. The seed puts these switches back on each run, keeps
+  unrelated viewer options (such as expansion and PKCE), and makes no write when the settings already match. Removing an
+  API document removes its generated pages as before. These defaults apply to listed API documents in `portal/api-docs/`;
+  standalone pages in `portal/pages/` keep their own configuration.
 - **The pages are recorded with their listing** (`API pages`, one record that counts the pages of the menu and those of the
   APIs) and removed with it: the pages of the menu go with their API items, and the pages of an API are deleted by id. A page
   of an API that someone else made under the same type and name stops the seed: it never takes it.
