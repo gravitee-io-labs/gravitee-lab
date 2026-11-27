@@ -82,7 +82,7 @@ def _applies(project, saved=None, maybe=()):
     was known (`exact`). What it makes again: what runs behind what is saved (project.saved(), or `saved` in its
     place: a change not saved yet), and what of `maybe` runs (what a change may make again, when that cannot be
     known). Without the hashes Compose makes each service from, what runs behind is not known: every service that
-    runs is named, Compose recreating what changed, and that is not exact."""
+    runs is named, Compose recreating what changed, nothing is created, and that is not exact."""
     state, containers = layers.current(project), compose.ps()
     on, saved = _running_on(project, state), saved or projects.saved(project)
     late = model.behind(project, containers, saved) if saved["hashes"] else None
@@ -90,16 +90,17 @@ def _applies(project, saved=None, maybe=()):
     # (one that kept running after the license went): the banner says so
     on = sorted({*on, *(late or ())})
     states = _states(project, on, containers)
-    if maybe:
-        late = (late or set()) | {name for name in maybe if states.get(name, {}).get("running")}
+    if maybe and late is not None:   # not known: every service that runs is named already
+        late |= {name for name in maybe if states.get(name, {}).get("running")}
     return {**layers.applies(project, on, states, late), "exact": bool(saved["hashes"])}
 
 
 def _apply(project):
     """Applies what was saved to what runs (layers.applies): `up --no-deps` makes again what runs behind what is saved
-    and starts again what failed, after the one-shots they depend on. What was stopped (from the Stack, a group or the
-    whole) stays stopped, what has no container is not created, what was started outside the Lab UI stays: nothing is
-    removed as an orphan. While nothing of what is on runs, nothing does: what was saved applies at the next start."""
+    and starts again what failed, after the one-shots they depend on, and creates a service of an add-on or a
+    playground that has no container while its item runs. What was stopped (from the Stack, a group or the whole) stays
+    stopped, what else has no container is not created, what was started outside the Lab UI stays: nothing is removed
+    as an orphan. While nothing of what is on runs, nothing does: what was saved applies at the next start."""
     found = _applies(project)
     names, services = found["names"], project["services"]
 
@@ -143,7 +144,9 @@ def effects(project, hashes=None, maybe=()):
     `hashes` in place of what is saved when given (files.draft_hashes, files.env_hashes: what a Save & apply saves
     first), and `maybe` (files.affected) counted as behind when they run: what a change may make again, when that
     cannot be known. `exact` is false when what Compose makes each service from could not be asked: every service that
-    runs then counts."""
+    runs then counts. What it creates is read from the files as they are on disk: a service a draft adds is not
+    foreseen, so a Save & apply that only adds one only saves, and the state then says Apply needed (Not created yet)
+    for it."""
     saved = projects.saved(project)
     found = _applies(project, {**saved, "hashes": hashes} if hashes is not None else saved, maybe)
     return {key: found[key] for key in ("restarts", "starts", "runs", "exact")}

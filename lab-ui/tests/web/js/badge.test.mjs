@@ -225,19 +225,22 @@ test("a row's badge opens the card of its causes: versions and settings as chips
   assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "image", tag: "3.0.2", built: false, services: [] }])))[1], "Image 3.0.2 changed");
   assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "image", tag: "latest", built: true, services: [] }])))[1], "Image built again");
   assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "tag", saved: null, running: null, services: [] }])))[1], "Another image is saved");
+  assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "absent", services: [] }]))).slice(1), ["Not created yet", "Apply creates it with what is saved."]);
+  assert.deepEqual(bubble(draw(applyBadge("x", [{ kind: "config", services: ["Terminal"] }, { kind: "absent", services: ["Protections"] }]))).slice(-1),
+    ["Apply restarts or creates them with what is saved."], "what is made again and what is created");
   // Without causes (an older server, the license's line) the reason is its explanation: a tooltip when short
   assert.ok(draw(applyBadge("Its image changed")).querySelector(".tip-text"));
   // A note of the server carries its causes to its badge
   assert.deepEqual(chips(draw(noteHtml({ note: "Apply needed", note_tone: "warn", note_title: WHY, note_apply: true, note_causes: [TAG] }))), ["4.13.0-alpha.4", "4.12.20"]);
 });
 
-test("the platform's card: how many containers in all, a row for each product with the services a cause is about, and what Apply does", () => {
+test("the platform's card: how many services in all, a row for each product with the services a cause is about, and what Apply does", () => {
   const behind = [
     { name: "API Management", reason: "a", count: 5, causes: [TAG] },
     { name: "Databases", reason: "b", count: 2, causes: [{ kind: "tag", saved: "9.5.2", running: "9.5.3", services: ["Elasticsearch"] },
       { kind: "tag", saved: "8.0.29", running: "8.3.11", services: ["MongoDB"] }] }];
   const card = behindWhy({ behind });
-  assert.equal(card.title, "7 containers differ from what is saved");
+  assert.equal(card.title, "7 services differ from what is saved");
   assert.equal(card.foot, "Apply restarts them with what is saved, older versions included.");
   const root = draw(applyBadge(["a", "b"], card));
   assert.deepEqual(root.querySelectorAll(".pop-subject").map(text), ["API Management", "Databases"]);
@@ -245,7 +248,7 @@ test("the platform's card: how many containers in all, a row for each product wi
   assert.deepEqual(root.querySelectorAll(".pop-who").map(text), ["API Management", "Elasticsearch", "MongoDB"], "who, when not all of the product");
   assert.deepEqual(root.querySelectorAll(".pop-run").map(text), ["4.13.0-alpha.4", "9.5.3", "8.3.11"], "every version that runs in one column");
   assert.equal(root.querySelector(".tip-btn").getAttribute("aria-label"), "Apply needed: a. b");
-  assert.equal(behindWhy({ behind: [{ name: "Kazoo", count: 1, causes: [{ kind: "config", services: [] }] }] }).title, "1 container differs from what is saved");
+  assert.equal(behindWhy({ behind: [{ name: "Kazoo", count: 1, causes: [{ kind: "config", services: [] }] }] }).title, "1 service differs from what is saved");
   assert.equal(draw(applyBadge("x", [TAG, SETTINGS])).querySelectorAll(".pop-line").length, 2, "a row's card has a line for each of its causes");
 });
 

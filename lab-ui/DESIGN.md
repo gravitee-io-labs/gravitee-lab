@@ -105,11 +105,12 @@ page closes it.
 name for a screen reader is the server's sentence (`note_title`, `reason`), its popover is drawn from the server's causes
 (`note_causes`, `platform.behind[].causes`): *Differs from what is saved*, a line for each cause (the versions under *Running* and
 *Saved*), *Apply restarts it with what is saved.* (*them* when the causes are about several services; *, older versions included*
-when a version saved is older than the one that runs: Apply goes back). The words are neutral: what runs may be older or newer than
-what is saved. The head's badge has *N containers differ from what is saved*, a row for each product, add-on or playground, and the
-same foot. Without causes the reason is its explanation, a tooltip when it is short. A badge that stands in the place of another
-word (a product's Status, whose newer version it would hide) says that word as a last line of its card (`more`: *Update available*
-and the version), and to a screen reader.
+when a version saved is older than the one that runs: Apply goes back; *creates*, or *restarts or creates*, with a cause *Not created
+yet*: a service with no container while its add-on or playground runs, `layers.applies`). The words are neutral: what
+runs may be older or newer than what is saved. The head's badge has *N services differ from what is saved*, a row for each product,
+add-on or playground, and the same foot. Without causes the reason is its explanation, a tooltip when it is short. A badge that
+stands in the place of another word (a product's Status, whose newer version it would hide) says that word as a last line of its
+card (`more`: *Update available* and the version), and to a screen reader.
 
 **Notice** (`noticeHtml({tone, title, text, action})`, `.notice`). A fact about the lab as a whole, above the page (the banner):
 its icon in its tone (`warn`, `err`, `calm` for a fact that is no problem), its headline in strong `--text`, a short
@@ -118,7 +119,7 @@ its name for a screen reader, so that a voice that says it finds it), its action
 primary, as they are in the heads that have them. 44 px with its 32 px button, 14 px at its left, a 10 px radius, the soft fill and
 the line of its tone; its icon, its words and its button stand on the line of its headline, however many lines the words take.
 Under 520 px the words take the whole width and the button goes on its own line, at its right, at its size. Do: a count in the
-summary ("12 containers differ from what is saved"), the detail in its popover. Don't: names as underlined links in a row, a notice
+summary ("12 services differ from what is saved"), the detail in its popover. Don't: names as underlined links in a row, a notice
 for what a page's head already says (the Apply notice is not drawn on Containers, the Dashboard, Images and Plugins: a page has one
 Apply).
 
@@ -961,8 +962,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
   - Its item, its group and its line show the badge "Apply needed" (`applyBadge`, `note_apply` in the note the server
     gives), its name for a screen reader the reason (`reasons.py`, one plain line, `note_title`) and its popover the same causes
     as data (`reasons.causes`, `note_causes`: the kind, `tag` with `saved` and `running`, `image` with its `tag` and `built`,
-    `settings` with their names, `config`; and `services`, who a cause is about when it is not all of the row's). The rows of
-    `platform.behind` carry them too, with `count`, how many of their containers run behind. The cause is the first that holds: another tag saved
+    `settings` with their names, `config`, `absent`, a service with no container while its item runs (`layers.applies`); and
+    `services`, who a cause is about when it is not all of the row's). The rows of `platform.behind` carry them too, with `count`, how many of their services differ from what is saved. The cause is the first that holds: another tag saved
     than the one that runs ("4.13.3 is saved, 4.14.0-alpha.4 still runs"; the system the two tags share, `-debian`, is left
     out of the words, and said in full when it is what differs), the same tag on another image ("Image 3.0.2 changed since it
     started"; also a tag that a pull moved, which Docker then names by its id or digest, never read as a version), a
@@ -980,7 +981,7 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
     its tooltip the one saved ("4.12.20 is saved"), and its containers have no badge of their own: the group's badge says it for them, as the head's says it
     for the groups (one level, one badge). The license chip of the core, the license dialog, the editor's license line and a playground's License check show it of a license saved that
     what runs does not read yet; with no license saved, while one still runs, it says that none is saved.
-  - The banner's notice says how many containers run behind, its popover which and why, with Apply, on every page but
+  - The banner's notice says how many services differ from what is saved, its popover which and why, with Apply, on every page but
     Containers and the Dashboard, whose heads have the badge and Apply, Images, whose head's Apply (or Save & apply) is the
     one action, and Plugins, whose head's Apply is the platform's while no plugin is chosen, with the badge beside its title
     (`PLATFORM_HEAD` in `sidebar.js`): there it is not drawn, so that the page says it once and has one Apply. The second button of the editor and of Images reads Apply while nothing is unsaved.
@@ -988,7 +989,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
     nothing, and its Start makes them again.
 - An apply (`stack._apply`) runs `up -d --no-deps` of what runs behind what is saved and of what failed whose
   dependencies are fine, after the one-shots they depend on. What was stopped stays stopped, what has no container is
-  not created (but what needs a license, held back until one is usable, is started once it is), nothing is removed. While nothing of what is on runs it does nothing ("Nothing runs: applied on next
+  not created (but a service of an add-on or a playground that runs is, `layers.applies`, cause `absent`, and what needs
+  a license, held back until one is usable, is started once it is), nothing is removed. While nothing of what is on runs it does nothing ("Nothing runs: applied on next
   start").
 - `POST /api/effects` says before it what it makes again and starts again. It is read only.
   - Of what is saved (`{}`), or with a draft not saved yet: a `.env` form's values (`{file, values}`), a compose file's

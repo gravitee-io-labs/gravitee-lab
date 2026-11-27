@@ -397,9 +397,9 @@ test("with the platform stopped the banner leaves its Start to the head, and the
     behind: [{ kind: "group", id: "api-management", name: "API Management", reason: why, causes: [] }] } });
   assert.deepEqual(drawn(late, "stack"), [], "Containers shows it in its table");
   // One notice: its headline, a summary that names no product, whose popover says which and why, and Apply
-  for (const id of ["dashboard", "playgrounds", "images", "plugins"]) assert.deepEqual(drawn(late, id), ["Apply needed 1 container differs from what is saved Apply"], id);
+  for (const id of ["dashboard", "playgrounds", "images", "plugins"]) assert.deepEqual(drawn(late, id), ["Apply needed 1 service differs from what is saved Apply"], id);
   // Its name starts with the words it shows, so that a voice that says them finds it
-  assert.deepEqual(page.ids.banner.querySelectorAll(".tip-btn").map((button) => button.getAttribute("aria-label")), [`1 container differs from what is saved: ${why}`]);
+  assert.deepEqual(page.ids.banner.querySelectorAll(".tip-btn").map((button) => button.getAttribute("aria-label")), [`1 service differs from what is saved: ${why}`]);
 });
 
 // --- Products ----------------------------------------------------------------------------------

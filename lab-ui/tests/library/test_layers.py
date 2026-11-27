@@ -273,7 +273,7 @@ class License(Case):
         # Alert Engine was held back, so it has no container; a license is saved since, and what runs reads it: the
         # apply makes the gateway again and starts Alert Engine, which it would not for another service with none
         states = {"apim-gateway": {"key": "running", "running": True}, "kazoo": {"key": "running", "running": True},
-                  "alert-engine": {"key": "absent", "running": False}}
+                  "kazoo-ui": {"key": "running", "running": True}, "alert-engine": {"key": "absent", "running": False}}
         self.project["license_usable"] = True
         on_ = layers.up_services(self.project, None, ["kazoo"])
         found = layers.applies(self.project, on_, states, {"apim-gateway"})
@@ -283,9 +283,9 @@ class License(Case):
         self.project["license_usable"] = False
         on_ = layers.up_services(self.project, None, ["kazoo"])
         self.assertEqual(layers.applies(self.project, on_, states, {"apim-gateway"})["names"], ["apim-gateway"])
-        # Another service with no container is not created
+        # Another service with no container is not created while nothing else of its item runs
         self.project["license_usable"] = True
-        states["kazoo-ui"] = {"key": "absent", "running": False}
+        states.update({"kazoo-ui": {"key": "absent", "running": False}, "kazoo": {"key": "stopped", "running": False}})
         on_ = layers.up_services(self.project, None, ["kazoo", "kazoo-ui"])
         self.assertNotIn("kazoo-ui", layers.applies(self.project, on_, states, {"apim-gateway"})["names"])
 
@@ -1445,7 +1445,7 @@ class Applies(Case):
         found = self.applies(states, {"apim-gateway", "orchard"})
         self.assertEqual(found, {"names": ["apim-gateway", "kazoo-ui", "orchard", "orchard-migrate"],
                                  "restarts": [GATEWAY, row("addon", "orchard", "Orchard")], "starts": [KAZOO],
-                                 "runs": True})
+                                 "creates": [], "runs": True})
         # Not known: every service that runs is named, Compose makes again what changed
         self.assertEqual(self.applies(states, None)["names"],
                          ["apim-gateway", "apim-management-api", "kazoo", "kazoo-ui", "orchard", "orchard-migrate"])
@@ -1472,13 +1472,32 @@ class Applies(Case):
         states["orchard"] = self.STOPPED
         self.assertEqual(self.applies(states, set())["names"], ["kazoo-desk", "kazoo-ui"])
 
+    def test_what_has_no_container_while_its_item_runs_is_created(self):
+        # Kazoo runs and Kazoo UI has no container (Kazoo's file gained it since it started): the apply creates it, as
+        # Compose's `up` would. Not the Management API and MongoDB, which have none while the gateway runs: the platform
+        # is left partly created by a start of what depends on it, a group's Start, API Management in the Cloud. Nor
+        # Orchard, nothing of which runs, nor a one-shot
+        absent = {"key": "absent", "running": False}
+        states = {"apim-gateway": self.RUNNING, "kazoo": self.RUNNING, "kazoo-ui": absent, "orchard": absent,
+                  "orchard-migrate": absent}
+        found = self.applies(states, set())
+        self.assertEqual((found["names"], found["restarts"], found["starts"], found["creates"]),
+                         (["kazoo-ui"], [], [KAZOO], ["kazoo-ui"]))
+        # What is saved not known: Compose decides, among what runs
+        self.assertEqual(self.applies(states, None)["creates"], [])
+        # What it depends on does not run: it would fail alone
+        self.project["services"]["kazoo-ui"]["depends_on"] = ["kazoo", "mongodb"]
+        self.assertEqual({key: self.applies(states, set())[key] for key in ("names", "starts", "creates")},
+                         {"names": [], "starts": [], "creates": []})
+
     def test_nothing_while_nothing_of_what_is_on_runs(self):
         states = {"kazoo": self.STOPPED, "kazoo-ui": self.FAILED, "apim-gateway": self.STOPPED}
-        self.assertEqual(self.applies(states, {"kazoo"}), {"names": [], "restarts": [], "starts": [], "runs": False})
+        self.assertEqual(self.applies(states, {"kazoo"}), {"names": [], "restarts": [], "starts": [], "creates": [],
+                                                          "runs": False})
         # An add-on that runs while the platform is stopped is applied: what is saved reaches it
         states["kazoo"] = self.RUNNING
         self.assertEqual(self.applies(states, {"kazoo"}), {"names": ["kazoo", "kazoo-ui"], "restarts": [KAZOO],
-                                                          "starts": [KAZOO], "runs": True})
+                                                          "starts": [KAZOO], "creates": [], "runs": True})
 
     def test_what_a_stack_start_makes_again(self):
         # What of these services, and of what they depend on among what is on, runs behind what is saved

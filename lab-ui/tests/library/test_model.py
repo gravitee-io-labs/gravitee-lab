@@ -7,7 +7,7 @@ import unittest
 from unittest import mock
 
 from lab_ui.docker import compose
-from lab_ui.library import layers, model, project as projects
+from lab_ui.library import layers, model, project as projects, reasons
 from lab_ui.gravitee import license
 from lab_ui import paths
 
@@ -1402,6 +1402,58 @@ class Behind(Built):
             **containers, "kazoo-desk": made()}, saved=SAVED)["setups"] if item["id"] == "events")["note"],
             "Apply needed")
 
+    def test_what_has_no_container_while_its_item_runs_is_not_created_yet_and_an_apply_creates_it(self):
+        # Kazoo runs, and its file gained Kazoo UI since it started: the note names it, the banner counts it, the Apply
+        # creates it
+        body = self.build(explicit=["kazoo"], containers={**AS_SAVED, "kazoo": made()}, saved=SAVED)
+        kazoo = next(a for a in body["addons"] if a["id"] == "kazoo")
+        self.assertEqual((kazoo["note"], kazoo["note_title"], kazoo["note_causes"]),
+                         ("Apply needed", "Kazoo UI: not created yet.", [{"kind": "absent", "services": ["Kazoo UI"]}]))
+        self.assertEqual(body["platform"]["behind"], [{**KAZOO, "reason": "Kazoo: Kazoo UI (not created yet).",
+                                                        "causes": [{"kind": "absent", "services": ["Kazoo UI"]}], "count": 1}])
+        apply = body["platform"]["apply"]
+        self.assertEqual((apply["needed"], apply["restarts"], apply["starts"]), (True, [], [KAZOO]))
+        # Its own row says it, and it runs behind nothing: no Restarts of a Start, no image behind on the Images page
+        ui = body["services"]["kazoo-ui"]
+        self.assertEqual((ui["note"], ui["note_title"], ui["behind"], body["platform"]["start"]["restarts"]),
+                         ("Apply needed", "Not created yet.", False, []))
+        # What it depends on is stopped: it would fail alone, so it is neither named nor counted
+        self.project["services"]["kazoo-ui"]["depends_on"] = ["mongodb"]
+        body = self.build(explicit=["kazoo"], containers={**AS_SAVED, "kazoo": made(), "mongodb": exited(143)}, saved=SAVED)
+        self.assertEqual((body["platform"]["behind"], body["platform"]["apply"]["needed"], body["services"]["kazoo-ui"]["note"]),
+                         ([], False, ""))
+        # Nothing of Kazoo runs: its start creates it, not an apply; nor while what is saved is not known, nor while a
+        # Start of Kazoo runs, which creates it. What failed and depends on it then waits for it, as the Apply leaves it
+        self.project["services"]["kazoo-desk"]["depends_on"] = ["kazoo-ui"]
+        for explicit, containers, saved, running in (
+                (["kazoo"], AS_SAVED, SAVED, None), (["kazoo"], {**AS_SAVED, "kazoo": made()}, None, None),
+                (["kazoo"], {**AS_SAVED, "kazoo": made()}, SAVED, job("Start Kazoo", start=[["addon", "kazoo"]], key="addon:kazoo")),
+                (["kazoo-desk"], {**AS_SAVED, "kazoo": made(), "kazoo-desk": exited(1)}, None, None)):
+            body = self.build(explicit=explicit, containers=containers, saved=saved, job=running)
+            apply = body["platform"]["apply"]
+            self.assertEqual((body["platform"]["behind"], apply["needed"], apply["starts"], apply["dialog"]["starts"],
+                              body["services"]["kazoo-ui"]["note"]), ([], False, [], [], ""))
+
+    def test_a_platform_left_partly_created_needs_no_apply(self):
+        # The start of an add-on starts only the part of the platform it depends on, and so does a group's Start: the
+        # Management API has no container while the gateway runs, which an apply leaves as it is
+        body = self.build(explicit=["kazoo"], containers={name: made() for name in ("apim-gateway", "mongodb", "kazoo",
+                                                                                     "kazoo-ui")}, saved=SAVED)
+        group = next(g for g in body["platform"]["groups"] if g["id"] == "api-management")
+        self.assertEqual((group["note"], body["platform"]["behind"], body["platform"]["apply"]["needed"]),
+                         ("Management API not created", [], False))
+        # API Management in the Cloud: none of it runs here, nor Elasticsearch, a database only it uses (core._split),
+        # while MongoDB runs for the add-ons
+        cloud(self.project)
+        self.project["links"] = [link for link in self.project["links"] if link["service"] in self.project["services"]]
+        self.project["services"]["elasticsearch"] = {**self.project["services"]["mongodb"], "label": "Elasticsearch",
+                                                  "container": "lab-elasticsearch"}
+        next(g for g in self.project["groups"] if g["id"] == "databases")["services"].append("elasticsearch")
+        self.project["services"]["apim-management-api"]["depends_on"] = ["mongodb", "elasticsearch"]
+        containers = {name: made() for name in ("mongodb", "hyssop-redis", "apim-hyssop-gateway", "kazoo", "kazoo-ui")}
+        body = self.build(explicit=["hyssop", "kazoo"], containers=containers, saved=SAVED)
+        self.assertEqual((body["platform"]["behind"], body["platform"]["apply"]["needed"]), ([], False))
+
     def test_an_apply_says_what_goes_back_and_what_loses_its_license(self):
         # A tag saved older than the one that runs goes back with Apply (data a newer version wrote may not open in it); with no
         # license saved, what still runs one loses it: both are said in its dialog before the click
@@ -1417,6 +1469,12 @@ class Behind(Built):
             {"kind": "group", "id": "databases", "name": "Elasticsearch 9.5.3 → 9.5.2"}], "a newer version saved is no going back")
         self.assertEqual(found["loses_license"], [row("group", "api-management", "API Management")], "what it makes again and reads a license")
         self.assertEqual(model._consequences({**c, "unlicensing": []}, []), {}, "nothing to say, no row")
+        # More services than a line names, not all of the group's: the row names the group, never the count
+        whys = {name: {"kind": "tag", "saved": "4.13.0", "running": "4.14.0"} for name in "abcd"}
+        many = [{"kind": "group", "id": "api-management", "name": "API Management",
+                 "causes": reasons.causes(whys, {name: name.upper() for name in whys})}]
+        self.assertEqual(model._consequences({**c, "unlicensing": []}, many)["goes_back"],
+                         [{"kind": "group", "id": "api-management", "name": "API Management 4.14.0 → 4.13.0"}])
 
     def test_stronger_notes_come_first(self):
         # An issue is said before; what the job changes is on its way, not behind
@@ -1439,7 +1497,7 @@ class Behind(Built):
         apply = self.build(explicit=["kazoo"], containers=containers, saved=SAVED)["platform"]["apply"]
         self.assertEqual((apply["restarts"], apply["starts"]), ([GATEWAY], [KAZOO]))
         # Kazoo runs alone, the platform stopped: Apply makes it again as saved, as the Stack's Start would
-        body = self.build(explicit=["kazoo"], containers={"kazoo": made("old")}, saved=SAVED)
+        body = self.build(explicit=["kazoo"], containers={"kazoo": made("old"), "kazoo-ui": exited(143)}, saved=SAVED)
         apply = body["platform"]["apply"]
         self.assertEqual((apply["needed"], apply["restarts"], apply["starts"]), (True, [KAZOO], []))
         self.assertEqual(([found["id"] for found in body["platform"]["behind"]], body["platform"]["start"]["restarts"]),

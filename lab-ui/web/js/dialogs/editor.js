@@ -402,7 +402,7 @@ function renderState() {
   drawSaves({
     disabled: !changed || invalid || !!locked,
     title: locked ? locked.reason : reason || (!changed ? "No changes" : section && !runs && !guide ? "Applied on next start" : "Save (⌘S / Ctrl+S)"),
-  }, needed ? { label: "Apply", disabled: !!held, title: held || "Recreate the containers that changed" } : {
+  }, needed ? { label: "Apply", disabled: !!held, title: held || "Apply what is saved to what runs" } : {
     label: changed ? "Save & apply" : "Apply",
     hidden: !runs,
     disabled: !changed || invalid || !!held,
