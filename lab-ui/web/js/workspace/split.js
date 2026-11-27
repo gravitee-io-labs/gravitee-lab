@@ -77,6 +77,10 @@ function tabOf(tabs, url) {
   return origin ? tabs.find((tab) => originOf(tab.url) === origin) || null : null;
 }
 
+// Whether an address of the guide loads in one of the tabs (`tabs`, {url}) when it is clicked: the guide draws such a link with an eye,
+// as what takes the person to look at a page of a console
+export const inTab = (tabs, url) => !!tabOf(tabs, url);
+
 // Whether a click is the plain one, which opens a link where it leads: a key held, or a button other than the first
 // (the middle one), asks for the browser's own way
 export const plainClick = (e) => e.button === 0 && !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey);

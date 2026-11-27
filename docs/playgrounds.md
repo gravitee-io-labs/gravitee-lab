@@ -943,6 +943,42 @@ a block as what a person would paste: one command a line, a long one continued w
 container (`$GATEWAY`), not `localhost`. A block meant to be read, such as
 a manifest or an output, is a plain fence.
 
+### Links to a UI
+
+A link whose address is under one of the playground's [`consoles`](#consoles) (same scheme, host and port) opens in that
+tab, at that page, and the guide draws it with an eye, the look of an action that shows something: in a sentence, a link of the
+text with the eye before its first word, in the height of the line; alone on its line, or in a row of such links, a button.
+It is a plain Markdown link, which any other viewer shows as one.
+
+```md
+3. Open the [LLM proxies](http://localhost:8086/environments/default/aim/llm-proxies) and choose **Company LLM proxy**.
+```
+
+A click with a key held, or the middle button, opens it in a browser tab, and so does any click before the playground runs. A
+link to any other address stays a link. Write the address of the exact page the step looks at, with what the UI reads from its
+address, such as a search or a question a chat app sends at once (for LibreChat,
+`/c/new?prompt=<the question, encoded>&submit=true&spec=<a model spec's name>`). *Reload* and *Open in a new tab* load the page
+a UI says it is on, else the address the guide loaded last, so a link that does something by its address does it again then:
+such a UI says its page with `gravitee-lab:location` ([What an app does](#what-an-app-does-when-it-runs-in-the-lab-ui)).
+
+### Text to copy
+
+A link whose address is `copy:` and nothing else is drawn as a field that holds the text of the link, with a copy button,
+as an account's values are. Use it for what a person pastes: a question to ask, an id, an amount. The field takes a line of its
+own, under the sentence that asks for it, so end that sentence with it.
+
+```md
+1. Ask the assistant: [What is our refund policy for a late delivery?](copy:)
+2. Look up the order in the orders: [`ORD-5004`](copy:)
+```
+
+The button copies the text as it reads, on one line; a code span in it shows as code and is copied as text. The text is Markdown,
+so a `<` in it starts a tag, which the page drops: write a placeholder such as `<site>` in a code span, or escape it (`\<site>`).
+`make check` refuses a field with no text and an address with more after `copy:`, which the page would drop; any other viewer
+shows a link, and the [export for Docker Compose](catalogs.md#a-playground-for-docker-compose-alone) its text. Where the UI can
+take the text from a link, such as a question in a chat app's address, give that link first and the field as the way to paste it
+by hand.
+
 ### A note in a guide
 
 A quote that opens with `[!NOTE]`, as GitHub writes an alert, is drawn as a note in the information color of the Lab UI,
@@ -967,6 +1003,10 @@ the text of the link, then the user and its password (or its key), each with a c
 The values are the accounts' as the Lab UI shows them, so a password stays a setting and is never written in the guide. Put one
 where a step says to sign in. `make check` refuses a link to a user that `accounts` lacks; any other viewer shows a link.
 
+When two accounts have the same user name, such as `admin` in two consoles, the title of the link is the `for` of the one to
+show: `[Gamma](account:admin "Gamma console")`. Without it the card shows the user name alone, never another account's password,
+and `make check` says which `for` to write, or that the accounts need a `for` each to be told apart.
+
 ### Actions in a guide
 
 A guide can hold buttons that do in the playground's app what the app's own buttons do, so a lesson says "click this"
@@ -980,8 +1020,9 @@ An action is a Markdown link whose address is `action:` and an id:
 ```
 
 An id is 1 to 64 lowercase letters, digits and hyphens, and starts with a letter or a digit. It is a plain link, so it
-reads as one in any Markdown viewer. The Lab UI draws it as a small button with the text of the link and a play icon, or an
-eye when the id starts with `open-`: the play is for what the app does (a message sent, a policy switched on), the eye for
+reads as one in any Markdown viewer. The Lab UI draws it with the text of the link and a play icon, or an eye when the id
+starts with `open-`, as it draws a link to a UI: a link of the text in a sentence, a button alone on its line or in a row of
+actions; the play is for what the app does (a message sent, a policy switched on), the eye for
 what only takes the person to look at something (a page of a console). A click shows the first console of the playground
 and sends it the action. What follows `action:` and is not an id is no action: the link loses its address and stays text,
 and `make check` says so.

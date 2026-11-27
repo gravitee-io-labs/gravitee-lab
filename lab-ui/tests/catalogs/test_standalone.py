@@ -88,7 +88,7 @@ class Pieces(Case):
     def test_a_fenced_block_of_the_guide_is_left_as_written(self):
         text = ("Intro\n\n```md\n## Not a step\n[x](action:x) [y](account:keyed)\n```\n\n## 1. First\n\nClick [Go](action:go)\n\n"
                 "```shell-session run\n$ ls\n```\n")
-        guide = standalone._guide(text, {"keyed": {"username": "keyed", "key": "k"}})
+        guide = standalone._guide(text, [{"username": "keyed", "key": "k"}])
         self.assertIn("```md\n## Not a step\n[x](action:x) [y](account:keyed)\n```", guide, "a block shows the syntax as it is")
         self.assertIn("Click **Go**", guide)
         self.assertIn("```shell-session\n$ ls\n```", guide)
@@ -100,13 +100,29 @@ class Pieces(Case):
                          {"env": {"A": "x${PASS:-demo}y", "B": "${LICENSE}"}, "list": ["${PASS:-demo}"]})
 
     def test_the_guide_is_markdown_any_viewer_shows(self):
-        accounts = {"dana@shop.test": {"username": "dana@shop.test", "password": "${SHOP_PASSWORD:-fixture-dana}"},
-                    "keyed": {"username": "keyed", "key": "${SHOP_KEY:-k-1}"}}
-        text = ("Click [Try it](action:try-it) as [Dana](account:dana@shop.test), with [the key](account:keyed),"
-                " not [Bob](account:bob).\n\n```bash run\ncurl localhost\n```\n\n~~~sh run\nls\n~~~\n")
+        accounts = [{"username": "dana@shop.test", "password": "${SHOP_PASSWORD:-fixture-dana}"},
+                    {"username": "keyed", "key": "${SHOP_KEY:-k-1}"}]
+        text = ("Click [Try it](action:try-it), [Ask](action:ask-pip (Ask Pip)) and [C](action:c 'y') as [Dana](account:dana@shop.test 'Dana'), with [the key](account:keyed),"
+                " not [Bob](account:bob). Ask [What is `ORD-5004`?](copy:) and [x [y]](copy: \"z\"), not ![a](copy:), `[b](copy:)` or [c](copy:c)."
+                "\n\n```bash run\ncurl localhost\n```\n\n~~~sh run\nls\n~~~\n")
         self.assertEqual(standalone._guide(text, accounts),
-                         "Click **Try it** as **Dana** (user `dana@shop.test`, password `fixture-dana`), with **the key** (user `keyed`, "
-                         "key `k-1`), not **Bob**.\n\n```bash\ncurl localhost\n```\n\n~~~sh\nls\n~~~\n")
+                         "Click **Try it**, **Ask** and **C** as **Dana** (user `dana@shop.test`, password `fixture-dana`), with **the key** (user `keyed`, "
+                         "key `k-1`), not **Bob**. Ask What is `ORD-5004`? and x [y], not ![a](copy:), `[b](copy:)` or [c](copy:c)."
+                         "\n\n```bash\ncurl localhost\n```\n\n~~~sh\nls\n~~~\n")
+
+    def test_an_account_link_to_a_user_of_several_accounts_shows_the_one_its_title_names_as_the_page_does(self):
+        # Never the password of another account: without a title that is the `for` of one, the user name alone
+        accounts = [{"for": "Gamma console", "username": "admin", "password": "${G:-gamma-pw}"},
+                    {"for": "Access Management console", "username": "admin", "password": "${A:-am-pw}"}]
+        text = ('[Gamma](account:admin "Gamma console") [AM](account:admin (Access Management console)) [Admin](account:admin) '
+                "[Admin](account:admin 'Grafana')")
+        self.assertEqual(standalone._guide(text, accounts),
+                         "**Gamma** (user `admin`, password `gamma-pw`) **AM** (user `admin`, password `am-pw`) **Admin** (user `admin`) "
+                         "**Admin** (user `admin`)")
+        # Nor when the title is the `for` of several
+        twins = [{"for": "Gamma console", "username": "admin", "password": "${G:-one}"},
+                 {"for": "Gamma console", "username": "admin", "password": "${H:-two}"}]
+        self.assertEqual(standalone._guide('[G](account:admin "Gamma console")', twins), "**G** (user `admin`)")
 
     def test_a_setting_says_what_it_is_without_what_only_the_lab_has_nor_a_product_left_out(self):
         row = {"comment": "off: the lessons switch them on. Save & apply restarts the app, Re-seed puts them in the new state"}

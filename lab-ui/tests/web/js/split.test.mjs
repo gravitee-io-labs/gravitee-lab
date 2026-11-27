@@ -3,7 +3,7 @@
 // them, and the terminal under the UIs (its height, its divider, when the guide may run a block at its prompt). No DOM.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { actionOf, bytesOf, commandOf, edge, frameName, windowName, guideWidth, isReady, limits, linkTarget, located, looksAt, nudge, opening, originOf, termHeight, termLimits, termNudge, terminalReason } from "../../../web/js/workspace/split.js";
+import { actionOf, bytesOf, commandOf, edge, frameName, windowName, guideWidth, inTab, isReady, limits, linkTarget, located, looksAt, nudge, opening, originOf, termHeight, termLimits, termNudge, terminalReason } from "../../../web/js/workspace/split.js";
 
 const BANK = { id: "bakery-web", label: "Acme Bakery", url: "http://localhost:8110" };
 const GAMMA = { id: "gamma-ui", label: "Gamma Console", url: "http://localhost:8086" };
@@ -92,6 +92,12 @@ test("only a web address is ever loaded in a tab: blob, data, file and websocket
   for (const url of others) {
     assert.equal(opening(TABS, "http://localhost:8110", { type: "gravitee-lab:open", url }), null, url);
     assert.equal(linkTarget(TABS, url, PLAIN), null, url);
+    assert.equal(inTab(TABS, url), false, `${url} is drawn as a link, not as a page of a UI`);
+  }
+  // The guide draws with an eye what a click loads in a tab: an address under the origin of one, whatever its path
+  assert.equal(inTab(TABS, "http://localhost:8086/environments/default/aim/llm-proxies?q=x"), true);
+  for (const url of ["http://localhost:8087/", "https://localhost:8086/", "#/playgrounds/acme-bakery/2", "relative/page", "", null]) {
+    assert.equal(inTab(TABS, url), false, String(url));
   }
   // Nor from them
   for (const origin of ["blob:http://localhost:8110", "ws://localhost:8110", "file://"]) {

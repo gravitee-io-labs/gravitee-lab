@@ -460,7 +460,7 @@ async function renderGuide(item, el) {
   const pages = guidePages(markdown), page = currentPage(item, pages), at = pages.indexOf(page);
   remember(lastRead(item), page.slug === INTRO ? null : page.slug);
   nameThePage(item, pages);
-  const body = await markdownHtml(page.markdown, { accounts: item.accounts });
+  const body = await markdownHtml(page.markdown, { accounts: item.accounts, tabs: item.tabs });
   if (el.dataset.shown !== key) return;   // another page was asked for meanwhile
   el.innerHTML = pages.length > 1 ? guideNav(item, pages, at) + `<div class="guide-page">${body}</div>` + guideFoot(item, pages, at)
     : body;

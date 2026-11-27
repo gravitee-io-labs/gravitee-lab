@@ -415,7 +415,8 @@ class Items(Machine):
                          [f"guide.md: action:{'a' * 65} is no action, an id is lowercase letters, digits and hyphens"])
 
     def test_an_action_link_may_have_a_title_and_a_guide_may_show_the_syntax_in_code(self):
-        titled = '## 1. One\n\n[A](action:ask-pip "Ask Pip") and [B](action:Bad "x")\n'
+        # A title in any of the three forms marked reads: "…", '…' and (…)
+        titled = '## 1. One\n\n[A](action:ask-pip "Ask Pip"), [A](action:ask-pip \'Ask\'), [A](action:ask-pip (Ask)) and [B](action:Bad "x")\n'
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": titled}))),
                          ["guide.md: action:Bad is no action, an id is lowercase letters, digits and hyphens"])
         shown = "## 1. One\n\nWrite `[Label](action:Not An Id)` and:\n\n```md\n[Label](action:Not_An_Id)\n```\n\n~~~\n[x](action:Y)\n~~~\n"
@@ -430,6 +431,36 @@ class Items(Machine):
         # A playground without accounts has no sign-in to show
         self.assertEqual(list(check._guide(self.folder(files={"guide.md": "[Nora](account:nora.pine)\n"}))),
                          ["guide.md: account:nora.pine is no user of x-gravitee.accounts, so the page cannot show its sign-in"])
+
+    def test_an_account_link_to_a_user_of_several_accounts_names_one_by_its_for_in_its_title(self):
+        # The page would show neither password rather than the other account's: the title chooses, as `for` says it
+        accounts = [{"for": "Gamma console", "username": "admin", "password": "${A:-a}"},
+                    {"for": "Access Management console", "username": "admin", "password": "${B:-b}"}]
+        good = ('[Gamma](account:admin "Gamma console") [AM](account:admin \'Access Management console\') '
+                '[AM](account:admin (Access Management console))\n')
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": good}), accounts)), [])
+        bad = '[Admin](account:admin) [Admin](account:admin "Grafana") [Again](account:admin)\n'
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": bad}), accounts)), [
+            'guide.md: account:admin is the user of 2 accounts, so its link\'s title must be the `for` of the one to show: '
+            '[Sign in](account:admin "Gamma console")'])
+        # Accounts that no `for` tells apart: no title names one, so the check names what to fix instead
+        for twins in ([{"username": "admin", "password": "${A:-a}"}, {"for": "Gamma console", "username": "admin", "password": "${B:-b}"}],
+                      [{"for": "Gamma console", "username": "admin", "password": "${A:-a}"},
+                       {"for": "Gamma console", "username": "admin", "password": "${B:-b}"}]):
+            self.assertEqual(list(check._guide(self.folder(files={"guide.md": '[Admin](account:admin) [Gamma](account:admin "Gamma console")\n'}), twins)), [
+                "guide.md: account:admin is the user of 2 accounts that no `for` tells apart, so the page shows none of their "
+                "passwords: give each its own `for` in x-gravitee.accounts"])
+
+    def test_a_copy_field_of_a_guide_is_a_text_and_copy_alone(self):
+        good = ("## 1. One\n\nAsk [What is our refund policy?](copy:), paste [`ORD-5004`](copy:), [a [b] c](copy: \"x\"), [d](copy: 'e') and [f](copy: (g)), "
+                "not `[x](copy:shown)`.\n\n```md\n[](copy:)\n```\n")
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": good}))), [])
+        bad = "[](copy:) [ ](copy:) [ORD-5004](copy:ORD-5004) [x](copy:x) [y](copy:'y') ![img](copy:)\n"
+        self.assertEqual(list(check._guide(self.folder(files={"guide.md": bad}))), [
+            "guide.md: [](copy:) has no text to copy",
+            "guide.md: copy:ORD-5004 is no copy field, whose address is copy: alone: [the text to copy](copy:)",
+            "guide.md: copy:x is no copy field, whose address is copy: alone: [the text to copy](copy:)",
+            "guide.md: copy:'y' is no copy field, whose address is copy: alone: [the text to copy](copy:)"])
 
     def test_an_account_link_finds_a_user_name_yaml_read_as_a_number_as_the_page_does(self):
         # `username: 1234` unquoted: the check reads the playground's accounts as the page gets them
