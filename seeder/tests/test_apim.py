@@ -47,7 +47,7 @@ class Apim:
 
     def __init__(self):
         self.ids = itertools.count(1)
-        self.apis, self.applications, self.subscriptions, self.settings = {}, {}, {}, {}
+        self.apis, self.applications, self.subscriptions, self.settings, self.groups = {}, {}, {}, {}, {}
         self.deployed = []
 
     def new(self, kind):
@@ -79,6 +79,10 @@ class Apim:
             entity["failover"] = copy.deepcopy(api["failover"])
         return 200, entity
 
+    def export_api(self, call):
+        api = self.apis.get(self.id_in(call))
+        return (200, api["definition"]) if api else 404
+
     def import_api(self, call):
         api = call.json["api"]
         api_id = api.get("id") or self.new("api")
@@ -93,6 +97,8 @@ class Apim:
         if "failover" in api:
             self.apis[api_id]["failover"] = copy.deepcopy(api["failover"])
         return 201, {"id": api_id}
+
+
 
     def update_api(self, call):
         api = self.apis[self.id_in(call)]
@@ -163,6 +169,31 @@ class Apim:
         self.subscriptions[call.path.split("/")[-2]]["status"] = "CLOSED"
         return 204
 
+    def list_groups(self, call):
+        return 200, {"data": list(self.groups.values()), "pagination": {"pageCount": 1}}
+
+    def create_group(self, call):
+        group_id = self.new("group")
+        self.groups[group_id] = {**copy.deepcopy(call.json), "id": group_id, "lifecycleState": "UNDEPLOYED"}
+        return 201, self.groups[group_id]
+
+    def read_policy_group(self, call):
+        group = self.groups.get(call.path.rsplit("/", 1)[-1])
+        return (200, copy.deepcopy(group)) if group else 404
+
+    def update_policy_group(self, call):
+        group = self.groups[call.path.rsplit("/", 1)[-1]]
+        group.update(copy.deepcopy(call.json), lifecycleState="PENDING")
+        return 200, copy.deepcopy(group)
+
+    def delete_policy_group(self, call):
+        self.groups.pop(call.path.rsplit("/", 1)[-1], None)
+        return 204
+
+    def deploy_group(self, call):
+        self.groups[call.path.split("/")[-2]]["lifecycleState"] = "DEPLOYED"
+        return 202, {}
+
     def pause_or_resume(self, before, after):
         """_pause and _resume: the platform refuses a subscription that is not in the status it changes."""
         def change(call):
@@ -179,6 +210,7 @@ class Apim:
             ("GET", V1 + "/settings"): lambda call: (200, self.settings),
             ("POST", V1 + "/settings"): lambda call: self.settings.update(call.json) or 200,
             ("GET", V2 + "/apis"): self.list_apis,
+            ("GET", re.compile(V2 + "/apis/[^/]+/_export/definition")): self.export_api,
             ("POST", V2 + "/apis/_import/definition"): self.import_api,
             ("GET", re.compile(api)): self.get_api,
             ("PUT", re.compile(api + "/_import/definition")): self.update_api,
@@ -191,6 +223,14 @@ class Apim:
             ("GET", re.compile(api + "/subscriptions")): self.subscriptions_of,
             ("POST", re.compile(api + "/subscriptions")): self.subscribe,
             ("POST", re.compile(api + "/subscriptions/[^/]+/_close")): self.close_subscription,
+            ("GET", V2 + "/shared-policy-groups"): self.list_groups,
+            ("POST", V2 + "/shared-policy-groups"): self.create_group,
+            ("POST", re.compile(V2 + "/shared-policy-groups/[^/]+/_deploy")): self.deploy_group,
+            ("GET", re.compile(V2 + "/shared-policy-groups/[^/]+")): self.read_policy_group,
+            ("PUT", re.compile(V2 + "/shared-policy-groups/[^/]+")): self.update_policy_group,
+            ("DELETE", re.compile(V2 + "/shared-policy-groups/[^/]+")): self.delete_policy_group,
+            ("POST", re.compile(V2 + "/shared-policy-groups/[^/]+/_undeploy")): 202,
+
             ("POST", re.compile(api + "/subscriptions/[^/]+/_pause")): self.pause_or_resume("ACCEPTED", "PAUSED"),
             ("POST", re.compile(api + "/subscriptions/[^/]+/_resume")): self.pause_or_resume("PAUSED", "ACCEPTED"),
             ("GET", V1 + "/applications"): self.applications_named,
@@ -1557,6 +1597,7 @@ class Estate(Apim):
             ("DELETE", re.compile(group)): self.delete_group,
             ("POST", re.compile(group + "/members")): self.add_members,
             ("GET", re.compile(ENV_V2 + "/apis")): self.list_apis,
+            ("GET", re.compile(ENV_V2 + "/apis/[^/]+/_export/definition")): self.export_api,
             ("POST", re.compile(ENV_V2 + "/apis/_import/definition")): self.import_api,
             ("GET", re.compile(api)): self.get_api,
             ("PUT", re.compile(api + "/_import/definition")): self.update_api,
@@ -2300,3 +2341,367 @@ class UsersOfTheOrganization(Together, Estates):
                 mock.patch.object(apim.ApiManagement, "enroll", watched(make)):
             self.run_seed()
         self.assertEqual(overlapped, [])
+
+
+
+
+
+
+
+
+GROUP = {
+    "crossId": "subscriber-controls",
+    "name": "Subscriber controls",
+    "description": "Reads only, 60 calls a minute, and 5000 calls a day",
+    "prerequisiteMessage": "Deploy this group before the APIs that use it.",
+    "apiType": "PROXY",
+    "phase": "REQUEST",
+    "steps": [{"name": "Reads only", "policy": "resource-filtering", "enabled": True, "configuration": {"whitelist": []}}],
+}
+NOTICES = {"api": {"id": "notice-id", "type": "PROXY", "name": "Platform Notices API",
+                   "listeners": [{"paths": [{"path": "/platform-notices/"}]}]},
+           "plans": [{"name": "API Key", "flows": [{"name": "Subscriber controls", "request": [
+               {"name": "Subscriber controls", "enabled": True, "policy": "shared-policy-group-policy",
+                "configuration": {"sharedPolicyGroupCrossId": "subscriber-controls"}}]}]}]}
+
+
+class SharedPolicyGroups(Playground):
+    """A shared policy group is deployed before an API that names it, and a second run leaves both."""
+
+    def setUp(self):
+        super().setUp()
+        shutil.rmtree(common.SEED_DIR)
+        common.SEED_DIR.mkdir()
+
+    def given(self, group=GROUP, api=NOTICES):
+        self.seed_files({"apim/shared-policy-groups/subscriber-controls.json": json.dumps(group),
+                         "apim/apis/notices.json": json.dumps(api)})
+
+    def test_deployment_precedes_import_and_binding_preserves_the_source_document(self):
+        self.given()
+        changes = self.run_seed()
+        self.assertLess(changes.index(("POST", V2 + "/shared-policy-groups/group-1/_deploy")),
+                        changes.index(("POST", V2 + "/apis/_import/definition")))
+        self.assertEqual(json.loads((common.SEED_DIR / "apim/apis/notices.json").read_text()), NOTICES)
+        self.assertEqual(self.run_seed(), [])
+
+    def test_changed_steps_update_and_deploy_only_the_group(self):
+        self.given()
+        self.run_seed()
+        for change in ({"condition": "{#request.method == 'GET'}"}, {"description": "Read requests"},
+                       {"enabled": False}, {"configuration": {"whitelist": [{"pattern": "/safe"}]}}):
+            with self.subTest(change=change):
+                group = copy.deepcopy(GROUP)
+                group["steps"][0].update(change)
+                self.given(group)
+                self.assertEqual(self.run_seed(), [("PUT", V2 + "/shared-policy-groups/group-1"),
+                                                  ("POST", V2 + "/shared-policy-groups/group-1/_deploy")])
+                self.assertEqual(self.run_seed(), [])
+        self.given()
+        self.assertEqual(self.run_seed(), [("PUT", V2 + "/shared-policy-groups/group-1"),
+                                          ("POST", V2 + "/shared-policy-groups/group-1/_deploy")])
+        self.assertEqual(self.apim.groups["group-1"]["steps"], GROUP["steps"])
+        self.apim.groups["group-1"]["steps"][0]["enabled"] = False
+        self.assertEqual(self.run_seed(), [("PUT", V2 + "/shared-policy-groups/group-1"),
+                                          ("POST", V2 + "/shared-policy-groups/group-1/_deploy")])
+        self.assertEqual(self.run_seed(), [])
+
+    def test_optional_metadata_and_step_defaults_converge(self):
+        group = {key: value for key, value in GROUP.items() if key not in ("description", "prerequisiteMessage")}
+        group = copy.deepcopy(group)
+        group["steps"][0].pop("enabled")
+        self.given(group)
+        self.run_seed()
+        self.apim.groups["group-1"].update(description=None, prerequisiteMessage=None)
+        self.apim.groups["group-1"]["steps"][0]["configuration"]["platformDefault"] = False
+        self.assertEqual(self.run_seed(), [])
+
+    def test_identity_and_phase_changes_stop_without_replacing_the_group(self):
+        self.given()
+        self.run_seed()
+        for key, value in (("crossId", "other"), ("phase", "RESPONSE"), ("apiType", "MESSAGE")):
+            with self.subTest(key=key):
+                self.given({**GROUP, key: value}, {"api": NOTICES["api"]})
+                before = len(self.platform.calls)
+                with self.assertRaisesRegex(common.SeedError, "crossId|immutable"):
+                    self.run_seed()
+                self.assertFalse(any(c.method != "GET" for c in self.platform.calls[before:]))
+        self.assertEqual(len(self.apim.groups), 1)
+
+    def test_a_rename_preserves_one_scoped_ownership_record(self):
+        self.given()
+        self.run_seed()
+        self.given({**GROUP, "name": "Updated controls"})
+        self.run_seed()
+        records = [x for x in common.created() if x["kind"] == "shared-policy-group"]
+        self.assertEqual([(x["name"], x["id"]) for x in records], [("Updated controls", "group-1")])
+        self.assertEqual(self.run_seed(), [])
+
+    def test_foreign_groups_are_never_adopted_or_updated(self):
+        self.given()
+        self.apim.groups["foreign"] = {**copy.deepcopy(GROUP), "id": "foreign", "lifecycleState": "DEPLOYED"}
+        with self.assertRaisesRegex(common.SeedError, "did not create"):
+            self.run_seed()
+        self.assertEqual(self.platform.changes(), [])
+        self.assertEqual(common.created(), [])
+
+    def test_a_lost_create_reply_is_adopted_on_the_next_run(self):
+        self.given()
+
+        def lost(call):
+            self.apim.create_group(call)
+            raise requests.exceptions.ReadTimeout()
+
+        self.platform.add({("POST", V2 + "/shared-policy-groups"): lost})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.assertEqual(len(self.apim.groups), 1)
+        self.assertEqual(len(common.notes("apim", "shared-policy-group")), 1)
+        self.given({**GROUP, "crossId": "changed-after-timeout"}, {"api": NOTICES["api"]})
+        before = len(self.platform.calls)
+        with self.assertRaisesRegex(common.SeedError, "original crossId"):
+            self.run_seed()
+        self.assertFalse(any(c.method != "GET" for c in self.platform.calls[before:]))
+        self.given()
+        self.platform.add({("POST", V2 + "/shared-policy-groups"): self.apim.create_group})
+        self.run_seed()
+        self.assertEqual(len(self.apim.groups), 1)
+        self.assertEqual(self.record("Subscriber controls")["id"], "group-1")
+        self.assertEqual(self.run_seed(), [])
+
+    def test_a_lost_deploy_reply_is_retried_and_a_refusal_stops_before_import(self):
+        self.given()
+        path = V2 + "/shared-policy-groups/group-1/_deploy"
+        self.platform.add({("POST", path): [requests.exceptions.ReadTimeout(), self.apim.deploy_group]})
+        self.run_seed()
+        self.assertEqual(len(self.platform.sent("POST", path)), 2)
+        self.apim.groups["group-1"]["lifecycleState"] = "PENDING"
+        self.platform.add({("POST", path): 403})
+        before = len(self.platform.calls)
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.assertEqual([(c.method, c.path) for c in self.platform.calls[before:] if c.method != "GET"], [("POST", path)])
+
+    def test_removal_undeploys_and_deletes_groups_after_their_apis(self):
+        self.given()
+        self.run_seed()
+        before = len(self.platform.calls)
+        apim.remove(common.created())
+        changes = [(c.method, c.path) for c in self.platform.calls[before:] if c.method != "GET"]
+        self.assertLess(changes.index(("DELETE", V2 + "/apis/notice-id")),
+                        changes.index(("POST", V2 + "/shared-policy-groups/group-1/_undeploy")))
+        self.assertEqual(changes[-1], ("DELETE", V2 + "/shared-policy-groups/group-1"))
+        self.assertEqual((self.apim.groups, common.created()), ({}, []))
+
+    def test_an_undeploy_refusal_keeps_the_record_for_retry(self):
+        self.given()
+        self.run_seed()
+        self.platform.add({("POST", V2 + "/shared-policy-groups/group-1/_undeploy"): 403})
+        with self.assertRaises(common.SeedError):
+            apim.remove(common.created())
+        self.assertEqual(self.record("Subscriber controls")["id"], "group-1")
+        self.assertNotIn(("DELETE", V2 + "/shared-policy-groups/group-1"), self.platform.changes())
+
+    def leftover_api(self, flows, on_plan=False):
+        definition = {"api": {"id": "outside", "name": "Other API", "type": "PROXY",
+                              "listeners": [{"paths": [{"path": "/outside/"}]}]}, "plans": []}
+        if on_plan:
+            definition["plans"] = [{"name": "Open", "flows": flows}]
+        else:
+            definition["api"]["flows"] = flows
+        self.apim.apis["outside"] = {"id": "outside", "name": "Other API", "type": "PROXY",
+                                     "listeners": definition["api"]["listeners"], "state": "STARTED",
+                                     "lifecycleState": "PUBLISHED", "definition": definition, "flows": [],
+                                     "deploymentState": "DEPLOYED"}
+
+    def test_removal_keeps_a_group_used_by_another_api_or_plan_on_a_later_page(self):
+        self.given()
+        self.run_seed()
+        for on_plan, value in ((False, "subscriber-controls"), (True, "group-1")):
+            with self.subTest(on_plan=on_plan):
+                self.leftover_api([{"request": [{"policy": "shared-policy-group-policy",
+                                                 "configuration": {"sharedPolicyGroupId": value}}]}], on_plan=on_plan)
+                self.platform.add({("GET", V2 + "/apis?page=1"): (200, {"data": [], "pagination": {"pageCount": 2}}),
+                                   ("GET", V2 + "/apis?page=2"): (200, {"data": [self.apim.row(self.apim.apis["outside"])],
+                                                                      "pagination": {"pageCount": 2}})})
+                self.assertEqual(self.main("--remove"), 0)
+                self.assertEqual(self.record("Subscriber controls")["id"], "group-1")
+                self.assertEqual(self.apim.groups["group-1"]["lifecycleState"], "DEPLOYED")
+                self.assertIn("still referenced by API Other API", self.output())
+                self.assertNotIn(("POST", V2 + "/shared-policy-groups/group-1/_undeploy"), self.platform.changes())
+                self.assertNotIn(("DELETE", V2 + "/shared-policy-groups/group-1"), self.platform.changes())
+        self.apim.apis["outside"]["definition"]["plans"] = []
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertEqual(set(self.apim.apis), {"outside"})
+        self.assertEqual((self.apim.groups, common.created()), ({}, []))
+
+    def test_removal_retains_group_when_a_surviving_definition_is_unverifiable(self):
+        self.given()
+        self.run_seed()
+        self.leftover_api([])
+        export = V2 + "/apis/outside/_export/definition"
+        for bad in (403, 404, (200, {"api": {}, "plans": "invalid"})):
+            with self.subTest(bad=bad):
+                self.platform.add({("GET", export): bad})
+                with self.assertRaises(common.SeedError):
+                    apim.remove(common.created())
+                self.assertEqual(self.record("Subscriber controls")["id"], "group-1")
+        self.platform.add({("GET", export): self.apim.export_api})
+        self.apim.apis["outside"]["deploymentState"] = "NEED_REDEPLOY"
+        with self.assertRaisesRegex(common.SeedError, "needs deployment"):
+            apim.remove(common.created())
+        self.assertNotIn(("POST", V2 + "/shared-policy-groups/group-1/_undeploy"), self.platform.changes())
+        self.assertNotIn(("DELETE", V2 + "/shared-policy-groups/group-1"), self.platform.changes())
+
+    def test_remove_recovers_the_group_from_a_lost_create_reply_without_reseeding(self):
+        self.given()
+
+        def lost(call):
+            self.apim.create_group(call)
+            raise requests.exceptions.ReadTimeout()
+
+        self.platform.add({("POST", V2 + "/shared-policy-groups"): lost})
+        with self.assertRaises(common.SeedError):
+            self.run_seed()
+        self.assertEqual(common.created(), [])
+        self.assertEqual(self.main("--remove"), 0)
+        self.assertEqual((self.apim.groups, common.notes("apim", "shared-policy-group")), ({}, []))
+        self.assertNotIn(("POST", V2 + "/shared-policy-groups/group-1/_undeploy"), self.platform.changes())
+        self.assertIn(("DELETE", V2 + "/shared-policy-groups/group-1"), self.platform.changes())
+
+    def test_remove_keeps_recovery_note_if_the_create_is_unconfirmed_or_ambiguous(self):
+        name = GROUP["name"]
+        with self.assertRaises(common.SeedError):
+            with common.making("apim", "shared-policy-group", "shared policy groups", name, crossId=GROUP["crossId"]):
+                raise common.SeedError("reply lost")
+        apim.remove(common.created())
+        self.assertTrue(common.notes("apim", "shared-policy-group"))
+        self.apim.groups["foreign"] = {**GROUP, "id": "foreign", "name": "Different"}
+        with self.assertRaisesRegex(common.SeedError, "cannot confirm the identity"):
+            apim.remove(common.created())
+        self.assertTrue(common.notes("apim", "shared-policy-group"))
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_pagination_finds_an_owned_group_on_a_later_page(self):
+        self.given()
+        self.run_seed()
+        self.platform.add({("GET", V2 + "/shared-policy-groups?page=1"): (200, {"data": [], "pagination": {"pageCount": 2}}),
+                           ("GET", V2 + "/shared-policy-groups?page=2"): (200, {"data": list(self.apim.groups.values()),
+                                                                                "pagination": {"pageCount": 2}})})
+        self.assertEqual(self.run_seed(), [])
+
+    def test_invalid_documents_and_references_stop_before_any_request(self):
+        groups = [None, [], 42, {**GROUP, "crossId": []}, {**GROUP, "name": True}, {**GROUP, "description": {}},
+                  {**GROUP, "phase": "PUBLISH"}, {**GROUP, "steps": {}},
+                  {**GROUP, "steps": [{"name": "A", "policy": "rate-limit", "enabled": "false"}]},
+                  {**GROUP, "steps": [{"name": "A", "policy": "rate-limit", "configuration": "bad"}]}]
+        for group in groups:
+            with self.subTest(group=group):
+                self.given(group)
+                with self.assertRaises(common.SeedError):
+                    self.run_seed()
+                self.assertEqual(self.platform.calls, [])
+
+        for cross in (None, "", [], {}):
+            with self.subTest(cross=cross):
+                api = copy.deepcopy(NOTICES)
+                api["plans"][0]["flows"][0]["request"][0]["configuration"]["sharedPolicyGroupCrossId"] = cross
+                self.given(GROUP, api)
+                with self.assertRaises(common.SeedError):
+                    self.run_seed()
+                self.assertEqual(self.platform.calls, [])
+
+    def test_a_malformed_listing_cannot_cause_a_duplicate_create(self):
+        self.given()
+        for body in ([], {}, {"data": "bad", "pagination": {"pageCount": 1}},
+                     {"data": [{"crossId": "subscriber-controls"}], "pagination": {"pageCount": 1}},
+                     {"data": [], "pagination": {"pageCount": "1"}}):
+            with self.subTest(body=body):
+                self.platform.add({("GET", V2 + "/shared-policy-groups"): (200, body)})
+                with self.assertRaisesRegex(common.SeedError, "invalid paginated listing"):
+                    self.run_seed()
+                self.assertEqual(self.platform.changes(), [])
+
+    def test_a_group_is_deployed_and_the_api_imports_its_id(self):
+        self.seed_files({"apim/shared-policy-groups/subscriber-controls.json": json.dumps(GROUP),
+                         "apim/apis/notices.json": json.dumps(NOTICES)})
+        self.run_seed()
+        group_id = next(iter(self.apim.groups))
+        step = self.apim.apis["notice-id"]["definition"]["plans"][0]["flows"][0]["request"][0]
+        self.assertEqual(step["configuration"], {"sharedPolicyGroupId": "subscriber-controls"})
+        self.assertEqual(self.apim.groups[group_id]["lifecycleState"], "DEPLOYED")
+        self.assertEqual(self.record("Subscriber controls")["id"], group_id)
+        self.apim.groups[group_id]["steps"][0]["configuration"]["useKeyOnly"] = False
+        self.assertEqual(self.run_seed(), [])
+
+    def test_an_api_that_names_no_group_of_the_seed_stops_before_the_platform(self):
+        broken = copy.deepcopy(NOTICES)
+        broken["plans"][0]["flows"][0]["request"][0]["configuration"]["sharedPolicyGroupCrossId"] = "missing"
+        self.seed_files({"apim/apis/notices.json": json.dumps(broken)})
+        with self.assertRaisesRegex(common.SeedError, "notices.json: missing is no shared policy group"):
+            self.run_seed()
+        self.assertEqual(self.platform.calls, [])
+
+
+class SharedPolicyGroupsOfAnEnvironment(Estates):
+    """A crossId is portable, while the management id and ownership record belong to one environment."""
+
+    def setUp(self):
+        super().setUp()
+        self.policy_worlds = {}
+        for env in ("DEFAULT", "newt", "mallard"):
+            world = Apim()
+            world.new = lambda kind, env=env: f"{env}-policy-group"
+            self.policy_worlds[env] = world
+            routes = {}
+            for (method, path), answer in world.routes().items():
+                text = path.pattern if hasattr(path, "pattern") else path
+                if "/shared-policy-groups" in text:
+                    text = text.replace("/environments/DEFAULT/", f"/environments/{env}/")
+                    routes[method, re.compile(text) if hasattr(path, "pattern") else text] = answer
+            self.platform.add(routes)
+            prefix = "apim" if env == "DEFAULT" else f"environments/{env}"
+            api_path = "open.json" if env == "DEFAULT" else "batch-status.json"
+            definition = json.loads((common.SEED_DIR / prefix / "apis" / api_path).read_text())
+            definition["api"]["flows"] = [{"request": copy.deepcopy(NOTICES["plans"][0]["flows"][0]["request"])}]
+            group = {**GROUP, "apiType": definition["api"]["type"], "description": "${ENV_NAME:-Own}"}
+            self.seed_files({f"{prefix}/shared-policy-groups/controls.json": json.dumps(group),
+                             f"{prefix}/apis/{api_path}": json.dumps(definition)})
+
+    def test_same_cross_id_is_deployed_separately_in_each_environment(self):
+        self.run_seed()
+        self.assertEqual(self.records("shared-policy-group"),
+                         ["Subscriber controls", "Subscriber controls [mallard]", "Subscriber controls [newt]"])
+        records = [x for x in common.created() if x["kind"] == "shared-policy-group"]
+        self.assertEqual({(x.get("env", "DEFAULT"), x["id"]) for x in records},
+                         {(env, env + "-policy-group") for env in self.policy_worlds})
+        self.assertEqual(self.policy_worlds["newt"].groups["newt-policy-group"]["description"], "Newt Biotech")
+        for env in self.policy_worlds:
+            api = next(row for row in self.estate.apis.values() if row["env"] == env)
+            self.assertEqual(api["definition"]["api"]["flows"][0]["request"][0]["configuration"],
+                             {"sharedPolicyGroupId": "subscriber-controls"})
+        self.assertEqual(self.run_seed(), [])
+        apim.remove(common.created())
+        self.assertFalse(any(world.groups for world in self.policy_worlds.values()))
+        self.assertEqual(common.created(), [])
+
+    def test_a_reference_cannot_use_a_group_from_another_environment(self):
+        (common.SEED_DIR / "environments/newt/shared-policy-groups/controls.json").unlink()
+        with self.assertRaisesRegex(common.SeedError, "newt/apis/batch-status.json.*no shared policy group"):
+            self.run_seed()
+        self.assertEqual(self.platform.calls, [])
+
+    def test_missing_environment_prevents_group_creation_everywhere(self):
+        self.estate.environments.remove("newt")
+        with self.assertRaisesRegex(common.SeedError, "Environment newt"):
+            self.run_seed()
+        self.assertEqual(self.platform.changes(), [])
+
+    def test_removal_forgets_groups_of_a_deleted_environment(self):
+        self.run_seed()
+        self.estate.environments.remove("newt")
+        before = len(self.platform.calls)
+        apim.remove(common.created())
+        self.assertFalse(any(c.method != "GET" and "/environments/newt/" in c.path
+                             for c in self.platform.calls[before:]))
+        self.assertEqual(common.created(), [])

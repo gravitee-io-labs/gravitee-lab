@@ -1,4 +1,4 @@
-contract 7
+contract 8
 contract_min 1
 core.service alert-engine health=yes networks=internal since=1
 core.service am-gateway port=8092 health=yes networks=edge,internal since=1
@@ -117,6 +117,7 @@ seed.folder am/protected-resources since=1
 seed.folder apim since=1
 seed.folder apim/apis since=1
 seed.folder apim/applications since=1
+seed.folder apim/shared-policy-groups since=8
 seed.folder apim/subscriptions since=1
 seed.folder authz since=1
 seed.folder authz/policies since=1

@@ -33,6 +33,7 @@ from lab_seeder import aim_proxies, common
 from lab_seeder import seedlint
 from lab_seeder.seedlint import Problem, Report
 from lab_seeder.testkit import PLAYGROUNDS
+from tests.test_apim import GROUP, NOTICES
 
 from . import chained, doubling, fanned, flowing
 
@@ -966,3 +967,46 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(STUDIO + "subscriptions:\n"), [])
+
+
+class SharedPolicyGroupFiles(Made):
+    def test_shared_policy_group_duplicates_and_phase_mismatches_are_reported(self):
+        for index, other in enumerate((GROUP, {**GROUP, "crossId": "other"})):
+            files = {"seed/apim/shared-policy-groups/a.json": json.dumps(GROUP),
+                     "seed/apim/shared-policy-groups/b.json": json.dumps(other)}
+            problems = seedlint.problems(self.playground(files, name=f"duplicate-policy-{index}"))
+            self.assertEqual(len(problems), 1)
+            self.assertIn("two groups", problems[0].message)
+        files = {"seed/apim/shared-policy-groups/a.json": json.dumps({**GROUP, "phase": "RESPONSE"}),
+                 "seed/apim/apis/notices.json": json.dumps(NOTICES)}
+        problems = seedlint.problems(self.playground(files, name="wrong-policy-phase"))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("phase", problems[0].message)
+
+
+    def test_malformed_shared_policy_group_documents_are_findings_not_crashes(self):
+        for index, group in enumerate((None, [], 1, {**GROUP, "crossId": []}, {**GROUP, "name": {}},
+                                       {**GROUP, "steps": "bad"}, {**GROUP, "phase": "PUBLISH"})):
+            folder = self.playground({"seed/apim/shared-policy-groups/controls.json": json.dumps(group)}, name=f"bad-policy-{index}")
+            problems = seedlint.problems(folder)
+            self.assertEqual(len(problems), 1, problems)
+            self.assertEqual(problems[0].check, "policy-group")
+            self.assertIn("::error", seedlint.render(problems, "github"))
+
+
+    def test_shared_policy_group_files_and_references_are_checked_per_environment(self):
+        for index, root in enumerate(("apim", "environments/newt")):
+            for broken in (False, True):
+                files = {f"seed/{root}/shared-policy-groups/controls.json": json.dumps(GROUP),
+                         f"seed/{root}/apis/notices.json": json.dumps(NOTICES)}
+                if root.startswith("environments"):
+                    files["seed/environments/newt/environment.yaml"] = "id: newt\nname: Newt\n"
+                    definition = json.loads(files[f"seed/{root}/apis/notices.json"])
+                    definition["api"].pop("id")
+                    files[f"seed/{root}/apis/notices.json"] = json.dumps(definition)
+                if broken:
+                    files[f"seed/{root}/shared-policy-groups/controls.json"] = json.dumps({**GROUP, "crossId": "other"})
+                problems = seedlint.problems(self.playground(files, name=f"policy-{index}-{broken}"))
+                self.assertEqual(len(problems), int(broken), problems)
+                if broken:
+                    self.assertIn("no shared policy group", problems[0].message)
