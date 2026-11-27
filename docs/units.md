@@ -91,7 +91,8 @@ services:
   adds nothing to it, and `always` pulls what CI published. A remote build context pins a commit. See
   [built here, or pulled](configuration.md#built-here-or-pulled).
 - **Secrets and settings**: each is described by a comment on its line or heading its block; the settings form shows
-  it, and puts a name with `TOKEN`, `SECRET`, `PASSWORD`, `LICENSE` or `_KEY` under Secrets
+  it, and puts a name with `TOKEN`, `SECRET`, `PASSWORD`, `LICENSE` or `_KEY`, or with the word `PAT` (`GH_PAT`, not
+  `_PATH`), under Secrets
   ([settings and secrets](configuration.md#settings-and-secrets)). Their names follow
   [the naming rule](../AGENTS.md#rules). `${VAR}` with no default is required: the add-on's Start (a playground's too) waits and says which
   until its `.env` gives it a value, and its key button opens them. An optional one carries an empty default, `${VAR:-}`. The core's

@@ -31,7 +31,7 @@ from ..catalogs import manifest, registry, renames, resolve, trust, understood
 from ..products import AM, APIM, APIM_FEATURES, DEPLOYED, LOCAL_PRODUCTS, SEEDED, SEEDED_HERE
 from ..paths import CORE_FILE, ENV_FILE, KINDS, LAB_DIR, ROOT
 
-SECRET = re.compile(r"TOKEN|SECRET|PASSWORD|LICENSE|_KEY")
+SECRET = re.compile(r"TOKEN|SECRET|PASSWORD|LICENSE|_KEY|(?:^|_)PAT(?:_|$)")   # the word PAT: a personal access token, never a _PATH
 LICENSE_KEY = "gravitee_license_key"   # where a Gravitee component reads its license, in its environment
 LICENSE_LABEL = "io.gravitee.license"   # `required` on a service that exits without a usable license
 CONSOLE_LABEL = re.compile(r"io\.gravitee\.console\.([a-z0-9-]+)\.(name|url|legacy|username|password)")

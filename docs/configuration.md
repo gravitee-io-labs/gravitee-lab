@@ -137,7 +137,8 @@ ones. It writes the `.env` files for you.
 The key button of an add-on or a playground opens its settings as a form. The form comes from the compose file:
 
 - Every `${VAR}` of the file is a field. A comment on its line, or heading its block, is the description you see.
-- A name with `TOKEN`, `SECRET`, `PASSWORD`, `LICENSE` or `_KEY` goes under *Secrets*, the others under *Settings*.
+- A name with `TOKEN`, `SECRET`, `PASSWORD`, `LICENSE` or `_KEY`, or with the word `PAT` (a personal access token: `GH_PAT`,
+  not `_PATH`), goes under *Secrets*, the others under *Settings*.
 - A variable without a default is *Required*. An add-on that lacks one keeps its *Start*, which waits and says which.
 - Every demo password, secret, token and key is one of these variables, with its public demo value as the default: [Logins](#logins) lists them. Changing one is a line in a `.env`.
 - Image versions and registries stay on the Images page.

@@ -379,6 +379,12 @@ class Build(AsOwn):
             {"key": "KAZOO_DESK_THEME", "default": None, "required": True, "comment": "Light or dark",
              "secret": False}])
         self.assertEqual(self.project["addons"]["kazoo"]["settings"], [])   # KAZOO_VERSION belongs to Images
+        # A personal access token is a secret, a name with PAT inside a word is not
+        given, secret = inputs(), {"AZURE_ARTIFACTS_PAT": True, "GITHUB_PAT_READ": True, "GH_PAT": True, "PAT": True, "KAZOO_PATH": False,
+                                   "ID_PATTERN": False, "NGROK_AM_PATHS": False, "X_PATCH": False, "COMPAT_MODE": False}
+        given["variables"][CONSOLE] = [variable(name, "") for name in secret]
+        settings = project.build(given)["addons"]["kazoo-desk"]["settings"]
+        self.assertEqual({setting["key"]: setting["secret"] for setting in settings}, secret)
 
     def test_setups(self):
         setups = self.project["setups"]
@@ -2359,6 +2365,11 @@ class Own(Case):
         self.assertEqual(inputs["seed_references"][found["file"]], ["APIM_TOKEN", "SANDBOX_BACKEND_URL"])
         self.assertEqual((found["verdict"]["notes"], found["blocked"]), ([trust.line("N02")], None))
         self.assertEqual(places.seed_refused(found), trust.SEED_TOKEN)
+        # A personal access token is one too, a name with PAT inside a word is not
+        for name, notes in (("GH_PAT", [trust.line("N02")]), ("PAT", [trust.line("N02")]), ("SANDBOX_PATTERN", [])):
+            with self.subTest(name):
+                inputs, found = self.sandbox(seed={"apim/token.txt": "token=${%s}\n" % name})
+                self.assertEqual(found["verdict"]["notes"], notes)
 
     def test_a_seed_the_screen_cannot_read_whole_is_a_seed_that_may_read_the_token(self):
         for name, make in (("a link", lambda folder, outside: (folder / "seed" / "apim" / "link").symlink_to(outside)),

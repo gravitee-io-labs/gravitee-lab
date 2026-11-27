@@ -241,14 +241,17 @@ class Patterns(unittest.TestCase):
             return [name for _, name in secrets.compose_literals(text)]
         named = ["PASSWORD", "DB_PASSWD", "KEYSTORE_PASSPHRASE", "CLIENT_SECRET", "LLM_API_KEY", "OPENAI_APIKEY", "ADMIN_TOKEN", "token",
                  "gravitee_ratelimit_redis_password", "Admin_Password", "BROKER_CLIENT_PASSWORDS", "ACME_KEY", "encryption_key",
-                 "signing-key", "gravitee.license.key", "llm.Key", "SECRET_HOSTS", "PASSWORD_PORTS"]
+                 "signing-key", "gravitee.license.key", "llm.Key", "SECRET_HOSTS", "PASSWORD_PORTS", "AZURE_ARTIFACTS_PAT",
+                 "GITHUB_PAT_READ", "GH_PAT", "PAT"]
         self.assertEqual(literal(*named), named)
-        # What only has key in its name, and what says where a secret is, what kind it is, how it is reached or whether it is on
+        # What only has key in its name or PAT inside a word, and what says where a secret is, what kind it is, how it is reached or
+        # whether it is on
         self.assertEqual(literal("KEY", "KEYS", "KEY_ID", "KEYSTORE", "MONKEY", "PUBLIC_KEY", "public-key", "ssl.public.key",
                                  "AM_TOKEN_URL", "DB_PASSWORD_FILE", "CLIENT_SECRET_PATH", "TLS_SECRET_URI", "BROKER_SECRET_TYPE",
                                  "TOKEN_ENDPOINT", "gravitee_secrets_enabled", "gravitee_secrets_vault_host", "gravitee_secrets_vault_port",
                                  "gravitee_secrets_vault_auth_method", "gravitee_secrets_vault_namespace", "SECRET_PROVIDER", "PASSWORD_POLICY",
-                                 "PASSWORD_REGEX", "ADMIN_TOKEN_TIMEOUT", "ADMIN_API_KEY_TIMEOUTMS", "NEXTAUTH_URL"), [])
+                                 "PASSWORD_REGEX", "ADMIN_TOKEN_TIMEOUT", "ADMIN_API_KEY_TIMEOUTMS", "NEXTAUTH_URL", "KAZOO_PATH",
+                                 "ID_PATTERN", "NGROK_AM_PATHS", "X_PATCH", "COMPAT_MODE", "AZURE_PAT_URL"), [])
 
     def test_se04_a_label_an_extension_block_and_the_sign_in_a_console_shows(self):
         text = ("services:\n  ui:\n    build:\n      args:\n        NPM_TOKEN: abc\n    labels:\n"
