@@ -85,6 +85,13 @@ The Lab UI only reads the license, on your machine, and sends it nowhere. It che
 | Expiry | An expired license is *Expired* and Enterprise features are off. The banner warns 30 days before |
 | Tier, packs, features | The license model inside the product images says what the license gives. Until an image is pulled, the dialog says `Not known until <image> is pulled` and offers *Pull images* |
 
+A feature is often in several packs, so a pack that is not in your license may still have all of its features through
+others. Each pack of the dialog says how many of its features your license includes (*11 of 11 included*). A pack that is
+not in the license but whose features all are reads *Covered*, and each of its features names the pack of your license
+that gives it (*via Agent management*). *Included* lists the packs whose features you can all use, *Not included* those
+that lack at least one. A feature is one line that says how many plugins of your lab need it: open it to see them, by
+product (*APIM endpoint-a2a-proxy*). A search also finds a feature by the name of a plugin, and shows its plugins.
+
 The products enforce the license. The Lab UI uses what it reads to warn before a start: *Needs a license*,
 *License expired* or *Not in the license* on a row, with the packs that give the feature. Start waits when all of what
 the row runs needs it, and says why; when only a step of a playground needs it, the row names the step and still starts.

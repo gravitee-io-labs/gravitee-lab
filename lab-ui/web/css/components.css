@@ -582,12 +582,12 @@ button.stack-sep { display: flex; align-items: center; gap: 8px; width: 100%; bo
 /* Two lines at a fixed height: a row never moves when its state changes */
 .list-row { height: var(--h-row); }
 /* A row that opens: a list item on its detail, a group of the Stack on its containers, a pack of the license on its
-   features, a section of Images on its components. One that cannot be closed is no button, and takes no click. */
+   features and a feature on its plugins, a section of Images on its components. One that cannot be closed is no button, and takes no click. */
 /* It opens from its toggle, the chevron, a button named for the row that the keyboard reaches (the row itself is no button, so that
    its controls are controls of their own), or from a click anywhere on it but its controls. The ring of the focused toggle is the row's. */
-:is(.list-row, .group-row.opens, .core-sep.opens, .panel-row[data-sub], .pack-row[role="button"]), button.stack-sep { cursor: pointer; user-select: none; }
-:is(.list-row, .group-row.opens, .core-sep.opens, .panel-row[data-sub], .pack-row[role="button"]):hover, button.stack-sep:hover { background: var(--row-hover); }
-:is(.pack-row, .stack-sep):focus-visible, :is(.list-row, .group-row, .core-sep, .panel-row):has(> .s-toggle:focus-visible, > .panel-name > .s-toggle:focus-visible) {
+:is(.list-row, .group-row.opens, .core-sep.opens, .panel-row[data-sub], :is(.pack-row, .feature-row)[role="button"]), button.stack-sep { cursor: pointer; user-select: none; }
+:is(.list-row, .group-row.opens, .core-sep.opens, .panel-row[data-sub], :is(.pack-row, .feature-row)[role="button"]):hover, button.stack-sep:hover { background: var(--row-hover); }
+:is(.pack-row, .feature-row, .stack-sep):focus-visible, :is(.list-row, .group-row, .core-sep, .panel-row):has(> .s-toggle:focus-visible, > .panel-name > .s-toggle:focus-visible) {
   outline: 2px solid var(--text-2); outline-offset: -2px;
 }
 /* Its chevron points down once it is open */

@@ -1053,18 +1053,23 @@ mark { background: var(--hl); color: var(--hl-text); border-radius: 2px; padding
 .pack-row .s-toggle { width: 22px; }
 .pack-name { font-weight: var(--fw-3); }
 .pack.off .pack-name { color: var(--muted); font-weight: var(--fw-2); }
-.pack-meta { margin-left: auto; color: var(--muted); font-size: var(--fs-2); }
+.pack-meta { margin-left: auto; color: var(--muted); font-size: var(--fs-2); white-space: nowrap; }
+.pack-meta.full { color: var(--ok); }   /* every feature of the pack is in the license, through it or through others */
 .lic { display: inline-flex; flex: none; }
 .lic svg { width: 14px; height: 14px; }
 .lic.yes { color: var(--ok); }
 .lic.no { color: var(--muted); }
 .features { list-style: none; margin: 0; padding: 0 0 8px; }
-/* A feature: its check, its name, and the plugins that need it, at the right of the name when they fit and under it when
-   they do not. The name breaks where it must (a long id breaks anywhere): nothing goes past the edge, whatever the width */
-.feature { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 32px;
-  padding: 4px var(--pad) 4px calc(var(--pad) + 28px); }
-.feature code { flex: 0 1 auto; min-width: 0; font-size: var(--fs-1); overflow-wrap: anywhere; }
-.feature-plugins { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: 4px; justify-content: flex-end; min-width: 0; max-width: 100%; }
+/* A feature is a line: its toggle under its pack's check, its check, its name and the packs that give it, then how many plugins need
+   it; opened, those plugins under its name. The name breaks where it must (a long id breaks anywhere): nothing goes past the edge */
+.feature-row { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px var(--pad) 4px calc(var(--pad) + 24px); }
+.feature-row .s-toggle { width: 22px; flex: none; }
+.feature-name { flex: 1 1 auto; min-width: 0; }
+.feature code { font-size: var(--fs-1); overflow-wrap: anywhere; }
+/* After the name, and on its line when it breaks: the packs of the license that give a feature of a pack it lacks */
+.feature-via { color: var(--muted); font-size: var(--fs-1); }
+.feature-meta { flex: none; color: var(--muted); font-size: var(--fs-2); white-space: nowrap; }
+.feature-plugins { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px var(--pad) 8px calc(var(--pad) + 80px); }
 .feature-plugins .pill { max-width: 100%; font-family: var(--mono); font-weight: var(--fw-2); font-size: var(--fs-1); overflow-wrap: anywhere; white-space: normal; height: auto; min-height: var(--h-pill); }
 
 @media (max-width: 800px) {
