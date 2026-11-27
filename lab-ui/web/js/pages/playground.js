@@ -56,13 +56,9 @@ export const seeded = (item) => item.created.map((c) => `${c.count} ${c.count ==
 
 // --- Items of this machine and of catalogs ----------------------------------------------
 
-// What an item uses of this machine beyond its containers, in the words its author gave (`uses_machine`): their reasons, once each, cut at
-// USES characters, and the whole in a tooltip where the page cuts it. "" for most items.
-const USES = 120;
-export function usesMachine(item) {
-  const letters = Array.from([...new Set((item.uses_machine || []).map((use) => use.why).filter(Boolean))].join(", "));
-  return letters.length > USES ? `${letters.slice(0, USES - 1).join("").trimEnd()}\u2026` : letters.join("");
-}
+// What an item uses of this machine beyond its containers, in the words its author gave (`uses_machine`): their reasons,
+// once each. "" for most items.
+export const reasonsOf = (item) => [...new Set((item.uses_machine || []).map((use) => use.why).filter(Boolean))].join(", ");
 
 // What keeps Share and Delete of an item of this machine: the reason the server holds them for, and the Lab UI not answering
 function held(why) {
@@ -505,11 +501,12 @@ const COMPAT = { new: ["Needs a newer Gravitee Lab", "Run make update, then rest
 // A row says what (name, linked to it when it is an item) and what happens to it (action); a problem is told in full
 // under the name. One that settings answer keeps where they are (file); one of an image's version, the variable that
 // holds it (variable), when the server names it; one of a remote place that a form answers here, what it lacks (fix). What it lacks of the
-// catalogs and of this Lab comes first, and what it uses of this machine is one line among what Start does.
+// catalogs and of this Lab comes first; what it uses of this machine is one line among what Start does, its reasons
+// whole under the name.
 function prepGroups(item) {
   const attention = (item.needs_catalogs || []).map(catalogLine), auto = [], ready = [];
   if (COMPAT[item.compat]) attention.push({ name: COMPAT[item.compat][0], sub: COMPAT[item.compat][1] });
-  if (usesMachine(item)) auto.push({ name: "Uses this machine", action: usesMachine(item) });
+  if (reasonsOf(item)) auto.push({ name: "Uses this machine", sub: reasonsOf(item) });
   for (const x of checks || []) {
     const problem = x.state === "warn";
     (x.state === "ok" ? ready : problem ? attention : auto).push({ name: x.name, action: problem ? "" : x.detail,
