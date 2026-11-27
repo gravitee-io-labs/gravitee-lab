@@ -239,8 +239,8 @@ x-gravitee:
       apim-reporter-tcp: Lesson 4
     host:                                   # checked from this machine before Start, with the fix
       - name: Ollama with qwen3:0.6b
-        check: http://localhost:11434/api/tags
-        expect: qwen3:0.6b                  # text the answer must hold
+        check: http://localhost:11434/api/tags  # opened as written: a setting in it is never read
+        expect: qwen3:0.6b                  # text the answer must hold; name, expect and help may name a setting, read as it is now
         help: Install Ollama, then run `ollama pull qwen3:0.6b`
   consoles: [shop-api, gamma-ui]            # its UIs next to the guide, a tab each, in this order
   accounts:                                 # shown on its page with copy buttons, with the settings as they are now

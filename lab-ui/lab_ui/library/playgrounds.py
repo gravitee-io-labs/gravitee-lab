@@ -399,10 +399,14 @@ def _dialog(project, plan, restarts):
 def _host_checks(playground):
     """Each host requirement, one that is not met with the `help` that says what to do. In a playground the policy judged,
     an address that is not on this machine (N03) is not opened, for a view never makes a request that a catalog chose: the
-    line says it was not checked, with the help, for the person to see to it."""
+    line says it was not checked, with the help, for the person to see to it. Its name, what the answer must hold and its
+    help are read with the playground's settings (a model it lets the person choose); its address is opened as written,
+    as the policy judged it."""
     held = trust.line("N03") in ((playground.get("verdict") or {}).get("notes") or ())
+    read = projects.settings_reader(playground.get("env_file"))
     checks = []
-    for spec in playground["requires"].get("host") or []:
+    for written in playground["requires"].get("host") or []:
+        spec = {**written, **{key: read(written[key]) for key in ("name", "expect", "help") if key in written}}
         if held and not trust.local_address(spec.get("check")):
             checks.append(dict(_line(spec["name"], "warn", NOT_CHECKED), help=spec.get("help")))
             continue

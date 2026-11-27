@@ -1026,6 +1026,13 @@ def _reader(inputs, env_file=None):
     return read
 
 
+def settings_reader(env_file=None):
+    """_reader with the settings as they are at this moment, for what is read when it is used rather than when the project
+    was built: the Lab UI's environment, the root .env, then `env_file`, a unit's own."""
+    return _reader({"environ": dict(os.environ), "env": {path: _dotenv(path) for path in (ENV_FILE, env_file) if path}},
+                   env_file)
+
+
 def user_name(value):
     """A user name of an account as the page shows it and a guide's account link names it: text, a number as its digits
     (YAML reads `1234` as one); any other shape is none."""
