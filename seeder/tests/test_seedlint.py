@@ -966,3 +966,17 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(STUDIO + "subscriptions:\n"), [])
+
+
+class StudioAPIFields(Made):
+    def test_studio_fields_are_checked_for_both_shapes(self):
+        for index, text in enumerate((STUDIO, AGENTS_STUDIO)):
+            for good, fields in ((True, {"visibility": "PUBLIC", "labels": ["tools"], "categories": []}),
+                                 (False, {"categories": [False]})):
+                with self.subTest(shape=index, good=good):
+                    suffix = "\n".join(key + ": " + json.dumps(value) for key, value in fields.items())
+                    folder = self.playground({"seed/aim/studios/desk.yaml": text + "\n" + suffix}, name=f"studio-{index}-{good}")
+                    problems = seedlint.problems(folder)
+                    self.assertEqual(len(problems), 0 if good else 1)
+                    if not good:
+                        self.assertIn("categories", problems[0].message)

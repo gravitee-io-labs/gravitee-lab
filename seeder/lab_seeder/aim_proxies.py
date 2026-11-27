@@ -91,6 +91,35 @@ PROXY_VERSION_KEYS = ("supportedProtocolVersions", "endpointProtocolVersions")  
 SUBSCRIPTION_KEYS = ("application", "plan", "apiKey")
 
 
+STUDIO_FIELDS = ("visibility", "labels", "categories", "flows")
+
+
+def studio_fields(spec, where):
+    """Optional writable API fields, kept outside the studio's creation digest."""
+    wanted = {key: spec[key] for key in STUDIO_FIELDS if key in spec}
+    if "visibility" in wanted and wanted["visibility"] not in ("PUBLIC", "PRIVATE"):
+        raise SeedError(f"{where}: visibility is PUBLIC or PRIVATE")
+    for key in ("labels", "categories"):
+        if key in wanted and (not isinstance(wanted[key], list)
+                              or not all(isinstance(value, str) and value.strip() for value in wanted[key])
+                              or len(set(wanted[key])) != len(wanted[key])):
+            raise SeedError(f"{where}: {key} is a list of distinct, nonempty strings")
+    if "flows" in wanted and (not isinstance(wanted["flows"], list)
+                              or not all(isinstance(flow, dict) for flow in wanted["flows"])):
+        raise SeedError(f"{where}: flows is a list of flow objects")
+    if "flows" in wanted and "access" in spec:
+        for key, name, policy in (("authorization", FGA_FLOW, PEP), ("humanApproval", APPROVAL_FLOW, APPROVAL)):
+            settings = spec.get(key)
+            if not isinstance(settings, dict) or not settings.get("enabled", True):
+                continue
+            flow = next((flow for flow in wanted["flows"] if flow.get("name") == name and flow.get("enabled", True)), None)
+            phases = ("request",) if key == "authorization" else ("request", "response")
+            steps = [step for phase in phases for step in ((flow or {}).get(phase) or []) if isinstance(step, dict)]
+            if not any(step.get("policy") == policy and step.get("enabled", True) for step in steps):
+                raise SeedError(f"{where}: flows must retain the enabled {name} check")
+    return wanted
+
+
 def fill(value, slug):
     """A file's `<slug>` replaced by the slug of the MCP server in the catalog, wherever it stands."""
     if isinstance(value, str):
@@ -561,19 +590,21 @@ class McpProxies:
         toggled = self.g.aim.get(f"/mcp-proxies/{found['id']}").json().get("fgaEnabled", False) != enabled
         if toggled:
             self.g.aim.put(f"/mcp-studios/{found['id']}/fga", json={"enabled": enabled})
-        recording = self.studio_analytics(found["id"], analytics)   # after the switch, which may rewrite the API
+        recording = self.studio_settings(found["id"], analytics, studio_fields(spec, f"MCP studio {name}"))   # after the switch, which may rewrite the API
         if toggled or recomposed or recording:
             self.g.v2.post(f"/apis/{found['id']}/deployments", json=DEPLOYMENT)
         if toggled:
             log(SECTION, f"  ✓ Authorization check {'on' if enabled else 'off'}")
         self.subscribe(found["id"], name, subscriptions)
 
-    def studio_analytics(self, api_id, analytics):
-        """The file's `analytics` on the API of a studio made in one go, written over it as it was read. Whether it wrote."""
-        if not analytics:
+    def studio_settings(self, api_id, analytics, fields):
+        """The file's analytics and writable fields in one read and update of a plain studio's API."""
+        if not analytics and not fields:
             return False
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        if not with_analytics(api, analytics):
+        changed = with_analytics(api, analytics)
+        changed = with_studio_fields(api, fields) or changed
+        if not changed:
             return False
         self.g.v2.put(f"/apis/{api_id}", json={k: v for k, v in api.items() if k not in STUDIO_API_READ_ONLY})
         log(SECTION, "  ✓ What the gateway records written")
@@ -776,20 +807,22 @@ class McpProxies:
             changed = True
         templates = response_templates(spec, f"MCP studio {spec.get('name')}")
         analytics = read_analytics(spec, f"MCP studio {spec.get('name')}")
-        if not (check or hold or templates or analytics):
+        fields = studio_fields(spec, f"MCP studio {studio}")
+        if not (check or hold or templates or analytics or fields):
             return changed
         api = self.g.v2.get(f"/apis/{api_id}").json()
-        written = [with_analytics(api, analytics)]
+        before = copy.deepcopy(api)
+        with_analytics(api, analytics)
+        with_studio_fields(api, fields)
         if not contains(api.get("responseTemplates") or {}, templates):
             api["responseTemplates"] = with_templates(api.get("responseTemplates"), templates)
-            written.append(True)
         if check:
-            written.append(authorization_flow(api, authorization, studio))
+            authorization_flow(api, authorization, studio)
         if hold and "holdWindowMs" in approval:
-            written.append(approval_flow(api, approval["holdWindowMs"], studio))
+            approval_flow(api, approval["holdWindowMs"], studio)
         if check and hold:
-            written.append(authorize_before_approving(api))
-        if any(written):
+            authorize_before_approving(api)
+        if api != before:
             self.g.v2.put(f"/apis/{api_id}", json={k: v for k, v in api.items() if k not in STUDIO_API_READ_ONLY})
             log(SECTION, "  ✓ Flows written")
             changed = True
@@ -827,6 +860,7 @@ def check():
         return
     for path in files("aim", "studios"):
         spec = load(path)
+        studio_fields(spec, str(path))
         protocol_versions(spec)
         if spec.get("humanApproval") is not None and versions.variant("studio-human-approval") == "absent":
             raise SeedError(f"MCP studio {spec.get('name')}: this platform has no human approval on a studio, "
@@ -840,6 +874,8 @@ def check():
 def seed():
     if not has_seed(*FOLDERS):
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
+    for path in files("aim", "studios"):
+        studio_fields(load(path), str(path))
     proxies = McpProxies()
     proxies.connect()
     for path in files("aim", "mcp-proxies"):
@@ -869,3 +905,14 @@ def remove(records):
             proxies.g.aim.delete(f"/mcp-proxies/{x['id']}")
         forget(x)
         log(SECTION, f"✓ Deleted {KINDS[x['kind']]} '{x['name']}'")
+
+
+def with_studio_fields(api, fields):
+    """Apply only the file's writable fields; label and category order has no meaning."""
+    changed = False
+    for key, value in fields.items():
+        same = set(api.get(key) or []) == set(value) if key in ("labels", "categories") else api.get(key) == value
+        if not same:
+            api[key] = copy.deepcopy(value)
+            changed = True
+    return changed
