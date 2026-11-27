@@ -448,8 +448,8 @@ The lines cover:
 - **Docker's memory**, when it is short.
 - **Ports**: a port that what starts publishes and another program of your machine uses (a database or a dev server of
   yours). Start is refused for it, before it changes anything: [A port is already allocated](troubleshooting.md#a-port-is-already-allocated).
-- **Host prerequisites**, such as Ollama with a model: a missing one warns, with the fix. A check is an http or https
-  address, called from your machine.
+- **Host prerequisites**, such as Ollama with the model its settings choose: a missing one warns, with the fix. A check
+  is an http or https address, called from your machine.
 - **A place besides This machine**: with a [Gravitee Cloud account](#gravitee-cloud) connected, the lines follow the place that *Deploy
   to* shows: [Deploy to](#deploy-to).
 

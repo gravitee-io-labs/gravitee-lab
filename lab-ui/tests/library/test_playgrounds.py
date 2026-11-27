@@ -1197,6 +1197,22 @@ class Playgrounds(Case):
             {"name": "Hub", "state": "warn", "detail": "Not checked", "help": "Needs the internet"},
             {"name": "Loose", "state": "warn", "detail": "Not checked", "help": "Say it"}])
 
+    def test_its_name_what_it_expects_and_its_help_read_the_settings_and_its_address_is_opened_as_written(self):
+        self.patch(envfiles, "ROOT", self.root)
+        model = "${WELCOME_MODEL:-qwen3:0.6b}"
+        playground = {"env_file": ".lab/catalogs/fixture/playgrounds/welcome/.env", "requires": {"host": [
+            {"name": f"Ollama with {model}", "check": "http://localhost:11434/api/tags?" + model, "expect": model,
+             "help": f"Run ollama pull {model}"}]}}
+        for given, expected in (({}, "qwen3:0.6b"), ({"WELCOME_MODEL": "gemma4"}, "gemma4")):
+            with self.subTest(given=given):
+                self.write(playground["env_file"], "".join(f"{name}={value}\n" for name, value in given.items()))
+                with mock.patch.object(playgrounds, "_host_check", return_value=(False, "Not reachable (x)")) as opened:
+                    found = playgrounds._host_checks(playground)
+                self.assertEqual(opened.call_args.args[0], {"name": f"Ollama with {expected}", "expect": expected,
+                                                            "check": "http://localhost:11434/api/tags?" + model,
+                                                            "help": f"Run ollama pull {expected}"})
+                self.assertEqual((found[0]["name"], found[0]["help"]), (f"Ollama with {expected}", f"Run ollama pull {expected}"))
+
     def test_what_the_policy_did_not_judge_or_found_nothing_against_is_checked_as_it_was(self):
         spec = {"requires": {"host": [self.HOST["requires"]["host"][1]]}}
         for playground in (spec, {**spec, "verdict": None}, {**spec, "verdict": {"notes": []}},
