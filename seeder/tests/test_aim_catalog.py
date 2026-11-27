@@ -17,6 +17,7 @@ import requests
 import yaml
 
 from lab_seeder import aim_catalog
+from lab_seeder import versions
 from lab_seeder import apim
 from lab_seeder import common
 from lab_seeder.testkit import PLAYGROUNDS, Response, Seed
@@ -540,6 +541,116 @@ SKILL = "---\nname: complaints\ndescription: Takes a complaint.\nversion: 1.0.0\
 MANUAL_SOURCE = {"id": "theirs", "sourceKind": "manual", "definition": {"type": "manual", "name": "Inline documents"}}
 
 
+class AgentFromCard(Catalog):
+    """A platform that reads a card itself (agent-registration: card): the agent is registered as Add agent > From agent card
+    makes it, with the card whole and its risk classification as a field of its own."""
+
+    PARSE = "/catalog/agents/_parseCard"
+
+    def setUp(self):
+        super().setUp()
+        self.version("4.14.0-alpha.1", versions.APIM)
+        self.seed_files({"aim/agents/acme-bakery-ace.yaml": AGENT_FILE + "metadata:\n  riskClassification: limited\n  team: desk\n"})
+        self.answer({("POST", path("/catalog/agents/_parseCard")): self.parse})
+
+    @staticmethod
+    def parse(call):
+        card = json.loads(call.json["card"])
+        return 200, {"name": card["name"], "description": card.get("description"), "a2aCard": call.json["card"],
+                     "entrypoints": [{"protocol": "A2A", "name": "JSONRPC", "url": "http://gateway/ace/", "transport": "JSONRPC"}]}
+
+    def test_the_platform_reads_the_card_and_the_agent_is_registered_from_it(self):
+        self.assertEqual([c for c in self.run_seed() if c[1] != "/catalog/sources"], [("POST", self.PARSE), ("POST", "/catalog/agents")])
+        [sent] = self.sent("POST", "/catalog/agents$")
+        self.assertEqual((sent.json["origin"], sent.json["riskClassification"], sent.json["metadata"]),
+                         ("AGENT_CARD", "LIMITED", {"team": "desk"}))
+        self.assertEqual(json.loads(sent.json["definition"]["a2aCard"])["name"], "Ace")
+        self.assertEqual(sent.json["definition"]["entrypoints"][0]["url"], "http://gateway/ace/")
+
+    def test_a_second_run_only_reads_the_card_again(self):
+        self.run_seed()
+        self.assertEqual(self.run_seed(), [("POST", self.PARSE)])
+
+    def test_the_sponsor_the_file_names_is_the_id_of_that_user(self):
+        self.answer({("GET", "/management/organizations/DEFAULT/users"): (200, {"data": [
+            {"id": "user-camille", "source": "memory", "sourceId": "camille"},
+            {"id": "user-2", "source": "memory", "sourceId": "camille.d"},
+            {"id": "user-camille-g", "source": "gravitee", "sourceId": "camille", "status": "ARCHIVED"}]})})
+        self.seed_files({"aim/agents/acme-bakery-ace.yaml": AGENT_FILE + "sponsor: {user: camille}\n"})
+        aim_catalog.check()
+        self.run_seed()
+        [sent] = self.sent("POST", "/catalog/agents$")
+        self.assertEqual(sent.json["sponsorId"], "user-camille")
+        self.seed_files({"aim/agents/acme-bakery-ace.yaml": AGENT_FILE + "sponsor: {user: camille, source: memory}\n"})
+        aim_catalog.check()
+        self.assertEqual(self.run_seed(), [("POST", self.PARSE)], "the same sponsor, named with its source")
+
+    def test_a_sponsor_that_is_no_user_stops_the_seed(self):
+        self.answer({("GET", "/management/organizations/DEFAULT/users"): (200, {"data": []})})
+        self.seed_files({"aim/agents/acme-bakery-ace.yaml": AGENT_FILE + "sponsor: {user: camille}\n"})
+        with self.assertRaisesRegex(common.SeedError, "The user 'camille' is not known to API Management: it signs in once "
+                                                      "first, or seed/apim/users.yaml makes it"):
+            self.run_seed()
+        self.seed_files({"aim/agents/acme-bakery-ace.yaml": AGENT_FILE + "sponsor: camille\n"})
+        with self.assertRaisesRegex(common.SeedError, r"The agent 'ace': its sponsor is \{user: NAME\} or "):
+            aim_catalog.check()
+
+    def test_a_sponsor_on_a_platform_that_keeps_none_stops_the_seed_before_any_call(self):
+        self.version("4.13.6", versions.APIM)
+        self.seed_files({"aim/agents/acme-bakery-ace.yaml": AGENT_FILE + "sponsor: {user: camille}\n"})
+        with self.assertRaisesRegex(common.SeedError, "The agent 'ace' names a sponsor or is entered by hand: the build "
+                                                      "4.14.0-alpha.1 keeps them"):
+            aim_catalog.check()
+        self.assertEqual(self.platform.calls, [])
+
+
+CUSTOM_AGENT = ("entityId: triage\nsource: Acme Bakery\ndefinition:\n  name: Triage\n  description: Sorts the new tickets\n"
+                "metadata:\n  riskClassification: limited\n")
+
+
+class AgentByHand(Catalog):
+    """An agent that serves no card is an entry made by hand, as Add agent > Custom makes it, where the platform keeps one
+    (agent-registration: card): its definition as the file gives it, origin CUSTOM, no card read."""
+
+    def setUp(self):
+        super().setUp()
+        self.version("4.14.0-alpha.1", versions.APIM)
+        self.seed_files({"aim/agents/acme-bakery-ace.yaml": CUSTOM_AGENT})
+
+    def test_it_is_registered_from_its_definition_and_no_card_is_read(self):
+        aim_catalog.check()
+        self.assertEqual([c for c in self.run_seed() if c[1] != "/catalog/sources"], [("POST", "/catalog/agents")])
+        [sent] = self.sent("POST", "/catalog/agents$")
+        self.assertEqual((sent.json["definition"], sent.json["origin"], sent.json["riskClassification"]),
+                         ({"name": "Triage", "description": "Sorts the new tickets"}, "CUSTOM", "LIMITED"))
+
+    def test_a_second_run_writes_nothing(self):
+        self.run_seed()
+        self.assertEqual(self.run_seed(), [])
+
+    def test_a_file_with_both_or_neither_stops_the_seed_before_any_call(self):
+        for text in (CUSTOM_AGENT + "url: http://triage\n", "entityId: triage\nsource: Acme Bakery\n"):
+            with self.subTest(text=text):
+                self.seed_files({"aim/agents/acme-bakery-ace.yaml": text})
+                with self.assertRaisesRegex(common.SeedError, "The agent 'triage': its file gives the url of its card or its "
+                                                              "definition, one of them"):
+                    aim_catalog.check()
+        for text in ("entityId: triage\nsource: Acme Bakery\ndefinition: {description: x}\n",
+                     "entityId: triage\nsource: Acme Bakery\ndefinition: Triage\n"):
+            with self.subTest(text=text):
+                self.seed_files({"aim/agents/acme-bakery-ace.yaml": text})
+                with self.assertRaisesRegex(common.SeedError, "The agent 'triage': its definition is a mapping with a name"):
+                    aim_catalog.check()
+        self.assertEqual(self.platform.calls, [])
+
+    def test_a_platform_that_registers_from_a_card_only_stops_the_seed_before_any_call(self):
+        self.version("4.13.6", versions.APIM)
+        with self.assertRaisesRegex(common.SeedError, "The agent 'triage' names a sponsor or is entered by hand: the build "
+                                                      "4.14.0-alpha.1"):
+            aim_catalog.check()
+        self.assertEqual(self.platform.calls, [])
+
+
 class Credentials(Catalog):
 
     def setUp(self):
@@ -765,7 +876,7 @@ class Items(Catalog):
         self.assertEqual({i["sourceId"] for i in self.world.items.values()}, {source["id"]})
         self.assertEqual([(x["kind"], x["label"], x["name"]) for x in self.records()],
                          [("model", "AI models", "Qwen"), ("knowledge", "knowledge documents", "Fees"),
-                          ("agent", "A2A agents", "Ace")])
+                          ("agent", "agents", "Ace")])
 
     def test_a_manual_source_that_exists_under_another_name_is_used_and_left_as_it_is(self):
         self.world.sources["theirs"] = dict(MANUAL_SOURCE)
@@ -1822,7 +1933,7 @@ class Playground(Catalog):
         for line in ("✓ Credential created: Acme Bakery Gemini key", "✓ AI provider created: Acme Bakery Ollama",
                      "✓ AI model created: Acme Bakery Qwen3 1.7B", "✓ Knowledge document created: Acme Bakery fee schedule",
                      "✓ MCP server imported: Acme Bakery MCP (2 tools, 1 prompts, 1 resources)",
-                     "✓ Skill uploaded: acme-bakery-complaint-handling", "✓ A2A agent created: Ace",
+                     "✓ Skill uploaded: acme-bakery-complaint-handling", "✓ Agent created: Ace",
                      "✓ API tool imported: Acme Bakery Open API (4 tools)"):
             self.assertIn("[aim-catalog] " + line, self.output())
 

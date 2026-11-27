@@ -61,6 +61,8 @@ class Declaration(Seed):
                 ("x: {api: A, flow: F, steps: {request: [1]}}", "x: steps.request is a list of step names"),
                 ("x: {workspace: W, flow: F, steps: {request: [S]}}", "x: the router of a workspace is not in a flow"),
                 ("x: {policy: P, steps: {request: [S]}}", "x: a policy has no flow and no steps"),
+                ("x: {approval-rule: R, flow: F}", "x: an approval rule has no flow and no steps"),
+                ("x: {approval-rule: ''}", "x: approval-rule is the name of the approval-rule"),
                 ("x: {subscription: Dev}", r"x: subscription is \{application, api, plan\}, each a name"),
                 ("x: {subscription: {application: A, api: B}}", r"x: subscription is \{application, api, plan\}"),
                 ("x: {subscription: {application: A, api: B, plan: ''}}", r"x: subscription is \{application, api, plan\}"),

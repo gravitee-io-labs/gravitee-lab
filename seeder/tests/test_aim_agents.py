@@ -8,8 +8,11 @@ import os
 import re
 from unittest import mock
 
+import requests
+
 from lab_seeder import aim_agents
 from lab_seeder import common
+from lab_seeder import controls
 from lab_seeder import seed
 from lab_seeder import versions
 from lab_seeder.testkit import Seed
@@ -22,6 +25,9 @@ AGENTS = AIM + "/catalog/agents"
 APPLICATION = AGENTS + "/agent-1/application"
 IDENTITY = APPLICATION + "/identity"
 SUBSCRIPTIONS = AIM + "/mcp-proxies/studio-1/subscriptions"
+V2 = ENV.replace("/management/", "/management/v2/")
+# A control that pauses the agent's subscription to the studio, the kill switch of a lesson
+KILL = "kill: {subscription: {application: Desk copilot, api: Customer desk, plan: Agents}}\n"
 
 AGENT = """\
 entityId: desk-copilot
@@ -443,6 +449,35 @@ class KillSwitch(Agents):
         self.assertEqual(self.changed(), [("POST", AGENTS + "/agent-2/access/_restore")])
         self.assertEqual([s["status"] for s in self.world.subscriptions], ["ACCEPTED", "ACCEPTED"])
 
+    def controlled(self):
+        """A control names the subscription, and the platform pauses and resumes it as the Console asks."""
+        self.seed_files({"controls.yaml": KILL})
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions/[^/]+/_(pause|resume)")):
+                           lambda call: self.world.settle(call, "PAUSED" if call.path.endswith("_pause") else "ACCEPTED")})
+
+    def test_a_control_pauses_the_subscription_while_on_and_resumes_it_while_off(self):
+        self.controlled()
+        aim_agents.seed()
+        self.assertEqual(self.world.subscriptions[0]["status"], "PAUSED", "the default mode is on")
+        self.assertIn(("POST", f"{V2}/apis/studio-1/subscriptions/sub-1/_pause"), self.changed())
+        self.assertTrue(controls._changed, "the gateway has the pause to pick up")
+        self.platform.calls.clear()
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [], "paused already")
+        self.env(SEED_PROTECTIONS="off")
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [("POST", f"{V2}/apis/studio-1/subscriptions/sub-1/_resume")])
+        self.assertEqual(self.world.subscriptions[0]["status"], "ACCEPTED")
+
+    def test_a_subscription_the_seed_did_not_make_is_left_as_it_is_by_its_control(self):
+        self.made()
+        common.save_created([x for x in common.created() if x["kind"] != "subscription"])
+        self.controlled()
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [])
+        self.assertIn("[aim-agents] ! Subscription Desk copilot → Customer desk (Agents) is not one the seed made: "
+                      "control kill leaves it as it is", self.output())
+
     def test_a_revoked_agent_whose_application_is_not_the_seeds_is_not_restored(self):
         self.world.applications["agent-1"] = {"applicationId": "app-by-hand", "name": "Desk copilot"}
         self.world.agents[0]["state"] = "INACTIVE"
@@ -510,7 +545,9 @@ class WhatItNeeds(Agents):
             aim_agents.check()
         message = str(stopped.exception)
         self.assertTrue(message.startswith("The agent 'desk-copilot': this platform has no application for an agent of the "
-                                           "catalog (/catalog/agents/{id}/application)"), message)
+                                           "catalog (/catalog/agents/{id}/application, or its identity)"), message)
+        for words in ("the build 4.13.0-amp-demo-SNAPSHOT", "the build 4.14.0-alpha.1"):
+            self.assertIn(words, message)
         self.assertEqual(self.platform.calls, [])
 
     def test_a_build_said_to_serve_it_that_answers_404_stops_the_seed_saying_which_build_the_keys_need(self):
@@ -521,8 +558,8 @@ class WhatItNeeds(Agents):
             aim_agents.seed()
         message = str(stopped.exception)
         self.assertTrue(message.startswith("The agent 'Desk copilot': this platform has no application for an agent of the "
-                                           "catalog (/catalog/agents/{id}/application)"), message)
-        for words in ("identity and access", "the build 4.13.0-amp-demo-SNAPSHOT", "client_id"):
+                                           "catalog (/catalog/agents/{id}/application, or its identity)"), message)
+        for words in ("identity and access", "the build 4.13.0-amp-demo-SNAPSHOT", "the build 4.14.0-alpha.1", "client_id"):
             self.assertIn(words, message)
         self.assertNotIn("\n", message)
         self.assertEqual(self.records(), [])
@@ -565,6 +602,17 @@ class WhatItNeeds(Agents):
         with self.assertRaisesRegex(common.SeedError, "The MCP studio 'Customer desk' is not there"):
             aim_agents.seed()
 
+    def test_an_mcp_proxy_is_named_as_one_and_subscribed_as_a_studio_is(self):
+        self.world.studios[0]["mode"] = "PROXY"
+        self.seed_files({"aim/agents/desk-copilot.yaml": AGENT.replace("{studio: Customer desk", "{mcpProxy: Customer desk")})
+        aim_agents.seed()
+        self.assertEqual(self.changed()[-1], ("POST", SUBSCRIPTIONS))
+        self.assertIn("[aim-agents]   ✓ Subscribed: Desk copilot → Customer desk (Agents)", self.output())
+
+    def test_a_studio_of_that_name_is_not_an_mcp_proxy(self):
+        self.seed_files({"aim/agents/desk-copilot.yaml": AGENT.replace("{studio: Customer desk", "{mcpProxy: Customer desk")})
+        self.fails("The MCP proxy 'Customer desk' is not there: aim/mcp-proxies makes it before the agent subscribes")
+
     def test_two_studios_of_that_name_are_not_chosen_between(self):
         self.world.studios.append({**self.world.studios[0], "id": "studio-2"})
         self.fails("2 MCP studios are named 'Customer desk': the agent cannot tell which one to "
@@ -575,13 +623,15 @@ class WhatItNeeds(Agents):
         self.fails("The MCP studio 'Customer desk' has no published plan 'Agents'")
 
     def test_an_agent_file_is_checked_before_any_call(self):
-        access = "desk-copilot.yaml: access is a list of {studio, plan} or {api, plan, apiKey}"
+        access = "desk-copilot.yaml: access is a list of {studio, plan}, {mcpProxy, plan} or {api, plan, apiKey}"
         for text, problem in ((AGENT.replace("entityId: desk-copilot\n", ""), "desk-copilot.yaml: entityId missing"),
                               (AGENT.replace("clientId: desk-copilot", "clientIds: x"),
                                "desk-copilot.yaml: identity needs a clientId"),
                               (AGENT.replace("- {studio: Customer desk, plan: Agents}", "- Customer desk"), access),
                               (AGENT.replace(", plan: Agents", ""), access),
                               (AGENT.replace("{studio: Customer desk,", "{studio: Customer desk, api: Orchid models,"), access),
+                              (AGENT.replace("{studio: Customer desk,", "{studio: Customer desk, mcpProxy: Helpdesk,"), access),
+                              (AGENT.replace("{studio: Customer desk,", "{mcpProxy: Customer desk, apiKey: k,"), access),
                               (AGENT.replace("plan: Agents}", "plan: Agents, apiKey: k}"), access)):
             with self.subTest(problem=problem):
                 self.seed_files({"aim/agents/desk-copilot.yaml": text})
@@ -614,7 +664,7 @@ class AccessToAnApi(Agents):
                 s for s in self.api_subscriptions if s["application"] == call.params["applicationIds"]
                 and s["plan"] == call.params["planIds"] and s["status"] in call.params["statuses"].split(",")]}),
             ("POST", MODELS_SUBSCRIPTIONS): self.subscribe,
-            ("POST", re.compile(MODELS_SUBSCRIPTIONS + "/[^/]+/_close")): self.close,
+            ("POST", re.compile(MODELS_SUBSCRIPTIONS + "/[^/]+/_(close|pause|resume)")): self.settle,
         })
 
     def subscribe(self, call):
@@ -623,9 +673,9 @@ class AccessToAnApi(Agents):
         self.api_subscriptions.append(made)
         return 201, made
 
-    def close(self, call):
+    def settle(self, call):
         found = next(s for s in self.api_subscriptions if s["id"] == call.path.split("/")[-2])
-        found["status"] = "CLOSED"
+        found["status"] = {"_close": "CLOSED", "_pause": "PAUSED", "_resume": "ACCEPTED"}[call.path.rsplit("/", 1)[1]]
         return 200, found
 
     def test_the_application_of_the_agent_is_subscribed_to_the_published_plan_with_the_key_of_the_file(self):
@@ -644,6 +694,13 @@ class AccessToAnApi(Agents):
         self.api_subscriptions[0]["status"] = "CLOSED"
         aim_agents.seed()
         self.assertEqual([s["status"] for s in self.api_subscriptions], ["CLOSED", "ACCEPTED"])
+
+    def test_a_control_pauses_the_access_to_the_api_through_api_management_by_the_id_of_the_api(self):
+        self.seed_files({"controls.yaml": KILL.replace("api: Customer desk", "api: Orchid models")})
+        aim_agents.seed()
+        self.assertIn(("POST", MODELS_SUBSCRIPTIONS + "/llm-sub-1/_pause"), self.changed())
+        self.assertEqual(self.api_subscriptions[0]["status"], "PAUSED")
+        self.assertEqual(self.world.subscriptions[0]["status"], "ACCEPTED", "the control names the API's alone")
 
     def test_an_api_that_the_seed_did_not_make_stops_it(self):
         common.save_created([x for x in common.created() if x["product"] != "apim"])
@@ -758,3 +815,133 @@ class Removal(Agents):
             self.assertEqual(self.main("--remove"), 0, self.output())
         self.assertEqual(self.world.deleted_applications, [APPLICATION_ID])
         self.assertEqual(common.created(), [])
+
+
+class LinkedIdentity(Agents):
+    """A platform where an agent gets its application with its identity (agent-application: identity): the seed links the AM
+    application of its client id, which makes the application; Re-seed resumes what the kill switch (Pause) paused; a
+    removal deletes the identity, which archives the application, and leaves the AM application to seed/am."""
+
+    PATH = AGENTS + "/agent-1/identity"
+
+    def setUp(self):
+        super().setUp()
+        self.version("4.14.0-alpha.1", versions.APIM)
+        self.identities = {}   # agent id -> its identity, as the platform answers it
+        self.platform.add({
+            ("GET", re.compile(AGENTS + "/[^/]+/identity")): self.read_identity,
+            ("POST", re.compile(AGENTS + "/[^/]+/identity/access-management/_link")): self.link,
+            ("DELETE", re.compile(AGENTS + "/[^/]+/identity")): self.unlink,
+            ("POST", re.compile(V2 + "/apis/[^/]+/subscriptions/[^/]+/_resume")):
+                lambda call: self.world.settle(call, "ACCEPTED"),
+        })
+
+    def read_identity(self, call):
+        found = self.identities.get(agent_of(call))
+        return (200, found) if found else 204
+
+    def link(self, call):
+        agent = agent_of(call)
+        if agent in self.identities:
+            return 409, {"code": "agent.identity.exists", "message": "The agent already has an identity"}
+        client = self.world.am_applications[call.json["identityId"]]["settings"]["oauth"]["clientId"]
+        self.identities[agent] = {"source": "ACCESS_MANAGEMENT", "accessManagementClient": "LINKED", "clientId": client,
+                                  "application": {"id": APPLICATIONS[agent], "name": "Desk copilot"}}
+        return 200, self.identities[agent]
+
+    def unlink(self, call):
+        gone = self.identities.pop(agent_of(call), None)
+        if gone:   # its application is archived, which closes its subscriptions
+            for subscription in self.world.subscriptions:
+                if subscription["applicationId"] == gone["application"]["id"]:
+                    subscription["status"] = "CLOSED"
+        return 204 if gone else 404
+
+    def test_it_links_the_identity_which_makes_the_application_then_subscribes_it(self):
+        aim_agents.check()
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [("POST", self.PATH + "/access-management/_link"), ("POST", SUBSCRIPTIONS)])
+        self.assertEqual(self.platform.sent("POST", self.PATH + "/access-management/_link")[0].json,
+                         {"identityId": AM_APPLICATION_ID})
+        self.assertEqual(self.world.subscriptions[0]["applicationId"], APPLICATION_ID)
+        self.assertIn("[aim-agents] ✓ Identity linked: Desk copilot signs in as desk-copilot", self.output())
+        self.assertEqual(self.platform.sent("POST", APPLICATION), [])
+
+    def test_a_second_run_writes_nothing(self):
+        self.made()
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [])
+
+    def test_a_subscription_the_kill_switch_paused_is_resumed(self):
+        self.made()
+        self.world.subscriptions[0]["status"] = "PAUSED"
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [("POST", f"{V2}/apis/studio-1/subscriptions/sub-1/_resume")])
+        self.assertEqual(self.world.subscriptions[0]["status"], "ACCEPTED")
+        self.assertIn("[aim-agents]   ✓ Subscription resumed: Desk copilot → Customer desk (Agents)", self.output())
+        self.assertTrue(controls._changed, "the gateway has the resume to pick up")
+
+    def test_a_paused_subscription_the_seed_did_not_make_is_left_as_it_is(self):
+        self.made()
+        common.save_created([x for x in common.created() if x["kind"] != "subscription"])
+        self.world.subscriptions[0]["status"] = "PAUSED"
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [])
+        self.assertIn("[aim-agents] ! Subscription Desk copilot → Customer desk (Agents) is not one the seed made: it is "
+                      "left as it is", self.output())
+
+    def test_a_link_whose_answer_was_lost_is_adopted_as_linked_and_its_removal_deletes_the_identity(self):
+        def made(call):
+            self.link(call)
+            raise requests.ReadTimeout("slow")
+        self.platform.add({("POST", re.compile(AGENTS + "/[^/]+/identity/access-management/_link")): made})
+        with self.assertRaises(common.SeedError):
+            aim_agents.seed()
+        aim_agents.seed()
+        [application] = self.records("agent-application")
+        self.assertEqual((application["id"], application.get("linked")), (APPLICATION_ID, True))
+        self.platform.calls.clear()
+        aim_agents.remove(common.created())
+        self.assertEqual(self.changed(), [("POST", SUBSCRIPTIONS + "/sub-1/_close"), ("DELETE", self.PATH)])
+        self.assertEqual(self.world.deleted_applications, [])
+
+    def test_a_control_pauses_the_agents_subscription_while_on_and_resumes_it_while_off(self):
+        self.platform.add({("POST", re.compile(V2 + "/apis/[^/]+/subscriptions/[^/]+/_pause")):
+                           lambda call: self.world.settle(call, "PAUSED")})
+        self.seed_files({"controls.yaml": "kill: {subscription: [{application: Desk copilot, api: Customer desk, plan: Agents}]}\n"})
+        aim_agents.seed()
+        self.assertEqual(self.world.subscriptions[0]["status"], "PAUSED", "the default mode is on")
+        self.assertIn("[aim-agents]   ✓ Controls of Desk copilot → Customer desk (Agents) put back, on: kill (subscription paused)",
+                      self.output())
+        self.platform.calls.clear()
+        aim_agents.seed()
+        self.assertEqual(self.changed(), [], "paused already")
+        self.env(SEED_PROTECTIONS="off")
+        aim_agents.seed()
+        self.assertEqual(self.world.subscriptions[0]["status"], "ACCEPTED")
+
+    def test_an_identity_of_another_client_id_stops_it(self):
+        self.identities["agent-1"] = {"clientId": "someone-else", "application": {"id": "app-x", "name": "x"}}
+        self.fails("The agent 'Desk copilot' has another identity than the client id 'desk-copilot': delete it in Agent "
+                   "Identity, the seed leaves it alone")
+
+    def test_an_identity_the_seed_did_not_give_stops_it(self):
+        self.identities["agent-1"] = {"clientId": "desk-copilot", "application": {"id": "app-x", "name": "x"}}
+        self.fails("The agent 'Desk copilot' has an identity this playground did not give it: delete it in Agent Identity, "
+                   "the seed leaves it alone")
+
+    def test_access_without_an_identity_stops_the_seed_before_any_call(self):
+        self.seed_files({"aim/agents/desk-copilot.yaml": AGENT.replace("identity:\n  clientId: desk-copilot\n", "")})
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_agents.check()
+        self.assertIn("an agent gets its application with its identity", str(stopped.exception))
+        self.assertEqual(self.platform.calls, [])
+
+    def test_a_removal_closes_the_subscription_then_deletes_the_identity_and_leaves_the_am_application(self):
+        self.made()
+        am_agent = {"label": "AM agents", "product": "am", "kind": "agent", "name": "Desk copilot", "id": AM_APPLICATION_ID}
+        aim_agents.remove(common.created() + [am_agent])
+        self.assertEqual(self.changed(), [("POST", SUBSCRIPTIONS + "/sub-1/_close"), ("DELETE", self.PATH)])
+        self.assertEqual(self.identities, {})
+        self.assertIn(AM_APPLICATION_ID, self.world.am_applications)
+        self.assertEqual([x for x in common.created() if x["product"] == aim_agents.SECTION], [])

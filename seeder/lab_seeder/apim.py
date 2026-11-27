@@ -103,6 +103,43 @@ CACHED = "resp_llmproxy"   # the id of an answer that comes from the semantic ca
 CACHE_TRIES = 3   # an answer may take a moment to be stored
 
 
+def users_named(api, source_id, path="/users"):
+    """The users of the organization with this id in their source, from every page of the search. An archived one (a
+    user that was deleted) is none."""
+    page = 1
+    while True:
+        body = api.get(path, params={"q": source_id, "page": page, "size": 100}).json()
+        for user in body.get("data", []):
+            if user.get("sourceId") == source_id and user.get("status") != "ARCHIVED":
+                yield user
+        if page >= body.get("page", {}).get("total_pages", 1):
+            return
+        page += 1
+
+
+def user_of(value):
+    """(name, source) of the user a seed file names, `{user: NAME}`, with its `source` where two have that name; None when
+    the value names no user. user_id takes what it gives."""
+    if isinstance(value, dict) and set(value) in ({"user"}, {"user", "source"}) and \
+            all(isinstance(v, str) and v for v in value.values()):
+        return value["user"], value.get("source")
+    return None
+
+
+def user_id(api, name, source=None):
+    """The id of the user of API Management a seed file names (`{user: NAME}`, with its `source` where two have that
+    name). `api` is the organization's Management API."""
+    found = [user for user in users_named(api, name) if source in (None, user.get("source"))]
+    if not found:
+        raise SeedError(f"The user '{name}' is not known to API Management: it signs in once first, or "
+                        "seed/apim/users.yaml makes it")
+    if len(found) > 1:
+        sources = ", ".join(sorted(user["source"] for user in found))
+        raise SeedError(f"The user '{name}' is in more than one source ({sources}): write it "
+                        f"{{user: {name}, source: ...}}")
+    return found[0]["id"]
+
+
 def merge(base, extra):
     """extra written over base, nested objects merged rather than replaced."""
     for key, value in extra.items():
@@ -295,16 +332,9 @@ class ApiManagement:
         log(SECTION, f"✓ The seed's login is an administrator of {self.env}")
 
     def find_user(self, source, source_id):
-        """The user of the platform with this source and id, None for none. An archived one (a user that was deleted) is none."""
-        page = 1
-        while True:
-            body = self.api.get(f"{self.org_v1}/users", params={"q": source_id, "page": page, "size": 100}).json()
-            for user in body.get("data", []):
-                if (user.get("source"), user.get("sourceId")) == (source, source_id) and user.get("status") != "ARCHIVED":
-                    return user
-            if page >= body.get("page", {}).get("total_pages", 1):
-                return None
-            page += 1
+        """The user of the platform with this source and id, None for none."""
+        found = users_named(self.api, source_id, f"{self.org_v1}/users")
+        return next((user for user in found if user.get("source") == source), None)
 
     def appears(self, source, source_id):
         """The user the platform has just made from a group, which its search may list a moment later; None when it never does."""

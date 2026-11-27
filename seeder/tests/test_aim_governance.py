@@ -211,12 +211,21 @@ class WhatItNeeds(Governance):
         self.version("4.13.5", versions.APIM)
         with self.assertRaises(common.SeedError) as stopped:
             aim_governance.check()
-        for words in ("seed/aim/governance/", "the build 4.13.0-amp-demo-SNAPSHOT"):
+        for words in ("seed/aim/governance/", "the build 4.13.0-amp-demo-SNAPSHOT serves them",
+                      "the build 4.14.0-alpha.1 the approval rules alone"):
             self.assertIn(words, str(stopped.exception))
         self.assertEqual(self.platform.calls, [])
 
     def test_the_build_that_serves_them_passes(self):
         aim_governance.check()
+
+    def test_the_keys_of_a_rule_of_the_rules_alone_stop_the_seed_before_any_call(self):
+        self.file(approvals=APPROVALS + "    approvers: [{user: admin}]\n    timeToDecideSeconds: 60\n")
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_governance.check()
+        self.assertEqual(str(stopped.exception), "approvals.yaml: the rule 'Refunds above EUR 100': timeToDecideSeconds, "
+                                                 "approvers: this platform's rules have ttlSeconds, onExpiry, cost instead")
+        self.assertEqual(self.platform.calls, [])
 
     def test_a_folder_without_its_files_passes_on_a_release(self):
         self.version("4.13.5", versions.APIM)
@@ -326,11 +335,13 @@ class Rules(Governance):
     def test_a_rule_that_differs_is_replaced_in_place_with_the_whole_file(self):
         self.made()
         self.world.rules[self.rule()["id"]]["argumentConditions"][0]["value"] = "500"
+        self.world.rules[self.rule()["id"]].update(version=3, ruleAccess=[{"type": "USER", "id": "user-admin"}])
         rule_id = self.rule()["id"]
         aim_governance.seed()
         self.assertEqual(self.changed(), [("PUT", f"{RULES}/{rule_id}")])
-        self.assertEqual(self.platform.sent("PUT", f"{RULES}/{rule_id}")[0].json["argumentConditions"],
-                         [{"path": "amount", "operator": "GT", "value": "100"}])
+        sent = self.platform.sent("PUT", f"{RULES}/{rule_id}")[0].json
+        self.assertEqual(sent["argumentConditions"], [{"path": "amount", "operator": "GT", "value": "100"}])
+        self.assertEqual({"version", "ruleAccess"} & set(sent), set())   # the served variant's replace is the file alone
         self.assertEqual(list(self.world.rules), [rule_id])
         self.assertEqual(self.rule()["argumentConditions"][0]["value"], "100")
         self.assertIn("[aim-governance] ✓ Approval rule updated: Refunds above EUR 100", self.output())
@@ -380,6 +391,19 @@ class Rules(Governance):
         self.platform.calls.clear()
         aim_governance.seed()
         self.assertEqual(self.changed(), [])
+
+    def test_a_control_enables_the_rule_while_on_and_disables_it_while_off(self):
+        self.file(approvals=APPROVALS + "    enabled: false\n")
+        self.seed_files({"controls.yaml": "approval: {approval-rule: Refunds above EUR 100}\n"})
+        aim_governance.seed()
+        self.assertTrue(self.rule()["enabled"], "the default mode is on, whatever the file says")
+        self.assertIn("Controls of Refunds above EUR 100 are on: approval", self.output())
+        self.platform.calls.clear()
+        aim_governance.seed()
+        self.assertEqual(self.changed(), [], "enabled already")
+        self.env(SEED_PROTECTIONS="off")
+        aim_governance.seed()
+        self.assertFalse(self.rule()["enabled"])
 
     def test_a_rule_of_that_name_that_the_seed_did_not_make_stops_it(self):
         self.world.rules["rule-by-hand"] = self.world.rule({"name": "Refunds above EUR 100", "toolPattern": "x"}, "rule-by-hand")
@@ -525,8 +549,15 @@ class Answers(Governance):
 
     def test_a_user_that_is_not_known_stops_it(self):
         self.world.users.clear()
-        self.fails("The user 'admin' is not known to API Management: it signs in once first")
+        self.fails("The user 'admin' is not known to API Management: it signs in once first, or seed/apim/users.yaml makes it")
         self.assertEqual(self.platform.sent("PUT", AGENT + "/metadata"), [])
+
+    def test_a_user_is_read_from_every_page_and_an_archived_one_is_none(self):
+        archived = {**ADMIN, "id": "user-archived", "status": "ARCHIVED"}
+        self.platform.add({("GET", USERS): lambda call: (200, {"data": [archived] if call.params["page"] == 1 else [ADMIN],
+                                                               "page": {"total_pages": 2}})})
+        aim_governance.seed()
+        self.assertEqual(self.world.answers["agent-1"]["compliance.accountableHuman"], ADMIN["id"])
 
     def test_a_user_in_two_sources_must_be_named_with_its_source(self):
         self.world.users.append({"id": "user-gravitee", "source": "gravitee", "sourceId": "admin"})
@@ -644,7 +675,7 @@ class Files(Governance):
     def test_a_folder_with_only_the_compliance_asks_nothing_of_the_rules(self):
         (common.SEED_DIR / "aim" / "governance" / "approvals.yaml").unlink()
         aim_governance.seed()
-        self.assertEqual(self.platform.sent("GET", RULES), [])
+        self.assertEqual([c.params for c in self.platform.sent("GET", RULES)], [{}], "the wait for Gamma, no rule listed")
         self.assertEqual(self.platform.sent("PUT", SETTINGS_PATH), [])
         self.assertEqual(self.world.attested["agent-1"], {"authenticated-identity", "tool-inventory"})
 
@@ -675,3 +706,125 @@ class Files(Governance):
         aim_governance.seed()
         aim_governance.remove(common.created())
         self.assertNotRegex(self.output().lower(), r"password|secret|token|bearer")
+
+
+RULES_ALONE = """\
+rules:
+  - name: Refunds above EUR 100
+    description: A refund above EUR 100 waits for a person
+    tool: create_refund
+    when:
+      - {path: amount, operator: GT, value: "100"}
+    approvers:
+      - {user: admin}
+    timeToDecideSeconds: 60
+    enabled: false
+"""
+
+
+class RulesAlone(Governance):
+    """A platform that serves the approval rules alone (governance: rules): a rule names its approvers and the time they have,
+    a replace carries the version it is based on and who manages the rule, and there are no settings and no compliance."""
+
+    def setUp(self):
+        super().setUp()
+        (common.SEED_DIR / "aim" / "governance" / "compliance.yaml").unlink()
+        self.file(approvals=RULES_ALONE)
+        self.version("4.14.0-alpha.1", versions.APIM)
+        self.world.rule = self.rule_of_4_14
+        self.platform.add({("PUT", re.compile(RULES + "/[^/]+")): self.replace_versioned,
+                           ("GET", SETTINGS_PATH): lambda call: (404, {"message": "HTTP 404 Not Found", "http_status": 404})})
+
+    def rule_of_4_14(self, body, id):
+        """As 4.14 keeps a rule: its approvers named, the creator managing it, a version that grows at each replace."""
+        before = self.world.rules.get(id, {})
+        approvers = [{**a, "displayName": "Admin"} for a in body["approvers"]]
+        return {"id": id, "toolIds": [], "tools": [], "argumentConditions": [], "notifications": {"mode": "NONE"},
+                "ruleAccess": body.get("ruleAccess") or [{"type": "USER", "id": "user-admin", "displayName": "Admin"}],
+                "canManage": True, "published": body["enabled"], "createdAt": "2026-11-25T00:00:00Z",
+                "updatedAt": "2026-11-25T00:00:00Z", **body, "approvers": approvers, "version": before.get("version", 0) + 1}
+
+    def replace_versioned(self, call):
+        found = self.world.rules.get(call.path.rsplit("/", 1)[1])
+        if found and call.json.get("version") != found["version"]:
+            return 409, {"message": "The rule changed since", "http_status": 409}
+        if not call.json.get("ruleAccess"):
+            return 400, {"message": "ruleAccess must name at least one user or group", "http_status": 400}
+        return self.world.replace_rule(call)
+
+    def test_a_rule_is_created_with_its_approvers_by_id_and_the_time_they_have(self):
+        aim_governance.check()
+        aim_governance.seed()
+        [sent] = [call.json for call in self.platform.sent("POST", RULES)]
+        self.assertEqual(sent, {"name": "Refunds above EUR 100", "toolPattern": "create_refund", "enabled": False,
+                                "argumentConditions": [{"path": "amount", "operator": "GT", "value": "100"}],
+                                "description": "A refund above EUR 100 waits for a person", "timeToDecideSeconds": 60,
+                                "approvers": [{"type": "USER", "id": "user-admin"}], "priority": 0})
+        self.assertEqual(self.platform.sent("GET", SETTINGS_PATH), [])
+
+    def test_a_second_run_writes_nothing(self):
+        self.made()
+        aim_governance.seed()
+        self.assertEqual(self.changed(), [])
+
+    def test_a_rule_that_differs_is_replaced_on_the_version_and_with_the_managers_the_platform_holds(self):
+        self.made()
+        self.rule()["timeToDecideSeconds"] = 300
+        aim_governance.seed()
+        [sent] = [call.json for call in self.platform.sent("PUT", re.compile(RULES + "/[^/]+"))]
+        self.assertEqual((sent["timeToDecideSeconds"], sent["version"]), (60, 1))
+        self.assertEqual(sent["ruleAccess"], [{"type": "USER", "id": "user-admin", "displayName": "Admin"}])
+        self.assertEqual(self.rule()["version"], 2)
+
+    def test_a_group_approves_by_its_id_in_the_environment(self):
+        groups = "/management/organizations/DEFAULT/environments/DEFAULT/configuration/groups"
+        self.platform.add({("GET", groups): lambda call: (200, [{"id": "group-other", "name": "Other"},
+                                                                {"id": "group-managers", "name": "Support managers"}])})
+        self.file(approvals=RULES_ALONE.replace("{user: admin}", "{group: Support managers}"))
+        aim_governance.seed()
+        self.assertEqual(self.platform.sent("POST", RULES)[0].json["approvers"], [{"type": "GROUP", "id": "group-managers"}])
+
+    def test_a_group_the_environment_does_not_have_or_has_twice_stops_the_seed(self):
+        groups = "/management/organizations/DEFAULT/environments/DEFAULT/configuration/groups"
+        self.file(approvals=RULES_ALONE.replace("{user: admin}", "{group: Support managers}"))
+        for held, problem in (([], "The group 'Support managers' is not in the environment of API Management: "
+                                   "seed/apim/groups makes it"),
+                              ([{"id": "g-1", "name": "Support managers"}, {"id": "g-2", "name": "Support managers"}],
+                               "2 groups of the environment are named 'Support managers': the rule cannot tell which one "
+                               "decides")):
+            with self.subTest(problem=problem):
+                self.platform.add({("GET", groups): lambda call, held=held: (200, held)})
+                self.fails(problem)
+
+    def test_a_user_who_approves_may_be_named_with_its_source(self):
+        self.world.users.append({"id": "user-gravitee", "source": "gravitee", "sourceId": "admin"})
+        self.file(approvals=RULES_ALONE.replace("{user: admin}", "{user: admin, source: gravitee}"))
+        aim_governance.seed()
+        self.assertEqual(self.platform.sent("POST", RULES)[0].json["approvers"], [{"type": "USER", "id": "user-gravitee"}])
+
+    def test_compliance_stops_the_seed_before_any_call_saying_where_it_is_served(self):
+        self.file(compliance=COMPLIANCE)
+        with self.assertRaises(common.SeedError) as stopped:
+            aim_governance.check()
+        self.assertIn("compliance.yaml: this platform serves the approval rules alone", str(stopped.exception))
+        self.assertEqual(self.platform.calls, [])
+
+    def test_settings_and_the_keys_of_the_other_shape_stop_the_seed_before_any_call(self):
+        for text, words in ((APPROVALS, "approvals.yaml: settings: this platform has none"),
+                            (APPROVALS.split("rules:")[1].join(["rules:", ""]),
+                             "the rule 'Refunds above EUR 100': ttlSeconds, onExpiry: this platform's rules have"),
+                            (RULES_ALONE.replace("    approvers:\n      - {user: admin}\n", ""), "approvers is a list of {user: NAME}"),
+                            (RULES_ALONE.replace("60", "10"), "timeToDecideSeconds is a number of seconds, 30 or more")):
+            with self.subTest(words=words):
+                self.file(approvals=text)
+                with self.assertRaises(common.SeedError) as stopped:
+                    aim_governance.check()
+                self.assertIn(words, str(stopped.exception))
+        self.assertEqual(self.platform.calls, [])
+
+    def test_a_removal_reads_no_version_and_deletes_the_rule(self):
+        self.made()
+        versions._found.clear()   # as seed.py --remove runs it: no version read
+        aim_governance.remove(common.created())
+        self.assertEqual(self.world.rules, {})
+        self.assertEqual(self.records(), [])

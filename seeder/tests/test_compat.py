@@ -34,7 +34,9 @@ class Expected(unittest.TestCase):
         self.assertEqual(compat.expected(versions.APIM, AMP_DEMO, "governance"), {"served"})
         self.assertEqual(compat.expected(versions.APIM, AMP_DEMO, "mcp-protocol-versions"), {"single"})
         self.assertEqual(compat.expected(versions.APIM, "4.14.0-alpha.1", "studio-human-approval"), {"switch"})
-        self.assertEqual(compat.expected(versions.APIM, "4.14.0-alpha.1", "governance"), {"absent"})
+        self.assertEqual(compat.expected(versions.APIM, "4.14.0-alpha.1", "governance"), {"rules"})
+        self.assertEqual(compat.expected(versions.APIM, "4.14.0-alpha.1", "agent-registration"), {"card"})
+        self.assertEqual(compat.expected(versions.APIM, "4.14.0-alpha.1", "agent-application"), {"identity"})
 
     def test_a_version_the_tables_do_not_seed_is_the_finding(self):
         [said] = compat.expected(versions.APIM, "4.15.0-SNAPSHOT", "governance")
@@ -63,13 +65,25 @@ class Platform:
 
 
 class Probes(unittest.TestCase):
-    def test_governance_is_absent_where_only_some_of_its_routes_are_served(self):
+    def test_governance_is_rules_where_the_approval_rules_alone_are_served_and_absent_where_another_part_is(self):
         rules = {path for _, path, name in compat.routes_of(compat.BEHAVIOR_ROUTES["governance"]) if "approval-rules" in name}
-        for served, wanted in ((lambda path: True, "served"), (lambda path: False, "absent"), (lambda path: path in rules, "absent")):
+        for served, wanted in ((lambda path: True, "served"), (lambda path: False, "absent"), (lambda path: path in rules, "rules"),
+                               (lambda path: "compliance" in path, "absent")):
             with self.subTest(wanted=wanted):
                 api = Platform(served)
                 self.assertEqual(compat.governance(api).measured, wanted)
-        self.assertIn("without GET aim /approval-settings", compat.governance(api).notes)
+        self.assertIn("GET aim /approval-rules", compat.governance(api).notes)
+
+    def test_an_agent_s_application_is_identity_where_it_comes_with_the_agent_s_identity(self):
+        for served, wanted in ((lambda path: True, "served"), (lambda path: False, "absent"),
+                               (lambda path: "/identity" in path and "/application" not in path, "identity")):
+            with self.subTest(wanted=wanted):
+                self.assertEqual(compat.agent_application(Platform(served)).measured, wanted)
+
+    def test_an_agent_is_registered_from_its_card_where_the_platform_reads_cards(self):
+        for served, wanted in ((lambda path: True, "card"), (lambda path: False, "fields")):
+            with self.subTest(wanted=wanted):
+                self.assertEqual(compat.agent_registration(Platform(served)).measured, wanted)
 
     def test_human_approval_on_a_studio_is_measured_by_where_its_step_goes(self):
         for flows, wanted in ((["Human approval"], "served"), ([], "switch")):
@@ -97,7 +111,7 @@ class Coverage(unittest.TestCase):
 
 class Routes(unittest.TestCase):
     def test_each_route_names_a_method_a_base_and_a_path(self):
-        for text in (compat.ROUTES, *compat.BEHAVIOR_ROUTES.values()):
+        for text in (compat.ROUTES, *compat.BEHAVIOR_ROUTES.values(), compat.AGENT_IDENTITY):
             for method, path, name in compat.routes_of(text):
                 self.assertIn(method, ("GET", "POST", "PUT", "DELETE"), name)
                 self.assertNotIn("/X", path.replace(compat.UNKNOWN, ""), name)

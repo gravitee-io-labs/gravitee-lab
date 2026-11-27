@@ -8,13 +8,26 @@
     mcp-servers/*.yaml    an MCP server, discovered from here and imported
     knowledge/*.yaml      an inline document
     skills/<name>/        a skill: SKILL.md and the files next to it, zipped here
-    agents/*.yaml         an A2A agent, registered from its card, with the `metadata` the file gives it
+    agents/*.yaml         an agent: an A2A agent registered from its card (`url`), or one entered by hand (`definition`)
     api-tools/*.yaml      the tools of an API of API Management that publishes an OpenAPI page
     workflow-tools/*.yaml a workflow tool: an Arazzo document over APIs of API Management, published as one MCP tool
 
 An agent file may carry `metadata`, stored with the card: `riskClassification` (negligible, limited, moderate or
-high) and any key the catalog keeps about an agent. The keys `identity` and `access` are read by aim_agents and ignored
-here.
+high) and any key the catalog keeps about an agent. Where the platform reads the card itself (versions.RELEASES,
+agent-registration: card), it may name its `sponsor`, the user of API Management accountable for the agent apart from
+its owner (the user the seed signs in as): `{user: NAME}`, with its `source` where two sources have that name.
+It signs in once first, or seed/apim/users.yaml makes it. The keys `identity` and `access` are read by aim_agents and
+ignored here.
+
+An agent that serves no card is an entry made by hand, as Add agent > Custom makes it (origin CUSTOM), from its
+`definition`: a `name`, a `description`, and any other key of an agent's definition (instructions, models, tools). The
+platform keeps such entries where it reads cards itself (versions.RELEASES, agent-registration: card):
+
+    entityId: triage-agent
+    source: Support
+    definition: {name: Triage agent, description: Sets the priority and the team of new helpdesk tickets}
+    sponsor: {user: carol}
+    metadata: {riskClassification: limited}
 
 An api-tools file names the API, and the operations of its OpenAPI page that become tools. Without `operations` every
 operation does, as the page gives it. With them only those do, in the order of the file; an operation the page does not
@@ -104,6 +117,7 @@ the playground's settings): its record keeps the fingerprint of the secret, neve
 """
 
 import io
+import json
 import os
 import re
 import zipfile
@@ -113,7 +127,8 @@ import yaml
 from . import aim_proxies
 from . import common
 from . import controls
-from .apim import ENDED, SECTION as APIM, digest_of
+from . import versions
+from .apim import ENDED, SECTION as APIM, digest_of, user_id, user_of
 from .common import Api, HttpError, SeedError, contains, excerpt, files, has_seed, load, log, owned, parallel, record, wait_until
 from .gamma import CATALOG, Gamma
 
@@ -130,7 +145,7 @@ GAMMA = ("aim",)
 ORDER = ["llm-proxy", "workflow-tool", "workflow-credential", "api-tools", "agent", "skill", "knowledge", "mcp-server",
          "model-source", "model", "provider", "credential"]
 # What the Lab UI calls each kind when it asks whether to delete them: plural, ending in an s
-LABELS = {"llm-proxy": "LLM proxies", "workflow-tool": "workflow tools", "workflow-credential": "workflow credentials", "api-tools": "API tools", "agent": "A2A agents", "skill": "skills", "knowledge": "knowledge documents",
+LABELS = {"llm-proxy": "LLM proxies", "workflow-tool": "workflow tools", "workflow-credential": "workflow credentials", "api-tools": "API tools", "agent": "agents", "skill": "skills", "knowledge": "knowledge documents",
           "mcp-server": "MCP servers", "model-source": "model sources", "model": "AI models", "provider": "AI providers",
           "credential": "credentials"}
 PATHS = {"llm-proxy": "/deployable", "workflow-tool": "/workflow-tools", "workflow-credential": "/auth-profiles", "api-tools": "/catalog/sources", "agent": "/catalog/agents", "skill": "/catalog/skills",
@@ -389,16 +404,52 @@ def agent_metadata(spec):
     return metadata
 
 
-def seed_agents(aim):
+def seed_agents(aim, users):
     """The platform reads a card itself only from a public address, so the seed reads it and registers what it says. The
     file's `metadata` is stored with the card. `identity` and `access` are for aim_agents, which gives the agent what it
-    needs to sign in and to call a server once the catalog holds it."""
-    asked = list(specs("agents", "entityId", "source", "url"))
+    needs to sign in and to call a server once the catalog holds it. `users`: the organization's Management API, where a
+    sponsor is looked up."""
+    asked = [agent_spec(spec) for spec in specs("agents", "entityId", "source")]
     metadata_of = [agent_metadata(spec) for spec in asked]
-    cards = parallel(lambda spec: catalog_card(fetch_card(spec["url"])), asked)   # the cards are read together
-    for spec, metadata, definition in zip(asked, metadata_of, cards):
-        body = {"definition": definition, **({"metadata": metadata} if metadata else {})}
-        seed_item(aim, "agent", spec, definition["name"], body, manual_source(aim, spec["source"]))
+    # The cards are read together
+    cards = parallel(lambda spec: fetch_card(spec["url"]) if "url" in spec else None, asked)
+    from_card = versions.variant("agent-registration") == "card"
+    for spec, metadata, card in zip(asked, metadata_of, cards):
+        if card is None:   # an entry made by hand, as Add agent > Custom makes it
+            body = registered(spec["definition"], "CUSTOM", metadata)
+        elif from_card:   # as Add agent > From agent card makes it: the agent keeps the card whole, with its endpoints
+            definition = aim.post("/catalog/agents/_parseCard", json={"card": json.dumps(card)}, what="the agent card",
+                                  idempotent=True).json()
+            body = registered(definition, "AGENT_CARD", metadata)
+        else:
+            body = {"definition": catalog_card(card), **({"metadata": metadata} if metadata else {})}
+        if "sponsor" in spec:
+            body["sponsorId"] = user_id(users, *user_of(spec["sponsor"]))
+        seed_item(aim, "agent", spec, body["definition"]["name"], body, manual_source(aim, spec["source"]))
+
+
+def agent_spec(spec):
+    """An agent file: a card to read (`url`) or a definition of its own (`definition`, with a `name`), one or the other,
+    and a `sponsor` that is `{user: NAME}`, with its `source` where two sources have that name."""
+    if ("url" in spec) == ("definition" in spec):
+        raise SeedError(f"The agent '{spec['entityId']}': its file gives the url of its card or its definition, one of "
+                        "them")
+    definition = spec.get("definition")
+    if "definition" in spec and not (isinstance(definition, dict) and isinstance(definition.get("name"), str)
+                                     and definition["name"]):
+        raise SeedError(f"The agent '{spec['entityId']}': its definition is a mapping with a name")
+    if "sponsor" in spec and user_of(spec["sponsor"]) is None:
+        raise SeedError(f"The agent '{spec['entityId']}': its sponsor is {{user: NAME}} or {{user: NAME, source: SOURCE}}")
+    return spec
+
+
+def registered(definition, origin, metadata):
+    """An agent as Add agent makes it, by hand (origin CUSTOM) or from its card (AGENT_CARD): its risk classification is
+    a field of its own, and the rest of the file's `metadata` is stored with it."""
+    rest = {key: value for key, value in metadata.items() if key != "riskClassification"}
+    risk = metadata.get("riskClassification")
+    return {"definition": definition, "origin": origin, **({"riskClassification": risk.upper()} if risk else {}),
+            **({"metadata": rest} if rest else {})}
 
 
 # --- Model sources: where the models an LLM proxy takes from the catalog are served ---------
@@ -1111,6 +1162,12 @@ def check():
     would refuse of them comes after the objects they need were written."""
     if not has_seed(*FOLDERS):
         return
+    agents = [agent_spec(spec) for spec in specs("agents", "entityId", quiet=True)]
+    unkept = [spec["entityId"] for spec in agents if {"sponsor", "definition"} & set(spec)]
+    if unkept and versions.variant("agent-registration") != "card":
+        raise SeedError(f"The agent '{unkept[0]}' names a sponsor or is entered by hand: "
+                        f"{versions.where('agent-registration', 'card')} keeps them, this platform registers an agent "
+                        "from its card")
     sources, skipped = model_sources()
     models = {spec["entityId"]: spec["source"] for spec in specs("models", "entityId", "source", "definition", quiet=True)}
     for spec in specs("llm-proxies", "api", "providers", quiet=True):
@@ -1124,7 +1181,7 @@ def seed():
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
     gamma = connect()
     for step in (seed_credentials, seed_providers, seed_model_sources, seed_models, seed_mcp_servers, seed_knowledge,
-                 seed_skills, seed_agents, seed_api_tools, seed_workflow_tools):
+                 seed_skills, lambda aim: seed_agents(aim, gamma.org_v1), seed_api_tools, seed_workflow_tools):
         step(gamma.aim)
     seed_llm_proxies(gamma)   # an LLM proxy takes models of the catalog, and its API is deployed through API Management
 

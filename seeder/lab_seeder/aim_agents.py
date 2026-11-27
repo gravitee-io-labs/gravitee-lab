@@ -6,6 +6,7 @@ before; a file with neither key is left to it.
       clientId: desk-copilot                       # the AM application the agent signs in with
     access:
       - {studio: Customer desk, plan: Agents}      # a subscription to a plan of an MCP studio (aim/studios)
+      - {mcpProxy: Helpdesk MCP, plan: Agents}     # or of an MCP proxy (aim/mcp-proxies)
       - {api: Orchid models, plan: Agents, apiKey: "${ORCHID_LLM_KEY}"}   # to a plan of an API of seed/apim/apis
 
 Three steps for each agent, each writing only what is missing:
@@ -26,16 +27,25 @@ The seed records the application and the subscriptions it makes, and changes not
 the agent and was not made by it stops the seed, as does an identity of another client id attached to the application.
 The AM application is seed/am's, which makes it.
 
-The keys need a platform that serves an agent's application in the catalog (`/catalog/agents/{id}/application`):
-versions.RELEASES says which do (agent-application). On another the seed stops before any call, with a line that says so, and
-the agent reaches the gateway through an application of seed/apim/applications that carries its client ID.
+On a platform where an agent gets its application with its identity (versions.RELEASES, agent-application: identity),
+steps 1 and 2 are one: the AM application of that client id is linked to the agent (Agent Identity, "Link an existing
+client"), which makes the application, and a removal deletes the identity, which archives the application and leaves the
+AM application to seed/am. There a file that gives `access` gives an `identity` too, or the seed stops before any
+change. The kill switch is the Pause of a subscription, and Re-seed resumes what is paused.
+
+The keys need a platform that serves an agent's application in the catalog (`/catalog/agents/{id}/application`, or its
+identity): versions.RELEASES says which do (agent-application). On another the seed stops before any call, with a line
+that says so, and the agent reaches the gateway through an application of seed/apim/applications that carries its client
+ID.
 
 Re-seed starts the lessons over, and the last of them is the kill switch: an agent whose access was revoked is put back
 in service before its subscriptions are looked at, with the platform's own restore, which resumes what revoking
-paused. A subscription that exists, whatever its status, is otherwise left as it is.
+paused. A subscription that exists, whatever its status, is otherwise left as it is. A subscription that a control of
+seed/controls.yaml names (`subscription: {application: <agent>, api: <studio, proxy or API>, plan: <plan>}`) is paused
+while the control is on and resumed while it is off, on every run: the kill switch a lesson teaches.
 """
 
-from . import am, versions
+from . import am, controls, versions
 from .common import (SeedError, adopted, excerpt, files, forget, has_seed, items, load, log, making, owned, record, recorded, seed_file,
                      unmade)
 from . import apim
@@ -55,12 +65,19 @@ HELD = ("PENDING", "ACCEPTED", "PAUSED")
 # What the seed says on a platform that does not serve an agent's application (versions.RELEASES, agent-application): a
 # release links an agent to the gateway by its client ID instead
 UNSERVED = ("The agent '{name}': this platform has no application for an agent of the catalog "
-            "(/catalog/agents/{{id}}/application), which the keys identity and access of seed/aim/agents need: they work on "
-            "{served}. Here, give the agent an application of seed/apim/applications whose client_id is its client ID in "
-            "Access Management, and subscribe it to the plan of the studio")
+            "(/catalog/agents/{{id}}/application, or its identity), which the keys identity and access of "
+            "seed/aim/agents need: they work on {served}. Here, give the agent an application of "
+            "seed/apim/applications whose client_id is its client ID in Access Management, and subscribe it to the "
+            "plan of the studio")
 # What detaching an identity answers when there is nothing to do or to reach: no identity attached (409), the agent or
 # its application gone (404), Access Management out of reach (502)
 DETACHED = (200, 404, 409, 502)
+
+
+def unserved(name):
+    """UNSERVED for that agent, with every build or release that serves the keys, in either variant."""
+    served = ", ".join(versions.where("agent-application", variant) for variant in ("served", "identity"))
+    return UNSERVED.format(name=name, served=served)
 
 
 # --- What the files ask ---------------------------------------------------------------------
@@ -79,7 +96,8 @@ def wanted():
             raise SeedError(f"{path.name}: identity needs a clientId")
         access = spec.get("access") or []
         if not isinstance(access, list) or not all(_access(a) for a in access):
-            raise SeedError(f"{path.name}: access is a list of {{studio, plan}} or {{api, plan, apiKey}}")
+            raise SeedError(f"{path.name}: access is a list of {{studio, plan}}, {{mcpProxy, plan}} or "
+                            "{api, plan, apiKey}")
         found.append({**spec, "access": access})
     if any("identity" in spec for spec in found) and not seed_file("am", "gamma-link.yaml"):
         raise SeedError("An agent's identity is an application of Access Management: seed/am/gamma-link.yaml names the "
@@ -87,11 +105,16 @@ def wanted():
     return found
 
 
+# What an entry of `access` subscribes to: a studio and an MCP proxy are both MCP proxies of Gamma, by their mode
+TARGETS = {"studio": "STUDIO", "mcpProxy": "PROXY", "api": None}
+
+
 def _access(entry):
-    """Whether an entry of `access` names a plan of a studio, or of an API with an optional key: one or the other."""
-    if not isinstance(entry, dict) or not entry.get("plan") or bool(entry.get("studio")) == bool(entry.get("api")):
+    """Whether an entry of `access` names a plan of a studio, of an MCP proxy, or of an API with an optional key: one of
+    them."""
+    if not isinstance(entry, dict) or not entry.get("plan") or sum(bool(entry.get(key)) for key in TARGETS) != 1:
         return False
-    return not (entry.get("studio") and "apiKey" in entry)
+    return "apiKey" not in entry or bool(entry.get("api"))
 
 
 # --- Access Management ----------------------------------------------------------------------
@@ -134,10 +157,13 @@ class Agents:
     def apply(self, spec):
         agent = self.agent(spec)
         name = agent["definition"]["name"]
-        application = self.application(agent, name)
-        if "identity" in spec:
-            application = self.identity(agent, name, application, spec["identity"]["clientId"])
-        self.restore(agent, name)
+        if versions.variant("agent-application") == "identity":
+            application = self.link(agent, name, spec["identity"]["clientId"])
+        else:
+            application = self.application(agent, name)
+            if "identity" in spec:
+                application = self.identity(agent, name, application, spec["identity"]["clientId"])
+            self.restore(agent, name)
         for access in spec["access"]:
             if "api" in access:
                 self.subscribe_api(name, application, access)
@@ -172,7 +198,7 @@ class Agents:
                     return made
                 unmade(SECTION, "agent-application", name)
             if answer.status_code == 404:   # the agent is in the catalog, so the route is what the platform lacks
-                raise SeedError(UNSERVED.format(name=name, served=versions.where("agent-application", "served")))
+                raise SeedError(unserved(name))
             found = self.read_application(agent["id"])   # one appeared since the first look
             if found is None:
                 raise SeedError(f"The application of the agent '{name}': HTTP 409 {excerpt(answer.text)}")
@@ -185,14 +211,19 @@ class Agents:
 
     # --- Step 2: the identity -------------------------------------------------------------
 
-    def identity(self, agent, name, application, client_id):
-        """Attaches the AM application of that client id. An application that presents it already is left as it is."""
+    def identity_of(self, client_id):
+        """The id of the AM application of that client id, which the agent takes as its identity."""
         if self.identities is None:
             self.identities = Identities()
         identity_id = self.identities.find(client_id)
         if identity_id is None:
             raise SeedError(f"No application of the AM domain '{self.identities.domain}' has the client id "
                             f"'{client_id}': seed/am/applications makes it before the agent takes it as its identity")
+        return identity_id
+
+    def identity(self, agent, name, application, client_id):
+        """Attaches the AM application of that client id. An application that presents it already is left as it is."""
+        identity_id = self.identity_of(client_id)
         presented = application.get("identityId")
         if presented == identity_id:
             log(SECTION, f"  Identity attached: {client_id}")
@@ -206,7 +237,58 @@ class Agents:
         log(SECTION, f"  ✓ Identity attached: {client_id}")
         return {**application, **attached}
 
+    def link(self, agent, name, client_id):
+        """The identity variant: links the AM application of that client id to the agent, which makes its application.
+        An identity that exists is the seed's, or it stops it."""
+        identity_id = self.identity_of(client_id)
+        path = f"/catalog/agents/{agent['id']}/identity"
+        answer = self.aim.get(path, expect=(200, 204))
+        found = answer.json() if answer.status_code == 200 else None
+        if found is None:
+            # The note carries what a removal reads, so that the application of a link whose answer is lost is adopted
+            # as linked
+            with making(SECTION, "agent-application", LABELS["agent-application"], name, missing=True,
+                        agent=agent["id"], linked=True):
+                found = self.aim.post(f"{path}/access-management/_link", json={"identityId": identity_id}).json()
+                note(agent, name, found["application"]["id"], linked=True)
+            log(SECTION, f"✓ Identity linked: {name} signs in as {client_id}")
+        else:
+            application = found["application"]["id"]
+            if found.get("clientId") != client_id:
+                raise SeedError(f"The agent '{name}' has another identity than the client id '{client_id}': delete it "
+                                "in Agent Identity, the seed leaves it alone")
+            if not recorded(SECTION, "agent-application", application) and \
+                    not adopted(SECTION, "agent-application", name, application, agent=agent["id"], linked=True):
+                raise SeedError(f"The agent '{name}' has an identity this playground did not give it: delete it in "
+                                "Agent Identity, the seed leaves it alone")
+            log(SECTION, f"Identity linked: {name} signs in as {client_id}")
+        return {"applicationId": found["application"]["id"], "linked": True}
+
     # --- Step 3: the access ---------------------------------------------------------------
+
+    def paused_as_mode_says(self, api_id, sub, found, label, application):
+        """Pauses the subscription while its controls are on, and resumes it while they are off, with the routes the
+        Console calls, as apim does. On the identity variant, one no control names that someone paused (the kill switch
+        of a lesson) is resumed, as Re-seed starts the lessons over. Only one the seed made is changed."""
+        route = controls.align_subscription(sub.get("status"), found)
+        if not found and application.get("linked") and sub.get("status") == "PAUSED":
+            route = "_resume"
+        state = "on" if controls.protected() else "off"
+        if found and not route:
+            log(SECTION, f"  Controls of {label} are {state}: {controls.named(found)}")
+        if not route:
+            return
+        if not recorded(SECTION, "subscription", sub["id"]):
+            log(SECTION, f"! Subscription {label} is not one the seed made: "
+                         + (f"control {controls.named(found)} leaves it as it is" if found else "it is left as it is"))
+            return
+        self.g.v2.post(f"/apis/{api_id}/subscriptions/{sub['id']}/{route}", what=f"Subscription {label}")
+        controls.touched()
+        if found:
+            log(SECTION, f"  ✓ Controls of {label} put back, {state}: {controls.named(found)} "
+                         f"(subscription {'paused' if route == '_pause' else 'resumed'})")
+        else:
+            log(SECTION, f"  ✓ Subscription resumed: {label}")
 
     def restore(self, agent, name):
         """Puts an agent whose access was revoked back in service. Revoking marks the agent inactive and pauses the
@@ -220,28 +302,33 @@ class Agents:
             raise SeedError(f"The access of the agent '{name}' could not be restored: {excerpt(failed[0], 200)}")
         log(SECTION, f"  ✓ Access restored: {name}")
 
-    def studio(self, name):
-        found = [p for p in self.aim.rows("/mcp-proxies", WORKSPACES) if p.get("mode") == "STUDIO" and p["name"] == name]
+    def mcp(self, access):
+        """The studio or the MCP proxy an entry of `access` names, with what the messages call it."""
+        key = "studio" if access.get("studio") else "mcpProxy"
+        name, what, folder = access[key], "MCP studio" if key == "studio" else "MCP proxy", \
+            "aim/studios" if key == "studio" else "aim/mcp-proxies"
+        found = [p for p in self.aim.rows("/mcp-proxies", WORKSPACES)
+                 if p.get("mode") == TARGETS[key] and p["name"] == name]
         if not found:
-            raise SeedError(f"The MCP studio '{name}' is not there: aim/studios makes it before the agent subscribes")
+            raise SeedError(f"The {what} '{name}' is not there: {folder} makes it before the agent subscribes")
         if len(found) > 1:
-            raise SeedError(f"{len(found)} MCP studios are named '{name}': the agent cannot tell which one to "
-                            "subscribe to")
-        return found[0]
+            raise SeedError(f"{len(found)} {what}s are named '{name}': the agent cannot tell which one to subscribe to")
+        return found[0], what
 
-    def plan(self, studio, name):
-        plans = items(self.aim.get(f"/mcp-proxies/{studio['id']}/plans").json())
+    def plan(self, proxy, what, name):
+        plans = items(self.aim.get(f"/mcp-proxies/{proxy['id']}/plans").json())
         found = next((p for p in plans if p["name"] == name and p.get("status") == "PUBLISHED"), None)
         if found is None:
-            raise SeedError(f"The MCP studio '{studio['name']}' has no published plan '{name}'")
+            raise SeedError(f"The {what} '{proxy['name']}' has no published plan '{name}'")
         return found
 
     def subscribe(self, agent_name, application, access):
-        """Subscribes the application to the plan unless it holds a subscription to it. One the seed made and left
-        pending, because the plan asks for a person to accept it, is accepted."""
-        studio = self.studio(access["studio"])
-        plan = self.plan(studio, access["plan"])
+        """Subscribes the application to the plan of the studio or the MCP proxy unless it holds a subscription to it.
+        One the seed made and left pending, because the plan asks for a person to accept it, is accepted."""
+        studio, what = self.mcp(access)
+        plan = self.plan(studio, what, access["plan"])
         label = f"{agent_name} → {studio['name']} ({plan['name']})"
+        found = controls.of("subscription", label)
         path, app = f"/mcp-proxies/{studio['id']}/subscriptions", application["applicationId"]
         # A subscription names the plan by the id of the APIM plan behind the studio's
         plan_ids = {i for i in (plan["id"], plan.get("apimPlanId")) if i}
@@ -253,8 +340,10 @@ class Agents:
             if held[0]["status"] == "PENDING" and recorded(SECTION, "subscription", held[0]["id"]):
                 self.aim.post(f"{path}/{held[0]['id']}/_accept", json={})
                 log(SECTION, f"  ✓ Subscription accepted: {label}")
+                held[0]["status"] = "ACCEPTED"
             else:
                 log(SECTION, f"  Subscription exists: {label}")
+            self.paused_as_mode_says(studio["id"], held[0], found, label, application)
             return
         with making(SECTION, "subscription", LABELS["subscription"], label, missing=True, api=studio["id"], application=app):
             made = self.aim.post(path, json={"applicationId": app, "planId": plan["id"]}).json()
@@ -262,6 +351,7 @@ class Agents:
         if made.get("status") == "PENDING":
             self.aim.post(f"{path}/{made['id']}/_accept", json={})
         log(SECTION, f"  ✓ Subscribed: {label}")
+        self.paused_as_mode_says(studio["id"], {**made, "status": "ACCEPTED"}, found, label, application)
 
     def subscribe_api(self, agent_name, application, access):
         """Subscribes the application to the plan of an API that seed/apim made, with the key of the file on a plan of
@@ -282,6 +372,7 @@ class Agents:
             raise SeedError(f"The API '{access['api']}': the access of {agent_name} has an apiKey, which needs a plan of API "
                             f"keys, and {plan['name']} is {kind}")
         label = f"{agent_name} → {access['api']} ({plan['name']})"
+        found = controls.of("subscription", label)
         app = application["applicationId"]
         held = apim.held_subscription(self.g.v2, "", api_id, app, plan["id"])
         if held:
@@ -290,8 +381,10 @@ class Agents:
             if held.get("status") == "PENDING" and recorded(SECTION, "subscription", held["id"]):
                 apim.accept(self.g.v2, "", api_id, held["id"], key)
                 log(SECTION, f"  ✓ Subscription accepted: {label}")
+                held["status"] = "ACCEPTED"
             else:
                 log(SECTION, f"  Subscription exists: {label}")
+            self.paused_as_mode_says(api_id, held, found, label, application)
             return
         with making(SECTION, "subscription", LABELS["subscription"], label, missing=True, api=api_id, application=app,
                     via=apim.SECTION):
@@ -301,6 +394,7 @@ class Agents:
         if subscription.get("status") == "PENDING":
             apim.accept(self.g.v2, "", api_id, subscription["id"], key)
         log(SECTION, f"  ✓ Subscribed: {label}")
+        self.paused_as_mode_says(api_id, {**subscription, "status": "ACCEPTED"}, found, label, application)
 
     # --- Removal --------------------------------------------------------------------------
 
@@ -327,9 +421,13 @@ def check():
     if not has_seed(*FOLDERS):
         return
     asked = wanted()
-    if asked and versions.variant("agent-application") == "absent":
-        raise SeedError(UNSERVED.format(name=asked[0].get("name") or asked[0]["entityId"],
-                                        served=versions.where("agent-application", "served")))
+    chosen = versions.variant("agent-application") if asked else None
+    if chosen == "absent":
+        raise SeedError(unserved(asked[0].get("name") or asked[0]["entityId"]))
+    lacking = [spec["entityId"] for spec in asked if chosen == "identity" and "identity" not in spec]
+    if lacking:
+        raise SeedError(f"The agent '{lacking[0]}': on this platform an agent gets its application with its identity, "
+                        "so a file that gives access gives an identity too")
 
 
 def seed():
@@ -346,7 +444,9 @@ def seed():
 
 def remove(records):
     """Closes the subscriptions the seed made, then detaches the identity it attached when it can, then deletes the
-    application: deleting it is what ends the link to an identity that stays. What is gone is no error."""
+    application: deleting it is what ends the link to an identity that stays. On the identity variant (a record
+    `linked`) it deletes the identity, which archives the application, and deletes no application itself. What is gone
+    is no error."""
     mine = owned(records, SECTION, ORDER)
     if not mine:
         return
@@ -361,7 +461,10 @@ def remove(records):
             forget(x)
             log(SECTION, f"✓ Closed subscription '{x['name']}'")
         else:
-            agents.detach(x, records)
-            agents.g.v1.delete(f"/applications/{x['id']}")
+            if x.get("linked"):   # the identity variant: deleting the identity archives the application, the AM one stays
+                agents.aim.delete(f"/catalog/agents/{x['agent']}/identity")
+            else:
+                agents.detach(x, records)
+                agents.g.v1.delete(f"/applications/{x['id']}")
             forget(x)
             log(SECTION, f"✓ Deleted agent application '{x['name']}'")
