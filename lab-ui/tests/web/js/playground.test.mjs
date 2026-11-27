@@ -1337,16 +1337,15 @@ test("a Lab that reads a level other than the playground's says so, and what to 
   await leave();
 });
 
-test("what it uses of this machine is one line among what Start does, in its author's words, once each and cut", async () => {
+test("what it uses of this machine is one line among what Start does, in its author's words, once each and whole, under its name", async () => {
   const use = (service, why) => ({ service, what: ["runs privileged"], why });
   await visit({ ...off, uses_machine: [use("kea", "Runs nested containers"), use("kea-agent", "Runs nested containers"), use("socket", "Reads the Docker socket")] }, { platforms: [], places: [] });
   const line = prepared().find((one) => one.name === "Uses this machine");
-  assert.deepEqual([line.kind, line.action], ["auto", "Runs nested containers, Reads the Docker socket"]);
+  assert.deepEqual([line.kind, line.action, line.sub], ["auto", "", "Runs nested containers, Reads the Docker socket"]);
   await leave();
   const long = "x".repeat(300);
   await visit({ ...off, uses_machine: [use("kea", long)] }, { platforms: [], places: [] });
-  const cut = prepared().find((one) => one.name === "Uses this machine").action;
-  assert.ok(cut.length <= 120 && cut.endsWith("\u2026"), "the author's text is cut");
+  assert.equal(prepared().find((one) => one.name === "Uses this machine").sub, long, "the author's text is whole");
   await leave();
   await visit({ ...off, uses_machine: [use("kea", HOSTILE)] }, { platforms: [], places: [] });
   assert.equal(section.querySelectorAll("img").length, 0, "text, never markup");
@@ -1418,6 +1417,6 @@ test("a catalog's name and the author's words are text, never markup, in the hea
   const named = section.querySelectorAll(".pairs a").find((link) => link.getAttribute("href").startsWith("#/catalogs/"));
   assert.equal(text(named), HOSTILE, "as text, whole");
   assert.ok(prepared().some((line) => line.name === `Needs the catalog ${HOSTILE}`));
-  assert.ok(prepared().some((line) => line.action === HOSTILE));
+  assert.ok(prepared().some((line) => line.sub === HOSTILE));
   await leave();
 });

@@ -11,7 +11,7 @@ import { toast, effectsDialog, openMenu, GAP, openButton, Pager, emptyHtml, pain
 import { CategoryFilter } from "../components/combo.js";
 import { runJob, runAction, busy, showOutput } from "../activity/jobs.js";
 import { selectLogs, hasLogs } from "./logs.js";
-import { stopPlayground, pluginNames, shareEntry, deleteEntry, exportable, exportEntry, standaloneEntry, movable, moveEntry, copyable, copyEntry, usesMachine, maybeComing } from "./playground.js";
+import { stopPlayground, pluginNames, shareEntry, deleteEntry, exportable, exportEntry, standaloneEntry, movable, moveEntry, copyable, copyEntry, reasonsOf, maybeComing } from "./playground.js";
 import { MACHINE, THIS_MACHINE, registered, chosenPlace, barred, startPlayground, deployTo, keepItemPlace, goes, whyNot, placesOf } from "../platform/places.js";
 import { openFile, openSettings } from "../dialogs/editor.js";
 import { openCreate } from "../dialogs/create.js";
@@ -169,9 +169,12 @@ const ABOUT = {
     + fact("Links", x.source ? `<a class="text-link" href="${esc(x.source)}" target="_blank" rel="noopener">Source</a>` : ""),
 };
 
-// What an item takes of this machine beyond its containers, in its author's words: one pair, cut where the row is short, whole in its tooltip
+// What an item takes of this machine beyond its containers, in its author's words: one pair, cut at USES characters where
+// the row is short, whole in its tooltip
+const USES = 120;
 const uses = (x) => {
-  const said = usesMachine(x), whole = [...new Set((x.uses_machine || []).map((use) => use.why).filter(Boolean))].join(", ");
+  const whole = reasonsOf(x), letters = Array.from(whole);
+  const said = letters.length > USES ? `${letters.slice(0, USES - 1).join("").trimEnd()}\u2026` : whole;
   return fact("Uses this machine", said ? `<span class="muted" ${whole === said ? "" : `data-tip="${esc(whole)}" `}data-tip-cut>${esc(said)}</span>` : "");
 };
 

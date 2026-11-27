@@ -782,6 +782,14 @@ test("what an item takes of this machine is one pair of its opened row, in its a
   const facts = (id) => row("addons", id).querySelectorAll(".panel-fact").map((fact) => [text(fact.firstElementChild), text(fact.lastElementChild)]);
   assert.deepEqual(facts("@acme-hub/kea"), [["Catalog", "Acme Hub 1.4.0"], ["Uses this machine", "Runs nested containers"]]);
   assert.deepEqual(facts("@acme-hub/mock-bank"), [["Catalog", "Acme Hub 1.4.0"]], "most items use nothing of it");
+  const said = (id) => row("addons", id).querySelectorAll(".panel-fact").at(-1).lastElementChild.firstElementChild;
+  assert.equal(said("@acme-hub/kea").getAttribute("data-tip"), null, "a reason that fits has no tooltip");
+  const long = "x".repeat(300);
+  state.addons.find((x) => x.id === "@acme-hub/kea").uses_machine = [{ ...USES[0], why: long }];
+  draw(state);
+  const cut = text(said("@acme-hub/kea"));
+  assert.ok(cut.length <= 120 && cut.endsWith("\u2026"), "a long reason is cut");
+  assert.equal(said("@acme-hub/kea").getAttribute("data-tip"), long, "whole in its tooltip");
   alone();
 });
 
