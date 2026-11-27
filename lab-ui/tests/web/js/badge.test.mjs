@@ -18,6 +18,7 @@ const { stackPage } = await import("../../../web/js/pages/stack.js");
 Object.defineProperty(store, "platforms", { get: () => [], configurable: true });
 
 const WHY = "4.12.20 is saved, 4.13.0-alpha.4 still runs.";
+const PATH = ".lab/catalogs/local/playgrounds/edge-management-for-shadow-ai/.env";
 const draw = (markup) => {
   const root = page.doc.createElement("div");
   root.innerHTML = markup;
@@ -75,6 +76,9 @@ test("one line is a tooltip; several lines are a popover whose first line is its
   assert.equal(long.querySelector(".tip-text"), null);
   assert.deepEqual(bubble(long), [WHY]);
   assert.equal(long.querySelector(".tip-btn").getAttribute("aria-label"), WHY);
+  // A line with no space, a path, stays a tooltip at any length: cut over lines, it would not read
+  const path = draw(tipHtml("x", PATH));
+  assert.deepEqual([path.querySelector(".tip-text")?.textContent, path.querySelector(".tip-card")], [PATH, null]);
 });
 
 test("the note of what runs behind is the badge, its tooltip the reason; any other note is what it was", () => {
@@ -259,6 +263,7 @@ test("a note of a catalog row is a badge: in its tone, a quiet button with an ar
   const said = "Not from the Lab UI, so the platform does not start it.";
   assert.deepEqual(bubble(draw(noteBadge({ note: "Started by hand", note_title: said }))), ["Started by hand", said],
     "a sentence: a popover titled by its badge");
+  assert.equal(draw(noteBadge({ note: "Started by hand", note_title: PATH })).querySelector(".tip-text")?.textContent, PATH, "a path: a tooltip");
   assert.equal(text(draw(noteBadge({ note: "Partly on" })).querySelector(".pill")), "Partly on");
   assert.equal(noteBadge({ note: "" }), "");
   assert.ok(draw(noteBadge({ note: "Apply needed", note_tone: "warn", note_apply: true, note_causes: [TAG] })).querySelector(".tip-card"));

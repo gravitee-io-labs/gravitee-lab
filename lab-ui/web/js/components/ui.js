@@ -467,7 +467,8 @@ export const licenseForm = () => 'data-license="form"';
 // One component explains what a word, a mark or a badge means: a button that keeps the look of what it sits in, and what it opens
 // on hover (after a short delay), on keyboard focus and on a tap, placed in the window so that no card clips it, with an arrow toward
 // the button. The button carries the whole explanation as its name for a screen reader, so the bubble itself is not read twice.
-// - A TOOLTIP is a label or one short line (LINE characters at most): a dark bubble, 12 px, on one line that never wraps.
+// - A TOOLTIP is a label or one short line (LINE characters at most): a dark bubble, 12 px, on one line that never wraps. A line with no
+//   space (a path, an address, a name) is a tooltip at any length, as wide as it is up to the window: cut over lines, it would not read.
 // - A POPOVER explains anything longer: several lines, one long line, or a card {title, text, rows, foot}. A card of the surface, 260 to 460
 //   px at most: a title, a sentence (`text`), then rows under a hairline (a row is {subject, lines}, a line a list of parts: a word,
 //   {who} for whom it is about, {code} for a version or a setting's name,
@@ -481,7 +482,9 @@ export const licenseForm = () => 'data-license="form"';
 // explanation's first words.
 // Escape closes it while the pointer or the focus stays, until both have left (WCAG 1.4.13); a tap elsewhere, a scroll or a resize
 // closes it.
-const LINE = 40;   // the longest line a tooltip says: what is longer is a popover
+const LINE = 40;   // the length past which a line with a space is a popover (tooLong)
+// Whether a line is too long for a tooltip: longer than LINE, with a space to break it at
+const tooLong = (line) => line.length > LINE && /\s/.test(line);
 const COLUMNS = ["Running", "Saved"];
 const chipHtml = (code, older = false) => `<code class="chip${older ? " older" : ""}">${esc(code)}</code>${older ? '<span class="sr-only"> (older)</span>' : ""}`;
 const partHtml = (part) => (typeof part === "string" ? `<span>${esc(part)}</span>` : chipHtml(part.code));
@@ -527,7 +530,7 @@ export const cardHtml = (card) => `<span class="pop-body"><span class="pop-title
     : `<a class="btn" href="${esc(card.action.href)}">${esc(card.action.label)}</a>`) : ""}</span>`;
 
 // Whether lines are said by a popover: more than one, or one too long for a tooltip
-const popover = (lines) => lines.length > 1 || String(lines[0] ?? "").length > LINE;
+const popover = (lines) => lines.length > 1 || tooLong(String(lines[0] ?? ""));
 
 // `short`: the button is named by its label alone and the explanation is its description (a column's head, which every cell of
 // the column would otherwise repeat).
@@ -669,7 +672,7 @@ function place(bubble, at, cap) {
 }
 const placeTip = (tip) => {
   const bubble = $(".tip-text", tip) || $(".tip-card", tip);
-  place(bubble, $(".tip-btn", tip).getBoundingClientRect(), bubble.classList.contains("tip-card") ? 460 : 280);
+  place(bubble, $(".tip-btn", tip).getBoundingClientRect(), bubble.classList.contains("tip-card") ? 460 : Infinity);
 };
 
 // The tooltip of a control that acts on a click (a note that leads to its fix, a mark): its line is its `data-tip`, shown by one bubble
@@ -703,15 +706,15 @@ function showFloat(el) {
     floating.setAttribute("role", "tooltip");
   }
   hostFloat(el);
-  // One short line is a tooltip; a card, or a longer line, a popover
+  // One short line, or one with no space, is a tooltip; a card, or a longer line, a popover
   let card = null;
   try { card = el.dataset.tipCard ? JSON.parse(el.dataset.tipCard) : null; } catch { /* a line, then */ }
-  if (!card && said.length > LINE) card = { text: said, rows: [] };
+  if (!card && tooLong(said)) card = { text: said, rows: [] };
   floating.className = `${card ? "tip-card" : "tip-text"} tip-float shown`;
   floating.innerHTML = card ? cardHtml(card) : `<span>${esc(said)}</span>`;
   el.setAttribute("aria-describedby", "tip-float");
   floatingFor = el;
-  place(floating, el.getBoundingClientRect(), card ? 460 : 280);
+  place(floating, el.getBoundingClientRect(), card ? 460 : Infinity);
 }
 const hideFloat = () => floating?.classList.remove("shown");
 // A dialog that closes while the bubble is in it takes it away: the bubble goes back to the page, hidden. Asked as `close()` is called and again
@@ -824,7 +827,7 @@ export function noteBadge(x) {
   const look = `pill note ${x.note_tone || ""}`.trim(), more = x.note_title && x.note_title !== x.note ? x.note_title : "";
   // What it says beyond its label: a card of its causes (the versions it needs, the settings it lacks), a sentence under its label
   // when it is long, else one line
-  const card = x.note_causes?.length ? needCard(x) : more.length > LINE ? { title: x.note, text: more } : null;
+  const card = x.note_causes?.length ? needCard(x) : tooLong(more) ? { title: x.note, text: more } : null;
   const words = `<span class="pill-text">${esc(x.note)}</span>`, tip = tipAttrs(more, card), go = `${words}${icon("arrow-right")}`;
   if (x.note_target) return `<a class="${look}" href="${esc(hrefOf(x.note_target))}"${tip}>${go}</a>`;
   if (x.note_file) return `<button type="button" class="${look}" ${licenseForm()}${tip}>${go}</button>`;

@@ -71,12 +71,14 @@ catalog (the State of the lists and of the Dashboard). Don't: a pill on one row 
 green dot beside a word that warns, a second line under it, an icon and a word of its own (an arrow and a version) for a state.
 
 **Tooltip** (`tipHtml(inner, line)` with one short line; `data-tip` on a control). A label or one line of 40 characters at most
-(`LINE` in `ui.js`): a dark bubble (`--text` on `--bg`, inverted in dark), 12 px, 6 by 10 inside, 28 px high, on one line that
-never wraps, an arrow toward its button. Anything longer is a popover, whichever way it is given: `tipHtml` and the shared bubble
-decide by the length. It opens on hover after `--delay`, at once on keyboard focus and on a tap; it is placed in the window so
-that no card clips it, and its own box clips nothing (its line is cut inside it, its arrow and the bridge to its button are outside
-it), so the pointer can go from the button into it. Escape closes it while the pointer or the focus stays (WCAG 1.4.13), and that
-alone: in a dialog the next Escape closes the dialog, and what was typed stays. A resize of the window closes it. `tipHtml` makes its own button,
+(`LINE` in `ui.js`), or a line with no space at any length (a path, an address, a name: cut over lines, it would not read): a dark
+bubble (`--text` on `--bg`, inverted in dark), 12 px, 6 by 10 inside, 28 px high, on one line that never wraps, as wide as its line
+up to the window, an arrow toward its button. Anything longer is a popover, whichever way it is given: `tipHtml`, the shared bubble
+and the note badge decide by the length and the spaces (`tooLong`). It opens on hover after `--delay`, at once on keyboard focus
+and on a tap; it is placed in the window so that no card clips it, and its own box clips nothing (its line is cut inside it, its
+arrow and the bridge to its button are outside it), so the pointer can go from the button into it. Escape closes it while the
+pointer or the focus stays (WCAG 1.4.13), and that alone: in a dialog the next Escape closes the dialog, and what was typed stays.
+A resize of the window closes it. `tipHtml` makes its own button,
 which carries the line as its name for a screen reader (the bubble is `aria-hidden`); `short` names it by its label alone and makes
 the explanation its description (a column's head). A control that acts on a click (a note badge that leads to its fix, the cloud
 mark, the sidebar's chip) takes `data-tip` instead, and `data-tip-card` for a card: one shared bubble shows it on hover and focus,

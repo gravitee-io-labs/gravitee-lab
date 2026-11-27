@@ -135,6 +135,24 @@ test("the pointer over what has no tooltip hides the bubble: the control that ha
   start.remove();
 });
 
+test("the bubble of a path is a tooltip of one line at any length, as wide as the window, and a long sentence a popover", () => {
+  const float = () => page.doc.querySelector("#tip-float");
+  const file = page.doc.createElement("button");
+  page.doc.body.append(file);
+  const show = (tip, width) => {
+    page.doc.documentElement.clientWidth = width;
+    file.setAttribute("data-tip", tip);
+    page.doc.dispatchEvent(new Ev("mouseover", { target: file }));
+    return [float().classList.contains("tip-text"), float().classList.contains("tip-card"), float().style.maxWidth];
+  };
+  const PATH = ".lab/catalogs/local/playgrounds/edge-management-for-shadow-ai/.env";
+  assert.deepEqual(show(PATH, 1280), [true, false, "1256px"]);
+  assert.deepEqual(show(PATH, 320), [true, false, "296px"], "a narrow window cuts the line inside the bubble");
+  assert.deepEqual(show("Starts the playground once the settings it lacks are set", 1280), [false, true, "460px"]);
+  page.doc.documentElement.clientWidth = 0;
+  file.remove();
+});
+
 test("the bubble of a control whose reason changes while it shows says the new one", () => {
   const float = () => page.doc.querySelector("#tip-float");
   const next = page.doc.createElement("button");
