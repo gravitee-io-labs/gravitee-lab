@@ -135,16 +135,16 @@ who adds the catalog decides ([Items that use your machine](catalogs.md#items-th
 ## A catalog that needs another
 
 An item can include an item of another catalog, and `catalog.yml` says which catalog it needs (`requires.catalogs`). `check`
-reads such a catalog together with the one it needs, and refuses to read it alone. For CI, public or private, `.github/standard.json`
-names it and the commit to read:
+reads such a catalog together with the one it needs, and refuses to read it alone. For CI, `.github/standard.json` names it and the commit to read:
 
 ```json
-"needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>"}}
+"needs": {"gravitee": {"repository": "owner/catalog", "ref": "<a full commit>", "public": true}}
 ```
 
-Every job that runs Compose fetches it and links it into the Lab, in the `lab` action (`catalog.py ci needs`), using the secret
-`NEEDS_DEPLOY_KEY`: a read-only deploy key of that repository, stored like `LAB_DEPLOY_KEY` in the Actions and the Dependabot
-stores. `make settings` audits both. Move the commit by hand when the other catalog moves.
+Every job that runs Compose fetches and links dependencies in the `lab` action (`catalog.py ci needs`). A dependency marked
+`public: true` is fetched over anonymous HTTPS without credentials. Other dependencies use `NEEDS_DEPLOY_KEY`, a read-only
+deploy key stored like `LAB_DEPLOY_KEY` in the Actions and Dependabot stores. `make settings` audits both. The newest-Lab
+job holds no deployment keys and skips catalogs with private dependencies. Move dependency commits by hand when they change.
 
 ## Try it in the Lab
 

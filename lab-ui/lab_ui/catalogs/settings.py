@@ -206,7 +206,7 @@ class Standard(NamedTuple):
     level: Optional[int]
     lab: Optional[str]
     error: str
-    needs: Tuple[str, ...] = ()   # the catalogs it requires (`needs` of standard.json): each is read with NEEDS_SECRET
+    needs: Tuple[str, ...] = ()   # the private catalogs it requires: each is read with NEEDS_SECRET
 
 
 class Unusable(Exception):
@@ -383,7 +383,8 @@ def parse_standard(data) -> Standard:
     level, lab = data.get("standard"), as_dict(data.get("lab")).get("repository")
     return Standard(level if is_int(level) and level >= 1 else None,
                     lab if isinstance(lab, str) and REPO_NAME.fullmatch(lab) and ".." not in lab else None, "",
-                    tuple(sorted(str(name) for name in as_dict(data.get("needs")))))
+                    tuple(sorted(str(name) for name, what in as_dict(data.get("needs")).items()
+                                 if as_dict(what).get("public") is not True)))
 
 
 # The names of every tag. GitHub matches a pattern with fnmatch and its pathname flag, where `*` and a bare `**` stop at a
