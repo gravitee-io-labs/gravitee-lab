@@ -552,10 +552,10 @@ export function tipHtml(inner, line, cls = "", label = "", { title = true, said 
 export const tipAttrs = (said, card = null) => (said || card ? ` data-tip="${esc(said || cardSaid(card))}"${card ? ` data-tip-card="${esc(JSON.stringify(card))}"` : ""}` : "");
 
 // What one cause of a note says, as the parts of a line (the server's `causes`). What differs from what is saved (reasons.causes): `who`,
-// the services it is about when they are not all of its owner's, then what changed, versions and settings as chips, never a value; a
-// version saved that is older than the one that runs is marked, as Apply goes back to it. What keeps an item from starting: a version it
-// needs (`needs`), settings without a value (`unset`), what of the license it uses (`license`). Every line starts the same way, with a
-// capital, after whom it is about.
+// the services it is about when they are not all of its owner's, then what changed (or that it is not created yet), versions and
+// settings as chips, never a value; a version saved that is older than the one that runs is marked, as Apply goes back to it. What
+// keeps an item from starting: a version it needs (`needs`), settings without a value (`unset`), what of the license it uses
+// (`license`). Every line starts the same way, with a capital, after whom it is about.
 const SETTINGS_SHOWN = 4;
 const chips = (names) => {
   const shown = names.slice(0, SETTINGS_SHOWN).map((name) => ({ code: name })), more = names.length - shown.length;
@@ -568,6 +568,7 @@ function causeLine(cause) {
   }
   if (cause.kind === "image") return cause.built ? [...who, "Image built again"] : [...who, "Image", { code: cause.tag }, "changed"];
   if (cause.kind === "settings") return [...who, { lead: "Settings changed" }, ...chips(cause.settings)];
+  if (cause.kind === "absent") return [...who, "Not created yet"];
   if (cause.kind === "switch") return [...who, { versions: { running: cause.have, saved: cause.to, older: !!cause.older } }];
   if (cause.kind === "needs") return [{ who: cause.name }, { code: cause.version }, ...(/\d/.test(cause.version) ? ["or later"] : [])];
   if (cause.kind === "unset") return chips(cause.settings);
@@ -599,11 +600,15 @@ export function catalogNeed(cause) {
     default: return { line: `Needs the catalog ${name}`, button: { act: "add", label: `Add ${name}` } };
   }
 }
-const count = (n) => `${n} ${n === 1 ? "container differs" : "containers differ"} from what is saved`;
+const count = (n) => `${n} ${n === 1 ? "service differs" : "services differ"} from what is saved`;
 // Whether causes are about several services: Apply restarts them
 const several = (causes) => new Set(causes.flatMap((cause) => cause.services || [])).size > 1;
-// What Apply does to them: it restarts them as saved, and goes back to a version saved that is older than the one that runs
-const applies = (them, causes) => `Apply restarts ${them} with what is saved${causes.some((cause) => cause.older) ? ", older versions included" : ""}.`;
+// What Apply does to them: it restarts them as saved, and goes back to a version saved that is older than the one that runs; what
+// is not created yet, it creates
+const applies = (them, causes) => {
+  const made = causes.some((cause) => cause.kind === "absent"), again = causes.some((cause) => cause.kind !== "absent");
+  return `Apply ${made ? (again ? "restarts or creates" : "creates") : "restarts"} ${them} with what is saved${causes.some((cause) => cause.older) ? ", older versions included" : ""}.`;
+};
 
 // The card of what differs from what is saved, for a row: its causes
 const rowCard = (causes) => ({ title: "Differs from what is saved", rows: [{ lines: causes.map(causeLine) }],
@@ -635,7 +640,7 @@ const needCard = (x) => (x.note_causes[0]?.kind === "switch"
 // ... for whoever says that note elsewhere (the gateway of an environment that the add-on runs): null for a note without causes of that
 // kind (what runs behind what is saved has its own card)
 export const noteCard = (x) => (x.note_causes?.length && feetOf(x.note_causes[0]?.kind) ? needCard(x) : null);
-// ... for the platform: a row for each product, add-on or playground (the state's `platform.behind`), under how many containers it is in all,
+// ... for the platform: a row for each product, add-on or playground (the state's `platform.behind`), under how many services differ in all,
 // and what Apply does: the popover of the notice
 export function behindWhy({ behind }) {
   const total = behind.reduce((sum, row) => sum + (row.count || 1), 0);

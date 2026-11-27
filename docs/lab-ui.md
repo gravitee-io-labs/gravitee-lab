@@ -79,8 +79,8 @@ into *Update* while a newer one is out (a dot on the logo says it when the menu 
 
 The banner above the page is a notice for each thing that needs you, most blocking first, each with its icon, a headline,
 a short summary and its button at the right: the Lab UI not answering, Docker not answering, the platform stopped (with
-*Start*), a license problem (with *Set license*), containers that differ from what is saved (*Apply needed*, how many
-containers, and *Apply*; the summary opens the list of what and why), Docker's memory, and any file the Lab UI could not
+*Start*), a license problem (with *Set license*), services that differ from what is saved (*Apply needed*, how many
+services, and *Apply*; the summary opens the list of what and why), Docker's memory, and any file the Lab UI could not
 read, which opens in the editor. Before the Lab UI first answers, the page says it is reading the lab; when it does not
 answer at all, the page says so, how to start it (`make ui`) and *Try again*. Once you connected a
 [Gravitee Cloud account](#gravitee-cloud), it leaves out the calm *stopped* line while an add-on or a playground runs, because a deploy to
@@ -289,7 +289,7 @@ The head acts on containers, and what is on stays on:
 | Stop | Stops every container. They stay stopped when Docker restarts. A container that crashes starts again by itself |
 | Restart | Restarts what runs, as it is |
 | Update | Pulls the images, then recreates the containers that run and changed. What was stopped stays stopped |
-| Apply | Recreates the containers that do not run what is saved |
+| Apply | Recreates the containers that do not run what is saved, and creates the missing ones of an add-on or a playground that runs |
 | ⋯ → Remove containers | Removes containers with their anonymous volumes, and networks; keeps the data volumes |
 | ⋯ → Reset | Deletes every container and volume, and turns off the playground that is on. You type `reset` to confirm |
 
@@ -306,17 +306,22 @@ them. Until then, the row, each group of the Containers page, each product of th
 why: a table of the version that runs and the one that is saved (under *Running* and *Saved*; a version saved that is older than
 the one that runs is amber, as *Apply* goes back to it), that an
 image under the same tag changed since the container started, or which settings changed since it started, their names in
-monospace and never their values (or, when only what Compose sets for the container changed, that its configuration did).
-The badge of the head and the summary of the banner open a card with how many containers differ from what is saved, a row for each
+monospace and never their values (or, when only what Compose sets for the container changed, that its configuration did),
+or that a service is not created yet.
+The badge of the head and the summary of the banner open a card with how many services differ from what is saved, a row for each
 product, add-on or playground with its causes (the services a cause is about when it is not all of them), and what *Apply*
 does. When the cause cannot be told, the card says that the configuration changed. You can move the pointer onto the card
 to read it at leisure, and Escape closes it.
 
-- *Apply* recreates the containers that do not run what is saved. It starts nothing that was stopped. Its dialog says what it
-  recreates, and, in red, what goes back to an older version than the one that runs (data a newer version wrote may not open in
-  it) and what loses the license it runs when none is saved: check them before you confirm.
-- *Save & apply*, in the editor and on Images, saves first. It says which containers it recreates before it does. With nothing
-  unsaved the button is *Apply*, and the badge *Apply needed* beside the page's title says why.
+- *Apply* recreates the containers that do not run what is saved, and creates the container of a service of an add-on or
+  a playground that runs when it has none (*Not created yet*), such as one its file gained since it started. It starts
+  nothing that was stopped. Its dialog says what it recreates and what it starts or creates, and, in red, what goes back
+  to an older version than the one that runs (data a newer version wrote may not open in it) and what loses the license
+  it runs when none is saved: check them before you confirm.
+- *Save & apply*, in the editor and on Images, saves first. It says which containers it recreates before it does, but
+  not a service the change adds. When nothing else changes, it only saves, and the badge *Apply needed* then says *Not
+  created yet* until you click *Apply*. When it applies other changes, that apply creates the new service too. With
+  nothing unsaved the button is *Apply*, and the badge *Apply needed* beside the page's title says why.
 - With nothing running, a change is applied at the next start.
 
 ## Logs

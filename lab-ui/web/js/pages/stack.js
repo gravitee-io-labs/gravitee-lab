@@ -31,7 +31,7 @@ export const platformHead = (title, { lean = false } = {}) => `
       ${headButton("restart", "Restart", "restart", "Restart as it is")}
       ${headButton("update", "Update", "download", "Pull and recreate")}`}
       ${headButton("start", lean ? "Start all" : "Start", "play")}
-      ${headButton("apply", "Apply", "apply", "Recreate the containers that changed")}${lean ? "" : `
+      ${headButton("apply", "Apply", "apply", "Apply what is saved to what runs")}${lean ? "" : `
       <span class="row-icons">${actionButton({ key: "platform", verb: ["down", "reset"], icon: "more", cls: "icon-btn",
         attrs: 'data-more data-tip="More" aria-label="More" aria-haspopup="true"' })}</span>`}
     </div>

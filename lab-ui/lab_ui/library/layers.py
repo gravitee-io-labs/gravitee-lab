@@ -1182,43 +1182,51 @@ def platform_starts(project, state, up):
 
 
 def applies(project, on, states, behind):
-    """What applying what was saved does: {names, restarts, starts, runs}. `names`: what its `up --no-deps` names;
-    `restarts` and `starts` (rows): what it makes again, what it starts again; `runs`: whether anything of what is on
-    runs, without which it does nothing, what was saved applying at the next start. `on`: the services `up` would
-    run, `states` their states (model.service_state), `behind` the services that run behind what is saved
-    (model.behind), None when that is not known: then everything that runs is named, and Compose makes again what
-    changed.
+    """What applying what was saved does: {names, restarts, starts, creates, runs}. `names`: what its `up --no-deps`
+    names; `restarts` and `starts` (rows): what it makes again, what it starts again; `creates`: the services it
+    creates because their item runs; `runs`: whether anything of what is on runs, without which it does nothing, what
+    was saved applying at the next start. `on`: the services `up` would run, `states` their states
+    (model.service_state), `behind` the services that run behind what is saved (model.behind), None when that is not
+    known: then everything that runs is named, Compose makes again what changed, and nothing is created.
 
     What runs behind what is saved is made again. What failed starts again, and so do the one-shots all that depends
     on (_once): Compose would run them first. Either waits for what it depends on among what is on: what neither runs,
     nor ended well, nor starts with it would fail again alone. And what needs a license, which was held back
     (held_back) for want of one and has no container: the license is usable now, and a start would have started it.
-    Nothing else: what was stopped stays stopped, what has no container is not created. A one-shot is said with what
-    needs it: made again with what is made again."""
+    And, waiting the same way, a service of an add-on or a playground with no container while another of its item
+    runs: Compose's `up` would create it (one the item's file gained since it started, one removed by hand). Not one
+    of the platform, which the start of what depends on it, a group's Start and API Management in the Cloud leave
+    partly created. Nothing else: what was stopped stays stopped, what else has no container is not created. A
+    one-shot is said with what needs it: made again with what is made again."""
     services, on = project["services"], list(on)
 
     def state(name):
         return states.get(name) or {"key": "absent", "running": False}
     running = [name for name in on if state(name)["running"]]
     if not running:
-        return {"names": [], "restarts": [], "starts": [], "runs": False}
+        return {"names": [], "restarts": [], "starts": [], "creates": [], "runs": False}
     recreate = set(running) if behind is None else {name for name in running if name in behind}
     failed = {name for name in on if state(name)["key"] == "issue" and not state(name)["running"]}
     unlocked = {name for name in on if (services.get(name) or {}).get("needs_license") and project["license_usable"]
                 and state(name)["key"] == "absent"}
+    items = [services[name]["owner"] for name in running if name in services]
+    made = set() if behind is None else {
+        name for name in on if name in services and services[name]["owner"]["kind"] in ("addon", "playground")
+        and services[name]["owner"] in items and not services[name]["oneshot"] and state(name)["key"] == "absent"}
     ready = set(running) | {name for name in on if state(name)["key"] == "done"}
     alone = set()   # what would fail again alone: the one-shots only it needed are not run either
     while True:
-        starting = (failed | unlocked | _once(project, set(on), recreate | failed | unlocked)) - alone
+        starting = (failed | unlocked | made | _once(project, set(on), recreate | failed | unlocked | made)) - alone
         left = {name for name in starting
                 if set((services.get(name) or {}).get("depends_on", ())) & set(on) - ready - recreate - starting}
         if not left:
             break
         alone |= left
-        failed -= left
+        failed, made = failed - left, made - left
     known, again = set(services), recreate | (starting & _once(project, set(on), recreate))
     return {"names": sorted(recreate | starting), "restarts": start_rows(project, sorted(again & known)),
-            "starts": start_rows(project, sorted((starting - again) & known)), "runs": True}
+            "starts": start_rows(project, sorted((starting - again) & known)), "creates": sorted(made),
+            "runs": True}
 
 
 def _on_the_file(project, plan):

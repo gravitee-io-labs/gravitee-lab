@@ -1,11 +1,13 @@
 """Why a service runs behind what is saved, as one plain line a person understands. Pure.
 
-A service has one of three causes, the first that holds: another image tag is saved than the one that runs (`tag`),
-the image its tag names here is not the one that runs (`image`, a pull or a build since it started), or its
-configuration changed since it started (`config`, with the settings that differ when drift.py told them). A cause that is not established is never claimed: the last one says only that the configuration changed. Never a
-value: a tag and a setting's name are all a line holds. The same causes are given structured (causes()), for the page to draw
-them: the kind, the tags saved and running (and whether the one saved is `older`, which Apply goes back to), the names of
-the settings, the services a cause is about."""
+A service has one of three causes, the first that holds: another image tag is saved than the one that runs (`tag`), the
+image its tag names here is not the one that runs (`image`, a pull or a build since it started), or its configuration
+changed since it started (`config`, with the settings that differ when drift.py told them). A service an apply creates,
+with no container while its item runs (layers.applies), is not created yet (`absent`). A cause that is not established
+is never claimed: the last one says only that the configuration changed. Never a value: a tag and a setting's name are
+all a line holds. The same causes are given structured (causes()), for the page to draw them: the kind, the tags saved
+and running (and whether the one saved is `older`, which Apply goes back to), the names of the settings, the services a
+cause is about."""
 
 from . import versions
 from .project import tag
@@ -43,13 +45,14 @@ def _subject(names, labels, sole):
     service is behind (`sole`: it speaks of the owner). Else the services by label while they are few, then how many."""
     if labels is None or sole:
         return ""
-    return spelled(labels[name] for name in names) if len(names) <= SHOWN else f"{len(names)} containers"
+    return spelled(labels[name] for name in names) if len(names) <= SHOWN else f"{len(names)} services"
 
 
 def _clauses(whys):
     """What the services say, grouped by what they say: [(names, text, plural wording or None, cause)], in the order tag,
-    image, configuration. `cause` is the clause as data: {kind: tag, saved, running, older} (None for both tags when there
-    are too many to say), {kind: image, tag, built}, {kind: settings, settings} or {kind: config}."""
+    image, configuration, not created. `cause` is the clause as data: {kind: tag, saved, running, older} (None for both
+    tags when there are too many to say), {kind: image, tag, built}, {kind: settings, settings}, {kind: config} or
+    {kind: absent}."""
     clauses, tags = [], {}
     for name, found in whys.items():
         if found["kind"] == "tag":
@@ -78,16 +81,19 @@ def _clauses(whys):
         clauses.append((names, f"its {what} changed since it started" + (f": {spelled(settings)}" if settings else ""),
                         f"their {what} changed since they started" + (f": {spelled(settings)}" if settings else ""),
                         {"kind": "settings", "settings": list(settings)} if settings else {"kind": "config"}))
+    absent = [name for name, found in whys.items() if found["kind"] == "absent"]
+    if absent:
+        clauses.append((absent, "not created yet", None, {"kind": "absent"}))
     return clauses
 
 
 def line(whys, labels=None, owner="", whole=False):
-    """One line for these services, {name: why()}: their causes grouped, in the order tag, image, config. `labels`:
-    {name: how a person calls it}, None for a single service whose row says which it is. `owner`: what the services
-    belong to ("API Management"), and `whole`: every one of its services is behind. The line then begins with the owner
-    ("API Management: 4.13.3 is saved, 4.14.0-alpha.4 still runs."), and the services a clause is about follow it in
-    brackets ("Databases: MongoDB (8.0.29 is saved, 8.3.11 still runs)") when they are not all of them. On the owner's own
-    row, with no `owner`, it begins with nothing. Empty when none runs behind."""
+    """One line for these services, {name: why()}: their causes grouped, in the order tag, image, config, not
+    created. `labels`: {name: how a person calls it}, None for a single service whose row says which it is. `owner`:
+    what the services belong to ("API Management"), and `whole`: every one of its services is behind. The line then
+    begins with the owner ("API Management: 4.13.3 is saved, 4.14.0-alpha.4 still runs."), and the services a clause
+    is about follow it in brackets ("Databases: MongoDB (8.0.29 is saved, 8.3.11 still runs)") when they are not all
+    of them. On the owner's own row, with no `owner`, it begins with nothing. Empty when none runs behind."""
     clauses = _clauses(whys)
     sole = whole and len(clauses) == 1
     said = []
@@ -109,4 +115,4 @@ def causes(whys, labels=None, whole=False):
     found = _clauses(whys)
     sole = whole and len(found) == 1
     return [dict(cause, services=[] if labels is None or sole else [labels[name] for name in names] if len(names) <= SHOWN
-                 else [f"{len(names)} containers"]) for names, _, _, cause in found]
+                 else [f"{len(names)} services"]) for names, _, _, cause in found]

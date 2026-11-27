@@ -163,15 +163,15 @@ def held(project, containers):
             and not service_state(containers.get(name), False, False)["running"]}
 
 
-def _services(project, state, containers, job, late, waiting):
-    """Every service with its state. `on`: it is part of what should run. `running_tag`: the tag of the image its
-    container runs, next to `tag`, the saved one. `behind`: it runs behind what is saved (`late`, with why); its note
-    says so, with the reason in its tooltip. `waiting`: the note of the ones held (`held`) that
-    do not run: they are not on, and not an issue, however their container ended."""
+def _services(project, state, containers, states, late, waiting):
+    """Every service with its state (`states`, service_state). `on`: it is part of what should run. `running_tag`: the
+    tag of the image its container runs, next to `tag`, the saved one. `behind`: it runs behind what is saved (`late`,
+    with why); its note says so, with the reason in its tooltip, as it says of one that an apply creates (`late` too,
+    `absent`), which runs behind nothing. `waiting`: the note of the ones held (`held`) that do not run: they are not
+    on, and not an issue, however their container ended."""
     services = {}
     for name, service in project["services"].items():
-        container = containers.get(name)
-        found = service_state(container, service["oneshot"], bool(job))
+        container, found = containers.get(name), states[name]
         running = tag(container["image"]) if found["running"] and container.get("image") else None
         on = any(layers.is_on(one["kind"], one["id"], state["playground"], state["effective"]) for one in layers.owners_of(service))
         note = _late_note(reasons.line({name: late[name]}), reasons.causes({name: late[name]})) if name in late else _said()
@@ -185,7 +185,8 @@ def _services(project, state, containers, job, late, waiting):
                           # The port inside it for each one it publishes, as another container reaches it
                           "targets": service.get("targets") or {},
                           "state": found, "uptime": uptime(container.get("status")) if container else "",
-                          "on": on, "running_tag": running, "behind": name in late, **note}
+                          "on": on, "running_tag": running, "behind": name in late and late[name]["kind"] != "absent",
+                          **note}
     return services
 
 
@@ -331,16 +332,17 @@ def _via(c, unit, on):
 
 
 def _late(c, names, owner=""):
-    """Why these services, the ones of an owner, run behind what is saved, as one line (reasons.line): "4.12.20 is saved,
-    4.14.0-alpha.4 still runs." on the owner's own row, "Gateway, Management API: ..." when only some of them do, and
-    prefixed with the `owner`'s name ("API Management: ...") for a line that names it; empty when none does."""
-    late = {name: c["why"][name] for name in names if name in c["behind"]}
+    """Why these services, the ones of an owner, run behind what is saved or are not created yet (`why`), as one line
+    (reasons.line): "4.12.20 is saved, 4.14.0-alpha.4 still runs." on the owner's own row, "Gateway, Management API:
+    ..." when only some of them do, and prefixed with the `owner`'s name ("API Management: ...") for a line that names
+    it; empty when none does."""
+    late = {name: c["why"][name] for name in names if name in c["why"]}
     return reasons.line(late, {name: c["services"][name]["label"] for name in late}, owner, whole=len(late) == len(names))
 
 
 def _late_causes(c, names):
     """The same as data (reasons.causes): the causes of these services that run behind, the ones of one owner."""
-    late = {name: c["why"][name] for name in names if name in c["behind"]}
+    late = {name: c["why"][name] for name in names if name in c["why"]}
     return reasons.causes(late, {name: c["services"][name]["label"] for name in late}, whole=len(late) == len(names))
 
 
@@ -837,7 +839,7 @@ def _consequences(c, behind):
     for row in behind:
         for cause in row["causes"]:
             if cause["kind"] == "tag" and cause.get("older"):
-                who = ", ".join(cause["services"]) if cause["services"] and not cause["services"][0].endswith(" containers") else row["name"]
+                who = ", ".join(cause["services"]) if cause["services"] and not cause["services"][0].endswith(" services") else row["name"]
                 back.append({"kind": row["kind"], "id": row["id"], "name": f"{who} {cause['running']} → {cause['saved']}"})
     lost = [name for name in c["unlicensing"] if name in c["behind"]]
     found = {"goes_back": back, "loses_license": layers.owner_rows(c["project"], lost) if lost else []}
@@ -874,18 +876,16 @@ def _platform_runs(c, runs):
     return {"needed": runs, "enabled": not reason, "reason": reason}
 
 
-def _platform_apply(c, states, behind):
+def _platform_apply(c, behind):
     """The Stack's Apply, for its head, the banner, the editor and Images: whether it makes again anything that runs
-    behind what is saved (`needed`: not while nothing of what is on runs, when it does nothing), what it makes again
-    and starts again (layers.applies), why it cannot run, and its dialog, which it always shows: "Restarts: …", with
-    what goes back to an older version and what loses its license (_consequences). What runs behind is among what
-    Compose reads, also in an on file with the user's own changes."""
-    project, state = c["project"], c["state"]
-    on = sorted(set(layers.up_services(project, state["playground"], state["effective"])) | c["behind"])
-    found = layers.applies(project, on, states, c["behind"])
-    reason = _reason(c)
-    return {"needed": bool(found["restarts"]), "restarts": found["restarts"], "starts": found["starts"],
-            "enabled": not reason, "reason": reason, "dialog": _dialog(found["starts"], found["restarts"], _consequences(c, behind))}
+    behind what is saved or creates anything (`needed`: not while nothing of what is on runs, when it does nothing),
+    what it makes again and starts again (`applies`, layers.applies), why it cannot run, and its dialog, which it
+    always shows: "Restarts: …", with what goes back to an older version and what loses its license
+    (_consequences)."""
+    found, reason = c["applies"], _reason(c)
+    return {"needed": bool(found["restarts"] or found["creates"]), "restarts": found["restarts"],
+            "starts": found["starts"], "enabled": not reason, "reason": reason,
+            "dialog": _dialog(found["starts"], found["restarts"], _consequences(c, behind))}
 
 
 def _containers(c, groups):
@@ -899,18 +899,18 @@ def _containers(c, groups):
 
 
 def _behind_rows(c):
-    """What owns the services that run behind what is saved (layers.owner_rows), each with why in a line (`reason`), the
-    same as data (`causes`, reasons.causes) and how many of its containers run behind (`count`)."""
+    """What owns the services that run behind what is saved or are not created yet (layers.owner_rows), each with why in
+    a line (`reason`), the same as data (`causes`, reasons.causes) and how many of its services do (`count`)."""
     project = c["project"]
     owned = {"group": lambda row: next(g["services"] for g in project["groups"] if g["id"] == row["id"]),
              "addon": lambda row: project["addons"][row["id"]]["services"],
              "playground": lambda row: [name for name, service in project["services"].items()
                                         if service["owner"]["kind"] == "playground" and service["owner"]["id"] == row["id"]]}
     rows = []
-    for row in layers.owner_rows(project, c["behind"]):
+    for row in layers.owner_rows(project, set(c["why"])):
         names = owned[row["kind"]](row)
         rows.append(dict(row, reason=_late(c, names, row["name"]), causes=_late_causes(c, names),
-                         count=sum(name in c["behind"] for name in names)))
+                         count=sum(name in c["why"] for name in names)))
     return rows
 
 
@@ -924,7 +924,6 @@ def _platform(c):
                        "registry_label": _registry_label(group["registry"]), "containers": _containers(c, [group]),
                        "brings": _brings(c, group["services"]), "recreates": _recreates(c, group["services"])})
     state, runs = platform_fold(groups), _on_runs(c)
-    states = {name: service["state"] for name, service in c["services"].items()}
     behind = _behind_rows(c)
     playground = project["playgrounds"].get(c["state"]["playground"])
     return {"name": project["name"], "state": state, "containers": _containers(c, groups),
@@ -935,7 +934,7 @@ def _platform(c):
             # user's own changes, which is never written
             "reset_turns_off": playground["name"] if playground and not c["state"]["locked"] else None,
             # What runs behind what is saved, by what owns it, and the Apply that makes it again as saved; why, in a line
-            "behind": behind, "apply": _platform_apply(c, states, behind),
+            "behind": behind, "apply": _platform_apply(c, behind),
             # Its files, like a group's: the core's compose file, and its .env with every setting of the core
             "file": paths.CORE_FILE, "env_file": paths.ENV_FILE,
             "settings": [variable["key"] for variable in project["core_variables"]],
@@ -1067,22 +1066,36 @@ def build(project, state, containers, job, failures, license_features, docker, c
     changing = layers.changing(project, running_job["changes"]) if running_job else {}
     # What runs behind what is saved; what the running job starts or stops is on its way, not behind
     causes = {name: cause for name, cause in lateness(project, containers, saved).items() if name not in changing}
-    late = {name: reasons.why(project["services"][name], containers[name], cause, (changed or {}).get(name, ()))
-            for name, cause in causes.items()}
+    # What an apply makes again and creates (layers.applies), worked out once for the notes, the banner and the Apply;
+    # what runs behind is among what Compose reads, also in an on file with the user's own changes. What it would create
+    # counts as on its way, not created, when it is not known without what is saved, as for the Apply itself
+    # (stack._applies), and when the running job starts it: what depends on it still waits for it
+    states = {name: service_state(containers.get(name), service["oneshot"], bool(running_job))
+              for name, service in project["services"].items()}
+    on = {*layers.up_services(project, state["playground"], state["effective"]), *causes}
+    applying = layers.applies(project, sorted(on), states, set(causes))
+    skipped = set(applying["creates"]) & (set(changing) if (saved or {}).get("hashes") else on)
+    if skipped:
+        on_way = dict.fromkeys(skipped, {"key": "starting", "running": False})
+        applying = layers.applies(project, sorted(on), {**states, **on_way}, set(causes))
+    late = {**{name: reasons.why(project["services"][name], containers[name], cause, (changed or {}).get(name, ()))
+               for name, cause in causes.items()}, **{name: {"kind": "absent"} for name in applying["creates"]}}
     waiting = {name: _unlicensed(license_status) for name in held(project, containers)}
-    services = _services(project, state, containers, running_job, late, waiting)
+    services = _services(project, state, containers, states, late, waiting)
     running = up(project, containers)
     # What the job is stopping does not count as running: no other row says that its start would stop it
     stopping = (running_job or {}).get("changes", {}).get("stop", [])
     running["addons"] -= {uid for kind, uid in stopping if kind == "addon"}
     # What the functions above work from, in one dict. `changing`: what the running job starts or stops, which says
     # so in its state; `moved`: what the last job did, which its progress measures; `blind`: what runs is not known;
-    # `behind`: what runs behind what is saved; `held`: what the Lab UI does not start for want of a usable license, and
+    # `behind`: what runs behind what is saved, `why` the cause of each and of what an apply creates (reasons.why),
+    # `applies` that apply; `held`: what the Lab UI does not start for want of a usable license, and
     # `unlicensed` its note; `unlicensing`: with no license saved, what still runs one, which loses it once it is made again
     c = {"project": project, "state": state, "up": running, "job": running_job,
          "wait": _wait(docker, running_job, loaded), "unread": state.get("unread"), "failures": failures, "features": license_features,
          "services": services, "created": created, "blind": bool(docker["error"]) or not loaded,
-         "changing": changing, "behind": set(late), "why": late, "license": license_status, "held": set(waiting),
+         "changing": changing, "behind": set(causes), "why": late, "applies": applying,
+         "license": license_status, "held": set(waiting),
          "unlicensed": _unlicensed(license_status), "kinds": {record["kind"] for record in platforms},
          "unlicensing": license.unapplied(project, containers, license_status["digest"])
          if license_status and license_status["status"] == "none" else [],

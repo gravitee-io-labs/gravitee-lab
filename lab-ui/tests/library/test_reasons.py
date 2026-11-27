@@ -17,6 +17,7 @@ def config(*settings):
 
 
 IMAGE = {"kind": "image", "tag": "3.0.2", "built": False}
+ABSENT = {"kind": "absent"}
 
 
 class Why(unittest.TestCase):
@@ -55,6 +56,7 @@ class Line(unittest.TestCase):
         self.assertEqual(reasons.line({"a": {**IMAGE, "built": True}}), "Its image was built again since it started.")
         self.assertEqual(reasons.line({"a": config("GRAVITEE_LICENSE", "REDIS_PASSWORD")}),
                          "Its settings changed since it started: GRAVITEE_LICENSE, REDIS_PASSWORD.")
+        self.assertEqual(reasons.line({"a": ABSENT}), "Not created yet.")
 
     def test_nothing_behind_says_nothing(self):
         self.assertEqual(reasons.line({}), "")
@@ -65,7 +67,7 @@ class Line(unittest.TestCase):
         whys = {name: tag() for name in "abc"}
         self.assertEqual(reasons.line(whys, labels), "A, B, C: 4.12.20 is saved, 4.13.0-alpha.4 still runs.")
         whys = {name: tag() for name in "abcdef"}
-        self.assertEqual(reasons.line(whys, labels), "6 containers: 4.12.20 is saved, 4.13.0-alpha.4 still runs.")
+        self.assertEqual(reasons.line(whys, labels), "6 services: 4.12.20 is saved, 4.13.0-alpha.4 still runs.")
 
     def test_an_owner_whose_every_service_is_behind_for_one_cause_is_the_subject(self):
         labels = {name: name.title() for name in "abc"}
@@ -92,7 +94,7 @@ class Line(unittest.TestCase):
                          "Engine (its settings changed since it started: S).")
         many = {name: tag() for name in "abcd"}
         self.assertEqual(reasons.line(many, {name: name for name in "abcd"}, "Owner"),
-                         "Owner: 4 containers (4.12.20 is saved, 4.13.0-alpha.4 still runs).")
+                         "Owner: 4 services (4.12.20 is saved, 4.13.0-alpha.4 still runs).")
         # Each tag of a group of databases, in its own words
         databases = {"a": tag("8.0.29", "8.3.11"), "b": tag("8.10.1", "8.10.2")}
         self.assertEqual(reasons.line(databases, {"a": "MongoDB", "b": "Redis"}, "Databases", whole=True),
@@ -108,13 +110,15 @@ class Line(unittest.TestCase):
                          "Gateway: 4.12.20-debian is saved, 4.12.20-alpine still runs.")
 
     def test_causes_are_grouped_by_what_they_say(self):
-        labels = {"a": "Gateway", "b": "Console", "c": "Engine", "d": "Cache"}
-        whys = {"a": tag("4.12.20", "4.13.0-alpha.4"), "b": tag("4.11.0", "4.12.0"), "c": config("S"), "d": IMAGE}
+        labels = {"a": "Gateway", "b": "Console", "c": "Engine", "d": "Cache", "e": "Protections", "f": "Relay"}
+        whys = {"a": tag("4.12.20", "4.13.0-alpha.4"), "b": tag("4.11.0", "4.12.0"), "c": config("S"), "d": IMAGE,
+                "e": ABSENT, "f": ABSENT}
         self.assertEqual(reasons.line(whys, labels),
                          "Gateway: 4.12.20 is saved, 4.13.0-alpha.4 still runs; "
                          "Console: 4.11.0 is saved, 4.12.0 still runs; "
                          "Cache: image 3.0.2 changed since it started; "
-                         "Engine: its settings changed since it started: S.")
+                         "Engine: its settings changed since it started: S; "
+                         "Protections, Relay: not created yet.")
 
     def test_each_set_of_settings_is_a_clause_of_its_own(self):
         labels = {"a": "Gateway", "b": "Engine", "c": "Cache"}
@@ -131,7 +135,7 @@ class Line(unittest.TestCase):
         labels = {name: name for name in "abcde"}
         whys = {"a": tag("1", "2"), "b": tag("3", "4"), "c": tag("5", "6"), "d": tag("7", "8"), "e": config()}
         self.assertEqual(reasons.line(whys, labels),
-                         "4 containers: the saved images differ from the ones that run; "
+                         "4 services: the saved images differ from the ones that run; "
                          "e: its configuration changed since it started.")
         # Three tags are said, each with its services
         del whys["d"]
@@ -165,6 +169,7 @@ class Causes(unittest.TestCase):
         self.assertEqual(reasons.causes({"a": config("GRAVITEE_LICENSE", "REDIS_PASSWORD")}),
                          [{"kind": "settings", "settings": ["GRAVITEE_LICENSE", "REDIS_PASSWORD"], "services": []}])
         self.assertEqual(reasons.causes({"a": config()}), [{"kind": "config", "services": []}])
+        self.assertEqual(reasons.causes({"a": ABSENT}), [{"kind": "absent", "services": []}])
 
     def test_the_tags_are_said_without_the_system_they_share(self):
         found = reasons.causes({"a": tag("4.12.20-debian", "4.13.0-alpha.4-debian")})
@@ -188,7 +193,7 @@ class Causes(unittest.TestCase):
 
     def test_more_services_than_a_line_names_are_counted_and_too_many_tags_are_one_cause(self):
         many = {f"s{i}": IMAGE for i in range(5)}
-        self.assertEqual(reasons.causes(many, {name: name.upper() for name in many})[0]["services"], ["5 containers"])
+        self.assertEqual(reasons.causes(many, {name: name.upper() for name in many})[0]["services"], ["5 services"])
         tags = {f"s{i}": tag(f"1.{i}", f"2.{i}") for i in range(4)}
         self.assertEqual(reasons.causes(tags), [{"kind": "tag", "saved": None, "running": None, "older": False, "services": []}])
 

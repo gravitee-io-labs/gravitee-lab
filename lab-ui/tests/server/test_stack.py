@@ -416,7 +416,7 @@ class StackActions(Case):
         # Platform stopped, Kazoo behind and running alone: it is made again, as saved
         stopped = {"state": "exited", "exit_code": 143}
         steps, options = self.apply({"mongodb": stopped, "redis": stopped,
-                                     "kazoo": {"state": "running", "config_hash": "old"}})
+                                     "kazoo": {"state": "running", "config_hash": "old"}, "kazoo-ui": stopped})
         self.assertEqual((self.said(steps), steps[1], options["changes"]),
                          (["Restarts: Kazoo"], [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo"],
                           {"start": [["service", "kazoo"]]}))
@@ -429,9 +429,15 @@ class StackActions(Case):
         self.assertEqual(self.said(steps), ["Nothing runs: applied on next start"])
 
     def test_apply_with_nothing_behind_says_so(self):
-        steps, options = self.apply({"mongodb": {"state": "running"}, "kazoo": {"state": "running",
-                                                                              "config_hash": "saved"}})
+        # Redis has no container while MongoDB runs: the platform is left partly created, and stays so
+        running = {"mongodb": {"state": "running"}, "kazoo": {"state": "running", "config_hash": "saved"}}
+        steps, options = self.apply({**running, "kazoo-ui": {"state": "exited", "exit_code": 143}})
         self.assertEqual((self.said(steps), options["waits"]), (["Nothing to apply"], []))
+        # Kazoo UI has no container while Kazoo runs: it is created, as Compose's `up` would
+        steps, options = self.apply(running)
+        self.assertEqual((self.said(steps), steps[1], options["changes"]),
+                         (["Starts: Kazoo"], [*self.COMPOSE, "up", "-d", "--no-deps", "kazoo-ui"],
+                          {"start": [["service", "kazoo-ui"]]}))
 
     def test_apply_starts_what_failed_only_with_what_it_needs_among_what_is_on(self):
         # The playground's app depends on Jade, which is off (an add-on's file makes it so, whether it is on or
@@ -475,6 +481,8 @@ class StackActions(Case):
         mongodb = {"kind": "service", "id": "mongodb", "name": "mongodb"}
         self.assertEqual(stack.effects(PROJECT), {"restarts": [mongodb, kazoo], "starts": [], "runs": True,
                                                   "exact": False})
+        self.assertEqual(stack.effects(PROJECT, None, ["kazoo-ui"]), {"restarts": [mongodb, kazoo], "starts": [],
+                                                                      "runs": True, "exact": False})
         self.jobs.start.assert_not_called()   # it only says
 
     def test_group_service_and_addon(self):

@@ -558,7 +558,7 @@
                 <span class="pbtn-mark">
                 <span>
                   "Starting…"
-      <button class="btn pbtn" data-act-for="platform" data-act-verb="apply" data-busy="" data-stack="apply" data-tip="Recreate the containers that changed" hidden="">
+      <button class="btn pbtn" data-act-for="platform" data-act-verb="apply" data-busy="" data-stack="apply" data-tip="Apply what is saved to what runs" hidden="">
         <span class="pbtn-wrap">
           <span class="pbtn-face">
             <svg aria-hidden="true">

@@ -80,7 +80,7 @@ function problem({ file, message, editable }) {
 const START = actionButton({ key: "platform", verb: "start", label: "Start", icon: "play", cls: "primary",
   attrs: 'data-busy data-platform="start"' });
 const APPLY = actionButton({ key: "platform", verb: "apply", label: "Apply", icon: "apply", cls: "primary",
-  attrs: 'data-busy data-platform="apply" data-tip="Recreate the containers that changed"' });
+  attrs: 'data-busy data-platform="apply" data-tip="Apply what is saved to what runs"' });
 
 let applying = [];   // what the Apply notice named last: it names it alone while its button says how the apply went
 
@@ -121,7 +121,7 @@ function lab({ docker, platform, license, addons, playgrounds }) {
   if (late) applying = platform.behind;
   else if (!showing("platform", "apply")) applying = [];
   if (applying.length && router.current?.page.id !== "stack") {
-    // How many containers differ, its popover a row for each product, add-on or playground with why (the summary beside it is the card's
+    // How many services differ, its popover a row for each product, add-on or playground with why (the summary beside it is the card's
     // title); once applied, the names alone
     const card = late && behindWhy(platform);
     const text = late ? tipHtml(`<span>${esc(card.title)}</span>${icon("info")}`, { ...card, title: "" }, "", card.title,
