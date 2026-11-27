@@ -634,14 +634,17 @@ test("a Deploy at work says so on its button, with the verb of its job", async (
 const LINES = [{ name: "My Account", state: "ok", detail: "Connected", target: { kind: "platform", id: "my-account" } },
   { name: "Hybrid gateway", state: "warn", detail: "None in Development", fix: "gateway" },
   { name: "Cloud Token", state: "warn", detail: "Not set", fix: "token" },
-  { name: "Malt server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "malt" }, file: "addons/malt/.env" }];
+  { name: "Malt server", state: "warn", detail: "Needs settings", target: { kind: "addon", id: "malt" }, file: "addons/malt/.env" },
+  { name: "Acme Hostels", state: "warn", detail: "Needs settings: HOTELS_KEY", target: { kind: "playground", id: "hotels" }, file: "playgrounds/hotels/.env" }];
 const lines = () => section.querySelectorAll(".pg-prep-item").map((li) => [text(li.querySelector(".pg-prep-name")),
-  li.classList.contains("warn") ? "needs you" : li.classList.contains("auto") ? "start" : "in place", li.querySelectorAll(".pg-prep-action .icon-btn").map((b) => b.getAttribute("data-tip"))]);
+  li.classList.contains("warn") ? "needs you" : li.classList.contains("auto") ? "start" : "in place", li.querySelectorAll(".pg-prep-action .icon-btn").map((b) => b.getAttribute("data-settings") || b.getAttribute("data-tip"))]);
 
 test("Before you start is read for the place, and a line that a form answers offers it: a plus for the gateway, a key for the Cloud Token", async () => {
   await visit({ ...off }, { kept: DEV.id, places: [BARE, TEST, OTHER, SLOW], checks: (query) => (query ? LINES : []) });
   assert.deepEqual(lines(), [["Hybrid gateway", "needs you", ["Create hybrid gateway"]], ["Cloud Token", "needs you", ["Add Cloud Token"]],
-    ["Malt server", "needs you", ["Settings"]], ["My Account", "in place", []]]);
+    ["Malt server", "needs you", ["addon:malt"]], ["Acme Hostels", "needs you", ["playground:hotels"]], ["My Account", "in place", []]]);
+  assert.equal(section.querySelectorAll(".pg-prep-action .btn").length, 0, "a setting of the playground's own is not the license");
+  assert.equal(section.querySelector('.pg-prep-name a[href="#/playgrounds/hotels"]'), null, "the playground's own line does not lead to its own page");
   assert.equal(section.querySelector('.pg-prep-name a[href="#/cloud/my-account"]').textContent, "My Account", "the platform leads to its row");
   assert.deepEqual(buttons().at(-1), ["Start", "Set up a gateway in Development (My Account) first"]);
   await leave();

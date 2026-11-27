@@ -327,7 +327,8 @@ Every page and dialog does the same thing the same way. Before adding a piece, f
   one keeps its place (`GAP`). A file and its settings open from their icons (`fileButtons`), never from a menu.
 - **Links to an item**: a name that leads to an add-on or a setup opens its row in its list, a playground's its page
   (`itemLink`, `hrefOf`): the "via" note, the lines of a detail, the groups of Containers, a playground's "What runs" and
-  "Before you start".
+  "Before you start", except its line of the playground's own settings, which names the page itself: a plain name and
+  its key.
 - **What to open** (`paintLinks` in `ui.js`, one component): the consoles of the components under their product, each
   in a browser tab.
   - The order is the same on every page: the platform's groups in their order (API Management, Access Management...),
@@ -554,7 +555,9 @@ What the server decides and the page shows. A name in backticks is the code to r
   with what comes stops, or is turned off, with what needs it.
 - A required setting does block: an add-on that uses `${VAR}` without a default cannot be turned on until its `.env`
   holds a value. Its Start waits for it ("Needs settings: VAR"), its note opens its settings; one that runs all the same
-  (started by a command) is stopped from its row.
+  (started by a command) is stopped from its row. A playground's own `${VAR}` without a default holds its Start the same
+  way, and *Before you start* gives it a line, on This machine and on a remote place, whose key opens the playground's
+  settings.
 
 ### Creating, sharing and deleting
 
@@ -1303,8 +1306,8 @@ The Containers page acts on containers and keeps what is on (`stack.py`).
 - ***Before you start*, for a remote place**, replaces the lines about the core (the platform, its plugins and image
   versions, its license) with: the platform (*Connected*), then in the existing three groups.
   - *Needs your attention*: *Cloud Token* (*Not set*, *Expired*, *Refused*; a key button; blocks *Start*), *Hybrid gateway*
-    (*None in Development* with a plus button, *Its token is not kept here*, *Not connected*), the add-on's missing
-    settings and the host prerequisites.
+    (*None in Development* with a plus button, *Its token is not kept here*, *Not connected*), the missing settings of
+    the playground's own file and of its add-ons, and the host prerequisites.
   - *Done for you at start*: *Hybrid gateway* (*Turned on at start*, *Started at start*, *Switches to Development*), and
     the playground's add-ons and apps.
   - *Already in place*: *Connected*, *Valid*, *Running*.
@@ -1567,7 +1570,8 @@ dark, at 1440 and 900 px wide.
    ("Share": what keeps it, then where it goes and what changes with it) and deleted ("Turn it off first" while it is on
    and stopped).
 8. **A playground.**
-   - "Before you start": the platform line first, the names that lead to their items, a license line that opens the
+   - "Before you start": the platform line first, the names that lead to their items (the playground's own line has its
+     key only), a license line that opens the
      License form, a version line whose "Images page" opens that row (`#/images/<VARIABLE>`).
    - Its guide is readable before it starts. Start until it runs, Re-seed, then its two ways to stop.
    - Stopped from Containers, its Start runs it again in one job, without its seed. Re-seed says which service it waits for.

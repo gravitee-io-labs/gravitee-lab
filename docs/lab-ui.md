@@ -434,6 +434,8 @@ attention:
 The lines cover:
 
 - **The platform**: *Created at start*, *Started at start* or *Running*.
+- **Its own settings**: *Needs settings* with the names of the required settings of the playground's own file that
+  have no value, and a key that opens them.
 - **Add-ons**: *Turned on at start*, *Started at start*, *Running*, or *Needs settings*, which opens them. An add-on
   that conflicts says *Stops at start* or *Turned off at start*. The core services it changes say *Restarts at start*.
 - **Its apps**: built and started.
@@ -456,12 +458,12 @@ The lines cover:
 The checks are read again when the window comes back, so what you fixed meanwhile shows.
 
 A warning does not block Start: the part of the guide that needs the missing piece will not work. A required setting
-missing on one of its add-ons does block it, so does an image version older than the playground needs, and so does a
-license that everything of it needs (*Needs a license*, *License expired*, *Not in the license*); a license needed for
-one step only blocks nothing. The button says why. For the images, it names every one that is too old in one sentence,
-such as *Needs Access Management 4.14 or later and API Management 4.14 or later: choose them on the Images
-page*, so one visit to Images is enough. A port another program uses is asked when you click Start, which is refused
-then, its line saying which. The guide is readable before the first start.
+missing on one of its add-ons or in the playground's own file does block it, so does an image version older than the
+playground needs, and so does a license that everything of it needs (*Needs a license*, *License expired*, *Not in the
+license*); a license needed for one step only blocks nothing. The button says why. For the images, it names every one
+that is too old in one sentence, such as *Needs Access Management 4.14 or later and API Management 4.14 or later:
+choose them on the Images page*, so one visit to Images is enough. A port another program uses is asked when you click
+Start, which is refused then, its line saying which. The guide is readable before the first start.
 
 ### What Start does
 
