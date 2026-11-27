@@ -209,7 +209,9 @@ function renderFacts() {
 }
 
 // The packs of the license model, with what the license includes: none without a readable license, or without the
-// model
+// model. A feature is in several packs: a pack that is not in the license may have all of its features through others
+// (`covered`). Each pack says how many of its features the license includes, and a feature of a pack that is not in it
+// the packs of the license that give it. Included and Not included sort by what can be used: every feature, or not.
 function renderPacks() {
   const list = $("#license-packs");
   if (!info?.model) { setHTML(list, ""); return; }
@@ -223,12 +225,20 @@ function renderPacks() {
   const included = (p) => p.extra || info.packs.includes(p.id);
   const source = (p) => p.extra || info.extra_packs.includes(p.id) && !info.tier_packs.includes(p.id) ? "Added" : "Tier";
   const featureMatch = (f) => `${f} ${(used[f] || []).map((x) => x.name).join(" ")}`.toLowerCase().includes(q);
+  const allowed = new Set(info.features);
+  for (const p of packs) p.got = p.features.filter((f) => allowed.has(f)).length;
+  const complete = (p) => p.got === p.features.length;
+  // The packs of the license that give a feature, by name; a feature the license lists itself has none
+  const owned = packs.filter((p) => !p.extra && included(p));
+  const via = (f) => owned.filter((p) => p.features.includes(f)).map((p) => title(p.id));
+  const covered = (p) => !included(p) && complete(p);
+  const coveredBy = (p) => [...new Set(p.features.flatMap(via))].sort();
 
   const shown = packs
-    .filter((p) => filter === "all" || (filter === "included") === included(p))
+    .filter((p) => filter === "all" || (filter === "included") === complete(p))
     .map((p) => ({ ...p, hits: q ? (title(p.id).toLowerCase().includes(q) ? p.features : p.features.filter(featureMatch)) : p.features }))
     .filter((p) => p.hits.length)
-    .sort((a, b) => included(b) - included(a) || a.id.localeCompare(b.id));
+    .sort((a, b) => included(b) - included(a) || complete(b) - complete(a) || a.id.localeCompare(b.id));
 
   setHTML(list, shown.map((p) => {
     const isOpen = open.has(p.id) || !!q;
@@ -236,10 +246,10 @@ function renderPacks() {
     // A search opens every pack: its row then has nothing to fold, and takes no click
     const fold = q ? "" : `data-pack="${esc(p.id)}" role="button" tabindex="0" aria-expanded="${isOpen}"`;
     const features = isOpen ? `<ul class="features">${p.hits.map((f) => {
-      const allowed = info.features.includes(f);
+      const yes = allowed.has(f), from = yes && !on ? via(f) : [];
       return `<li class="feature">
-        <span class="lic ${allowed ? "yes" : "no"}" role="img" aria-label="${allowed ? "In the license" : "Not in the license"}" data-tip="${allowed ? "In the license" : "Not in the license"}">${icon(allowed ? "check" : "close")}</span>
-        <code>${esc(f)}</code>
+        <span class="lic ${yes ? "yes" : "no"}" role="img" aria-label="${yes ? "In the license" : "Not in the license"}" data-tip="${yes ? "In the license" : "Not in the license"}">${icon(yes ? "check" : "close")}</span>
+        <span class="feature-name"><code>${esc(f)}</code>${yes && !on ? ` <span class="feature-via">${esc(from.length ? `via ${from.join(", ")}` : "added to the license")}</span>` : ""}</span>
         <span class="feature-plugins">${(used[f] || []).map((x) => `<span class="pill">${esc(x.product)} ${esc(x.name)}</span>`).join("")}</span>
       </li>`;
     }).join("")}</ul>` : "";
@@ -248,8 +258,10 @@ function renderPacks() {
         <span class="s-toggle">${q ? "" : icon("chevron")}</span>
         <span class="lic ${on ? "yes" : "no"}">${icon(on ? "check" : "close")}</span>
         <span class="pack-name">${esc(p.extra ? "Additional features" : title(p.id))}</span>
-        ${on ? `<span class="pill">${source(p)}</span>` : ""}
-        <span class="pack-meta">${p.features.length} feature${p.features.length > 1 ? "s" : ""}</span>
+        ${on ? `<span class="pill">${source(p)}</span>` : covered(p)
+          ? `<span class="pill" data-tip="${esc(coveredBy(p).length ? `Not in the license: its features come with ${coveredBy(p).join(", ")}`
+            : "Not in the license: the license lists its features itself")}">Covered</span>` : ""}
+        <span class="pack-meta ${complete(p) ? "full" : ""}">${p.got} of ${p.features.length} included</span>
       </div>${features}</li>`;
   }).join("") || `<li class="empty">${emptyHtml({ filtered: true })}</li>`);
 }
