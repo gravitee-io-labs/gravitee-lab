@@ -966,3 +966,36 @@ class StudioShapes(Made):
     def test_an_empty_list_of_subscriptions_is_what_the_seed_takes(self):
         self.assertEqual(aim_proxies.read_subscriptions({"subscriptions": None}, "Desk"), [])
         self.assertEqual(self.studio(STUDIO + "subscriptions:\n"), [])
+
+
+class PrimaryOwners(Made):
+    def test_owner_references_are_checked_in_both_studio_shapes_and_api_locations(self):
+        owner = {"source": "memory", "sourceId": "api1"}
+        case = 0
+        for value in (owner, None, {}, {"source": "memory"}, {**owner, "sourceId": 1}, {**owner, "id": "machine-id"}):
+            for path, text in (
+                    ("seed/aim/studios/desk.yaml", STUDIO + "\nprimaryOwner: " + json.dumps(value)),
+                    ("seed/aim/studios/desk.yaml", AGENTS_STUDIO + "\nprimaryOwner: " + json.dumps(value)),
+                    ("seed/apim/apis/open.json", json.dumps({"api": {"name": "Open"}, "x-gravitee": {"primaryOwner": value}})),
+                    ("seed/environments/newt/apis/open.json", json.dumps({"api": {"name": "Open"}, "x-gravitee": {"primaryOwner": value}}))):
+                with self.subTest(path=path, owner=value):
+                    case += 1
+                    folder = self.playground({**GOOD, path: text,
+                                              "seed/environments/newt/environment.yaml": "id: newt\nname: Newt\n"}, name=f"owner-{case}")
+                    problems = seedlint.problems(folder)
+                    if value == owner:
+                        self.assertEqual(problems, [])
+                    else:
+                        self.assertEqual(len(problems), 1)
+                        self.assertIn("primaryOwner", problems[0].message)
+                        self.assertTrue(problems[0].path.endswith(path))
+
+    def test_unknown_export_metadata_is_named_but_the_product_owner_is_ignored(self):
+        for metadata, count in (({"owner": {}}, 1), (None, 1), ({}, 0)):
+            with self.subTest(metadata=metadata):
+                document = {"api": {"name": "Open", "primaryOwner": {"id": "exported"}}, "x-gravitee": metadata}
+                folder = self.playground({**GOOD, "seed/apim/apis/open.json": json.dumps(document)})
+                problems = seedlint.problems(folder)
+                self.assertEqual(len(problems), count)
+                if count:
+                    self.assertIn("x-gravitee", problems[0].message)

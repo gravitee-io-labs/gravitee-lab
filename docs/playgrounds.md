@@ -485,6 +485,34 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
 | `seed/refills.yaml` | What the lessons spend, given back on every run | The counters the gateway keeps in the core's Redis |
 
+Set an optional primary owner by the user's `source` and `sourceId`, as in `users.yaml`. For an imported API,
+add `x-gravitee` beside the export's `api` and `plans`:
+
+```json
+"x-gravitee": {
+  "primaryOwner": {"source": "memory", "sourceId": "api1"}
+}
+```
+
+Keep Gravitee's exported `primaryOwner` object as product data; do not use it as a seed instruction or add a
+machine-specific user id. The seeder strips `x-gravitee` before `_import/definition` and excludes it from the definition's
+digest. For either shape of studio in `seed/aim/studios/*.yaml`, add the reference directly:
+
+```yaml
+primaryOwner:
+  source: memory
+  sourceId: api1
+```
+
+Use an existing, non-archived organization user. A memory user has no platform row until its first sign-in or group
+membership; the seeder reports a missing row and never creates the owner or signs in as that user. Keep the seed login's
+environment admin role: the seed login keeps managing the API through that role after ownership transfers.
+
+Leave the key out to keep the current owner. With the key present, let the seeder transfer ownership after creation,
+update or replacement, and when the definition is already up to date; an owner that already matches needs no transfer.
+Changing only the owner replaces no API or studio. Removing the key transfers nothing back, and the ownership transfer
+adds nothing to `created.json`.
+
 A model source file (`seed/aim/model-sources/`) is what the console's AI Models > Add models makes: where a provider serves
 its models. A models file whose `source` is the name of a model source goes into it, and any other into the manual source.
 An LLM proxy file (`seed/aim/llm-proxies/`) gives an LLM proxy of `seed/apim/apis` its providers, each taken from a model

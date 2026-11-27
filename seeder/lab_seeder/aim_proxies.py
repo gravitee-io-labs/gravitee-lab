@@ -55,7 +55,7 @@ import os
 from . import controls
 from . import gamma
 from . import versions
-from .apim import ENDED, UNSUPPORTED, accept, digest_of, find_application, held_subscription, merge, subscribe
+from .apim import ENDED, UNSUPPORTED, accept, digest_of, find_application, held_subscription, merge, owner_user, primary_owner, subscribe, transfer_ownership
 from .common import (OK, Api, SeedError, adopted, contains, created, excerpt, files, forget, has_seed, load, log, making, owned, record,
                      recorded, setting, slugify, wait_until, waits_for_gateway)
 
@@ -530,7 +530,9 @@ class McpProxies:
 
     def studio(self, spec):
         """A studio made in one go, or in steps (`access` present): its keys tell apart."""
-        (self.agents_studio if "access" in spec else self.plain_studio)(spec)
+        owner = owner_user(self.g.org_v1, primary_owner(spec, f"MCP studio {spec['name']}"), spec["name"])
+        api_id = (self.agents_studio if "access" in spec else self.plain_studio)(spec)
+        transfer_ownership(self.g.v2, f"/apis/{api_id}", owner, spec["name"], SECTION)
 
     def plain_studio(self, spec):
         """Created from the catalog's tools, and replaced when its file changed: its plan cannot be edited in place. Tools
@@ -567,6 +569,7 @@ class McpProxies:
         if toggled:
             log(SECTION, f"  ✓ Authorization check {'on' if enabled else 'off'}")
         self.subscribe(found["id"], name, subscriptions)
+        return found["id"]
 
     def studio_analytics(self, api_id, analytics):
         """The file's `analytics` on the API of a studio made in one go, written over it as it was read. Whether it wrote."""
@@ -726,6 +729,7 @@ class McpProxies:
         self.deploy(api_id, changed)
         self.subscribe(api_id, name, subscriptions)
         self.wait_served(spec)
+        return api_id
 
     def access(self, api_id, access):
         """The plan of the agents is published, then the registration plan is closed. The registration plan is what the
@@ -827,6 +831,7 @@ def check():
         return
     for path in files("aim", "studios"):
         spec = load(path)
+        primary_owner(spec, str(path))
         protocol_versions(spec)
         if spec.get("humanApproval") is not None and versions.variant("studio-human-approval") == "absent":
             raise SeedError(f"MCP studio {spec.get('name')}: this platform has no human approval on a studio, "
@@ -840,6 +845,8 @@ def check():
 def seed():
     if not has_seed(*FOLDERS):
         return   # before any setting is read or any connection made: a playground that does not seed this is untouched
+    for path in files("aim", "studios"):
+        primary_owner(load(path), str(path))
     proxies = McpProxies()
     proxies.connect()
     for path in files("aim", "mcp-proxies"):

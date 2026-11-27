@@ -75,6 +75,8 @@ class Apim:
         if not api:
             return 404, {"message": "not found"}
         entity = {**self.row(api), "flows": copy.deepcopy(api["flows"]), "deploymentState": api["deploymentState"]}
+        if "primaryOwner" in api:
+            entity["primaryOwner"] = api["primaryOwner"]
         if "failover" in api:
             entity["failover"] = copy.deepcopy(api["failover"])
         return 200, entity
@@ -183,6 +185,7 @@ class Apim:
             ("GET", re.compile(api)): self.get_api,
             ("PUT", re.compile(api + "/_import/definition")): self.update_api,
             ("PUT", re.compile(api)): self.publish,
+            ("POST", re.compile(api + "/_transfer-ownership")): self.transfer_owner,
             ("POST", re.compile(api + "/deployments")): self.deploy,
             ("POST", re.compile(api + "/_start")): self.start,
             ("POST", re.compile(api + "/_stop")): self.stop,
@@ -198,6 +201,11 @@ class Apim:
             ("PUT", re.compile(V1 + "/applications/[^/]+")): self.update_application,
             ("DELETE", re.compile(V1 + "/applications/[^/]+")): 204,
         }
+
+    def transfer_owner(self, call):
+        assert call.json["userType"] == "USER"
+        self.apis[self.id_in(call)]["primaryOwner"] = {"id": call.json["userId"]}
+        return 204
 
 
 def definition(kind, api_id, name, path, plans=("Open",), **api):
@@ -1446,7 +1454,8 @@ class Estate(Apim):
 
     def get_api(self, call):
         api = self.apis.get(self.id_in(call))
-        return (200, {**self.row(api), "flows": [], "deploymentState": api["deploymentState"]}) if api else (404, {"message": "not found"})
+        return (200, {**self.row(api), "flows": [], "deploymentState": api["deploymentState"],
+                       "primaryOwner": api.get("primaryOwner")}) if api else (404, {"message": "not found"})
 
     def put_api(self, call):
         api = self.apis[self.id_in(call)]
@@ -1561,6 +1570,7 @@ class Estate(Apim):
             ("GET", re.compile(api)): self.get_api,
             ("PUT", re.compile(api + "/_import/definition")): self.update_api,
             ("PUT", re.compile(api)): self.put_api,
+            ("POST", re.compile(api + "/_transfer-ownership")): self.transfer_owner,
             ("POST", re.compile(api + "/deployments")): self.deploy,
             ("POST", re.compile(api + "/_start")): self.start,
             ("POST", re.compile(api + "/_stop")): self.stop,
@@ -2300,3 +2310,170 @@ class UsersOfTheOrganization(Together, Estates):
                 mock.patch.object(apim.ApiManagement, "enroll", watched(make)):
             self.run_seed()
         self.assertEqual(overlapped, [])
+
+
+class PrimaryOwners(Playground):
+    OWNER = {"source": "memory", "sourceId": "api1"}
+    USERS = "/management/organizations/DEFAULT/users"
+
+    def setUp(self):
+        super().setUp()
+        self.answer({("GET", self.USERS): (200, {"data": [{"id": "service-owner", **self.OWNER}], "page": {"total_pages": 1}})})
+
+    def owner_file(self, owner=OWNER, file="apim/apis/rest.json"):
+        self.edit(file, lambda text: json.dumps({**json.loads(text), "x-gravitee": {"primaryOwner": owner}}))
+
+    def transfers(self):
+        return [c for c in self.platform.calls if c.path.endswith("/_transfer-ownership")]
+
+    def test_create_transfers_once_and_keeps_the_export_and_record_free_of_seed_metadata(self):
+        self.owner_file()
+        self.run_seed()
+        [call] = self.transfers()
+        self.assertEqual((call.path, call.json), (V2 + "/apis/rest-id/_transfer-ownership",
+                                                {"userId": "service-owner", "userType": "USER"}))
+        self.assertNotIn("x-gravitee", self.apim.apis["rest-id"]["definition"])
+        self.assertNotIn("primaryOwner", self.record("Open API"))
+        self.assertEqual(self.run_seed(), [])
+        self.assertEqual(len(self.transfers()), 1)
+        apim.remove(common.created())
+        self.assertEqual(len(self.transfers()), 1)
+
+    def test_an_owner_only_change_transfers_an_up_to_date_api_without_an_import(self):
+        self.run_seed()
+        digest = self.record("Open API")["digest"]
+        self.owner_file()
+        self.assertEqual(self.run_seed(), [("POST", V2 + "/apis/rest-id/_transfer-ownership")])
+        self.assertEqual(self.record("Open API")["digest"], digest)
+        self.assertEqual(self.run_seed(), [])
+        self.edit("apim/apis/rest.json", lambda text: json.dumps({k: v for k, v in json.loads(text).items() if k != "x-gravitee"}))
+        self.assertEqual(self.run_seed(), [])
+        self.assertEqual(self.apim.apis["rest-id"]["primaryOwner"]["id"], "service-owner")
+
+    def test_a_matching_live_owner_needs_no_transfer(self):
+        self.run_seed()
+        self.apim.apis["rest-id"]["primaryOwner"] = {"id": "service-owner"}
+        self.owner_file()
+        self.assertEqual(self.run_seed(), [])
+        self.assertEqual(self.transfers(), [])
+
+    def test_an_update_and_a_replacement_both_reconcile_the_owner(self):
+        self.run_seed()
+        for file in ("rest", "llm"):
+            self.owner_file(file=f"apim/apis/{file}.json")
+            self.edit(f"apim/apis/{file}.json", lambda text: text.replace('"name":', '"description": "changed", "name":', 1))
+        self.run_seed()
+        self.assertEqual({c.path for c in self.transfers()}, {V2 + "/apis/rest-id/_transfer-ownership", V2 + "/apis/llm-id/_transfer-ownership"})
+        self.assertEqual(self.run_seed(), [])
+
+    def test_a_product_owner_is_not_an_instruction_and_an_omitted_key_does_nothing(self):
+        self.edit("apim/apis/rest.json", lambda text: json.dumps({**json.loads(text), "api": {
+            **json.loads(text)["api"], "primaryOwner": {"id": "exported-id", "displayName": "Exported owner"}}}))
+        self.run_seed()
+        self.assertEqual(self.transfers(), [])
+        self.assertEqual([c for c in self.platform.calls if c.path == self.USERS], [])
+
+    def test_updates_and_deletes_after_transfer_keep_the_seed_login(self):
+        self.owner_file()
+        self.run_seed()
+        login = self.transfers()[0].auth
+        self.platform.calls.clear()
+        self.edit("apim/apis/rest.json", lambda text: json.dumps({**json.loads(text), "api": {
+            **json.loads(text)["api"], "description": "Updated after transfer"}}))
+        self.run_seed()
+        self.assertEqual(self.transfers(), [])
+        apim.remove(common.created())
+        writes = [c for c in self.platform.calls if c.method != "GET"]
+        self.assertTrue(writes)
+        self.assertTrue(all(c.auth == login for c in writes))
+
+    def test_bad_owner_metadata_is_refused_before_any_change(self):
+        for owner in (None, {}, {"source": "memory"}, {"source": "memory", "sourceId": 1},
+                      {**self.OWNER, "id": "not-an-instruction"}, {**self.OWNER, "sourceId": " "}):
+            with self.subTest(owner=owner):
+                self.owner_file(owner)
+                with self.assertRaisesRegex(common.SeedError, "rest.json: primaryOwner") as error:
+                    self.run_seed()
+                self.assertNotIn("\n", str(error.exception))
+                self.assertEqual(self.platform.changes(), [])
+        self.edit("apim/apis/rest.json", lambda text: json.dumps({**json.loads(text), "x-gravitee": {"owner": self.OWNER}}))
+        with self.assertRaisesRegex(common.SeedError, "x-gravitee takes only primaryOwner"):
+            self.run_seed()
+        self.assertEqual(self.platform.changes(), [])
+        for value in (42, ["not an object"], "text"):
+            with self.subTest(root=value):
+                self.seed_files({"apim/apis/rest.json": json.dumps(value)})
+                with self.assertRaisesRegex(common.SeedError, "API export is an object"):
+                    self.run_seed()
+                self.assertEqual(self.platform.changes(), [])
+
+    def test_a_post_transfer_update_refusal_does_not_replace_the_api_or_add_membership(self):
+        self.owner_file()
+        self.run_seed()
+        self.platform.calls.clear()
+        self.edit("apim/apis/rest.json", lambda text: json.dumps({**json.loads(text), "api": {
+            **json.loads(text)["api"], "description": "After ownership transfer"}}))
+        self.platform.add({("PUT", V2 + "/apis/rest-id/_import/definition"): (403, {"message": "Forbidden"})})
+        with self.assertRaisesRegex(common.SeedError, "HTTP 403"):
+            self.run_seed()
+        self.assertEqual([call.method for call in self.platform.calls if call.method != "GET"], ["PUT"])
+        self.assertEqual(self.apim.apis["rest-id"]["primaryOwner"]["id"], "service-owner")
+
+    def test_a_lost_transfer_reply_can_be_retried_without_recreating_the_api(self):
+        self.owner_file()
+        path = V2 + "/apis/rest-id/_transfer-ownership"
+        calls = []
+
+        def transfer(call):
+            result = self.apim.transfer_owner(call)
+            calls.append(call)
+            if len(calls) == 1:
+                raise requests.ReadTimeout()
+            return result
+
+        self.platform.add({("POST", path): transfer})
+        self.run_seed()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.apim.apis["rest-id"]["primaryOwner"]["id"], "service-owner")
+        self.assertEqual(self.run_seed(), [])
+        self.assertEqual(len(calls), 2)
+
+    def test_an_absent_or_archived_owner_is_not_created(self):
+        self.owner_file()
+        for users in ([], [{"id": "archived", **self.OWNER, "status": "ARCHIVED"}],
+                      [{"id": "wrong-source", **self.OWNER, "source": "other"}]):
+            with self.subTest(users=users):
+                self.answer({("GET", self.USERS): (200, {"data": users})})
+                with self.assertRaisesRegex(common.SeedError, "Open API.*memory.*api1"):
+                    apim.ApiManagement().import_api(common.load(common.SEED_DIR / "apim/apis/rest.json"), "rest.json")
+                self.assertEqual(self.transfers(), [])
+                self.assertEqual(self.apim.apis.get("rest-id"), None)
+
+    def test_user_lookup_skips_archived_rows_and_reads_later_pages(self):
+        self.owner_file()
+        self.answer({("GET", self.USERS): (200, {"data": [{"id": "old", **self.OWNER, "status": "ARCHIVED"}],
+                                                         "page": {"total_pages": 2}}),
+                     ("GET", self.USERS + "?page=2"): (200, {"data": [{"id": "service-owner", **self.OWNER}]})})
+        self.run_seed()
+        self.assertEqual(self.transfers()[0].json["userId"], "service-owner")
+
+
+class PrimaryOwnersOfAnEnvironment(Estates):
+    def test_the_environment_v2_client_transfers_while_users_stay_on_the_organization_api(self):
+        user = {"id": "service-owner", "source": "memory", "sourceId": "api1", "status": "ACTIVE"}
+        self.estate.users[user["id"]] = user
+        self.edit("environments/newt/apis/batch-status.json", lambda text: json.dumps({
+            **json.loads(text), "x-gravitee": {"primaryOwner": {"source": "memory", "sourceId": "api1"}}}))
+        self.run_seed()
+        path = "/management/v2/organizations/DEFAULT/environments/newt/apis/" + self.api("newt")["id"] + "/_transfer-ownership"
+        self.assertEqual(self.platform.sent("POST", path)[0].json, {"userId": "service-owner", "userType": "USER"})
+        self.assertEqual(self.run_seed(), [])
+        apim.remove(common.created())
+        self.assertEqual(len(self.platform.sent("POST", path)), 1)
+
+    def test_bad_owner_metadata_in_another_environment_prevents_changes_in_every_environment(self):
+        self.edit("environments/newt/apis/batch-status.json", lambda text: json.dumps({
+            **json.loads(text), "x-gravitee": {"primaryOwner": {"source": "memory"}}}))
+        with self.assertRaisesRegex(common.SeedError, "newt/apis/batch-status.json: primaryOwner"):
+            self.run_seed()
+        self.assertEqual(self.platform.changes(), [])

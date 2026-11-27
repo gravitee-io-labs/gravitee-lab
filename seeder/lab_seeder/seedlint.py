@@ -45,7 +45,7 @@ from collections import namedtuple
 from pathlib import Path
 
 try:
-    from . import aim_proxies, common
+    from . import aim_proxies, apim, common
 except ImportError as e:
     raise ImportError("seedlint reads the seed as the seeder does and needs its requirements: pip install -r "
                       "seeder/requirements.txt (Python 3.10 or later), or run make setup") from e
@@ -73,7 +73,7 @@ COMMANDS = ("::", "##[")
 Problem = namedtuple("Problem", "check path line message")
 Report = namedtuple("Report", "problems playgrounds files")   # the playgrounds that have a seed, the seed files read
 TITLES = {"variable": "Seed variable", "read": "Seed file", "parse": "Seed file",
-          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio"}
+          "environment": "Seed environment", "playground": "Seed service", "studio": "Seed studio", "owner": "Seed primary owner"}
 
 
 class Unreadable(common.SeedError):
@@ -550,11 +550,17 @@ def studio_problems(spec):
     plan each names, which its file holds: the `plan` of a studio made in one go, or the plan of the agents (JWT) of one built
     in steps (`access`), whose registration plan is closed."""
     if not isinstance(spec, dict):
-        return []
+        return ["MCP studio: seed file is an object"]
+    owner_errors = []
+    try:
+        apim.primary_owner(spec, "MCP studio")
+    except common.SeedError as e:
+        owner_errors.append(str(e))
     given = [spec[key] for key in aim_proxies.VERSION_KEYS if key in spec]
     found = [] if len(given) == 1 else [f"it gives {' or '.join(aim_proxies.VERSION_KEYS)}, one of the two"]
     if len(given) == 1 and not all(isinstance(v, str) for v in (given[0] if isinstance(given[0], list) else [given[0]])):
         found.append("a protocol version is text: quote it")
+    found.extend(owner_errors)
     listed = spec.get("subscriptions")
     if listed is None:   # no `subscriptions`, or `subscriptions:` with nothing under it, which the seed reads as none
         return found
@@ -659,6 +665,15 @@ def _lint(folder):
                 blocked = True
         if blocked:
             unread.add(path)
+        elif path.suffix == ".json" and (path.parent == folder / "seed" / "apim" / "apis"
+                                        or (path.parent.name == "apis" and path.parent.parent.parent == folder / "seed" / "environments")):
+            try:
+                with _with_environment(environment):
+                    definition = _load(path, dict.fromkeys(provided, "x"))
+                    apim.api_owner(definition, "API export")
+            except common.SeedError as e:
+                out.append(Problem("owner", str(path), 0, _short(str(e))))
+                unread.add(path)
         elif path.suffix in (".yaml", ".yml") and path.parent == folder / "seed" / "aim" / "studios":
             try:
                 with _with_environment(environment):
