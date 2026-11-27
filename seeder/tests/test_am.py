@@ -21,6 +21,8 @@ SECRETS = {"BANK_DEMO_PASSWORD": "demo-password", "WEB_CLIENT_SECRET": "web-secr
            "ACE_CLIENT_SECRET": "ace-secret", "MCP_RESOURCE_SECRET": "mcp-secret", "BAKERY_WEB_URL": "http://localhost:8110",
            "BAKERY_WEB_LOOPBACK_URL": "http://127.0.0.1:8110", "APIM_GATEWAY_URL": "http://localhost:8082"}
 GRANTS_OF_AN_AGENT = ["authorization_code", "client_credentials", "urn:ietf:params:oauth:grant-type:token-exchange"]
+CODE = ["code", "code id_token token", "code id_token", "code token"]   # the response types of authorization_code
+IMPLICIT = ["token", "id_token", "id_token token"]                       # and of implicit
 
 
 class AccessManagement:
@@ -149,7 +151,25 @@ class AccessManagement:
 
     def patch_application(self, call):
         app = self.kept(call, "applications")[call.path.rsplit("/", 1)[1]]
-        app["settings"]["oauth"].update(call.json.get("settings", {}).get("oauth", {}))
+        oauth = app["settings"]["oauth"]
+        oauth.update(call.json.get("settings", {}).get("oauth", {}))
+        flows = (("authorization_code", set(CODE)), ("implicit", set(IMPLICIT)))
+        if app["type"] in ("web", "browser", "native"):
+            # What AM 4.12 to 4.14 does on every save of such an application: it takes away the response types of a flow
+            # it is not granted, gives a granted flow all of its own when it has none, and keeps them as a set
+            kept = set(oauth.get("responseTypes") or [])
+            for grant, responses in flows:
+                granted = grant in oauth["grantTypes"]
+                kept = (kept if kept & responses else kept | responses) if granted else kept - responses
+            oauth["responseTypes"] = sorted(kept)
+        # Then, whatever the type, it grants the flow of a response type it holds and takes away one it holds none of. An
+        # agent here keeps the grants of its kind
+        held = set(oauth.get("responseTypes") or [])
+        for grant, responses in flows if not app["kind"] else ():
+            if held & responses and grant not in oauth["grantTypes"]:
+                oauth["grantTypes"] = [*oauth["grantTypes"], grant]
+            elif grant in oauth["grantTypes"] and not held & responses:
+                oauth["grantTypes"] = [g for g in oauth["grantTypes"] if g != grant]
         app["settings"]["advanced"].update(call.json.get("settings", {}).get("advanced", {}))
         app["identityProviders"] = call.json.get("identityProviders", app["identityProviders"])
         return 200, app
@@ -356,6 +376,35 @@ class Settings(Case):
         self.assertEqual([x["kind"] for x in common.created()], ["domain", "application"])
         patches = self.platform.sent("PATCH", f"{DOMAINS}/domain-1/applications/application-2")
         self.assertNotIn("advanced", patches[0].json["settings"], "a file that does not say skipConsent leaves it as AM has it")
+
+    def test_an_application_is_sent_the_response_types_of_the_flows_it_is_granted_and_a_second_run_saves_nothing(self):
+        apps = {"traffic": ("WEB", {"grantTypes": ["password", "refresh_token"]}, []),
+                "batch": ("SERVICE", {"grantTypes": ["client_credentials"]}, []),
+                "legacy": ("WEB", {"grantTypes": ["implicit"]}, IMPLICIT),
+                "hybrid": ("WEB", {"grantTypes": ["authorization_code", "implicit"]}, CODE + IMPLICIT),
+                "repeated": ("WEB", {"grantTypes": ["authorization_code"], "responseTypes": ["code", "code"]},
+                             ["code", "code"])}
+        files = {}
+        for name, (kind, oauth, _) in apps.items():
+            spec = {"name": name, "type": kind, "clientId": name, "oauth": oauth}
+            files[f"am/applications/{name}.yaml"] = json.dumps(spec)
+        self.seed_files({"am/domain.yaml": "name: example\n", **files})
+        self.seed()
+        for name, (_, oauth, responses) in apps.items():
+            app = self.am.one("applications", clientId=name)
+            [patch, _] = self.platform.sent("PATCH", f"{DOMAINS}/domain-1/applications/{app['id']}")
+            self.assertEqual(patch.json["settings"]["oauth"]["responseTypes"], responses, name)
+            self.assertEqual(app["settings"]["oauth"]["grantTypes"], oauth["grantTypes"], name)
+        self.again()
+        self.assertEqual(self.writes(), [], "response types AM keeps as a set are those the seed sent")
+
+    def test_the_order_am_keeps_the_scopes_of_an_application_in_is_no_difference(self):
+        spec = {**self.SPEC, "scopes": ["openid", "profile"]}
+        self.seed_files({"am/domain.yaml": "name: example\n", "am/applications/site.yaml": json.dumps(spec)})
+        self.seed()
+        self.am.one("applications", clientId="site")["settings"]["oauth"]["scopeSettings"].reverse()
+        self.again()
+        self.assertEqual(self.writes(), [])
 
     def test_a_domain_is_patched_with_its_settings_as_the_file_gives_them(self):
         self.seed_files({"am/domain.yaml": "name: example\nsettings: {tokenExchangeSettings: {enabled: true}}\n"})

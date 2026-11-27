@@ -12,6 +12,8 @@ Everything is found by name or client ID before being created, so re-running is 
 file says is not saved again: AM reloads a domain or an application on every save. A user with `additionalInformation`
 (what the tokens carry) is found first and kept as the file says, next to the fields AM adds at the first sign-in.
 An authorization engine marked `optional: true` only warns when it fails (a feature the license does not include).
+An application is given the response types of the flows it is granted (`authorization_code`, `implicit`), unless its
+file names them, and they are compared as a set: AM keeps them in an order of its own.
 
 With AM_GATEWAY_URL set, the seed ends once the gateway serves the domain and signs in each application that has a
 `clientSecret`, so that a service that starts after it and signs in at once finds them there.
@@ -42,6 +44,11 @@ SCOPE_APPROVAL_SECONDS = 300
 # The kinds of agent that AM starts with `private_key_jwt`; a file that gives one a secret has it sign in with it
 KEYED_KINDS = ("HOSTED_DELEGATED", "AUTONOMOUS")
 SCOPES_PER_PAGE = 50   # AM answers no more, whatever the request asks
+# The response types of each flow that has them, all of which AM gives a web, browser or native application granted the
+# flow with none of them. On every save AM takes from such an application the response types of a flow it is not
+# granted, then grants any application the flow of a response type it holds, and takes away a flow it holds none of
+FLOWS = {"authorization_code": ["code", "code id_token token", "code id_token", "code token"],
+         "implicit": ["token", "id_token", "id_token token"]}
 
 
 def same_scopes(actual, wanted):
@@ -57,8 +64,13 @@ def scope_settings(scopes):
 
 
 def holds(key, actual, wanted):
-    """Whether the OAuth setting `key` of an application already says what the file says."""
-    return same_scopes(actual, wanted) if key == "scopeSettings" else contains(actual, wanted)
+    """Whether the OAuth setting `key` of an application already says what the file says. AM keeps the response types of
+    a web, browser or native application as a set, in an order of its own."""
+    if key == "scopeSettings":
+        return same_scopes(actual, wanted)
+    if key == "responseTypes":
+        return isinstance(actual, list) and set(actual) == set(wanted)
+    return contains(actual, wanted)
 
 
 class AmApi(Api):
@@ -201,7 +213,7 @@ class AccessManagement:
             if spec.get("kind"):
                 # An agent is saved only where it differs: what its kind gives it is not the file's to say
                 wanted = {key: value for key, value in wanted.items() if not holds(key, held.get(key), value)}
-            elif contains(held, wanted):
+            elif all(holds(key, held.get(key), value) for key, value in wanted.items()):
                 wanted = {}
             if wanted:
                 settings["oauth"] = wanted
@@ -253,9 +265,13 @@ class AccessManagement:
             if method:
                 settings["tokenEndpointAuthMethod"] = method
             return {**settings, **keys}
+        grants = oauth.get("grantTypes") or []
+        # Those of the flows it is granted, none for the password or client credentials grant alone: AM would take away
+        # those of a flow it is not granted, or grant that flow, on every save
+        granted = [response for grant, responses in FLOWS.items() if grant in grants for response in responses]
         settings = {
-            "grantTypes": oauth.get("grantTypes", []),
-            "responseTypes": oauth.get("responseTypes", ["code", "code id_token token", "code id_token", "code token"]),
+            "grantTypes": grants,
+            "responseTypes": oauth.get("responseTypes") or granted,
             "redirectUris": spec.get("redirectUris", []),
             "tokenEndpointAuthMethod": oauth.get("tokenEndpointAuthMethod", "client_secret_basic"),
             "forcePKCE": oauth.get("pkce", False),
