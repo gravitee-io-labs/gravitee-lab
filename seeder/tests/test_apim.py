@@ -382,6 +382,7 @@ class SecondRun(Converged):
 
     def test_settings_that_are_set_are_not_written_again(self):
         self.assertNotIn(("POST", V1 + "/settings"), self.run_seed())
+        self.assertIn("[apim] Environment settings as the file says", self.output())
         self.apim.settings.clear()
         self.assertIn(("POST", V1 + "/settings"), self.run_seed())
 
