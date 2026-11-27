@@ -480,6 +480,7 @@ except API exports, which are `.json` (`seed/apim/apis/*.json`, and the `apis/*.
 | `seed/am/gamma-link.yaml` | The link from Gamma to the AM domain | Gamma and AM APIs |
 | `seed/openfga/*.yaml` | OpenFGA store file (`fga store import`) | OpenFGA API |
 | `seed/aim/<resource>/*.yaml` | Agent Management: credentials, providers, model sources (`model-sources`, one of each kind), models (in a model source or the manual one), the providers of an LLM proxy of `seed/apim` taken from model sources (`llm-proxies`), MCP servers, knowledge, skills, agents (an agent file may also carry its `identity` and its `access` to the plan of a studio, or of an API that seed/apim makes, with an `apiKey` on a plan of API keys, on the amp-demo build only), API tools (only the `operations` listed, tailored when asked), workflow tools (an Arazzo document over APIs of `seed/apim`, its canvas and the key it sends each one whose backend asks for one, published as one MCP tool), workspaces (a component may name its own endpoint, `target`, with a price on each model: the amp-demo build takes no other), MCP proxies and studios (with their `subscriptions` and `analytics`, and, for one built in steps with `access`, `authorization.agentIdentityResolution` for a policy that reads the agent), dashboards, governance (approval rules and settings, compliance); a file with `needs: NAME` is skipped while the setting NAME is empty | Gamma and Automation APIs |
+| `seed/edge/configuration.yaml` | Shared environment configuration: gateway and reactor URLs, proxy DNS domains and ordered routes, Shadow AI domains and reporting interval | Edge Management Gamma API |
 | `seed/authz/entities.yaml`, `policies/*.yaml`, `schema.yaml`, `schemas/*.yaml` | Authorization Management: what the policies are about (with `sync: access-management`, the users, groups and agents of Access Management, and with `catalog`, what the AI catalog holds), GAPL policies of each type, the schema of the editor | Gamma API |
 | `seed/k8s/*.yaml` | Kubernetes manifests: a namespace, a Secret, a `ManagementContext` for the Gravitee Kubernetes Operator. One manifest to a file, in name order | Server-side apply on the cluster of `KUBECONFIG` |
 | `seed/controls.yaml` | The protections the lessons switch on | The APIs of the files above, aligned to the mode on every run |
@@ -617,6 +618,31 @@ resource, the gateway and AM addresses shown to clients. Acme Shop's seed files 
 they use, to tell which license features the playground needs and where it can be deployed, in `seed/apim/` and in each
 environment of its own: the entrypoints, endpoints and resources, the policy of every flow step and the security of every
 plan.
+
+Configure Edge Management with `seed/edge/configuration.yaml`. Set both URLs on the first save; omit them on later saves
+or keep the same values, because the platform does not allow changing them. Keep every endpoint in a variable:
+
+```yaml
+gatewayUrl: '${EDGE_GATEWAY_URL}'
+reactorUrl: '${EDGE_REACTOR_URL}'
+proxy:
+  dnsDomains:
+    - {name: api.example.com}
+  routes:
+    - {pathPrefix: /v1/messages, apiPath: /interception/claude, provider: anthropic}
+    - {pathPrefix: /, apiPath: /interception/passthrough}
+shadowAi:
+  domains:
+    - {name: api.example.com}
+  reportInterval: PT2M
+```
+
+Keep routes in first-match order, and create their proxy APIs through `seed/apim/apis/` as usual. Set `reportInterval`
+to an ISO 8601 duration of at least 10 seconds, using hours, minutes, or seconds; oversized values stop the seed before
+it connects. Leave sections or fields out to preserve them; use empty lists to clear domains or routes. On creation, omit lists to default them to empty and omit the interval
+to use `PT2M`. Save and deploy only when the configuration differs. Treat this as shared environment configuration:
+removing the playground leaves it in place, as with APIM environment settings, and adds no entry to `created.json`.
+Install and enroll Edge devices through the platform's existing process.
 
 ### Environments of its own
 

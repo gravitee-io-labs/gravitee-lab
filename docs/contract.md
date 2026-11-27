@@ -247,6 +247,8 @@ returns before it reads a setting or connects.
 | `authz/schema.yaml` | The schema, in one file |
 | `controls.yaml` | The protections a lesson switches on |
 | `refills.yaml` | What a lesson spends, given back on every run |
+| `edge` | Edge Management, in Gamma |
+| `edge/configuration.yaml` | Shared Edge Management configuration, in Gamma |
 | `environments` | Environments: a folder per environment, `environments/<id>/`, that holds `environment.yaml`, `settings.yaml`, `users.yaml` and the folders `groups`, `apis`, `applications`, `subscriptions` and `portal`, as `apim` does |
 | `k8s` | Kubernetes |
 
