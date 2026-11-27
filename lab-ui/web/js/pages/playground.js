@@ -518,8 +518,9 @@ function prepGroups(item) {
   return { attention, auto, ready };
 }
 
-// What answers a line: the key of an add-on's settings, or the form that takes a new license, a button of its words
-const settingsButton = (it) => (it.target?.kind === "addon"
+// What answers a line: the key of the settings of the item it names (an add-on, or the playground itself), or the form
+// that takes a new license, a button of its words
+const settingsButton = (it) => (it.target
   ? `<button class="icon-btn" data-settings="${esc(`${it.target.kind}:${it.target.id}`)}" data-tip="Settings" aria-label="Settings">${icon("key")}</button>`
   : `<button class="btn" ${licenseForm()}>Set license</button>`);
 
@@ -538,9 +539,12 @@ function fixButton(fix) {
 const helpHtml = (text, variable) => esc(text).replace(/`([^`]+)`/g, "<code>$1</code>")
   .replace(/the Images page/g, `<a class="text-link" href="#/images${variable ? `/${esc(variable)}` : ""}">the Images page</a>`);
 
+// A line's name leads to the item it names, unless that is the playground on screen
+const elsewhere = (target) => target && !(target.kind === "playground" && target.id === shown);
+
 const prepItem = (it, cls) => `<li class="pg-prep-item ${cls}">
   <span class="pg-prep-icon">${PREP_ICON[cls]}</span>
-  <span class="pg-prep-name">${it.target ? itemLink(it.target, it.name) : it.plugin ? pluginName(it.plugin) : esc(it.name)}</span>
+  <span class="pg-prep-name">${elsewhere(it.target) ? itemLink(it.target, it.name) : it.plugin ? pluginName(it.plugin) : esc(it.name)}</span>
   <span class="pg-prep-action">${esc(it.action)}${it.file ? settingsButton(it) : ""}${it.fix ? fixButton(it.fix) : ""}${it.button || ""}</span>
   ${it.sub || it.help ? `<div class="pg-prep-more">
     ${it.reason ? applyBadge(it.reason) : it.sub ? `<div class="sub">${esc(it.sub)}</div>` : ""}

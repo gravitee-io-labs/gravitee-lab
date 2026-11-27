@@ -466,6 +466,13 @@ class Playgrounds(Case):
             {"name": "AI Agent Lens", "state": "auto", "detail": "Turned on at start",
              "target": {"kind": "addon", "id": "agent-lens"}},
             {"name": "Hybrid gateway", "state": "auto", "detail": "Started at start", "target": hyssop}])
+        # A required setting of its own file: its line comes first, and opens the playground's settings
+        env = ".lab/catalogs/fixture/playgrounds/welcome/.env"
+        welcome.update(env_file=env, settings=[{"key": "WELCOME_API_KEY", "required": True},
+                                               {"key": "WELCOME_URL", "required": True}])
+        self.assertEqual(playgrounds._addon_checks(self.project, welcome)[1], {
+            "name": "Welcome", "state": "warn", "detail": "Needs settings: WELCOME_API_KEY, WELCOME_URL",
+            "target": {"kind": "playground", "id": "welcome"}, "file": env})
 
     # --- Start -------------------------------------------------------------------------------------------------------
 
@@ -1506,6 +1513,12 @@ class PlaceChecks(Deploys):
                                            "restarts": [], "deploys_to": [ENVIRONMENT], "serves": [],
                                            "stops_serving": []})
         self.assertNoSecret(found)
+        # A required setting of its own file is said here too, after the lines of the place, as on This machine
+        self.project["playgrounds"]["hotels"].update(env_file=".lab/catalogs/fixture/playgrounds/hotels/.env",
+                                                     settings=[{"key": "HOTELS_KEY", "required": True}])
+        self.assertEqual(self.checks()["checks"][3], {
+            "name": "Hotels", "state": "warn", "detail": "Needs settings: HOTELS_KEY",
+            "target": {"kind": "playground", "id": "hotels"}, "file": ".lab/catalogs/fixture/playgrounds/hotels/.env"})
 
     def test_nothing_of_the_core_is_said_whatever_runs(self):
         # No platform line of the core, no plugin, image, license or memory line: the core is not part of a deploy

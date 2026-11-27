@@ -222,10 +222,12 @@ reason reads `Needs Access Management 4.14 or later and API Management 4.14 or l
 page`, or `<name> needs settings`; the badge leads to the Images page or to that add-on.
 
 **Cause:** the playground needs later or pre-release builds of API Management or Access Management, and the core's
-default versions are older. Or an add-on that the playground brings lacks a setting that has no default.
+default versions are older. Or an add-on that the playground brings, or the playground's own file, lacks a setting
+that has no default: for its own, the note reads `Not set: VAR`.
 
 **Fix:** for the images, open the Images page and choose the versions the reason names, or later ones. One visit is enough: it names
-every image that is too old. For a setting, open the key button of the add-on and fill in the field marked *Required*.
+every image that is too old. For a setting, open the key button of its line under *Before you start*, the add-on's or
+the playground's own, and fill in the field marked *Required*.
 
 ### A start fails right after a version change
 

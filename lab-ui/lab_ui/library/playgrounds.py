@@ -172,8 +172,9 @@ def _platform_lines(project, plan, up):
 
 
 def _addon_lines(project, playground, state, up):
-    """The add-ons it brings: one that lacks a setting keeps it from starting, and opens its settings; one that is
-    off is turned on, one on that does not run all of it is started, one on that runs is running."""
+    """What its own file lacks, then the add-ons it brings: a required setting of either not set keeps it from
+    starting, and its line opens those settings; an add-on that is off is turned on, one on that does not run all of
+    it is started, one on that runs is running."""
     names = {aid: project["addons"][aid]["name"] for aid in playground["addons"] if aid in project["addons"]}   # one of a catalog that is gone is said by the note, not here
     lacking, on = set(names) & set(state["missing"]), set(state["effective"])
 
@@ -183,7 +184,10 @@ def _addon_lines(project, playground, state, up):
 
     def line(aid, level, detail, file=None):
         return _line(names[aid], level, detail, {"kind": "addon", "id": aid}, file)
-    return ([line(aid, "warn", "Needs settings", project["addons"][aid]["env_file"]) for aid in sorted(lacking)]
+    own = layers.unset_settings(playground)
+    mine = [_line(playground["name"], "warn", f"Needs settings: {', '.join(own)}",
+                  {"kind": "playground", "id": playground["id"]}, playground["env_file"])] if own else []
+    return (mine + [line(aid, "warn", "Needs settings", project["addons"][aid]["env_file"]) for aid in sorted(lacking)]
             + [line(aid, "auto", "Turned on at start") for aid in sorted(set(names) - on - lacking)]
             + [line(aid, "ok" if running(aid) else "auto", "Running" if running(aid) else "Started at start")
                for aid in sorted((set(names) & on) - lacking)])
@@ -192,7 +196,8 @@ def _addon_lines(project, playground, state, up):
 def _addon_checks(project, playground, now=None, restarts=(), plan=None):
     """What its start does before anything else: the platform it runs with, the add-ons it brings, what it stops or
     turns off, what it restarts (the core services it changes, and `restarts`: the services a plugin install stops
-    and starts again). One add-on that lacks a setting keeps it from starting. `plan`: its start's (_start_plan)."""
+    and starts again). A setting that its own file or one of the add-ons lacks keeps it from starting. `plan`: its
+    start's (_start_plan)."""
     state, pid = layers.current(project), playground["id"]
     now = now or _now(project)
     plan = plan or _start_plan(project, state, pid, now)
