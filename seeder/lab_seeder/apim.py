@@ -97,6 +97,23 @@ CACHED = "resp_llmproxy"   # the id of an answer that comes from the semantic ca
 CACHE_TRIES = 3   # an answer may take a moment to be stored
 
 
+def users_named(api, source_id, path="/users"):
+    """Live organization users with this exact sourceId, across every search page."""
+    page = 1
+    while True:
+        body = api.get(path, params={"q": source_id, "page": page, "size": 100}).json()
+        for user in body.get("data", []):
+            if user.get("sourceId") == source_id and user.get("status") != "ARCHIVED":
+                yield user
+        if page >= body.get("page", {}).get("total_pages", 1):
+            return
+        page += 1
+
+def find_user(api, source, source_id, path="/users"):
+    """The live organization user with this source and sourceId, or None."""
+    return next((user for user in users_named(api, source_id, path) if user.get("source") == source), None)
+
+
 def merge(base, extra):
     """extra written over base, nested objects merged rather than replaced."""
     for key, value in extra.items():
@@ -290,15 +307,7 @@ class ApiManagement:
 
     def find_user(self, source, source_id):
         """The user of the platform with this source and id, None for none. An archived one (a user that was deleted) is none."""
-        page = 1
-        while True:
-            body = self.api.get(f"{self.org_v1}/users", params={"q": source_id, "page": page, "size": 100}).json()
-            for user in body.get("data", []):
-                if (user.get("source"), user.get("sourceId")) == (source, source_id) and user.get("status") != "ARCHIVED":
-                    return user
-            if page >= body.get("page", {}).get("total_pages", 1):
-                return None
-            page += 1
+        return find_user(self.api, source, source_id, f"{self.org_v1}/users")
 
     def appears(self, source, source_id):
         """The user the platform has just made from a group, which its search may list a moment later; None when it never does."""

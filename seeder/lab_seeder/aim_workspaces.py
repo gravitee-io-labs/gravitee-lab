@@ -24,6 +24,7 @@ from urllib.parse import quote
 from . import controls
 from . import gamma
 from . import refills
+from .apim import find_user
 from .common import (Api, HttpError, SeedError, adopted, contains, excerpt, files, forget, has_seed, load, log, making, owned, record,
                      recorded, setting, wait_until, waits_for_gateway)
 
@@ -226,8 +227,7 @@ class AiWorkspaces:
         """The id of a platform user, created in the Gravitee directory (no password: nobody signs in as them, but they
         own an application and a key like anyone) unless it belongs to another source, which is only found."""
         source, source_id = spec.get("source", "gravitee"), spec["sourceId"]
-        users = self.g.org_v1.get("/users", params={"q": source_id, "size": 100}).json().get("data", [])
-        found = next((u for u in users if u.get("source") == source and u.get("sourceId") == source_id), None)
+        found = find_user(self.g.org_v1, source, source_id)
         if found:
             adopted(SECTION, "workspace-user", source_id, found["id"])   # one an earlier seed made and lost the answer of, if any
             return found["id"]

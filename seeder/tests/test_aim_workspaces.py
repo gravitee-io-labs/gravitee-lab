@@ -731,3 +731,11 @@ class OwnEndpoint(Workspaces):
         self.assertEqual(len(self.bulk()), 1)
         [component] = self.the_workspace()["models"]
         self.assertEqual(component["models"][0]["inputPrice"], 50.0)
+
+
+class UserLookup(Workspaces):
+    def test_user_lookup_skips_archived_rows_and_reads_later_pages(self):
+        self.answer({("GET", USERS): (200, {"data": [{**ADMIN, "status": "ARCHIVED"}], "page": {"total_pages": 2}}),
+                     ("GET", USERS + "?page=2"): (200, {"data": [ADMIN]})})
+        self.assertEqual(aim_workspaces.AiWorkspaces().user({"source": ADMIN["source"], "sourceId": ADMIN["sourceId"]}), ADMIN["id"])
+        self.assertEqual(self.platform.changes(), [])
