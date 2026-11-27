@@ -9,24 +9,27 @@ A control is one protection, named once and found in the seed files that carry i
     mcp-proxy: <name>     steps of a flow of an MCP proxy of seed/aim/mcp-proxies
     workspace: <name>     steps of the router of an AI workspace of seed/aim/workspaces (no `flow`)
     policy: <name>        an authorization policy of seed/authz/policies (no `flow`, no `steps`)
+    approval-rule: <name> a rule of seed/aim/governance/approvals.yaml (no `flow`, no `steps`): enabled while the
+                          control is on, so that the calls it covers wait for a person
     subscription: {application: <name>, api: <name>, plan: <name>}, or a list of them
-                          a subscription of seed/apim/subscriptions, or of an MCP proxy or a studio of seed/aim (its
-                          `subscriptions`), with no `flow` and no `steps`: paused while the control is on, the kill switch of
-                          the application that holds it. A list pauses them together: an agent's access to the model and to
-                          its tools
+                          a subscription of seed/apim/subscriptions, of an MCP proxy or a studio of seed/aim (its
+                          `subscriptions`), or of an agent's `access` in seed/aim/agents, whose application is the
+                          agent's name, with no `flow` and no `steps`: paused while the control is on, the kill switch
+                          of the application that holds it. A list pauses them together: an agent's access to the
+                          model and to its tools
 
 The seed files say the protected state: their steps are enabled, their failover on and their policies deployed. SEED_PROTECTIONS sets the
 state each run brings the controls to, whatever someone did in the console since:
 
     on      as the files say (the default: a seed that sets nothing protects everything), and the subscriptions paused
-    off     their steps are disabled, their failover off, their policy is not deployed and their subscriptions are
-            resumed: a lesson switches them on
+    off     their steps are disabled, their failover off, their policy is not deployed, their approval rule disabled and
+            their subscriptions are resumed: a lesson switches them on
 
 Only what a control names is brought back; the rest of an API, a proxy or a workspace is left as it is. What a control
 names must exist: a step, a flow or a target that matches nothing is an error, in the seed files (a typo, a step
 renamed in the console and exported) as in what the platform holds when a run aligns it. A module asks `of()` for the
 controls of what it seeds, aligns the steps (`align`, `align_router`), the failover (`align_failover`), the policy
-(`status`) or the subscription (`align_subscription`), and calls `touched()`
+(`status`), the approval rule (`protected()`) or the subscription (`align_subscription`), and calls `touched()`
 when it deploys; `finish()` ends the seed, and fails on a control no module found its target for.
 """
 
@@ -38,7 +41,7 @@ from .common import SeedError, load, pause, seed_file, setting, waits_for_gatewa
 
 MODE = "SEED_PROTECTIONS"
 MODES = ("on", "off")
-TARGETS = ("api", "mcp-proxy", "workspace", "policy", "subscription")
+TARGETS = ("api", "mcp-proxy", "workspace", "policy", "approval-rule", "subscription")
 STEPPED = ("api", "mcp-proxy")   # the targets whose steps are in a flow
 PHASES = ("request", "response")
 SUBSCRIPTION = ("application", "api", "plan")   # what names the subscription of a control
@@ -93,9 +96,10 @@ class Control:
                 raise SeedError(f"{where}: the failover of an API has no flow and no steps")
             self.failover, self.flow, self.steps = True, None, {}
             return
-        if self.kind == "policy":
+        if self.kind in ("policy", "approval-rule"):
             if "flow" in spec or "steps" in spec:
-                raise SeedError(f"{where}: a policy has no flow and no steps")
+                what = "a policy" if self.kind == "policy" else "an approval rule"
+                raise SeedError(f"{where}: {what} has no flow and no steps")
             self.flow, self.steps = None, {}
             return
         if "flow" in spec and self.kind not in STEPPED:

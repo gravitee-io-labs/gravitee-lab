@@ -69,11 +69,25 @@ RELEASES = {
                  "the `supportedProtocolVersions` and `endpointProtocolVersions` of its file",
          "single": "A studio is made with `protocolVersion`, the one value its file gives, and the lists of an MCP proxy file are "
                    "skipped with a warning: this build sets no protocol versions on an MCP proxy"}),
+    "agent-registration": Behavior(
+        APIM, "How an agent of the AI catalog is registered (`seed/aim/agents/`)",
+        {"4.13.0": "fields"},
+        {"fields": "The agent's definition is the fields of its card that the catalog keeps, with the `metadata` of "
+                   "its file; an agent file that names a `sponsor` or gives a `definition` stops the seed before any "
+                   "change",
+         "card": "The platform reads the card itself (`_parseCard`) and the agent is registered from it, as Add "
+                 "agent > From agent card does, with the `riskClassification` of the file's `metadata` as a field of "
+                 "its own. An agent file may also name its `sponsor`, a user, or give its `definition` in place of a "
+                 "card: an entry made by hand, origin CUSTOM, as Add agent > Custom makes it. The sponsor and the "
+                 "entry by hand were read on 4.14.0-alpha.1 only"}),
     "agent-application": Behavior(
         APIM, "The application of an agent of the AI catalog (`identity` and `access` of an agent file)",
         {"4.13.0": "absent"},
         {"absent": "The seed stops on an agent file that gives them, before any call, with what to write instead",
-         "served": "The seed makes the application and subscribes it"}),
+         "served": "The seed makes the application and subscribes it",
+         "identity": "The seed links the agent to the AM application of its client id, which makes the agent's "
+                     "application, and subscribes it; Re-seed resumes a subscription that was paused. An agent file "
+                     "that gives `access` gives an `identity` too, or the seed stops before any change"}),
     "dashboard-module": Behavior(
         APIM, "The module of a dashboard",
         {"4.13.0": "required"},
@@ -88,7 +102,10 @@ RELEASES = {
         APIM, "Approvals and compliance of Agent Management (`seed/aim/governance/`)",
         {"4.13.0": "absent"},
         {"absent": "A playground that seeds them stops before any change, with where they are served",
-         "served": "The seed writes the approval settings and rules, and the compliance answers"}),
+         "served": "The seed writes the approval settings and rules, and the compliance answers",
+         "rules": "The seed writes the approval rules, each with its approvers and the time they have to decide; a "
+                  "playground that gives approval settings or compliance stops before any change, and so does a rule "
+                  "that gives `ttlSeconds`, `onExpiry` or `cost`"}),
     "studio-human-approval": Behavior(
         APIM, "Human approval on a studio (`humanApproval` of a studio file)",
         {"4.13.0": "absent"},
@@ -106,8 +123,9 @@ BUILDS = {
         {"mcp-protocol-versions": "single", "agent-application": "served", "dashboard-module": "none",
          "authz-schema-documents": "one", "governance": "served", "studio-human-approval": "served"},
         "The models of an AI workspace are a component with an endpoint of its own (`target`, a price on each model)"),
-    # approval rules are served, but neither the approval settings nor compliance, which the seed writes: governance is absent
-    (APIM, "4.14.0-alpha.1"): Build("The first preview of API Management 4.14.0", "4.13.6", {"studio-human-approval": "switch"}),
+    (APIM, "4.14.0-alpha.1"): Build("The first preview of API Management 4.14.0", "4.13.6",
+                                    {"studio-human-approval": "switch", "agent-registration": "card",
+                                     "governance": "rules", "agent-application": "identity"}),
     (AM, "4.14.0-SNAPSHOT"): Build("A master build of Access Management, before 4.14.0", "4.13.6"),
 }
 

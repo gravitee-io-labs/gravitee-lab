@@ -73,13 +73,13 @@ class Reading(Seed):
     def test_a_build_of_builds_is_seeded_like_its_release_except_where_it_differs(self):
         for text, what, like, wanted in (
                 (AMP_DEMO, "The amp-demo build of API Management", "4.13.0",
-                 {"gamma-modules": "served", "mcp-protocol-versions": "single", "agent-application": "served",
-                  "dashboard-module": "none", "authz-schema-documents": "one", "governance": "served",
-                  "studio-human-approval": "served"}),
+                 {"gamma-modules": "served", "mcp-protocol-versions": "single", "agent-registration": "fields",
+                  "agent-application": "served", "dashboard-module": "none", "authz-schema-documents": "one",
+                  "governance": "served", "studio-human-approval": "served"}),
                 (PREVIEW, "The first preview of API Management 4.14.0", "4.13.6",
-                 {"gamma-modules": "served", "mcp-protocol-versions": "list", "agent-application": "absent",
-                  "dashboard-module": "required", "authz-schema-documents": "several", "governance": "absent",
-                  "studio-human-approval": "switch"})):
+                 {"gamma-modules": "served", "mcp-protocol-versions": "list", "agent-registration": "card",
+                  "agent-application": "identity", "dashboard-module": "required", "authz-schema-documents": "several",
+                  "governance": "rules", "studio-human-approval": "switch"})):
             with self.subTest(build=text):
                 self.seed_files({"apim/settings.yaml": "{}"})
                 self.platform.add({INSTANCES: gateways((text, "STARTED"))})

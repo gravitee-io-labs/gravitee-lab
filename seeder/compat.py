@@ -198,15 +198,30 @@ def gamma_modules(api):
 
 @probe(versions.APIM, "agent-application")
 def agent_application(api):
-    return by_routes(api, "agent-application", "served", "absent")
+    """Served with the routes of an agent's application; identity where the application comes with the agent's
+    identity."""
+    found = by_routes(api, "agent-application", "served", "absent")
+    if found.measured == "absent" and not lacking(api, AGENT_IDENTITY):
+        return Found("identity")
+    return found
+
+
+@probe(versions.APIM, "agent-registration")
+def agent_registration(api):
+    """Card where the platform reads a card itself (_parseCard). What rides on it, a sponsor and an entry made by hand, was read
+    on 4.14.0-alpha.1 (versions.RELEASES)."""
+    return by_routes(api, "agent-registration", "card", "fields")
 
 
 @probe(versions.APIM, "governance")
 def governance(api):
-    """Absent where only some of its routes are served, as the approval rules alone of 4.14.0-alpha.1: the seed writes the
-    approval settings first and the compliance answers last. The notes say what is lacking."""
+    """Rules where the approval rules alone are served, as on 4.14.0-alpha.1: the seed writes them, and a playground
+    that gives approval settings or compliance stops. Absent where some other part only is served. The notes say what is
+    lacking."""
     found = by_routes(api, "governance", "served", "absent")
-    return Found("absent", found.measured) if found.measured.startswith("partly served") else found
+    if not found.measured.startswith("partly served"):
+        return found
+    return Found("absent" if "approval-rules" in found.measured else "rules", found.measured)
 
 
 @probe(versions.APIM, "studio-human-approval")
@@ -358,6 +373,7 @@ BEHAVIOR_ROUTES = {
     "agent-application": """POST aim /catalog/agents/X/application, GET aim /catalog/agents/X/application,
         PUT aim /catalog/agents/X/application/identity, DELETE aim /catalog/agents/X/application/identity,
         GET aim /catalog/agents/X/access, POST aim /catalog/agents/X/access/_restore""",
+    "agent-registration": "POST aim /catalog/agents/_parseCard",
     "governance": """GET aim /approval-settings, PUT aim /approval-settings, GET aim /approval-rules, POST aim /approval-rules,
         PUT aim /approval-rules/X, DELETE aim /approval-rules/X, GET aim /compliance/activations,
         POST aim /compliance/activations, DELETE aim /compliance/activations/X, PUT aim /compliance/agents/X/metadata,
@@ -365,6 +381,9 @@ BEHAVIOR_ROUTES = {
     "studio-human-approval": "PUT aim /mcp-proxies/X/human-approval",
     "authz-schema-documents": "GET authz /schemas, PUT authz /schemas/X",
 }
+# Where an agent gets its application with its identity: the variant identity of agent-application
+AGENT_IDENTITY = """GET aim /catalog/agents/X/identity, POST aim /catalog/agents/X/identity/access-management/_link,
+    DELETE aim /catalog/agents/X/identity"""
 ROUTES = """GET aim /mcp-proxies, GET aim /mcp-proxies/X, DELETE aim /mcp-proxies/X, GET aim /mcp-proxies/X/plans,
     GET aim /mcp-proxies/X/subscriptions, POST aim /mcp-proxies/X/subscriptions, POST aim /mcp-proxies/X/subscriptions/X/_accept,
     POST aim /mcp-proxies/X/subscriptions/X/_close, POST aim /mcp-studios, PUT aim /mcp-studios/X/specification,
