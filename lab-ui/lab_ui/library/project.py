@@ -2204,23 +2204,25 @@ def config_key():
 
 def saved(project):
     """What each service of what is on is, as saved: {hashes: {service: the hash of the configuration Compose would
-    create it from}, images: {service: the id of the image its configured tag names here}}. A container that runs
-    something else runs behind what is saved (model.behind). The hashes are asked again when a file of the project or
-    the on file changed, and every few minutes for what else Compose may read; when they could not be had, at the
-    next ask. The images after a job, or after a few seconds. Empty while what Compose reads does not load, or Docker
-    does not answer: nothing is known to run behind."""
+    create it from}, images: {service: the id of the image its configured tag names here}}. Both are Compose's answer
+    on what is on, not the project's: of twins, which define the same services (a personal copy and the item of a
+    catalog it was copied from), the project holds one, which may be the one that is off. A container that runs something else runs behind what is
+    saved (model.behind). The hashes and the tags are asked again when a file of the project or the on file changed, and
+    every few minutes for what else Compose may read; when they could not be had, at the next ask. The images after a
+    job, or after a few seconds. Empty while what Compose reads does not load, or Docker does not answer: nothing is
+    known to run behind."""
     if not project["core_loaded"]:
         return {"hashes": {}, "images": {}}
     def ask():
         found = compose.config_hashes()
         if found is None:   # not kept: asked again at the next state
             raise compose.ComposeError("the files do not load")
-        return found
+        tags = {name: service["image"] for name, service in compose.resolved([]).items() if service.get("image")}
+        return found, tags
     try:
-        hashes = compose.CACHE.get(f"config-hash:{config_key()}", 300, ask)
+        hashes, tags = compose.CACHE.get(f"config-hash:{config_key()}", 300, ask)
     except compose.ComposeError:
-        hashes = {}
+        hashes, tags = {}, {}
     held = compose.image_ids() or {}
-    images = {name: held.get(compose.reference(service["image"])) for name, service in project["services"].items()
-              if service["image"]}
+    images = {name: held.get(compose.reference(image)) for name, image in tags.items()}
     return {"hashes": hashes, "images": {name: image for name, image in images.items() if image}}
