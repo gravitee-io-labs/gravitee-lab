@@ -1617,7 +1617,12 @@ class Saved(AsOwn):
         self.addCleanup(compose.CACHE.drop, "config-hash:")
         self.hashes = self.patch(compose, "config_hashes", return_value={"mongodb": "h1", "redis": "h2"})
         self.held = self.patch(compose, "image_ids", return_value={"mongo:8.0.29": "sha256:m",
-                                                                   "acmecontainer/kazoo:3.9": "sha256:k"})
+                                                                   "acmecontainer/kazoo:3.9": "sha256:k",
+                                                                   "ghcr.io/acme/kazoo:3.9": "sha256:g"})
+        # What is on, as Compose reads it: a service built here with no image of its own names none
+        self.resolved = self.patch(compose, "resolved", return_value={
+            "mongodb": {"image": "mongo:8.0.29"}, "redis": {"image": "redis:8"},
+            "kazoo": {"image": "docker.io/acmecontainer/kazoo:3.9"}, "app": {"build": {"context": "./app"}}})
         self.project = {"core_loaded": True, "services": {
             "mongodb": {"image": "mongo:8.0.29"}, "redis": {"image": "redis:8"},
             "kazoo": {"image": "docker.io/acmecontainer/kazoo:3.9"}, "app": {"image": ""}}}
@@ -1625,6 +1630,12 @@ class Saved(AsOwn):
     def test_hashes_and_images(self):
         self.assertEqual(project.saved(self.project), {"hashes": {"mongodb": "h1", "redis": "h2"},
                                                        "images": {"mongodb": "sha256:m", "kazoo": "sha256:k"}})
+
+    def test_the_images_are_those_of_what_is_on(self):
+        # Twins define kazoo and app, and the project holds the one that is off: its images are not the ones that run
+        twin = {**self.project, "services": {**self.project["services"], "kazoo": {"image": "ghcr.io/acme/kazoo:3.9"},
+                                             "app": {"image": "ghcr.io/acme/kazoo:3.9"}}}
+        self.assertEqual(project.saved(twin)["images"], {"mongodb": "sha256:m", "kazoo": "sha256:k"})
 
     def test_the_hashes_are_asked_again_when_a_file_or_the_on_file_changes(self):
         project.saved(self.project)
@@ -1634,7 +1645,7 @@ class Saved(AsOwn):
         project.saved(self.project)
         self.write(KAZOO, "services: {}\n")
         project.saved(self.project)
-        self.assertEqual(self.hashes.call_count, 3)
+        self.assertEqual((self.hashes.call_count, self.resolved.call_count), (3, 3))
         # What could not be had is asked again at the next ask, not minutes later: meanwhile what runs behind is not
         # known
         compose.CACHE.drop("config-hash:")
